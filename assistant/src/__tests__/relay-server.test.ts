@@ -143,12 +143,12 @@ import { addMessage, getMessages } from '../memory/conversation-store.js';
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import { createInvite } from '../memory/ingress-invite-store.js';
 import { upsertMember } from '../memory/ingress-member-store.js';
-import { generateVoiceCode, hashVoiceCode } from '../util/voice-code.js';
 import { conversations } from '../memory/schema.js';
 import {
   createOutboundSession,
   getGuardianBinding,
 } from '../runtime/channel-guardian-service.js';
+import { generateVoiceCode, hashVoiceCode } from '../util/voice-code.js';
 
 initializeDb();
 

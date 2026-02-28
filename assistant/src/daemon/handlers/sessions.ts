@@ -3,8 +3,6 @@ import * as net from 'node:net';
 import { v4 as uuid } from 'uuid';
 
 import { createAssistantMessage, createUserMessage } from '../../agent/message-types.js';
-import { DAEMON_INTERNAL_ASSISTANT_ID } from '../../runtime/assistant-scope.js';
-import { resolveLocalIpcGuardianContext } from '../../runtime/local-actor-identity.js';
 import { type InterfaceId,isChannelId, parseChannelId, parseInterfaceId } from '../../channels/types.js';
 import { getConfig } from '../../config/loader.js';
 import { getAttachmentsForMessage, getFilePathForAttachment, setAttachmentThumbnail } from '../../memory/attachments-store.js';
@@ -19,7 +17,9 @@ import { getAttentionStateByConversationIds } from '../../memory/conversation-at
 import * as conversationStore from '../../memory/conversation-store.js';
 import { GENERATING_TITLE, queueGenerateConversationTitle, UNTITLED_FALLBACK } from '../../memory/conversation-title-service.js';
 import * as externalConversationStore from '../../memory/external-conversation-store.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from '../../runtime/assistant-scope.js';
 import { routeGuardianReply } from '../../runtime/guardian-reply-router.js';
+import { resolveLocalIpcGuardianContext } from '../../runtime/local-actor-identity.js';
 import * as pendingInteractions from '../../runtime/pending-interactions.js';
 import { checkIngressForSecrets } from '../../security/secret-ingress.js';
 import { compileCustomPatterns, redactSecrets } from '../../security/secret-scanner.js';
@@ -177,6 +177,10 @@ export async function handleUserMessage(
       conversationId: msg.sessionId,
       sourceChannel: ipcChannel,
     });
+    // Route prompter-originated events (confirmation_request/secret_request)
+    // through the IPC wrapper so pending-interactions + canonical tracking
+    // are updated before the message is sent to the client.
+    session.updateClient(sendEvent, false);
     const ipcInterface = parseInterfaceId(msg.interface);
     if (!ipcInterface) {
       ctx.send(socket, {
@@ -913,6 +917,7 @@ export async function handleSessionCreate(
       conversationId: conversation.id,
       sourceChannel: transportChannel,
     });
+    session.updateClient(sendEvent, false);
     session.setTurnChannelContext({
       userMessageChannel: transportChannel,
       assistantMessageChannel: transportChannel,
@@ -1263,6 +1268,7 @@ export async function handleRegenerate(
     conversationId: msg.sessionId,
     sourceChannel: regenerateChannel,
   });
+  session.updateClient(sendEvent, false);
   const requestId = uuid();
   session.traceEmitter.emit('request_received', 'Regenerate requested', {
     requestId,

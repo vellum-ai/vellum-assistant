@@ -131,7 +131,7 @@ export interface SurfaceSessionContext {
   sendToClient(msg: ServerMessage): void;
   pendingSurfaceActions: Map<string, { surfaceType: SurfaceType }>;
   lastSurfaceAction: Map<string, { actionId: string; data?: Record<string, unknown> }>;
-  surfaceState: Map<string, { surfaceType: SurfaceType; data: SurfaceData }>;
+  surfaceState: Map<string, { surfaceType: SurfaceType; data: SurfaceData; title?: string }>;
   surfaceUndoStacks: Map<string, string[]>;
   currentTurnSurfaces: Array<{
     surfaceId: string;
@@ -632,7 +632,7 @@ export async function surfaceProxyResolver(
     const awaitAction = (input.await_action as boolean) ?? isInteractive;
 
     // Track surface state for ui_update merging
-    ctx.surfaceState.set(surfaceId, { surfaceType, data });
+    ctx.surfaceState.set(surfaceId, { surfaceType, data, title });
 
     const display = (input.display as string) === 'panel' ? 'panel' : 'inline';
 
@@ -782,6 +782,7 @@ export async function surfaceProxyResolver(
     ctx.surfaceState.set(surfaceId, {
       surfaceType: 'dynamic_page',
       data: surfaceData,
+      title: app.name,
     });
 
     ctx.sendToClient({

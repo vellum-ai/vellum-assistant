@@ -623,7 +623,7 @@ extension ChatViewModel {
                 pendingVoiceMessage = false
                 if let existingId = currentAssistantMessageId,
                    let index = messages.firstIndex(where: { $0.id == existingId }) {
-                    let responseText = messages[index].textSegments.joined()
+                    let responseText = messages[index].textSegments.joined(separator: "\n")
                     onVoiceResponseComplete?(responseText)
                 }
             }
@@ -699,7 +699,7 @@ extension ChatViewModel {
                 // Extract a summary from the last assistant message
                 if let existingId = messages.last(where: { $0.role == .assistant })?.id,
                    let index = messages.firstIndex(where: { $0.id == existingId }) {
-                    let summary = messages[index].textSegments.joined()
+                    let summary = messages[index].textSegments.joined(separator: "\n")
                     callback(summary)
                 } else {
                     callback("Response complete")

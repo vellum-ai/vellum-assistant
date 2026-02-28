@@ -27,8 +27,8 @@ import { canonicalizeInboundIdentity } from '../../util/canonicalize-identity.js
 import { IngressBlockedError } from '../../util/errors.js';
 import { getLogger } from '../../util/logger.js';
 import { readHttpToken } from '../../util/platform.js';
-import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
 import { notifyGuardianOfAccessRequest } from '../access-request-helper.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
 import {
   buildApprovalUIMetadata,
   getApprovalInfoByConversation,
@@ -47,7 +47,7 @@ import {
 } from '../channel-guardian-service.js';
 import { getTransport } from '../channel-invite-transport.js';
 import { deliverChannelReply } from '../gateway-client.js';
-import { resolveGuardianContext } from '../guardian-context-resolver.js';
+import { resolveGuardianContext, resolveRoutingState } from '../guardian-context-resolver.js';
 import { routeGuardianReply } from '../guardian-reply-router.js';
 import {
   composeChannelVerifyReply,
@@ -1347,6 +1347,13 @@ interface BackgroundProcessingParams {
 const TELEGRAM_TYPING_INTERVAL_MS = 4_000;
 const PENDING_APPROVAL_POLL_INTERVAL_MS = 300;
 
+// Module-level map tracking which approval requestIds have already been
+// notified to trusted contacts. Maps requestId -> conversationId so that
+// cleanup can be scoped to the owning conversation's poller, preventing
+// concurrent pollers from different conversations from evicting each
+// other's entries.
+const globalNotifiedApprovalRequestIds = new Map<string, string>();
+
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -1478,6 +1485,126 @@ function startPendingApprovalPromptWatcher(params: {
   };
 }
 
+/**
+ * Resolve a human-readable guardian name from the guardian binding metadata.
+ * Returns the display name, username (prefixed with @), or undefined if
+ * no name is available.
+ */
+function resolveGuardianDisplayName(
+  assistantId: string,
+  sourceChannel: ChannelId,
+): string | undefined {
+  const binding = getGuardianBinding(assistantId, sourceChannel);
+  if (!binding?.metadataJson) return undefined;
+  try {
+    const parsed = JSON.parse(binding.metadataJson) as Record<string, unknown>;
+    if (typeof parsed.displayName === 'string' && parsed.displayName.trim().length > 0) {
+      return parsed.displayName.trim();
+    }
+    if (typeof parsed.username === 'string' && parsed.username.trim().length > 0) {
+      return `@${parsed.username.trim()}`;
+    }
+  } catch {
+    // ignore malformed metadata
+  }
+  return undefined;
+}
+
+/**
+ * Start a poller that sends a one-shot "waiting for guardian approval" message
+ * to the trusted contact when a confirmation_request enters guardian approval
+ * wait. Deduplicates by requestId so each request only produces one message.
+ *
+ * Only activates for trusted-contact actors with a resolvable guardian route.
+ */
+function startTrustedContactApprovalNotifier(params: {
+  conversationId: string;
+  sourceChannel: ChannelId;
+  externalChatId: string;
+  guardianTrustClass: GuardianContext['trustClass'];
+  guardianExternalUserId?: string;
+  replyCallbackUrl: string;
+  bearerToken?: string;
+  assistantId?: string;
+}): () => void {
+  const {
+    conversationId,
+    sourceChannel,
+    externalChatId,
+    guardianTrustClass,
+    guardianExternalUserId,
+    replyCallbackUrl,
+    bearerToken,
+    assistantId,
+  } = params;
+
+  // Only notify trusted contacts who have a resolvable guardian route.
+  if (guardianTrustClass !== 'trusted_contact' || !guardianExternalUserId) {
+    return () => {};
+  }
+
+  let active = true;
+
+  const poll = async (): Promise<void> => {
+    while (active) {
+      try {
+        const pending = getApprovalInfoByConversation(conversationId);
+        const info = pending[0];
+
+        // Clean up resolved requests from the module-level dedupe map.
+        // Only remove entries that belong to THIS conversation — other
+        // conversations' pollers own their own entries. Without this
+        // scoping, concurrent pollers would evict each other's request
+        // IDs and cause duplicate notifications.
+        const currentPendingIds = new Set(pending.map(p => p.requestId));
+        for (const [rid, cid] of globalNotifiedApprovalRequestIds) {
+          if (cid === conversationId && !currentPendingIds.has(rid)) {
+            globalNotifiedApprovalRequestIds.delete(rid);
+          }
+        }
+
+        if (info && !globalNotifiedApprovalRequestIds.has(info.requestId)) {
+          globalNotifiedApprovalRequestIds.set(info.requestId, conversationId);
+          const guardianName = resolveGuardianDisplayName(
+            assistantId ?? 'self',
+            sourceChannel,
+          );
+          const waitingText = guardianName
+            ? `Waiting for ${guardianName}'s approval...`
+            : 'Waiting for your guardian\'s approval...';
+          try {
+            await deliverChannelReply(replyCallbackUrl, {
+              chatId: externalChatId,
+              text: waitingText,
+              assistantId: assistantId ?? 'self',
+            }, bearerToken);
+          } catch (err) {
+            log.warn({ err, conversationId }, 'Failed to deliver trusted-contact pending-approval notification');
+            // Remove from notified set so delivery is retried on next poll
+            globalNotifiedApprovalRequestIds.delete(info.requestId);
+          }
+        }
+      } catch (err) {
+        log.warn({ err, conversationId }, 'Trusted-contact approval notifier poll failed');
+      }
+      await delay(PENDING_APPROVAL_POLL_INTERVAL_MS);
+    }
+  };
+
+  void poll();
+  return () => {
+    active = false;
+
+    // Evict all dedupe entries owned by this conversation so the
+    // module-level map doesn't grow unboundedly after the poller stops.
+    for (const [rid, cid] of globalNotifiedApprovalRequestIds) {
+      if (cid === conversationId) {
+        globalNotifiedApprovalRequestIds.delete(rid);
+      }
+    }
+  };
+}
+
 function processChannelMessageInBackground(params: BackgroundProcessingParams): void {
   const {
     processMessage,
@@ -1520,6 +1647,18 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
         approvalCopyGenerator,
       })
       : undefined;
+    const stopTcApprovalNotifier = replyCallbackUrl
+      ? startTrustedContactApprovalNotifier({
+        conversationId,
+        sourceChannel,
+        externalChatId,
+        guardianTrustClass: guardianCtx.trustClass,
+        guardianExternalUserId: guardianCtx.guardianExternalUserId,
+        replyCallbackUrl,
+        bearerToken,
+        assistantId,
+      })
+      : undefined;
 
     try {
       const cmdIntent = commandIntent && typeof commandIntent.type === 'string'
@@ -1537,7 +1676,7 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
           },
           assistantId,
           guardianContext: toGuardianRuntimeContext(sourceChannel, guardianCtx),
-          isInteractive: guardianCtx.trustClass === 'guardian',
+          isInteractive: resolveRoutingState(guardianCtx).promptWaitingAllowed,
           ...(cmdIntent ? { commandIntent: cmdIntent } : {}),
         },
         sourceChannel,
@@ -1565,6 +1704,7 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
     } finally {
       stopTypingHeartbeat?.();
       stopApprovalWatcher?.();
+      stopTcApprovalNotifier?.();
     }
   })();
 }

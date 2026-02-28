@@ -58,7 +58,7 @@ export async function handlePublishPage(
       return { url: result.url, deploymentId: result.deploymentId };
     };
 
-    let useResult = await credentialBroker.serverUse({
+    const useResult = await credentialBroker.serverUse({
       service: 'vercel',
       field: 'api_token',
       toolName: 'publish_page',

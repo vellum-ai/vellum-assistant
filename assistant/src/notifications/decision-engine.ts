@@ -17,6 +17,12 @@ import { createTimeout, extractToolUse, getConfiguredProvider, userMessage } fro
 import type { ModelIntent } from '../providers/types.js';
 import { getLogger } from '../util/logger.js';
 import { composeFallbackCopy } from './copy-composer.js';
+import {
+  buildGuardianRequestCodeInstruction,
+  hasGuardianRequestCodeInstruction,
+  resolveGuardianQuestionInstructionMode,
+  stripConflictingGuardianRequestInstructions,
+} from './guardian-question-mode.js';
 import { createDecision } from './decisions-store.js';
 import { getPreferenceSummary } from './preference-summary.js';
 import type { NotificationSignal, RoutingIntent } from './signal.js';
@@ -409,18 +415,15 @@ export function validateThreadActions(
 function ensureGuardianRequestCodeInCopy(
   copy: RenderedChannelCopy,
   requestCode: string,
+  mode: 'approval' | 'answer',
 ): RenderedChannelCopy {
-  const instruction = `Reference code: ${requestCode}. Reply "${requestCode} approve" or "${requestCode} reject".`;
-  const hasParserCompatibleInstructions = (text: string | undefined): boolean => {
-    if (typeof text !== 'string') return false;
-    const upper = text.toUpperCase();
-    return upper.includes(`${requestCode} APPROVE`) && upper.includes(`${requestCode} REJECT`);
-  };
+  const instruction = buildGuardianRequestCodeInstruction(requestCode, mode);
 
   const ensureText = (text: string | undefined): string => {
     const base = typeof text === 'string' ? text.trim() : '';
-    if (hasParserCompatibleInstructions(base)) return base;
-    return base.length > 0 ? `${base}\n\n${instruction}` : instruction;
+    const sanitized = stripConflictingGuardianRequestInstructions(base, requestCode, mode);
+    if (hasGuardianRequestCodeInstruction(sanitized, requestCode, mode)) return sanitized;
+    return sanitized.length > 0 ? `${sanitized}\n\n${instruction}` : instruction;
   };
 
   return {
@@ -445,6 +448,16 @@ function enforceGuardianRequestCode(
   if (typeof rawCode !== 'string' || rawCode.trim().length === 0) return decision;
 
   const requestCode = rawCode.trim().toUpperCase();
+  const modeResolution = resolveGuardianQuestionInstructionMode(signal.contextPayload);
+  if (modeResolution.legacyFallbackUsed) {
+    log.warn(
+      {
+        signalId: signal.signalId,
+        requestKind: modeResolution.requestKind,
+      },
+      'guardian.question payload missing/invalid typed fields; using legacy instruction-mode fallback',
+    );
+  }
   const nextCopy: Partial<Record<NotificationChannel, RenderedChannelCopy>> = {
     ...decision.renderedCopy,
   };
@@ -452,7 +465,7 @@ function enforceGuardianRequestCode(
   for (const channel of Object.keys(nextCopy) as NotificationChannel[]) {
     const copy = nextCopy[channel];
     if (!copy) continue;
-    nextCopy[channel] = ensureGuardianRequestCodeInCopy(copy, requestCode);
+    nextCopy[channel] = ensureGuardianRequestCodeInCopy(copy, requestCode, modeResolution.mode);
   }
 
   return {

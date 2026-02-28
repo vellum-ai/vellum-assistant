@@ -78,7 +78,7 @@ export interface AbortContext {
   prompter: PermissionPrompter;
   secretPrompter: SecretPrompter;
   pendingSurfaceActions: Map<string, { surfaceType: SurfaceType }>;
-  surfaceState: Map<string, { surfaceType: SurfaceType; data: SurfaceData }>;
+  surfaceState: Map<string, { surfaceType: SurfaceType; data: SurfaceData; title?: string }>;
   readonly queue: MessageQueue;
 }
 

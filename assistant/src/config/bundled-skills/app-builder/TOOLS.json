@@ -50,7 +50,7 @@
               "title": { "type": "string", "description": "Preview card title" },
               "subtitle": { "type": "string", "description": "Optional subtitle" },
               "description": { "type": "string", "description": "Optional short description" },
-              "icon": { "type": "string", "description": "Optional emoji icon" },
+              "icon": { "type": "string", "description": "Optional icon — image URL preferred when available (logo, favicon, photo, etc.), emoji as fallback" },
               "metrics": {
                 "type": "array",
                 "description": "Optional key-value metrics",

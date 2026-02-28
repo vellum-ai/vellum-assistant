@@ -62,7 +62,7 @@ function makeCtx(overrides: Partial<ToolSetupContext> = {}): ToolSetupContext {
     sendToClient: mock(() => {}),
     pendingSurfaceActions: new Map(),
     lastSurfaceAction: new Map(),
-    surfaceState: new Map<string, { surfaceType: SurfaceType; data: SurfaceData }>(),
+    surfaceState: new Map<string, { surfaceType: SurfaceType; data: SurfaceData; title?: string }>(),
     surfaceUndoStacks: new Map(),
     currentTurnSurfaces: [],
     isProcessing: () => false,
@@ -392,6 +392,85 @@ describe('session-tool-setup app refresh side effects', () => {
     });
   });
 
+  // ── app_create side effects ─────────────────────────────────────────
+
+  describe('app_create side effects', () => {
+    test('broadcasts app_files_changed after app_create', async () => {
+      const ctx = makeCtx();
+      const executor = makeFakeExecutor({
+        content: JSON.stringify({ id: 'new-app-1', name: 'My App' }),
+        isError: false,
+      });
+      const broadcastSpy = mock(() => {});
+
+      const toolFn = createToolExecutor(
+        executor as unknown as ToolExecutor, noopPrompter, noopSecretPrompter,
+        ctx, noopLifecycleHandler, broadcastSpy,
+      );
+
+      await toolFn('app_create', { name: 'My App', html: '<h1>hi</h1>' });
+
+      expect(broadcastSpy).toHaveBeenCalledTimes(1);
+      expect((broadcastSpy.mock.calls as unknown[][])[0][0]).toEqual({
+        type: 'app_files_changed',
+        appId: 'new-app-1',
+      });
+    });
+
+    test('skips side effects when app_create result is an error', async () => {
+      const ctx = makeCtx();
+      const executor = makeFakeExecutor({ content: 'Error', isError: true });
+      const broadcastSpy = mock(() => {});
+
+      const toolFn = createToolExecutor(
+        executor as unknown as ToolExecutor, noopPrompter, noopSecretPrompter,
+        ctx, noopLifecycleHandler, broadcastSpy,
+      );
+
+      await toolFn('app_create', { name: 'Bad', html: '' });
+
+      expect(broadcastSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── app_delete side effects ────────────────────────────────────────
+
+  describe('app_delete side effects', () => {
+    test('broadcasts app_files_changed after app_delete', async () => {
+      const ctx = makeCtx();
+      const executor = makeFakeExecutor({ content: '{}', isError: false });
+      const broadcastSpy = mock(() => {});
+
+      const toolFn = createToolExecutor(
+        executor as unknown as ToolExecutor, noopPrompter, noopSecretPrompter,
+        ctx, noopLifecycleHandler, broadcastSpy,
+      );
+
+      await toolFn('app_delete', { app_id: 'del-app-1' });
+
+      expect(broadcastSpy).toHaveBeenCalledTimes(1);
+      expect((broadcastSpy.mock.calls as unknown[][])[0][0]).toEqual({
+        type: 'app_files_changed',
+        appId: 'del-app-1',
+      });
+    });
+
+    test('skips side effects when app_delete result is an error', async () => {
+      const ctx = makeCtx();
+      const executor = makeFakeExecutor({ content: 'Error', isError: true });
+      const broadcastSpy = mock(() => {});
+
+      const toolFn = createToolExecutor(
+        executor as unknown as ToolExecutor, noopPrompter, noopSecretPrompter,
+        ctx, noopLifecycleHandler, broadcastSpy,
+      );
+
+      await toolFn('app_delete', { app_id: 'del-err' });
+
+      expect(broadcastSpy).not.toHaveBeenCalled();
+    });
+  });
+
   // ── Name-based hook targeting (skill-origin tools) ──────────────────
 
   describe('name-based hooks fire for skill-origin tools', () => {
@@ -437,7 +516,7 @@ describe('session-tool-setup app refresh side effects', () => {
         ctx, noopLifecycleHandler, broadcastSpy,
       );
 
-      for (const toolName of ['read_file', 'write_file', 'shell', 'app_create', 'app_list', 'app_delete']) {
+      for (const toolName of ['read_file', 'write_file', 'shell', 'app_list']) {
         refreshSpy.mockClear();
         broadcastSpy.mockClear();
         updatePublishedSpy.mockClear();

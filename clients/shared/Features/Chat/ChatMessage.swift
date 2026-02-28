@@ -1604,7 +1604,7 @@ public struct ChatMessage: Identifiable, Equatable {
 
     /// Concatenated text from all segments. Backward-compatible computed property.
     public var text: String {
-        textSegments.joined()
+        textSegments.joined(separator: "\n")
     }
 
     public init(id: UUID = UUID(), role: ChatRole, text: String, timestamp: Date = Date(), isStreaming: Bool = false, status: ChatMessageStatus = .sent, confirmation: ToolConfirmationData? = nil, guardianDecision: GuardianDecisionData? = nil, skillInvocation: SkillInvocationData? = nil, attachments: [ChatAttachment] = [], toolCalls: [ToolCallData] = [], inlineSurfaces: [InlineSurfaceData] = [], isError: Bool = false) {

@@ -12,8 +12,8 @@ const log = getLogger('browser-manager');
 
 // Screencast capture dimensions — used by coordinate math across the browser module
 // to map between page coordinates and screencast-frame coordinates.
-export const SCREENCAST_WIDTH = 800;
-export const SCREENCAST_HEIGHT = 600;
+export const SCREENCAST_WIDTH = 1280;
+export const SCREENCAST_HEIGHT = 800;
 
 function getDownloadsDir(): string {
   const dir = join(getDataDir(), 'browser-downloads');
@@ -391,9 +391,9 @@ class BrowserManager {
     // Track downloads for this page
     this.setupDownloadTracking(sessionId, page);
 
-    // In CDP mode, keep the window minimized unless we're in an active handoff.
+    // In CDP mode, position the window on the side so the user can watch.
     if (this._browserMode === 'cdp' && !this.interactiveModeSessions.has(sessionId)) {
-      await this.moveWindowOffscreen();
+      await this.positionWindowSidebar();
     }
 
     log.debug({ sessionId }, 'Session page created');
@@ -530,7 +530,7 @@ class BrowserManager {
 
     await cdp.send('Page.startScreencast', {
       format: 'jpeg',
-      quality: 30,
+      quality: 45,
       maxWidth: SCREENCAST_WIDTH,
       maxHeight: SCREENCAST_HEIGHT,
       everyNthFrame: 4,
@@ -569,7 +569,7 @@ class BrowserManager {
 
   /**
    * Create a browser-level CDP session and discover the window ID.
-   * Called once after browser launch/connect so moveWindowOffscreen/Onscreen can work.
+   * Called once after browser launch/connect so positionWindowSidebar/moveWindowOnscreen can work.
    */
   private async initBrowserCdpSession(): Promise<void> {
     if (!this.cdpBrowser) return;
@@ -607,28 +607,21 @@ class BrowserManager {
   }
 
   /**
-   * Hide the browser window during non-handoff automation to avoid focus theft.
+   * Position the browser window small on the right side of the screen so the
+   * user can watch automation while still seeing assistant messages on the left.
    */
-  async moveWindowOffscreen(): Promise<void> {
+  async positionWindowSidebar(): Promise<void> {
     if (!this.browserCdpSession) return;
     const windowId = await this.ensureBrowserWindowId();
     if (windowId == null) return;
     try {
       await this.browserCdpSession.send('Browser.setWindowBounds', {
         windowId,
-        bounds: { windowState: 'minimized' },
+        bounds: { left: 740, top: 60, width: 680, height: 520, windowState: 'normal' },
       });
-      log.debug('moveWindowOffscreen: minimized browser window via CDP');
+      log.debug('positionWindowSidebar: placed browser window on right side');
     } catch (err) {
-      log.warn({ err }, 'moveWindowOffscreen: minimize failed, attempting offscreen bounds');
-      try {
-        await this.browserCdpSession.send('Browser.setWindowBounds', {
-          windowId,
-          bounds: { left: -32000, top: -32000, windowState: 'normal' },
-        });
-      } catch (boundsErr) {
-        log.warn({ err: boundsErr }, 'moveWindowOffscreen: offscreen bounds failed');
-      }
+      log.warn({ err }, 'positionWindowSidebar: failed to position window');
     }
   }
 

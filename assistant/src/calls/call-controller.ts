@@ -18,9 +18,9 @@ import {
   listCanonicalGuardianDeliveries,
 } from '../memory/canonical-guardian-store.js';
 import { revokeScopedApprovalGrantsForContext } from '../memory/scoped-approval-grants.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
 import { computeToolApprovalDigest } from '../security/tool-approval-digest.js';
 import { getLogger } from '../util/logger.js';
-import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
 import { readHttpToken } from '../util/platform.js';
 import { getMaxCallDurationMs, getUserConsultationTimeoutMs, SILENCE_TIMEOUT_MS } from './call-constants.js';
 import { persistCallCompletionMessage } from './call-conversation-messages.js';

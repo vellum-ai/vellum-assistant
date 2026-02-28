@@ -28,6 +28,13 @@ import {
   getCanonicalGuardianRequestByCode,
   listCanonicalGuardianRequests,
 } from '../memory/canonical-guardian-store.js';
+import {
+  buildGuardianCodeOnlyClarification,
+  buildGuardianDisambiguationExample,
+  buildGuardianDisambiguationLabel,
+  buildGuardianInvalidActionReply,
+  resolveGuardianInstructionModeForRequest,
+} from '../notifications/guardian-question-mode.js';
 import { getLogger } from '../util/logger.js';
 import { runApprovalConversationTurn } from './approval-conversation-turn.js';
 import type { ApprovalAction } from './channel-approval-types.js';
@@ -280,7 +287,7 @@ export async function routeGuardianReply(
           consumed: true,
           type: 'canonical_decision_stale',
           requestId: request.id,
-          replyText: failureReplyText('already_resolved', request.requestCode),
+          replyText: failureReplyText('already_resolved', request.requestCode, request),
         };
       }
 
@@ -570,13 +577,15 @@ async function applyDecision(
     return notConsumed();
   }
 
+  const request = getCanonicalGuardianRequest(requestId);
+
   return {
     decisionApplied: false,
     consumed: true,
     type: 'canonical_decision_stale',
     requestId,
     canonicalResult,
-    replyText: failureReplyText(canonicalResult.reason),
+    replyText: failureReplyText(canonicalResult.reason, request?.requestCode, request ?? undefined),
   };
 }
 
@@ -643,6 +652,12 @@ function inferActionFromText(text: string): ApprovalAction {
   return 'approve_once';
 }
 
+function resolveRequestInstructionMode(
+  request?: Pick<CanonicalGuardianRequest, 'kind' | 'toolName'> | null,
+): 'approval' | 'answer' {
+  return resolveGuardianInstructionModeForRequest(request);
+}
+
 // ---------------------------------------------------------------------------
 // Failure reason reply text
 // ---------------------------------------------------------------------------
@@ -653,7 +668,11 @@ type CanonicalFailureReason = 'already_resolved' | 'identity_mismatch' | 'invali
  * Map a canonical decision failure reason to a distinct, actionable reply
  * so the guardian understands exactly what happened and what to do next.
  */
-function failureReplyText(reason: CanonicalFailureReason, requestCode?: string | null): string {
+function failureReplyText(
+  reason: CanonicalFailureReason,
+  requestCode?: string | null,
+  request?: CanonicalGuardianRequest,
+): string {
   switch (reason) {
     case 'already_resolved':
       return 'This request has already been resolved.';
@@ -662,9 +681,7 @@ function failureReplyText(reason: CanonicalFailureReason, requestCode?: string |
     case 'identity_mismatch':
       return "You don't have permission to decide on this request.";
     case 'invalid_action':
-      return requestCode
-        ? `I found request ${requestCode}, but I need to know your decision. Reply "${requestCode} approve" or "${requestCode} reject".`
-        : "I couldn't determine your intended action. Reply with the request code followed by 'approve' or 'reject' (e.g., \"ABC123 approve\").";
+      return buildGuardianInvalidActionReply(resolveRequestInstructionMode(request), requestCode ?? undefined);
     default:
       return "I couldn't process that request. Please try again.";
   }
@@ -681,15 +698,12 @@ function failureReplyText(reason: CanonicalFailureReason, requestCode?: string |
  */
 function composeCodeOnlyClarification(request: CanonicalGuardianRequest): string {
   const code = request.requestCode ?? 'unknown';
-  const toolLabel = request.toolName ?? 'an action';
-  const lines: string[] = [
-    `I found request ${code} for ${toolLabel}.`,
-  ];
-  if (request.questionText) {
-    lines.push(`Details: ${request.questionText}`);
-  }
-  lines.push(`Reply "${code} approve" to approve or "${code} reject" to reject.`);
-  return lines.join('\n');
+  const mode = resolveRequestInstructionMode(request);
+  return buildGuardianCodeOnlyClarification(mode, {
+    requestCode: code,
+    questionText: request.questionText,
+    toolName: request.toolName,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -706,6 +720,10 @@ function composeDisambiguationReply(
   engineReplyText?: string,
 ): string {
   const lines: string[] = [];
+  const requestsWithMode = pendingRequests.map((request) => ({
+    request,
+    mode: resolveRequestInstructionMode(request),
+  }));
 
   if (engineReplyText) {
     lines.push(engineReplyText);
@@ -714,16 +732,26 @@ function composeDisambiguationReply(
 
   lines.push(`You have ${pendingRequests.length} pending requests. Please specify which one:`);
 
-  for (const req of pendingRequests) {
-    const toolLabel = req.toolName ?? 'action';
-    const code = req.requestCode ?? req.id.slice(0, 6).toUpperCase();
+  for (const { request, mode } of requestsWithMode) {
+    const toolLabel = buildGuardianDisambiguationLabel(mode, {
+      questionText: request.questionText,
+      toolName: request.toolName,
+    });
+    const code = request.requestCode ?? request.id.slice(0, 6).toUpperCase();
     lines.push(`  - ${code}: ${toolLabel}`);
   }
 
-  // Include a concrete example using the first request's code
-  const exampleCode = pendingRequests[0].requestCode ?? pendingRequests[0].id.slice(0, 6).toUpperCase();
+  const questionRequest = requestsWithMode.find(({ mode }) => mode === 'answer');
+  const decisionRequest = requestsWithMode.find(({ mode }) => mode === 'approval');
   lines.push('');
-  lines.push(`Reply "${exampleCode} approve" to approve a specific request.`);
+  if (questionRequest) {
+    const exampleCode = questionRequest.request.requestCode ?? questionRequest.request.id.slice(0, 6).toUpperCase();
+    lines.push(buildGuardianDisambiguationExample(questionRequest.mode, exampleCode));
+  }
+  if (decisionRequest) {
+    const exampleCode = decisionRequest.request.requestCode ?? decisionRequest.request.id.slice(0, 6).toUpperCase();
+    lines.push(buildGuardianDisambiguationExample(decisionRequest.mode, exampleCode));
+  }
 
   return lines.join('\n');
 }

@@ -3,6 +3,7 @@ import * as net from 'node:net';
 import type { ChannelId } from '../../channels/types.js';
 import * as externalConversationStore from '../../memory/external-conversation-store.js';
 import { findMember, revokeMember } from '../../memory/ingress-member-store.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from '../../runtime/assistant-scope.js';
 import {
   createVerificationChallenge,
   findActiveSession,
@@ -17,7 +18,6 @@ import {
   resendOutbound,
   startOutbound,
 } from '../../runtime/guardian-outbound-actions.js';
-import { DAEMON_INTERNAL_ASSISTANT_ID } from '../../runtime/assistant-scope.js';
 import type {
   ChannelReadinessRequest,
   GuardianVerificationRequest,
@@ -89,7 +89,7 @@ export function createGuardianChallenge(
 
 export function getGuardianStatus(
   channel?: ChannelId,
-  assistantId?: string,
+  _assistantId?: string,
 ): GuardianVerificationResult {
   const resolvedAssistantId = DAEMON_INTERNAL_ASSISTANT_ID;
   const resolvedChannel = channel ?? 'telegram';

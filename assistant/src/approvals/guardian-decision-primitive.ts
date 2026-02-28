@@ -35,6 +35,7 @@ import {
   type GuardianApprovalRequest,
   updateApprovalDecision,
 } from '../memory/channel-guardian-store.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
 import type {
   ApprovalAction,
   ApprovalDecisionResult,
@@ -45,7 +46,6 @@ import {
   type PendingApprovalInfo,
 } from '../runtime/channel-approvals.js';
 import type { ApplyGuardianDecisionResult } from '../runtime/guardian-decision-types.js';
-import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
 import { computeToolApprovalDigest } from '../security/tool-approval-digest.js';
 import { getLogger } from '../util/logger.js';
 import { mintGrantFromDecision } from './approval-primitive.js';

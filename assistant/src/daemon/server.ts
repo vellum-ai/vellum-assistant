@@ -19,6 +19,7 @@ import { provenanceFromGuardianContext } from '../memory/conversation-store.js';
 import { RateLimitProvider } from '../providers/ratelimit.js';
 import { getFailoverProvider, initializeProviders } from '../providers/registry.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
+import { bridgeConfirmationRequestToGuardian } from '../runtime/confirmation-request-guardian-bridge.js';
 import * as pendingInteractions from '../runtime/pending-interactions.js';
 import { checkIngressForSecrets } from '../security/secret-ingress.js';
 import { getSubagentManager } from '../subagent/index.js';
@@ -134,7 +135,7 @@ function makePendingInteractionRegistrar(
       // via applyCanonicalGuardianDecision.
       const guardianContext = session.guardianContext;
       const sourceChannel = guardianContext?.sourceChannel ?? 'vellum';
-      createCanonicalGuardianRequest({
+      const canonicalRequest = createCanonicalGuardianRequest({
         id: msg.requestId,
         kind: 'tool_approval',
         sourceType: resolveCanonicalRequestSourceType(sourceChannel),
@@ -148,6 +149,18 @@ function makePendingInteractionRegistrar(
         requestCode: generateCanonicalRequestCode(),
         expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
       });
+
+      // For trusted-contact sessions, bridge to guardian.question so the
+      // guardian gets notified and can approve via callback/request-code.
+      if (guardianContext) {
+        bridgeConfirmationRequestToGuardian({
+          canonicalRequest,
+          guardianContext,
+          conversationId,
+          toolName: msg.toolName,
+          assistantId: session.assistantId ?? 'self',
+        });
+      }
     } else if (msg.type === 'secret_request') {
       pendingInteractions.register(msg.requestId, {
         session,

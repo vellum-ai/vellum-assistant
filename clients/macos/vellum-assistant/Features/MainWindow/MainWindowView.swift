@@ -422,6 +422,27 @@ struct MainWindowView: View {
                     windowState.activeDynamicParsedSurface = nil
                 }
 
+                // Reset publish state when switching to a different app so new/different
+                // apps don't inherit the "Published" badge from a previously published app.
+                let oldAppId: String? = {
+                    switch oldSelection {
+                    case .app(let id): return id
+                    case .appEditing(let id, _): return id
+                    default: return nil
+                    }
+                }()
+                let newAppId: String? = {
+                    switch newSelection {
+                    case .app(let id): return id
+                    case .appEditing(let id, _): return id
+                    default: return nil
+                    }
+                }()
+                if oldAppId != newAppId {
+                    sharing.publishedUrl = nil
+                    sharing.publishError = nil
+                }
+
                 // Collapse the sidebar when an app opens to avoid crowding
                 if sidebarExpanded {
                     let shouldCollapse: Bool = {
@@ -885,7 +906,7 @@ struct MainWindowView: View {
                 .buttonStyle(.plain)
                 .padding(.trailing, VSpacing.xs)
                 .accessibilityLabel("Confirm archive \(thread.title)")
-            } else if isHovered && threadManager.visibleThreads.count > 1 {
+            } else if isHovered {
                 Button {
                     sidebar.threadPendingDeletion = thread.id
                 } label: {
@@ -923,12 +944,10 @@ struct MainWindowView: View {
                     Label("Rename", systemImage: "pencil")
                 }
             }
-            if threadManager.visibleThreads.count > 1 {
-                Button {
-                    threadManager.archiveThread(id: thread.id)
-                } label: {
-                    Label("Archive", systemImage: "archivebox")
-                }
+            Button {
+                threadManager.archiveThread(id: thread.id)
+            } label: {
+                Label("Archive", systemImage: "archivebox")
             }
         }
         .onHover { hovering in

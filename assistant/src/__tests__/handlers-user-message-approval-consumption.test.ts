@@ -100,6 +100,7 @@ interface TestSession {
   setAssistantId: (assistantId: string) => void;
   setGuardianContext: (ctx: unknown) => void;
   setCommandIntent: (intent: unknown) => void;
+  updateClient: (sendToClient: (msg: ServerMessage) => void, hasNoClient?: boolean) => void;
   processMessage: (...args: unknown[]) => Promise<string>;
 }
 
@@ -153,6 +154,7 @@ function makeSession(overrides: Partial<TestSession> = {}): TestSession {
     setAssistantId: () => {},
     setGuardianContext: () => {},
     setCommandIntent: () => {},
+    updateClient: () => {},
     processMessage: async () => 'msg-id',
     ...overrides,
   };
@@ -406,6 +408,53 @@ describe('handleUserMessage pending-confirmation reply interception', () => {
         toolName: 'call_start',
         status: 'pending',
         requestCode: 'ABC123',
+      }),
+    );
+    expect(sent.some((event) => event.type === 'confirmation_request')).toBe(true);
+  });
+
+  test('registers IPC confirmation events emitted via session sender (prompter path)', async () => {
+    let currentSender: (msg: ServerMessage) => void = () => {};
+    const session = makeSession({
+      hasAnyPendingConfirmation: () => false,
+      enqueueMessage: mock(() => ({ queued: false, requestId: 'direct-id' })),
+      updateClient: (sendToClient: (msg: ServerMessage) => void) => {
+        currentSender = sendToClient;
+      },
+      processMessage: async () => {
+        currentSender({
+          type: 'confirmation_request',
+          requestId: 'req-prompter-1',
+          toolName: 'call_start',
+          input: { phone_number: '+18084436762' },
+          riskLevel: 'high',
+          executionTarget: 'host',
+          allowlistOptions: [],
+          scopeOptions: [],
+          persistentDecisionsAllowed: false,
+        } as ServerMessage);
+        return 'msg-id';
+      },
+    });
+    const { ctx, sent } = createContext(session);
+
+    await handleUserMessage(makeMessage('please call now'), {} as net.Socket, ctx);
+
+    expect(registerMock).toHaveBeenCalledWith(
+      'req-prompter-1',
+      expect.objectContaining({
+        conversationId: 'conv-1',
+        kind: 'confirmation',
+        session,
+      }),
+    );
+    expect(createCanonicalGuardianRequestMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'req-prompter-1',
+        kind: 'tool_approval',
+        sourceType: 'desktop',
+        sourceChannel: 'vellum',
+        conversationId: 'conv-1',
       }),
     );
     expect(sent.some((event) => event.type === 'confirmation_request')).toBe(true);

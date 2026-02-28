@@ -1,0 +1,182 @@
+# Plan: Google OAuth Setup Reliability & Browser Window Improvements
+
+## Problem Statement
+
+The Google OAuth setup skill via browser automation is unreliable for many users. Three root causes:
+
+1. **Browser window minimizes** — Chrome opens then immediately minimizes, so users can't see what the assistant is doing. This is disorienting and prevents users from following along or intervening.
+2. **Small PiP panel (800x600)** — When the screencast panel IS shown (headless mode), it's too small and blurry to read GCP form text.
+3. **Fragile automation steps** — The SKILL.md instructions aren't specific enough for the LLM to reliably navigate GCP's complex, frequently-changing UI. Key failure points: consent screen wizard, credential capture, scope selection.
+
+## Goals
+
+- Chrome stays **visible and small on the side** during automation so the user can watch AND see assistant messages.
+- Users only need to: (1) sign in to Google, (2) copy/paste credentials from the visible Chrome window into credential store prompts, (3) click "Allow" on the consent page.
+- The flow "just works" without manual fallback for the vast majority of users.
+
+---
+
+## Part 1: Keep Browser Window Visible (Not Minimized)
+
+### File to modify
+
+**`assistant/src/tools/browser/browser-manager.ts`**
+
+### Current behavior (CDP mode)
+
+1. Chrome opens → `moveWindowOffscreen()` minimizes it
+2. During handoff (sign-in) → `moveWindowOnscreen()` brings it to 1280x960 at (100, 100)
+3. After handoff → `moveWindowOffscreen()` minimizes it again
+
+### New behavior
+
+1. Chrome opens → `positionWindowSidebar()` places it **small on the right side** of the screen (visible, not minimized)
+2. During handoff (sign-in, credential copying) → `moveWindowOnscreen()` makes it bigger and brings to front
+3. After handoff → `positionWindowSidebar()` puts it back small on the right side (still visible)
+
+### Specific changes
+
+Rename `moveWindowOffscreen()` → `positionWindowSidebar()` and change behavior:
+
+```
+// Old: minimized
+bounds: { windowState: 'minimized' }
+
+// New: small on the right side, visible
+bounds: { left: 740, top: 60, width: 680, height: 520, windowState: 'normal' }
+```
+
+This positions a 680x520 Chrome window on the right side of the screen, leaving ~720px on the left for the Vellum chat window. Works well on 1440-wide screens (13" MacBook effective resolution). On wider screens it just has more space on the left.
+
+Keep `moveWindowOnscreen()` as-is (1280x960 for user interaction like sign-in and credential copying).
+
+Update all callsites that call `moveWindowOffscreen()`:
+- `browser-manager.ts:397` — after creating a page in CDP mode (non-interactive)
+- `browser-handoff.ts:67` — after handoff completes
+
+---
+
+## Part 2: Bigger Screencast & PiP Panel (for headless mode fallback)
+
+### Files to modify
+
+**`assistant/src/tools/browser/browser-manager.ts`**
+- `SCREENCAST_WIDTH`: 800 → 1280
+- `SCREENCAST_HEIGHT`: 600 → 800
+- Screencast JPEG quality: 30 → 45 (better text readability)
+
+**`clients/macos/vellum-assistant/Features/BrowserPiP/BrowserPiPManager.swift`**
+- Default panel size: 800x600 → 1024x640
+- Panel aspect ratio: 4:3 → 8:5 (matches new screencast ratio)
+- Panel minimum size: 200x150 → 320x200
+- Initial `frameSize`: 800x600 → 1280x800
+
+### Coordinate math
+
+`SCREENCAST_WIDTH`/`SCREENCAST_HEIGHT` are used in 3 locations for coordinate scaling. All use `Math.min(SCREENCAST_WIDTH / vw, SCREENCAST_HEIGHT / vh)` — they scale dynamically, so changing the constants is sufficient. No logic changes needed.
+
+---
+
+## Part 3: Rewrite SKILL.md Automated Setup (Path B)
+
+### File to modify
+
+**`assistant/src/config/bundled-skills/google-oauth-setup/SKILL.md`**
+
+### Key changes
+
+#### 1. Credential capture via copy-paste from visible Chrome window
+
+**Current approach:** Read Client ID from screenshot (fragile OCR), prompt for Client Secret. Chrome is minimized so user can barely see the credentials.
+
+**New approach:** Chrome is visible on the side during automation. When the credential creation dialog appears:
+1. Tell the user the credentials are now visible in the Chrome window on the right
+2. Use `credential_store prompt` for Client ID — user copies from Chrome, pastes into prompt
+3. Use `credential_store prompt` for Client Secret — user copies from Chrome, pastes into prompt
+4. Both go directly into the secure vault, never in conversation
+
+**Why this works now:** With Chrome visible (not minimized), the user can actually SEE and COPY the credentials from the real browser. No need to transcribe from a screencast image.
+
+Also try to auto-read the Client ID from `browser_snapshot` or `browser_extract` first (it's in a predictable `*.apps.googleusercontent.com` format). If successful, store it via `credential_store store` and only prompt for the Client Secret. If auto-read fails, fall back to prompting for both.
+
+#### 2. Batch scope entry on consent screen
+
+**Current approach:** Navigate the scope picker UI and add 6 scopes one by one — fragile.
+
+**New approach:** On the scopes page, find the "Manually add scopes" text input. Paste all 6 scope URLs at once as a comma-separated string, then click "Add to table" / "Update". One paste + one click replaces 6 individual scope operations.
+
+#### 3. Adaptive consent screen handling
+
+The GCP consent screen has two possible UIs:
+- **Old wizard:** Multi-page form (App info → Scopes → Test users → Summary)
+- **New branding page:** Single-page layout at `/apis/credentials/consent/edit`
+
+Updated SKILL.md will:
+- Take a screenshot after navigating to the consent URL
+- Check which UI is present (old wizard vs. new page)
+- Provide specific instructions for each variant
+- Use `browser_snapshot` to find form fields adaptively
+
+#### 4. More specific visual cues for each step
+
+Add explicit "what you should see" descriptions so the LLM can verify it's on the right page before acting:
+- "You should see a page with 'Create a project' heading and a 'Project name' text field"
+- "You should see a dialog titled 'OAuth client created' with Client ID and Client Secret fields"
+- "You should see the OAuth consent screen configuration with App name, User support email fields"
+
+#### 5. Updated "Things That Do Not Work" guardrails
+
+- Keep prohibition on downloading files (still doesn't work)
+- Keep prohibition on clipboard operations (still doesn't work)
+- Keep prohibition on deleting/recreating OAuth clients
+- Update credential reading prohibition: reading Client ID from `browser_extract`/`browser_snapshot` IS allowed (exact text, not OCR). Reading Client Secret from screenshot is still prohibited — always use `credential_store prompt`.
+- Add: "Do NOT navigate away from the credential creation dialog until both credentials are stored"
+
+#### 6. Better project creation handling
+
+- After submitting, wait for project creation (10-30 seconds)
+- Use `browser_extract` to check for success or error
+- Handle "project already exists" by selecting existing project
+- Handle "quota exceeded" with clear user-facing message
+
+#### 7. Better progress communication
+
+Add specific user-facing messages at each step:
+- "Signed in! Creating your Google Cloud project..."
+- "Project created. Enabling Gmail and Calendar APIs..."
+- "APIs enabled. Setting up OAuth consent screen..."
+- "Consent screen configured. Creating OAuth credentials..."
+- "Credentials stored! Opening Google authorization — just click 'Allow'..."
+- "All done! Gmail and Calendar are connected."
+
+---
+
+## Part 4: Manual Setup Path (Path A) — Minor Updates
+
+No major changes needed. The manual path for channels already works well. Minor updates:
+- Ensure step numbering is consistent
+- Keep the GOCSPX- split entry approach for channels (secret scanner workaround)
+
+---
+
+## Part 5: Testing
+
+1. **Type check:** `bunx tsc --noEmit`
+2. **Run tests:** `bun test` in assistant/ — verify `skills.test.ts` passes
+3. **Manual verification:** Screencast dimension changes are numerical only; window positioning is a single constant change
+
+---
+
+## Files Changed Summary
+
+| File | Change |
+|------|--------|
+| `assistant/src/tools/browser/browser-manager.ts` | Screencast 800x600→1280x800, quality 30→45, `moveWindowOffscreen`→`positionWindowSidebar` (visible on side instead of minimizing) |
+| `clients/macos/vellum-assistant/Features/BrowserPiP/BrowserPiPManager.swift` | Default panel 800x600→1024x640, aspect ratio 4:3→8:5, min size |
+| `assistant/src/config/bundled-skills/google-oauth-setup/SKILL.md` | Rewrite automated setup path for reliability |
+
+## Risks
+
+- **Bandwidth:** Larger screencast frames + slightly higher quality. Mitigated by frame rate already throttled to 1fps.
+- **Window positioning:** Fixed `left: 740` works on 1440+ wide screens. On a very narrow external display it might clip. The user can always drag/resize.
+- **GCP UI changes:** The skill is inherently tied to GCP's UI. More adaptive instructions + retry budget + manual fallback is the safety net.

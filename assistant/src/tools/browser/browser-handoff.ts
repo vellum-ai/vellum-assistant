@@ -43,7 +43,7 @@ export async function startHandoff(
     log.warn({ sessionId }, 'No active screencast surface for handoff');
     // Move window back offscreen if we brought it to front
     if (options.bringToFront) {
-      await browserManager.moveWindowOffscreen();
+      await browserManager.positionWindowSidebar();
     }
     return;
   }
@@ -65,7 +65,7 @@ export async function startHandoff(
 
   // Move Chrome back offscreen after handoff.
   if (options.bringToFront) {
-    await browserManager.moveWindowOffscreen();
+    await browserManager.positionWindowSidebar();
   }
 
   sendToClient({

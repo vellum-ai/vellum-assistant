@@ -21,6 +21,7 @@ jobs:
   playwright:
     name: Playwright Tests
     runs-on: macos-14
+    environment: dev
     timeout-minutes: 60
     env:
       APP_DISPLAY_NAME: Vellum
@@ -123,15 +124,19 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
-      - name: Fetch Anthropic API key from Secret Manager
+      - name: Fetch secrets from Secret Manager
         id: secrets
         uses: google-github-actions/get-secretmanager-secrets@v2
         with:
           secrets: |-
             ANTHROPIC_API_KEY:vellum-nonprod/ANTHROPIC_API_KEY
+            TWILIO_AUTH_TOKEN:vellum-nonprod/TWILIO_AUTH_TOKEN
 
-      - name: Set Anthropic API key in env
-        run: echo "ANTHROPIC_API_KEY=${{ steps.secrets.outputs.ANTHROPIC_API_KEY }}" >> "$GITHUB_ENV"
+      - name: Set API keys in env
+        run: |
+          echo "ANTHROPIC_API_KEY=${{ steps.secrets.outputs.ANTHROPIC_API_KEY }}" >> "$GITHUB_ENV"
+          echo "TWILIO_AUTH_TOKEN=${{ steps.secrets.outputs.TWILIO_AUTH_TOKEN }}" >> "$GITHUB_ENV"
+          echo "TWILIO_ACCOUNT_SID=${{ vars.TWILIO_ACCOUNT_SID }}" >> "$GITHUB_ENV"
 
       - name: Install Playwright dependencies
         working-directory: playwright

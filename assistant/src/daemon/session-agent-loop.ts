@@ -10,7 +10,6 @@
 import { v4 as uuid } from 'uuid';
 
 import type { AgentEvent,AgentLoop, CheckpointDecision } from '../agent/loop.js';
-import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
 import { createAssistantMessage } from '../agent/message-types.js';
 import type { ChannelId, InterfaceId, TurnChannelContext, TurnInterfaceContext } from '../channels/types.js';
 import { getConfig } from '../config/loader.js';
@@ -21,12 +20,13 @@ import { commitAppTurnChanges } from '../memory/app-git-service.js';
 import { getApp, listAppFiles } from '../memory/app-store.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { getConversationOriginChannel, getConversationOriginInterface, provenanceFromGuardianContext } from '../memory/conversation-store.js';
-import { GENERATING_TITLE, isReplaceableTitle, queueGenerateConversationTitle, queueRegenerateConversationTitle, UNTITLED_FALLBACK } from '../memory/conversation-title-service.js';
+import { isReplaceableTitle, queueGenerateConversationTitle, queueRegenerateConversationTitle, UNTITLED_FALLBACK } from '../memory/conversation-title-service.js';
 import { stripMemoryRecallMessages } from '../memory/retriever.js';
 import type { PermissionPrompter } from '../permissions/prompter.js';
 import type { ContentBlock,Message } from '../providers/types.js';
 import type { Provider } from '../providers/types.js';
 import { resolveActorTrust } from '../runtime/actor-trust-resolver.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
 import type { UsageActor } from '../usage/actors.js';
 import { getLogger } from '../util/logger.js';
 import { truncate } from '../util/truncate.js';
@@ -96,7 +96,7 @@ export interface AgentLoopSessionContext {
 
   currentActiveSurfaceId?: string;
   currentPage?: string;
-  readonly surfaceState: Map<string, { surfaceType: SurfaceType; data: SurfaceData }>;
+  readonly surfaceState: Map<string, { surfaceType: SurfaceType; data: SurfaceData; title?: string }>;
   pendingSurfaceActions: Map<string, { surfaceType: SurfaceType }>;
   currentTurnSurfaces: Array<{ surfaceId: string; surfaceType: SurfaceType; title?: string; data: SurfaceData; actions?: Array<{ id: string; label: string; style?: string }>; display?: string }>;
 
@@ -213,9 +213,9 @@ export async function runAgentLoopImpl(
         conversationStore.deleteMessageById(userMessageId);
       }
       // Replace loading placeholder so the thread isn't stuck as "Generating title..."
-      const blockedConv = conversationStore.getConversation(ctx.conversationId);
-      if (blockedConv?.title === GENERATING_TITLE) {
-        conversationStore.updateConversationTitle(ctx.conversationId, UNTITLED_FALLBACK, 1);
+      const currentConv = conversationStore.getConversation(ctx.conversationId);
+      if (isReplaceableTitle(currentConv?.title ?? null)) {
+        conversationStore.updateConversationTitle(ctx.conversationId, UNTITLED_FALLBACK);
         onEvent({ type: 'session_title_updated', sessionId: ctx.conversationId, title: UNTITLED_FALLBACK });
       }
       onEvent({ type: 'error', message: `Message blocked by hook "${preMessageResult.blockedBy}"` });
@@ -226,12 +226,11 @@ export async function runAgentLoopImpl(
     // Firing after hook gating but before the main LLM call removes the
     // delay of waiting for the full assistant response. The second-pass
     // regeneration at turn 3 will refine the title with more context.
-    // Deferred via setTimeout so the main agent loop LLM call is queued
-    // first, avoiding rate-limit slot contention. No abort signal — title
-    // generation should complete even if the user cancels the response,
-    // since the user message is already persisted.
-    const currentConvForTitle = conversationStore.getConversation(ctx.conversationId);
-    if (isReplaceableTitle(currentConvForTitle?.title ?? null)) {
+    // No abort signal — title generation should complete even if the user
+    // cancels the response, since the user message is already persisted.
+    // Deferred via setTimeout so the main agent loop LLM call enqueues
+    // first, avoiding rate-limit slot contention on strict configs.
+    if (isReplaceableTitle(conversationStore.getConversation(ctx.conversationId)?.title ?? null)) {
       setTimeout(() => {
         queueGenerateConversationTitle({
           conversationId: ctx.conversationId,

@@ -557,8 +557,35 @@ export async function startGateway(assistantId?: string): Promise<string> {
     writeFileSync(join(vellumDir, "gateway.pid"), String(gateway.pid), "utf-8");
   }
 
+  const gatewayUrl = publicUrl || `http://localhost:${GATEWAY_PORT}`;
+
+  // Wait for the gateway to be responsive before returning. Without this,
+  // callers (e.g. displayPairingQRCode) may try to connect before the HTTP
+  // server is listening and get connection-refused errors.
+  const start = Date.now();
+  const timeoutMs = 30000;
+  let ready = false;
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const res = await fetch(`http://localhost:${GATEWAY_PORT}/healthz`, {
+        signal: AbortSignal.timeout(2000),
+      });
+      if (res.ok) {
+        ready = true;
+        break;
+      }
+    } catch {
+      // Gateway not ready yet
+    }
+    await new Promise((r) => setTimeout(r, 250));
+  }
+
+  if (!ready) {
+    console.warn("⚠ Gateway started but health check did not respond within 30s");
+  }
+
   console.log("✅ Gateway started\n");
-  return publicUrl || `http://localhost:${GATEWAY_PORT}`;
+  return gatewayUrl;
 }
 
 /**

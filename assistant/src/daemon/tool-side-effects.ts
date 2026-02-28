@@ -68,12 +68,34 @@ function registerHook(toolNames: string | string[], hook: PostExecutionHook): vo
   }
 }
 
+// Broadcast app_files_changed when a new app is created so clients
+// (e.g. macOS "Things" sidebar) refresh their app list immediately.
+registerHook('app_create', (_name, _input, result, { ctx, broadcastToAllClients }) => {
+  try {
+    const parsed = JSON.parse(result.content) as { id?: string };
+    if (parsed.id) {
+      handleAppChange(ctx, parsed.id, broadcastToAllClients);
+    }
+  } catch {
+    // Result wasn't valid JSON — skip the broadcast.
+  }
+});
+
 // Auto-refresh workspace surfaces when a persisted app is updated.
 // If no surface is currently showing the app, auto-open it.
 registerHook('app_update', (_name, input, _result, { ctx, broadcastToAllClients }) => {
   const appId = input.app_id as string | undefined;
   if (appId) {
     handleAppChange(ctx, appId, broadcastToAllClients);
+  }
+});
+
+// Broadcast app_files_changed when an app is deleted so clients remove it
+// from their cached app lists.
+registerHook('app_delete', (_name, input, _result, { broadcastToAllClients }) => {
+  const appId = input.app_id as string | undefined;
+  if (appId) {
+    broadcastToAllClients?.({ type: 'app_files_changed', appId });
   }
 });
 

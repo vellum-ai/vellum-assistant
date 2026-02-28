@@ -512,6 +512,10 @@ export class AnthropicProvider implements Provider {
             )
           : this.client.messages.stream(params, { signal: timeoutSignal });
 
+        // Track whether we've seen a text content block so we can insert a
+        // separator between consecutive text blocks in the same response.
+        let hasSeenTextBlock = false;
+
         stream.on("text", (text) => {
           onEvent?.({ type: "text_delta", text });
         });
@@ -527,6 +531,22 @@ export class AnthropicProvider implements Provider {
         let pendingInputJsonFlush: ReturnType<typeof setTimeout> | undefined;
 
         stream.on("streamEvent", (event) => {
+          // Insert a space separator when a new text content block starts
+          // after a previous one, so consecutive text blocks don't get
+          // concatenated without whitespace (e.g. "sentence.NextSentence").
+          // Uses a space instead of \n because the client's MarkdownRenderer
+          // can collapse soft line breaks (\n) within a paragraph.
+          if (event.type === 'content_block_start' && event.content_block.type === 'text') {
+            if (hasSeenTextBlock) {
+              onEvent?.({ type: "text_delta", text: " " });
+            }
+            hasSeenTextBlock = true;
+          } else if (event.type === 'content_block_start') {
+            // Reset on non-text blocks so that text separated by tool_use
+            // (text -> tool_use -> text) doesn't get a spurious leading space
+            // in the second text segment.
+            hasSeenTextBlock = false;
+          }
           if (event.type === 'content_block_start' && event.content_block.type === 'tool_use') {
             currentStreamingToolName = event.content_block.name;
             accumulatedInputJson = '';
