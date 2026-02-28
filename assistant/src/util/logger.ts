@@ -68,9 +68,10 @@ function buildRotatingLogger(config: LogFileConfig): pino.Logger {
 
   const today = formatDate(new Date());
   const filePath = logFilePathForDate(config.dir, new Date());
-  const fileStream = pino.destination({ dest: filePath, sync: false, mkdir: true, mode: 0o600 });
+  const fileDest = pino.destination({ dest: filePath, sync: false, mkdir: true, mode: 0o600 });
   // Tighten permissions on pre-existing log files that may have been created with looser modes
   try { chmodSync(filePath, 0o600); } catch { /* best-effort */ }
+  const fileStream = pinoPretty({ destination: fileDest, colorize: false });
 
   activeLogDate = today;
   activeLogFileConfig = config;
@@ -135,9 +136,10 @@ function getRootLogger(): pino.Logger {
 
     try {
       const logPath = getLogPath();
-      const fileStream = pino.destination({ dest: logPath, sync: false, mkdir: true, mode: 0o600 });
+      const fileDest = pino.destination({ dest: logPath, sync: false, mkdir: true, mode: 0o600 });
       // Tighten permissions on pre-existing log files that may have been created with looser modes
       try { chmodSync(logPath, 0o600); } catch { /* best-effort */ }
+      const fileStream = pinoPretty({ destination: fileDest, colorize: false });
 
       if (getDebugMode()) {
         const prettyStream = pinoPretty({ destination: 2 });

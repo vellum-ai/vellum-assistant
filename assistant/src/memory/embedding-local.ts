@@ -18,7 +18,7 @@ type FeatureExtractionPipeline = (
  * Local embedding backend using @huggingface/transformers (ONNX Runtime).
  * Runs BAAI/bge-small-en-v1.5 locally — no API calls, no network required.
  *
- * The embedding runtime (onnxruntime-node + transformers bundle) is downloaded
+ * The embedding runtime (onnxruntime-node + transformers) is downloaded
  * post-hatch by EmbeddingRuntimeManager. Model weights are downloaded on first
  * use and cached in ~/.vellum/workspace/embedding-models/model-cache/.
  *
@@ -65,29 +65,21 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
   private async initialize(): Promise<void> {
     log.info({ model: this.model }, 'Loading local embedding model (first load downloads the model)');
 
-    // Resolution order for the transformers bundle:
-    // 1. Post-hatch download: ~/.vellum/workspace/embedding-models/dist/
+    // Resolution order:
+    // 1. Post-hatch download: ~/.vellum/workspace/embedding-models/
     //    Downloaded by EmbeddingRuntimeManager after daemon startup.
     //    If the download is still in progress, wait for it to complete.
     // 2. Legacy bundled: execDir/node_modules/onnxruntime-node/dist/
     //    For backward compat with builds that still bundle in the .app.
     // 3. Dev mode: bare @huggingface/transformers import
     //    Works when running via `bun run` with packages installed.
-    //
-    // The bundle combines @huggingface/transformers + onnxruntime-common into
-    // a single ESM file to avoid CJS/ESM dual-instance issues. Native .node
-    // binaries are left external and resolved via relative paths from the
-    // bundle's location (../bin/napi-v3/...).
 
     let transformers: typeof import('@huggingface/transformers') | undefined;
 
     // 1. Post-hatch downloaded runtime — wait for download if in progress
     const embeddingModelsDir = getEmbeddingModelsDir();
-    const downloadedBundlePath = join(embeddingModelsDir, 'dist', 'transformers-bundle.mjs');
     const runtimeManager = new EmbeddingRuntimeManager();
     if (!runtimeManager.isReady()) {
-      // The background download may still be in progress. Wait for it
-      // (ensureInstalled is idempotent and handles concurrent calls).
       log.info('Embedding runtime not yet available, waiting for download...');
       try {
         await runtimeManager.ensureInstalled();
@@ -96,9 +88,10 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
       }
     }
 
-    if (existsSync(downloadedBundlePath)) {
+    const wrapperPath = runtimeManager.getWrapperPath();
+    if (existsSync(wrapperPath)) {
       try {
-        transformers = await import(downloadedBundlePath);
+        transformers = await import(wrapperPath);
       } catch (err) {
         log.warn({ err }, 'Failed to load downloaded embedding runtime, trying fallbacks');
       }
@@ -116,9 +109,11 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
     }
 
     // 3. Dev mode fallback (bare specifier, works with bun run)
+    // String concatenation prevents Bun from bundling this at compile time.
     if (!transformers) {
       try {
-        transformers = await import('@huggingface/transformers');
+        const specifier = '@huggingface' + '/transformers';
+        transformers = await import(specifier);
       } catch (err) {
         throw new Error(
           `Local embedding backend unavailable: failed to load @huggingface/transformers (${err instanceof Error ? err.message : String(err)})`,
@@ -129,11 +124,11 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
     // Point model weights cache to a stable location under the embedding
     // models directory instead of the default ~/.cache/huggingface/
     const modelCacheDir = join(embeddingModelsDir, 'model-cache');
-    if ('env' in transformers && transformers.env) {
-      (transformers.env as { cacheDir?: string }).cacheDir = modelCacheDir;
+    if ('env' in transformers! && transformers!.env) {
+      (transformers!.env as { cacheDir?: string }).cacheDir = modelCacheDir;
     }
 
-    this.extractor = await transformers.pipeline('feature-extraction', this.model, {
+    this.extractor = await transformers!.pipeline('feature-extraction', this.model, {
       dtype: 'fp32',
     }) as unknown as FeatureExtractionPipeline;
     log.info({ model: this.model }, 'Local embedding model loaded');
