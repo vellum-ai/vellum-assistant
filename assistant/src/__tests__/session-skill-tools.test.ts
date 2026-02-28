@@ -33,6 +33,7 @@ let mockVersionHashErrors: Set<string> = new Set();
 
 mock.module('../config/skills.js', () => ({
   loadSkillCatalog: () => mockCatalog,
+  checkSkillRequirements: () => ({ eligible: true, missing: {} }),
 }));
 
 mock.module('../skills/active-skill-tools.js', () => {
