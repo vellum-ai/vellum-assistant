@@ -146,7 +146,7 @@ private struct VButtonStyle: ButtonStyle {
                 ? adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._600)
                 : adaptiveColor(light: Color(hex: 0x3D5739), dark: Forest._800)
         case .danger:
-            return isHovered ? Color(hex: 0xA53817) : Color(hex: 0x8A2F13)
+            return .clear
         case .tertiary, .ghost:
             return .clear
         case .secondary:
