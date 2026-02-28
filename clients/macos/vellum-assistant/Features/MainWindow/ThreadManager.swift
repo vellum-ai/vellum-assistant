@@ -53,7 +53,12 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
                     }
                 }
             } else {
-                lastActiveThreadIdString = nil
+                // Only clear the persisted thread ID outside of restoration.
+                // During init, enterDraftMode() sets activeThreadId = nil before
+                // restoreLastActiveThread() reads the saved value.
+                if !isRestoringThreads {
+                    lastActiveThreadIdString = nil
+                }
             }
             // Subscribe to the new active view model's changes
             subscribeToActiveViewModel()
@@ -164,13 +169,12 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     }
 
     func createThread() {
-        // If we're in draft mode with an empty draft, just reuse it.
-        if let draftVM = draftViewModel, draftVM.messages.isEmpty, activeThreadId == nil {
+        // If we're in draft mode, promote the draft to a real thread so callers
+        // get a guaranteed activeThreadId.
+        if draftViewModel != nil, activeThreadId == nil {
+            promoteDraft()
             return
         }
-
-        // Discard any existing draft when creating a real thread
-        draftViewModel = nil
 
         // If the active thread is still empty, just keep it instead of creating another.
         // Only reuse when the thread is truly fresh: no messages at all, no persisted
