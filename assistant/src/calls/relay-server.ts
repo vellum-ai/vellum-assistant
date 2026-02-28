@@ -194,6 +194,9 @@ export class RelayConnection {
   private accessRequestTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
   private accessRequestCallerName: string | null = null;
 
+  // Name capture timeout (unknown inbound callers)
+  private nameCaptureTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
+
   constructor(ws: ServerWebSocket<RelayWebSocketData>, callSessionId: string) {
     this.ws = ws;
     this.callSessionId = callSessionId;
@@ -324,6 +327,10 @@ export class RelayConnection {
     if (this.accessRequestTimeoutTimer) {
       clearTimeout(this.accessRequestTimeoutTimer);
       this.accessRequestTimeoutTimer = null;
+    }
+    if (this.nameCaptureTimeoutTimer) {
+      clearTimeout(this.nameCaptureTimeoutTimer);
+      this.nameCaptureTimeoutTimer = null;
     }
     this.accessRequestWaitActive = false;
     this.abortController.abort();
@@ -1061,8 +1068,17 @@ export class RelayConnection {
       true,
     );
 
+    // Start a timeout so silent callers don't keep the call open indefinitely.
+    // Uses a 30-second window — enough time to speak a name but short enough
+    // to avoid wasting resources on callers who never respond.
+    const NAME_CAPTURE_TIMEOUT_MS = 30_000;
+    this.nameCaptureTimeoutTimer = setTimeout(() => {
+      if (this.connectionState !== 'awaiting_name') return;
+      this.handleNameCaptureTimeout();
+    }, NAME_CAPTURE_TIMEOUT_MS);
+
     log.info(
-      { callSessionId: this.callSessionId, assistantId },
+      { callSessionId: this.callSessionId, assistantId, timeoutMs: NAME_CAPTURE_TIMEOUT_MS },
       'Name capture started for unknown inbound caller',
     );
   }
@@ -1075,6 +1091,12 @@ export class RelayConnection {
   private handleNameCaptureResponse(callerName: string): void {
     if (!this.accessRequestAssistantId || !this.accessRequestFromNumber) {
       return;
+    }
+
+    // Clear the name capture timeout since the caller responded.
+    if (this.nameCaptureTimeoutTimer) {
+      clearTimeout(this.nameCaptureTimeoutTimer);
+      this.nameCaptureTimeoutTimer = null;
     }
 
     this.accessRequestCallerName = callerName;
@@ -1329,6 +1351,43 @@ export class RelayConnection {
 
     setTimeout(() => {
       this.endSession('Access request timed out');
+    }, 3000);
+  }
+
+  /**
+   * Handle a name capture timeout: the caller never provided their name
+   * within the allotted window. Deliver deterministic copy and hang up.
+   */
+  private handleNameCaptureTimeout(): void {
+    if (this.nameCaptureTimeoutTimer) {
+      clearTimeout(this.nameCaptureTimeoutTimer);
+      this.nameCaptureTimeoutTimer = null;
+    }
+
+    recordCallEvent(this.callSessionId, 'inbound_acl_name_capture_timeout', {
+      from: this.accessRequestFromNumber,
+    });
+
+    this.sendTextToken(
+      "Sorry, I didn't catch your name. Please try calling back. Goodbye.",
+      true,
+    );
+
+    this.connectionState = 'disconnecting';
+
+    updateCallSession(this.callSessionId, {
+      status: 'failed',
+      endedAt: Date.now(),
+      lastError: 'Inbound voice ACL: name capture timed out',
+    });
+
+    log.info(
+      { callSessionId: this.callSessionId },
+      'Name capture timed out — ending call',
+    );
+
+    setTimeout(() => {
+      this.endSession('Name capture timed out');
     }, 3000);
   }
 
