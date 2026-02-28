@@ -137,8 +137,8 @@ export interface ToolContext {
   proxyApprovalCallback?: import('./network/script-proxy/types.js').ProxyApprovalCallback;
   /** Optional principal identifier propagated to sub-tool confirmation flows. */
   principal?: string;
-  /** Guardian actor role for the session — used by the guardian control-plane policy gate. */
-  guardianActorRole?: 'guardian' | 'non-guardian' | 'unverified_channel';
+  /** Inbound trust classification for the session — used by trust/policy gates. */
+  guardianTrustClass?: 'guardian' | 'trusted_contact' | 'unknown';
   /** Channel through which the tool invocation originates (e.g. 'telegram', 'voice'). Used for scoped grant consumption. */
   executionChannel?: string;
   /** Voice/call session ID, if the invocation originates from a call. Used for scoped grant consumption. */

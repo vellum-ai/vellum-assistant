@@ -266,7 +266,7 @@ describe('voice bridge confirmation handling (grant consumption via primitive)',
 
     const guardianContext: GuardianRuntimeContext = {
       sourceChannel: 'voice',
-      actorRole: 'non-guardian',
+      trustClass: 'trusted_contact',
       requesterExternalUserId: 'caller-123',
     };
 
@@ -307,7 +307,7 @@ describe('voice bridge confirmation handling (grant consumption via primitive)',
 
     const guardianContext: GuardianRuntimeContext = {
       sourceChannel: 'voice',
-      actorRole: 'non-guardian',
+      trustClass: 'trusted_contact',
       requesterExternalUserId: 'caller-123',
     };
 
@@ -343,7 +343,7 @@ describe('voice bridge confirmation handling (grant consumption via primitive)',
 
     const guardianContext: GuardianRuntimeContext = {
       sourceChannel: 'voice',
-      actorRole: 'non-guardian',
+      trustClass: 'trusted_contact',
     };
 
     await startVoiceTurn({
@@ -373,7 +373,7 @@ describe('voice bridge confirmation handling (grant consumption via primitive)',
 
     const guardianContext: GuardianRuntimeContext = {
       sourceChannel: 'voice',
-      actorRole: 'guardian',
+      trustClass: 'guardian',
     };
 
     await startVoiceTurn({
@@ -407,7 +407,7 @@ describe('voice bridge confirmation handling (grant consumption via primitive)',
 
     const guardianContext: GuardianRuntimeContext = {
       sourceChannel: 'voice',
-      actorRole: 'non-guardian',
+      trustClass: 'trusted_contact',
       requesterExternalUserId: 'caller-123',
     };
 

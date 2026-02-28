@@ -250,8 +250,8 @@ export async function startVoiceTurn(opts: VoiceTurnOptions): Promise<VoiceTurnH
   // - guardian: permission prompts auto-allow (parity with guardian chat)
   // - everyone else (including unknown): fail-closed strict side-effects
   //   with auto-deny confirmations.
-  const actorRole = opts.guardianContext?.actorRole;
-  const isGuardian = actorRole === 'guardian';
+  const trustClass = opts.guardianContext?.trustClass;
+  const isGuardian = trustClass === 'guardian';
   const forceStrictSideEffects = isGuardian ? undefined : true;
 
   // Replace the [CALL_OPENING] marker with a neutral instruction before
@@ -264,7 +264,7 @@ export async function startVoiceTurn(opts: VoiceTurnOptions): Promise<VoiceTurnH
 
   // Build the call-control protocol prompt so the model knows how to emit
   // control markers (ASK_GUARDIAN, END_CALL, etc.) and recognize opener turns.
-  const isCallerGuardian = opts.guardianContext?.actorRole === 'guardian';
+  const isCallerGuardian = opts.guardianContext?.trustClass === 'guardian';
 
   const voiceCallControlPrompt = buildVoiceCallControlPrompt({
     isInbound: opts.isInbound,

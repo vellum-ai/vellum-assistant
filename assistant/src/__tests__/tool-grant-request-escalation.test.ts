@@ -147,7 +147,7 @@ function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
     conversationId: 'conv-1',
     assistantId: 'self',
     requestId: 'req-1',
-    guardianActorRole: 'non-guardian',
+    guardianTrustClass: 'trusted_contact',
     executionChannel: 'telegram',
     requesterExternalUserId: 'requester-1',
     ...overrides,
@@ -204,7 +204,7 @@ describe('ToolApprovalHandler / grant-miss escalation', () => {
     const toolName = 'bash';
     const input = { command: 'cat /etc/passwd' };
 
-    const context = makeContext({ guardianActorRole: 'non-guardian' });
+    const context = makeContext({ guardianTrustClass: 'trusted_contact' });
     const result = await handler.checkPreExecutionGates(
       toolName, input, context, 'host', 'high', Date.now(), emitLifecycleEvent,
     );
@@ -231,7 +231,7 @@ describe('ToolApprovalHandler / grant-miss escalation', () => {
     const toolName = 'bash';
     const input = { command: 'deploy' };
 
-    const context = makeContext({ guardianActorRole: 'non-guardian' });
+    const context = makeContext({ guardianTrustClass: 'trusted_contact' });
     const result = await handler.checkPreExecutionGates(
       toolName, input, context, 'host', 'high', Date.now(), emitLifecycleEvent,
     );
@@ -247,7 +247,7 @@ describe('ToolApprovalHandler / grant-miss escalation', () => {
     const toolName = 'bash';
     const input = { command: 'rm -rf /' };
 
-    const context = makeContext({ guardianActorRole: 'non-guardian' });
+    const context = makeContext({ guardianTrustClass: 'trusted_contact' });
 
     // First invocation creates the request
     await handler.checkPreExecutionGates(
@@ -288,7 +288,7 @@ describe('ToolApprovalHandler / grant-miss escalation', () => {
     const input = { command: 'ls' };
 
     const context = makeContext({
-      guardianActorRole: 'unverified_channel',
+      guardianTrustClass: 'unknown',
       executionChannel: 'telegram',
       requesterExternalUserId: 'unknown-user',
     });
@@ -314,7 +314,7 @@ describe('ToolApprovalHandler / grant-miss escalation', () => {
     const input = { command: 'deploy' };
 
     const context = makeContext({
-      guardianActorRole: 'non-guardian',
+      guardianTrustClass: 'trusted_contact',
       executionChannel: undefined, // no channel info
     });
     const result = await handler.checkPreExecutionGates(
@@ -449,7 +449,7 @@ describe('end-to-end: tool grant escalation -> approval -> consume', () => {
     const input = { command: 'echo secret' };
     const _inputDigest = computeToolApprovalDigest(toolName, input);
 
-    const context = makeContext({ guardianActorRole: 'non-guardian' });
+    const context = makeContext({ guardianTrustClass: 'trusted_contact' });
 
     // Step 1: First invocation is denied, but a tool_grant_request is created
     const firstResult = await handler.checkPreExecutionGates(

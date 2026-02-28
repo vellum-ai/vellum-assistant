@@ -23,7 +23,7 @@ export {
 } from './channel-inbound-routes.js';
 export {
   _setTestPollMaxWait,
-  type ActorRole,
+  type ActorTrustClass,
   type DenialReason,
   GATEWAY_ORIGIN_HEADER,
   type GuardianContext,

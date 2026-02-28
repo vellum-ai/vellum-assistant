@@ -11,7 +11,7 @@ import type {
   ApprovalUIMetadata,
 } from '../channel-approval-types.js';
 import type { DenialReason } from '../guardian-context-resolver.js';
-export type { ActorRole, DenialReason, GuardianContext } from '../guardian-context-resolver.js';
+export type { ActorTrustClass, DenialReason, GuardianContext } from '../guardian-context-resolver.js';
 export { toGuardianRuntimeContext } from '../guardian-context-resolver.js';
 
 /** Canonicalize assistantId for channel ingress paths. */

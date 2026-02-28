@@ -303,9 +303,9 @@ async function executeApprove(
     }
   }
   session.setAssistantId(assistantId);
-  // The guardian approved this escalation, so tag as guardian to avoid
-  // 'unverified_channel' blocking memory extraction.
-  session.setGuardianContext({ actorRole: 'guardian', sourceChannel: sourceChannel ?? 'vellum' });
+  // The guardian approved this escalation, so tag as guardian trust to avoid
+  // unknown-provenance memory gating.
+  session.setGuardianContext({ trustClass: 'guardian', sourceChannel: sourceChannel ?? 'vellum' });
   session.setCommandIntent(null);
 
   // Process the message through the agent loop (no IPC event callback
@@ -379,7 +379,7 @@ async function executeDeny(
   // Store a system note about the denial in the conversation
   const denialInterface = isInterfaceId(sourceChannel) ? sourceChannel : undefined;
   await addMessage(conversationId, 'assistant', denialText, {
-    provenanceActorRole: 'guardian' as const,
+    provenanceTrustClass: 'guardian' as const,
     userMessageChannel: sourceChannel,
     assistantMessageChannel: sourceChannel,
     ...(denialInterface ? { userMessageInterface: denialInterface, assistantMessageInterface: denialInterface } : {}),

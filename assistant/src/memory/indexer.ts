@@ -23,7 +23,7 @@ export interface IndexMessageInput {
   createdAt: number;
   scopeId?: string;
   // Provenance for trust-aware extraction gating (M3)
-  provenanceActorRole?: 'guardian' | 'non-guardian' | 'unverified_channel';
+  provenanceTrustClass?: 'guardian' | 'trusted_contact' | 'unknown';
 }
 
 export interface IndexMessageResult {
@@ -39,7 +39,7 @@ export function indexMessageNow(
 
   // Provenance-based trust gating: only guardian and legacy (undefined) actors
   // are trusted for extraction and conflict resolution.
-  const isTrustedActor = input.provenanceActorRole === 'guardian' || input.provenanceActorRole === undefined;
+  const isTrustedActor = input.provenanceTrustClass === 'guardian' || input.provenanceTrustClass === undefined;
 
   const text = extractTextFromStoredMessageContent(input.content);
   if (text.length === 0) {
@@ -123,7 +123,7 @@ export function indexMessageNow(
   }
 
   if (!isTrustedActor && (shouldExtract || shouldResolveConflicts)) {
-    log.info(`Skipping extraction/conflict jobs for untrusted actor (role=${input.provenanceActorRole})`);
+    log.info(`Skipping extraction/conflict jobs for untrusted actor (trustClass=${input.provenanceTrustClass})`);
   }
 
   enqueueSummaryRollupJobsIfDue();

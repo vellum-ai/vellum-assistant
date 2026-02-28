@@ -380,7 +380,7 @@ describe('enforceGuardianOnlyPolicy', () => {
   test('non-guardian actor denied for guardian endpoint', () => {
     const result = enforceGuardianOnlyPolicy('bash', {
       command: 'curl http://localhost:3000/v1/integrations/guardian/outbound/start',
-    }, 'non-guardian');
+    }, 'trusted_contact');
     expect(result.denied).toBe(true);
     expect(result.reason).toContain('restricted to guardian users');
   });
@@ -388,7 +388,7 @@ describe('enforceGuardianOnlyPolicy', () => {
   test('unverified_channel actor denied for guardian endpoint', () => {
     const result = enforceGuardianOnlyPolicy('network_request', {
       url: 'https://api.example.com/v1/integrations/guardian/challenge',
-    }, 'unverified_channel');
+    }, 'unknown');
     expect(result.denied).toBe(true);
     expect(result.reason).toContain('restricted to guardian users');
   });
@@ -419,14 +419,14 @@ describe('enforceGuardianOnlyPolicy', () => {
   test('non-guardian actor is NOT denied for unrelated endpoint', () => {
     const result = enforceGuardianOnlyPolicy('bash', {
       command: 'curl http://localhost:3000/v1/messages',
-    }, 'non-guardian');
+    }, 'trusted_contact');
     expect(result.denied).toBe(false);
   });
 
   test('non-guardian actor is NOT denied for unrelated tool', () => {
     const result = enforceGuardianOnlyPolicy('file_read', {
       path: 'README.md',
-    }, 'non-guardian');
+    }, 'trusted_contact');
     expect(result.denied).toBe(false);
   });
 });
@@ -445,7 +445,7 @@ describe('ToolExecutor guardian-only policy gate', () => {
     const result = await executor.execute(
       'bash',
       { command: 'curl -X POST http://localhost:3000/v1/integrations/guardian/outbound/start' },
-      makeContext({ guardianActorRole: 'non-guardian' }),
+      makeContext({ guardianTrustClass: 'trusted_contact' }),
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain('restricted to guardian users');
@@ -456,7 +456,7 @@ describe('ToolExecutor guardian-only policy gate', () => {
     const result = await executor.execute(
       'network_request',
       { url: 'https://api.example.com/v1/integrations/guardian/challenge' },
-      makeContext({ guardianActorRole: 'unverified_channel' }),
+      makeContext({ guardianTrustClass: 'unknown' }),
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain('restricted to guardian users');
@@ -467,18 +467,18 @@ describe('ToolExecutor guardian-only policy gate', () => {
     const result = await executor.execute(
       'bash',
       { command: 'curl -X POST http://localhost:3000/v1/integrations/guardian/outbound/start' },
-      makeContext({ guardianActorRole: 'guardian' }),
+      makeContext({ guardianTrustClass: 'guardian' }),
     );
     expect(result.isError).toBe(false);
     expect(result.content).toBe('ok');
   });
 
-  test('undefined guardianActorRole is NOT blocked from guardian endpoint', async () => {
+  test('undefined guardianTrustClass is NOT blocked from guardian endpoint', async () => {
     const executor = new ToolExecutor(makePrompter());
     const result = await executor.execute(
       'bash',
       { command: 'curl http://localhost:3000/v1/integrations/guardian/status' },
-      makeContext(), // no guardianActorRole set
+      makeContext(), // no guardianTrustClass set
     );
     expect(result.isError).toBe(false);
     expect(result.content).toBe('ok');
@@ -489,7 +489,7 @@ describe('ToolExecutor guardian-only policy gate', () => {
     const result = await executor.execute(
       'bash',
       { command: 'curl http://localhost:3000/v1/messages' },
-      makeContext({ guardianActorRole: 'non-guardian' }),
+      makeContext({ guardianTrustClass: 'trusted_contact' }),
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain('requires guardian approval');
@@ -500,7 +500,7 @@ describe('ToolExecutor guardian-only policy gate', () => {
     const result = await executor.execute(
       'file_read',
       { path: 'README.md' },
-      makeContext({ guardianActorRole: 'non-guardian' }),
+      makeContext({ guardianTrustClass: 'trusted_contact' }),
     );
     expect(result.isError).toBe(false);
     expect(result.content).toBe('ok');
@@ -513,7 +513,7 @@ describe('ToolExecutor guardian-only policy gate', () => {
       'bash',
       { command: 'curl http://localhost:3000/v1/integrations/guardian/outbound/cancel' },
       makeContext({
-        guardianActorRole: 'non-guardian',
+        guardianTrustClass: 'trusted_contact',
         onToolLifecycleEvent: (event: ToolLifecycleEvent) => {
           if (event.type === 'permission_denied') {
             capturedEvent = event as ToolPermissionDeniedEvent;
@@ -531,7 +531,7 @@ describe('ToolExecutor guardian-only policy gate', () => {
     const result = await executor.execute(
       'web_fetch',
       { url: 'http://localhost:3000/v1/integrations/guardian/outbound/resend' },
-      makeContext({ guardianActorRole: 'non-guardian' }),
+      makeContext({ guardianTrustClass: 'trusted_contact' }),
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain('restricted to guardian users');
@@ -542,7 +542,7 @@ describe('ToolExecutor guardian-only policy gate', () => {
     const result = await executor.execute(
       'browser_navigate',
       { url: 'http://localhost:3000/v1/integrations/guardian/status' },
-      makeContext({ guardianActorRole: 'non-guardian' }),
+      makeContext({ guardianTrustClass: 'trusted_contact' }),
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain('restricted to guardian users');
@@ -553,7 +553,7 @@ describe('ToolExecutor guardian-only policy gate', () => {
     const result = await executor.execute(
       'host_bash',
       { command: 'curl -X POST https://internal:8080/v1/integrations/guardian/challenge' },
-      makeContext({ guardianActorRole: 'non-guardian' }),
+      makeContext({ guardianTrustClass: 'trusted_contact' }),
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain('restricted to guardian users');
@@ -573,7 +573,7 @@ describe('ToolExecutor guardian-only policy gate', () => {
       const result = await executor.execute(
         'network_request',
         { url: `https://api.example.com${path}` },
-        makeContext({ guardianActorRole: 'non-guardian' }),
+        makeContext({ guardianTrustClass: 'trusted_contact' }),
       );
       expect(result.isError).toBe(true);
       expect(result.content).toContain('restricted to guardian users');
@@ -585,7 +585,7 @@ describe('ToolExecutor guardian-only policy gate', () => {
     const result = await executor.execute(
       'host_file_read',
       { path: '/Users/noaflaherty/.ssh/config' },
-      makeContext({ guardianActorRole: 'non-guardian' }),
+      makeContext({ guardianTrustClass: 'trusted_contact' }),
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain('requires guardian approval');
@@ -596,7 +596,7 @@ describe('ToolExecutor guardian-only policy gate', () => {
     const result = await executor.execute(
       'reminder_create',
       { fire_at: '2026-02-27T12:00:00-05:00', label: 'test', message: 'hello' },
-      makeContext({ guardianActorRole: 'unverified_channel' }),
+      makeContext({ guardianTrustClass: 'unknown' }),
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain('verified channel identity');
@@ -607,7 +607,7 @@ describe('ToolExecutor guardian-only policy gate', () => {
     const result = await executor.execute(
       'reminder_create',
       { fire_at: '2026-02-27T12:00:00-05:00', label: 'test', message: 'hello' },
-      makeContext({ guardianActorRole: 'guardian' }),
+      makeContext({ guardianTrustClass: 'guardian' }),
     );
     expect(result.isError).toBe(false);
     expect(result.content).toBe('ok');

@@ -124,13 +124,13 @@ export function isGuardianControlPlaneInvocation(
 export function enforceGuardianOnlyPolicy(
   toolName: string,
   input: Record<string, unknown>,
-  actorRole: string | undefined,
+  trustClass: string | undefined,
 ): { denied: boolean; reason?: string } {
   if (!isGuardianControlPlaneInvocation(toolName, input)) {
     return { denied: false };
   }
 
-  if (actorRole === 'guardian' || actorRole === undefined) {
+  if (trustClass === 'guardian' || trustClass === undefined) {
     return { denied: false };
   }
 

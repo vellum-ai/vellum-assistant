@@ -304,7 +304,7 @@ describe('voice-session-bridge', () => {
       isInbound: true,
       guardianContext: {
         sourceChannel: 'voice',
-        actorRole: 'non-guardian',
+        trustClass: 'trusted_contact',
         guardianExternalUserId: '+15550009999',
         guardianChatId: '+15550009999',
         requesterExternalUserId: '+15550002222',
@@ -340,7 +340,7 @@ describe('voice-session-bridge', () => {
       isInbound: true,
       guardianContext: {
         sourceChannel: 'voice',
-        actorRole: 'unverified_channel',
+        trustClass: 'unknown',
         denialReason: 'no_binding',
       },
       onTextDelta: () => {},
@@ -374,7 +374,7 @@ describe('voice-session-bridge', () => {
       isInbound: true,
       guardianContext: {
         sourceChannel: 'voice',
-        actorRole: 'guardian',
+        trustClass: 'guardian',
         guardianExternalUserId: '+15550001111',
         guardianChatId: '+15550001111',
       },
@@ -407,7 +407,7 @@ describe('voice-session-bridge', () => {
 
     const guardianCtx = {
       sourceChannel: 'voice' as const,
-      actorRole: 'guardian' as const,
+      trustClass: 'guardian' as const,
       guardianExternalUserId: '+15550001111',
       guardianChatId: '+15550001111',
     };
@@ -450,7 +450,7 @@ describe('voice-session-bridge', () => {
       isInbound: true,
       guardianContext: {
         sourceChannel: 'voice',
-        actorRole: 'non-guardian',
+        trustClass: 'trusted_contact',
       },
       onTextDelta: () => {},
       onComplete: () => {},
@@ -499,7 +499,7 @@ describe('voice-session-bridge', () => {
       isInbound: true,
       guardianContext: {
         sourceChannel: 'voice',
-        actorRole: 'non-guardian',
+        trustClass: 'trusted_contact',
       },
       onTextDelta: () => {},
       onComplete: () => {},
@@ -574,7 +574,7 @@ describe('voice-session-bridge', () => {
       isInbound: true,
       guardianContext: {
         sourceChannel: 'voice',
-        actorRole: 'non-guardian',
+        trustClass: 'trusted_contact',
         guardianExternalUserId: '+15550009999',
         guardianChatId: '+15550009999',
         requesterExternalUserId: '+15550002222',
@@ -644,7 +644,7 @@ describe('voice-session-bridge', () => {
       isInbound: true,
       guardianContext: {
         sourceChannel: 'voice',
-        actorRole: 'unverified_channel',
+        trustClass: 'unknown',
         denialReason: 'no_binding',
       },
       onTextDelta: () => {},
@@ -768,7 +768,7 @@ describe('voice-session-bridge', () => {
       isInbound: true,
       guardianContext: {
         sourceChannel: 'voice',
-        actorRole: 'guardian',
+        trustClass: 'guardian',
         guardianExternalUserId: '+15550001111',
         guardianChatId: '+15550001111',
       },
@@ -835,7 +835,7 @@ describe('voice-session-bridge', () => {
       isInbound: true,
       guardianContext: {
         sourceChannel: 'voice',
-        actorRole: 'guardian',
+        trustClass: 'guardian',
         guardianExternalUserId: '+15550001111',
         guardianChatId: '+15550001111',
       },

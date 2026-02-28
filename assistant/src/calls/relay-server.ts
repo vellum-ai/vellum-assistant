@@ -14,15 +14,14 @@ import { getConfig } from '../config/loader.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { revokeScopedApprovalGrantsForContext } from '../memory/scoped-approval-grants.js';
 import { notifyGuardianOfAccessRequest } from '../runtime/access-request-helper.js';
-import { resolveActorTrust, toGuardianContextCompat } from '../runtime/actor-trust-resolver.js';
+import {
+  resolveActorTrust,
+  toGuardianRuntimeContextFromTrust,
+} from '../runtime/actor-trust-resolver.js';
 import {
   getPendingChallenge,
   validateAndConsumeChallenge,
 } from '../runtime/channel-guardian-service.js';
-import {
-  resolveGuardianContext,
-  toGuardianRuntimeContext,
-} from '../runtime/guardian-context-resolver.js';
 import {
   composeVerificationVoice,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
@@ -428,15 +427,13 @@ export class RelayConnection {
     // calls msg.from is the caller; for outbound calls msg.to is the
     // recipient (msg.from is the assistant's Twilio number).
     const otherPartyNumber = isInbound ? msg.from : msg.to;
-    const initialGuardianContext = toGuardianRuntimeContext(
-      'voice',
-      resolveGuardianContext({
-        assistantId,
-        sourceChannel: 'voice',
-        externalChatId: otherPartyNumber,
-        senderExternalUserId: otherPartyNumber || undefined,
-      }),
-    );
+    const initialActorTrust = resolveActorTrust({
+      assistantId,
+      sourceChannel: 'voice',
+      externalChatId: otherPartyNumber,
+      senderExternalUserId: otherPartyNumber || undefined,
+    });
+    const initialGuardianContext = toGuardianRuntimeContextFromTrust(initialActorTrust, otherPartyNumber);
 
     const controller = new CallController(this.callSessionId, this, session?.task ?? null, {
       broadcast: globalBroadcast,
@@ -613,10 +610,7 @@ export class RelayConnection {
       // Update the controller's guardian context with the trust-resolved
       // context so downstream policy gates have accurate actor metadata.
       if (this.controller && actorTrust.trustClass !== 'unknown') {
-        const resolvedGuardianContext = toGuardianRuntimeContext(
-          'voice',
-          toGuardianContextCompat(actorTrust, msg.from),
-        );
+        const resolvedGuardianContext = toGuardianRuntimeContextFromTrust(actorTrust, msg.from);
         this.controller.setGuardianContext(resolvedGuardianContext);
       }
 
@@ -876,16 +870,14 @@ export class RelayConnection {
       } else {
         // Inbound: proceed to normal call flow
         if (this.controller) {
+          const verifiedActorTrust = resolveActorTrust({
+            assistantId: this.guardianChallengeAssistantId,
+            sourceChannel: 'voice',
+            externalChatId: this.guardianVerificationFromNumber,
+            senderExternalUserId: this.guardianVerificationFromNumber,
+          });
           this.controller.setGuardianContext(
-            toGuardianRuntimeContext(
-              'voice',
-              resolveGuardianContext({
-                assistantId: this.guardianChallengeAssistantId,
-                sourceChannel: 'voice',
-                externalChatId: this.guardianVerificationFromNumber,
-                senderExternalUserId: this.guardianVerificationFromNumber,
-              }),
-            ),
+            toGuardianRuntimeContextFromTrust(verifiedActorTrust, this.guardianVerificationFromNumber),
           );
           this.startNormalCallFlow(this.controller, true);
         }

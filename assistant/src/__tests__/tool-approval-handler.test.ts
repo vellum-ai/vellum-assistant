@@ -100,7 +100,7 @@ function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
     conversationId: 'conv-1',
     assistantId: 'self',
     requestId: 'req-1',
-    guardianActorRole: 'non-guardian',
+    guardianTrustClass: 'trusted_contact',
     ...overrides,
   };
 }
@@ -134,7 +134,7 @@ describe('ToolApprovalHandler / pre-exec gate grant check', () => {
     );
     expect(mintResult.ok).toBe(true);
 
-    const context = makeContext({ guardianActorRole: 'non-guardian' });
+    const context = makeContext({ guardianTrustClass: 'trusted_contact' });
     const result = await handler.checkPreExecutionGates(
       toolName, input, context, 'host', 'high', Date.now(), emitLifecycleEvent,
     );
@@ -149,7 +149,7 @@ describe('ToolApprovalHandler / pre-exec gate grant check', () => {
     const toolName = 'bash';
     const input = { command: 'rm -rf /' };
 
-    const context = makeContext({ guardianActorRole: 'non-guardian' });
+    const context = makeContext({ guardianTrustClass: 'trusted_contact' });
     const result = await handler.checkPreExecutionGates(
       toolName, input, context, 'host', 'high', Date.now(), emitLifecycleEvent,
     );
@@ -177,7 +177,7 @@ describe('ToolApprovalHandler / pre-exec gate grant check', () => {
       }),
     );
 
-    const context = makeContext({ guardianActorRole: 'unverified_channel' });
+    const context = makeContext({ guardianTrustClass: 'unknown' });
     const result = await handler.checkPreExecutionGates(
       toolName, input, context, 'host', 'high', Date.now(), emitLifecycleEvent,
     );
@@ -189,7 +189,7 @@ describe('ToolApprovalHandler / pre-exec gate grant check', () => {
     const toolName = 'bash';
     const input = { command: 'deploy' };
 
-    const context = makeContext({ guardianActorRole: 'unverified_channel' });
+    const context = makeContext({ guardianTrustClass: 'unknown' });
     const result = await handler.checkPreExecutionGates(
       toolName, input, context, 'host', 'high', Date.now(), emitLifecycleEvent,
     );
@@ -212,7 +212,7 @@ describe('ToolApprovalHandler / pre-exec gate grant check', () => {
       }),
     );
 
-    const context = makeContext({ guardianActorRole: 'non-guardian' });
+    const context = makeContext({ guardianTrustClass: 'trusted_contact' });
 
     // First invocation — should consume the grant and allow
     const first = await handler.checkPreExecutionGates(
@@ -241,7 +241,7 @@ describe('ToolApprovalHandler / pre-exec gate grant check', () => {
       }),
     );
 
-    const context = makeContext({ guardianActorRole: 'non-guardian' });
+    const context = makeContext({ guardianTrustClass: 'trusted_contact' });
     const result = await handler.checkPreExecutionGates(
       toolName, invokeInput, context, 'host', 'high', Date.now(), emitLifecycleEvent,
     );
@@ -264,7 +264,7 @@ describe('ToolApprovalHandler / pre-exec gate grant check', () => {
       }),
     );
 
-    const context = makeContext({ guardianActorRole: 'non-guardian' });
+    const context = makeContext({ guardianTrustClass: 'trusted_contact' });
     const result = await handler.checkPreExecutionGates(
       toolName, input, context, 'host', 'high', Date.now(), emitLifecycleEvent,
     );
@@ -277,7 +277,7 @@ describe('ToolApprovalHandler / pre-exec gate grant check', () => {
     const input = { command: 'deploy' };
 
     // No grants minted at all
-    const context = makeContext({ guardianActorRole: 'guardian' });
+    const context = makeContext({ guardianTrustClass: 'guardian' });
     const result = await handler.checkPreExecutionGates(
       toolName, input, context, 'host', 'high', Date.now(), emitLifecycleEvent,
     );
@@ -290,7 +290,7 @@ describe('ToolApprovalHandler / pre-exec gate grant check', () => {
     const toolName = 'bash';
     const input = { command: 'deploy' };
 
-    const context = makeContext({ guardianActorRole: undefined });
+    const context = makeContext({ guardianTrustClass: undefined });
     const result = await handler.checkPreExecutionGates(
       toolName, input, context, 'host', 'high', Date.now(), emitLifecycleEvent,
     );
@@ -309,7 +309,7 @@ describe('ToolApprovalHandler / pre-exec gate grant check', () => {
       }),
     );
 
-    const context = makeContext({ guardianActorRole: 'non-guardian', requestId: 'req-1' });
+    const context = makeContext({ guardianTrustClass: 'trusted_contact', requestId: 'req-1' });
     const result = await handler.checkPreExecutionGates(
       toolName, input, context, 'host', 'high', Date.now(), emitLifecycleEvent,
     );
@@ -333,7 +333,7 @@ describe('ToolApprovalHandler / pre-exec gate grant check', () => {
 
     // Context conversationId does not match the grant's conversationId
     const context = makeContext({
-      guardianActorRole: 'non-guardian',
+      guardianTrustClass: 'trusted_contact',
       conversationId: 'conv-1',
     });
     const result = await handler.checkPreExecutionGates(
@@ -349,7 +349,7 @@ describe('ToolApprovalHandler / pre-exec gate grant check', () => {
 
     // executionChannel defaults to undefined (non-voice)
     const context = makeContext({
-      guardianActorRole: 'non-guardian',
+      guardianTrustClass: 'trusted_contact',
       executionChannel: 'telegram',
     });
 
@@ -383,7 +383,7 @@ describe('ToolApprovalHandler / pre-exec gate grant check', () => {
     }, 300);
 
     const context = makeContext({
-      guardianActorRole: 'non-guardian',
+      guardianTrustClass: 'trusted_contact',
       executionChannel: 'voice',
     });
 
@@ -408,7 +408,7 @@ describe('ToolApprovalHandler / pre-exec gate grant check', () => {
     setTimeout(() => controller.abort(), 200);
 
     const context = makeContext({
-      guardianActorRole: 'non-guardian',
+      guardianTrustClass: 'trusted_contact',
       executionChannel: 'voice',
       signal: controller.signal,
     });

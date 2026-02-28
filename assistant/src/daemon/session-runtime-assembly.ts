@@ -35,7 +35,7 @@ export interface ChannelCapabilities {
 /** Guardian identity/trust context for external chat channels. */
 export interface GuardianRuntimeContext {
   sourceChannel: ChannelId;
-  actorRole: 'guardian' | 'non-guardian' | 'unverified_channel';
+  trustClass: 'guardian' | 'trusted_contact' | 'unknown';
   guardianChatId?: string;
   guardianExternalUserId?: string;
   requesterIdentifier?: string;
@@ -73,33 +73,14 @@ export interface InboundActorContext {
 /**
  * Construct an InboundActorContext from a legacy GuardianRuntimeContext.
  *
- * Maps the legacy actor role to the new trust classification:
- * - guardian -> guardian
- * - non-guardian -> unknown (the legacy context carries no membership
- *   evidence, so we cannot distinguish known members from arbitrary
- *   non-guardian senders; default to unknown for safety)
- * - unverified_channel -> unknown
- *
- * The new ActorTrustContext path (via `inboundActorContextFromTrust`)
- * resolves `trusted_contact` correctly using ingress member records.
+ * Maps the runtime trust class into the model-facing inbound actor context.
  */
 export function inboundActorContextFromGuardian(ctx: GuardianRuntimeContext): InboundActorContext {
-  let trustClass: InboundActorContext['trustClass'];
-  switch (ctx.actorRole) {
-    case 'guardian':
-      trustClass = 'guardian';
-      break;
-    case 'non-guardian':
-    case 'unverified_channel':
-      trustClass = 'unknown';
-      break;
-  }
-
   return {
     sourceChannel: ctx.sourceChannel,
     canonicalActorIdentity: ctx.requesterExternalUserId ?? null,
     actorIdentifier: ctx.requesterIdentifier,
-    trustClass,
+    trustClass: ctx.trustClass,
     guardianIdentity: ctx.guardianExternalUserId,
     denialReason: ctx.denialReason,
   };

@@ -910,7 +910,7 @@ export async function handleChannelInbound(
     replyCallbackUrl &&
     (trimmedContent.length > 0 || hasCallbackData) &&
     rawSenderId &&
-    guardianCtx.actorRole === 'guardian'
+    guardianCtx.trustClass === 'guardian'
   ) {
     // Compute destination-scoped pending request hints so the router can
     // discover canonical requests delivered to this chat even when the
@@ -1369,7 +1369,7 @@ function startPendingApprovalPromptWatcher(params: {
   conversationId: string;
   sourceChannel: ChannelId;
   externalChatId: string;
-  guardianActorRole: GuardianContext['actorRole'];
+  guardianTrustClass: GuardianContext['trustClass'];
   replyCallbackUrl: string;
   bearerToken?: string;
   assistantId?: string;
@@ -1379,7 +1379,7 @@ function startPendingApprovalPromptWatcher(params: {
     conversationId,
     sourceChannel,
     externalChatId,
-    guardianActorRole,
+    guardianTrustClass,
     replyCallbackUrl,
     bearerToken,
     assistantId,
@@ -1388,7 +1388,7 @@ function startPendingApprovalPromptWatcher(params: {
 
   // Approval prompt delivery is guardian-only. Non-guardian and unverified
   // actors must never receive approval prompt broadcasts for the conversation.
-  if (guardianActorRole !== 'guardian') {
+  if (guardianTrustClass !== 'guardian') {
     return () => {};
   }
 
@@ -1470,7 +1470,7 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
         conversationId,
         sourceChannel,
         externalChatId,
-        guardianActorRole: guardianCtx.actorRole,
+        guardianTrustClass: guardianCtx.trustClass,
         replyCallbackUrl,
         bearerToken,
         assistantId,
@@ -1494,7 +1494,7 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
           },
           assistantId,
           guardianContext: toGuardianRuntimeContext(sourceChannel, guardianCtx),
-          isInteractive: guardianCtx.actorRole === 'guardian',
+          isInteractive: guardianCtx.trustClass === 'guardian',
           ...(cmdIntent ? { commandIntent: cmdIntent } : {}),
         },
         sourceChannel,

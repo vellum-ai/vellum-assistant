@@ -4448,7 +4448,7 @@ describe('Memory regressions', () => {
       role: 'user',
       content: 'Untrusted sender says preferences should not become durable profile memory.',
       metadata: JSON.stringify({
-        provenanceActorRole: 'non-guardian',
+        provenanceTrustClass: 'trusted_contact',
         provenanceSourceChannel: 'telegram',
       }),
       createdAt: conv.createdAt + 1,
@@ -4516,7 +4516,7 @@ describe('Memory regressions', () => {
           conversationId: 'conv-relation-provenance-gate',
           role: 'user',
           content: JSON.stringify([{ type: 'text', text: 'Trusted guardian message for relation backfill.' }]),
-          metadata: JSON.stringify({ provenanceActorRole: 'guardian', provenanceSourceChannel: 'telegram' }),
+          metadata: JSON.stringify({ provenanceTrustClass: 'guardian', provenanceSourceChannel: 'telegram' }),
           createdAt: now + 1,
         },
         {
@@ -4524,7 +4524,7 @@ describe('Memory regressions', () => {
           conversationId: 'conv-relation-provenance-gate',
           role: 'user',
           content: JSON.stringify([{ type: 'text', text: 'Untrusted message that should be excluded from relation backfill extraction.' }]),
-          metadata: JSON.stringify({ provenanceActorRole: 'non-guardian', provenanceSourceChannel: 'telegram' }),
+          metadata: JSON.stringify({ provenanceTrustClass: 'trusted_contact', provenanceSourceChannel: 'telegram' }),
           createdAt: now + 2,
         },
       ]).run();
@@ -4566,7 +4566,7 @@ describe('Memory regressions', () => {
     const conv = createConversation('provenance-preserve');
     const metadata = {
       userMessageChannel: 'telegram' as const,
-      provenanceActorRole: 'non-guardian' as const,
+      provenanceTrustClass: 'trusted_contact' as const,
       provenanceSourceChannel: 'telegram' as const,
       provenanceGuardianExternalUserId: 'guardian-123',
       provenanceRequesterIdentifier: 'Alice',
@@ -4582,7 +4582,7 @@ describe('Memory regressions', () => {
 
     expect(stored).toBeTruthy();
     const parsed = JSON.parse(stored!.metadata!);
-    expect(parsed.provenanceActorRole).toBe('non-guardian');
+    expect(parsed.provenanceTrustClass).toBe('trusted_contact');
     expect(parsed.provenanceSourceChannel).toBe('telegram');
     expect(parsed.provenanceGuardianExternalUserId).toBe('guardian-123');
     expect(parsed.provenanceRequesterIdentifier).toBe('Alice');
@@ -4590,13 +4590,13 @@ describe('Memory regressions', () => {
 
   test('messageMetadataSchema validates provenance fields', () => {
     const valid = messageMetadataSchema.safeParse({
-      provenanceActorRole: 'guardian',
+      provenanceTrustClass: 'guardian',
       provenanceSourceChannel: 'macos',
     });
     expect(valid.success).toBe(true);
 
     const validNonGuardian = messageMetadataSchema.safeParse({
-      provenanceActorRole: 'non-guardian',
+      provenanceTrustClass: 'trusted_contact',
       provenanceSourceChannel: 'telegram',
       provenanceGuardianExternalUserId: 'g-123',
       provenanceRequesterIdentifier: 'Bob',
@@ -4604,41 +4604,41 @@ describe('Memory regressions', () => {
     expect(validNonGuardian.success).toBe(true);
 
     const validUnverified = messageMetadataSchema.safeParse({
-      provenanceActorRole: 'unverified_channel',
+      provenanceTrustClass: 'unknown',
     });
     expect(validUnverified.success).toBe(true);
   });
 
   test('provenanceFromGuardianContext returns unverified_channel default when no context', () => {
     const result = provenanceFromGuardianContext(null);
-    expect(result.provenanceActorRole).toBe('unverified_channel');
+    expect(result.provenanceTrustClass).toBe('unknown');
     expect(result.provenanceSourceChannel).toBeUndefined();
 
     const result2 = provenanceFromGuardianContext(undefined);
-    expect(result2.provenanceActorRole).toBe('unverified_channel');
+    expect(result2.provenanceTrustClass).toBe('unknown');
   });
 
   test('provenanceFromGuardianContext extracts fields from guardian context', () => {
     const ctx = {
       sourceChannel: 'telegram' as const,
-      actorRole: 'non-guardian' as const,
+      trustClass: 'trusted_contact' as const,
       guardianExternalUserId: 'g-456',
       requesterIdentifier: 'Charlie',
     };
     const result = provenanceFromGuardianContext(ctx);
-    expect(result.provenanceActorRole).toBe('non-guardian');
+    expect(result.provenanceTrustClass).toBe('trusted_contact');
     expect(result.provenanceSourceChannel).toBe('telegram');
     expect(result.provenanceGuardianExternalUserId).toBe('g-456');
     expect(result.provenanceRequesterIdentifier).toBe('Charlie');
   });
 
-  test('indexMessageNow receives provenanceActorRole when metadata includes it', async () => {
+  test('indexMessageNow receives provenanceTrustClass when metadata includes it', async () => {
     const conv = createConversation('provenance-indexer');
     const metadata = {
-      provenanceActorRole: 'non-guardian' as const,
+      provenanceTrustClass: 'trusted_contact' as const,
       provenanceSourceChannel: 'telegram' as const,
     };
-    // addMessage parses metadata and passes provenanceActorRole to indexMessageNow.
+    // addMessage parses metadata and passes provenanceTrustClass to indexMessageNow.
     // We verify indirectly: the message is persisted with metadata and segments are indexed.
     const msg = await addMessage(conv.id, 'user', 'Test provenance indexing message with enough content to segment', metadata);
     expect(msg.id).toBeTruthy();
@@ -4683,7 +4683,7 @@ describe('Memory regressions', () => {
       role: 'user',
       content: JSON.stringify([{ type: 'text', text: 'Untrusted user preference for dark mode.' }]),
       createdAt: now,
-      provenanceActorRole: 'non-guardian',
+      provenanceTrustClass: 'trusted_contact',
     }, DEFAULT_CONFIG.memory);
 
     expect(result.indexedSegments).toBeGreaterThan(0);
@@ -4733,7 +4733,7 @@ describe('Memory regressions', () => {
       role: 'user',
       content: JSON.stringify([{ type: 'text', text: 'Trusted guardian preference for light mode.' }]),
       createdAt: now,
-      provenanceActorRole: 'guardian',
+      provenanceTrustClass: 'guardian',
     }, DEFAULT_CONFIG.memory);
 
     expect(result.indexedSegments).toBeGreaterThan(0);
@@ -4779,7 +4779,7 @@ describe('Memory regressions', () => {
       role: 'user',
       content: JSON.stringify([{ type: 'text', text: 'Legacy message with no provenance info.' }]),
       createdAt: now,
-      // provenanceActorRole is intentionally omitted (undefined) for backwards compat
+      // provenanceTrustClass is intentionally omitted (undefined) for backwards compat
     }, DEFAULT_CONFIG.memory);
 
     expect(result.indexedSegments).toBeGreaterThan(0);
@@ -4824,7 +4824,7 @@ describe('Memory regressions', () => {
       role: 'user',
       content: JSON.stringify([{ type: 'text', text: 'Unverified channel preference for compact layout.' }]),
       createdAt: now,
-      provenanceActorRole: 'unverified_channel',
+      provenanceTrustClass: 'unknown',
     }, DEFAULT_CONFIG.memory);
 
     expect(result.indexedSegments).toBeGreaterThan(0);

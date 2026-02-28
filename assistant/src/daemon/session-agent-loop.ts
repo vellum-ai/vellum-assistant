@@ -258,7 +258,7 @@ export async function runAgentLoopImpl(
         conflictGate: ctx.conflictGate,
         scopeId: ctx.memoryPolicy.scopeId,
         includeDefaultFallback: ctx.memoryPolicy.includeDefaultFallback,
-        guardianActorRole: ctx.guardianContext?.actorRole,
+        guardianTrustClass: ctx.guardianContext?.trustClass,
         isInteractive: options?.isInteractive ?? (!ctx.hasNoClient && !ctx.headlessLock),
       },
       content,
@@ -355,10 +355,9 @@ export async function runAgentLoopImpl(
 
     // Resolve the inbound actor context for the model's <inbound_actor_context>
     // block. When the session carries enough identity info, use the unified
-    // actor trust resolver so trusted_contact classifications propagate
-    // correctly (the legacy guardian-context path collapses non-guardian to
-    // 'unknown'). The guardian context is still used for policy gating — only
-    // the model context block uses the trust-resolved output.
+    // actor trust resolver so member status/policy and guardian binding details
+    // are fresh for this turn. The session runtime context remains the source
+    // for policy gating; this block is model-facing grounding metadata.
     let resolvedInboundActorContext: InboundActorContext | null = null;
     if (ctx.guardianContext) {
       const gc = ctx.guardianContext;

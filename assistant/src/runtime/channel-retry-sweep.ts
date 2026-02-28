@@ -14,11 +14,11 @@ const log = getLogger('runtime-http');
 function parseGuardianRuntimeContext(value: unknown): GuardianRuntimeContext | undefined {
   if (!value || typeof value !== 'object') return undefined;
   const raw = value as Record<string, unknown>;
-  const actorRole = raw.actorRole;
+  const trustClass = raw.trustClass;
   if (
-    actorRole !== 'guardian'
-    && actorRole !== 'non-guardian'
-    && actorRole !== 'unverified_channel'
+    trustClass !== 'guardian'
+    && trustClass !== 'trusted_contact'
+    && trustClass !== 'unknown'
   ) {
     return undefined;
   }
@@ -33,7 +33,7 @@ function parseGuardianRuntimeContext(value: unknown): GuardianRuntimeContext | u
       : undefined;
   return {
     sourceChannel,
-    actorRole,
+    trustClass,
     guardianChatId: typeof raw.guardianChatId === 'string' ? raw.guardianChatId : undefined,
     guardianExternalUserId: typeof raw.guardianExternalUserId === 'string' ? raw.guardianExternalUserId : undefined,
     requesterIdentifier: typeof raw.requesterIdentifier === 'string' ? raw.requesterIdentifier : undefined,
@@ -117,7 +117,7 @@ export async function sweepFailedEvents(
           },
           assistantId,
           guardianContext,
-          isInteractive: guardianContext?.actorRole === 'guardian',
+          isInteractive: guardianContext?.trustClass === 'guardian',
         },
         sourceChannel,
         sourceInterface,

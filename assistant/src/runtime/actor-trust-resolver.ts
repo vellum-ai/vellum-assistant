@@ -10,25 +10,22 @@
  * - `guardian`: sender matches the active guardian binding for this channel.
  * - `trusted_contact`: sender is an active ingress member (not the guardian).
  * - `unknown`: sender has no member record or no identity could be established.
- *
- * The legacy `ActorRole` enum (`guardian` / `non-guardian` / `unverified_channel`)
- * is still required by existing policy gates. The `toLegacyActorRole()` mapper
- * converts the new trust classification to the legacy enum.
  */
 
 import type { ChannelId } from '../channels/types.js';
+import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
 import type { IngressMember } from '../memory/ingress-member-store.js';
 import { findMember } from '../memory/ingress-member-store.js';
 import { canonicalizeInboundIdentity } from '../util/canonicalize-identity.js';
 import { normalizeAssistantId } from '../util/platform.js';
 import { getGuardianBinding } from './channel-guardian-service.js';
-import type { ActorRole, DenialReason, GuardianContext } from './guardian-context-resolver.js';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 export type TrustClass = 'guardian' | 'trusted_contact' | 'unknown';
+export type DenialReason = 'no_binding' | 'no_identity';
 
 export interface ActorTrustContext {
   /** Canonical (normalized) sender identity. Null when identity could not be established. */
@@ -171,51 +168,19 @@ export function resolveActorTrust(input: ResolveActorTrustInput): ActorTrustCont
   };
 }
 
-// ---------------------------------------------------------------------------
-// Legacy compatibility mapper
-// ---------------------------------------------------------------------------
-
 /**
- * Map the new trust classification to the legacy ActorRole enum used by
- * existing policy gates. This preserves backward compatibility while the
- * codebase migrates to the unified trust model.
- *
- * Mapping:
- * - guardian => 'guardian'
- * - trusted_contact => 'non-guardian' (existing gates treat active members as non-guardian)
- * - unknown (no_identity) => 'unverified_channel'
- * - unknown (no_binding) => 'unverified_channel'
- * - unknown (with binding, not guardian) => 'non-guardian'
+ * Convert an ActorTrustContext into the runtime trust context shape used by
+ * sessions/tooling.
  */
-export function toLegacyActorRole(ctx: ActorTrustContext): ActorRole {
-  if (ctx.trustClass === 'guardian') return 'guardian';
-  if (ctx.trustClass === 'trusted_contact') return 'non-guardian';
-
-  // unknown: distinguish between unverified_channel and non-guardian
-  if (ctx.denialReason === 'no_identity' || ctx.denialReason === 'no_binding') {
-    return 'unverified_channel';
-  }
-
-  // Has a binding, has identity, but not guardian and not a member => non-guardian
-  if (ctx.guardianBindingMatch && ctx.canonicalSenderId) {
-    return 'non-guardian';
-  }
-
-  return 'unverified_channel';
-}
-
-/**
- * Convert an ActorTrustContext into the legacy GuardianContext shape that
- * existing route-level code expects. This is a bridge for incremental
- * migration — new code should consume ActorTrustContext directly.
- */
-export function toGuardianContextCompat(ctx: ActorTrustContext, externalChatId: string): GuardianContext {
-  const actorRole = toLegacyActorRole(ctx);
-
+export function toGuardianRuntimeContextFromTrust(
+  ctx: ActorTrustContext,
+  externalChatId: string,
+): GuardianRuntimeContext {
   return {
-    actorRole,
+    sourceChannel: ctx.actorMetadata.channel,
+    trustClass: ctx.trustClass,
     guardianChatId: ctx.guardianBindingMatch?.guardianDeliveryChatId ??
-      (actorRole === 'guardian' ? externalChatId : undefined),
+      (ctx.trustClass === 'guardian' ? externalChatId : undefined),
     guardianExternalUserId: ctx.guardianBindingMatch?.guardianExternalUserId,
     requesterIdentifier: ctx.actorMetadata.identifier,
     requesterExternalUserId: ctx.canonicalSenderId ?? undefined,

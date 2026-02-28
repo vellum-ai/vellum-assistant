@@ -283,7 +283,7 @@ export async function handleSendMessage(
     const session = await smDeps.getOrCreateSession(mapping.conversationId);
     // HTTP API is a trusted local ingress (same as IPC) — set guardian context
     // so that memory extraction is not silently disabled by unverified provenance.
-    session.setGuardianContext({ actorRole: 'guardian', sourceChannel: sourceChannel ?? 'http' });
+    session.setGuardianContext({ trustClass: 'guardian', sourceChannel: sourceChannel ?? 'http' });
     const onEvent = makeHubPublisher(smDeps, mapping.conversationId, session);
 
     const attachments = hasAttachments
@@ -353,7 +353,7 @@ export async function handleSendMessage(
       mapping.conversationId,
       content ?? '',
       hasAttachments ? attachmentIds : undefined,
-      { guardianContext: { actorRole: 'guardian', sourceChannel } },
+      { guardianContext: { trustClass: 'guardian', sourceChannel } },
       sourceChannel,
       sourceInterface,
     );

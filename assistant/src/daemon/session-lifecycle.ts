@@ -24,30 +24,38 @@ import { resetSkillToolProjection } from './session-skill-tools.js';
 
 const log = getLogger('session-lifecycle');
 
-type GuardianActorRole = GuardianRuntimeContext['actorRole'];
+type GuardianTrustClass = GuardianRuntimeContext['trustClass'];
 
-function parseProvenanceActorRole(metadata: string | null): GuardianActorRole | undefined {
+function parseProvenanceTrustClass(metadata: string | null): GuardianTrustClass | undefined {
   if (!metadata) return undefined;
   try {
-    const parsed = JSON.parse(metadata) as { provenanceActorRole?: unknown };
-    const role = parsed?.provenanceActorRole;
-    if (role === 'guardian' || role === 'non-guardian' || role === 'unverified_channel') {
-      return role;
+    const parsed = JSON.parse(metadata) as {
+      provenanceTrustClass?: unknown;
+      provenanceActorRole?: unknown;
+    };
+    const trustClass = parsed?.provenanceTrustClass;
+    if (trustClass === 'guardian' || trustClass === 'trusted_contact' || trustClass === 'unknown') {
+      return trustClass;
     }
+    // Legacy fallback for rows persisted before provenanceTrustClass existed.
+    const legacyRole = parsed?.provenanceActorRole;
+    if (legacyRole === 'guardian') return 'guardian';
+    if (legacyRole === 'non-guardian') return 'trusted_contact';
+    if (legacyRole === 'unverified_channel') return 'unknown';
   } catch {
     // Ignore malformed metadata and treat as unknown provenance.
   }
   return undefined;
 }
 
-function isUntrustedActorRole(role: GuardianActorRole | undefined): boolean {
-  return role === 'non-guardian' || role === 'unverified_channel';
+function isUntrustedTrustClass(trustClass: GuardianTrustClass | undefined): boolean {
+  return trustClass === 'trusted_contact' || trustClass === 'unknown';
 }
 
 function filterMessagesForUntrustedActor(messages: conversationStore.MessageRow[]): conversationStore.MessageRow[] {
   return messages.filter((m) => {
-    const provenanceRole = parseProvenanceActorRole(m.metadata);
-    return provenanceRole === 'non-guardian' || provenanceRole === 'unverified_channel';
+    const provenanceTrustClass = parseProvenanceTrustClass(m.metadata);
+    return provenanceTrustClass === 'trusted_contact' || provenanceTrustClass === 'unknown';
   });
 }
 
@@ -59,8 +67,8 @@ export interface LoadFromDbContext {
   usageStats: UsageStats;
   contextCompactedMessageCount: number;
   contextCompactedAt: number | null;
-  guardianContext?: { actorRole: GuardianActorRole };
-  loadedHistoryActorRole?: GuardianActorRole;
+  guardianContext?: { trustClass: GuardianTrustClass };
+  loadedHistoryTrustClass?: GuardianTrustClass;
 }
 
 export interface AbortContext {
@@ -89,17 +97,17 @@ export interface DisposeContext extends AbortContext {
 // ── loadFromDb ───────────────────────────────────────────────────────
 
 export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
-  const actorRole = ctx.guardianContext?.actorRole;
+  const trustClass = ctx.guardianContext?.trustClass;
   const allDbMessages = conversationStore.getMessages(ctx.conversationId);
-  const dbMessages = isUntrustedActorRole(actorRole)
+  const dbMessages = isUntrustedTrustClass(trustClass)
     ? filterMessagesForUntrustedActor(allDbMessages)
     : allDbMessages;
 
   const conv = conversationStore.getConversation(ctx.conversationId);
-  const contextSummary = !isUntrustedActorRole(actorRole)
+  const contextSummary = !isUntrustedTrustClass(trustClass)
     ? conv?.contextSummary?.trim() || null
     : null;
-  if (isUntrustedActorRole(actorRole)) {
+  if (isUntrustedTrustClass(trustClass)) {
     // Compacted summaries may include trusted/guardian-only details, so we
     // disable summary-based context for untrusted actor views.
     ctx.contextCompactedMessageCount = 0;
@@ -145,7 +153,7 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
     };
   }
 
-  ctx.loadedHistoryActorRole = actorRole;
+  ctx.loadedHistoryTrustClass = trustClass;
 
   log.info({ conversationId: ctx.conversationId, count: ctx.messages.length }, 'Loaded messages from DB');
 }

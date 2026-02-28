@@ -402,7 +402,7 @@ export async function processMessage(
         assistantMessageChannel: 'vellum' as const,
         userMessageInterface: guardianIfCtx?.userMessageInterface ?? 'vellum',
         assistantMessageInterface: guardianIfCtx?.assistantMessageInterface ?? 'vellum',
-        provenanceActorRole: 'guardian' as const,
+        provenanceTrustClass: 'guardian' as const,
       };
 
       const userMsg = createUserMessage(content, attachments);

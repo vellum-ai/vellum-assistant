@@ -16,6 +16,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createHash, randomUUID } from 'node:crypto';
 
 import { afterAll, beforeEach, describe, expect, type Mock,mock, test } from 'bun:test';
 
@@ -49,6 +50,7 @@ const mockConfig = {
   provider: 'anthropic',
   providerOrder: ['anthropic'],
   apiKeys: { anthropic: 'test-key' },
+  secretDetection: { enabled: false },
   calls: {
     enabled: true,
     provider: 'twilio',
@@ -132,12 +134,14 @@ import {
 } from '../calls/call-store.js';
 import type { RelayWebSocketData } from '../calls/relay-server.js';
 import { activeRelayConnections,RelayConnection } from '../calls/relay-server.js';
-import { createBinding } from '../memory/channel-guardian-store.js';
-import { getMessages } from '../memory/conversation-store.js';
+import { setVoiceBridgeDeps } from '../calls/voice-session-bridge.js';
+import { createBinding, createChallenge } from '../memory/channel-guardian-store.js';
+import { addMessage, getMessages } from '../memory/conversation-store.js';
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
+import { upsertMember } from '../memory/ingress-member-store.js';
 import { conversations } from '../memory/schema.js';
 import {
-  createVerificationChallenge,
+  createOutboundSession,
   getGuardianBinding,
 } from '../runtime/channel-guardian-service.js';
 
@@ -200,10 +204,49 @@ function resetTables() {
   db.run('DELETE FROM tool_invocations');
   db.run('DELETE FROM messages');
   db.run('DELETE FROM conversations');
+  db.run('DELETE FROM assistant_ingress_members');
   db.run('DELETE FROM channel_guardian_verification_challenges');
   db.run('DELETE FROM channel_guardian_bindings');
   db.run('DELETE FROM channel_guardian_rate_limits');
   ensuredConvIds = new Set();
+}
+
+function addTrustedVoiceContact(phoneNumber: string, assistantId: string = 'self'): void {
+  upsertMember({
+    assistantId,
+    sourceChannel: 'voice',
+    externalUserId: phoneNumber,
+    externalChatId: phoneNumber,
+    status: 'active',
+    policy: 'allow',
+  });
+}
+
+function createVoiceVerificationSession(
+  assistantId: string,
+  expectedPhoneE164: string,
+  sessionId?: string,
+): string {
+  const { secret } = createOutboundSession({
+    assistantId,
+    channel: 'voice',
+    expectedExternalUserId: expectedPhoneE164,
+    expectedChatId: expectedPhoneE164,
+    expectedPhoneE164,
+    sessionId,
+  });
+  return secret;
+}
+
+function createPendingVoiceGuardianChallenge(assistantId: string, secret: string = '123456'): string {
+  createChallenge({
+    id: randomUUID(),
+    assistantId,
+    channel: 'voice',
+    challengeHash: createHash('sha256').update(secret).digest('hex'),
+    expiresAt: Date.now() + 10 * 60 * 1000,
+  });
+  return secret;
 }
 
 function getLatestAssistantText(conversationId: string): string | null {
@@ -235,17 +278,88 @@ describe('relay-server', () => {
     mockConfig.calls.verification.maxAttempts = 3;
     mockConfig.calls.verification.codeLength = 6;
     mockConfig.calls.callerIdentity.userNumber = undefined;
+    setVoiceBridgeDeps({
+      getOrCreateSession: async (conversationId) => {
+        const session = {
+          callSessionId: undefined as string | undefined,
+          currentRequestId: undefined as string | undefined,
+          memoryPolicy: { scopeId: 'default', includeDefaultFallback: false, strictSideEffects: false },
+          isProcessing: () => false,
+          persistUserMessage: async (content: string, _attachments: unknown[], requestId?: string) => {
+            session.currentRequestId = requestId;
+            const message = await addMessage(
+              conversationId,
+              'user',
+              JSON.stringify([{ type: 'text', text: content }]),
+              {
+                userMessageChannel: 'voice',
+                assistantMessageChannel: 'voice',
+                userMessageInterface: 'voice',
+                assistantMessageInterface: 'voice',
+              },
+            );
+            return message.id;
+          },
+          setChannelCapabilities: () => {},
+          setAssistantId: () => {},
+          setGuardianContext: () => {},
+          setCommandIntent: () => {},
+          setTurnChannelContext: () => {},
+          setVoiceCallControlPrompt: () => {},
+          updateClient: () => {},
+          handleConfirmationResponse: () => {},
+          handleSecretResponse: () => {},
+          abort: () => {},
+          runAgentLoop: async (
+            _content: string,
+            _messageId: string,
+            onEvent: (event: { type: string; sessionId?: string; text?: string }) => void,
+          ) => {
+            const tokens: string[] = [];
+            await mockSendMessage([], [], '', {
+              onEvent: (event: { type: string; text?: string }) => {
+                if (event.type !== 'text_delta' || typeof event.text !== 'string') return;
+                tokens.push(event.text);
+                onEvent({ type: 'assistant_text_delta', sessionId: conversationId, text: event.text });
+              },
+            });
+
+            const fullText = tokens.join('');
+            if (fullText.length > 0) {
+              await addMessage(
+                conversationId,
+                'assistant',
+                JSON.stringify([{ type: 'text', text: fullText }]),
+                {
+                  userMessageChannel: 'voice',
+                  assistantMessageChannel: 'voice',
+                  userMessageInterface: 'voice',
+                  assistantMessageInterface: 'voice',
+                },
+              );
+            }
+
+            onEvent({ type: 'message_complete', sessionId: conversationId });
+          },
+        };
+        return session as unknown as import('../daemon/session.js').Session;
+      },
+      resolveAttachments: () => [],
+      deriveDefaultStrictSideEffects: () => false,
+    });
   });
 
   // ── Setup message handling ──────────────────────────────────────
 
   test('handleMessage: setup message associates callSid and records event', async () => {
     ensureConversation('conv-relay-1');
+    ensureConversation('conv-relay-1-origin');
     const session = createCallSession({
       conversationId: 'conv-relay-1',
       provider: 'twilio',
       fromNumber: '+15551111111',
       toNumber: '+15552222222',
+      initiatedFromConversationId: 'conv-relay-1-origin',
     });
 
     const { relay } = createMockWs(session.id);
@@ -277,12 +391,14 @@ describe('relay-server', () => {
 
   test('handleMessage: setup triggers initial assistant greeting turn', async () => {
     ensureConversation('conv-relay-setup-greet');
+    ensureConversation('conv-relay-setup-greet-origin');
     const session = createCallSession({
       conversationId: 'conv-relay-setup-greet',
       provider: 'twilio',
       fromNumber: '+15551111111',
       toNumber: '+15552222222',
       task: 'Confirm appointment time',
+      initiatedFromConversationId: 'conv-relay-setup-greet-origin',
     });
 
     mockSendMessage.mockImplementation(createMockProviderResponse(['Hello, I am calling to confirm your appointment.']));
@@ -398,11 +514,13 @@ describe('relay-server', () => {
 
   test('handleMessage: final prompt routes to orchestrator and records event', async () => {
     ensureConversation('conv-relay-prompt');
+    ensureConversation('conv-relay-prompt-origin');
     const session = createCallSession({
       conversationId: 'conv-relay-prompt',
       provider: 'twilio',
       fromNumber: '+15551111111',
       toNumber: '+15552222222',
+      initiatedFromConversationId: 'conv-relay-prompt-origin',
     });
 
     const { ws, relay } = createMockWs(session.id);
@@ -858,6 +976,7 @@ describe('relay-server', () => {
 
     // Enable verification to prove inbound calls skip it
     mockConfig.calls.verification.enabled = true;
+    addTrustedVoiceContact('+15559999999');
 
     mockSendMessage.mockImplementation(createMockProviderResponse(['Hello, how can I help you today?']));
 
@@ -896,6 +1015,7 @@ describe('relay-server', () => {
     });
 
     mockSendMessage.mockImplementation(createMockProviderResponse(['Sure, let me help with that.']));
+    addTrustedVoiceContact('+15559999999');
 
     const { relay } = createMockWs(session.id);
 
@@ -941,6 +1061,7 @@ describe('relay-server', () => {
     });
 
     let turnCount = 0;
+    addTrustedVoiceContact('+15559999999');
     mockSendMessage.mockImplementation(async (_messages: unknown[], _tools: unknown[], _systemPrompt: unknown, options?: { onEvent?: (event: { type: string; text?: string }) => void }) => {
       turnCount++;
       let tokens: string[];
@@ -1016,8 +1137,7 @@ describe('relay-server', () => {
     });
 
     // Create a pending voice guardian challenge
-    const challenge = createVerificationChallenge('test-assistant', 'voice');
-    const secret = challenge.secret;
+    const secret = createPendingVoiceGuardianChallenge('test-assistant');
 
     mockSendMessage.mockImplementation(createMockProviderResponse(['Hello, how can I help you?']));
 
@@ -1079,8 +1199,7 @@ describe('relay-server', () => {
       assistantId: 'test-assistant',
     });
 
-    const challenge = createVerificationChallenge('test-assistant', 'voice');
-    const secret = challenge.secret;
+    const secret = createPendingVoiceGuardianChallenge('test-assistant');
 
     mockSendMessage.mockImplementation(createMockProviderResponse(['Hello, verified caller!']));
 
@@ -1151,15 +1270,15 @@ describe('relay-server', () => {
       to: '+15551111111',
     }));
 
-    const runtimeContext = (relay.getController() as unknown as { guardianContext?: { sourceChannel?: string; actorRole?: string; guardianExternalUserId?: string } })?.guardianContext;
+    const runtimeContext = (relay.getController() as unknown as { guardianContext?: { sourceChannel?: string; trustClass?: string; guardianExternalUserId?: string } })?.guardianContext;
     expect(runtimeContext?.sourceChannel).toBe('voice');
-    expect(runtimeContext?.actorRole).toBe('guardian');
+    expect(runtimeContext?.trustClass).toBe('guardian');
     expect(runtimeContext?.guardianExternalUserId).toBe('+15550001111');
 
     relay.destroy();
   });
 
-  test('inbound call: caller not matching voice guardian binding is classified as non-guardian', async () => {
+  test('inbound call: caller not matching voice guardian binding is classified as trusted contact', async () => {
     ensureConversation('conv-guardian-role-mismatch');
     const session = createCallSession({
       conversationId: 'conv-guardian-role-mismatch',
@@ -1175,6 +1294,7 @@ describe('relay-server', () => {
       guardianExternalUserId: '+15550009999',
       guardianDeliveryChatId: '+15550009999',
     });
+    addTrustedVoiceContact('+15550002222', 'test-assistant');
 
     mockSendMessage.mockImplementation(createMockProviderResponse(['Hello there.']));
 
@@ -1190,13 +1310,13 @@ describe('relay-server', () => {
     const runtimeContext = (relay.getController() as unknown as {
       guardianContext?: {
         sourceChannel?: string;
-        actorRole?: string;
+        trustClass?: string;
         guardianExternalUserId?: string;
         requesterExternalUserId?: string;
       };
     })?.guardianContext;
     expect(runtimeContext?.sourceChannel).toBe('voice');
-    expect(runtimeContext?.actorRole).toBe('non-guardian');
+    expect(runtimeContext?.trustClass).toBe('trusted_contact');
     expect(runtimeContext?.guardianExternalUserId).toBe('+15550009999');
     expect(runtimeContext?.requesterExternalUserId).toBe('+15550002222');
 
@@ -1236,12 +1356,12 @@ describe('relay-server', () => {
     const runtimeContext = (relay.getController() as unknown as {
       guardianContext?: {
         sourceChannel?: string;
-        actorRole?: string;
+        trustClass?: string;
         guardianExternalUserId?: string;
       };
     })?.guardianContext;
     expect(runtimeContext?.sourceChannel).toBe('voice');
-    expect(runtimeContext?.actorRole).toBe('guardian');
+    expect(runtimeContext?.trustClass).toBe('guardian');
     expect(runtimeContext?.guardianExternalUserId).toBe('+15550001111');
 
     relay.destroy();
@@ -1283,11 +1403,11 @@ describe('relay-server', () => {
     const runtimeContext = (relay.getController() as unknown as {
       guardianContext?: {
         sourceChannel?: string;
-        actorRole?: string;
+        trustClass?: string;
       };
     })?.guardianContext;
     expect(runtimeContext?.sourceChannel).toBe('voice');
-    expect(runtimeContext?.actorRole).toBe('unverified_channel');
+    expect(runtimeContext?.trustClass).toBe('unknown');
 
     relay.destroy();
   });
@@ -1302,8 +1422,8 @@ describe('relay-server', () => {
       assistantId: 'test-assistant',
     });
 
-    const challenge = createVerificationChallenge('test-assistant', 'voice');
-    const spokenCode = challenge.secret.split('').join(' ');
+    const secret = createPendingVoiceGuardianChallenge('test-assistant');
+    const spokenCode = secret.split('').join(' ');
 
     const { relay } = createMockWs(session.id);
 
@@ -1315,9 +1435,9 @@ describe('relay-server', () => {
     }));
 
     const preVerify = (relay.getController() as unknown as {
-      guardianContext?: { actorRole?: string };
+      guardianContext?: { trustClass?: string };
     })?.guardianContext;
-    expect(preVerify?.actorRole).toBe('unverified_channel');
+    expect(preVerify?.trustClass).toBe('unknown');
 
     await relay.handleMessage(JSON.stringify({
       type: 'prompt',
@@ -1329,10 +1449,10 @@ describe('relay-server', () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
 
     const postVerify = (relay.getController() as unknown as {
-      guardianContext?: { sourceChannel?: string; actorRole?: string; guardianExternalUserId?: string };
+      guardianContext?: { sourceChannel?: string; trustClass?: string; guardianExternalUserId?: string };
     })?.guardianContext;
     expect(postVerify?.sourceChannel).toBe('voice');
-    expect(postVerify?.actorRole).toBe('guardian');
+    expect(postVerify?.trustClass).toBe('guardian');
     expect(postVerify?.guardianExternalUserId).toBe(session.fromNumber);
 
     relay.destroy();
@@ -1348,7 +1468,7 @@ describe('relay-server', () => {
       assistantId: 'test-assistant',
     });
 
-    createVerificationChallenge('test-assistant', 'voice');
+    createPendingVoiceGuardianChallenge('test-assistant');
 
     const { ws, relay } = createMockWs(session.id);
 
@@ -1389,7 +1509,7 @@ describe('relay-server', () => {
       assistantId: 'test-assistant',
     });
 
-    createVerificationChallenge('test-assistant', 'voice');
+    createPendingVoiceGuardianChallenge('test-assistant');
 
     const { ws, relay } = createMockWs(session.id);
 
@@ -1451,6 +1571,7 @@ describe('relay-server', () => {
     // Do NOT create any pending challenge
 
     mockSendMessage.mockImplementation(createMockProviderResponse(['Welcome to the line.']));
+    addTrustedVoiceContact('+15559999999', 'test-assistant');
 
     const { ws, relay } = createMockWs(session.id);
 
@@ -1486,7 +1607,7 @@ describe('relay-server', () => {
       assistantId: 'test-assistant',
     });
 
-    createVerificationChallenge('test-assistant', 'voice');
+    createPendingVoiceGuardianChallenge('test-assistant');
 
     const { ws, relay } = createMockWs(session.id);
 
@@ -1536,8 +1657,7 @@ describe('relay-server', () => {
       initiatedFromConversationId: 'conv-gv-pointer-success-origin',
     });
 
-    const challenge = createVerificationChallenge('test-assistant', 'voice');
-    const secret = challenge.secret;
+    const secret = createVoiceVerificationSession('test-assistant', '+15559999999', 'gv-session-ptr-success');
 
     const { relay } = createMockWs(session.id);
 
@@ -1586,7 +1706,7 @@ describe('relay-server', () => {
       initiatedFromConversationId: 'conv-gv-pointer-fail-origin',
     });
 
-    createVerificationChallenge('test-assistant', 'voice');
+    createVoiceVerificationSession('test-assistant', '+15559999999', 'gv-session-ptr-fail');
 
     const { relay } = createMockWs(session.id);
 

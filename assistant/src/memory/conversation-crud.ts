@@ -39,7 +39,7 @@ export const messageMetadataSchema = z.object({
   assistantMessageInterface: interfaceIdSchema.optional(),
   subagentNotification: subagentNotificationSchema.optional(),
   // Provenance fields for trust-aware memory gating (M3)
-  provenanceActorRole: z.enum(['guardian', 'non-guardian', 'unverified_channel']).optional(),
+  provenanceTrustClass: z.enum(['guardian', 'trusted_contact', 'unknown']).optional(),
   provenanceSourceChannel: channelIdSchema.optional(),
   provenanceGuardianExternalUserId: z.string().optional(),
   provenanceRequesterIdentifier: z.string().optional(),
@@ -49,14 +49,14 @@ export type MessageMetadata = z.infer<typeof messageMetadataSchema>;
 
 /**
  * Extract provenance metadata fields from a GuardianRuntimeContext.
- * When no guardian context is provided, defaults to 'unverified_channel'
- * because the absence of guardian context means we cannot verify trust —
+ * When no guardian context is provided, defaults to 'unknown' because the
+ * absence of trust context means we cannot verify trust —
  * callers with actual guardian trust should always supply a real context.
  */
 export function provenanceFromGuardianContext(ctx: GuardianRuntimeContext | null | undefined): Record<string, unknown> {
-  if (!ctx) return { provenanceActorRole: 'unverified_channel' };
+  if (!ctx) return { provenanceTrustClass: 'unknown' };
   return {
-    provenanceActorRole: ctx.actorRole,
+    provenanceTrustClass: ctx.trustClass,
     provenanceSourceChannel: ctx.sourceChannel,
     provenanceGuardianExternalUserId: ctx.guardianExternalUserId,
     provenanceRequesterIdentifier: ctx.requesterIdentifier,
@@ -280,7 +280,7 @@ export async function addMessage(conversationId: string, role: string, content: 
       const config = getConfig();
       const scopeId = getConversationMemoryScopeId(conversationId);
       const parsed = metadata ? messageMetadataSchema.safeParse(metadata) : null;
-      const provenanceActorRole = parsed?.success ? parsed.data.provenanceActorRole : undefined;
+      const provenanceTrustClass = parsed?.success ? parsed.data.provenanceTrustClass : undefined;
       indexMessageNow({
         messageId: message.id,
         conversationId: message.conversationId,
@@ -288,7 +288,7 @@ export async function addMessage(conversationId: string, role: string, content: 
         content: message.content,
         createdAt: message.createdAt,
         scopeId,
-        provenanceActorRole,
+        provenanceTrustClass,
       }, config.memory);
     } catch (err) {
       log.warn({ err, conversationId, messageId: message.id }, 'Failed to index message for memory');

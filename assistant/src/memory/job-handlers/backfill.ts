@@ -24,21 +24,28 @@ const BACKFILL_CHECKPOINT_ID_KEY = 'memory:backfill:last_message_id';
 const RELATION_BACKFILL_CHECKPOINT_KEY = 'memory:relation_backfill:last_created_at';
 const RELATION_BACKFILL_CHECKPOINT_ID_KEY = 'memory:relation_backfill:last_message_id';
 
-type ProvenanceActorRole = 'guardian' | 'non-guardian' | 'unverified_channel';
+type ProvenanceTrustClass = 'guardian' | 'trusted_contact' | 'unknown';
 
-function parseProvenanceActorRole(rawMetadata: string | null): ProvenanceActorRole | undefined {
+function parseProvenanceTrustClass(rawMetadata: string | null): ProvenanceTrustClass | undefined {
   if (!rawMetadata) return undefined;
   try {
     const parsedJson: unknown = JSON.parse(rawMetadata);
     const parsed = messageMetadataSchema.safeParse(parsedJson);
-    return parsed.success ? parsed.data.provenanceActorRole : undefined;
+    if (!parsed.success) return undefined;
+    if (parsed.data.provenanceTrustClass) return parsed.data.provenanceTrustClass;
+    // Legacy fallback for rows written before provenanceTrustClass existed.
+    const legacyRole = (parsedJson as { provenanceActorRole?: unknown }).provenanceActorRole;
+    if (legacyRole === 'guardian') return 'guardian';
+    if (legacyRole === 'non-guardian') return 'trusted_contact';
+    if (legacyRole === 'unverified_channel') return 'unknown';
+    return undefined;
   } catch {
     return undefined;
   }
 }
 
-function isTrustedActorRole(actorRole: ProvenanceActorRole | undefined): boolean {
-  return actorRole === 'guardian' || actorRole === undefined;
+function isTrustedTrustClass(trustClass: ProvenanceTrustClass | undefined): boolean {
+  return trustClass === 'guardian' || trustClass === undefined;
 }
 
 export function backfillJob(job: MemoryJob, config: AssistantConfig): void {
@@ -68,7 +75,7 @@ export function backfillJob(job: MemoryJob, config: AssistantConfig): void {
         scopeId = getConversationMemoryScopeId(message.conversationId);
         scopeCache.set(message.conversationId, scopeId);
       }
-      const provenanceActorRole = parseProvenanceActorRole(message.metadata ?? null);
+      const provenanceTrustClass = parseProvenanceTrustClass(message.metadata ?? null);
       indexMessageNow({
         messageId: message.id,
         conversationId: message.conversationId,
@@ -76,7 +83,7 @@ export function backfillJob(job: MemoryJob, config: AssistantConfig): void {
         content: message.content,
         createdAt: message.createdAt,
         scopeId,
-        provenanceActorRole,
+        provenanceTrustClass,
       }, config.memory);
     }
     const lastMessage = batch[batch.length - 1];
@@ -139,8 +146,8 @@ export function backfillEntityRelationsJob(job: MemoryJob, config: AssistantConf
   let queuedExtractEntityJobs = 0;
   let skippedUntrusted = 0;
   for (const message of batch) {
-    const provenanceActorRole = parseProvenanceActorRole(message.metadata ?? null);
-    if (!isTrustedActorRole(provenanceActorRole)) {
+    const provenanceTrustClass = parseProvenanceTrustClass(message.metadata ?? null);
+    if (!isTrustedTrustClass(provenanceTrustClass)) {
       skippedUntrusted += 1;
       continue;
     }

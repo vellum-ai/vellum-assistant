@@ -10,8 +10,8 @@ import type { ExecutionTarget, Tool, ToolContext, ToolExecutionResult, ToolLifec
 
 const log = getLogger('tool-approval-handler');
 
-function isUntrustedGuardianActorRole(role: ToolContext['guardianActorRole']): boolean {
-  return role === 'non-guardian' || role === 'unverified_channel';
+function isUntrustedGuardianTrustClass(role: ToolContext['guardianTrustClass']): boolean {
+  return role === 'trusted_contact' || role === 'unknown';
 }
 
 function requiresGuardianApprovalForActor(
@@ -26,10 +26,10 @@ function requiresGuardianApprovalForActor(
 }
 
 function guardianApprovalDeniedMessage(
-  actorRole: ToolContext['guardianActorRole'],
+  trustClass: ToolContext['guardianTrustClass'],
   toolName: string,
 ): string {
-  if (actorRole === 'unverified_channel') {
+  if (trustClass === 'unknown') {
     return `Permission denied for "${toolName}": this action requires guardian approval from a verified channel identity.`;
   }
   return `Permission denied for "${toolName}": this action requires guardian approval and the current actor is not the guardian.`;
@@ -82,13 +82,13 @@ export class ToolApprovalHandler {
     }
 
     // Reject tool invocations targeting guardian control-plane endpoints from non-guardian actors.
-    const guardianCheck = enforceGuardianOnlyPolicy(name, input, context.guardianActorRole);
+    const guardianCheck = enforceGuardianOnlyPolicy(name, input, context.guardianTrustClass);
     if (guardianCheck.denied) {
       log.warn({
         toolName: name,
         sessionId: context.sessionId,
         conversationId: context.conversationId,
-        actorRole: context.guardianActorRole,
+        trustClass: context.guardianTrustClass,
         reason: 'guardian_only_policy',
       }, 'Guardian-only policy blocked tool invocation');
       const durationMs = Date.now() - startTime;
@@ -118,7 +118,7 @@ export class ToolApprovalHandler {
     let deferredConsumeParams: Parameters<typeof consumeGrantForInvocation>[0] | null = null;
 
     if (
-      isUntrustedGuardianActorRole(context.guardianActorRole)
+      isUntrustedGuardianTrustClass(context.guardianTrustClass)
       && requiresGuardianApprovalForActor(name, input, executionTarget)
     ) {
       const inputDigest = computeToolApprovalDigest(name, input);
@@ -233,7 +233,7 @@ export class ToolApprovalHandler {
           toolName: name,
           sessionId: context.sessionId,
           conversationId: context.conversationId,
-          actorRole: context.guardianActorRole,
+          trustClass: context.guardianTrustClass,
           executionTarget,
           grantId: grantResult.grant.id,
         }, 'Scoped grant consumed — allowing untrusted actor tool invocation');
@@ -273,7 +273,7 @@ export class ToolApprovalHandler {
       // actors remain fail-closed with no escalation.
       let escalationMessage: string | undefined;
       if (
-        context.guardianActorRole === 'non-guardian'
+        context.guardianTrustClass === 'trusted_contact'
         && context.assistantId
         && context.executionChannel
         && context.requesterExternalUserId
@@ -308,12 +308,12 @@ export class ToolApprovalHandler {
         // If escalation.failed, fall through to generic denial message.
       }
 
-      const reason = escalationMessage ?? guardianApprovalDeniedMessage(context.guardianActorRole, name);
+      const reason = escalationMessage ?? guardianApprovalDeniedMessage(context.guardianTrustClass, name);
       log.warn({
         toolName: name,
         sessionId: context.sessionId,
         conversationId: context.conversationId,
-        actorRole: context.guardianActorRole,
+        trustClass: context.guardianTrustClass,
         executionTarget,
         reason: 'guardian_approval_required',
         grantMissReason: grantResult.reason,

@@ -252,30 +252,30 @@ describe('loadFromDb history repair', () => {
         id: 'm1',
         role: 'user',
         content: JSON.stringify([{ type: 'text', text: 'Guardian secret question' }]),
-        metadata: JSON.stringify({ provenanceActorRole: 'guardian', provenanceSourceChannel: 'telegram' }),
+        metadata: JSON.stringify({ provenanceTrustClass: 'guardian', provenanceSourceChannel: 'telegram' }),
       },
       {
         id: 'm2',
         role: 'assistant',
         content: JSON.stringify([{ type: 'text', text: 'Guardian-only answer' }]),
-        metadata: JSON.stringify({ provenanceActorRole: 'guardian', provenanceSourceChannel: 'telegram' }),
+        metadata: JSON.stringify({ provenanceTrustClass: 'guardian', provenanceSourceChannel: 'telegram' }),
       },
       {
         id: 'm3',
         role: 'user',
         content: JSON.stringify([{ type: 'text', text: 'Untrusted follow-up' }]),
-        metadata: JSON.stringify({ provenanceActorRole: 'unverified_channel', provenanceSourceChannel: 'telegram' }),
+        metadata: JSON.stringify({ provenanceTrustClass: 'unknown', provenanceSourceChannel: 'telegram' }),
       },
       {
         id: 'm4',
         role: 'assistant',
         content: JSON.stringify([{ type: 'text', text: 'Untrusted-safe reply' }]),
-        metadata: JSON.stringify({ provenanceActorRole: 'unverified_channel', provenanceSourceChannel: 'telegram' }),
+        metadata: JSON.stringify({ provenanceTrustClass: 'unknown', provenanceSourceChannel: 'telegram' }),
       },
     ];
 
     const session = makeSession();
-    session.setGuardianContext({ actorRole: 'unverified_channel', sourceChannel: 'telegram' });
+    session.setGuardianContext({ trustClass: 'unknown', sourceChannel: 'telegram' });
     await session.loadFromDb();
     const messages = session.getMessages();
 
@@ -300,35 +300,35 @@ describe('loadFromDb history repair', () => {
         id: 'm1',
         role: 'user',
         content: JSON.stringify([{ type: 'text', text: 'Guardian question' }]),
-        metadata: JSON.stringify({ provenanceActorRole: 'guardian', provenanceSourceChannel: 'telegram' }),
+        metadata: JSON.stringify({ provenanceTrustClass: 'guardian', provenanceSourceChannel: 'telegram' }),
       },
       {
         id: 'm2',
         role: 'assistant',
         content: JSON.stringify([{ type: 'text', text: 'Guardian answer' }]),
-        metadata: JSON.stringify({ provenanceActorRole: 'guardian', provenanceSourceChannel: 'telegram' }),
+        metadata: JSON.stringify({ provenanceTrustClass: 'guardian', provenanceSourceChannel: 'telegram' }),
       },
       {
         id: 'm3',
         role: 'user',
         content: JSON.stringify([{ type: 'text', text: 'Unverified ping' }]),
-        metadata: JSON.stringify({ provenanceActorRole: 'unverified_channel', provenanceSourceChannel: 'telegram' }),
+        metadata: JSON.stringify({ provenanceTrustClass: 'unknown', provenanceSourceChannel: 'telegram' }),
       },
       {
         id: 'm4',
         role: 'assistant',
         content: JSON.stringify([{ type: 'text', text: 'Unverified reply' }]),
-        metadata: JSON.stringify({ provenanceActorRole: 'unverified_channel', provenanceSourceChannel: 'telegram' }),
+        metadata: JSON.stringify({ provenanceTrustClass: 'unknown', provenanceSourceChannel: 'telegram' }),
       },
     ];
 
     const session = makeSession();
 
-    session.setGuardianContext({ actorRole: 'guardian', sourceChannel: 'telegram' });
+    session.setGuardianContext({ trustClass: 'guardian', sourceChannel: 'telegram' });
     await session.ensureActorScopedHistory();
     expect(session.getMessages()).toHaveLength(4);
 
-    session.setGuardianContext({ actorRole: 'unverified_channel', sourceChannel: 'telegram' });
+    session.setGuardianContext({ trustClass: 'unknown', sourceChannel: 'telegram' });
     await session.ensureActorScopedHistory();
     const downgradedMessages = session.getMessages();
     expect(downgradedMessages).toHaveLength(2);
@@ -350,35 +350,35 @@ describe('loadFromDb history repair', () => {
         id: 'm1',
         role: 'user',
         content: JSON.stringify([{ type: 'text', text: 'Guardian-only question' }]),
-        metadata: JSON.stringify({ provenanceActorRole: 'guardian', provenanceSourceChannel: 'telegram' }),
+        metadata: JSON.stringify({ provenanceTrustClass: 'guardian', provenanceSourceChannel: 'telegram' }),
       },
       {
         id: 'm2',
         role: 'assistant',
         content: JSON.stringify([{ type: 'text', text: 'Guardian-only answer' }]),
-        metadata: JSON.stringify({ provenanceActorRole: 'guardian', provenanceSourceChannel: 'telegram' }),
+        metadata: JSON.stringify({ provenanceTrustClass: 'guardian', provenanceSourceChannel: 'telegram' }),
       },
       {
         id: 'm3',
         role: 'user',
         content: JSON.stringify([{ type: 'text', text: 'Unverified ping' }]),
-        metadata: JSON.stringify({ provenanceActorRole: 'unverified_channel', provenanceSourceChannel: 'telegram' }),
+        metadata: JSON.stringify({ provenanceTrustClass: 'unknown', provenanceSourceChannel: 'telegram' }),
       },
       {
         id: 'm4',
         role: 'assistant',
         content: JSON.stringify([{ type: 'text', text: 'Unverified reply' }]),
-        metadata: JSON.stringify({ provenanceActorRole: 'unverified_channel', provenanceSourceChannel: 'telegram' }),
+        metadata: JSON.stringify({ provenanceTrustClass: 'unknown', provenanceSourceChannel: 'telegram' }),
       },
     ];
 
     const session = makeSession();
 
-    session.setGuardianContext({ actorRole: 'unverified_channel', sourceChannel: 'telegram' });
+    session.setGuardianContext({ trustClass: 'unknown', sourceChannel: 'telegram' });
     await session.ensureActorScopedHistory();
     expect(session.getMessages()).toHaveLength(2);
 
-    session.setGuardianContext({ actorRole: 'guardian', sourceChannel: 'telegram' });
+    session.setGuardianContext({ trustClass: 'guardian', sourceChannel: 'telegram' });
     await session.persistUserMessage('Guardian follow-up', []);
     const messagesAfterPersist = session.getMessages();
 

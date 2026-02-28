@@ -137,7 +137,7 @@ function registerPendingInteraction(
 
 function makeGuardianContext(): GuardianContext {
   return {
-    actorRole: 'guardian',
+    trustClass: 'guardian',
     denialReason: undefined,
   };
 }

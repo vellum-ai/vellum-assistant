@@ -857,7 +857,7 @@ export class CallController {
   }
 
   private isCallerGuardian(): boolean {
-    return this.guardianContext?.actorRole === 'guardian';
+    return this.guardianContext?.trustClass === 'guardian';
   }
 
   /**
