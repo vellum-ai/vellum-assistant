@@ -411,14 +411,18 @@ function emitStruct(s: SwiftStruct): string {
   const lines: string[] = [];
 
   if (s.doc) {
-    lines.push(`/// ${s.doc}`);
+    for (const docLine of s.doc.split('\n')) {
+      lines.push(`/// ${docLine}`);
+    }
   }
 
   lines.push(`public struct ${s.name}: Codable, Sendable {`);
 
   for (const p of s.properties) {
     if (p.doc) {
-      lines.push(`    /// ${p.doc}`);
+      for (const docLine of p.doc.split('\n')) {
+        lines.push(`    /// ${docLine}`);
+      }
     }
     lines.push(`    public let ${p.swiftName}: ${p.swiftType}`);
   }

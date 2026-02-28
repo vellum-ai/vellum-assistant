@@ -1962,8 +1962,8 @@ public struct IPCGuardianActionsPendingResponsePrompt: Codable, Sendable {
     public let conversationId: String
     public let callSessionId: String?
     /// Canonical request kind (e.g. 'tool_approval', 'pending_question').
-Present when the prompt originates from the canonical guardian request
-store. Absent for legacy-only prompts.
+    /// Present when the prompt originates from the canonical guardian request
+    /// store. Absent for legacy-only prompts.
     public let kind: String?
 
     public init(requestId: String, requestCode: String, state: String, questionText: String, toolName: String?, actions: [IPCGuardianActionsPendingResponsePromptAction], expiresAt: Int, conversationId: String, callSessionId: String?, kind: String? = nil) {
