@@ -24,7 +24,12 @@ import { updateDecision } from './decisions-store.js';
 import { type DeterministicCheckContext, runDeterministicChecks } from './deterministic-checks.js';
 import { createEvent, updateEventDedupeKey } from './events-store.js';
 import { dispatchDecision } from './runtime-dispatch.js';
-import type { AttentionHints, NotificationSignal, RoutingIntent } from './signal.js';
+import type {
+  AttentionHints,
+  NotificationContextPayload,
+  NotificationSignal,
+  RoutingIntent,
+} from './signal.js';
 import type { NotificationChannel, NotificationDeliveryResult } from './types.js';
 
 const log = getLogger('emit-signal');
@@ -117,9 +122,9 @@ function getConnectedChannels(assistantId: string): NotificationChannel[] {
 
 // ── Public API ─────────────────────────────────────────────────────────
 
-export interface EmitSignalParams {
+export interface EmitSignalParams<TEventName extends string = string> {
   /** Free-form event name, e.g. 'reminder.fired', 'schedule.complete'. */
-  sourceEventName: string;
+  sourceEventName: TEventName;
   /** Source channel that produced the event. */
   sourceChannel: string;
   /** Session or conversation ID from the source context. */
@@ -129,7 +134,7 @@ export interface EmitSignalParams {
   /** Attention hints for the decision engine. */
   attentionHints: AttentionHints;
   /** Arbitrary context payload passed to the decision engine. */
-  contextPayload?: Record<string, unknown>;
+  contextPayload?: NotificationContextPayload<TEventName>;
   /** Routing intent from the source (e.g. reminder). Controls post-decision channel enforcement. */
   routingIntent?: RoutingIntent;
   /** Free-form hints from the source for the decision engine. */
@@ -169,18 +174,20 @@ export interface EmitSignalResult {
  * Fire-and-forget safe by default: errors are caught and logged unless
  * `throwOnError` is enabled by the caller.
  */
-export async function emitNotificationSignal(params: EmitSignalParams): Promise<EmitSignalResult> {
+export async function emitNotificationSignal<TEventName extends string>(
+  params: EmitSignalParams<TEventName>,
+): Promise<EmitSignalResult> {
   const signalId = uuid();
   const assistantId = params.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
 
-  const signal: NotificationSignal = {
+  const signal: NotificationSignal<TEventName> = {
     signalId,
     assistantId,
     createdAt: Date.now(),
     sourceChannel: params.sourceChannel,
     sourceSessionId: params.sourceSessionId,
     sourceEventName: params.sourceEventName,
-    contextPayload: params.contextPayload ?? {},
+    contextPayload: (params.contextPayload ?? {}) as NotificationContextPayload<TEventName>,
     attentionHints: params.attentionHints,
     routingIntent: params.routingIntent,
     routingHints: params.routingHints,
