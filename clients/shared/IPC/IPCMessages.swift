@@ -2040,7 +2040,8 @@ extension IPCGuardianVerificationRequest {
         channel: String? = nil,
         sessionId: String? = nil,
         rebind: Bool? = nil,
-        destination: String? = nil
+        destination: String? = nil,
+        originConversationId: String? = nil
     ) {
         self.init(
             type: "guardian_verification",
@@ -2048,7 +2049,8 @@ extension IPCGuardianVerificationRequest {
             channel: channel,
             sessionId: sessionId,
             rebind: rebind,
-            destination: destination
+            destination: destination,
+            originConversationId: originConversationId
         )
     }
 }

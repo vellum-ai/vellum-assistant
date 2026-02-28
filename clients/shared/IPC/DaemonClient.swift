@@ -1137,14 +1137,16 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         channel: String? = nil,
         sessionId: String? = nil,
         rebind: Bool? = nil,
-        destination: String? = nil
+        destination: String? = nil,
+        originConversationId: String? = nil
     ) throws {
         try send(GuardianVerificationRequestMessage(
             action: action,
             channel: channel,
             sessionId: sessionId,
             rebind: rebind,
-            destination: destination
+            destination: destination,
+            originConversationId: originConversationId
         ))
     }
 
