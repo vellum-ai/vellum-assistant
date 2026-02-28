@@ -608,6 +608,19 @@ export class RuntimeHttpServer {
     req: Request,
     url: URL,
   ): Promise<Response> {
+    // Transitional rewrite: the gateway still constructs /v1/assistants/:id/...
+    // URLs for direct daemon calls (runtime/client.ts). Strip the assistant-scoped
+    // prefix and forward to the flat endpoint so those requests keep working.
+    // Remove this rewrite once the gateway is updated to use flat paths (M4).
+    const assistantScopedMatch = endpoint.match(/^assistants\/[^/]+\/(.+)$/);
+    if (assistantScopedMatch) {
+      log.warn(
+        { originalEndpoint: endpoint, rewrittenEndpoint: assistantScopedMatch[1] },
+        'DEPRECATION: received assistant-scoped path; rewriting to flat endpoint. Update the caller to use /v1/<endpoint> directly.',
+      );
+      return this.dispatchEndpoint(assistantScopedMatch[1], req, url);
+    }
+
     const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
     return withErrorHandling(endpoint, async () => {
       if (endpoint === 'health' && req.method === 'GET') return handleHealth();
