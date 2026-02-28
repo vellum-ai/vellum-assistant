@@ -14,7 +14,13 @@ const routeGuardianReplyMock = mock(async () => ({
 })) as any;
 const listPendingByDestinationMock = mock(() => [] as Array<{ id: string; kind?: string }>);
 const listCanonicalMock = mock(() => [] as Array<{ id: string }>);
-const getByConversationMock = mock(() => [] as Array<{ requestId: string; kind: 'confirmation' | 'secret' }>);
+const getByConversationMock = mock(
+  () => [] as Array<{
+    requestId: string;
+    kind: 'confirmation' | 'secret';
+    session?: unknown;
+  }>,
+);
 const addMessageMock = mock(async () => ({ id: 'persisted-message-id' }));
 const getConfigMock = mock(() => ({
   daemon: { standaloneRecording: false },
@@ -71,6 +77,7 @@ interface TestSession {
   hasEscalationHandler: () => boolean;
   setChannelCapabilities: (caps: unknown) => void;
   isProcessing: () => boolean;
+  hasPendingConfirmation: (requestId: string) => boolean;
   hasAnyPendingConfirmation: () => boolean;
   getQueueDepth: () => number;
   denyAllPendingConfirmations: () => void;
@@ -123,6 +130,7 @@ function makeSession(overrides: Partial<TestSession> = {}): TestSession {
     hasEscalationHandler: () => true,
     setChannelCapabilities: () => {},
     isProcessing: () => false,
+    hasPendingConfirmation: () => true,
     hasAnyPendingConfirmation: () => true,
     getQueueDepth: () => 0,
     denyAllPendingConfirmations: mock(() => {}),
@@ -267,5 +275,36 @@ describe('handleUserMessage pending-confirmation reply interception', () => {
     expect(addMessageMock).toHaveBeenCalledTimes(0);
     expect(sent.some((msg) => msg.type === 'message_queued')).toBe(true);
     expect(sent.some((msg) => msg.type === 'message_dequeued')).toBe(false);
+  });
+
+  test('routes only live pending confirmation request ids', async () => {
+    const session = makeSession({
+      hasPendingConfirmation: (requestId: string) => requestId === 'req-live',
+    });
+
+    getByConversationMock.mockReturnValue([
+      { requestId: 'req-stale', kind: 'confirmation', session: {} },
+      { requestId: 'req-live', kind: 'confirmation', session: session as unknown },
+    ]);
+    listPendingByDestinationMock.mockReturnValue([
+      { id: 'req-stale', kind: 'tool_approval' },
+      { id: 'req-live', kind: 'tool_approval' },
+    ]);
+    listCanonicalMock.mockReturnValue([
+      { id: 'req-stale' },
+      { id: 'req-live' },
+    ]);
+    routeGuardianReplyMock.mockResolvedValue({
+      consumed: false,
+      decisionApplied: false,
+      type: 'not_consumed',
+    });
+
+    const { ctx } = createContext(session);
+    await handleUserMessage(makeMessage('allow'), {} as net.Socket, ctx);
+
+    expect(routeGuardianReplyMock).toHaveBeenCalledTimes(1);
+    const routeCall = (routeGuardianReplyMock as any).mock.calls[0][0] as Record<string, unknown>;
+    expect(routeCall.pendingRequestIds).toEqual(['req-live']);
   });
 });
