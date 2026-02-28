@@ -1768,4 +1768,71 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         }
     }
 
+    // MARK: - Actor Token Bootstrap
+
+    /// Response from `POST /v1/integrations/guardian/vellum/bootstrap`.
+    public struct GuardianBootstrapResponse: Decodable {
+        public let guardianPrincipalId: String
+        public let actorToken: String
+        public let isNew: Bool
+    }
+
+    /// Calls the runtime's guardian bootstrap endpoint to obtain an actor token.
+    /// The token is bound to (assistantId, platform, deviceId) and persisted
+    /// in Keychain via `ActorTokenManager`.
+    ///
+    /// Returns `true` on success, `false` on failure.
+    public func bootstrapActorToken(platform: String, deviceId: String) async -> Bool {
+        let baseURL: String
+        let bearerToken: String?
+
+        if let httpTransport {
+            baseURL = httpTransport.baseURL
+            bearerToken = httpTransport.bearerToken
+        } else if let local = resolveLocalDaemonHTTPEndpoint() {
+            baseURL = local.baseURL
+            bearerToken = local.bearerToken
+        } else {
+            log.error("Cannot bootstrap actor token — no HTTP endpoint available")
+            return false
+        }
+
+        guard let url = URL(string: "\(baseURL)/v1/integrations/guardian/vellum/bootstrap") else {
+            log.error("Invalid bootstrap URL")
+            return false
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 15
+        if let token = bearerToken, !token.isEmpty {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        let body: [String: Any] = [
+            "platform": platform,
+            "deviceId": deviceId
+        ]
+
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+                log.error("Actor token bootstrap failed (HTTP \(statusCode))")
+                return false
+            }
+
+            let decoded = try JSONDecoder().decode(GuardianBootstrapResponse.self, from: data)
+            ActorTokenManager.setToken(decoded.actorToken)
+            log.info("Actor token bootstrap succeeded (isNew=\(decoded.isNew))")
+            return true
+        } catch {
+            log.error("Actor token bootstrap error: \(error.localizedDescription)")
+            return false
+        }
+    }
+
 }
