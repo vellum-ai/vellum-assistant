@@ -422,6 +422,27 @@ struct MainWindowView: View {
                     windowState.activeDynamicParsedSurface = nil
                 }
 
+                // Reset publish state when switching to a different app so new/different
+                // apps don't inherit the "Published" badge from a previously published app.
+                let oldAppId: String? = {
+                    switch oldSelection {
+                    case .app(let id): return id
+                    case .appEditing(let id, _): return id
+                    default: return nil
+                    }
+                }()
+                let newAppId: String? = {
+                    switch newSelection {
+                    case .app(let id): return id
+                    case .appEditing(let id, _): return id
+                    default: return nil
+                    }
+                }()
+                if oldAppId != newAppId {
+                    sharing.publishedUrl = nil
+                    sharing.publishError = nil
+                }
+
                 // Collapse the sidebar when an app opens to avoid crowding
                 if sidebarExpanded {
                     let shouldCollapse: Bool = {

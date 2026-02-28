@@ -107,10 +107,22 @@ export function extractText(response: ProviderResponse): string {
  * Extract all text blocks from a ProviderResponse and join them.
  */
 export function extractAllText(response: ProviderResponse): string {
-  return response.content
+  const parts = response.content
     .filter((b): b is Extract<ContentBlock, { type: 'text' }> => b.type === 'text')
-    .map((b) => b.text)
-    .join('\n');
+    .map((b) => b.text);
+  // Join consecutive text blocks with a space, but skip the separator when
+  // either side already has whitespace (avoids double-spacing).
+  let result = parts[0] ?? '';
+  for (let i = 1; i < parts.length; i++) {
+    const prev = result[result.length - 1];
+    const next = parts[i][0];
+    if (prev && next && prev !== ' ' && prev !== '\n' && prev !== '\t' &&
+        next !== ' ' && next !== '\n' && next !== '\t') {
+      result += ' ';
+    }
+    result += parts[i];
+  }
+  return result;
 }
 
 /**
