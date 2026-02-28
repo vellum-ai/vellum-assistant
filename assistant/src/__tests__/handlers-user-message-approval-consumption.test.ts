@@ -3,7 +3,7 @@ import * as net from 'node:net';
 import { beforeEach, describe, expect, mock, test } from 'bun:test';
 
 import type { HandlerContext } from '../daemon/handlers.js';
-import type { UserMessage } from '../daemon/ipc-contract.js';
+import type { ConfirmationResponse, UserMessage } from '../daemon/ipc-contract.js';
 import type { ServerMessage } from '../daemon/ipc-protocol.js';
 import { DebouncerMap } from '../util/debounce.js';
 
@@ -18,6 +18,7 @@ const createCanonicalGuardianRequestMock = mock(() => ({
 const generateCanonicalRequestCodeMock = mock(() => 'ABC123');
 const listPendingByDestinationMock = mock(() => [] as Array<{ id: string; kind?: string }>);
 const listCanonicalMock = mock(() => [] as Array<{ id: string }>);
+const resolveCanonicalGuardianRequestMock = mock(() => null as { id: string } | null);
 const getByConversationMock = mock(
   () => [] as Array<{
     requestId: string;
@@ -42,6 +43,7 @@ mock.module('../memory/canonical-guardian-store.js', () => ({
   generateCanonicalRequestCode: generateCanonicalRequestCodeMock,
   listPendingCanonicalGuardianRequestsByDestinationConversation: listPendingByDestinationMock,
   listCanonicalGuardianRequests: listCanonicalMock,
+  resolveCanonicalGuardianRequest: resolveCanonicalGuardianRequestMock,
 }));
 
 mock.module('../runtime/pending-interactions.js', () => ({
@@ -80,7 +82,7 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
-import { handleUserMessage } from '../daemon/handlers/sessions.js';
+import { handleConfirmationResponse, handleUserMessage } from '../daemon/handlers/sessions.js';
 
 interface TestSession {
   messages: Array<{ role: string; content: unknown[] }>;
@@ -163,6 +165,7 @@ describe('handleUserMessage pending-confirmation reply interception', () => {
     generateCanonicalRequestCodeMock.mockClear();
     listPendingByDestinationMock.mockClear();
     listCanonicalMock.mockClear();
+    resolveCanonicalGuardianRequestMock.mockClear();
     registerMock.mockClear();
     getByConversationMock.mockClear();
     resolveMock.mockClear();
@@ -378,5 +381,69 @@ describe('handleUserMessage pending-confirmation reply interception', () => {
       }),
     );
     expect(sent.some((event) => event.type === 'confirmation_request')).toBe(true);
+  });
+
+  test('syncs canonical status to approved for IPC allow decisions', () => {
+    const session = {
+      hasPendingConfirmation: (requestId: string) => requestId === 'req-confirm-allow',
+      handleConfirmationResponse: mock(() => {}),
+    };
+    const { ctx } = createContext(makeSession());
+    ctx.sessions.set('conv-1', session as any);
+
+    const msg: ConfirmationResponse = {
+      type: 'confirmation_response',
+      requestId: 'req-confirm-allow',
+      decision: 'always_allow',
+    };
+
+    handleConfirmationResponse(msg, {} as net.Socket, ctx);
+
+    expect((session.handleConfirmationResponse as any).mock.calls.length).toBe(1);
+    expect((session.handleConfirmationResponse as any).mock.calls[0]).toEqual([
+      'req-confirm-allow',
+      'always_allow',
+      undefined,
+      undefined,
+    ]);
+    expect(resolveCanonicalGuardianRequestMock).toHaveBeenCalledWith(
+      'req-confirm-allow',
+      'pending',
+      { status: 'approved' },
+    );
+    expect(resolveMock).toHaveBeenCalledWith('req-confirm-allow');
+  });
+
+  test('syncs canonical status to denied for IPC deny decisions in CU sessions', () => {
+    const cuSession = {
+      hasPendingConfirmation: (requestId: string) => requestId === 'req-confirm-deny',
+      handleConfirmationResponse: mock(() => {}),
+    };
+    const { ctx } = createContext(makeSession({
+      hasPendingConfirmation: () => false,
+    }));
+    ctx.cuSessions.set('cu-1', cuSession as any);
+
+    const msg: ConfirmationResponse = {
+      type: 'confirmation_response',
+      requestId: 'req-confirm-deny',
+      decision: 'always_deny',
+    };
+
+    handleConfirmationResponse(msg, {} as net.Socket, ctx);
+
+    expect((cuSession.handleConfirmationResponse as any).mock.calls.length).toBe(1);
+    expect((cuSession.handleConfirmationResponse as any).mock.calls[0]).toEqual([
+      'req-confirm-deny',
+      'always_deny',
+      undefined,
+      undefined,
+    ]);
+    expect(resolveCanonicalGuardianRequestMock).toHaveBeenCalledWith(
+      'req-confirm-deny',
+      'pending',
+      { status: 'denied' },
+    );
+    expect(resolveMock).toHaveBeenCalledWith('req-confirm-deny');
   });
 });

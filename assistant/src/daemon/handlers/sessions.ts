@@ -11,6 +11,7 @@ import {
   generateCanonicalRequestCode,
   listCanonicalGuardianRequests,
   listPendingCanonicalGuardianRequestsByDestinationConversation,
+  resolveCanonicalGuardianRequest,
 } from '../../memory/canonical-guardian-store.js';
 import { getAttentionStateByConversationIds } from '../../memory/conversation-attention-store.js';
 import * as conversationStore from '../../memory/conversation-store.js';
@@ -68,6 +69,24 @@ import {
 } from './shared.js';
 
 const desktopApprovalConversationGenerator = createApprovalConversationGenerator();
+
+function syncCanonicalStatusFromIpcConfirmationDecision(
+  requestId: string,
+  decision: ConfirmationResponse['decision'],
+): void {
+  const targetStatus = decision === 'deny' || decision === 'always_deny'
+    ? 'denied' as const
+    : 'approved' as const;
+
+  try {
+    resolveCanonicalGuardianRequest(requestId, 'pending', { status: targetStatus });
+  } catch (err) {
+    log.debug(
+      { err, requestId, targetStatus },
+      'Failed to resolve canonical request from IPC confirmation response',
+    );
+  }
+}
 
 function makeIpcEventSender(params: {
   ctx: HandlerContext;
@@ -709,6 +728,7 @@ export function handleConfirmationResponse(
         msg.selectedPattern,
         msg.selectedScope,
       );
+      syncCanonicalStatusFromIpcConfirmationDecision(msg.requestId, msg.decision);
       pendingInteractions.resolve(msg.requestId);
       return;
     }
@@ -723,6 +743,7 @@ export function handleConfirmationResponse(
         msg.selectedPattern,
         msg.selectedScope,
       );
+      syncCanonicalStatusFromIpcConfirmationDecision(msg.requestId, msg.decision);
       pendingInteractions.resolve(msg.requestId);
       return;
     }
