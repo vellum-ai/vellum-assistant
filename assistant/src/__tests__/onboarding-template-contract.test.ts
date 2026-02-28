@@ -64,11 +64,12 @@ describe('onboarding template contracts', () => {
       expect(lower).toContain('tools');
     });
 
-    test('shows exactly 2 suggestions via ui_show', () => {
+    test('shows exactly 2 suggestions via ui_show card with relay_prompt actions', () => {
       expect(bootstrap).toContain('ui_show');
       expect(bootstrap).toContain('exactly 2');
-      expect(bootstrap).toContain('onboarding_suggestion_1');
-      expect(bootstrap).toContain('onboarding_suggestion_2');
+      // Must use card surface with relay_prompt action buttons
+      expect(bootstrap).toContain('surface_type: "card"');
+      expect(bootstrap).toContain('relay_prompt');
     });
 
     test('contains completion gate with all required conditions', () => {
