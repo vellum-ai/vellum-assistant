@@ -783,7 +783,7 @@ export async function handleChannelInbound(
           externalChatId,
         })
         : null;
-      const memberMatchesSender = existingMember
+      const memberMatchesSender = existingMember?.externalUserId
         ? canonicalizeInboundIdentity(sourceChannel, existingMember.externalUserId) === (canonicalSenderId ?? rawSenderId)
         : false;
       const preservedDisplayName = memberMatchesSender && existingMember?.displayName?.trim().length

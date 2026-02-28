@@ -145,7 +145,7 @@ export function resolveActorTrust(input: ResolveActorTrustInput): ActorTrustCont
   // externalUserId matches the current sender to avoid misidentification.
   // Canonicalize the stored member ID to handle formatting variance (e.g.
   // phone numbers stored without E.164 normalization).
-  const memberMatchesSender = memberRecord
+  const memberMatchesSender = memberRecord?.externalUserId
     ? canonicalizeInboundIdentity(input.sourceChannel, memberRecord.externalUserId) === canonicalSenderId
     : false;
 
