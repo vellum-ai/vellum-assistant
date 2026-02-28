@@ -506,13 +506,15 @@ export class RelayConnection {
         });
 
         // Create/dedupe canonical access request via the shared helper
+        let guardianNotified = false;
         try {
-          notifyGuardianOfAccessRequest({
+          const accessResult = notifyGuardianOfAccessRequest({
             canonicalAssistantId: assistantId,
             sourceChannel: 'voice',
             externalChatId: msg.from,
             senderExternalUserId: actorTrust.canonicalSenderId ?? msg.from,
           });
+          guardianNotified = accessResult.notified;
         } catch (err) {
           log.error({ err, callSessionId: this.callSessionId }, 'Failed to create access request for denied voice caller');
         }
@@ -520,10 +522,10 @@ export class RelayConnection {
         // Deny with deterministic voice copy and end the call.
         // Mark as disconnecting so handlePrompt ignores caller input
         // during the delay before the session ends.
-        this.sendTextToken(
-          'This number is not authorized. Your request has been forwarded to the account guardian.',
-          true,
-        );
+        const denialMessage = guardianNotified
+          ? 'This number is not authorized. Your request has been forwarded to the account guardian.'
+          : 'This number is not authorized to use this assistant.';
+        this.sendTextToken(denialMessage, true);
 
         this.connectionState = 'disconnecting';
 
