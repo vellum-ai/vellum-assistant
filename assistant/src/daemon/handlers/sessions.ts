@@ -507,16 +507,15 @@ export async function handleUserMessage(
               consumedChannelMeta,
             );
 
-            const replyText = routerResult.replyText?.trim();
-            if (replyText && replyText.length > 0) {
-              const consumedAssistantMessage = createAssistantMessage(replyText);
-              await conversationStore.addMessage(
-                msg.sessionId,
-                'assistant',
-                JSON.stringify(consumedAssistantMessage.content),
-                consumedChannelMeta,
-              );
-            }
+            const replyText = (routerResult.replyText?.trim())
+              || (routerResult.decisionApplied ? 'Decision applied.' : 'Request already resolved.');
+            const consumedAssistantMessage = createAssistantMessage(replyText);
+            await conversationStore.addMessage(
+              msg.sessionId,
+              'assistant',
+              JSON.stringify(consumedAssistantMessage.content),
+              consumedChannelMeta,
+            );
 
             // Mirror the normal queued/dequeued lifecycle so desktop clients can
             // reconcile queued bubble state for this just-sent user message.
@@ -532,13 +531,11 @@ export async function handleUserMessage(
               requestId,
             });
 
-            if (replyText && replyText.length > 0) {
-              ctx.send(socket, {
-                type: 'assistant_text_delta',
-                text: replyText,
-                sessionId: msg.sessionId,
-              });
-            }
+            ctx.send(socket, {
+              type: 'assistant_text_delta',
+              text: replyText,
+              sessionId: msg.sessionId,
+            });
             ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
 
             rlog.info(

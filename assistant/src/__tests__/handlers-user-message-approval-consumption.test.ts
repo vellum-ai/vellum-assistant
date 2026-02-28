@@ -159,7 +159,7 @@ describe('handleUserMessage pending-confirmation reply interception', () => {
     expect(typeof routeCall.approvalConversationGenerator).toBe('function');
     expect((session.denyAllPendingConfirmations as any).mock.calls.length).toBe(0);
     expect((session.enqueueMessage as any).mock.calls.length).toBe(0);
-    expect(addMessageMock).toHaveBeenCalledTimes(1);
+    expect(addMessageMock).toHaveBeenCalledTimes(2);
     expect(addMessageMock).toHaveBeenCalledWith(
       'conv-1',
       'user',
@@ -172,11 +172,28 @@ describe('handleUserMessage pending-confirmation reply interception', () => {
         provenanceActorRole: 'guardian',
       }),
     );
+    expect(addMessageMock).toHaveBeenCalledWith(
+      'conv-1',
+      'assistant',
+      expect.stringContaining('Decision applied.'),
+      expect.objectContaining({
+        userMessageChannel: 'vellum',
+        assistantMessageChannel: 'vellum',
+        userMessageInterface: 'macos',
+        assistantMessageInterface: 'macos',
+        provenanceActorRole: 'guardian',
+      }),
+    );
     expect(sent.map((msg) => msg.type)).toEqual([
       'message_queued',
       'message_dequeued',
+      'assistant_text_delta',
       'message_complete',
     ]);
+    const assistantDelta = sent.find(
+      (msg): msg is Extract<ServerMessage, { type: 'assistant_text_delta' }> => msg.type === 'assistant_text_delta',
+    );
+    expect(assistantDelta?.text).toBe('Decision applied.');
   });
 
   test('nl keep_pending falls back to existing auto-deny + queue behavior', async () => {
