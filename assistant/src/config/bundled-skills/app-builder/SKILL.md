@@ -673,6 +673,28 @@ Wrap in `.v-metric-grid` for responsive 2-4 column layout. Always use a semantic
 
 `.v-pullquote` — Blockquote with gradient accent border. `.v-comparison` — Before/after cards (3-column grid with `.before`/`.after` modifiers). `.v-page` — Centered container (max-width 600px). Use `.v-animate-in` on children for staggered fade-in. Use `.v-gradient-text` for accent-colored gradient text.
 
+`.v-slideshow` — Presentation slide deck with transitions and navigation. Init with `vellum.widgets.slideshow()`:
+```html
+<div class="v-slideshow" id="deck">
+  <div class="v-slide">
+    <div class="v-slide-header">
+      <span class="v-slide-label">Overview</span>
+    </div>
+    <h1 class="v-slide-title">The city that never <span class="accent-word">sleeps</span></h1>
+    <p class="v-slide-body">Body text here...</p>
+    <div class="v-slide-stats">
+      <div class="v-slide-stat">
+        <span class="v-slide-stat-value">8.3M</span>
+        <span class="v-slide-stat-label">Residents</span>
+      </div>
+    </div>
+  </div>
+  <div class="v-slide"><!-- Slide 2 --></div>
+  <div class="v-slide"><!-- Slide 3 --></div>
+</div>
+```
+Slide content helpers: `.v-slide-label` (section label with colored dot), `.v-slide-title` (responsive heading), `.v-slide-body` (body text, max-width 540px), `.v-slide-stats` (auto-fit grid), `.v-slide-stat` / `.v-slide-stat-value` / `.v-slide-stat-label` (big-number cards), `.v-slide-quote` / `.v-slide-quote-attribution` (blockquote), `.v-slide-list` (styled list), `.v-slide-columns` / `.v-slide-column` (2-column comparison grid).
+
 #### Widget JavaScript utilities
 
 Interactive utilities at `window.vellum.widgets.*`:
@@ -724,6 +746,13 @@ vellum.widgets.toast('Connection lost', 'error', 0);      // Manual dismiss
 vellum.widgets.countdown('timer-el', '2025-12-31T00:00:00Z', {
   onComplete: () => console.log('Done!')
 });
+
+// Slideshow — presentation deck with transitions and navigation
+vellum.widgets.slideshow('deck', {
+  transition: 'fade', showDots: true, showArrows: true,
+  showCounter: true, keyboard: true, loop: true
+});
+// Returns: { goTo(index), next(), prev() }
 ```
 
 #### Composition recipes
@@ -992,9 +1021,142 @@ async function handleBulk(action) {
 }
 ```
 
+**Presentation slideshow** — multi-slide deck with 8 layout variants (title, stats, bullets, quote, comparison, visual, timeline, closing). Use the slideshow widget for presentations, pitch decks, and multi-slide educational content. The model provides slide content; the widget handles navigation, transitions, and keyboard support.
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+  :root { --v-accent: #8B5CF6; }
+  body { margin: 0; padding: 0; background: linear-gradient(-45deg, #0f172a, #1e1b4b, #172554); min-height: 100vh; }
+  .v-slideshow { border-radius: 0; min-height: 100vh; }
+  .accent-word { color: var(--v-accent); }
+  .trust-pill { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 999px; font-size: 13px; font-weight: 500; background: color-mix(in srgb, var(--v-surface) 60%, transparent); border: 1px solid var(--v-surface-border); color: var(--v-text-secondary); margin-top: var(--v-spacing-lg); }
+  .trust-pill.accent { border-color: color-mix(in srgb, var(--v-accent) 30%, transparent); color: var(--v-accent); }
+  .v-slide-list li { font-size: 15px; line-height: 1.7; }
+  .v-slide-columns h3 { margin: 0 0 var(--v-spacing-sm); color: var(--v-text); font-size: var(--v-font-size-lg); }
+  .slide-visual { position: relative; overflow: hidden; }
+  .slide-visual-bg { position: absolute; inset: 0; background: radial-gradient(ellipse at 30% 40%, color-mix(in srgb, var(--v-accent) 15%, transparent), transparent 70%), radial-gradient(ellipse at 70% 60%, color-mix(in srgb, var(--v-forest-500, #22c55e) 10%, transparent), transparent 60%); }
+  .slide-visual-overlay { position: relative; z-index: 1; background: color-mix(in srgb, var(--v-bg) 40%, transparent); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-radius: var(--v-radius-lg); padding: var(--v-spacing-xl); max-width: 500px; }
+</style>
+</head>
+<body>
+<div class="v-slideshow" id="deck">
+
+  <!-- 1. Title slide -->
+  <div class="v-slide">
+    <span class="v-slide-label">Introduction</span>
+    <h1 class="v-slide-title">The city that never <span class="accent-word">sleeps</span></h1>
+    <p class="v-slide-body">A brief subtitle or tagline here.</p>
+    <span class="trust-pill accent">&#x1f5fd; 8.3 million residents</span>
+  </div>
+
+  <!-- 2. Content + Stats slide -->
+  <div class="v-slide">
+    <span class="v-slide-label">By the Numbers</span>
+    <h2 class="v-slide-title">Economy at a glance</h2>
+    <p class="v-slide-body">New York generates more GDP than most countries...</p>
+    <div class="v-slide-stats">
+      <div class="v-slide-stat"><span class="v-slide-stat-value">$2.1T</span><span class="v-slide-stat-label">Metro GDP</span></div>
+      <div class="v-slide-stat"><span class="v-slide-stat-value">4.7M</span><span class="v-slide-stat-label">Jobs</span></div>
+      <div class="v-slide-stat"><span class="v-slide-stat-value">#1</span><span class="v-slide-stat-label">Financial Hub</span></div>
+    </div>
+  </div>
+
+  <!-- 3. Bullet points slide -->
+  <div class="v-slide">
+    <span class="v-slide-label">Culture</span>
+    <h2 class="v-slide-title">What makes it <span class="accent-word">unique</span></h2>
+    <ul class="v-slide-list">
+      <li>&#x1f3ad; Broadway — 41 professional theaters in the Theater District</li>
+      <li>&#x1f3db;&#xfe0f; 80+ world-class museums including the Met and MoMA</li>
+      <li>&#x1f355; Over 27,000 restaurants spanning every cuisine on earth</li>
+      <li>&#x1f333; 843 acres of Central Park in the heart of Manhattan</li>
+    </ul>
+  </div>
+
+  <!-- 4. Quote slide -->
+  <div class="v-slide" style="justify-content: center; align-items: center; text-align: center;">
+    <div class="v-slide-quote" style="border-left: none; padding-left: 0;">
+      "There is no place like New York. It is the most exciting city in the world."
+    </div>
+    <div class="v-slide-quote-attribution">— John Updike</div>
+  </div>
+
+  <!-- 5. Comparison / Two-column slide -->
+  <div class="v-slide">
+    <span class="v-slide-label">Comparison</span>
+    <h2 class="v-slide-title">Manhattan vs Brooklyn</h2>
+    <div class="v-slide-columns">
+      <div class="v-slide-column">
+        <h3>&#x1f3d9;&#xfe0f; Manhattan</h3>
+        <p class="v-slide-body" style="margin-bottom: var(--v-spacing-sm);">Financial center, dense skyscrapers, high-energy nightlife, world-famous landmarks.</p>
+        <span class="v-slide-stat-value">1.6M</span>
+        <span class="v-slide-stat-label">Population</span>
+      </div>
+      <div class="v-slide-column">
+        <h3>&#x1f309; Brooklyn</h3>
+        <p class="v-slide-body" style="margin-bottom: var(--v-spacing-sm);">Creative hub, brownstone neighborhoods, artisan food scene, waterfront parks.</p>
+        <span class="v-slide-stat-value">2.7M</span>
+        <span class="v-slide-stat-label">Population</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 6. Image/visual slide -->
+  <div class="v-slide slide-visual">
+    <div class="slide-visual-bg"></div>
+    <div class="slide-visual-overlay">
+      <span class="v-slide-label">Skyline</span>
+      <h2 class="v-slide-title">An iconic <span class="accent-word">horizon</span></h2>
+      <p class="v-slide-body">The Manhattan skyline is recognized worldwide...</p>
+    </div>
+  </div>
+
+  <!-- 7. Timeline slide -->
+  <div class="v-slide">
+    <span class="v-slide-label">History</span>
+    <h2 class="v-slide-title">Key <span class="accent-word">milestones</span></h2>
+    <div class="v-timeline" style="margin-top: var(--v-spacing-lg);">
+      <div class="v-timeline-entry"><span class="v-timeline-time">1626</span><span class="v-timeline-title">Manhattan purchased</span></div>
+      <div class="v-timeline-entry"><span class="v-timeline-time">1886</span><span class="v-timeline-title">Statue of Liberty dedicated</span></div>
+      <div class="v-timeline-entry active"><span class="v-timeline-time">1931</span><span class="v-timeline-title">Empire State Building opens</span></div>
+    </div>
+  </div>
+
+  <!-- 8. Closing / CTA slide -->
+  <div class="v-slide" style="text-align: center; align-items: center;">
+    <h1 class="v-slide-title">The world's <span class="accent-word">capital</span></h1>
+    <p class="v-slide-body" style="max-width: 400px;">New York isn't just a city — it's an idea that never stops evolving.</p>
+    <div class="v-slide-stats" style="margin-top: var(--v-spacing-xxl);">
+      <div class="v-slide-stat"><span class="v-slide-stat-value">800+</span><span class="v-slide-stat-label">Languages spoken</span></div>
+      <div class="v-slide-stat"><span class="v-slide-stat-value">62M</span><span class="v-slide-stat-label">Annual visitors</span></div>
+    </div>
+  </div>
+
+</div>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  vellum.widgets.slideshow('deck', {
+    transition: 'fade',
+    showDots: true,
+    showArrows: true,
+    showCounter: true,
+    keyboard: true,
+    loop: true
+  });
+});
+</script>
+</body>
+</html>
+```
+
 #### When to use widgets vs custom HTML
 
-- **Use widgets** for standard patterns — tables, metrics, timelines, notifications
+- **Use widgets** for standard patterns — tables, metrics, timelines, notifications, presentations
 - **Use custom HTML** for novel or creative UIs — games, art tools, unique dashboards
 - **Mix freely** — widgets compose well together and with custom elements
 - Always prioritize the ideal user experience over using the widget library
@@ -1326,6 +1488,7 @@ Before delivering any app, mentally verify these 10 items — they cover the gap
 | `.v-pill-toggles` | Time range / filter toggle group | `.v-pill-toggle` (`.active`) — container with pill buttons |
 | `.v-chip-group` | Suggestion / filter chip row | `.v-chip` (`.active`) — wrapping row of clickable pills |
 | `.v-metric-card .v-metric-icon` | Emoji icon in metric cards | Place emoji `<span>` with `.v-metric-icon` inside `.v-metric-card` |
+| `.v-slideshow` | Presentation slide deck with transitions | `.v-slide` (`.active`), `.v-slide-label`, `.v-slide-title`, `.v-slide-body`, `.v-slide-stats`, `.v-slide-stat`, `.v-slide-quote` — init with `vellum.widgets.slideshow()` |
 
 Every app should include: search/filter, toast notifications for all CRUD operations, `window.vellum.confirm()` for destructive actions, staggered page-load animation, card hover effects, and skeleton loading states.
 
