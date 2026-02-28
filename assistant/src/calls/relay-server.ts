@@ -477,7 +477,10 @@ export class RelayConnection {
       // Resolve the caller's trust classification before allowing the call
       // to proceed. Guardian and trusted-contact callers pass through;
       // unknown callers are denied with deterministic voice copy and an
-      // access request is created for the guardian.
+      // access request is created for the guardian — unless there is a
+      // pending voice guardian challenge, in which case the caller is
+      // expected to be unknown (no binding yet) and should enter the
+      // verification flow.
       const actorTrust = resolveActorTrust({
         assistantId,
         sourceChannel: 'voice',
@@ -485,7 +488,12 @@ export class RelayConnection {
         senderExternalUserId: msg.from || undefined,
       });
 
-      if (actorTrust.trustClass === 'unknown') {
+      // Check for a pending voice guardian challenge before the ACL deny
+      // gate. An unknown caller with a pending challenge is expected —
+      // they need to complete verification to establish a binding.
+      const pendingChallenge = getPendingChallenge(assistantId, 'voice');
+
+      if (actorTrust.trustClass === 'unknown' && !pendingChallenge) {
         log.info(
           { callSessionId: this.callSessionId, from: msg.from, trustClass: actorTrust.trustClass },
           'Inbound voice ACL: unknown caller denied',
@@ -509,11 +517,15 @@ export class RelayConnection {
           log.error({ err, callSessionId: this.callSessionId }, 'Failed to create access request for denied voice caller');
         }
 
-        // Deny with deterministic voice copy and end the call
+        // Deny with deterministic voice copy and end the call.
+        // Mark as disconnecting so handlePrompt ignores caller input
+        // during the delay before the session ends.
         this.sendTextToken(
           'This number is not authorized. Your request has been forwarded to the account guardian.',
           true,
         );
+
+        this.connectionState = 'disconnecting';
 
         updateCallSession(this.callSessionId, {
           status: 'failed',
@@ -530,17 +542,13 @@ export class RelayConnection {
       // Guardian and trusted-contact callers proceed normally.
       // Update the controller's guardian context with the trust-resolved
       // context so downstream policy gates have accurate actor metadata.
-      if (this.controller) {
+      if (this.controller && actorTrust.trustClass !== 'unknown') {
         const resolvedGuardianContext = toGuardianRuntimeContext(
           'voice',
           toGuardianContextCompat(actorTrust, msg.from),
         );
         this.controller.setGuardianContext(resolvedGuardianContext);
       }
-
-      // For inbound calls, check if there's a pending voice guardian
-      // challenge that the caller needs to complete before proceeding.
-      const pendingChallenge = getPendingChallenge(assistantId, 'voice');
 
       if (pendingChallenge) {
         this.startInboundGuardianVerification(assistantId, msg.from);
