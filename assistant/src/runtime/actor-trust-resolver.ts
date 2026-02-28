@@ -140,14 +140,20 @@ export function resolveActorTrust(input: ResolveActorTrustInput): ActorTrustCont
     externalChatId: input.externalChatId,
   });
 
-  const memberUsername = typeof memberRecord?.username === 'string' && memberRecord.username.trim().length > 0
+  // In group chats, findMember may match on externalChatId and return a
+  // record for a different user. Only use member metadata when the record's
+  // externalUserId matches the current sender to avoid misidentification.
+  const memberMatchesSender = memberRecord?.externalUserId === canonicalSenderId;
+
+  const memberUsername = memberMatchesSender && typeof memberRecord?.username === 'string' && memberRecord.username.trim().length > 0
     ? memberRecord.username.trim()
     : undefined;
-  const memberDisplayName = typeof memberRecord?.displayName === 'string' && memberRecord.displayName.trim().length > 0
+  const memberDisplayName = memberMatchesSender && typeof memberRecord?.displayName === 'string' && memberRecord.displayName.trim().length > 0
     ? memberRecord.displayName.trim()
     : undefined;
   // Prefer member profile metadata over transient sender metadata so guardian-
-  // curated contact details are canonical for assistant-facing identity.
+  // curated contact details are canonical for assistant-facing identity —
+  // but only when the member record actually belongs to the current sender.
   const resolvedUsername = memberUsername ?? senderUsername;
   const resolvedDisplayName = memberDisplayName ?? senderDisplayName;
   const resolvedIdentifier = resolvedUsername ? `@${resolvedUsername}` : canonicalSenderId ?? undefined;
