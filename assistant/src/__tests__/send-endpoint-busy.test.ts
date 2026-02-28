@@ -136,13 +136,18 @@ function makeHangingSession(): Session {
   } as unknown as Session;
 }
 
-function makePendingApprovalSession(requestId: string, processing: boolean): {
+function makePendingApprovalSession(
+  requestId: string,
+  processing: boolean,
+  options?: { queueDepth?: number },
+): {
   session: Session;
   runAgentLoopMock: ReturnType<typeof mock>;
   enqueueMessageMock: ReturnType<typeof mock>;
   denyAllPendingConfirmationsMock: ReturnType<typeof mock>;
   handleConfirmationResponseMock: ReturnType<typeof mock>;
 } {
+  const queueDepth = options?.queueDepth ?? 0;
   const pending = new Set([requestId]);
   const messages: unknown[] = [];
   const runAgentLoopMock = mock(async () => {});
@@ -171,7 +176,7 @@ function makePendingApprovalSession(requestId: string, processing: boolean): {
     hasAnyPendingConfirmation: () => pending.size > 0,
     hasPendingConfirmation: (candidateRequestId: string) => pending.has(candidateRequestId),
     denyAllPendingConfirmations: denyAllPendingConfirmationsMock,
-    getQueueDepth: () => 0,
+    getQueueDepth: () => queueDepth,
     enqueueMessage: enqueueMessageMock,
     runAgentLoop: runAgentLoopMock,
     handleConfirmationResponse: handleConfirmationResponseMock,
@@ -441,6 +446,61 @@ describe('POST /v1/messages — queue-if-busy and hub publishing', () => {
       toolName: 'call_start',
       status: 'pending',
       requestCode: 'DEF456',
+      expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+    });
+
+    await startServer(() => session);
+
+    const res = await fetch(messagesUrl(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
+      body: JSON.stringify({
+        conversationKey,
+        content: 'approve',
+        sourceChannel: 'vellum',
+        interface: 'macos',
+      }),
+    });
+    const body = await res.json() as { accepted: boolean; messageId?: string; queued?: boolean };
+
+    expect(res.status).toBe(202);
+    expect(body.accepted).toBe(true);
+    expect(body.messageId).toBeDefined();
+    expect(body.queued).toBeUndefined();
+    expect(handleConfirmationResponseMock).toHaveBeenCalledTimes(1);
+    expect(denyAllPendingConfirmationsMock).toHaveBeenCalledTimes(0);
+    expect(enqueueMessageMock).toHaveBeenCalledTimes(0);
+    expect(runAgentLoopMock).toHaveBeenCalledTimes(0);
+
+    await stopServer();
+  });
+
+  test('consumes explicit approval text while busy even when queue depth is non-zero', async () => {
+    const conversationKey = 'conv-inline-busy-queued';
+    const { conversationId } = getOrCreateConversation(conversationKey);
+    const requestId = 'req-inline-busy-queued';
+    const {
+      session,
+      runAgentLoopMock,
+      enqueueMessageMock,
+      denyAllPendingConfirmationsMock,
+      handleConfirmationResponseMock,
+    } = makePendingApprovalSession(requestId, true, { queueDepth: 2 });
+
+    pendingInteractions.register(requestId, {
+      session,
+      conversationId,
+      kind: 'confirmation',
+    });
+    createCanonicalGuardianRequest({
+      id: requestId,
+      kind: 'tool_approval',
+      sourceType: 'desktop',
+      sourceChannel: 'vellum',
+      conversationId,
+      toolName: 'call_start',
+      status: 'pending',
+      requestCode: 'Q2D456',
       expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
     });
 

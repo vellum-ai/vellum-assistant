@@ -551,11 +551,13 @@ export async function handleUserMessage(
       }
     }
 
-    // If exactly one live turn is waiting on confirmation (no queued turns),
-    // try to consume this text as an inline approval decision first.
+    // If a live turn is waiting on confirmation, try to consume this text as
+    // an inline approval decision before auto-deny. We intentionally do not
+    // gate on queue depth: users often retry "approve"/"yes" while the queue
+    // is draining after a prior denial, and requiring an empty queue causes a
+    // deny/retry cascade where natural-language approvals never land.
     if (
       session.hasAnyPendingConfirmation()
-      && session.getQueueDepth() === 0
       && messageText.trim().length > 0
     ) {
       try {

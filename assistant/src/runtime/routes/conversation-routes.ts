@@ -102,12 +102,12 @@ async function tryConsumeInlineApprovalReply(params: {
   } = params;
   const trimmedContent = content.trim();
 
-  // Only consume inline replies when there are no queued turns, matching
-  // the IPC path guard. With queued messages, "approve"/"no" should be
-  // processed in queue order rather than treated as a confirmation reply.
+  // Try inline approval interception whenever a pending confirmation exists.
+  // We intentionally do not block on queue depth: after an auto-deny, users
+  // often retry with "approve"/"yes" while the queue is still draining, and
+  // requiring an empty queue can create a deny/retry cascade.
   if (
     !session.hasAnyPendingConfirmation()
-    || session.getQueueDepth() > 0
     || trimmedContent.length === 0
   ) {
     return { consumed: false };
