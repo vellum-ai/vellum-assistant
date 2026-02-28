@@ -114,6 +114,41 @@ final class AppListManager: ObservableObject {
         save()
     }
 
+    /// Sync apps from the daemon's authoritative list into the local sidebar list.
+    /// Adds any apps that don't already exist locally, using their daemon createdAt timestamp.
+    func syncFromDaemon(_ daemonApps: [AppItem_Daemon]) {
+        let existingIds = Set(apps.map(\.id))
+        var didAdd = false
+        for daemonApp in daemonApps {
+            guard !existingIds.contains(daemonApp.id) else { continue }
+            let generated = VAppIconGenerator.generate(from: daemonApp.name, type: daemonApp.appType)
+            var item = AppItem(
+                id: daemonApp.id,
+                name: daemonApp.name,
+                icon: daemonApp.icon,
+                appType: daemonApp.appType,
+                lastOpenedAt: Date(timeIntervalSince1970: TimeInterval(daemonApp.createdAt) / 1000.0)
+            )
+            item.sfSymbol = generated.sfSymbol
+            item.iconBackground = generated.colors
+            apps.append(item)
+            didAdd = true
+        }
+        if didAdd {
+            save()
+            log.info("Synced \(self.apps.count - existingIds.count) new apps from daemon")
+        }
+    }
+
+    /// Lightweight wrapper for the daemon's app representation, used by syncFromDaemon.
+    struct AppItem_Daemon {
+        let id: String
+        let name: String
+        let icon: String?
+        let appType: String?
+        let createdAt: Int
+    }
+
     func removeApp(id: String) {
         apps.removeAll { $0.id == id }
         save()
