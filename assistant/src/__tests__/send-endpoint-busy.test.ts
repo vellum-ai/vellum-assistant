@@ -84,6 +84,7 @@ function makeCompletingSession(): Session {
     hasAnyPendingConfirmation: () => false,
     hasPendingConfirmation: () => false,
     denyAllPendingConfirmations: () => {},
+    getQueueDepth: () => 0,
     enqueueMessage: () => ({ queued: false, requestId: 'noop' }),
     runAgentLoop: async (_content: string, _messageId: string, onEvent: (msg: ServerMessage) => void) => {
       onEvent({ type: 'assistant_text_delta', text: 'Hello!' });
@@ -118,6 +119,7 @@ function makeHangingSession(): Session {
     hasAnyPendingConfirmation: () => false,
     hasPendingConfirmation: () => false,
     denyAllPendingConfirmations: () => {},
+    getQueueDepth: () => enqueuedMessages.length,
     enqueueMessage: (content: string, _attachments: unknown[], onEvent: (msg: ServerMessage) => void, requestId: string) => {
       enqueuedMessages.push({ content, onEvent, requestId });
       return { queued: true, requestId };
@@ -168,6 +170,7 @@ function makePendingApprovalSession(requestId: string, processing: boolean): {
     hasAnyPendingConfirmation: () => pending.size > 0,
     hasPendingConfirmation: (candidateRequestId: string) => pending.has(candidateRequestId),
     denyAllPendingConfirmations: denyAllPendingConfirmationsMock,
+    getQueueDepth: () => 0,
     enqueueMessage: enqueueMessageMock,
     runAgentLoop: runAgentLoopMock,
     handleConfirmationResponse: handleConfirmationResponseMock,

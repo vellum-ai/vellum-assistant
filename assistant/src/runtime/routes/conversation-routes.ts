@@ -99,7 +99,14 @@ async function tryConsumeInlineApprovalReply(params: {
   } = params;
   const trimmedContent = content.trim();
 
-  if (!session.hasAnyPendingConfirmation() || trimmedContent.length === 0) {
+  // Only consume inline replies when there are no queued turns, matching
+  // the IPC path guard. With queued messages, "approve"/"no" should be
+  // processed in queue order rather than treated as a confirmation reply.
+  if (
+    !session.hasAnyPendingConfirmation()
+    || session.getQueueDepth() > 0
+    || trimmedContent.length === 0
+  ) {
     return { consumed: false };
   }
 
