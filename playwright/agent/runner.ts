@@ -1,7 +1,11 @@
 /**
- * Agent-based Playwright test runner.
+ * Standalone agent-based test runner (bypasses Playwright's test framework).
  *
- * Reads markdown files from the cases/ directory, sets up required fixtures,
+ * Prefer `bun run test:agent` which uses Playwright's test runner and gives
+ * you the full HTML report with video recordings, traces, and screenshots.
+ *
+ * This standalone runner is kept for quick local iteration without Playwright
+ * overhead. It reads markdown files from cases/, sets up required fixtures,
  * launches a browser, and runs an Anthropic agent for each test case.
  *
  * Usage:
@@ -87,66 +91,6 @@ function formatDuration(ms: number): string {
   const remSecs = secs % 60;
   if (mins === 0) return `${remSecs}s`;
   return `${mins}m ${remSecs}s`;
-}
-
-// ── HTML Report ─────────────────────────────────────────────────────
-
-interface TestReport {
-  timestamp: string;
-  summary: { passed: number; failed: number; totalDurationMs: number };
-  tests: { name: string; passed: boolean; message: string; durationMs: number; duration: string }[];
-}
-
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-}
-
-function generateHtmlReport(report: TestReport): string {
-  const testRows = report.tests
-    .map((t) => {
-      const icon = t.passed ? "✅" : "❌";
-      const encodedName = encodeURIComponent(t.name);
-      const screenshotLink = `agent-screenshots/${encodedName}/`;
-      const videoLink = `agent-videos/${encodedName}/screen-recording.mov`;
-      return `<tr>
-        <td>${icon} ${escapeHtml(t.name)}</td>
-        <td>${t.passed ? "passed" : "failed"}</td>
-        <td>${t.duration}</td>
-        <td>${t.passed ? "" : escapeHtml(t.message)}</td>
-        <td><a href="${screenshotLink}">screenshots</a> · <a href="${videoLink}">video</a> · <a href="agent-logs/${encodedName}.log">trace</a></td>
-      </tr>`;
-    })
-    .join("\n");
-
-  return `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>Agent Test Report</title>
-  <style>
-    body { font-family: -apple-system, sans-serif; max-width: 900px; margin: 40px auto; padding: 0 20px; }
-    h1 { margin-bottom: 4px; }
-    .summary { color: #666; margin-bottom: 24px; }
-    table { width: 100%; border-collapse: collapse; }
-    th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid #eee; }
-    th { background: #f5f5f5; }
-    a { color: #0366d6; }
-  </style>
-</head>
-<body>
-  <h1>Agent Test Report</h1>
-  <p class="summary">${report.summary.passed} passed, ${report.summary.failed} failed — ${formatDuration(report.summary.totalDurationMs)} total — ${report.timestamp}</p>
-  <table>
-    <tr><th>Test</th><th>Status</th><th>Duration</th><th>Details</th><th>Artifacts</th></tr>
-    ${testRows}
-  </table>
-</body>
-</html>`;
 }
 
 // ── Runner ──────────────────────────────────────────────────────────
@@ -306,7 +250,7 @@ async function main(): Promise<void> {
   );
   console.log("─".repeat(60));
 
-  // Write test report for artifact consumption
+  // Write JSON test report for artifact consumption
   const reportDir = path.resolve(__dirname, "../test-results");
   mkdirSync(reportDir, { recursive: true });
   const report = {
@@ -321,7 +265,6 @@ async function main(): Promise<void> {
     })),
   };
   writeFileSync(path.join(reportDir, "test-report.json"), JSON.stringify(report, null, 2));
-  writeFileSync(path.join(reportDir, "index.html"), generateHtmlReport(report));
 
   if (failed > 0) {
     process.exit(1);
