@@ -169,6 +169,19 @@ symlink_vellum() {
     return 0
 }
 
+# Write a small sourceable env file to ~/.config/vellum/env so callers can
+# pick up PATH changes without restarting their shell:
+#   curl -fsSL https://assistant.vellum.ai/install.sh | bash && . ~/.config/vellum/env
+write_env_file() {
+    local env_dir="${XDG_CONFIG_HOME:-$HOME/.config}/vellum"
+    local env_file="$env_dir/env"
+    mkdir -p "$env_dir"
+    cat > "$env_file" <<'ENVEOF'
+export BUN_INSTALL="$HOME/.bun"
+export PATH="$BUN_INSTALL/bin:$PATH"
+ENVEOF
+}
+
 install_vellum() {
     if command -v vellum >/dev/null 2>&1; then
         info "Updating vellum to latest..."
@@ -196,6 +209,11 @@ main() {
     configure_shell_profile
     install_vellum
     symlink_vellum
+
+    # Write a sourceable env file so the quickstart one-liner can pick up
+    # PATH changes in the caller's shell:
+    #   curl ... | bash && . ~/.config/vellum/env
+    write_env_file
 
     # Source the shell profile so vellum hatch runs with the correct PATH
     # in this session (the profile changes only take effect in new shells
