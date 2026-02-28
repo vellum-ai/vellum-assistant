@@ -1,6 +1,7 @@
 import { getDb } from './db-connection.js';
 import {
   addCoreColumns,
+  createActorTokenRecordsTable,
   createAssistantInboxTables,
   createCallSessionsTables,
   createCanonicalGuardianTables,
@@ -164,6 +165,9 @@ export function initializeDb(): void {
 
   // 26. Voice invite columns on assistant_ingress_invites
   migrateVoiceInviteColumns(database);
+
+  // 27. Actor token records (hash-only actor token persistence)
+  createActorTokenRecordsTable(database);
 
   validateMigrationState(database);
 }

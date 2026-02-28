@@ -38,6 +38,7 @@ import { emitNotificationSignal, registerBroadcastFn } from '../notifications/em
 import { assistantEventHub } from '../runtime/assistant-event-hub.js';
 import { RuntimeHttpServer } from '../runtime/http-server.js';
 import { startScheduler } from '../schedule/scheduler.js';
+import { ensureVellumGuardianBinding } from '../runtime/guardian-vellum-migration.js';
 import { getLogger, initLogger } from '../util/logger.js';
 import {
   ensureDataDir,
@@ -145,6 +146,13 @@ export async function runDaemon(): Promise<void> {
     }
     initializeDb();
     log.info('Daemon startup: DB initialized');
+
+    // Backfill vellum guardian binding for existing installations
+    try {
+      ensureVellumGuardianBinding('self');
+    } catch (err) {
+      log.warn({ err }, 'Vellum guardian binding backfill failed — continuing startup');
+    }
 
     try {
       syncUpdateBulletinOnStartup();

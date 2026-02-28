@@ -1138,6 +1138,22 @@ export const conversationAssistantAttentionState = sqliteTable('conversation_ass
   index('idx_conv_attn_state_assistant_last_seen').on(table.assistantId, table.lastSeenAssistantMessageAt),
 ]);
 
+// ── Actor Token Records ──────────────────────────────────────────────
+
+export const actorTokenRecords = sqliteTable('actor_token_records', {
+  id: text('id').primaryKey(),
+  tokenHash: text('token_hash').notNull(),
+  assistantId: text('assistant_id').notNull(),
+  guardianPrincipalId: text('guardian_principal_id').notNull(),
+  hashedDeviceId: text('hashed_device_id').notNull(),
+  platform: text('platform').notNull(),
+  status: text('status').notNull().default('active'),
+  issuedAt: integer('issued_at').notNull(),
+  expiresAt: integer('expires_at'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
 // ── Scoped Approval Grants ──────────────────────────────────────────
 
 export const scopedApprovalGrants = sqliteTable('scoped_approval_grants', {

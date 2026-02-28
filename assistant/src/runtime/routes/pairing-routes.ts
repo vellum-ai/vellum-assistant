@@ -9,10 +9,66 @@ import {
 } from '../../daemon/approved-devices-store.js';
 import type { ServerMessage } from '../../daemon/ipc-contract.js';
 import { PairingStore } from '../../daemon/pairing-store.js';
+import { getActiveBinding } from '../../memory/guardian-bindings.js';
 import { getLogger } from '../../util/logger.js';
+import { normalizeAssistantId } from '../../util/platform.js';
+import { mintActorToken } from '../actor-token-service.js';
+import {
+  createActorTokenRecord,
+  revokeByDeviceBinding,
+} from '../actor-token-store.js';
 import { httpError } from '../http-errors.js';
 
 const log = getLogger('runtime-http');
+
+/**
+ * Mint an actor token for a paired device if a vellum guardian principal exists.
+ * Returns the raw actor token string, or null if no vellum binding exists.
+ */
+function mintPairingActorToken(deviceId: string, platform: string): string | null {
+  try {
+    const assistantId = normalizeAssistantId('self');
+    const binding = getActiveBinding(assistantId, 'vellum');
+    if (!binding) return null;
+
+    const guardianPrincipalId = binding.guardianExternalUserId;
+    const hashedDeviceId = hashDeviceId(deviceId);
+
+    // Revoke previous tokens for this device
+    revokeByDeviceBinding(assistantId, guardianPrincipalId, hashedDeviceId);
+
+    const { token, tokenHash, claims } = mintActorToken({
+      assistantId,
+      platform,
+      deviceId,
+      guardianPrincipalId,
+    });
+
+    createActorTokenRecord({
+      tokenHash,
+      assistantId,
+      guardianPrincipalId,
+      hashedDeviceId,
+      platform,
+      issuedAt: claims.iat,
+      expiresAt: claims.exp,
+    });
+
+    log.info({ assistantId, platform }, 'Minted actor token during pairing');
+    return token;
+  } catch (err) {
+    log.warn({ err }, 'Failed to mint actor token during pairing — continuing without it');
+    return null;
+  }
+}
+
+/**
+ * Transient in-memory map of pairingRequestId -> actorToken.
+ * Actor tokens are minted when the pairing request is created (we have the
+ * raw deviceId), and retrieved when the status is polled as approved.
+ * Never persisted to disk — cleared when entries expire.
+ */
+const pendingActorTokens = new Map<string, string>();
 
 export interface PairingHandlerContext {
   pairingStore: PairingStore;
@@ -90,13 +146,22 @@ export async function handlePairingRequest(req: Request, ctx: PairingHandlerCont
       refreshDevice(hashedDeviceId, deviceName);
       ctx.pairingStore.approve(pairingRequestId, ctx.bearerToken);
       log.info({ pairingRequestId, hashedDeviceId }, 'Auto-approved allowlisted device');
+      const actorToken = mintPairingActorToken(deviceId, 'ios');
       return Response.json({
         status: 'approved',
         bearerToken: ctx.bearerToken,
         gatewayUrl: entry.gatewayUrl,
         localLanUrl: entry.localLanUrl,
         ...(ctx.featureFlagToken ? { featureFlagToken: ctx.featureFlagToken } : {}),
+        ...(actorToken ? { actorToken } : {}),
       });
+    }
+
+    // Pre-mint actor token while we still have the raw deviceId.
+    // Store in transient memory only — never on disk.
+    const pendingActorToken = mintPairingActorToken(deviceId, 'ios');
+    if (pendingActorToken) {
+      pendingActorTokens.set(pairingRequestId, pendingActorToken);
     }
 
     // Send IPC to macOS to show approval prompt
@@ -139,12 +204,19 @@ export function handlePairingStatus(url: URL, ctx: PairingHandlerContext): Respo
   }
 
   if (entry.status === 'approved') {
+    // Retrieve the pre-minted actor token from transient memory.
+    // Cleared after retrieval to avoid leaking the token on repeated polls.
+    const actorToken = pendingActorTokens.get(id);
+    if (actorToken) {
+      pendingActorTokens.delete(id);
+    }
     return Response.json({
       status: 'approved',
       bearerToken: entry.bearerToken,
       gatewayUrl: entry.gatewayUrl,
       localLanUrl: entry.localLanUrl,
       ...(ctx.featureFlagToken ? { featureFlagToken: ctx.featureFlagToken } : {}),
+      ...(actorToken ? { actorToken } : {}),
     });
   }
 
