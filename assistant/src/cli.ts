@@ -495,7 +495,7 @@ export async function startCli(): Promise<void> {
       case 'message_request_complete': {
         // Request-level terminal for inline approval consumption.
         // When no agent turn remains active, clear busy state and re-prompt.
-        if (msg.runStillActive === false) {
+        if (msg.runStillActive !== true) {
           spinner.stop();
           generating = false;
           process.stdout.write('\n\n');

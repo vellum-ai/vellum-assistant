@@ -839,7 +839,10 @@ extension ChatViewModel {
                 // arrive while the agent owns currentTurnUserText; overwriting it
                 // with the approval text (e.g. "approve") would break the error
                 // handler's secret_blocked message lookup.
-                if currentAssistantMessageId == nil {
+                // Also guard on currentTurnUserText == nil to handle the case where
+                // the agent is processing but hasn't streamed text yet (so
+                // currentAssistantMessageId is still nil).
+                if currentAssistantMessageId == nil && currentTurnUserText == nil {
                     currentTurnUserText = messages[index].text.trimmingCharacters(in: .whitespacesAndNewlines)
                 }
                 // Clear attachment binary payloads now that the daemon has persisted them.
