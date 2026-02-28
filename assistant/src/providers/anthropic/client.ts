@@ -541,6 +541,11 @@ export class AnthropicProvider implements Provider {
               onEvent?.({ type: "text_delta", text: " " });
             }
             hasSeenTextBlock = true;
+          } else if (event.type === 'content_block_start') {
+            // Reset on non-text blocks so that text separated by tool_use
+            // (text -> tool_use -> text) doesn't get a spurious leading space
+            // in the second text segment.
+            hasSeenTextBlock = false;
           }
           if (event.type === 'content_block_start' && event.content_block.type === 'tool_use') {
             currentStreamingToolName = event.content_block.name;
