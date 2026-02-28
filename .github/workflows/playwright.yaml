@@ -21,6 +21,7 @@ jobs:
   playwright:
     name: Playwright Tests
     runs-on: macos-14
+    environment: dev
     timeout-minutes: 60
     env:
       APP_DISPLAY_NAME: Vellum
