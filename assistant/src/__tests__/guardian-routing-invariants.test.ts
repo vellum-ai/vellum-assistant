@@ -1049,7 +1049,7 @@ describe('routing invariant: invite handoff bypass for access requests', () => {
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     });
 
-    const result = await routeGuardianReply(replyCtx({
+    await routeGuardianReply(replyCtx({
       messageText: 'open invite flow',
       conversationId: 'conv-guardian-thread',
       pendingRequestIds: [req.id],
