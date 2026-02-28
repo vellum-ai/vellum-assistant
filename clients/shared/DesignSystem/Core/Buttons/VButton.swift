@@ -4,7 +4,7 @@ import AppKit
 #endif
 
 public struct VButton: View {
-    public enum Style: Hashable { case primary, secondary, tertiary, danger, ghost }
+    public enum Style: Hashable { case primary, secondary, tertiary, danger, ghost, outlined, success }
     public enum Size: Hashable { case small, medium, large }
 
     public let label: String
@@ -96,16 +96,31 @@ private struct VButtonStyle: ButtonStyle {
             .frame(height: height)
             .frame(maxWidth: isFullWidth ? .infinity : nil)
             .background(backgroundColor(isPressed: configuration.isPressed))
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
             .overlay(
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .stroke(borderColor(isPressed: configuration.isPressed), lineWidth: style == .tertiary ? 1 : 0)
+                RoundedRectangle(cornerRadius: cornerRadius)
+                    .stroke(borderColor(isPressed: configuration.isPressed), lineWidth: borderLineWidth)
             )
-            .contentShape(RoundedRectangle(cornerRadius: VRadius.md))
+            .contentShape(RoundedRectangle(cornerRadius: cornerRadius))
             .shadow(color: configuration.isPressed ? .clear : shadowColor, radius: 0, x: 0, y: 2)
             .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
             .animation(VAnimation.fast, value: configuration.isPressed)
             .animation(VAnimation.fast, value: isHovered)
+    }
+
+    private var cornerRadius: CGFloat {
+        switch style {
+        case .outlined: return VRadius.xl
+        default: return VRadius.lg
+        }
+    }
+
+    private var borderLineWidth: CGFloat {
+        switch style {
+        case .tertiary: return 1
+        case .outlined: return 2.5
+        default: return 0
+        }
     }
 
     private var height: CGFloat {
@@ -131,10 +146,12 @@ private struct VButtonStyle: ButtonStyle {
                 ? adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._600)
                 : adaptiveColor(light: Color(hex: 0x3D5739), dark: Forest._800)
         case .danger:
-            return isHovered ? Color(hex: 0xA53817) : Color(hex: 0x8A2F13)
+            return .clear
         case .tertiary, .ghost:
             return .clear
         case .secondary:
+            return .clear
+        case .outlined, .success:
             return .clear
         }
     }
@@ -161,6 +178,12 @@ private struct VButtonStyle: ButtonStyle {
             if isPressed { return VColor.ghostPressed }
             if isHovered { return VColor.ghostHover }
             return .clear
+        case .outlined:
+            return .clear
+        case .success:
+            if isPressed { return adaptiveColor(light: Forest._400, dark: Forest._700) }
+            if isHovered { return adaptiveColor(light: Forest._300, dark: Forest._800) }
+            return adaptiveColor(light: Forest._200, dark: Forest._900)
         }
     }
 
@@ -171,6 +194,8 @@ private struct VButtonStyle: ButtonStyle {
         case .secondary: return adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._400)
         case .danger: return .white
         case .ghost: return Color(hex: 0x516748)
+        case .outlined: return VColor.buttonSecondaryText
+        case .success: return adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._300)
         }
     }
 
@@ -179,7 +204,10 @@ private struct VButtonStyle: ButtonStyle {
         case .tertiary:
             if isPressed { return VColor.ghostPressed }
             return VColor.buttonSecondaryBorder
-        case .secondary, .ghost:
+        case .outlined:
+            if isPressed { return VColor.buttonSecondaryBorder.opacity(0.7) }
+            return VColor.buttonSecondaryBorder
+        case .secondary, .ghost, .success:
             return .clear
         default:
             return .clear
@@ -191,20 +219,22 @@ private struct VButtonStyle: ButtonStyle {
     ZStack {
         VColor.background.ignoresSafeArea()
         VStack(spacing: 16) {
-            VButton(label: "Small", style: .primary, size: .small) {}
-            VButton(label: "Medium", style: .primary, size: .medium) {}
-            VButton(label: "Large", style: .primary, size: .large) {}
-            VButton(label: "Tertiary Small", style: .tertiary, size: .small) {}
-            VButton(label: "Tertiary Large", style: .tertiary, size: .large) {}
-            VButton(label: "Secondary", style: .secondary, size: .small) {}
-            VButton(label: "Secondary Medium", style: .secondary, size: .medium) {}
-            VButton(label: "With Left Icon", leftIcon: "plus", style: .primary, size: .small) {}
-            VButton(label: "With Right Icon", rightIcon: "arrow.right", style: .tertiary, size: .small) {}
-            VButton(label: "Both Icons", leftIcon: "star", rightIcon: "chevron.right", style: .secondary, size: .medium) {}
-            VButton(label: "Legacy Icon", icon: "gear", style: .primary, size: .small) {}
+            VButton(label: "Primary", style: .primary, size: .medium) {}
+            VButton(label: "Secondary", style: .secondary, size: .medium) {}
+            VButton(label: "Tertiary", style: .tertiary, size: .medium) {}
+            VButton(label: "Danger", style: .danger, size: .medium) {}
+            VButton(label: "Ghost", style: .ghost, size: .medium) {}
+            VButton(label: "Record", style: .outlined, size: .large) {}
+            HStack(spacing: 12) {
+                VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .medium) {}
+                VButton(label: "Disconnect", style: .danger, size: .medium) {}
+            }
+            VButton(label: "Connect", style: .primary, size: .medium) {}
+            VButton(label: "With Icon", leftIcon: "plus", style: .primary, size: .small) {}
             VButton(label: "Full Width", style: .primary, isFullWidth: true) {}
+            VButton(label: "Disabled", style: .primary, isDisabled: true) {}
         }
         .padding()
     }
-    .frame(width: 300, height: 500)
+    .frame(width: 320, height: 580)
 }
