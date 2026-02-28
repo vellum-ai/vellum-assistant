@@ -364,7 +364,7 @@ describe('HTTP route: handleStartOutbound', () => {
     const req = jsonRequest({ destination: '+15551234567' });
     const resp = await handleStartOutbound(req);
     expect(resp.status).toBe(400);
-    const body = await resp.json() as Record<string, unknown>;
+    const body = await resp.json() as { error: { message: string; code: string } };
     expect(body.error.message).toBe('missing_channel');
   });
 
@@ -372,7 +372,7 @@ describe('HTTP route: handleStartOutbound', () => {
     const req = jsonRequest({ channel: 'sms' });
     const resp = await handleStartOutbound(req);
     expect(resp.status).toBe(400);
-    const body = await resp.json() as Record<string, unknown>;
+    const body = await resp.json() as { error: { message: string; code: string } };
     expect(body.error.message).toBe('missing_destination');
   });
 
@@ -391,7 +391,7 @@ describe('HTTP route: handleResendOutbound', () => {
     const req = jsonRequest({});
     const resp = await handleResendOutbound(req);
     expect(resp.status).toBe(400);
-    const body = await resp.json() as Record<string, unknown>;
+    const body = await resp.json() as { error: { message: string; code: string } };
     expect(body.error.message).toBe('missing_channel');
   });
 
@@ -399,7 +399,7 @@ describe('HTTP route: handleResendOutbound', () => {
     const req = jsonRequest({ channel: 'sms', assistantId: 'resend-no-session' });
     const resp = await handleResendOutbound(req);
     expect(resp.status).toBe(400);
-    const body = await resp.json() as Record<string, unknown>;
+    const body = await resp.json() as { error: { message: string; code: string } };
     expect(body.error.message).toBe('no_active_session');
   });
 
@@ -432,7 +432,7 @@ describe('HTTP route: handleCancelOutbound', () => {
     const req = jsonRequest({});
     const resp = await handleCancelOutbound(req);
     expect(resp.status).toBe(400);
-    const body = await resp.json() as Record<string, unknown>;
+    const body = await resp.json() as { error: { message: string; code: string } };
     expect(body.error.message).toBe('missing_channel');
   });
 
@@ -440,7 +440,7 @@ describe('HTTP route: handleCancelOutbound', () => {
     const req = jsonRequest({ channel: 'sms', assistantId: 'cancel-no-session' });
     const resp = await handleCancelOutbound(req);
     expect(resp.status).toBe(400);
-    const body = await resp.json() as Record<string, unknown>;
+    const body = await resp.json() as { error: { message: string; code: string } };
     expect(body.error.message).toBe('no_active_session');
   });
 
