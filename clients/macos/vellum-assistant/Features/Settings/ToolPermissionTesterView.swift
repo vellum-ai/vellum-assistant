@@ -56,15 +56,13 @@ struct ToolPermissionTesterView: View {
 
             // Toggles
             HStack(spacing: VSpacing.xl) {
-                Toggle("Interactive", isOn: $model.isInteractive)
+                VToggle(isOn: $model.isInteractive, label: "Interactive")
                     .font(VFont.body)
                     .foregroundColor(VColor.textSecondary)
-                    .toggleStyle(.switch)
 
-                Toggle("In Temporary Chat", isOn: $model.forcePromptSideEffects)
+                VToggle(isOn: $model.forcePromptSideEffects, label: "In Temporary Chat")
                     .font(VFont.body)
                     .foregroundColor(VColor.textSecondary)
-                    .toggleStyle(.switch)
             }
         }
     }
@@ -94,10 +92,8 @@ struct ToolPermissionTesterView: View {
             } else {
                 // Optional fields have a checkbox
                 HStack(spacing: VSpacing.xs) {
-                    Toggle(isOn: fieldEnabledBinding(for: field.id)) {
-                        fieldNameLabel(field)
-                    }
-                    .toggleStyle(.checkbox)
+                    VToggle(isOn: fieldEnabledBinding(for: field.id))
+                    fieldNameLabel(field)
                 }
 
                 if model.fieldEnabled[field.id] == true {
@@ -144,30 +140,14 @@ struct ToolPermissionTesterView: View {
                 .font(VFont.mono)
 
         case .boolean:
-            Toggle("", isOn: fieldBoolBinding(for: field.id))
-                .toggleStyle(.switch)
-                .labelsHidden()
+            VToggle(isOn: fieldBoolBinding(for: field.id))
 
         case .enumeration(let values):
-            Picker("", selection: fieldValueBinding(for: field.id)) {
-                Text("Select\u{2026}")
-                    .foregroundColor(VColor.textMuted)
-                    .tag("")
-                ForEach(values, id: \.self) { value in
-                    Text(value)
-                        .font(VFont.mono)
-                        .tag(value)
-                }
-            }
-            .labelsHidden()
-            .font(VFont.mono)
-            .padding(.vertical, VSpacing.xs)
-            .padding(.horizontal, VSpacing.sm)
-            .background(VColor.inputBackground)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-            .overlay(
-                RoundedRectangle(cornerRadius: VRadius.sm)
-                    .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+            VDropdown(
+                placeholder: "Select\u{2026}",
+                selection: fieldValueBinding(for: field.id),
+                options: values.map { (label: $0, value: $0) },
+                emptyValue: ""
             )
 
         case .json:
@@ -329,25 +309,11 @@ struct ToolPermissionTesterView: View {
                 .vInputStyle()
                 .font(VFont.mono)
         } else {
-            Picker("", selection: $model.toolName) {
-                Text("Select a tool\u{2026}")
-                    .foregroundColor(VColor.textMuted)
-                    .tag("")
-                ForEach(model.availableToolNames, id: \.self) { name in
-                    Text(name)
-                        .font(VFont.mono)
-                        .tag(name)
-                }
-            }
-            .labelsHidden()
-            .font(VFont.mono)
-            .padding(.vertical, VSpacing.xs)
-            .padding(.horizontal, VSpacing.sm)
-            .background(VColor.inputBackground)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-            .overlay(
-                RoundedRectangle(cornerRadius: VRadius.sm)
-                    .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+            VDropdown(
+                placeholder: "Select a Tool\u{2026}",
+                selection: $model.toolName,
+                options: model.availableToolNames.map { (label: $0, value: $0) },
+                emptyValue: ""
             )
         }
     }

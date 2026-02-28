@@ -53,17 +53,11 @@ extension DaemonClient {
             if !isCustomSocket {
                 if FileManager.default.fileExists(atPath: path) {
                     if !Self.isDaemonProcessAlive() {
-                        log.warning("Stale daemon socket detected — PID is dead, removing socket at \(path, privacy: .public)")
-                        // Only remove the path if it is actually a Unix socket, not a regular file.
-                        var isSocket = false
-                        if let attrs = try? FileManager.default.attributesOfItem(atPath: path),
-                           let fileType = attrs[.type] as? FileAttributeType,
-                           fileType == .typeSocket {
-                            isSocket = true
-                        }
-                        if isSocket {
-                            try? FileManager.default.removeItem(atPath: path)
-                        }
+                        // The PID file may be stale while the daemon is restarting.
+                        // Do NOT delete the socket — the new daemon may have already
+                        // created it. Fail fast and let the retry loop re-attempt
+                        // once the PID file is updated.
+                        log.warning("Daemon PID not alive but socket exists at \(path, privacy: .public) — failing fast (socket preserved)")
                         isConnecting = false
                         throw NWError.posix(.ECONNREFUSED)
                     }

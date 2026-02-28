@@ -219,12 +219,10 @@ private struct ScheduleRow: View {
                 .buttonStyle(.borderless)
                 .help("Run now")
 
-                Toggle("", isOn: Binding(
+                VToggle(isOn: Binding(
                     get: { schedule.enabled },
                     set: { onToggle($0) }
                 ))
-                .toggleStyle(.switch)
-                .labelsHidden()
 
                 Button {
                     onDelete()

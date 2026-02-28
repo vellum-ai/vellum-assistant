@@ -17,10 +17,6 @@ import {
   startGuardianActionSweep,
   stopGuardianActionSweep,
 } from '../calls/guardian-action-sweep.js';
-import {
-  startCanonicalGuardianExpirySweep,
-  stopCanonicalGuardianExpirySweep,
-} from './routes/canonical-guardian-expiry-sweep.js';
 import type { RelayWebSocketData } from '../calls/relay-server.js';
 import { activeRelayConnections,RelayConnection } from '../calls/relay-server.js';
 import {
@@ -97,6 +93,10 @@ import {
   handleInstructionCall,
   handleStartCall,
 } from './routes/call-routes.js';
+import {
+  startCanonicalGuardianExpirySweep,
+  stopCanonicalGuardianExpirySweep,
+} from './routes/canonical-guardian-expiry-sweep.js';
 import { canonicalChannelAssistantId } from './routes/channel-route-shared.js';
 import {
   handleChannelDeliveryAck,

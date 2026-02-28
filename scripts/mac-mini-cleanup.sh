@@ -16,7 +16,7 @@ echo "   Only run on environments you are comfortable completely resetting."
 echo ""
 
 # 1. Remove the SSH public key that was added via ssh-copy-id
-echo "1/10 — Removing authorized SSH keys..."
+echo "1/11 — Removing authorized SSH keys..."
 if [ -f ~/.ssh/authorized_keys ]; then
     rm ~/.ssh/authorized_keys
     echo "      ✅ Removed ~/.ssh/authorized_keys"
@@ -25,7 +25,7 @@ else
 fi
 
 # 2. Restore default sshd_config (undo PubkeyAuthentication/PasswordAuthentication changes)
-echo "2/10 — Restoring default sshd_config..."
+echo "2/11 — Restoring default sshd_config..."
 if [ -f /etc/ssh/sshd_config ] && [ -f ~/cleanup/sshd_config_original ]; then
     sudo cp ~/cleanup/sshd_config_original /etc/ssh/sshd_config
     echo "      ✅ Reverted sshd_config changes"
@@ -36,13 +36,13 @@ else
 fi
 
 # 3. Reload SSH daemon
-echo "3/10 — Reloading SSH daemon..."
+echo "3/11 — Reloading SSH daemon..."
 sudo launchctl unload /System/Library/LaunchDaemons/ssh.plist 2>/dev/null || true
 sudo launchctl load /System/Library/LaunchDaemons/ssh.plist 2>/dev/null || true
 echo "      ✅ SSH daemon reloaded"
 
 # 4. Uninstall git
-echo "4/10 — Uninstalling git..."
+echo "4/11 — Uninstalling git..."
 if command -v brew &>/dev/null && brew list git &>/dev/null; then
     brew uninstall git
     echo "      ✅ Git uninstalled via Homebrew"
@@ -55,7 +55,7 @@ else
 fi
 
 # 5. Kill any processes running via "bun run"
-echo "5/10 — Killing bun run processes..."
+echo "5/11 — Killing bun run processes..."
 BUN_PIDS=$(pgrep -f "bun run" 2>/dev/null || true)
 if [ -n "$BUN_PIDS" ]; then
     echo "$BUN_PIDS" | xargs kill -9 2>/dev/null || true
@@ -65,7 +65,7 @@ else
 fi
 
 # 6. Uninstall bun
-echo "6/10 — Uninstalling bun..."
+echo "6/11 — Uninstalling bun..."
 if [ -d ~/.bun ]; then
     rm -rf ~/.bun
     echo "      ✅ Removed ~/.bun directory"
@@ -81,7 +81,7 @@ else
 fi
 
 # 7. Kill any Vellum processes
-echo "7/10 — Killing Vellum processes..."
+echo "7/11 — Killing Vellum processes..."
 VELLUM_PIDS=$(pgrep -f "Vellum" 2>/dev/null || true)
 if [ -n "$VELLUM_PIDS" ]; then
     echo "$VELLUM_PIDS" | xargs kill -9 2>/dev/null || true
@@ -91,7 +91,7 @@ else
 fi
 
 # 8. Remove ~/.vellum directory
-echo "8/10 — Removing ~/.vellum directory..."
+echo "8/11 — Removing ~/.vellum directory..."
 if [ -d ~/.vellum ]; then
     rm -rf ~/.vellum
     echo "      ✅ Removed ~/.vellum"
@@ -100,7 +100,7 @@ else
 fi
 
 # 9. Remove ~/.vellum.lock.json
-echo "9/10 — Removing ~/.vellum.lock.json..."
+echo "9/11 — Removing ~/.vellum.lock.json..."
 if [ -f ~/.vellum.lock.json ]; then
     rm -f ~/.vellum.lock.json
     echo "      ✅ Removed ~/.vellum.lock.json"
@@ -109,12 +109,37 @@ else
 fi
 
 # 10. Remove Vellum.app
-echo "10/10 — Removing /Applications/Vellum.app..."
+echo "10/11 — Removing /Applications/Vellum.app..."
 if [ -d /Applications/Vellum.app ]; then
     rm -rf /Applications/Vellum.app
     echo "       ✅ Removed /Applications/Vellum.app"
 else
     echo "       ⏭️  No Vellum.app found, skipping"
+fi
+
+# 11. Remove Vellum from the Dock
+echo "11/11 — Removing Vellum from the Dock..."
+DOCK_PLIST="$HOME/Library/Preferences/com.apple.dock.plist"
+if [ -f "$DOCK_PLIST" ]; then
+    # Find and remove any Vellum entry from persistent-apps in the Dock plist
+    DOCK_APPS=$(/usr/libexec/PlistBuddy -c "Print :persistent-apps" "$DOCK_PLIST" 2>/dev/null | grep -c "Vellum" || true)
+    if [ "$DOCK_APPS" -gt 0 ]; then
+        # Iterate in reverse to safely remove entries by index
+        NUM_ENTRIES=$(/usr/libexec/PlistBuddy -c "Print :persistent-apps" "$DOCK_PLIST" 2>/dev/null | grep -c "Dict" || echo "0")
+        for ((i=NUM_ENTRIES-1; i>=0; i--)); do
+            LABEL=$(/usr/libexec/PlistBuddy -c "Print :persistent-apps:$i:tile-data:file-label" "$DOCK_PLIST" 2>/dev/null || true)
+            if [[ "$LABEL" == *"Vellum"* ]]; then
+                /usr/libexec/PlistBuddy -c "Delete :persistent-apps:$i" "$DOCK_PLIST"
+                echo "       ✅ Removed Vellum from Dock persistent apps (index $i)"
+            fi
+        done
+        killall Dock 2>/dev/null || true
+        echo "       ✅ Dock restarted"
+    else
+        echo "       ⏭️  Vellum not found in Dock, skipping"
+    fi
+else
+    echo "       ⏭️  No Dock plist found, skipping"
 fi
 
 echo ""

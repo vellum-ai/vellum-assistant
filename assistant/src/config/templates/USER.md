@@ -14,9 +14,14 @@ _(What do they care about? What projects are they working on? What annoys them? 
 
 ## Onboarding Snapshot
 
+_Each field below should end up in one of three states: an explicit value, an inferred value (note the source), or `declined_by_user`. All fields must be resolved before onboarding completes, but declining is a valid resolution._
+
 - Preferred name/reference:
 - Goals:
 - Locale:
+- Work role:
+- Hobbies/fun:
+- Daily tools:
 
 ---
 

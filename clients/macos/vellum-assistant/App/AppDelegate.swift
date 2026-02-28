@@ -340,7 +340,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             hasSetupDaemon = false
         }
 
-        setupDaemonClient()
+        setupDaemonClient(isFirstLaunch: isFirstLaunch)
         setupMenuBar()
         setupFileMenu()
         setupHotKey()
@@ -385,12 +385,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         }
     }
 
-    /// Waits for the daemon to become connected, with bounded retries.
-    ///
-    /// Polls daemon connection state at ~0.5s intervals. If a connection
-    /// attempt is already in flight (from `setupDaemonClient()`), waits
-    /// for it to finish. Otherwise, attempts a single `connect()` call
-    /// per loop iteration. Returns once connected or the timeout elapses.
+    /// Polls daemon connection state at ~0.5s intervals. Does NOT call
+    /// `connect()` itself — that is the sole responsibility of
+    /// `setupDaemonClient()`. This avoids a dual-connect race where two
+    /// concurrent Tasks both attempt `daemonClient.connect()`, with the
+    /// second caller's `disconnectInternal()` tearing down the first
+    /// caller's in-flight NWConnection.
     private func awaitDaemonReady(timeout: TimeInterval) async -> Bool {
         log.info("Waiting for daemon to become ready (timeout: \(timeout)s)")
         let start = CFAbsoluteTimeGetCurrent()
@@ -400,25 +400,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                 log.info("Daemon is connected")
                 return true
             }
-
-            if daemonClient.isConnecting {
-                // Let the in-flight connect from setupDaemonClient() finish
-                try? await Task.sleep(nanoseconds: 500_000_000)
-                continue
-            }
-
-            // Not connected and not connecting — try one connect attempt
-            do {
-                try await daemonClient.connect()
-            } catch {
-                log.error("awaitDaemonReady connect attempt failed: \(error)")
-            }
-
-            if daemonClient.isConnected {
-                log.info("Daemon is connected after retry")
-                return true
-            }
-
             try? await Task.sleep(nanoseconds: 500_000_000)
         }
 
@@ -525,6 +506,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                     return
                 }
 
+                // If the daemon socket doesn't exist, the daemon process
+                // likely isn't running (e.g. hatch failed). Re-attempt hatch
+                // so we don't loop forever on connect-only retries.
+                let socketPath = DaemonClient.resolveSocketPath()
+                if !FileManager.default.fileExists(atPath: socketPath) {
+                    log.info("Daemon socket missing during bootstrap retry — re-attempting hatch")
+                    try? await assistantCli.hatch(daemonOnly: true)
+                }
+
                 // Attempt a connection if not already in progress
                 if !daemonClient.isConnecting {
                     do {
@@ -600,9 +590,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
     /// Wires `onFirstAssistantReply` on the active ChatViewModel so bootstrap
     /// transitions to `.complete` when the daemon's first reply arrives.
-    /// Also wires a corrective follow-up nudge: if the first reply doesn't
-    /// include naming intent, one silent message is sent to steer the
-    /// conversation toward identity/naming.
     private func wireBootstrapFirstReplyCallback() {
         guard let viewModel = mainWindow?.activeViewModel else {
             log.warning("No active ChatViewModel to wire first-reply callback — completing bootstrap immediately")
@@ -611,13 +598,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         }
         viewModel.onFirstAssistantReply = { [weak self] _ in
             self?.transitionBootstrap(to: .complete)
-        }
-        viewModel.onFirstReplyLacksNamingIntent = { [weak viewModel] in
-            guard let viewModel else { return }
-            log.info("First bootstrap reply lacked naming intent — sending corrective nudge")
-            viewModel.sendSilently(
-                "Before we get started, what should I call you? And is there a name you'd like me to go by?"
-            )
         }
     }
 
@@ -794,6 +774,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                 if alert.runModal() != .alertFirstButtonReturn {
                     return false
                 }
+                // Retire failed but user chose Force Remove — clean the stale
+                // lockfile entry so onboarding can re-run with a fresh lockfile.
+                self.removeLockfileEntry(assistantId: name)
             }
         } else {
             assistantCli.stop()
@@ -809,6 +792,18 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
         // No assistants left — tear down fully and show onboarding
         OnboardingState.clearPersistedState()
+        UserDefaults.standard.removeObject(forKey: "bootstrapState")
+        UserDefaults.standard.removeObject(forKey: "connectedAssistantId")
+        UserDefaults.standard.removeObject(forKey: "lastActivePanel")
+
+        // Kill the daemon process so ensureDaemonRunning() actually spawns
+        // a fresh instance during re-onboarding (equivalent to `vellum sleep`).
+        daemonClient.disconnect()
+        assistantCli.stop()
+        // Cancel any in-progress bootstrap retry so it doesn't race with the
+        // new onboarding flow.
+        bootstrapRetryTask?.cancel()
+        bootstrapRetryTask = nil
 
         mainWindow?.close()
         mainWindow = nil
@@ -862,6 +857,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
         hasSetupApp = false
         hasSetupDaemon = false
+        daemonClient.disconnect()
+        UserDefaults.standard.removeObject(forKey: "user.profile")
         showOnboarding()
         return true
     }
@@ -954,7 +951,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
     // MARK: - Pairing Override Migration
 
-    func setupDaemonClient() {
+    func setupDaemonClient(isFirstLaunch: Bool = false) {
         guard !hasSetupDaemon else { return }
         hasSetupDaemon = true
 
@@ -1167,19 +1164,35 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
         Task {
             if !isCurrentAssistantRemote {
-                // Hatch the assistant via CLI (spawns daemon in release builds).
-                // daemonOnly: true prevents creating a new lockfile entry on every launch.
+                // On first launch post-onboarding, use daemonOnly: false so the CLI
+                // creates a lockfile entry. On subsequent launches, daemonOnly: true
+                // prevents duplicates.
+                let needsLockfileEntry = isFirstLaunch && !self.lockfileHasAssistants()
                 do {
-                    try await assistantCli.hatch(daemonOnly: true)
+                    try await assistantCli.hatch(daemonOnly: !needsLockfileEntry)
                 } catch {
                     log.error("Failed to hatch assistant during daemon setup: \(error)")
+                    if needsLockfileEntry {
+                        log.info("Full hatch failed on first launch — retrying daemon-only as fallback")
+                        try? await assistantCli.hatch(daemonOnly: true)
+                    }
+                }
+                if needsLockfileEntry {
+                    _ = self.loadAssistantFromLockfile()
                 }
                 assistantCli.startMonitoring()
             }
-            do {
-                try await daemonClient.connect()
-            } catch {
-                log.error("Failed to connect to daemon during setup: \(error)")
+            // Skip connect if the bootstrap retry coordinator already connected
+            // or has a connect in flight (hatch can take a long time; the
+            // coordinator connects independently). Checking isConnecting
+            // prevents tearing down the coordinator's in-flight NWConnection
+            // via disconnectInternal().
+            if !daemonClient.isConnected && !daemonClient.isConnecting {
+                do {
+                    try await daemonClient.connect()
+                } catch {
+                    log.error("Failed to connect to daemon during setup: \(error)")
+                }
             }
             // Once connected, start ambient agent if it was waiting for daemon
             if daemonClient.isConnected {
@@ -2035,13 +2048,39 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
     // MARK: - Onboarding
 
-    /// Returns `true` when `~/.vellum.lock.json` contains at least one assistant entry.
+    /// Returns `true` when `~/.vellum.lock.json` contains at least one
+    /// assistant entry.
     private func lockfileHasAssistants() -> Bool {
         guard let json = LockfilePaths.read(),
               let assistants = json["assistants"] as? [[String: Any]] else {
             return false
         }
         return !assistants.isEmpty
+    }
+
+    /// Remove a specific assistant entry from the lockfile. Used after a
+    /// failed retire + Force Remove to clean up the stale entry so the
+    /// next onboarding run starts with a fresh lockfile.
+    private func removeLockfileEntry(assistantId: String) {
+        guard let json = LockfilePaths.read(),
+              let assistants = json["assistants"] as? [[String: Any]] else {
+            return
+        }
+        let filtered = assistants.filter { ($0["assistantId"] as? String) != assistantId }
+        if filtered.isEmpty {
+            try? FileManager.default.removeItem(at: LockfilePaths.primary)
+            log.info("Removed lockfile (no entries remain after force-removing '\(assistantId, privacy: .private)')")
+        } else {
+            var updated = json
+            updated["assistants"] = filtered
+            do {
+                let data = try JSONSerialization.data(withJSONObject: updated, options: [.prettyPrinted, .sortedKeys])
+                try data.write(to: LockfilePaths.primary)
+                log.info("Removed stale entry '\(assistantId, privacy: .private)' from lockfile")
+            } catch {
+                log.error("Failed to update lockfile after removing '\(assistantId, privacy: .private)': \(error)")
+            }
+        }
     }
 
     private func showOnboarding() {

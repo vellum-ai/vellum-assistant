@@ -3,6 +3,7 @@ import SwiftUI
 public struct VToggle: View {
     @Binding public var isOn: Bool
     public var label: String? = nil
+    @Environment(\.isEnabled) private var isEnabled
 
     public init(isOn: Binding<Bool>, label: String? = nil) {
         self._isOn = isOn
@@ -11,9 +12,9 @@ public struct VToggle: View {
 
     // MARK: - Layout Constants
 
-    private let trackWidth: CGFloat = 40
-    private let trackHeight: CGFloat = 22
-    private let knobSize: CGFloat = 16
+    private let trackWidth: CGFloat = 50
+    private let trackHeight: CGFloat = 28
+    private let knobSize: CGFloat = 22
     private let knobPadding: CGFloat = 3
 
     public var body: some View {
@@ -23,15 +24,17 @@ public struct VToggle: View {
             if let label = label {
                 Text(label)
                     .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(isEnabled ? VColor.textPrimary : VColor.textMuted)
             }
         }
         .contentShape(Rectangle())
         .onTapGesture {
+            guard isEnabled else { return }
             withAnimation(VAnimation.fast) {
                 isOn.toggle()
             }
         }
+        .opacity(isEnabled ? 1.0 : 0.5)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
         .accessibilityValue(isOn ? "On" : "Off")
@@ -43,18 +46,15 @@ public struct VToggle: View {
     private var toggleTrack: some View {
         ZStack(alignment: isOn ? .trailing : .leading) {
             // Track background
-            RoundedRectangle(cornerRadius: VRadius.sm + 2)
+            RoundedRectangle(cornerRadius: trackHeight / 2)
                 .fill(isOn ? Forest._600 : VColor.toggleOff)
                 .frame(width: trackWidth, height: trackHeight)
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.sm + 2)
-                        .stroke(VColor.toggleBorder, lineWidth: 1)
-                )
 
             // Knob
-            RoundedRectangle(cornerRadius: VRadius.sm)
+            RoundedRectangle(cornerRadius: knobSize / 2)
                 .fill(Color.white)
                 .frame(width: knobSize, height: knobSize)
+                .shadow(color: Color.black.opacity(0.15), radius: 3, x: 0, y: 1)
                 .padding(.horizontal, knobPadding)
         }
     }

@@ -11,12 +11,12 @@ import { CHANNEL_IDS, INTERFACE_IDS, isChannelId, parseInterfaceId } from '../..
 import { getGatewayInternalBaseUrl } from '../../config/env.js';
 import { RESEND_COOLDOWN_MS } from '../../daemon/handlers/config-channels.js';
 import * as attachmentsStore from '../../memory/attachments-store.js';
-import * as channelDeliveryStore from '../../memory/channel-delivery-store.js';
 import {
   createCanonicalGuardianRequest,
   listCanonicalGuardianRequests,
   listPendingCanonicalGuardianRequestsByDestinationChat,
 } from '../../memory/canonical-guardian-store.js';
+import * as channelDeliveryStore from '../../memory/channel-delivery-store.js';
 import { recordConversationSeenSignal } from '../../memory/conversation-attention-store.js';
 import * as conversationStore from '../../memory/conversation-store.js';
 import * as externalConversationStore from '../../memory/external-conversation-store.js';
@@ -47,6 +47,7 @@ import {
 import { getTransport } from '../channel-invite-transport.js';
 import { deliverChannelReply } from '../gateway-client.js';
 import { resolveGuardianContext } from '../guardian-context-resolver.js';
+import { routeGuardianReply } from '../guardian-reply-router.js';
 import {
   composeChannelVerifyReply,
   composeVerificationTelegram,
@@ -73,7 +74,6 @@ import {
 } from './channel-route-shared.js';
 import { handleApprovalInterception } from './guardian-approval-interception.js';
 import { deliverGeneratedApprovalPrompt } from './guardian-approval-prompt.js';
-import { routeGuardianReply } from '../guardian-reply-router.js';
 
 import '../channel-invite-transports/telegram.js';
 import '../channel-invite-transports/voice.js';
@@ -101,8 +101,8 @@ export async function handleChannelInbound(
   gatewayOriginSecret?: string,
   approvalCopyGenerator?: ApprovalCopyGenerator,
   approvalConversationGenerator?: ApprovalConversationGenerator,
-  guardianActionCopyGenerator?: GuardianActionCopyGenerator,
-  guardianFollowUpConversationGenerator?: GuardianFollowUpConversationGenerator,
+  _guardianActionCopyGenerator?: GuardianActionCopyGenerator,
+  _guardianFollowUpConversationGenerator?: GuardianFollowUpConversationGenerator,
 ): Promise<Response> {
   // Reject requests that lack valid gateway-origin proof. This ensures
   // channel inbound messages can only arrive via the gateway (which

@@ -444,12 +444,10 @@ private struct SkillRow: View {
                 }
             }
 
-            Toggle("", isOn: Binding(
+            VToggle(isOn: Binding(
                 get: { skill.state == "enabled" },
                 set: { newValue in onToggle(newValue) }
             ))
-                .toggleStyle(.switch)
-                .labelsHidden()
         }
         .padding(.vertical, 2)
     }

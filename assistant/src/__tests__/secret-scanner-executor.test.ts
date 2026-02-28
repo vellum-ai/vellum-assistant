@@ -346,4 +346,63 @@ describe('Secret scanner executor integration', () => {
     expect(types).toContain('AWS Access Key');
     expect(types).toContain('GitHub Token');
   });
+
+  // -----------------------------------------------------------------------
+  // sensitive output directive extraction runs before secret detection
+  // -----------------------------------------------------------------------
+  test('sensitive output directives are stripped and replaced with placeholders before secret scanning', async () => {
+    mockConfig.secretDetection.action = 'redact';
+    const rawToken = 'xK9mP2vL4nR7wQ3j';
+    fakeToolResult = {
+      content: `<vellum-sensitive-output kind="invite_code" value="${rawToken}" />\nhttps://t.me/bot?start=iv_${rawToken}`,
+      isError: false,
+    };
+
+    const lifecycleEvents: ToolLifecycleEvent[] = [];
+    const ctx = makeContext({
+      onToolLifecycleEvent: (event) => {
+        lifecycleEvents.push(event);
+      },
+    });
+
+    const result = await executor.execute('bash', {}, ctx);
+
+    // The raw token should NOT appear in the result content
+    expect(result.content).not.toContain(rawToken);
+    // The directive tag should be fully stripped
+    expect(result.content).not.toContain('<vellum-sensitive-output');
+    // A placeholder should be present instead
+    expect(result.content).toMatch(/VELLUM_ASSISTANT_INVITE_CODE_[A-Z0-9]{8}/);
+    // Sensitive bindings should be attached for downstream substitution
+    expect(result.sensitiveBindings).toBeDefined();
+    expect(result.sensitiveBindings).toHaveLength(1);
+    expect(result.sensitiveBindings![0].value).toBe(rawToken);
+    expect(result.sensitiveBindings![0].kind).toBe('invite_code');
+  });
+
+  test('sensitive output bindings are NOT present in lifecycle event result', async () => {
+    mockConfig.secretDetection.action = 'warn';
+    const rawToken = 'testToken999';
+    fakeToolResult = {
+      content: `<vellum-sensitive-output kind="invite_code" value="${rawToken}" />\nhttps://t.me/bot?start=iv_${rawToken}`,
+      isError: false,
+    };
+
+    const lifecycleEvents: ToolLifecycleEvent[] = [];
+    const ctx = makeContext({
+      onToolLifecycleEvent: (event) => {
+        lifecycleEvents.push(event);
+      },
+    });
+
+    await executor.execute('bash', {}, ctx);
+
+    // Find the 'executed' lifecycle event
+    const executedEvents = lifecycleEvents.filter(
+      (e): e is Extract<ToolLifecycleEvent, { type: 'executed' }> => e.type === 'executed',
+    );
+    expect(executedEvents).toHaveLength(1);
+    // The emitted result must NOT contain sensitiveBindings
+    expect((executedEvents[0].result as unknown as Record<string, unknown>).sensitiveBindings).toBeUndefined();
+  });
 });

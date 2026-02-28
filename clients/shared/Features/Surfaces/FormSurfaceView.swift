@@ -226,11 +226,7 @@ public struct FormSurfaceView: View {
                 )
                 .onSubmit { handleEnterKey() }
             case .toggle:
-                Toggle(isOn: toggleBinding(for: field.id)) {
-                    EmptyView()
-                }
-                .toggleStyle(.switch)
-                .tint(VColor.accent)
+                VToggle(isOn: toggleBinding(for: field.id))
             }
         }
     }

@@ -60,14 +60,13 @@ struct SettingsPrivacyTab: View {
                         .foregroundColor(VColor.textMuted)
                 }
                 Spacer()
-                Toggle("", isOn: Binding(
+                VToggle(isOn: Binding(
                     get: { collectUsageData },
                     set: { newValue in
                         collectUsageData = newValue
                         Task { await setCollectUsageData(newValue) }
                     }
                 ))
-                .toggleStyle(.switch)
                 .disabled(isLoading || isUpdating || daemonClient == nil)
             }
         }

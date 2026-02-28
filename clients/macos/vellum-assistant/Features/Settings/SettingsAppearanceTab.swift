@@ -170,12 +170,10 @@ struct SettingsAppearanceTab: View {
                         .font(VFont.body)
                         .foregroundColor(VColor.textSecondary)
                     Spacer()
-                    Toggle("", isOn: Binding(
+                    VToggle(isOn: Binding(
                         get: { store.mediaEmbedsEnabled },
                         set: { store.setMediaEmbedsEnabled($0) }
                     ))
-                    .toggleStyle(.switch)
-                    .labelsHidden()
                 }
 
                 Text("Automatically embed images, videos, and other media shared in chat messages.")

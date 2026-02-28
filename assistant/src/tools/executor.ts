@@ -13,6 +13,7 @@ import { resolveExecutionTarget } from './execution-target.js';
 import { executeWithTimeout,safeTimeoutMs } from './execution-timeout.js';
 import { PermissionChecker } from './permission-checker.js';
 import { SecretDetectionHandler } from './secret-detection-handler.js';
+import { extractAndSanitize } from './sensitive-output-placeholders.js';
 import { applyEdit } from './shared/filesystem/edit-engine.js';
 import { sandboxPolicy } from './shared/filesystem/path-policy.js';
 import { MAX_FILE_SIZE_BYTES } from './shared/filesystem/size-guard.js';
@@ -182,6 +183,15 @@ export class ToolExecutor {
         );
       }
 
+      // Sensitive output extraction: strip directives, replace raw values
+      // with placeholders, and attach bindings for agent-loop substitution.
+      // Runs before secret detection so that raw sensitive values are already
+      // replaced and won't trigger entropy-based redaction.
+      const { sanitizedContent, bindings } = extractAndSanitize(execResult.content);
+      if (bindings.length > 0) {
+        execResult = { ...execResult, content: sanitizedContent, sensitiveBindings: bindings };
+      }
+
       // Secret detection on tool output
       const secretResult = await this.secretDetectionHandler.handle(
         execResult, name, input, context, executionTarget,
@@ -193,6 +203,8 @@ export class ToolExecutor {
       execResult = secretResult.result;
 
       const durationMs = Date.now() - startTime;
+      // Strip sensitiveBindings from lifecycle event to prevent raw values leaking
+      const { sensitiveBindings: _sb, ...safeResult } = execResult;
       emitLifecycleEvent(context, {
         type: 'executed',
         toolName: name,
@@ -205,7 +217,7 @@ export class ToolExecutor {
         riskLevel,
         decision,
         durationMs,
-        result: execResult,
+        result: safeResult,
       });
 
       void getHookManager().trigger('post-tool-execute', {

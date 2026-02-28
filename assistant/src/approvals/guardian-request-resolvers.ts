@@ -14,11 +14,11 @@
 import { answerCall } from '../calls/call-domain.js';
 import type { CanonicalGuardianRequest } from '../memory/canonical-guardian-store.js';
 import { emitNotificationSignal } from '../notifications/emit-signal.js';
+import { addRule } from '../permissions/trust-store.js';
 import type { ApprovalAction } from '../runtime/channel-approval-types.js';
 import { createOutboundSession } from '../runtime/channel-guardian-service.js';
 import { deliverChannelReply } from '../runtime/gateway-client.js';
 import * as pendingInteractions from '../runtime/pending-interactions.js';
-import { addRule } from '../permissions/trust-store.js';
 import { getTool } from '../tools/registry.js';
 import { getLogger } from '../util/logger.js';
 
@@ -192,7 +192,7 @@ const pendingQuestionResolver: GuardianRequestResolver = {
   kind: 'pending_question',
 
   async resolve(ctx: ResolverContext): Promise<ResolverResult> {
-    const { request, decision, actor } = ctx;
+    const { request, decision, actor: _actor } = ctx;
 
     if (!request.callSessionId) {
       return { ok: false, reason: 'pending_question request missing callSessionId' };
@@ -240,7 +240,7 @@ const pendingQuestionResolver: GuardianRequestResolver = {
         callSessionId: request.callSessionId,
         pendingQuestionId: request.pendingQuestionId,
         answerText,
-        answerCallOk: 'ok' in (answerResult as any) ? (answerResult as any).ok : false,
+        answerCallOk: 'ok' in (answerResult as Record<string, unknown>) ? (answerResult as Record<string, unknown>).ok : false,
       },
       'Pending question resolver: canonical decision applied',
     );
@@ -440,6 +440,77 @@ const accessRequestResolver: GuardianRequestResolver = {
   },
 };
 
+/**
+ * Resolves `tool_grant_request` requests — asynchronous grant escalation for
+ * non-guardian channel actors.
+ *
+ * Unlike `tool_approval`, this kind does NOT require a pending interaction in
+ * the session tracker. The request represents an async escalation: the
+ * requester's tool call was already denied, and the canonical request exists
+ * solely so the guardian can mint a scoped grant.
+ *
+ * On approve: the canonical decision primitive mints the grant (step 6 in
+ * applyCanonicalGuardianDecision). This resolver optionally notifies the
+ * requester to retry.
+ *
+ * On reject: optionally notifies the requester that their request was denied.
+ */
+const toolGrantRequestResolver: GuardianRequestResolver = {
+  kind: 'tool_grant_request',
+
+  async resolve(ctx: ResolverContext): Promise<ResolverResult> {
+    const { request, decision, channelDeliveryContext } = ctx;
+    const requesterChatId = request.requesterChatId ?? request.requesterExternalUserId ?? '';
+    const assistantId = channelDeliveryContext?.assistantId ?? 'self';
+
+    if (decision.action === 'reject') {
+      log.info(
+        { event: 'resolver_tool_grant_request_denied', requestId: request.id, toolName: request.toolName },
+        'Tool grant request resolver: deny',
+      );
+
+      if (channelDeliveryContext && requesterChatId) {
+        try {
+          await deliverChannelReply(channelDeliveryContext.replyCallbackUrl, {
+            chatId: requesterChatId,
+            text: `Your request to use "${request.toolName}" has been denied by the guardian.`,
+            assistantId,
+          }, channelDeliveryContext.bearerToken);
+        } catch (err) {
+          log.error({ err, requesterChatId }, 'Failed to notify requester of tool grant request denial');
+        }
+      }
+
+      return { ok: true, applied: true };
+    }
+
+    // On approve: grant minting is handled by the canonical decision primitive
+    // (step 6). This resolver only handles requester notification.
+    log.info(
+      {
+        event: 'resolver_tool_grant_request_approved',
+        requestId: request.id,
+        toolName: request.toolName,
+      },
+      'Tool grant request resolver: approved (grant minting deferred to canonical primitive)',
+    );
+
+    if (channelDeliveryContext && requesterChatId) {
+      try {
+        await deliverChannelReply(channelDeliveryContext.replyCallbackUrl, {
+          chatId: requesterChatId,
+          text: `Your request to use "${request.toolName}" has been approved. Please retry your request.`,
+          assistantId,
+        }, channelDeliveryContext.bearerToken);
+      } catch (err) {
+        log.error({ err, requesterChatId }, 'Failed to notify requester of tool grant request approval');
+      }
+    }
+
+    return { ok: true, applied: true, grantMinted: false };
+  },
+};
+
 // ---------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------
@@ -465,3 +536,4 @@ export function getRegisteredKinds(): string[] {
 registerResolver(pendingInteractionResolver);
 registerResolver(pendingQuestionResolver);
 registerResolver(accessRequestResolver);
+registerResolver(toolGrantRequestResolver);

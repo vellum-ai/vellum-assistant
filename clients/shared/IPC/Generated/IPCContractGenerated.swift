@@ -1915,13 +1915,15 @@ public struct IPCGuardianActionDecisionResponse: Codable, Sendable {
     public let type: String
     public let applied: Bool
     public let reason: String?
+    public let resolverFailureReason: String?
     public let requestId: String?
     public let userText: String?
 
-    public init(type: String, applied: Bool, reason: String? = nil, requestId: String? = nil, userText: String? = nil) {
+    public init(type: String, applied: Bool, reason: String? = nil, resolverFailureReason: String? = nil, requestId: String? = nil, userText: String? = nil) {
         self.type = type
         self.applied = applied
         self.reason = reason
+        self.resolverFailureReason = resolverFailureReason
         self.requestId = requestId
         self.userText = userText
     }
@@ -1959,8 +1961,12 @@ public struct IPCGuardianActionsPendingResponsePrompt: Codable, Sendable {
     public let expiresAt: Int
     public let conversationId: String
     public let callSessionId: String?
+    /// Canonical request kind (e.g. 'tool_approval', 'pending_question').
+    /// Present when the prompt originates from the canonical guardian request
+    /// store. Absent for legacy-only prompts.
+    public let kind: String?
 
-    public init(requestId: String, requestCode: String, state: String, questionText: String, toolName: String?, actions: [IPCGuardianActionsPendingResponsePromptAction], expiresAt: Int, conversationId: String, callSessionId: String?) {
+    public init(requestId: String, requestCode: String, state: String, questionText: String, toolName: String?, actions: [IPCGuardianActionsPendingResponsePromptAction], expiresAt: Int, conversationId: String, callSessionId: String?, kind: String? = nil) {
         self.requestId = requestId
         self.requestCode = requestCode
         self.state = state
@@ -1970,6 +1976,7 @@ public struct IPCGuardianActionsPendingResponsePrompt: Codable, Sendable {
         self.expiresAt = expiresAt
         self.conversationId = conversationId
         self.callSessionId = callSessionId
+        self.kind = kind
     }
 }
 
@@ -3279,7 +3286,6 @@ public struct IPCPairingApprovalResponse: Codable, Sendable {
         self.decision = decision
     }
 }
-
 
 public struct IPCPingMessage: Codable, Sendable {
     public let type: String

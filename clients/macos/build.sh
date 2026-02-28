@@ -102,6 +102,11 @@ ASSISTANT_SRC_DIR="$SCRIPT_DIR/../../assistant"
 CLI_SRC_DIR="$SCRIPT_DIR/../../cli"
 GATEWAY_SRC_DIR="$SCRIPT_DIR/../../gateway"
 
+# Packages that must stay external in the compiled daemon binary. Native
+# modules (.node/.dylib) can't be embedded, and @huggingface/transformers
+# plus its JS deps are pre-bundled into transformers-bundle.mjs separately.
+DAEMON_EXTERNAL_FLAGS=(--external electron --external "chromium-bidi/*" --external onnxruntime-node --external @huggingface/transformers --external sharp --external onnxruntime-web --external onnxruntime-common)
+
 # ---------------------------------------------------------------------------
 # build_bun_binary — compile a TypeScript project to a native binary via Bun.
 #
@@ -147,7 +152,7 @@ build_binaries() {
     command -v bun &>/dev/null || { echo "ERROR: bun is required but not found"; exit 1; }
 
     # Daemon
-    local daemon_flags=(--external electron --external "chromium-bidi/*" --external onnxruntime-node)
+    local daemon_flags=("${DAEMON_EXTERNAL_FLAGS[@]}")
     if [ -n "${DISPLAY_VERSION:-}" ] && [ "$DISPLAY_VERSION" != "0.1.0" ]; then
         daemon_flags+=(--define "process.env.APP_VERSION='$DISPLAY_VERSION'")
     fi
@@ -190,6 +195,14 @@ build_binaries() {
     # Copy bundled skills
     rm -rf "$SCRIPT_DIR/daemon-bin/bundled-skills"
     cp -R "$ASSISTANT_SRC_DIR/src/config/bundled-skills" "$SCRIPT_DIR/daemon-bin/bundled-skills"
+    # Copy non-JS assets not embedded by bun --compile (resolved via resolveBundledDir)
+    rm -rf "$SCRIPT_DIR/daemon-bin/templates"
+    cp -R "$ASSISTANT_SRC_DIR/src/config/templates" "$SCRIPT_DIR/daemon-bin/templates"
+    rm -rf "$SCRIPT_DIR/daemon-bin/hook-templates"
+    cp -R "$ASSISTANT_SRC_DIR/hook-templates" "$SCRIPT_DIR/daemon-bin/hook-templates"
+    rm -rf "$SCRIPT_DIR/daemon-bin/prebuilt"
+    mkdir -p "$SCRIPT_DIR/daemon-bin/prebuilt"
+    cp "$ASSISTANT_SRC_DIR/src/home-base/prebuilt/index.html" "$SCRIPT_DIR/daemon-bin/prebuilt/"
 
     # CLI
     build_bun_binary "$CLI_SRC_DIR" "$CLI_SRC_DIR/src/index.ts" \
@@ -314,7 +327,7 @@ if [ -d "$ASSISTANT_SRC_DIR/src" ] && command -v bun &>/dev/null; then
     fi
 fi
 if [ "$DAEMON_BIN_NEEDS_BUILD" = true ]; then
-    local_daemon_flags=(--external electron --external "chromium-bidi/*" --external onnxruntime-node)
+    local_daemon_flags=("${DAEMON_EXTERNAL_FLAGS[@]}")
     if [ -n "${DISPLAY_VERSION:-}" ] && [ "$DISPLAY_VERSION" != "0.1.0" ]; then
         local_daemon_flags+=(--define "process.env.APP_VERSION='$DISPLAY_VERSION'")
     fi
@@ -355,6 +368,22 @@ if [ -d "$ASSISTANT_SRC_DIR/src/config/bundled-skills" ]; then
     mkdir -p "$SCRIPT_DIR/daemon-bin"
     rm -rf "$SCRIPT_DIR/daemon-bin/bundled-skills"
     cp -R "$ASSISTANT_SRC_DIR/src/config/bundled-skills" "$SCRIPT_DIR/daemon-bin/bundled-skills"
+fi
+
+# Always refresh non-JS assets from source (not embedded by bun --compile)
+mkdir -p "$SCRIPT_DIR/daemon-bin"
+if [ -d "$ASSISTANT_SRC_DIR/src/config/templates" ]; then
+    rm -rf "$SCRIPT_DIR/daemon-bin/templates"
+    cp -R "$ASSISTANT_SRC_DIR/src/config/templates" "$SCRIPT_DIR/daemon-bin/templates"
+fi
+if [ -d "$ASSISTANT_SRC_DIR/hook-templates" ]; then
+    rm -rf "$SCRIPT_DIR/daemon-bin/hook-templates"
+    cp -R "$ASSISTANT_SRC_DIR/hook-templates" "$SCRIPT_DIR/daemon-bin/hook-templates"
+fi
+if [ -f "$ASSISTANT_SRC_DIR/src/home-base/prebuilt/index.html" ]; then
+    rm -rf "$SCRIPT_DIR/daemon-bin/prebuilt"
+    mkdir -p "$SCRIPT_DIR/daemon-bin/prebuilt"
+    cp "$ASSISTANT_SRC_DIR/src/home-base/prebuilt/index.html" "$SCRIPT_DIR/daemon-bin/prebuilt/"
 fi
 
 # Also rebuild if daemon binary changed or newly added
@@ -487,6 +516,20 @@ fi
 if [ -d "$SCRIPT_DIR/daemon-bin/bundled-skills" ]; then
     rm -rf "$RESOURCES_DIR/bundled-skills"
     cp -R "$SCRIPT_DIR/daemon-bin/bundled-skills" "$RESOURCES_DIR/bundled-skills"
+fi
+
+# Always refresh non-JS assets in app bundle (not embedded by bun --compile)
+if [ -d "$SCRIPT_DIR/daemon-bin/templates" ]; then
+    rm -rf "$RESOURCES_DIR/templates"
+    cp -R "$SCRIPT_DIR/daemon-bin/templates" "$RESOURCES_DIR/templates"
+fi
+if [ -d "$SCRIPT_DIR/daemon-bin/hook-templates" ]; then
+    rm -rf "$RESOURCES_DIR/hook-templates"
+    cp -R "$SCRIPT_DIR/daemon-bin/hook-templates" "$RESOURCES_DIR/hook-templates"
+fi
+if [ -d "$SCRIPT_DIR/daemon-bin/prebuilt" ]; then
+    rm -rf "$RESOURCES_DIR/prebuilt"
+    cp -R "$SCRIPT_DIR/daemon-bin/prebuilt" "$RESOURCES_DIR/prebuilt"
 fi
 
 # Always refresh feature flag registry for the bundled gateway.

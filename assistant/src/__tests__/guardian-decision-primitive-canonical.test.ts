@@ -29,17 +29,18 @@ mock.module('../util/logger.js', () => ({
   truncateForLog: (value: string) => value,
 }));
 
-import { getDb, initializeDb, resetDb } from '../memory/db.js';
-import {
-  createCanonicalGuardianRequest,
-  getCanonicalGuardianRequest,
-} from '../memory/canonical-guardian-store.js';
 import {
   applyCanonicalGuardianDecision,
   mintCanonicalRequestGrant,
 } from '../approvals/guardian-decision-primitive.js';
-import { getResolver, getRegisteredKinds } from '../approvals/guardian-request-resolvers.js';
 import type { ActorContext } from '../approvals/guardian-request-resolvers.js';
+import { getRegisteredKinds,getResolver } from '../approvals/guardian-request-resolvers.js';
+import {
+  createCanonicalGuardianRequest,
+  getCanonicalGuardianRequest,
+} from '../memory/canonical-guardian-store.js';
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
+import { scopedApprovalGrants } from '../memory/schema.js';
 
 initializeDb();
 
@@ -481,6 +482,37 @@ describe('applyCanonicalGuardianDecision', () => {
     const resolved = getCanonicalGuardianRequest(req.id);
     expect(resolved!.status).toBe('approved');
   });
+
+  test('trusted desktop actor still mints scoped grant for approved canonical request', async () => {
+    const req = createCanonicalGuardianRequest({
+      kind: 'unknown_kind',
+      sourceType: 'voice',
+      sourceChannel: 'voice',
+      conversationId: 'conv-voice-1',
+      callSessionId: 'call-voice-1',
+      toolName: 'host_bash',
+      inputDigest: 'sha256:voice-digest-1',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+
+    const result = await applyCanonicalGuardianDecision({
+      requestId: req.id,
+      action: 'approve_once',
+      actorContext: trustedActor(),
+    });
+
+    expect(result.applied).toBe(true);
+    if (!result.applied) return;
+    expect(result.grantMinted).toBe(true);
+
+    const db = getDb();
+    const grants = db.select().from(scopedApprovalGrants).all();
+    expect(grants.length).toBe(1);
+    expect(grants[0].toolName).toBe('host_bash');
+    expect(grants[0].conversationId).toBe('conv-voice-1');
+    expect(grants[0].callSessionId).toBe('call-voice-1');
+    expect(grants[0].guardianExternalUserId).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -507,6 +539,29 @@ describe('mintCanonicalRequestGrant', () => {
     });
 
     expect(result.minted).toBe(true);
+  });
+
+  test('mints grant when guardianExternalUserId is omitted', () => {
+    const req = createCanonicalGuardianRequest({
+      kind: 'tool_approval',
+      sourceType: 'channel',
+      sourceChannel: 'telegram',
+      conversationId: 'conv-2',
+      toolName: 'shell',
+      inputDigest: 'sha256:xyz',
+    });
+
+    const result = mintCanonicalRequestGrant({
+      request: req,
+      actorChannel: 'vellum',
+    });
+
+    expect(result.minted).toBe(true);
+
+    const db = getDb();
+    const grants = db.select().from(scopedApprovalGrants).all();
+    expect(grants.length).toBe(1);
+    expect(grants[0].guardianExternalUserId).toBeNull();
   });
 
   test('skips grant for request without tool metadata', () => {

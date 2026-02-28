@@ -26,15 +26,15 @@
 
 import type { ChannelId } from '../channels/types.js';
 import {
+  type CanonicalGuardianRequest,
+  type CanonicalRequestStatus,
+  getCanonicalGuardianRequest,
+  resolveCanonicalGuardianRequest,
+} from '../memory/canonical-guardian-store.js';
+import {
   type GuardianApprovalRequest,
   updateApprovalDecision,
 } from '../memory/channel-guardian-store.js';
-import {
-  getCanonicalGuardianRequest,
-  resolveCanonicalGuardianRequest,
-  type CanonicalGuardianRequest,
-  type CanonicalRequestStatus,
-} from '../memory/canonical-guardian-store.js';
 import type {
   ApprovalAction,
   ApprovalDecisionResult,
@@ -49,9 +49,9 @@ import { computeToolApprovalDigest } from '../security/tool-approval-digest.js';
 import { getLogger } from '../util/logger.js';
 import { mintGrantFromDecision } from './approval-primitive.js';
 import {
-  getResolver,
   type ActorContext,
   type ChannelDeliveryContext,
+  getResolver,
 } from './guardian-request-resolvers.js';
 
 const log = getLogger('guardian-decision-primitive');
@@ -224,7 +224,7 @@ export function applyGuardianDecision(params: ApplyGuardianDecisionParams): Appl
 export function mintCanonicalRequestGrant(params: {
   request: CanonicalGuardianRequest;
   actorChannel: string;
-  guardianExternalUserId: string;
+  guardianExternalUserId?: string;
 }): { minted: boolean } {
   const { request, actorChannel, guardianExternalUserId } = params;
 
@@ -242,7 +242,7 @@ export function mintCanonicalRequestGrant(params: {
     executionChannel: null,
     conversationId: request.conversationId ?? null,
     callSessionId: request.callSessionId ?? null,
-    guardianExternalUserId,
+    guardianExternalUserId: guardianExternalUserId ?? null,
     requesterExternalUserId: request.requesterExternalUserId ?? null,
     expiresAt: new Date(Date.now() + GRANT_TTL_MS).toISOString(),
   });
@@ -443,11 +443,11 @@ export async function applyCanonicalGuardianDecision(
   // would allow the tool to execute without the intended resolver action
   // (e.g. answerCall) having succeeded.
   let grantMinted = false;
-  if (effectiveAction !== 'reject' && actorContext.externalUserId && !resolverFailed) {
+  if (effectiveAction !== 'reject' && !resolverFailed) {
     const grantResult = mintCanonicalRequestGrant({
       request: resolved,
       actorChannel: actorContext.channel,
-      guardianExternalUserId: actorContext.externalUserId,
+      guardianExternalUserId: actorContext.externalUserId ?? resolved.guardianExternalUserId ?? undefined,
     });
     grantMinted = grantResult.minted;
   }

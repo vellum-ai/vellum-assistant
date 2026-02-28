@@ -101,6 +101,35 @@ public enum Stone {
     public static let _50  = Color(hex: 0xFAFAF9)
 }
 
+/// Cool neutral scale — alias of Stone for contexts expecting Tailwind-style "slate".
+public enum Slate {
+    public static let _950 = Stone._950
+    public static let _900 = Stone._900
+    public static let _800 = Stone._800
+    public static let _700 = Stone._700
+    public static let _600 = Stone._600
+    public static let _500 = Stone._500
+    public static let _400 = Stone._400
+    public static let _300 = Stone._300
+    public static let _200 = Stone._200
+    public static let _100 = Stone._100
+    public static let _50  = Stone._50
+}
+
+/// Sage green accent scale — alias of Forest for onboarding UI.
+public enum Sage {
+    public static let _950 = Forest._950
+    public static let _900 = Forest._900
+    public static let _800 = Forest._800
+    public static let _700 = Forest._700
+    public static let _600 = Forest._600
+    public static let _500 = Forest._500
+    public static let _400 = Forest._400
+    public static let _300 = Forest._300
+    public static let _200 = Forest._200
+    public static let _100 = Forest._100
+}
+
 // MARK: - Dark Theme Scales
 
 /// Warm neutral scale for dark mode backgrounds & text.
@@ -178,7 +207,7 @@ public enum VColor {
     public static let ghostPressed = adaptiveColor(light: Stone._200, dark: Moss._600)
     public static let divider = adaptiveColor(light: Stone._200, dark: Moss._700)
     public static let hoverOverlay = adaptiveColor(light: Color(hex: 0x000000), dark: Moss._200)
-    public static let toggleOff = adaptiveColor(light: Stone._300, dark: Moss._700)
+    public static let toggleOff = adaptiveColor(light: Stone._200, dark: Moss._600)
     public static let toggleBorder = adaptiveColor(light: Stone._400, dark: Moss._600)
 
     // Slash command highlight — green tint for /command tokens in composer and chat

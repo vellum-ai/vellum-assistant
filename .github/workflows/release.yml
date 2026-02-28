@@ -890,7 +890,7 @@ jobs:
 
       - name: Run Playwright tests
         working-directory: playwright
-        run: bunx playwright test tests/hello-world.spec.ts
+        run: bun run test
 
   notify:
     if: always() && !cancelled()

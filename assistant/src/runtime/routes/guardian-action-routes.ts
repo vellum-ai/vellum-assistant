@@ -8,9 +8,9 @@ import {
   applyCanonicalGuardianDecision,
 } from '../../approvals/guardian-decision-primitive.js';
 import {
+  type CanonicalGuardianRequest,
   getCanonicalGuardianRequest,
   listCanonicalGuardianRequests,
-  type CanonicalGuardianRequest,
 } from '../../memory/canonical-guardian-store.js';
 import type { ApprovalAction } from '../channel-approval-types.js';
 import type { GuardianDecisionPrompt } from '../guardian-decision-types.js';

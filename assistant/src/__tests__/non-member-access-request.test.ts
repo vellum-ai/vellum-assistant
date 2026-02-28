@@ -80,9 +80,9 @@ mock.module('../runtime/gateway-client.js', () => ({
   },
 }));
 
+import { listCanonicalGuardianRequests } from '../memory/canonical-guardian-store.js';
 import {
   createBinding,
-  findPendingAccessRequestForRequester,
 } from '../memory/channel-guardian-store.js';
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import { handleChannelInbound } from '../runtime/routes/channel-routes.js';
@@ -107,6 +107,8 @@ function resetState(): void {
   db.run('DELETE FROM channel_inbound_events');
   db.run('DELETE FROM conversations');
   db.run('DELETE FROM notification_events');
+  db.run('DELETE FROM canonical_guardian_requests');
+  db.run('DELETE FROM canonical_guardian_deliveries');
   emitSignalCalls.length = 0;
   deliverReplyCalls.length = 0;
 }
@@ -185,18 +187,18 @@ describe('non-member access request notification', () => {
     expect(payload.senderExternalUserId).toBe('user-unknown-456');
     expect(payload.senderName).toBe('Alice Unknown');
 
-    // An approval request was created
-    const pending = findPendingAccessRequestForRequester(
-      'self',
-      'telegram',
-      'user-unknown-456',
-      'ingress_access_request',
-    );
-    expect(pending).not.toBeNull();
-    expect(pending!.status).toBe('pending');
-    expect(pending!.requesterExternalUserId).toBe('user-unknown-456');
-    expect(pending!.guardianExternalUserId).toBe('guardian-user-789');
-    expect(pending!.toolName).toBe('ingress_access_request');
+    // A canonical access request was created
+    const pending = listCanonicalGuardianRequests({
+      status: 'pending',
+      requesterExternalUserId: 'user-unknown-456',
+      sourceChannel: 'telegram',
+      kind: 'access_request',
+    });
+    expect(pending.length).toBe(1);
+    expect(pending[0].status).toBe('pending');
+    expect(pending[0].requesterExternalUserId).toBe('user-unknown-456');
+    expect(pending[0].guardianExternalUserId).toBe('guardian-user-789');
+    expect(pending[0].toolName).toBe('ingress_access_request');
   });
 
   test('no duplicate approval requests for repeated messages from same non-member', async () => {
@@ -224,14 +226,14 @@ describe('non-member access request notification', () => {
     // Only one notification signal should be emitted (second is deduplicated)
     expect(emitSignalCalls.length).toBe(1);
 
-    // Only one approval request should exist
-    const pending = findPendingAccessRequestForRequester(
-      'self',
-      'telegram',
-      'user-unknown-456',
-      'ingress_access_request',
-    );
-    expect(pending).not.toBeNull();
+    // Only one canonical request should exist
+    const pending = listCanonicalGuardianRequests({
+      status: 'pending',
+      requesterExternalUserId: 'user-unknown-456',
+      sourceChannel: 'telegram',
+      kind: 'access_request',
+    });
+    expect(pending.length).toBe(1);
   });
 
   test('deny works without error when no guardian binding exists', async () => {
@@ -249,14 +251,14 @@ describe('non-member access request notification', () => {
     // No notification signal was emitted
     expect(emitSignalCalls.length).toBe(0);
 
-    // No approval request was created
-    const pending = findPendingAccessRequestForRequester(
-      'self',
-      'telegram',
-      'user-unknown-456',
-      'ingress_access_request',
-    );
-    expect(pending).toBeNull();
+    // No canonical request was created
+    const pending = listCanonicalGuardianRequests({
+      status: 'pending',
+      requesterExternalUserId: 'user-unknown-456',
+      sourceChannel: 'telegram',
+      kind: 'access_request',
+    });
+    expect(pending.length).toBe(0);
   });
 
   test('no notification when senderExternalUserId is absent', async () => {
