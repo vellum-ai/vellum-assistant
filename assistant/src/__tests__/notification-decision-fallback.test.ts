@@ -5,7 +5,7 @@
  * decision-model call is unavailable.
  */
 
-import { describe, expect, mock, test } from 'bun:test';
+import { beforeEach, describe, expect, mock, test } from 'bun:test';
 
 mock.module('../channels/config.js', () => ({
   getDeliverableChannels: () => ['vellum', 'telegram', 'sms'],
@@ -32,13 +32,16 @@ mock.module('../notifications/thread-candidates.js', () => ({
   serializeCandidatesForPrompt: () => undefined,
 }));
 
+let configuredProvider: { sendMessage: () => Promise<unknown> } | null = null;
+let extractedToolUse: unknown = null;
+
 mock.module('../providers/provider-send-message.js', () => ({
-  getConfiguredProvider: () => null,
+  getConfiguredProvider: () => configuredProvider,
   createTimeout: () => ({
     signal: new AbortController().signal,
     cleanup: () => {},
   }),
-  extractToolUse: () => null,
+  extractToolUse: () => extractedToolUse,
   userMessage: (text: string) => ({ role: 'user', content: text }),
 }));
 
@@ -75,6 +78,11 @@ function makeSignal(overrides?: Partial<NotificationSignal>): NotificationSignal
 }
 
 describe('notification decision fallback copy', () => {
+  beforeEach(() => {
+    configuredProvider = null;
+    extractedToolUse = null;
+  });
+
   test('uses human-friendly template copy for guardian.question', async () => {
     const signal = makeSignal();
     const decision = await evaluateSignal(signal, ['vellum'] as NotificationChannel[]);
@@ -99,5 +107,40 @@ describe('notification decision fallback copy', () => {
     expect(decision.renderedCopy.vellum?.body).toContain('A1B2C3');
     expect(decision.renderedCopy.vellum?.body).toContain('approve');
     expect(decision.renderedCopy.vellum?.body).toContain('reject');
+  });
+
+  test('enforcement appends explicit approve/reject instructions when LLM copy only mentions request code', async () => {
+    configuredProvider = {
+      sendMessage: async () => ({ content: [] }),
+    };
+    extractedToolUse = {
+      name: 'record_notification_decision',
+      input: {
+        shouldNotify: true,
+        selectedChannels: ['vellum'],
+        reasoningSummary: 'LLM decision',
+        renderedCopy: {
+          vellum: {
+            title: 'Guardian Question',
+            body: 'Use reference code A1B2C3 for this request.',
+          },
+        },
+        dedupeKey: 'guardian-question-test',
+        confidence: 0.9,
+      },
+    };
+
+    const signal = makeSignal({
+      contextPayload: {
+        questionText: 'What is the gate code?',
+        requestCode: 'A1B2C3',
+      },
+    });
+
+    const decision = await evaluateSignal(signal, ['vellum'] as NotificationChannel[]);
+
+    expect(decision.fallbackUsed).toBe(false);
+    expect(decision.renderedCopy.vellum?.body).toContain('"A1B2C3 approve"');
+    expect(decision.renderedCopy.vellum?.body).toContain('"A1B2C3 reject"');
   });
 });

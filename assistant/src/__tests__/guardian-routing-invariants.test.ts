@@ -550,6 +550,32 @@ describe('routing invariant: disambiguation stays fail-closed', () => {
     expect(resolved!.status).toBe('approved');
   });
 
+  test('single hinted pending request does not auto-approve broad acknowledgment text', async () => {
+    const req = createCanonicalGuardianRequest({
+      kind: 'tool_approval',
+      sourceType: 'channel',
+      conversationId: 'conv-1',
+      guardianExternalUserId: 'guardian-1',
+      requestCode: 'GGG777',
+      toolName: 'shell',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+
+    const result = await routeGuardianReply(replyCtx({
+      messageText: 'ok, what is this for?',
+      conversationId: 'conv-guardian-thread',
+      pendingRequestIds: [req.id],
+      approvalConversationGenerator: undefined,
+    }));
+
+    expect(result.consumed).toBe(false);
+    expect(result.type).toBe('not_consumed');
+    expect(result.decisionApplied).toBe(false);
+
+    const unchanged = getCanonicalGuardianRequest(req.id);
+    expect(unchanged!.status).toBe('pending');
+  });
+
   test('multiple hinted pending requests with plain-text approve returns disambiguation', async () => {
     const req1 = createCanonicalGuardianRequest({
       kind: 'tool_approval',

@@ -411,12 +411,15 @@ function ensureGuardianRequestCodeInCopy(
   requestCode: string,
 ): RenderedChannelCopy {
   const instruction = `Reference code: ${requestCode}. Reply "${requestCode} approve" or "${requestCode} reject".`;
-  const hasCode = (text: string | undefined): boolean =>
-    typeof text === 'string' && text.toUpperCase().includes(requestCode);
+  const hasParserCompatibleInstructions = (text: string | undefined): boolean => {
+    if (typeof text !== 'string') return false;
+    const upper = text.toUpperCase();
+    return upper.includes(`${requestCode} APPROVE`) && upper.includes(`${requestCode} REJECT`);
+  };
 
   const ensureText = (text: string | undefined): string => {
     const base = typeof text === 'string' ? text.trim() : '';
-    if (hasCode(base)) return base;
+    if (hasParserCompatibleInstructions(base)) return base;
     return base.length > 0 ? `${base}\n\n${instruction}` : instruction;
   };
 

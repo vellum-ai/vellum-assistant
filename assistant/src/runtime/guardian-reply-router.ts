@@ -540,18 +540,45 @@ async function applyDecision(
 // Text-to-action inference
 // ---------------------------------------------------------------------------
 
-const APPROVE_PATTERNS = /^(yes|yeah|yep|approve|approved|allow|ok|okay|sure|go ahead|proceed|do it)\b/i;
-const REJECT_PATTERNS = /^(no|deny|reject|decline|cancel|block)\b/i;
+const CODE_REJECT_PATTERNS = /^(no|deny|reject|decline|cancel|block)\b/i;
+const EXPLICIT_APPROVE_PHRASES: ReadonlySet<string> = new Set([
+  'approve',
+  'approved',
+  'approve once',
+  'yes',
+  'y',
+  'allow',
+  'go ahead',
+  'proceed',
+  'do it',
+]);
+const EXPLICIT_REJECT_PHRASES: ReadonlySet<string> = new Set([
+  'reject',
+  'deny',
+  'decline',
+  'no',
+  'n',
+  'block',
+  'cancel',
+]);
+
+function normalizeDecisionPhrase(text: string): string {
+  return text
+    .trim()
+    .toLowerCase()
+    .replace(/[.!?]+$/g, '')
+    .replace(/\s+/g, ' ');
+}
 
 /**
  * Strict free-text decision parser used when no request code is present.
  * Returns null unless the message starts with an explicit approve/reject cue.
  */
 function inferDecisionActionFromFreeText(text: string): ApprovalAction | null {
-  const trimmed = text.trim();
-  if (!trimmed) return null;
-  if (REJECT_PATTERNS.test(trimmed)) return 'reject';
-  if (APPROVE_PATTERNS.test(trimmed)) return 'approve_once';
+  const normalized = normalizeDecisionPhrase(text);
+  if (!normalized) return null;
+  if (EXPLICIT_REJECT_PHRASES.has(normalized)) return 'reject';
+  if (EXPLICIT_APPROVE_PHRASES.has(normalized)) return 'approve_once';
   return null;
 }
 
@@ -564,7 +591,7 @@ function inferActionFromText(text: string): ApprovalAction {
     return 'approve_once';
   }
 
-  if (REJECT_PATTERNS.test(text.trim())) {
+  if (CODE_REJECT_PATTERNS.test(text.trim())) {
     return 'reject';
   }
 
