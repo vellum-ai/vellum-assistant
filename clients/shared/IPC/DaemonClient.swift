@@ -1827,6 +1827,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
             let decoded = try JSONDecoder().decode(GuardianBootstrapResponse.self, from: data)
             ActorTokenManager.setToken(decoded.actorToken)
+            ActorTokenManager.setGuardianPrincipalId(decoded.guardianPrincipalId)
             log.info("Actor token bootstrap succeeded (isNew=\(decoded.isNew))")
             return true
         } catch {
