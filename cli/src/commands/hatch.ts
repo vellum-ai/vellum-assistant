@@ -542,35 +542,35 @@ async function hatchLocal(species: Species, name: string | null, daemonOnly: boo
       console.log("🧹 Cleaning up stale local processes (no lock file entry)...\n");
       await stopLocalProcesses();
     }
+
+    // Verify required ports are available before starting any services.
+    // Only check when no local assistants exist — if there are existing local
+    // assistants, their daemon/gateway/qdrant legitimately own these ports.
+    const RUNTIME_HTTP_PORT = Number(process.env.RUNTIME_HTTP_PORT) || 7821;
+    const QDRANT_PORT = 6333;
+    const requiredPorts = [
+      { name: "daemon", port: RUNTIME_HTTP_PORT },
+      { name: "gateway", port: GATEWAY_PORT },
+      { name: "qdrant", port: QDRANT_PORT },
+    ];
+    const conflicts: string[] = [];
+    await Promise.all(
+      requiredPorts.map(async ({ name, port }) => {
+        if (await probePort(port)) {
+          conflicts.push(`  - Port ${port} (${name}) is already in use`);
+        }
+      }),
+    );
+    if (conflicts.length > 0) {
+      throw new Error(
+        `Cannot hatch — required ports are already in use:\n${conflicts.join("\n")}\n\n` +
+          "Stop the conflicting processes or use environment variables to configure alternative ports " +
+          "(RUNTIME_HTTP_PORT, GATEWAY_PORT).",
+      );
+    }
   }
 
   const baseDataDir = join(process.env.BASE_DATA_DIR?.trim() || (process.env.HOME ?? userInfo().homedir), ".vellum");
-
-  // Verify required ports are available before starting any services.
-  // A port conflict causes confusing failures (e.g. gateway health check
-  // returns "unreachable" because another process is listening on the port).
-  const RUNTIME_HTTP_PORT = Number(process.env.RUNTIME_HTTP_PORT) || 7821;
-  const QDRANT_PORT = 6333;
-  const requiredPorts = [
-    { name: "daemon", port: RUNTIME_HTTP_PORT },
-    { name: "gateway", port: GATEWAY_PORT },
-    { name: "qdrant", port: QDRANT_PORT },
-  ];
-  const conflicts: string[] = [];
-  await Promise.all(
-    requiredPorts.map(async ({ name, port }) => {
-      if (await probePort(port)) {
-        conflicts.push(`  - Port ${port} (${name}) is already in use`);
-      }
-    }),
-  );
-  if (conflicts.length > 0) {
-    throw new Error(
-      `Cannot hatch — required ports are already in use:\n${conflicts.join("\n")}\n\n` +
-        "Stop the conflicting processes or use environment variables to configure alternative ports " +
-        "(RUNTIME_HTTP_PORT, GATEWAY_PORT).",
-    );
-  }
 
   console.log(`🥚 Hatching local assistant: ${instanceName}`);
   console.log(`   Species: ${species}`);
