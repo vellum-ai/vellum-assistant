@@ -141,6 +141,8 @@ export function bridgeConfirmationRequestToGuardian(
         destinationChatId: result.destination.length > 0 ? result.destination : undefined,
       });
     }
+  }).catch((err) => {
+    log.warn({ err, requestId: canonicalRequest.id }, 'Failed to record channel deliveries for guardian bridge');
   });
 
   log.info(
