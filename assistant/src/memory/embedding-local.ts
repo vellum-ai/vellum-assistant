@@ -142,6 +142,7 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
     } catch (err) {
       // Worker failed to start — kill it to avoid deadlock, then collect stderr
       this.workerProc = null;
+      this.stdoutReaderActive = false;
       try { proc.kill(); } catch { /* may already be dead */ }
       const exitCode = await proc.exited.catch(() => undefined);
       const stderr = await new Response(proc.stderr).text().catch(() => '');
