@@ -29,18 +29,18 @@ mock.module('../util/logger.js', () => ({
   truncateForLog: (value: string) => value,
 }));
 
-import { getDb, initializeDb, resetDb } from '../memory/db.js';
-import {
-  createCanonicalGuardianRequest,
-  getCanonicalGuardianRequest,
-} from '../memory/canonical-guardian-store.js';
-import { scopedApprovalGrants } from '../memory/schema.js';
 import {
   applyCanonicalGuardianDecision,
   mintCanonicalRequestGrant,
 } from '../approvals/guardian-decision-primitive.js';
-import { getResolver, getRegisteredKinds } from '../approvals/guardian-request-resolvers.js';
 import type { ActorContext } from '../approvals/guardian-request-resolvers.js';
+import { getRegisteredKinds,getResolver } from '../approvals/guardian-request-resolvers.js';
+import {
+  createCanonicalGuardianRequest,
+  getCanonicalGuardianRequest,
+} from '../memory/canonical-guardian-store.js';
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
+import { scopedApprovalGrants } from '../memory/schema.js';
 
 initializeDb();
 

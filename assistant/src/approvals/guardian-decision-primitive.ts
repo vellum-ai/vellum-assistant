@@ -26,15 +26,15 @@
 
 import type { ChannelId } from '../channels/types.js';
 import {
+  type CanonicalGuardianRequest,
+  type CanonicalRequestStatus,
+  getCanonicalGuardianRequest,
+  resolveCanonicalGuardianRequest,
+} from '../memory/canonical-guardian-store.js';
+import {
   type GuardianApprovalRequest,
   updateApprovalDecision,
 } from '../memory/channel-guardian-store.js';
-import {
-  getCanonicalGuardianRequest,
-  resolveCanonicalGuardianRequest,
-  type CanonicalGuardianRequest,
-  type CanonicalRequestStatus,
-} from '../memory/canonical-guardian-store.js';
 import type {
   ApprovalAction,
   ApprovalDecisionResult,
@@ -49,9 +49,9 @@ import { computeToolApprovalDigest } from '../security/tool-approval-digest.js';
 import { getLogger } from '../util/logger.js';
 import { mintGrantFromDecision } from './approval-primitive.js';
 import {
-  getResolver,
   type ActorContext,
   type ChannelDeliveryContext,
+  getResolver,
 } from './guardian-request-resolvers.js';
 
 const log = getLogger('guardian-decision-primitive');

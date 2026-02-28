@@ -9,16 +9,16 @@ import { mergeToolResults,renderHistoryContent } from '../../daemon/handlers.js'
 import type { ServerMessage } from '../../daemon/ipc-protocol.js';
 import * as attachmentsStore from '../../memory/attachments-store.js';
 import {
+  createCanonicalGuardianRequest,
+  generateCanonicalRequestCode,
+} from '../../memory/canonical-guardian-store.js';
+import {
   getConversationByKey,
   getOrCreateConversation,
 } from '../../memory/conversation-key-store.js';
 import * as conversationStore from '../../memory/conversation-store.js';
 import { getConfiguredProvider } from '../../providers/provider-send-message.js';
 import type { Provider } from '../../providers/types.js';
-import {
-  createCanonicalGuardianRequest,
-  generateCanonicalRequestCode,
-} from '../../memory/canonical-guardian-store.js';
 import { getLogger } from '../../util/logger.js';
 import { buildAssistantEvent } from '../assistant-event.js';
 import { httpError } from '../http-errors.js';

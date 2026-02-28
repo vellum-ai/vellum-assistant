@@ -80,10 +80,10 @@ mock.module('../runtime/gateway-client.js', () => ({
   },
 }));
 
+import { listCanonicalGuardianRequests } from '../memory/canonical-guardian-store.js';
 import {
   createBinding,
 } from '../memory/channel-guardian-store.js';
-import { listCanonicalGuardianRequests } from '../memory/canonical-guardian-store.js';
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import { handleChannelInbound } from '../runtime/routes/channel-routes.js';
 

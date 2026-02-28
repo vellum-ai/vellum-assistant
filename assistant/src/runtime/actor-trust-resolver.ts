@@ -17,8 +17,8 @@
  */
 
 import type { ChannelId } from '../channels/types.js';
-import { findMember } from '../memory/ingress-member-store.js';
 import type { IngressMember } from '../memory/ingress-member-store.js';
+import { findMember } from '../memory/ingress-member-store.js';
 import { canonicalizeInboundIdentity } from '../util/canonicalize-identity.js';
 import { normalizeAssistantId } from '../util/platform.js';
 import { getGuardianBinding } from './channel-guardian-service.js';

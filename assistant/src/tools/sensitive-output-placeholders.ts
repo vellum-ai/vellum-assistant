@@ -83,10 +83,10 @@ export function extractAndSanitize(content: string): SanitizeResult {
   const seenValues = new Map<string, SensitiveOutputBinding>();
 
   // Step 1: parse directives
-  let match: RegExpExecArray | null;
   // Reset lastIndex for safety since the regex is global
   DIRECTIVE_RE.lastIndex = 0;
-  while ((match = DIRECTIVE_RE.exec(content)) !== null) {
+  let match: RegExpExecArray | undefined;
+  while ((match = DIRECTIVE_RE.exec(content) ?? undefined) !== undefined) {
     const kind = match[1];
     const value = match[2];
 

@@ -102,12 +102,11 @@ mock.module('../runtime/gateway-client.js', () => ({
   },
 }));
 
-import { mintGrantFromDecision, type MintGrantParams } from '../approvals/approval-primitive.js';
 import {
   applyCanonicalGuardianDecision,
 } from '../approvals/guardian-decision-primitive.js';
-import { getRegisteredKinds, getResolver } from '../approvals/guardian-request-resolvers.js';
 import type { ActorContext } from '../approvals/guardian-request-resolvers.js';
+import { getRegisteredKinds, getResolver } from '../approvals/guardian-request-resolvers.js';
 import {
   createCanonicalGuardianRequest,
   getCanonicalGuardianRequest,
@@ -140,18 +139,6 @@ afterAll(() => {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function mintParams(overrides: Partial<MintGrantParams> = {}): MintGrantParams {
-  const futureExpiry = new Date(Date.now() + 60_000).toISOString();
-  return {
-    assistantId: 'self',
-    scopeMode: 'tool_signature',
-    requestChannel: 'telegram',
-    decisionChannel: 'telegram',
-    expiresAt: futureExpiry,
-    ...overrides,
-  };
-}
 
 function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
@@ -460,7 +447,7 @@ describe('end-to-end: tool grant escalation -> approval -> consume', () => {
   test('first invocation denied + request created; guardian approves; second invocation succeeds; replay denied', async () => {
     const toolName = 'bash';
     const input = { command: 'echo secret' };
-    const inputDigest = computeToolApprovalDigest(toolName, input);
+    const _inputDigest = computeToolApprovalDigest(toolName, input);
 
     const context = makeContext({ guardianActorRole: 'non-guardian' });
 

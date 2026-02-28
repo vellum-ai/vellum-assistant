@@ -25,6 +25,7 @@ import { stripMemoryRecallMessages } from '../memory/retriever.js';
 import type { PermissionPrompter } from '../permissions/prompter.js';
 import type { ContentBlock,Message } from '../providers/types.js';
 import type { Provider } from '../providers/types.js';
+import { resolveActorTrust } from '../runtime/actor-trust-resolver.js';
 import type { UsageActor } from '../usage/actors.js';
 import { getLogger } from '../util/logger.js';
 import { truncate } from '../util/truncate.js';
@@ -55,7 +56,6 @@ import { raceWithTimeout,stripMediaPayloadsForRetry } from './session-media-retr
 import { prepareMemoryContext } from './session-memory.js';
 import type { MessageQueue } from './session-queue-manager.js';
 import type { QueueDrainReason } from './session-queue-manager.js';
-import { resolveActorTrust } from '../runtime/actor-trust-resolver.js';
 import type { ActiveSurfaceContext, ChannelCapabilities, ChannelTurnContextParams, GuardianRuntimeContext, InboundActorContext, InterfaceTurnContextParams } from './session-runtime-assembly.js';
 import {
   applyRuntimeInjections,

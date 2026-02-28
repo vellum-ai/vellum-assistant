@@ -4,8 +4,8 @@ import { truncateOversizedToolResults } from '../context/tool-result-truncation.
 import { getHookManager } from '../hooks/manager.js';
 import type { ContentBlock,Message, Provider, ToolDefinition } from '../providers/types.js';
 import type { ToolResultContent } from '../providers/types.js';
-import { applyStreamingSubstitution, applySubstitutions } from '../tools/sensitive-output-placeholders.js';
 import type { SensitiveOutputBinding } from '../tools/sensitive-output-placeholders.js';
+import { applyStreamingSubstitution, applySubstitutions } from '../tools/sensitive-output-placeholders.js';
 import { getLogger, isDebug, truncateForLog } from '../util/logger.js';
 
 const log = getLogger('agent-loop');
