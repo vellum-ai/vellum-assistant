@@ -536,7 +536,6 @@ export async function handleUserMessage(
               text: replyText,
               sessionId: msg.sessionId,
             });
-            ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
 
             rlog.info(
               { routerType: routerResult.type, decisionApplied: routerResult.decisionApplied, routerRequestId: routerResult.requestId },

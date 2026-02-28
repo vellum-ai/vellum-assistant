@@ -188,7 +188,6 @@ describe('handleUserMessage pending-confirmation reply interception', () => {
       'message_queued',
       'message_dequeued',
       'assistant_text_delta',
-      'message_complete',
     ]);
     const assistantDelta = sent.find(
       (msg): msg is Extract<ServerMessage, { type: 'assistant_text_delta' }> => msg.type === 'assistant_text_delta',
