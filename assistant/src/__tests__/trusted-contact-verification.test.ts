@@ -199,6 +199,39 @@ describe('trusted contact verification → member activation', () => {
     expect(trust.actorMetadata.identifier).toBe('@jeff_handle');
   });
 
+  test('resolveActorTrust falls back to sender metadata when member record matches chat but not sender (group chat)', () => {
+    // Simulate a group chat: member record exists for a different user who
+    // shares the same externalChatId (e.g., Telegram group).
+    upsertMember({
+      assistantId: 'self',
+      sourceChannel: 'telegram',
+      externalUserId: 'other-user-in-group',
+      externalChatId: 'shared-group-chat',
+      status: 'active',
+      policy: 'allow',
+      displayName: 'Other User',
+      username: 'other_handle',
+    });
+
+    // A different sender sends a message in the same group chat
+    const trust = resolveActorTrust({
+      assistantId: 'self',
+      sourceChannel: 'telegram',
+      externalChatId: 'shared-group-chat',
+      senderExternalUserId: 'actual-sender-in-group',
+      senderUsername: 'actual_sender_handle',
+      senderDisplayName: 'Actual Sender',
+    });
+
+    // The member record returned by findMember matched on chatId but belongs
+    // to a different user, so member metadata should NOT be used.
+    expect(trust.actorMetadata.displayName).toBe('Actual Sender');
+    expect(trust.actorMetadata.senderDisplayName).toBe('Actual Sender');
+    expect(trust.actorMetadata.memberDisplayName).toBeUndefined();
+    expect(trust.actorMetadata.username).toBe('actual_sender_handle');
+    expect(trust.actorMetadata.identifier).toBe('@actual_sender_handle');
+  });
+
   test('post-verify message is accepted (ACL check passes)', () => {
     // Create and verify a trusted contact
     const session = createOutboundSession({
