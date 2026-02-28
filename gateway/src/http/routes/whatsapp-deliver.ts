@@ -60,7 +60,7 @@ export function createWhatsAppDeliverHandler(config: GatewayConfig) {
       return Response.json({ error: "to is required" }, { status: 400 });
     }
 
-    const { text, assistantId, attachments, approval } = body;
+    const { text, assistantId: _assistantId, attachments, approval } = body;
 
     if (text !== undefined && typeof text !== "string") {
       return Response.json({ error: "text must be a string" }, { status: 400 });
