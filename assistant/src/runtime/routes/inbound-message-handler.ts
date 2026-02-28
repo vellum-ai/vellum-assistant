@@ -22,6 +22,7 @@ import * as externalConversationStore from '../../memory/external-conversation-s
 import { findMember, updateLastSeen, upsertMember } from '../../memory/ingress-member-store.js';
 import { emitNotificationSignal } from '../../notifications/emit-signal.js';
 import { checkIngressForSecrets } from '../../security/secret-ingress.js';
+import { canonicalizeInboundIdentity } from '../../util/canonicalize-identity.js';
 import { IngressBlockedError } from '../../util/errors.js';
 import { getLogger } from '../../util/logger.js';
 import { readHttpToken } from '../../util/platform.js';
@@ -184,6 +185,14 @@ export async function handleChannelInbound(
     log.debug({ raw: assistantId, canonical: canonicalAssistantId }, 'Canonicalized channel assistant ID');
   }
 
+  // Canonicalize the sender identity so all trust lookups, member matching,
+  // and guardian binding comparisons use a normalized form. Phone-like
+  // channels (sms, voice, whatsapp) are normalized to E.164; non-phone
+  // channels pass through the platform-stable ID unchanged.
+  const canonicalSenderId = body.senderExternalUserId
+    ? canonicalizeInboundIdentity(sourceChannel, body.senderExternalUserId)
+    : null;
+
   // ── Ingress ACL enforcement ──
   // Track the resolved member so the escalate branch can reference it after
   // recordInbound (where we have a conversationId).
@@ -217,11 +226,11 @@ export async function handleChannelInbound(
     sourceMetadata: body.sourceMetadata,
   });
 
-  if (body.senderExternalUserId) {
+  if (canonicalSenderId) {
     resolvedMember = findMember({
       assistantId: canonicalAssistantId,
       sourceChannel,
-      externalUserId: body.senderExternalUserId,
+      externalUserId: canonicalSenderId,
       externalChatId,
     });
 
@@ -282,7 +291,7 @@ export async function handleChannelInbound(
       }
 
       if (denyNonMember) {
-        log.info({ sourceChannel, externalUserId: body.senderExternalUserId }, 'Ingress ACL: no member record, denying');
+        log.info({ sourceChannel, externalUserId: canonicalSenderId }, 'Ingress ACL: no member record, denying');
 
         // Notify the guardian about the access request so they can approve/deny.
         // Only fires when a guardian binding exists and no duplicate pending
@@ -293,7 +302,7 @@ export async function handleChannelInbound(
             canonicalAssistantId,
             sourceChannel,
             externalChatId,
-            senderExternalUserId: body.senderExternalUserId,
+            senderExternalUserId: canonicalSenderId ?? body.senderExternalUserId,
             senderName: body.senderName,
             senderUsername: body.senderUsername,
           });
@@ -379,7 +388,7 @@ export async function handleChannelInbound(
                 canonicalAssistantId,
                 sourceChannel,
                 externalChatId,
-                senderExternalUserId: body.senderExternalUserId,
+                senderExternalUserId: canonicalSenderId ?? body.senderExternalUserId,
                 senderName: body.senderName,
                 senderUsername: body.senderUsername,
               });
@@ -552,7 +561,7 @@ export async function handleChannelInbound(
       conversationId: result.conversationId,
       sourceChannel,
       externalChatId,
-      externalUserId: body.senderExternalUserId ?? null,
+      externalUserId: canonicalSenderId ?? body.senderExternalUserId ?? null,
       displayName: body.senderName ?? null,
       username: body.senderUsername ?? null,
     });
@@ -587,7 +596,7 @@ export async function handleChannelInbound(
       sourceType: 'channel',
       sourceChannel,
       conversationId: result.conversationId,
-      requesterExternalUserId: body.senderExternalUserId ?? undefined,
+      requesterExternalUserId: canonicalSenderId ?? body.senderExternalUserId ?? undefined,
       guardianExternalUserId: binding.guardianExternalUserId,
       toolName: 'ingress_message',
       questionText: 'Ingress policy requires guardian approval',
@@ -745,7 +754,7 @@ export async function handleChannelInbound(
       upsertMember({
         assistantId: canonicalAssistantId,
         sourceChannel,
-        externalUserId: body.senderExternalUserId,
+        externalUserId: canonicalSenderId ?? body.senderExternalUserId,
         externalChatId,
         status: 'active',
         policy: 'allow',
@@ -756,7 +765,7 @@ export async function handleChannelInbound(
       const verifyLogLabel = verifyResult.verificationType === 'trusted_contact'
         ? 'Trusted contact verified'
         : 'Guardian verified';
-      log.info({ sourceChannel, externalUserId: body.senderExternalUserId, verificationType: verifyResult.verificationType }, `${verifyLogLabel}: auto-upserted ingress member`);
+      log.info({ sourceChannel, externalUserId: canonicalSenderId, verificationType: verifyResult.verificationType }, `${verifyLogLabel}: auto-upserted ingress member`);
 
       // Emit activated signal when a trusted contact completes verification.
       // Member record is persisted above before this event fires, satisfying
@@ -775,12 +784,12 @@ export async function handleChannelInbound(
           },
           contextPayload: {
             sourceChannel,
-            externalUserId: body.senderExternalUserId,
+            externalUserId: canonicalSenderId ?? body.senderExternalUserId,
             externalChatId,
             senderName: body.senderName ?? null,
             senderUsername: body.senderUsername ?? null,
           },
-          dedupeKey: `trusted-contact:activated:${canonicalAssistantId}:${sourceChannel}:${body.senderExternalUserId}`,
+          dedupeKey: `trusted-contact:activated:${canonicalAssistantId}:${sourceChannel}:${canonicalSenderId ?? body.senderExternalUserId}`,
         });
       }
     }

@@ -4,9 +4,13 @@
  * This module centralizes how we classify an inbound actor as
  * guardian/non-guardian/unverified so every channel path uses the same
  * source-of-truth logic.
+ *
+ * Guardian binding comparisons now use canonicalized identities (E.164 for
+ * phone-like channels) to eliminate formatting-variance mismatches.
  */
 import type { ChannelId } from '../channels/types.js';
 import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
+import { canonicalizeInboundIdentity } from '../util/canonicalize-identity.js';
 import { normalizeAssistantId } from '../util/platform.js';
 import { getGuardianBinding } from './channel-guardian-service.js';
 
@@ -41,18 +45,29 @@ export interface ResolveGuardianContextInput {
  * - active binding exists but sender differs -> non-guardian
  * - no sender identity -> unverified_channel (no_identity)
  * - no binding -> unverified_channel (no_binding)
+ *
+ * Identity comparison is normalization-safe: both the sender ID and the
+ * guardian binding ID are canonicalized for the source channel before
+ * comparison, so formatting differences (e.g. `+1 (555) 123-4567` vs
+ * `+15551234567`) do not cause false non-guardian classifications.
  */
 export function resolveGuardianContext(input: ResolveGuardianContextInput): GuardianContext {
   const assistantId = normalizeAssistantId(input.assistantId);
-  const senderExternalUserId = typeof input.senderExternalUserId === 'string' && input.senderExternalUserId.trim().length > 0
+  const rawUserId = typeof input.senderExternalUserId === 'string' && input.senderExternalUserId.trim().length > 0
     ? input.senderExternalUserId.trim()
     : undefined;
   const senderUsername = typeof input.senderUsername === 'string' && input.senderUsername.trim().length > 0
     ? input.senderUsername.trim()
     : undefined;
-  const requesterIdentifier = senderUsername ? `@${senderUsername}` : senderExternalUserId;
 
-  if (!senderExternalUserId) {
+  // Canonicalize sender identity for normalization-safe comparisons.
+  const canonicalSenderId = rawUserId
+    ? canonicalizeInboundIdentity(input.sourceChannel, rawUserId)
+    : undefined;
+
+  const requesterIdentifier = senderUsername ? `@${senderUsername}` : canonicalSenderId;
+
+  if (!canonicalSenderId) {
     return {
       actorRole: 'unverified_channel',
       denialReason: 'no_identity',
@@ -68,18 +83,25 @@ export function resolveGuardianContext(input: ResolveGuardianContextInput): Guar
       actorRole: 'unverified_channel',
       denialReason: 'no_binding',
       requesterIdentifier,
-      requesterExternalUserId: senderExternalUserId,
+      requesterExternalUserId: canonicalSenderId,
       requesterChatId: input.externalChatId,
     };
   }
 
-  if (binding.guardianExternalUserId === senderExternalUserId) {
+  // Canonicalize the stored guardian identity for the same channel so
+  // phone-format variance in the binding record doesn't cause mismatches.
+  const canonicalGuardianId = canonicalizeInboundIdentity(
+    input.sourceChannel,
+    binding.guardianExternalUserId,
+  );
+
+  if (canonicalGuardianId === canonicalSenderId) {
     return {
       actorRole: 'guardian',
       guardianChatId: binding.guardianDeliveryChatId || input.externalChatId,
       guardianExternalUserId: binding.guardianExternalUserId,
       requesterIdentifier,
-      requesterExternalUserId: senderExternalUserId,
+      requesterExternalUserId: canonicalSenderId,
       requesterChatId: input.externalChatId,
     };
   }
@@ -89,7 +111,7 @@ export function resolveGuardianContext(input: ResolveGuardianContextInput): Guar
     guardianChatId: binding.guardianDeliveryChatId,
     guardianExternalUserId: binding.guardianExternalUserId,
     requesterIdentifier,
-    requesterExternalUserId: senderExternalUserId,
+    requesterExternalUserId: canonicalSenderId,
     requesterChatId: input.externalChatId,
   };
 }
