@@ -4,6 +4,7 @@
  * Usage:
  *   bun run scripts/agent-ci.ts                    # trigger + poll until done
  *   bun run scripts/agent-ci.ts -d                 # trigger + print URL, then exit
+ *   bun run scripts/agent-ci.ts -b my-branch       # trigger on a specific branch
  *   bun run scripts/agent-ci.ts -v 1.2.3           # test against released version 1.2.3
  *   bun run scripts/agent-ci.ts --version 1.2.3 -d # test release + detach
  */
@@ -17,13 +18,14 @@ const POLL_INTERVAL_MS = 5000;
 
 const detach = process.argv.includes("-d");
 
-function parseVersion(): string | undefined {
-  const idx = process.argv.findIndex((a) => a === "-v" || a === "--version");
+function parseFlagValue(short: string, long: string): string | undefined {
+  const idx = process.argv.findIndex((a) => a === short || a === long);
   if (idx === -1 || idx + 1 >= process.argv.length) return undefined;
   return process.argv[idx + 1];
 }
 
-const releaseVersion = parseVersion();
+const releaseVersion = parseFlagValue("-v", "--version");
+const branch = parseFlagValue("-b", "--branch");
 
 function gh(args: string[]): { stdout: string; status: number } {
   const result = spawnSync("gh", args, { encoding: "utf-8", stdio: ["inherit", "pipe", "inherit"] });
@@ -160,12 +162,18 @@ const { stdout: previousRunId } = gh(runListArgs);
 
 // Trigger the workflow
 const triggerArgs = ["workflow", "run", WORKFLOW, "-R", REPO];
+if (branch) {
+  triggerArgs.push("--ref", branch);
+}
 if (releaseVersion) {
   triggerArgs.push("-f", `release_version=${releaseVersion}`);
-  console.log(`Triggering ${WORKFLOW} with release_version=${releaseVersion}...`);
-} else {
-  console.log(`Triggering ${WORKFLOW}...`);
 }
+
+const details = [
+  branch ? `branch=${branch}` : null,
+  releaseVersion ? `release_version=${releaseVersion}` : null,
+].filter(Boolean);
+console.log(`Triggering ${WORKFLOW}${details.length ? ` with ${details.join(", ")}` : ""}...`);
 const trigger = ghPassthrough(triggerArgs);
 if (trigger !== 0) {
   process.exit(trigger);
