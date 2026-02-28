@@ -37,10 +37,22 @@ const TEMPLATES: Record<string, CopyTemplate> = {
     body: `${str(payload.name, 'A schedule')} has finished running`,
   }),
 
-  'guardian.question': (payload) => ({
-    title: 'Guardian Question',
-    body: str(payload.questionText, 'A guardian question needs your attention'),
-  }),
+  'guardian.question': (payload) => {
+    const question = str(payload.questionText, 'A guardian question needs your attention');
+    const requestCode = nonEmpty(typeof payload.requestCode === 'string' ? payload.requestCode : undefined);
+    if (!requestCode) {
+      return {
+        title: 'Guardian Question',
+        body: question,
+      };
+    }
+
+    const normalizedCode = requestCode.toUpperCase();
+    return {
+      title: 'Guardian Question',
+      body: `${question}\n\nReference code: ${normalizedCode}. Reply "${normalizedCode} approve" or "${normalizedCode} reject".`,
+    };
+  },
 
   'ingress.escalation': (payload) => ({
     title: 'Escalation',

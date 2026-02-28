@@ -406,6 +406,58 @@ export function validateThreadActions(
   return result;
 }
 
+function ensureGuardianRequestCodeInCopy(
+  copy: RenderedChannelCopy,
+  requestCode: string,
+): RenderedChannelCopy {
+  const instruction = `Reference code: ${requestCode}. Reply "${requestCode} approve" or "${requestCode} reject".`;
+  const hasCode = (text: string | undefined): boolean =>
+    typeof text === 'string' && text.toUpperCase().includes(requestCode);
+
+  const ensureText = (text: string | undefined): string => {
+    const base = typeof text === 'string' ? text.trim() : '';
+    if (hasCode(base)) return base;
+    return base.length > 0 ? `${base}\n\n${instruction}` : instruction;
+  };
+
+  return {
+    ...copy,
+    body: ensureText(copy.body),
+    deliveryText: copy.deliveryText ? ensureText(copy.deliveryText) : copy.deliveryText,
+    threadSeedMessage: copy.threadSeedMessage ? ensureText(copy.threadSeedMessage) : copy.threadSeedMessage,
+  };
+}
+
+/**
+ * Guardian questions that share a conversation require explicit request-code
+ * targeting. Enforce request-code instructions in rendered copy so guardians
+ * can always disambiguate replies even when model copy omits them.
+ */
+function enforceGuardianRequestCode(
+  decision: NotificationDecision,
+  signal: NotificationSignal,
+): NotificationDecision {
+  if (signal.sourceEventName !== 'guardian.question') return decision;
+  const rawCode = signal.contextPayload.requestCode;
+  if (typeof rawCode !== 'string' || rawCode.trim().length === 0) return decision;
+
+  const requestCode = rawCode.trim().toUpperCase();
+  const nextCopy: Partial<Record<NotificationChannel, RenderedChannelCopy>> = {
+    ...decision.renderedCopy,
+  };
+
+  for (const channel of Object.keys(nextCopy) as NotificationChannel[]) {
+    const copy = nextCopy[channel];
+    if (!copy) continue;
+    nextCopy[channel] = ensureGuardianRequestCodeInCopy(copy, requestCode);
+  }
+
+  return {
+    ...decision,
+    renderedCopy: nextCopy,
+  };
+}
+
 // ── Core evaluation function ───────────────────────────────────────────
 
 export async function evaluateSignal(
@@ -444,6 +496,7 @@ export async function evaluateSignal(
   if (!provider) {
     log.warn('Configured provider unavailable for notification decision, using fallback');
     let decision = buildFallbackDecision(signal, availableChannels);
+    decision = enforceGuardianRequestCode(decision, signal);
     decision = enforceConversationAffinity(decision, signal.conversationAffinityHint);
     decision.persistedDecisionId = persistDecision(signal, decision);
     return decision;
@@ -458,6 +511,7 @@ export async function evaluateSignal(
     decision = buildFallbackDecision(signal, availableChannels);
   }
 
+  decision = enforceGuardianRequestCode(decision, signal);
   decision = enforceConversationAffinity(decision, signal.conversationAffinityHint);
   decision.persistedDecisionId = persistDecision(signal, decision);
 

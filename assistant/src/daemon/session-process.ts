@@ -13,6 +13,7 @@ import { getCallSession } from '../calls/call-store.js';
 import type { TurnChannelContext, TurnInterfaceContext } from '../channels/types.js';
 import { parseChannelId, parseInterfaceId } from '../channels/types.js';
 import { getConfig } from '../config/loader.js';
+import { listPendingCanonicalGuardianRequestsByDestinationConversation } from '../memory/canonical-guardian-store.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { provenanceFromGuardianContext } from '../memory/conversation-store.js';
 import {
@@ -34,8 +35,8 @@ import { processGuardianFollowUpTurn } from '../runtime/guardian-action-conversa
 import { executeFollowupAction } from '../runtime/guardian-action-followup-executor.js';
 import { tryMintGuardianActionGrant } from '../runtime/guardian-action-grant-minter.js';
 import { composeGuardianActionMessageGenerative } from '../runtime/guardian-action-message-composer.js';
-import type { ApprovalConversationGenerator, GuardianActionCopyGenerator, GuardianFollowUpConversationGenerator } from '../runtime/http-types.js';
 import { routeGuardianReply } from '../runtime/guardian-reply-router.js';
+import type { ApprovalConversationGenerator, GuardianActionCopyGenerator, GuardianFollowUpConversationGenerator } from '../runtime/http-types.js';
 import { getLogger } from '../util/logger.js';
 import { resolveGuardianInviteIntent } from './guardian-invite-intent.js';
 import { resolveGuardianVerificationIntent } from './guardian-verification-intent.js';
@@ -405,15 +406,20 @@ export async function processMessage(
   await session.ensureActorScopedHistory();
   session.currentActiveSurfaceId = activeSurfaceId;
   session.currentPage = currentPage;
+  const trimmedContent = content.trim();
+  const canonicalPendingRequestsForConversation = trimmedContent.length > 0
+    ? listPendingCanonicalGuardianRequestsByDestinationConversation(session.conversationId, 'vellum')
+    : [];
+  const canonicalPendingRequestIdsForConversation = canonicalPendingRequestsForConversation.map((request) => request.id);
 
   // ── Canonical guardian reply router (desktop/session path) ──
   // Attempts to route inbound messages through the canonical decision pipeline
   // before falling through to the legacy guardian action interception. Handles
   // deterministic request code prefixes and NL classification, with all
   // decisions flowing through applyCanonicalGuardianDecision.
-  if (content.trim().length > 0) {
+  if (trimmedContent.length > 0) {
     const routerResult = await routeGuardianReply({
-      messageText: content.trim(),
+      messageText: trimmedContent,
       channel: 'vellum',
       actor: {
         externalUserId: undefined,
@@ -421,6 +427,7 @@ export async function processMessage(
         isTrusted: true,
       },
       conversationId: session.conversationId,
+      pendingRequestIds: canonicalPendingRequestIdsForConversation,
       // Desktop path: disable NL classification to avoid consuming non-decision
       // messages while a tool confirmation is pending. Deterministic code-prefix
       // and callback parsing remain active.
@@ -470,11 +477,14 @@ export async function processMessage(
   }
 
   // ── Unified guardian action answer interception (mac channel) ──
+  // Skip legacy interception whenever canonical pending requests are already
+  // bound to this conversation. This prevents stale legacy rows from
+  // disambiguating replies intended for the canonical request.
   // Deterministic priority matching: pending → follow-up → expired.
   // When the guardian includes an explicit request code, match it across all
   // states in priority order. When only one actionable request exists,
   // auto-match without requiring a code prefix.
-  {
+  if (canonicalPendingRequestIdsForConversation.length === 0) {
     const allPending = getPendingDeliveriesByConversation(session.conversationId);
     const allFollowup = getFollowupDeliveriesByConversation(session.conversationId);
     const allExpired = getExpiredDeliveriesByConversation(session.conversationId);
@@ -640,9 +650,9 @@ export async function processMessage(
 
           let stateApplied = true;
           if (turnResult.disposition === 'call_back' || turnResult.disposition === 'message_back') {
-            stateApplied = progressFollowupState(request.id, 'dispatching', turnResult.disposition) !== null;
+            stateApplied = Boolean(progressFollowupState(request.id, 'dispatching', turnResult.disposition));
           } else if (turnResult.disposition === 'decline') {
-            stateApplied = finalizeFollowup(request.id, 'declined') !== null;
+            stateApplied = Boolean(finalizeFollowup(request.id, 'declined'));
           }
 
           if (!stateApplied) {

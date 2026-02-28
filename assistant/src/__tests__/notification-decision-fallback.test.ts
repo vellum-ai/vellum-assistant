@@ -85,4 +85,19 @@ describe('notification decision fallback copy', () => {
     expect(decision.renderedCopy.vellum?.title).not.toBe('guardian.question');
     expect(decision.renderedCopy.vellum?.body).not.toContain('Action required: guardian.question');
   });
+
+  test('enforces request-code instructions for guardian.question when requestCode exists', async () => {
+    const signal = makeSignal({
+      contextPayload: {
+        questionText: 'What is the gate code?',
+        requestCode: 'A1B2C3',
+      },
+    });
+    const decision = await evaluateSignal(signal, ['vellum'] as NotificationChannel[]);
+
+    expect(decision.fallbackUsed).toBe(true);
+    expect(decision.renderedCopy.vellum?.body).toContain('A1B2C3');
+    expect(decision.renderedCopy.vellum?.body).toContain('approve');
+    expect(decision.renderedCopy.vellum?.body).toContain('reject');
+  });
 });
