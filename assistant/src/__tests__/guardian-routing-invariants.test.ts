@@ -1070,14 +1070,14 @@ describe('routing invariant: invite handoff bypass for access requests', () => {
       sourceChannel: 'telegram',
       conversationId: 'conv-access-2',
       guardianExternalUserId: 'guardian-1',
-      requestCode: 'APP001',
+      requestCode: 'A00B01',
       toolName: 'ingress_access_request',
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     });
 
-    // Code-based approve should still work
+    // Code-based approve should still work (request code must be valid hex: [A-F0-9]{6})
     const result = await routeGuardianReply(replyCtx({
-      messageText: 'APP001 approve',
+      messageText: 'A00B01 approve',
       conversationId: 'conv-guardian-thread',
       pendingRequestIds: [req.id],
       approvalConversationGenerator: undefined,
