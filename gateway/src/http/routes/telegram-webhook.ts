@@ -338,7 +338,6 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
         try {
           await resetConversation(
             config,
-            routing.assistantId,
             normalized.sourceChannel,
             normalized.message.externalChatId,
           );
@@ -404,7 +403,7 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
                 fileName: att.fileName,
                 mimeType: att.mimeType,
               });
-              return uploadAttachment(config, routing.assistantId, downloaded);
+              return uploadAttachment(config, downloaded);
             }),
           );
           for (const result of results) {

@@ -1,7 +1,7 @@
 import type { GatewayConfig } from "../config.js";
 import type { ApprovalPayload } from "../http/routes/whatsapp-deliver.js";
 import { getLogger } from "../logger.js";
-import { downloadAttachment, downloadAttachmentById, type RuntimeAttachmentMeta } from "../runtime/client.js";
+import { downloadAttachment, type RuntimeAttachmentMeta } from "../runtime/client.js";
 import { splitText } from "../util/split-text.js";
 import { sendWhatsAppInteractiveMessage, sendWhatsAppTextMessage, uploadWhatsAppMedia, sendWhatsAppMediaMessage, type WhatsAppMediaType } from "./api.js";
 
@@ -86,7 +86,6 @@ export type AttachmentResult = {
 export async function sendWhatsAppAttachments(
   config: GatewayConfig,
   to: string,
-  assistantId: string | undefined,
   attachments: RuntimeAttachmentMeta[],
 ): Promise<AttachmentResult> {
   const failures: string[] = [];
@@ -99,9 +98,7 @@ export async function sendWhatsAppAttachments(
     }
 
     try {
-      const payload = assistantId
-        ? await downloadAttachment(config, assistantId, meta.id)
-        : await downloadAttachmentById(config, meta.id);
+      const payload = await downloadAttachment(config, meta.id);
 
       const mimeType = meta.mimeType ?? payload.mimeType ?? "application/octet-stream";
       const filename = meta.filename ?? payload.filename ?? meta.id;

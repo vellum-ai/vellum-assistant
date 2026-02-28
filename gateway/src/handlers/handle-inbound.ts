@@ -70,7 +70,6 @@ export async function handleInbound(
   try {
     const response = await forwardToRuntime(
       config,
-      routing.assistantId,
       {
         sourceChannel: event.sourceChannel,
         interface: event.sourceChannel,
