@@ -14,6 +14,7 @@ import * as attachmentsStore from '../../memory/attachments-store.js';
 import * as channelDeliveryStore from '../../memory/channel-delivery-store.js';
 import {
   createCanonicalGuardianRequest,
+  listCanonicalGuardianRequests,
   listPendingCanonicalGuardianRequestsByDestinationChat,
 } from '../../memory/canonical-guardian-store.js';
 import { recordConversationSeenSignal } from '../../memory/conversation-attention-store.js';
@@ -914,16 +915,31 @@ export async function handleChannelInbound(
     // Compute destination-scoped pending request hints so the router can
     // discover canonical requests delivered to this chat even when the
     // request lacks a guardianExternalUserId (e.g. voice-originated
-    // pending_question requests).  Pass undefined (not []) when empty so
-    // the identity-based fallback in findPendingCanonicalRequests stays
-    // active — an explicit empty array is fail-closed.
+    // pending_question requests).
+    //
+    // When delivery-scoped matches exist, union them with any identity-
+    // based pending requests so that requests without delivery rows (e.g.
+    // tool_approval requests created inline) are not silently excluded.
+    // Pass undefined (not []) when there are zero combined results so the
+    // router's own identity-based fallback stays active.
     const deliveryScopedPendingRequests = listPendingCanonicalGuardianRequestsByDestinationChat(
       sourceChannel,
       externalChatId,
     );
-    const pendingRequestIds = deliveryScopedPendingRequests.length > 0
-      ? deliveryScopedPendingRequests.map(r => r.id)
-      : undefined;
+    let pendingRequestIds: string[] | undefined;
+    if (deliveryScopedPendingRequests.length > 0) {
+      const deliveryIds = new Set(deliveryScopedPendingRequests.map(r => r.id));
+      // Also include identity-based pending requests so we don't hide them
+      const identityId = canonicalSenderId ?? rawSenderId!;
+      const identityPending = listCanonicalGuardianRequests({
+        status: 'pending',
+        guardianExternalUserId: identityId,
+      });
+      for (const r of identityPending) {
+        deliveryIds.add(r.id);
+      }
+      pendingRequestIds = [...deliveryIds];
+    }
 
     const routerResult = await routeGuardianReply({
       messageText: trimmedContent,
