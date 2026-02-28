@@ -41,7 +41,6 @@ describe('Messaging tool contract', () => {
     'messaging_read',
     'messaging_search',
     'messaging_send',
-    'send_notification',
     'messaging_reply',
     'messaging_mark_read',
     'messaging_analyze_activity',

@@ -535,9 +535,9 @@ describe('runtime call routes — HTTP layer', () => {
       body: JSON.stringify({ answer: 'Yes, please' }),
     });
 
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(409);
     const body = await res.json() as { error: { message: string; code?: string } };
-    expect(body.error.message).toContain('pending question');
+    expect(body.error.message).toContain('No active controller');
 
     await stopServer();
   });
@@ -586,7 +586,7 @@ describe('runtime call routes — HTTP layer', () => {
 
     expect(res.status).toBe(409);
     const body = await res.json() as { error: { message: string; code?: string } };
-    expect(body.error.message).toContain('orchestrator');
+    expect(body.error.message).toContain('No active controller');
 
     await stopServer();
   });
@@ -726,7 +726,7 @@ describe('runtime call routes — HTTP layer', () => {
 
     expect(res.status).toBe(409);
     const body = await res.json() as { error: { message: string; code?: string } };
-    expect(body.error.message).toContain('orchestrator');
+    expect(body.error.message).toContain('No active controller');
 
     await stopServer();
   });

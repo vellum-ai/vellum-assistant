@@ -245,6 +245,21 @@ mock.module('../memory/external-conversation-store.js', () => ({
   getBindingsForConversations: () => new Map(),
 }));
 
+mock.module('../memory/conversation-attention-store.js', () => ({
+  getAttentionStateByConversationIds: () => new Map(),
+  recordAttentionSignal: () => {},
+  recordConversationSeenSignal: () => {},
+}));
+
+mock.module('../memory/canonical-guardian-store.js', () => ({
+  generateCanonicalRequestCode: () => 'mock-code-0000',
+  createCanonicalGuardianRequest: () => ({ requestCode: 'mock-code-0000', status: 'pending' }),
+  submitCanonicalRequest: () => ({ requestCode: 'mock-code-0000', status: 'pending' }),
+  getCanonicalRequest: () => null,
+  resolveCanonicalRequest: () => false,
+  listPendingCanonicalRequests: () => [],
+}));
+
 mock.module('../memory/conversation-store.js', () => ({
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
@@ -277,6 +292,7 @@ mock.module('../memory/conversation-store.js', () => ({
   getMessages: () => [],
   listConversations: () => [conversation],
   countConversations: () => 1,
+  getDisplayMetaForConversations: () => new Map(),
 }));
 
 mock.module('../daemon/session.js', () => ({

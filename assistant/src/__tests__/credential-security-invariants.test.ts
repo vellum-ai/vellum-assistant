@@ -61,6 +61,7 @@ mock.module('../tools/registry.js', () => ({
 // Imports under test
 // ---------------------------------------------------------------------------
 
+import { DEFAULT_CONFIG } from '../config/defaults.js';
 import { redactSensitiveFields } from '../security/redaction.js';
 import { setSecureKey } from '../security/secure-keys.js';
 import { CredentialBroker } from '../tools/credentials/broker.js';
@@ -215,6 +216,10 @@ describe('Invariant 2: no generic plaintext secret read API', () => {
       'messaging/providers/telegram-bot/adapter.ts', // Telegram bot token lookup for connectivity check
       'messaging/providers/sms/adapter.ts', // Twilio credential lookup for SMS connectivity check
       'runtime/channel-readiness-service.ts', // channel readiness probes for SMS/Telegram connectivity
+      'messaging/providers/whatsapp/adapter.ts', // WhatsApp credential lookup for connectivity check
+      'schedule/integration-status.ts',          // integration status checks for scheduled reports
+      'daemon/handlers/oauth-connect.ts',        // OAuth connect handler for integration setup
+      'daemon/handlers/config-slack-channel.ts', // Slack channel config credential management
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));
@@ -447,20 +452,14 @@ describe('One-time send override', () => {
   });
 
   test('allowOneTimeSend defaults to false in config', () => {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { DEFAULT_CONFIG } = require('../config/defaults.js');
     expect(DEFAULT_CONFIG.secretDetection.allowOneTimeSend).toBe(false);
   });
 
   test('default secretDetection.action is redact', () => {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { DEFAULT_CONFIG } = require('../config/defaults.js');
     expect(DEFAULT_CONFIG.secretDetection.action).toBe('redact');
   });
 
   test('default secretDetection.blockIngress is true', () => {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { DEFAULT_CONFIG } = require('../config/defaults.js');
     expect(DEFAULT_CONFIG.secretDetection.blockIngress).toBe(true);
   });
 });

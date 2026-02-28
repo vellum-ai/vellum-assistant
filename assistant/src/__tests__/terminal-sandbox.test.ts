@@ -177,20 +177,21 @@ describe('terminal sandbox — macOS sandbox-exec behavior', () => {
     expect(result.args.slice(2)).toEqual(['bash', '-c', '--', 'echo hello']);
   });
 
-  test('throws ToolError for working dirs with SBPL metacharacters', () => {
-    expect(() => wrapCommand('pwd', '/tmp/bad"dir', nativeConfig())).toThrow(ToolError);
-    expect(() => wrapCommand('pwd', '/tmp/bad(dir', nativeConfig())).toThrow(ToolError);
-    expect(() => wrapCommand('pwd', '/tmp/bad;dir', nativeConfig())).toThrow(ToolError);
+  test('escapes SBPL metacharacters in working dirs instead of throwing', () => {
+    // The sandbox now escapes metacharacters rather than rejecting them
+    const result1 = wrapCommand('pwd', '/tmp/bad"dir', nativeConfig());
+    expect(result1.sandboxed).toBe(true);
+    const result2 = wrapCommand('pwd', '/tmp/bad(dir', nativeConfig());
+    expect(result2.sandboxed).toBe(true);
+    const result3 = wrapCommand('pwd', '/tmp/bad;dir', nativeConfig());
+    expect(result3.sandboxed).toBe(true);
   });
 
-  test('SBPL metacharacter error mentions unsafe characters', () => {
-    try {
-      wrapCommand('pwd', '/tmp/bad"dir', nativeConfig());
-      throw new Error('should have thrown');
-    } catch (err) {
-      expect(err).toBeInstanceOf(ToolError);
-      expect((err as Error).message).toContain('SBPL metacharacters');
-    }
+  test('SBPL profile escapes metacharacters in working dir path', () => {
+    // Verify the sandbox profile is written with escaped chars
+    wrapCommand('pwd', '/tmp/bad"dir', nativeConfig());
+    const profileContent = writeFileSyncMock.mock.calls[0]?.[1] as string;
+    expect(profileContent).toContain('bad\\"dir');
   });
 });
 

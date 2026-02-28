@@ -253,24 +253,29 @@ describe('encrypted-store', () => {
       expect(getKey('test')).toBe('value');
     });
 
-    test('setKey refuses to overwrite a corrupt store file', () => {
+    test('setKey recovers from a corrupt store file by backing up and creating fresh store', () => {
       // Write a valid store first
       setKey('existing', 'old-secret');
       // Corrupt the store
       writeFileSync(STORE_PATH, 'corrupted data');
-      // setKey should fail rather than overwrite with new salt
+      // setKey should recover by backing up corrupt file and creating fresh store
       const result = setKey('new-key', 'new-value');
-      expect(result).toBe(false);
+      expect(result).toBe(true);
+      // Old key is lost but new key works
+      expect(getKey('new-key')).toBe('new-value');
+      expect(getKey('existing')).toBeUndefined();
     });
 
-    test('setKey refuses to overwrite a store with invalid version', () => {
+    test('setKey recovers from a store with invalid version', () => {
       writeFileSync(STORE_PATH, JSON.stringify({
         version: 99,
         salt: 'abc',
         entries: {},
       }));
+      // setKey should recover by backing up invalid store and creating fresh store
       const result = setKey('test', 'value');
-      expect(result).toBe(false);
+      expect(result).toBe(true);
+      expect(getKey('test')).toBe('value');
     });
 
     test('writeStore enforces 0600 permissions on existing files', () => {
