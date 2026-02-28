@@ -185,13 +185,27 @@ export async function handleChannelInbound(
     log.debug({ raw: assistantId, canonical: canonicalAssistantId }, 'Canonicalized channel assistant ID');
   }
 
+  // Coerce senderExternalUserId to a string at the boundary — the field
+  // comes from unvalidated JSON and may be a number, object, or other
+  // non-string type. Non-string truthy values would throw inside
+  // canonicalizeInboundIdentity when it calls .trim().
+  const rawSenderId = body.senderExternalUserId != null
+    ? String(body.senderExternalUserId)
+    : undefined;
+
   // Canonicalize the sender identity so all trust lookups, member matching,
   // and guardian binding comparisons use a normalized form. Phone-like
   // channels (sms, voice, whatsapp) are normalized to E.164; non-phone
   // channels pass through the platform-stable ID unchanged.
-  const canonicalSenderId = body.senderExternalUserId
-    ? canonicalizeInboundIdentity(sourceChannel, body.senderExternalUserId)
+  const canonicalSenderId = rawSenderId
+    ? canonicalizeInboundIdentity(sourceChannel, rawSenderId)
     : null;
+
+  // Track whether the original payload included a sender identity. A
+  // whitespace-only senderExternalUserId canonicalizes to null but still
+  // represents an explicit (malformed) identity claim that must enter the
+  // ACL deny path rather than bypassing it.
+  const hasSenderIdentityClaim = rawSenderId !== undefined;
 
   // ── Ingress ACL enforcement ──
   // Track the resolved member so the escalate branch can reference it after
@@ -226,13 +240,18 @@ export async function handleChannelInbound(
     sourceMetadata: body.sourceMetadata,
   });
 
-  if (canonicalSenderId) {
-    resolvedMember = findMember({
-      assistantId: canonicalAssistantId,
-      sourceChannel,
-      externalUserId: canonicalSenderId,
-      externalChatId,
-    });
+  if (canonicalSenderId || hasSenderIdentityClaim) {
+    // Only perform member lookup when we have a usable canonical ID.
+    // Whitespace-only senders (hasSenderIdentityClaim=true but
+    // canonicalSenderId=null) skip the lookup and fall into the deny path.
+    if (canonicalSenderId) {
+      resolvedMember = findMember({
+        assistantId: canonicalAssistantId,
+        sourceChannel,
+        externalUserId: canonicalSenderId,
+        externalChatId,
+      });
+    }
 
     if (!resolvedMember) {
       // Determine whether a verification-code bypass is warranted: only allow
@@ -279,7 +298,7 @@ export async function handleChannelInbound(
           sourceChannel,
           externalChatId,
           externalMessageId,
-          senderExternalUserId: body.senderExternalUserId,
+          senderExternalUserId: canonicalSenderId ?? body.senderExternalUserId,
           senderName: body.senderName,
           senderUsername: body.senderUsername,
           replyCallbackUrl: body.replyCallbackUrl,
@@ -364,7 +383,7 @@ export async function handleChannelInbound(
             sourceChannel,
             externalChatId,
             externalMessageId,
-            senderExternalUserId: body.senderExternalUserId,
+            senderExternalUserId: canonicalSenderId ?? body.senderExternalUserId,
             senderName: body.senderName,
             senderUsername: body.senderUsername,
             replyCallbackUrl: body.replyCallbackUrl,
