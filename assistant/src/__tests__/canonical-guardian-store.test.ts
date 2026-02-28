@@ -31,6 +31,7 @@ import {
   getCanonicalGuardianRequest,
   listCanonicalGuardianDeliveries,
   listCanonicalGuardianRequests,
+  listPendingCanonicalGuardianRequestsByDestinationChat,
   listPendingCanonicalGuardianRequestsByDestinationConversation,
   resolveCanonicalGuardianRequest,
   updateCanonicalGuardianDelivery,
@@ -516,5 +517,120 @@ describe('canonical-guardian-store', () => {
   test('returns null when updating nonexistent delivery', () => {
     const updated = updateCanonicalGuardianDelivery('nonexistent', { status: 'sent' });
     expect(updated).toBeNull();
+  });
+
+  // ── listPendingCanonicalGuardianRequestsByDestinationChat ──────────
+
+  test('returns pending requests matching (destinationChannel, destinationChatId)', () => {
+    const req = createCanonicalGuardianRequest({
+      kind: 'pending_question',
+      sourceType: 'voice',
+    });
+    createCanonicalGuardianDelivery({
+      requestId: req.id,
+      destinationChannel: 'telegram',
+      destinationChatId: 'guardian-chat-100',
+    });
+
+    const pending = listPendingCanonicalGuardianRequestsByDestinationChat(
+      'telegram',
+      'guardian-chat-100',
+    );
+    expect(pending).toHaveLength(1);
+    expect(pending[0].id).toBe(req.id);
+  });
+
+  test('excludes non-pending requests from destination chat lookup', () => {
+    const pendingReq = createCanonicalGuardianRequest({
+      kind: 'pending_question',
+      sourceType: 'voice',
+    });
+    const resolvedReq = createCanonicalGuardianRequest({
+      kind: 'pending_question',
+      sourceType: 'voice',
+    });
+    updateCanonicalGuardianRequest(resolvedReq.id, { status: 'approved' });
+
+    createCanonicalGuardianDelivery({
+      requestId: pendingReq.id,
+      destinationChannel: 'telegram',
+      destinationChatId: 'guardian-chat-200',
+    });
+    createCanonicalGuardianDelivery({
+      requestId: resolvedReq.id,
+      destinationChannel: 'telegram',
+      destinationChatId: 'guardian-chat-200',
+    });
+
+    const pending = listPendingCanonicalGuardianRequestsByDestinationChat(
+      'telegram',
+      'guardian-chat-200',
+    );
+    expect(pending).toHaveLength(1);
+    expect(pending[0].id).toBe(pendingReq.id);
+  });
+
+  test('deduplicates when multiple delivery rows point to same request', () => {
+    const req = createCanonicalGuardianRequest({
+      kind: 'pending_question',
+      sourceType: 'voice',
+    });
+
+    // Two delivery rows targeting the same chat for the same request
+    createCanonicalGuardianDelivery({
+      requestId: req.id,
+      destinationChannel: 'telegram',
+      destinationChatId: 'guardian-chat-300',
+      destinationMessageId: 'msg-1',
+    });
+    createCanonicalGuardianDelivery({
+      requestId: req.id,
+      destinationChannel: 'telegram',
+      destinationChatId: 'guardian-chat-300',
+      destinationMessageId: 'msg-2',
+    });
+
+    const pending = listPendingCanonicalGuardianRequestsByDestinationChat(
+      'telegram',
+      'guardian-chat-300',
+    );
+    expect(pending).toHaveLength(1);
+    expect(pending[0].id).toBe(req.id);
+  });
+
+  test('channel mismatch does not match in destination chat lookup', () => {
+    const req = createCanonicalGuardianRequest({
+      kind: 'pending_question',
+      sourceType: 'voice',
+    });
+    createCanonicalGuardianDelivery({
+      requestId: req.id,
+      destinationChannel: 'telegram',
+      destinationChatId: 'guardian-chat-400',
+    });
+
+    const pending = listPendingCanonicalGuardianRequestsByDestinationChat(
+      'sms',
+      'guardian-chat-400',
+    );
+    expect(pending).toHaveLength(0);
+  });
+
+  test('chat mismatch does not match in destination chat lookup', () => {
+    const req = createCanonicalGuardianRequest({
+      kind: 'pending_question',
+      sourceType: 'voice',
+    });
+    createCanonicalGuardianDelivery({
+      requestId: req.id,
+      destinationChannel: 'telegram',
+      destinationChatId: 'guardian-chat-500',
+    });
+
+    const pending = listPendingCanonicalGuardianRequestsByDestinationChat(
+      'telegram',
+      'different-chat-id',
+    );
+    expect(pending).toHaveLength(0);
   });
 });

@@ -14,6 +14,7 @@ import * as attachmentsStore from '../../memory/attachments-store.js';
 import * as channelDeliveryStore from '../../memory/channel-delivery-store.js';
 import {
   createCanonicalGuardianRequest,
+  listPendingCanonicalGuardianRequestsByDestinationChat,
 } from '../../memory/canonical-guardian-store.js';
 import { recordConversationSeenSignal } from '../../memory/conversation-attention-store.js';
 import * as conversationStore from '../../memory/conversation-store.js';
@@ -910,6 +911,20 @@ export async function handleChannelInbound(
     rawSenderId &&
     guardianCtx.actorRole === 'guardian'
   ) {
+    // Compute destination-scoped pending request hints so the router can
+    // discover canonical requests delivered to this chat even when the
+    // request lacks a guardianExternalUserId (e.g. voice-originated
+    // pending_question requests).  Pass undefined (not []) when empty so
+    // the identity-based fallback in findPendingCanonicalRequests stays
+    // active — an explicit empty array is fail-closed.
+    const deliveryScopedPendingRequests = listPendingCanonicalGuardianRequestsByDestinationChat(
+      sourceChannel,
+      externalChatId,
+    );
+    const pendingRequestIds = deliveryScopedPendingRequests.length > 0
+      ? deliveryScopedPendingRequests.map(r => r.id)
+      : undefined;
+
     const routerResult = await routeGuardianReply({
       messageText: trimmedContent,
       channel: sourceChannel,
@@ -920,6 +935,7 @@ export async function handleChannelInbound(
       },
       conversationId: result.conversationId,
       callbackData: body.callbackData,
+      pendingRequestIds,
       approvalConversationGenerator,
       channelDeliveryContext: {
         replyCallbackUrl,

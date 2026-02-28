@@ -67,6 +67,11 @@ mock.module('../memory/ingress-member-store.js', () => ({
   updateLastSeen: () => {},
 }));
 import type { Session } from '../daemon/session.js';
+import {
+  createCanonicalGuardianDelivery,
+  createCanonicalGuardianRequest,
+  getCanonicalGuardianRequest,
+} from '../memory/canonical-guardian-store.js';
 import * as channelDeliveryStore from '../memory/channel-delivery-store.js';
 import {
   createApprovalRequest,
@@ -110,6 +115,9 @@ function ensureConversation(conversationId: string): void {
 
 function resetTables(): void {
   const db = getDb();
+  db.run('DELETE FROM scoped_approval_grants');
+  db.run('DELETE FROM canonical_guardian_deliveries');
+  db.run('DELETE FROM canonical_guardian_requests');
   db.run('DELETE FROM channel_guardian_approval_requests');
   db.run('DELETE FROM channel_guardian_verification_challenges');
   db.run('DELETE FROM channel_guardian_bindings');
@@ -2688,5 +2696,126 @@ describe('background channel processing approval prompts', () => {
     expect(deliverPromptSpy).not.toHaveBeenCalled();
 
     deliverPromptSpy.mockRestore();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// NL approval routing via destination-scoped canonical requests
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('NL approval routing via destination-scoped canonical requests', () => {
+  beforeEach(() => {
+    resetTables();
+    noopProcessMessage.mockClear();
+  });
+
+  test('guardian plain-text "yes" resolves a pending_question with no guardianExternalUserId via delivery-scoped hint', async () => {
+    // Simulate a voice-originated pending_question without guardianExternalUserId
+    const guardianChatId = 'guardian-chat-nl-1';
+    const guardianUserId = 'guardian-user-nl-1';
+
+    // Ensure the conversation exists so the resolver finds it
+    ensureConversation('conv-voice-nl-1');
+
+    // Create guardian binding for Telegram
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: guardianUserId,
+      guardianDeliveryChatId: guardianChatId,
+    });
+
+    // Create canonical tool_approval request WITHOUT guardianExternalUserId
+    // but WITH a conversationId (required by the tool_approval resolver)
+    const canonicalReq = createCanonicalGuardianRequest({
+      kind: 'tool_approval',
+      sourceType: 'voice',
+      sourceChannel: 'twilio',
+      conversationId: 'conv-voice-nl-1',
+      toolName: 'shell',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      // guardianExternalUserId intentionally omitted
+    });
+
+    // Register pending interaction so resolver can find it
+    registerPendingInteraction(canonicalReq.id, 'conv-voice-nl-1', 'shell');
+
+    // Create canonical delivery row targeting guardian chat
+    createCanonicalGuardianDelivery({
+      requestId: canonicalReq.id,
+      destinationChannel: 'telegram',
+      destinationChatId: guardianChatId,
+    });
+
+    // Send inbound guardian text reply "yes" from that chat
+    const req = makeInboundRequest({
+      sourceChannel: 'telegram',
+      externalChatId: guardianChatId,
+      senderExternalUserId: guardianUserId,
+      content: 'yes',
+      externalMessageId: `msg-nl-approve-${Date.now()}`,
+    });
+    const res = await handleChannelInbound(req, noopProcessMessage as any, TEST_BEARER_TOKEN);
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.accepted).toBe(true);
+    expect(body.canonicalRouter).toBe('canonical_decision_applied');
+
+    // Verify the request was resolved
+    const resolved = getCanonicalGuardianRequest(canonicalReq.id);
+    expect(resolved).not.toBeNull();
+    expect(resolved!.status).toBe('approved');
+  });
+
+  test('inbound from different chat ID does not auto-match delivery-scoped canonical request', async () => {
+    const guardianChatId = 'guardian-chat-nl-2';
+    const guardianUserId = 'guardian-user-nl-2';
+    const differentChatId = 'different-chat-999';
+
+    // Create guardian binding for the guardian user on the different chat
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: guardianUserId,
+      guardianDeliveryChatId: differentChatId,
+    });
+
+    // Create canonical pending_question WITHOUT guardianExternalUserId
+    const canonicalReq = createCanonicalGuardianRequest({
+      kind: 'tool_approval',
+      sourceType: 'voice',
+      sourceChannel: 'twilio',
+      toolName: 'shell',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+
+    // Delivery targets the original guardian chat, NOT the different chat
+    createCanonicalGuardianDelivery({
+      requestId: canonicalReq.id,
+      destinationChannel: 'telegram',
+      destinationChatId: guardianChatId,
+    });
+
+    // Send from differentChatId — delivery-scoped lookup should not match
+    const req = makeInboundRequest({
+      sourceChannel: 'telegram',
+      externalChatId: differentChatId,
+      senderExternalUserId: guardianUserId,
+      content: 'approve',
+      externalMessageId: `msg-nl-mismatch-${Date.now()}`,
+    });
+    const res = await handleChannelInbound(req, noopProcessMessage as any, TEST_BEARER_TOKEN);
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.accepted).toBe(true);
+    // Should NOT have been consumed by canonical router since there are no
+    // delivery-scoped pending requests for this chat, and identity-based
+    // fallback finds no match either (no guardianExternalUserId on request)
+    expect(body.canonicalRouter).toBeUndefined();
+
+    // Request should remain pending
+    const unchanged = getCanonicalGuardianRequest(canonicalReq.id);
+    expect(unchanged).not.toBeNull();
+    expect(unchanged!.status).toBe('pending');
   });
 });

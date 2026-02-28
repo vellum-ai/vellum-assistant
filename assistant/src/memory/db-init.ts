@@ -4,6 +4,7 @@ import {
   createAssistantInboxTables,
   createCallSessionsTables,
   createCanonicalGuardianTables,
+  migrateCanonicalGuardianDeliveriesDestinationIndex,
   migrateCanonicalGuardianRequesterChatId,
   migrateNormalizePhoneIdentities,
   createChannelGuardianTables,
@@ -153,6 +154,9 @@ export function initializeDb(): void {
 
   // 24b. Add requester_chat_id to canonical_guardian_requests (chat ID != user ID on some channels)
   migrateCanonicalGuardianRequesterChatId(database);
+
+  // 24c. Composite index on canonical_guardian_deliveries(destination_channel, destination_chat_id) for chat-based lookups
+  migrateCanonicalGuardianDeliveriesDestinationIndex(database);
 
   // 25. Normalize phone-like identity fields to E.164 across guardian and ingress tables
   migrateNormalizePhoneIdentities(database);

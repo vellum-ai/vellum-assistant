@@ -448,6 +448,51 @@ export function listPendingCanonicalGuardianRequestsByDestinationConversation(
   return pendingRequests;
 }
 
+/**
+ * List pending canonical requests that were delivered to a specific
+ * destination chat (channel + chatId pair).
+ *
+ * This bridges inbound guardian replies (which arrive on a specific chat)
+ * back to their canonical request records. Unlike the conversation-based
+ * variant, this uses the chat-level addressing that channel transports
+ * (Telegram, SMS) natively provide — critical for voice-originated
+ * `pending_question` requests that lack `guardianExternalUserId`.
+ */
+export function listPendingCanonicalGuardianRequestsByDestinationChat(
+  destinationChannel: string,
+  destinationChatId: string,
+): CanonicalGuardianRequest[] {
+  const db = getDb();
+
+  const deliveries = db
+    .select()
+    .from(canonicalGuardianDeliveries)
+    .where(
+      and(
+        eq(canonicalGuardianDeliveries.destinationChannel, destinationChannel),
+        eq(canonicalGuardianDeliveries.destinationChatId, destinationChatId),
+      ),
+    )
+    .all();
+
+  if (deliveries.length === 0) return [];
+
+  const seenRequestIds = new Set<string>();
+  const pendingRequests: CanonicalGuardianRequest[] = [];
+
+  for (const delivery of deliveries) {
+    if (seenRequestIds.has(delivery.requestId)) continue;
+    seenRequestIds.add(delivery.requestId);
+
+    const request = getCanonicalGuardianRequest(delivery.requestId);
+    if (request && request.status === 'pending') {
+      pendingRequests.push(request);
+    }
+  }
+
+  return pendingRequests;
+}
+
 export interface UpdateCanonicalGuardianDeliveryParams {
   status?: string;
   destinationMessageId?: string;

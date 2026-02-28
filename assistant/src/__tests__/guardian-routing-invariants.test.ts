@@ -878,3 +878,77 @@ describe('routing invariant: callback buttons route through canonical primitive'
     expect(resolved!.status).toBe('approved');
   });
 });
+
+// ===========================================================================
+// SECTION 9: Destination hint-based NL approval for missing guardianExternalUserId
+// ===========================================================================
+
+describe('routing invariant: destination hints enable NL approval without guardianExternalUserId', () => {
+  beforeEach(() => resetTables());
+
+  test('explicit pendingRequestIds from destination hints allows deterministic plain-text approval when guardianExternalUserId is missing', async () => {
+    // Voice-originated pending_question: no guardianExternalUserId
+    const req = createCanonicalGuardianRequest({
+      kind: 'tool_approval',
+      sourceType: 'voice',
+      sourceChannel: 'twilio',
+      conversationId: 'conv-voice-1',
+      toolName: 'shell',
+      requestCode: 'NL1234',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      // guardianExternalUserId intentionally omitted
+    });
+    registerPendingToolApprovalInteraction(req.id, 'conv-voice-1', 'shell');
+
+    // The channel inbound router would compute pendingRequestIds from
+    // delivery-scoped lookup and pass them here. Simulate that.
+    const result = await routeGuardianReply(replyCtx({
+      messageText: 'approve',
+      channel: 'telegram',
+      actor: guardianActor({ externalUserId: 'guardian-tg-user' }),
+      conversationId: 'conv-guardian-chat',
+      pendingRequestIds: [req.id],
+      approvalConversationGenerator: undefined,
+    }));
+
+    expect(result.consumed).toBe(true);
+    expect(result.type).toBe('canonical_decision_applied');
+    expect(result.decisionApplied).toBe(true);
+
+    const resolved = getCanonicalGuardianRequest(req.id);
+    expect(resolved!.status).toBe('approved');
+  });
+
+  test('without destination hints, missing guardianExternalUserId means no pending requests found', async () => {
+    // Voice-originated request: no guardianExternalUserId
+    const req = createCanonicalGuardianRequest({
+      kind: 'tool_approval',
+      sourceType: 'voice',
+      sourceChannel: 'twilio',
+      conversationId: 'conv-voice-2',
+      toolName: 'shell',
+      requestCode: 'NL5678',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+
+    // No pendingRequestIds passed — identity-based fallback uses
+    // actor.externalUserId which does not match any request's
+    // guardianExternalUserId (since it's null).
+    const result = await routeGuardianReply(replyCtx({
+      messageText: 'approve',
+      channel: 'telegram',
+      actor: guardianActor({ externalUserId: 'guardian-tg-user' }),
+      conversationId: 'conv-guardian-chat',
+      // pendingRequestIds: undefined — no delivery hints
+      approvalConversationGenerator: undefined,
+    }));
+
+    // Identity-based lookup finds nothing because the request has no
+    // guardianExternalUserId, so the router returns not_consumed.
+    expect(result.consumed).toBe(false);
+    expect(result.type).toBe('not_consumed');
+
+    const unchanged = getCanonicalGuardianRequest(req.id);
+    expect(unchanged!.status).toBe('pending');
+  });
+});
