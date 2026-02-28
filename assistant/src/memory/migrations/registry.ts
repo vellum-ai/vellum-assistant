@@ -90,6 +90,11 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     dependsOn: ['migration_embedding_vector_blob_v1'],
     description: 'Rebuild memory_embeddings to make vector_json nullable (pre-100 DBs had NOT NULL)',
   },
+  {
+    key: 'migration_normalize_phone_identities_v1',
+    version: 14,
+    description: 'Normalize phone-like identity fields to E.164 format across guardian bindings, verification challenges, canonical requests, ingress members, and rate limits',
+  },
 ];
 
 export interface MigrationValidationResult {

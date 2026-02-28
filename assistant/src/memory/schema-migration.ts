@@ -21,6 +21,7 @@ export {
   migrateMessagesFtsBackfill,
   migrateNotificationDeliveryPairingColumns,
   migrateNotificationDeliveryThreadDecision,
+  migrateNormalizePhoneIdentities,
   migrateNotificationTablesSchema,
   migrateRemainingTableIndexes,
   migrateReminderRoutingIntent,
