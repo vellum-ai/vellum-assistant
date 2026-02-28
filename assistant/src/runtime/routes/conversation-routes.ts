@@ -28,7 +28,7 @@ import { buildAssistantEvent } from '../assistant-event.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
 import { routeGuardianReply } from '../guardian-reply-router.js';
 import { httpError } from '../http-errors.js';
-import { verifyHttpActorToken } from '../middleware/actor-token.js';
+import { verifyHttpActorTokenWithLocalFallback } from '../middleware/actor-token.js';
 import type {
   ApprovalConversationGenerator,
   MessageProcessor,
@@ -455,9 +455,10 @@ export async function handleSendMessage(
 
   // ── Queue-if-busy path (preferred when sendMessageDeps is wired) ────
   if (deps.sendMessageDeps) {
-    // Vellum HTTP requests require a valid actor token for identity verification.
-    // IPC connections use local-actor-identity.ts instead (no token needed).
-    const actorVerification = sourceChannel === 'vellum' ? verifyHttpActorToken(req) : null;
+    // Vellum HTTP requests prefer actor-token identity. When absent (e.g. CLI
+    // bearer-auth only), fall back to local IPC identity resolution so
+    // bearer-authenticated local clients are not rejected.
+    const actorVerification = sourceChannel === 'vellum' ? verifyHttpActorTokenWithLocalFallback(req) : null;
     if (actorVerification && !actorVerification.ok) {
       return httpError(
         actorVerification.status === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN',
@@ -569,8 +570,9 @@ export async function handleSendMessage(
     return httpError('SERVICE_UNAVAILABLE', 'Message processing not configured', 503);
   }
 
-  // Require actor token for vellum channel requests on the legacy path too.
-  const legacyActorVerification = sourceChannel === 'vellum' ? verifyHttpActorToken(req) : null;
+  // Require actor token for vellum channel requests on the legacy path too,
+  // with local IPC fallback for bearer-authenticated CLI clients.
+  const legacyActorVerification = sourceChannel === 'vellum' ? verifyHttpActorTokenWithLocalFallback(req) : null;
   if (legacyActorVerification && !legacyActorVerification.ok) {
     return httpError(
       legacyActorVerification.status === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN',

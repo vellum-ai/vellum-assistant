@@ -20,7 +20,11 @@ import type { ApprovalAction } from '../channel-approval-types.js';
 import type { GuardianDecisionPrompt } from '../guardian-decision-types.js';
 import { buildDecisionActions } from '../guardian-decision-types.js';
 import { httpError } from '../http-errors.js';
-import { isActorBoundGuardian, verifyHttpActorToken } from '../middleware/actor-token.js';
+import {
+  isActorBoundGuardian,
+  isLocalFallbackBoundGuardian,
+  verifyHttpActorTokenWithLocalFallback,
+} from '../middleware/actor-token.js';
 
 // ---------------------------------------------------------------------------
 // GET /v1/guardian-actions/pending?conversationId=...
@@ -35,7 +39,7 @@ import { isActorBoundGuardian, verifyHttpActorToken } from '../middleware/actor-
  * can render structured button UIs.
  */
 export function handleGuardianActionsPending(req: Request): Response {
-  const tokenResult = verifyHttpActorToken(req);
+  const tokenResult = verifyHttpActorTokenWithLocalFallback(req);
   if (!tokenResult.ok) {
     return httpError(
       tokenResult.status === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN',
@@ -68,7 +72,7 @@ export function handleGuardianActionsPending(req: Request): Response {
  * minting.
  */
 export async function handleGuardianActionDecision(req: Request): Promise<Response> {
-  const tokenResult = verifyHttpActorToken(req);
+  const tokenResult = verifyHttpActorTokenWithLocalFallback(req);
   if (!tokenResult.ok) {
     return httpError(
       tokenResult.status === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN',
@@ -76,7 +80,10 @@ export async function handleGuardianActionDecision(req: Request): Promise<Respon
       tokenResult.status,
     );
   }
-  if (!isActorBoundGuardian(tokenResult.claims)) {
+  const isBoundGuardian = tokenResult.claims
+    ? isActorBoundGuardian(tokenResult.claims)
+    : isLocalFallbackBoundGuardian();
+  if (!isBoundGuardian) {
     return httpError('FORBIDDEN', 'Actor is not the bound guardian for this channel', 403);
   }
 
@@ -110,11 +117,17 @@ export async function handleGuardianActionDecision(req: Request): Promise<Respon
     }
   }
 
+  // Resolve the actor's external user ID: from the token claims if present,
+  // otherwise from the vellum guardian binding (local fallback).
+  const actorExternalUserId = tokenResult.claims
+    ? tokenResult.claims.guardianPrincipalId
+    : tokenResult.guardianContext.guardianExternalUserId;
+
   const canonicalResult = await applyCanonicalGuardianDecision({
     requestId,
     action: action as ApprovalAction,
     actorContext: {
-      externalUserId: tokenResult.claims.guardianPrincipalId,
+      externalUserId: actorExternalUserId,
       channel: 'vellum',
       isTrusted: true,
     },

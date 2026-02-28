@@ -13,17 +13,22 @@ import { addRule } from '../../permissions/trust-store.js';
 import { getTool } from '../../tools/registry.js';
 import { getLogger } from '../../util/logger.js';
 import { httpError } from '../http-errors.js';
-import { isActorBoundGuardian, verifyHttpActorToken } from '../middleware/actor-token.js';
+import {
+  isActorBoundGuardian,
+  isLocalFallbackBoundGuardian,
+  verifyHttpActorTokenWithLocalFallback,
+} from '../middleware/actor-token.js';
 import * as pendingInteractions from '../pending-interactions.js';
 
 const log = getLogger('approval-routes');
 
 /**
- * Verify the actor token from the request. Returns an error Response
- * if verification fails, or null if the actor is authenticated.
+ * Verify the actor token from the request with local fallback.
+ * Returns an error Response if verification fails, or null if
+ * the actor is authenticated (via actor token or local identity).
  */
 function requireActorToken(req: Request): Response | null {
-  const result = verifyHttpActorToken(req);
+  const result = verifyHttpActorTokenWithLocalFallback(req);
   if (!result.ok) {
     return httpError(
       result.status === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN',
@@ -36,10 +41,12 @@ function requireActorToken(req: Request): Response | null {
 
 /**
  * Verify the actor token and confirm the actor is the bound guardian.
- * Returns an error Response if verification or guardian check fails.
+ * When no actor token is present (bearer-authenticated local client),
+ * falls back to local IPC identity resolution and checks the local
+ * identity is the bound guardian.
  */
 function requireBoundGuardian(req: Request): Response | null {
-  const result = verifyHttpActorToken(req);
+  const result = verifyHttpActorTokenWithLocalFallback(req);
   if (!result.ok) {
     return httpError(
       result.status === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN',
@@ -47,7 +54,12 @@ function requireBoundGuardian(req: Request): Response | null {
       result.status,
     );
   }
-  if (!isActorBoundGuardian(result.claims)) {
+  // For actor-token-authenticated requests, check the token's identity.
+  // For local fallback (bearer-auth only), check the local identity.
+  const isBoundGuardian = result.claims
+    ? isActorBoundGuardian(result.claims)
+    : isLocalFallbackBoundGuardian();
+  if (!isBoundGuardian) {
     return httpError('FORBIDDEN', 'Actor is not the bound guardian for this channel', 403);
   }
   return null;

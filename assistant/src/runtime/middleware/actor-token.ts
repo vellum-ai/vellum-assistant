@@ -8,6 +8,10 @@
  * Used by vellum-channel HTTP routes (POST /v1/messages, POST /v1/confirm,
  * POST /v1/guardian-actions/decision, etc.) to enforce identity-based
  * authentication after the M5 cutover.
+ *
+ * For backward compatibility with bearer-authenticated local clients (CLI),
+ * provides fallback functions that resolve identity through the local IPC
+ * guardian context pathway when no actor token is present.
  */
 
 import type { ChannelId } from '../../channels/types.js';
@@ -21,6 +25,7 @@ import {
   resolveGuardianContext,
   toGuardianRuntimeContext,
 } from '../guardian-context-resolver.js';
+import { resolveLocalIpcGuardianContext } from '../local-actor-identity.js';
 
 const log = getLogger('actor-token-middleware');
 
@@ -136,4 +141,72 @@ export function isActorBoundGuardian(claims: ActorTokenClaims): boolean {
   const binding = getActiveBinding(assistantId, 'vellum');
   if (!binding) return false;
   return binding.guardianExternalUserId === claims.guardianPrincipalId;
+}
+
+// ---------------------------------------------------------------------------
+// Bearer-auth fallback variants
+// ---------------------------------------------------------------------------
+
+/**
+ * Result for the fallback verification path where the actor token is absent
+ * but the request is bearer-authenticated (local trusted client like CLI).
+ */
+export interface ActorTokenLocalFallbackResult {
+  ok: true;
+  claims: null;
+  guardianContext: GuardianRuntimeContext;
+  localFallback: true;
+}
+
+export type ActorTokenVerificationWithFallback =
+  | ActorTokenResult
+  | ActorTokenLocalFallbackResult
+  | ActorTokenError;
+
+/**
+ * Verify the actor token with fallback to local IPC identity resolution.
+ *
+ * When an actor token is present, the full verification pipeline runs.
+ * When absent, the request has already passed bearer token auth in the
+ * HTTP server layer, meaning it is from a trusted local client (e.g. CLI).
+ * In that case, we fall back to `resolveLocalIpcGuardianContext()` which
+ * produces the same guardian context as the IPC pathway.
+ *
+ * This preserves backward compatibility with the CLI, which sends only
+ * `Authorization: Bearer <token>` without `X-Actor-Token`.
+ */
+export function verifyHttpActorTokenWithLocalFallback(
+  req: Request,
+): ActorTokenVerificationWithFallback {
+  const rawToken = extractActorToken(req);
+
+  // If an actor token is present, use the strict verification pipeline.
+  if (rawToken) {
+    return verifyHttpActorToken(req);
+  }
+
+  // No actor token — this request passed bearer auth at the HTTP server
+  // level, so it is from a local trusted client. Resolve identity the
+  // same way as IPC connections.
+  log.debug('No actor token present on bearer-authenticated request; using local IPC identity fallback');
+  const guardianContext = resolveLocalIpcGuardianContext('vellum');
+  return {
+    ok: true,
+    claims: null,
+    guardianContext,
+    localFallback: true,
+  };
+}
+
+/**
+ * Check whether the local fallback identity is the bound guardian.
+ *
+ * When no actor token is present (local fallback), the local user is
+ * treated as the guardian of their own machine — equivalent to IPC.
+ * This returns true when either the resolved trust class is 'guardian'
+ * or no vellum binding exists yet (pre-bootstrap).
+ */
+export function isLocalFallbackBoundGuardian(): boolean {
+  const guardianContext = resolveLocalIpcGuardianContext('vellum');
+  return guardianContext.trustClass === 'guardian';
 }
