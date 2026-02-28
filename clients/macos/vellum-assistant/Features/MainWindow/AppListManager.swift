@@ -24,6 +24,9 @@ final class AppListManager: ObservableObject {
 
     @Published var apps: [AppItem] = []
 
+    /// IDs of apps the user explicitly removed. Prevents daemon sync from re-adding them.
+    private var removedAppIds: Set<String> = []
+
     private let fileURL: URL
 
     /// Only pinned apps, sorted by pinnedOrder ascending.
@@ -54,6 +57,9 @@ final class AppListManager: ObservableObject {
     }
 
     func recordAppOpen(id: String, name: String, icon: String? = nil, previewBase64: String? = nil, appType: String? = nil) {
+        // Clear tombstone so an explicitly re-opened app reappears in the sidebar
+        removedAppIds.remove(id)
+
         if let index = apps.firstIndex(where: { $0.id == id }) {
             // Don't reshuffle apps that are already visible in the collapsed top-5 sidebar.
             let top5Ids = Set(displayApps.prefix(5).map(\.id))
@@ -120,7 +126,8 @@ final class AppListManager: ObservableObject {
         let existingIds = Set(apps.map(\.id))
         var didAdd = false
         for daemonApp in daemonApps {
-            guard !existingIds.contains(daemonApp.id) else { continue }
+            guard !existingIds.contains(daemonApp.id),
+                  !removedAppIds.contains(daemonApp.id) else { continue }
             let generated = VAppIconGenerator.generate(from: daemonApp.name, type: daemonApp.appType)
             var item = AppItem(
                 id: daemonApp.id,
@@ -151,6 +158,7 @@ final class AppListManager: ObservableObject {
 
     func removeApp(id: String) {
         apps.removeAll { $0.id == id }
+        removedAppIds.insert(id)
         save()
     }
 
@@ -189,12 +197,19 @@ final class AppListManager: ObservableObject {
 
     // MARK: - Persistence
 
+    /// On-disk container wrapping both the app list and the removal tombstone set.
+    private struct PersistedData: Codable {
+        var apps: [AppItem]
+        var removedAppIds: Set<String>?
+    }
+
     private func save() {
         do {
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
             encoder.outputFormatting = .prettyPrinted
-            let data = try encoder.encode(apps)
+            let container = PersistedData(apps: apps, removedAppIds: removedAppIds)
+            let data = try encoder.encode(container)
             try data.write(to: fileURL, options: .atomic)
         } catch {
             log.error("Failed to save app list: \(error.localizedDescription)")
@@ -206,7 +221,15 @@ final class AppListManager: ObservableObject {
         do {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
-            apps = try decoder.decode([AppItem].self, from: data)
+
+            // Try the new container format first, fall back to the legacy bare-array format
+            if let container = try? decoder.decode(PersistedData.self, from: data) {
+                apps = container.apps
+                removedAppIds = container.removedAppIds ?? []
+            } else {
+                apps = try decoder.decode([AppItem].self, from: data)
+                removedAppIds = []
+            }
             log.info("Loaded \(self.apps.count) app list entries")
 
             // Migrate existing apps that don't have icons assigned yet
