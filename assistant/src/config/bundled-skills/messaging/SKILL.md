@@ -15,6 +15,17 @@ Before using any messaging tool, verify that the platform is connected by callin
 
 Gmail, Slack, and Telegram setup all require a publicly reachable URL for OAuth callbacks or webhook delivery. The **public-ingress** skill handles ngrok tunnel setup and persists the URL as `ingress.publicBaseUrl`. Each setup skill below declares `public-ingress` as a dependency and will prompt you to run it if `ingress.publicBaseUrl` is not configured.
 
+### Email Connection Flow
+
+When the user asks to "connect my email", "set up email", "manage my email", or similar — and has not named a specific provider:
+
+1. **Discover what's connected.** Call `messaging_auth_test` for `gmail` (and any other email-capable platforms). If one succeeds, tell the user it's already connected and proceed.
+2. **If nothing is connected, ask which provider.** Present the user with a choice:
+   - "Which email service do you use?"
+   - Offer: **Gmail**, **Outlook** (not yet supported), or other
+   - If the user picks a provider that isn't supported yet, let them know and suggest Gmail if applicable.
+3. **Once the provider is known**, follow the corresponding setup section below (e.g., "Gmail" for Gmail).
+
 ### Gmail
 1. **Try connecting directly first.** Call `credential_store` with `action: "oauth2_connect"` and `service: "gmail"`. The tool auto-fills Google's OAuth endpoints and looks up any previously stored client credentials — so this single call may be all that's needed.
 2. **If it fails because no client_id is found:** The user needs to create Google Cloud OAuth credentials first. Install and load the **google-oauth-setup** skill (which depends on **public-ingress** for the redirect URI):
@@ -75,7 +86,7 @@ The guardian-verify-setup skill handles the full outbound verification flow for 
 - If the user specifies a platform (e.g., "check my Slack"), pass it as the `platform` parameter.
 - If only one platform is connected, it is auto-selected.
 - If multiple platforms are connected and the user doesn't specify, ask which platform they mean — or search across all of them.
-- **Do not assume a specific provider.** When the user says "email" or "manage my email" without naming a provider, call `messaging_auth_test` for each email-capable platform to discover what's connected — don't default to Gmail or any other specific provider. Present whatever is connected; if nothing is, ask the user which email service they use and offer to set it up.
+- **Do not assume a specific provider.** When the user says "email" or "manage my email" without naming a provider, follow the **Email Connection Flow** above — check what's connected, then ask which provider if nothing is. Never skip straight to a specific provider's setup.
 
 ## Capabilities
 
@@ -217,27 +228,42 @@ Medium and high risk tools require a confidence score between 0 and 1:
 
 Use `messaging_analyze_activity` to classify channels or conversations by activity level (high, medium, low, dead). Useful for decluttering — suggest leaving dead channels or archiving old emails.
 
-## Newsletter Decluttering
+## Email Decluttering
 
-Use `gmail_sender_digest` to help users identify and clean up high-volume senders like newsletters, marketing emails, and automated notifications.
+Help users identify and clean up high-volume senders like newsletters, marketing emails, and automated notifications.
+
+### Provider Selection
+
+- **Gmail connected**: Use the Gmail-specific tools (`gmail_sender_digest`, `gmail_archive_by_query`, `gmail_unsubscribe`, `gmail_filters`) — they have richer features like unsubscribe support and filter creation.
+- **Non-Gmail email connected**: Use the generic tools (`messaging_sender_digest`, `messaging_archive_by_sender`) — they work with any provider that supports these operations. Skip unsubscribe and filter offers since they are Gmail-specific.
+- **Do not assume Gmail.** Check what's connected first.
 
 ### Workflow
 
-1. **Scan**: Call `gmail_sender_digest` (default query targets Gmail's promotions category from the last 90 days)
+1. **Scan**: Call `gmail_sender_digest` (or `messaging_sender_digest` for non-Gmail). Default query targets promotions from the last 90 days.
 2. **Present**: Show results as a `ui_show` table with `selectionMode: "multiple"`:
-   - Columns: Sender, Email Count, Unsubscribable, Date Range, Sample Subject
-   - Action buttons: "Archive & Unsubscribe" (primary), "Archive Only" (secondary)
-3. **Act on selection**: For each selected sender:
-   - Prefer `gmail_archive_by_query` with the sender's `search_query` — this archives all matching messages in one call, regardless of volume
-   - Alternatively, use `gmail_batch_archive` with the sender's `message_ids` for smaller senders where all IDs are already collected
-   - If the action is "Archive & Unsubscribe" and `has_unsubscribe` is true, call `gmail_unsubscribe` with the sender's `newest_message_id`
-4. **Report**: Summarize results — e.g. "Archived 247 messages from 8 senders. Unsubscribed from 6."
+   - **Columns (exactly 3)**: Sender, Emails Found, Unsub?
+   - **Pre-select all rows** (`selected: true`) — users deselect what they want to keep
+   - **Caption**: "Showing emails from last 90 days in Promotions" (or adjusted to match the query used)
+   - **Action buttons (exactly 2)**: "Archive & Unsubscribe" (primary), "Archive Only" (secondary). **NEVER offer Delete, Trash, or any destructive action.**
+3. **Live progress**: After the user clicks an action button:
+   - **Dismiss the table immediately** with `ui_dismiss` — it collapses to a completion chip
+   - **Show a `task_progress` card** with one step per selected sender (e.g., "Archiving TechCrunch (247 emails)"). Update each step from `in_progress` → `completed` as each sender finishes.
+   - When all senders are processed, set the progress card's `status: "completed"`.
+4. **Act on selection**: For each selected sender:
+   - Use `gmail_archive_by_query` (or `messaging_archive_by_sender` for non-Gmail) with the sender's `search_query` — this archives all matching messages in one call, regardless of volume
+   - If the action is "Archive & Unsubscribe" and `has_unsubscribe` is true, call `gmail_unsubscribe` with the sender's `newest_message_id` (Gmail only)
+5. **Accurate summary**: Use the **actual counts returned by `gmail_archive_by_query`**, not the scan counts from `gmail_sender_digest`. The scan is a sample; the archive is comprehensive. Format: "Cleaned up [total_archived] emails from [sender_count] senders. Unsubscribed from [unsub_count]."
+6. **Ongoing protection offer**: After reporting results, offer auto-archive filters:
+   - "Want me to set up auto-archive filters so future emails from these senders skip your inbox?"
+   - If yes, call `gmail_filters` with `action: "create"` for each sender with `from` set to the sender's email and `remove_label_ids: ["INBOX"]`.
+   - Then offer a recurring declutter schedule: "Want me to scan for new clutter monthly?" If yes, use `schedule_create` to set up a monthly declutter check.
 
 ### Edge Cases
 
 - **Zero results**: Tell the user "No newsletter emails found" and suggest broadening the query (e.g. removing the category filter or extending the date range)
 - **Unsubscribe failures**: Report per-sender success/failure; the existing `gmail_unsubscribe` tool handles edge cases
-- **Large sender counts**: The `has_more` flag indicates a sender had more messages than collected — use `search_query` for follow-up archiving
+- **Large sender counts**: The `has_more` flag indicates a sender had more messages than collected — `gmail_archive_by_query` handles this automatically via its own pagination
 
 ## Batch Operations
 
