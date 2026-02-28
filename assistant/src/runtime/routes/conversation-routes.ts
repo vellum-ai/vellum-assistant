@@ -124,40 +124,49 @@ async function tryConsumeInlineApprovalReply(params: {
     return { consumed: false };
   }
 
-  const channelMeta = {
-    userMessageChannel: sourceChannel,
-    assistantMessageChannel: sourceChannel,
-    userMessageInterface: sourceInterface,
-    assistantMessageInterface: sourceInterface,
-    provenanceActorRole: 'guardian' as const,
-  };
+  // Decision has been applied — transcript persistence is best-effort.
+  // If DB writes fail, we still return consumed: true so the approval text
+  // is not re-processed as a new user turn.
+  let messageId: string | undefined;
+  try {
+    const channelMeta = {
+      userMessageChannel: sourceChannel,
+      assistantMessageChannel: sourceChannel,
+      userMessageInterface: sourceInterface,
+      assistantMessageInterface: sourceInterface,
+      provenanceActorRole: 'guardian' as const,
+    };
 
-  const userMessage = createUserMessage(content, attachments);
-  const persistedUser = await conversationStore.addMessage(
-    conversationId,
-    'user',
-    JSON.stringify(userMessage.content),
-    channelMeta,
-  );
+    const userMessage = createUserMessage(content, attachments);
+    const persistedUser = await conversationStore.addMessage(
+      conversationId,
+      'user',
+      JSON.stringify(userMessage.content),
+      channelMeta,
+    );
+    messageId = persistedUser.id;
 
-  const replyText = (routerResult.replyText?.trim())
-    || (routerResult.decisionApplied ? 'Decision applied.' : 'Request already resolved.');
-  const assistantMessage = createAssistantMessage(replyText);
-  await conversationStore.addMessage(
-    conversationId,
-    'assistant',
-    JSON.stringify(assistantMessage.content),
-    channelMeta,
-  );
+    const replyText = (routerResult.replyText?.trim())
+      || (routerResult.decisionApplied ? 'Decision applied.' : 'Request already resolved.');
+    const assistantMessage = createAssistantMessage(replyText);
+    await conversationStore.addMessage(
+      conversationId,
+      'assistant',
+      JSON.stringify(assistantMessage.content),
+      channelMeta,
+    );
 
-  // Avoid mutating in-memory history / emitting stream deltas while a run is active.
-  if (!session.isProcessing()) {
-    session.getMessages().push(userMessage, assistantMessage);
-    onEvent({ type: 'assistant_text_delta', text: replyText, sessionId: conversationId });
-    onEvent({ type: 'message_complete', sessionId: conversationId });
+    // Avoid mutating in-memory history / emitting stream deltas while a run is active.
+    if (!session.isProcessing()) {
+      session.getMessages().push(userMessage, assistantMessage);
+      onEvent({ type: 'assistant_text_delta', text: replyText, sessionId: conversationId });
+      onEvent({ type: 'message_complete', sessionId: conversationId });
+    }
+  } catch (err) {
+    log.warn({ err, conversationId }, 'Failed to persist inline approval transcript entries');
   }
 
-  return { consumed: true, messageId: persistedUser.id };
+  return { consumed: true, messageId };
 }
 
 function getInterfaceFilesWithMtimes(interfacesDir: string | null): Array<{ path: string; mtimeMs: number }> {
