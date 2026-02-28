@@ -1,7 +1,7 @@
 import type { GatewayConfig } from "../config.js";
 import type { ApprovalPayload } from "../http/routes/telegram-deliver.js";
 import { getLogger } from "../logger.js";
-import { downloadAttachment, downloadAttachmentById, type RuntimeAttachmentMeta } from "../runtime/client.js";
+import { downloadAttachment, type RuntimeAttachmentMeta } from "../runtime/client.js";
 import { splitText } from "../util/split-text.js";
 import { callTelegramApi, callTelegramApiMultipart } from "./api.js";
 
@@ -64,7 +64,6 @@ export async function sendTelegramReply(
 export async function sendTelegramAttachments(
   config: GatewayConfig,
   chatId: string,
-  assistantId: string | undefined,
   attachments: RuntimeAttachmentMeta[],
 ): Promise<void> {
   const failures: string[] = [];
@@ -78,11 +77,7 @@ export async function sendTelegramAttachments(
     }
 
     try {
-      // Use the legacy assistant-scoped download path when assistantId is
-      // available; fall back to the assistant-less endpoint otherwise.
-      const payload = assistantId
-        ? await downloadAttachment(config, assistantId, meta.id)
-        : await downloadAttachmentById(config, meta.id);
+      const payload = await downloadAttachment(config, meta.id);
 
       // Hydrate missing metadata from the downloaded payload so that
       // ID-only attachment payloads work correctly. Explicit meta fields

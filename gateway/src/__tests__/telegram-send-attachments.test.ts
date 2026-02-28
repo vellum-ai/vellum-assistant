@@ -103,7 +103,7 @@ describe("sendTelegramAttachments", () => {
       kind: "generated_image",
     };
 
-    await sendTelegramAttachments(config, "chat-1", "assistant-a", [meta]);
+    await sendTelegramAttachments(config, "chat-1", [meta]);
 
     // Should have called: 1) runtime download, 2) telegram sendPhoto
     expect(calls).toHaveLength(2);
@@ -141,7 +141,7 @@ describe("sendTelegramAttachments", () => {
       kind: "filesystem",
     };
 
-    await sendTelegramAttachments(config, "chat-1", "assistant-a", [meta]);
+    await sendTelegramAttachments(config, "chat-1", [meta]);
 
     expect(calls).toHaveLength(2);
     expect(calls[0]).toContain("/attachments/att-2");
@@ -166,14 +166,14 @@ describe("sendTelegramAttachments", () => {
       kind: "filesystem",
     };
 
-    await sendTelegramAttachments(config, "chat-1", "assistant-a", [meta]);
+    await sendTelegramAttachments(config, "chat-1", [meta]);
 
     // Should have sent only the failure notice via sendMessage
     expect(calls).toHaveLength(1);
     expect(calls[0]).toContain("sendMessage");
   });
 
-  test("downloads via assistant-less path when assistantId is undefined", async () => {
+  test("downloads via flat /v1/attachments/ path", async () => {
     const calls: string[] = [];
 
     fetchMock = mock(async (input: string | URL | Request) => {
@@ -203,7 +203,7 @@ describe("sendTelegramAttachments", () => {
       kind: "generated_image",
     };
 
-    await sendTelegramAttachments(config, "chat-1", undefined, [meta]);
+    await sendTelegramAttachments(config, "chat-1", [meta]);
 
     expect(calls).toHaveLength(2);
     // Should use /v1/attachments/ path (no assistantId in URL)
@@ -238,7 +238,7 @@ describe("sendTelegramAttachments", () => {
     // Only provide `id` — no filename, mimeType, sizeBytes, or kind
     const meta: RuntimeAttachmentMeta = { id: "att-id-only" };
 
-    await sendTelegramAttachments(config, "chat-1", "assistant-a", [meta]);
+    await sendTelegramAttachments(config, "chat-1", [meta]);
 
     expect(calls).toHaveLength(2);
     expect(calls[0]).toContain("/attachments/att-id-only");
@@ -266,7 +266,7 @@ describe("sendTelegramAttachments", () => {
     const config = makeConfig();
     const meta: RuntimeAttachmentMeta = { id: "att-bare" };
 
-    await sendTelegramAttachments(config, "chat-1", "assistant-a", [meta]);
+    await sendTelegramAttachments(config, "chat-1", [meta]);
 
     expect(calls).toHaveLength(2);
     expect(calls[0]).toContain("/attachments/att-bare");
@@ -299,7 +299,7 @@ describe("sendTelegramAttachments", () => {
     // No sizeBytes in meta — will be hydrated from download payload (200 > 50 limit)
     const meta: RuntimeAttachmentMeta = { id: "att-big" };
 
-    await sendTelegramAttachments(config, "chat-1", "assistant-a", [meta]);
+    await sendTelegramAttachments(config, "chat-1", [meta]);
 
     // Should download, discover size exceeds limit, skip, then send failure notice
     expect(calls.filter((u) => u.includes("/attachments/att-big"))).toHaveLength(1);
@@ -330,7 +330,7 @@ describe("sendTelegramAttachments", () => {
     const config = makeConfig();
     const meta: RuntimeAttachmentMeta = { id: "my-attachment-id" };
 
-    await sendTelegramAttachments(config, "chat-1", "assistant-a", [meta]);
+    await sendTelegramAttachments(config, "chat-1", [meta]);
 
     expect(calls).toHaveLength(2);
     // Second call is the Telegram API call with FormData
@@ -368,7 +368,7 @@ describe("sendTelegramAttachments", () => {
       kind: "generated_image",
     };
 
-    await sendTelegramAttachments(config, "chat-1", "assistant-a", [meta]);
+    await sendTelegramAttachments(config, "chat-1", [meta]);
 
     expect(calls).toHaveLength(2);
     expect(calls[0]).toContain("/attachments/att-full");
@@ -407,7 +407,7 @@ describe("sendTelegramAttachments", () => {
       { id: "att-ok", filename: "good.png", mimeType: "image/png", sizeBytes: 50, kind: "generated_image" },
     ];
 
-    await sendTelegramAttachments(config, "chat-1", "assistant-a", attachments);
+    await sendTelegramAttachments(config, "chat-1", attachments);
 
     // Should have: download att-fail (fail), download att-ok, sendPhoto for att-ok, sendMessage for notice
     expect(calls.filter((u) => u.includes("sendPhoto"))).toHaveLength(1);

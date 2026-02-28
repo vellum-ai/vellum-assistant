@@ -45,6 +45,7 @@ import {
   type PendingApprovalInfo,
 } from '../runtime/channel-approvals.js';
 import type { ApplyGuardianDecisionResult } from '../runtime/guardian-decision-types.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
 import { computeToolApprovalDigest } from '../security/tool-approval-digest.js';
 import { getLogger } from '../util/logger.js';
 import { mintGrantFromDecision } from './approval-primitive.js';
@@ -233,7 +234,7 @@ export function mintCanonicalRequestGrant(params: {
   }
 
   const result = mintGrantFromDecision({
-    assistantId: 'self',
+    assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
     scopeMode: 'tool_signature',
     toolName: request.toolName,
     inputDigest: request.inputDigest,

@@ -178,13 +178,12 @@ export type ForwardOptions = {
 
 export async function forwardToRuntime(
   config: GatewayConfig,
-  assistantId: string,
   payload: RuntimeInboundPayload,
   options?: ForwardOptions,
 ): Promise<RuntimeInboundResponse> {
   const isHalfOpenProbe = cbBeforeRequest();
 
-  const url = `${config.assistantRuntimeBaseUrl}/v1/assistants/${encodeURIComponent(assistantId)}/channels/inbound`;
+  const url = `${config.assistantRuntimeBaseUrl}/v1/channels/inbound`;
 
   const extraHeaders: Record<string, string> = { "Content-Type": "application/json" };
   if (options?.traceId) {
@@ -200,7 +199,7 @@ export async function forwardToRuntime(
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     if (attempt > 0) {
       const delay = config.runtimeInitialBackoffMs * Math.pow(2, attempt - 1);
-      log.debug({ attempt, delay, assistantId }, "Retrying runtime forward");
+      log.debug({ attempt, delay }, "Retrying runtime forward");
       await new Promise((r) => setTimeout(r, delay));
     }
 
@@ -215,7 +214,7 @@ export async function forwardToRuntime(
       if (response.status >= 400 && response.status < 500) {
         const body = await response.text();
         log.warn(
-          { status: response.status, body, assistantId },
+          { status: response.status, body },
           "Runtime returned client error, not retrying",
         );
         // 4xx = client error, not a daemon outage — don't trip the breaker
@@ -227,7 +226,7 @@ export async function forwardToRuntime(
         const body = await response.text();
         lastError = new Error(`Runtime returned ${response.status}: ${body}`);
         log.warn(
-          { status: response.status, attempt, assistantId },
+          { status: response.status, attempt },
           "Runtime returned server error",
         );
         continue;
@@ -235,7 +234,7 @@ export async function forwardToRuntime(
 
       const result = (await response.json()) as RuntimeInboundResponse;
       log.debug(
-        { assistantId, eventId: result.eventId, duplicate: result.duplicate },
+        { eventId: result.eventId, duplicate: result.duplicate },
         "Runtime forward succeeded",
       );
       cbOnSuccess();
@@ -249,7 +248,7 @@ export async function forwardToRuntime(
       }
       lastError = err instanceof Error ? err : new Error(String(err));
       log.warn(
-        { err: lastError, attempt, assistantId },
+        { err: lastError, attempt },
         "Runtime forward attempt failed",
       );
     }
@@ -261,13 +260,12 @@ export async function forwardToRuntime(
 
 export async function resetConversation(
   config: GatewayConfig,
-  assistantId: string,
   sourceChannel: ChannelId,
   externalChatId: string,
 ): Promise<void> {
   cbBeforeRequest();
 
-  const url = `${config.assistantRuntimeBaseUrl}/v1/assistants/${encodeURIComponent(assistantId)}/channels/conversation`;
+  const url = `${config.assistantRuntimeBaseUrl}/v1/channels/conversation`;
 
   let response: Response;
   try {
@@ -302,41 +300,6 @@ export type UploadAttachmentResponse = {
 };
 
 export async function downloadAttachment(
-  config: GatewayConfig,
-  assistantId: string,
-  attachmentId: string,
-): Promise<RuntimeAttachmentPayload> {
-  cbBeforeRequest();
-
-  const url = `${config.assistantRuntimeBaseUrl}/v1/assistants/${encodeURIComponent(assistantId)}/attachments/${encodeURIComponent(attachmentId)}`;
-
-  let response: Response;
-  try {
-    response = await fetchImpl(url, {
-      method: "GET",
-      headers: runtimeHeaders(config),
-      signal: AbortSignal.timeout(config.runtimeTimeoutMs),
-    });
-  } catch (err) {
-    cbOnFailure();
-    throw err;
-  }
-
-  if (!response.ok) {
-    const body = await response.text();
-    if (response.status >= 500) cbOnFailure(); else cbOnSuccess();
-    throw new Error(`Attachment download failed (${response.status}): ${body}`);
-  }
-
-  cbOnSuccess();
-  return (await response.json()) as RuntimeAttachmentPayload;
-}
-
-/**
- * Download an attachment without requiring an assistantId.
- * Uses the assistant-less /v1/attachments/:attachmentId endpoint.
- */
-export async function downloadAttachmentById(
   config: GatewayConfig,
   attachmentId: string,
 ): Promise<RuntimeAttachmentPayload> {
@@ -386,7 +349,6 @@ export async function forwardTwilioVoiceWebhook(
   config: GatewayConfig,
   params: Record<string, string>,
   originalUrl: string,
-  assistantId?: string,
 ): Promise<TwilioForwardResponse> {
   cbBeforeRequest();
 
@@ -397,7 +359,7 @@ export async function forwardTwilioVoiceWebhook(
     response = await fetchImpl(url, {
       method: "POST",
       headers: runtimeHeaders(config, { "Content-Type": "application/json" }),
-      body: JSON.stringify({ params, originalUrl, assistantId }),
+      body: JSON.stringify({ params, originalUrl }),
       signal: AbortSignal.timeout(config.runtimeTimeoutMs),
     });
   } catch (err) {
@@ -482,12 +444,11 @@ export async function forwardTwilioConnectActionWebhook(
 
 export async function uploadAttachment(
   config: GatewayConfig,
-  assistantId: string,
   input: UploadAttachmentInput,
 ): Promise<UploadAttachmentResponse> {
   cbBeforeRequest();
 
-  const url = `${config.assistantRuntimeBaseUrl}/v1/assistants/${encodeURIComponent(assistantId)}/attachments`;
+  const url = `${config.assistantRuntimeBaseUrl}/v1/attachments`;
 
   let response: Response;
   try {

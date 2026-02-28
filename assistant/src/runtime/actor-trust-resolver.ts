@@ -17,7 +17,7 @@ import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.
 import type { IngressMember } from '../memory/ingress-member-store.js';
 import { findMember } from '../memory/ingress-member-store.js';
 import { canonicalizeInboundIdentity } from '../util/canonicalize-identity.js';
-import { normalizeAssistantId } from '../util/platform.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from './assistant-scope.js';
 import { getGuardianBinding } from './channel-guardian-service.js';
 
 // ---------------------------------------------------------------------------
@@ -76,7 +76,7 @@ export interface ResolveActorTrustInput {
  * 5. Classify: guardian > trusted_contact (active member) > unknown.
  */
 export function resolveActorTrust(input: ResolveActorTrustInput): ActorTrustContext {
-  const assistantId = normalizeAssistantId(input.assistantId);
+  const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
 
   const rawUserId = typeof input.senderExternalUserId === 'string' && input.senderExternalUserId.trim().length > 0
     ? input.senderExternalUserId.trim()

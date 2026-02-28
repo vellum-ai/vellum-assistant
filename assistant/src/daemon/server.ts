@@ -18,6 +18,7 @@ import * as conversationStore from '../memory/conversation-store.js';
 import { provenanceFromGuardianContext } from '../memory/conversation-store.js';
 import { RateLimitProvider } from '../providers/ratelimit.js';
 import { getFailoverProvider, initializeProviders } from '../providers/registry.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
 import * as pendingInteractions from '../runtime/pending-interactions.js';
 import { checkIngressForSecrets } from '../security/secret-ingress.js';
 import { getSubagentManager } from '../subagent/index.js';
@@ -826,7 +827,7 @@ export class DaemonServer {
 
     const resolvedChannel = resolveTurnChannel(sourceChannel, options?.transport?.channelId);
     const resolvedInterface = resolveTurnInterface(sourceInterface);
-    session.setAssistantId(options?.assistantId ?? 'self');
+    session.setAssistantId(options?.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID);
     session.setGuardianContext(options?.guardianContext ?? null);
     await session.ensureActorScopedHistory();
     session.setChannelCapabilities(resolveChannelCapabilities(sourceChannel, sourceInterface));

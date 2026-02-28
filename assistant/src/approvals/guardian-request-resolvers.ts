@@ -16,6 +16,7 @@ import type { CanonicalGuardianRequest } from '../memory/canonical-guardian-stor
 import { upsertMember } from '../memory/ingress-member-store.js';
 import { emitNotificationSignal } from '../notifications/emit-signal.js';
 import { addRule } from '../permissions/trust-store.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
 import type { ApprovalAction } from '../runtime/channel-approval-types.js';
 import { createOutboundSession } from '../runtime/channel-guardian-service.js';
 import { deliverChannelReply } from '../runtime/gateway-client.js';
@@ -28,42 +29,6 @@ const log = getLogger('guardian-request-resolvers');
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/**
- * Extract the canonical assistant ID from an access_request's conversationId.
- *
- * Access request conversationIds follow the format:
- *   `access-req-${canonicalAssistantId}-${sourceChannel}-${senderExternalUserId}`
- *
- * When both sourceChannel and requesterExternalUserId are known, we strip the
- * prefix and suffix to recover the assistantId. Falls back to the
- * channelDeliveryContext value or `'self'` when parsing is not possible.
- */
-function resolveAssistantIdFromRequest(
-  request: CanonicalGuardianRequest,
-  channelDeliveryContext: ChannelDeliveryContext | undefined,
-): string {
-  // Prefer channelDeliveryContext when available (channel decision path).
-  if (channelDeliveryContext?.assistantId) {
-    return channelDeliveryContext.assistantId;
-  }
-
-  // Extract from conversationId for access_request kind.
-  const convId = request.conversationId;
-  const channel = request.sourceChannel;
-  const requester = request.requesterExternalUserId;
-
-  if (convId && channel && requester) {
-    const prefix = 'access-req-';
-    const suffix = `-${channel}-${requester}`;
-    if (convId.startsWith(prefix) && convId.endsWith(suffix)) {
-      const extracted = convId.slice(prefix.length, convId.length - suffix.length);
-      if (extracted) return extracted;
-    }
-  }
-
-  return 'self';
-}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -319,7 +284,7 @@ const accessRequestResolver: GuardianRequestResolver = {
     const requesterExternalUserId = request.requesterExternalUserId ?? '';
     const requesterChatId = request.requesterChatId ?? request.requesterExternalUserId ?? '';
     const decidedByExternalUserId = ctx.actor.externalUserId ?? '';
-    const assistantId = resolveAssistantIdFromRequest(request, channelDeliveryContext);
+    const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
 
     if (decision.action === 'reject') {
       log.info(
@@ -535,7 +500,7 @@ const toolGrantRequestResolver: GuardianRequestResolver = {
   async resolve(ctx: ResolverContext): Promise<ResolverResult> {
     const { request, decision, channelDeliveryContext } = ctx;
     const requesterChatId = request.requesterChatId ?? request.requesterExternalUserId ?? '';
-    const assistantId = resolveAssistantIdFromRequest(request, channelDeliveryContext);
+    const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
 
     if (decision.action === 'reject') {
       log.info(

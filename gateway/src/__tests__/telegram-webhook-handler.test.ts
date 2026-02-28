@@ -135,7 +135,7 @@ function installFetchMock() {
     fetchCalls.push({ url, method, body, headers });
 
     // Runtime inbound endpoint
-    if (url.includes("/v1/assistants/") && url.includes("/inbound")) {
+    if (url.includes("/v1/channels/inbound")) {
       return new Response(JSON.stringify({ eventId: "evt-1", duplicate: false }), {
         status: 200,
         headers: { "content-type": "application/json" },
@@ -347,7 +347,7 @@ describe("telegram webhook handler: in-flight dedup", () => {
       } catch { /* not JSON */ }
       fetchCalls.push({ url, method, body });
 
-      if (url.includes("/v1/assistants/") && url.includes("/inbound")) {
+      if (url.includes("/v1/channels/inbound")) {
         inboundCallCount++;
         if (inboundCallCount === 1) {
           await firstBlocks; // hang until test releases
@@ -406,7 +406,7 @@ describe("telegram webhook handler: in-flight dedup", () => {
       } catch { /* not JSON */ }
       fetchCalls.push({ url, method, body });
 
-      if (url.includes("/v1/assistants/") && url.includes("/inbound")) {
+      if (url.includes("/v1/channels/inbound")) {
         callCount++;
         if (callCount === 1) {
           // First call fails

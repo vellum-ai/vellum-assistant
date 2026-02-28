@@ -2018,3 +2018,16 @@ Key files: `src/tools/sensitive-output-placeholders.ts`, `src/tools/executor.ts`
 ### Notifications
 
 For full notification developer guidance and lifecycle details, see [`assistant/src/notifications/README.md`](src/notifications/README.md).
+
+### Assistant Identity Boundary
+
+The daemon uses a single fixed internal scope constant — `DAEMON_INTERNAL_ASSISTANT_ID` (`'self'`), exported from `src/runtime/assistant-scope.ts` — for all assistant-scoped storage and routing within the daemon process. Public/external assistant IDs (e.g., those assigned during hatch, invite links, or platform registration) are an **edge concern** owned by the gateway and platform layers.
+
+**Boundary rule:** Daemon code must never derive internal scoping decisions from externally-provided assistant IDs. When a daemon path needs an assistant scope and none is provided, it defaults to `DAEMON_INTERNAL_ASSISTANT_ID`. The gateway is responsible for mapping public assistant IDs to internal routing before forwarding requests to the daemon.
+
+**Key files:**
+
+| File | Purpose |
+|------|---------|
+| `src/runtime/assistant-scope.ts` | Exports `DAEMON_INTERNAL_ASSISTANT_ID` constant |
+| `src/__tests__/assistant-id-boundary-guard.test.ts` | Guard tests enforcing the identity boundary |

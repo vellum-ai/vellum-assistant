@@ -11,6 +11,7 @@ import { getOrCreateConversation } from '../../memory/conversation-key-store.js'
 import { formatSseFrame, formatSseHeartbeat } from '../assistant-event.js';
 import type { AssistantEventSubscription } from '../assistant-event-hub.js';
 import { AssistantEventHub,assistantEventHub } from '../assistant-event-hub.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
 import { httpError } from '../http-errors.js';
 
 /** Keep-alive comment sent to idle clients every 30 s by default. */
@@ -50,8 +51,6 @@ export function handleSubscribeAssistantEvents(
   // closures are in place before events can arrive.  `controllerRef` is set
   // synchronously inside ReadableStream's start(), so it is non-null by the
   // time any event or eviction fires.
-  // 'self' is the assistantId used by buildAssistantEvent('self', ...) for
-  // all HTTP and voice session events.
   let controllerRef: ReadableStreamDefaultController<Uint8Array> | null = null;
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   let sub!: AssistantEventSubscription;
@@ -63,7 +62,7 @@ export function handleSubscribeAssistantEvents(
 
   try {
     sub = hub.subscribe(
-      { assistantId: 'self', sessionId: mapping.conversationId },
+      { assistantId: DAEMON_INTERNAL_ASSISTANT_ID, sessionId: mapping.conversationId },
       (event) => {
         const controller = controllerRef;
         if (!controller) return;

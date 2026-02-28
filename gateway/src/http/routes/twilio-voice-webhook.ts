@@ -63,7 +63,7 @@ export function createTwilioVoiceWebhookHandler(config: GatewayConfig) {
     }
 
     try {
-      const runtimeResponse = await forwardTwilioVoiceWebhook(config, params, req.url, assistantId);
+      const runtimeResponse = await forwardTwilioVoiceWebhook(config, params, req.url);
       return new Response(runtimeResponse.body, {
         status: runtimeResponse.status,
         headers: runtimeResponse.headers,

@@ -9,6 +9,7 @@
 import { and, count, desc, eq, gt, lte } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
+import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
 import { getDb } from './db.js';
 import { channelGuardianApprovalRequests } from './schema.js';
 
@@ -100,7 +101,7 @@ export function createApprovalRequest(params: {
     runId: params.runId,
     requestId: params.requestId ?? null,
     conversationId: params.conversationId,
-    assistantId: params.assistantId ?? 'self',
+    assistantId: params.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
     channel: params.channel,
     requesterExternalUserId: params.requesterExternalUserId,
     requesterChatId: params.requesterChatId,
@@ -402,7 +403,7 @@ export function listPendingApprovalRequests(params: {
   const db = getDb();
 
   const conditions = [
-    eq(channelGuardianApprovalRequests.assistantId, params.assistantId ?? 'self'),
+    eq(channelGuardianApprovalRequests.assistantId, params.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID),
   ];
   if (params.channel) {
     conditions.push(eq(channelGuardianApprovalRequests.channel, params.channel));

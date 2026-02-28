@@ -10,6 +10,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 
 import { and, desc, eq } from 'drizzle-orm';
 
+import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
 import { getDb } from './db.js';
 import { assistantIngressInvites, assistantIngressMembers } from './schema.js';
 
@@ -154,7 +155,7 @@ export function createInvite(params: {
 
   const row = {
     id,
-    assistantId: params.assistantId ?? 'self',
+    assistantId: params.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
     sourceChannel: params.sourceChannel,
     tokenHash: tokenH,
     createdBySessionId: params.createdBySessionId ?? null,
@@ -192,7 +193,7 @@ export function listInvites(params: {
   offset?: number;
 }): IngressInvite[] {
   const db = getDb();
-  const assistantId = params.assistantId ?? 'self';
+  const assistantId = params.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
 
   const conditions = [eq(assistantIngressInvites.assistantId, assistantId)];
 

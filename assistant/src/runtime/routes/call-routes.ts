@@ -11,6 +11,7 @@
 import { answerCall, cancelCall, getCallStatus, relayInstruction,startCall } from '../../calls/call-domain.js';
 import { getConfig } from '../../config/loader.js';
 import { VALID_CALLER_IDENTITY_MODES } from '../../config/schema.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
 import { httpError, httpErrorCodeFromStatus } from '../http-errors.js';
 
 // ── Idempotency cache ─────────────────────────────────────────────────────────
@@ -41,7 +42,7 @@ function pruneIdempotencyCache(): void {
  * Optional `idempotencyKey`: if supplied, duplicate requests with the same key
  * within 5 minutes return the cached 201 response without starting a second call.
  */
-export async function handleStartCall(req: Request, assistantId: string = 'self'): Promise<Response> {
+export async function handleStartCall(req: Request, assistantId: string = DAEMON_INTERNAL_ASSISTANT_ID): Promise<Response> {
   if (!getConfig().calls.enabled) {
     return httpError('FORBIDDEN', 'Calls feature is disabled via configuration. Set calls.enabled to true to use this feature.', 403);
   }

@@ -704,19 +704,20 @@ describe('twilio webhook routes', () => {
       expect(res.status).toBe(400);
     });
 
-    test('inbound webhook with forwarded assistantId creates session with correct assistantId', async () => {
+    test('inbound webhook creates session with internal scope assistantId', async () => {
       const req = makeInboundVoiceRequest({
         CallSid: 'CA_inbound_assist_1',
         From: '+14155551234',
         To: '+15550001111',
       });
 
-      const res = await handleVoiceWebhook(req, 'my-assistant-id');
+      const res = await handleVoiceWebhook(req);
 
       expect(res.status).toBe(200);
       const session = getCallSessionByCallSid('CA_inbound_assist_1');
       expect(session).not.toBeNull();
-      expect(session!.assistantId).toBe('my-assistant-id');
+      // Daemon always uses internal scope — external assistant IDs are not leaked into session state.
+      expect(session!.assistantId).toBe('self');
     });
 
     test('outbound call flow remains non-regressed with callSessionId present', async () => {
