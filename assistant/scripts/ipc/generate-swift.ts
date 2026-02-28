@@ -94,9 +94,9 @@ function generateSchemas(): Record<string, SchemaDef> {
 
   const program = TJS.getProgramFromFiles(contractFiles, {
     strict: true,
-    target: 'esnext',
-    module: 'nodenext',
-    moduleResolution: 'nodenext',
+    target: 'es2022',
+    module: 'commonjs',
+    moduleResolution: 'node',
     skipLibCheck: true,
   });
 
