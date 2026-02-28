@@ -105,6 +105,223 @@ final class AssistantCli {
 
     // MARK: - Public API
 
+    /// Eagerly spawn the daemon so the IPC socket appears as fast as possible.
+    /// Unlike `hatch()`, this returns right away — it does NOT wait for the
+    /// socket to appear, start the gateway, or create a lockfile entry.
+    ///
+    /// Prefers starting from source (via `bun run`) when available because
+    /// the compiled Bun binary takes ~60 seconds for runtime initialization,
+    /// while the source daemon starts in ~1 second. Falls back to the compiled
+    /// binary when `bun` or the source tree is unavailable.
+    ///
+    /// Also writes a guard lockfile entry so the CLI's stale-process cleanup
+    /// (hatch.ts) doesn't kill the daemon we just spawned.
+    func ensureDaemonRunning() {
+        // Check if daemon is already alive
+        if isDaemonAlive() {
+            log.info("Daemon already running — skipping eager spawn")
+            return
+        }
+
+        // Check if socket is responsive (daemon might be running without a valid PID file)
+        if FileManager.default.fileExists(atPath: socketURL.path) {
+            log.info("Daemon socket exists — skipping eager spawn")
+            return
+        }
+
+        // Ensure ~/.vellum/ exists
+        try? FileManager.default.createDirectory(at: vellumDir, withIntermediateDirectories: true)
+
+        // Write a guard lockfile entry BEFORE spawning so the CLI's stale-process
+        // cleanup (hatch.ts hatchLocal) sees a local assistant and doesn't kill
+        // the daemon we're about to start.
+        writeGuardLockfileEntry()
+
+        // Try source daemon first (starts in ~1s vs ~60s for compiled binary)
+        if trySpawnSourceDaemon() {
+            return
+        }
+
+        // Fall back to compiled binary
+        trySpawnCompiledDaemon()
+    }
+
+    /// Attempt to start the daemon from source via `bun run`. Returns `true`
+    /// if the source daemon was spawned successfully.
+    private func trySpawnSourceDaemon() -> Bool {
+        // Find the assistant source entry point relative to the app bundle.
+        // App binary is at: .../clients/macos/dist/Vellum.app/Contents/MacOS/Vellum
+        // Source is at:      .../assistant/src/daemon/main.ts
+        guard let execURL = Bundle.main.executableURL else { return false }
+
+        // Walk up from the MacOS dir to find the repo root
+        var searchDir = execURL.deletingLastPathComponent() // MacOS/
+        for _ in 0..<10 {
+            let candidate = searchDir.appendingPathComponent("assistant/src/daemon/main.ts")
+            if FileManager.default.fileExists(atPath: candidate.path) {
+                return spawnSourceDaemon(mainTs: candidate, repoRoot: searchDir)
+            }
+            let parent = searchDir.deletingLastPathComponent()
+            if parent.path == searchDir.path { break }
+            searchDir = parent
+        }
+
+        log.info("No assistant source tree found — skipping source daemon")
+        return false
+    }
+
+    private func spawnSourceDaemon(mainTs: URL, repoRoot: URL) -> Bool {
+        // Find bun binary
+        let fullEnv = ProcessInfo.processInfo.environment
+        let pathDirs = (fullEnv["PATH"] ?? "/usr/local/bin:/usr/bin:/bin")
+            .split(separator: ":").map(String.init)
+        var bunPath: String?
+        // Also check ~/.bun/bin which may not be on PATH in app context
+        let candidates = pathDirs + [NSHomeDirectory() + "/.bun/bin"]
+        for dir in candidates {
+            let p = (dir as NSString).appendingPathComponent("bun")
+            if FileManager.default.isExecutableFile(atPath: p) {
+                bunPath = p
+                break
+            }
+        }
+        guard let bun = bunPath else {
+            log.info("bun not found on PATH — cannot start source daemon")
+            return false
+        }
+
+        log.info("Starting source daemon via bun at \(bun, privacy: .private)")
+
+        // The assistant's `daemon start` command spawns the daemon as a detached
+        // child and waits 5s for the socket (much faster than 60s for compiled binary).
+        let assistantDir = repoRoot.appendingPathComponent("assistant")
+        let indexTs = assistantDir.appendingPathComponent("src/index.ts")
+
+        var env: [String: String] = [
+            "HOME": NSHomeDirectory(),
+            "PATH": (fullEnv["PATH"] ?? "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin")
+                + ":" + NSHomeDirectory() + "/.bun/bin",
+            "VELLUM_DAEMON_TCP_ENABLED": "1",
+        ]
+        for key in ["ANTHROPIC_API_KEY", "BASE_DATA_DIR", "RUNTIME_HTTP_PORT",
+                     "VELLUM_DAEMON_TCP_PORT", "VELLUM_DAEMON_TCP_HOST",
+                     "VELLUM_DAEMON_SOCKET", "VELLUM_DEBUG",
+                     "SENTRY_DSN", "TMPDIR", "USER", "LANG"] {
+            if let val = fullEnv[key] {
+                env[key] = val
+            }
+        }
+        if env["RUNTIME_HTTP_PORT"] == nil {
+            env["RUNTIME_HTTP_PORT"] = "7821"
+        }
+
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: bun)
+        proc.currentDirectoryURL = assistantDir
+        proc.arguments = ["run", indexTs.path, "daemon", "start"]
+        proc.environment = env
+        proc.standardOutput = FileHandle.nullDevice
+        proc.standardError = FileHandle.nullDevice
+
+        do {
+            try proc.run()
+            log.info("Source daemon start command launched (pid \(proc.processIdentifier))")
+            lastLaunchTime = Date()
+            // The daemon start command spawns the actual daemon as a detached child
+            // and writes the PID file itself, so we don't need to write it here.
+            return true
+        } catch {
+            log.error("Failed to start source daemon: \(error)")
+            return false
+        }
+    }
+
+    /// Spawn the compiled daemon binary directly. This is the fallback when
+    /// `bun` or the source tree isn't available.
+    private func trySpawnCompiledDaemon() {
+        guard let execURL = Bundle.main.executableURL else {
+            log.info("No app bundle — skipping compiled daemon spawn")
+            return
+        }
+        let daemonURL = execURL.deletingLastPathComponent().appendingPathComponent("vellum-daemon")
+        guard FileManager.default.fileExists(atPath: daemonURL.path) else {
+            log.info("No bundled daemon binary — skipping compiled daemon spawn")
+            return
+        }
+
+        log.info("Spawning compiled daemon binary at \(daemonURL.path, privacy: .private)")
+
+        let fullEnv = ProcessInfo.processInfo.environment
+        var env: [String: String] = [
+            "HOME": NSHomeDirectory(),
+            "PATH": fullEnv["PATH"] ?? "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+            "VELLUM_DAEMON_TCP_ENABLED": "1",
+        ]
+        for key in ["ANTHROPIC_API_KEY", "BASE_DATA_DIR", "RUNTIME_HTTP_PORT",
+                     "VELLUM_DAEMON_TCP_PORT", "VELLUM_DAEMON_TCP_HOST",
+                     "VELLUM_DAEMON_SOCKET", "VELLUM_DEBUG",
+                     "SENTRY_DSN", "TMPDIR", "USER", "LANG"] {
+            if let val = fullEnv[key] {
+                env[key] = val
+            }
+        }
+        if env["RUNTIME_HTTP_PORT"] == nil {
+            env["RUNTIME_HTTP_PORT"] = "7821"
+        }
+
+        let proc = Process()
+        proc.executableURL = daemonURL
+        proc.currentDirectoryURL = daemonURL.deletingLastPathComponent()
+        proc.arguments = []
+        proc.environment = env
+        proc.standardOutput = FileHandle.nullDevice
+        proc.standardError = FileHandle.nullDevice
+
+        do {
+            try proc.run()
+            let pid = proc.processIdentifier
+            log.info("Compiled daemon spawned with pid \(pid)")
+
+            let pidData = Data("\(pid)".utf8)
+            try pidData.write(to: pidFileURL)
+
+            lastLaunchTime = Date()
+        } catch {
+            log.error("Failed to spawn compiled daemon: \(error)")
+        }
+    }
+
+    /// Writes a minimal lockfile entry to prevent the CLI's stale-process
+    /// cleanup from killing the eagerly-spawned daemon. The CLI checks
+    /// `loadAllAssistants()` and kills processes when no local assistant
+    /// entries exist. This guard entry is replaced by the real entry when
+    /// the CLI's `saveAssistantEntry()` runs during hatch.
+    private func writeGuardLockfileEntry() {
+        let lockfileURL = LockfilePaths.primary
+        // Only write if lockfile doesn't exist or has no assistants
+        if let json = LockfilePaths.read(),
+           let assistants = json["assistants"] as? [[String: Any]],
+           !assistants.isEmpty {
+            return
+        }
+
+        let guard_entry: [String: Any] = [
+            "assistants": [[
+                "assistantId": "local-pending",
+                "cloud": "local",
+                "species": "vellum",
+                "hatchedAt": ISO8601DateFormatter().string(from: Date()),
+            ]]
+        ]
+        do {
+            let data = try JSONSerialization.data(withJSONObject: guard_entry, options: [.prettyPrinted, .sortedKeys])
+            try data.write(to: lockfileURL)
+            log.info("Wrote guard lockfile entry to prevent stale-process cleanup")
+        } catch {
+            log.error("Failed to write guard lockfile entry: \(error)")
+        }
+    }
+
     /// Hatch a new assistant via the CLI. The CLI spawns the daemon binary,
     /// waits for the socket, and registers the assistant entry.
     ///

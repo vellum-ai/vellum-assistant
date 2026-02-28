@@ -340,7 +340,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             hasSetupDaemon = false
         }
 
-        setupDaemonClient()
+        setupDaemonClient(isFirstLaunch: isFirstLaunch)
         setupMenuBar()
         setupFileMenu()
         setupHotKey()
@@ -809,6 +809,16 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
         // No assistants left — tear down fully and show onboarding
         OnboardingState.clearPersistedState()
+        UserDefaults.standard.removeObject(forKey: "bootstrapState")
+        UserDefaults.standard.removeObject(forKey: "connectedAssistantId")
+        UserDefaults.standard.removeObject(forKey: "lastActivePanel")
+
+        // Disconnect the daemon client so the next setupDaemonClient starts clean.
+        daemonClient.disconnect()
+        // Cancel any in-progress bootstrap retry so it doesn't race with the
+        // new onboarding flow.
+        bootstrapRetryTask?.cancel()
+        bootstrapRetryTask = nil
 
         mainWindow?.close()
         mainWindow = nil
@@ -954,7 +964,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
     // MARK: - Pairing Override Migration
 
-    func setupDaemonClient() {
+    func setupDaemonClient(isFirstLaunch: Bool = false) {
         guard !hasSetupDaemon else { return }
         hasSetupDaemon = true
 
@@ -1165,21 +1175,59 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             }
         }
 
+        // Eagerly spawn the daemon binary so the IPC socket appears as fast as
+        // possible. The CLI hatch command can take 60-120s (it waits for the
+        // socket + gateway), which causes the "Still starting..." interstitial.
+        // By spawning the daemon directly first, the retry coordinator can
+        // connect within seconds while the CLI runs in the background.
+        if !isCurrentAssistantRemote {
+            assistantCli.ensureDaemonRunning()
+        }
+
         Task {
             if !isCurrentAssistantRemote {
-                // Hatch the assistant via CLI (spawns daemon in release builds).
-                // daemonOnly: true prevents creating a new lockfile entry on every launch.
+                // On first launch post-onboarding, use daemonOnly: false so the CLI
+                // creates a lockfile entry. On subsequent launches, daemonOnly: true
+                // prevents duplicates.
+                let needsLockfileEntry = isFirstLaunch && !self.lockfileHasAssistants()
+                var hatchSucceeded = false
                 do {
-                    try await assistantCli.hatch(daemonOnly: true)
+                    try await assistantCli.hatch(daemonOnly: !needsLockfileEntry)
+                    hatchSucceeded = true
                 } catch {
                     log.error("Failed to hatch assistant during daemon setup: \(error)")
+                    // If full hatch (with lockfile entry) failed, fall back to
+                    // daemon-only hatch so the daemon at least starts.
+                    if needsLockfileEntry {
+                        log.info("Retrying hatch with daemonOnly: true as fallback")
+                        do {
+                            try await assistantCli.hatch(daemonOnly: true)
+                            hatchSucceeded = true
+                        } catch {
+                            log.error("Fallback daemon-only hatch also failed: \(error)")
+                        }
+                    }
+                }
+                if needsLockfileEntry {
+                    if hatchSucceeded {
+                        _ = self.loadAssistantFromLockfile()
+                    } else {
+                        // Both hatch attempts failed — remove the guard lockfile
+                        // entry to avoid a zombie "local-pending" assistant that
+                        // would prevent onboarding from re-running.
+                        self.removeGuardLockfileEntry()
+                    }
                 }
                 assistantCli.startMonitoring()
             }
-            do {
-                try await daemonClient.connect()
-            } catch {
-                log.error("Failed to connect to daemon during setup: \(error)")
+            // Skip connect if the bootstrap retry coordinator already connected
+            // (hatch can take a long time; the coordinator connects independently).
+            if !daemonClient.isConnected {
+                do {
+                    try await daemonClient.connect()
+                } catch {
+                    log.error("Failed to connect to daemon during setup: \(error)")
+                }
             }
             // Once connected, start ambient agent if it was waiting for daemon
             if daemonClient.isConnected {
@@ -2035,13 +2083,39 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
     // MARK: - Onboarding
 
-    /// Returns `true` when `~/.vellum.lock.json` contains at least one assistant entry.
+    /// Returns `true` when `~/.vellum.lock.json` contains at least one real
+    /// assistant entry (excludes the `local-pending` guard entry written by
+    /// `ensureDaemonRunning()` to prevent stale-process cleanup).
     private func lockfileHasAssistants() -> Bool {
         guard let json = LockfilePaths.read(),
               let assistants = json["assistants"] as? [[String: Any]] else {
             return false
         }
-        return !assistants.isEmpty
+        return assistants.contains { ($0["assistantId"] as? String) != "local-pending" }
+    }
+
+    /// Remove the guard lockfile entry written by `ensureDaemonRunning()`.
+    /// Called when both hatch attempts fail so the zombie "local-pending"
+    /// entry doesn't prevent onboarding from re-running on next launch.
+    private func removeGuardLockfileEntry() {
+        guard let json = LockfilePaths.read(),
+              let assistants = json["assistants"] as? [[String: Any]] else {
+            return
+        }
+        let filtered = assistants.filter { ($0["assistantId"] as? String) != "local-pending" }
+        if filtered.isEmpty {
+            // No real entries remain — delete the lockfile entirely
+            try? FileManager.default.removeItem(at: LockfilePaths.primary)
+            log.info("Removed guard lockfile (no real entries remain)")
+        } else {
+            // Write back without the guard entry
+            var updated = json
+            updated["assistants"] = filtered
+            if let data = try? JSONSerialization.data(withJSONObject: updated, options: [.prettyPrinted, .sortedKeys]) {
+                try? data.write(to: LockfilePaths.primary)
+                log.info("Removed guard entry from lockfile")
+            }
+        }
     }
 
     private func showOnboarding() {
