@@ -15,7 +15,7 @@ public struct CardModifier: ViewModifier {
             .clipShape(RoundedRectangle(cornerRadius: radius))
             .overlay(
                 RoundedRectangle(cornerRadius: radius)
-                    .stroke(Color(hex: 0xE8E6DA), lineWidth: 2)
+                    .stroke(VColor.surfaceBorder, lineWidth: 1)
             )
     }
 }
