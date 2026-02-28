@@ -5,6 +5,7 @@ import { getLogger } from '../util/logger.js';
 import { getEmbeddingModelsDir } from '../util/platform.js';
 import { PromiseGuard } from '../util/promise-guard.js';
 import type { EmbeddingBackend, EmbeddingRequestOptions } from './embedding-backend.js';
+import { EmbeddingRuntimeManager } from './embedding-runtime-manager.js';
 
 const log = getLogger('memory-embedding-local');
 
@@ -67,6 +68,7 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
     // Resolution order for the transformers bundle:
     // 1. Post-hatch download: ~/.vellum/workspace/embedding-models/dist/
     //    Downloaded by EmbeddingRuntimeManager after daemon startup.
+    //    If the download is still in progress, wait for it to complete.
     // 2. Legacy bundled: execDir/node_modules/onnxruntime-node/dist/
     //    For backward compat with builds that still bundle in the .app.
     // 3. Dev mode: bare @huggingface/transformers import
@@ -79,9 +81,21 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
 
     let transformers: typeof import('@huggingface/transformers') | undefined;
 
-    // 1. Post-hatch downloaded runtime
+    // 1. Post-hatch downloaded runtime — wait for download if in progress
     const embeddingModelsDir = getEmbeddingModelsDir();
     const downloadedBundlePath = join(embeddingModelsDir, 'dist', 'transformers-bundle.mjs');
+    const runtimeManager = new EmbeddingRuntimeManager();
+    if (!runtimeManager.isReady()) {
+      // The background download may still be in progress. Wait for it
+      // (ensureInstalled is idempotent and handles concurrent calls).
+      log.info('Embedding runtime not yet available, waiting for download...');
+      try {
+        await runtimeManager.ensureInstalled();
+      } catch (err) {
+        log.warn({ err }, 'Embedding runtime download failed during initialization');
+      }
+    }
+
     if (existsSync(downloadedBundlePath)) {
       try {
         transformers = await import(downloadedBundlePath);

@@ -103,9 +103,12 @@ CLI_SRC_DIR="$SCRIPT_DIR/../../cli"
 GATEWAY_SRC_DIR="$SCRIPT_DIR/../../gateway"
 
 # Packages that must stay external in the compiled daemon binary. Native
-# modules (.node/.dylib) can't be embedded. Embedding runtime (onnxruntime-node,
-# @huggingface/transformers) is downloaded post-hatch by EmbeddingRuntimeManager.
-DAEMON_EXTERNAL_FLAGS=(--external electron --external "chromium-bidi/*")
+# modules (.node/.dylib) can't be embedded, and embedding runtime packages
+# must not be bundled — they are downloaded post-hatch by EmbeddingRuntimeManager
+# into ~/.vellum/workspace/embedding-models/. Without --external, bun would
+# embed the JS from devDependencies and extract .node to a temp dir where the
+# companion .dylib can't be found.
+DAEMON_EXTERNAL_FLAGS=(--external electron --external "chromium-bidi/*" --external onnxruntime-node --external @huggingface/transformers --external sharp --external onnxruntime-web --external onnxruntime-common)
 
 # ---------------------------------------------------------------------------
 # build_bun_binary — compile a TypeScript project to a native binary via Bun.
