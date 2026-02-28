@@ -22,6 +22,7 @@ import { createOutboundSession } from '../runtime/channel-guardian-service.js';
 import { deliverChannelReply } from '../runtime/gateway-client.js';
 import * as pendingInteractions from '../runtime/pending-interactions.js';
 import { getTool } from '../tools/registry.js';
+import { TC_GRANT_WAIT_MAX_MS } from '../tools/tool-approval-handler.js';
 import { getLogger } from '../util/logger.js';
 
 const log = getLogger('guardian-request-resolvers');
@@ -540,8 +541,33 @@ const toolGrantRequestResolver: GuardianRequestResolver = {
     // on the grant and will resume automatically — sending a "please retry"
     // notification would be stale and confusing (and could cause duplicate
     // attempts or one-time-grant denials).
+    //
+    // Staleness guard: the inline_wait_active marker is persisted in DB and
+    // can outlive the actual waiter if the daemon crashes or restarts during
+    // the wait. To avoid permanently suppressing the retry notification, we
+    // treat the marker as stale if the request's updatedAt is older than the
+    // maximum wait budget plus a 30s buffer.
+    const INLINE_WAIT_STALENESS_BUFFER_MS = 30_000;
     const freshRequest = getCanonicalGuardianRequest(request.id);
-    const inlineWaitActive = freshRequest?.followupState === 'inline_wait_active';
+    let inlineWaitActive = freshRequest?.followupState === 'inline_wait_active';
+    if (inlineWaitActive && freshRequest) {
+      const markerAgeMs = Date.now() - new Date(freshRequest.updatedAt).getTime();
+      const stalenessThresholdMs = TC_GRANT_WAIT_MAX_MS + INLINE_WAIT_STALENESS_BUFFER_MS;
+      if (markerAgeMs > stalenessThresholdMs) {
+        log.warn(
+          {
+            event: 'resolver_tool_grant_request_stale_inline_wait',
+            requestId: request.id,
+            toolName: request.toolName,
+            markerAgeMs,
+            stalenessThresholdMs,
+            updatedAt: freshRequest.updatedAt,
+          },
+          'inline_wait_active marker is stale (daemon likely crashed during wait) — sending retry notification',
+        );
+        inlineWaitActive = false;
+      }
+    }
 
     if (inlineWaitActive) {
       log.info(
