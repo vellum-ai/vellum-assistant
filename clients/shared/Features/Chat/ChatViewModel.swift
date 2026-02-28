@@ -381,6 +381,8 @@ public final class ChatViewModel: ObservableObject {
     public var isCancelling: Bool = false
     /// Maps daemon requestId to the user message UUID in the messages array.
     var requestIdToMessageId: [String: UUID] = [:]
+    /// Maps requestId to the currently processing user message UUID after dequeue.
+    var activeRequestIdToMessageId: [String: UUID] = [:]
     /// FIFO queue of user message UUIDs awaiting requestId assignment from the daemon.
     var pendingMessageIds: [UUID] = []
     /// Messages deleted locally before the daemon's `message_queued` ack arrived.
@@ -797,6 +799,7 @@ public final class ChatViewModel: ObservableObject {
                 self?.pendingQueuedCount = 0
                 self?.pendingMessageIds.removeAll()
                 self?.requestIdToMessageId.removeAll()
+                self?.activeRequestIdToMessageId.removeAll()
                 self?.pendingLocalDeletions.removeAll()
                 // If a run was in progress when the connection dropped, the
                 // client may have missed the messageComplete (or the full
@@ -1454,6 +1457,7 @@ public final class ChatViewModel: ObservableObject {
             pendingQueuedCount = 0
             pendingMessageIds = []
             requestIdToMessageId = [:]
+            activeRequestIdToMessageId = [:]
             pendingLocalDeletions.removeAll()
             for i in messages.indices {
                 if case .queued = messages[i].status, messages[i].role == .user {
@@ -1499,6 +1503,7 @@ public final class ChatViewModel: ObservableObject {
             pendingQueuedCount = 0
             pendingMessageIds = []
             requestIdToMessageId = [:]
+            activeRequestIdToMessageId = [:]
             pendingLocalDeletions.removeAll()
             // Reset processing/queued messages to sent
             for i in messages.indices {
@@ -1561,6 +1566,7 @@ public final class ChatViewModel: ObservableObject {
             self.pendingQueuedCount = 0
             self.pendingMessageIds = []
             self.requestIdToMessageId = [:]
+            self.activeRequestIdToMessageId = [:]
             self.pendingLocalDeletions.removeAll()
             // Reset queued/processing messages to sent (matches other cancel-failure paths)
             for i in self.messages.indices {
@@ -1768,6 +1774,7 @@ public final class ChatViewModel: ObservableObject {
         pendingQueuedCount = 0
         pendingMessageIds = []
         requestIdToMessageId = [:]
+        activeRequestIdToMessageId = [:]
         pendingLocalDeletions.removeAll()
         for i in messages.indices {
             if case .queued = messages[i].status, messages[i].role == .user {
