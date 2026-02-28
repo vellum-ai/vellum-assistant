@@ -548,6 +548,9 @@ describe('injectInboundActorContext', () => {
       sourceChannel: 'sms',
       canonicalActorIdentity: 'guardian-user-1',
       actorIdentifier: '+15550001111',
+      actorDisplayName: 'Guardian Name',
+      actorSenderDisplayName: 'Guardian Name',
+      actorMemberDisplayName: 'Guardian Name',
       trustClass: 'guardian',
       guardianIdentity: 'guardian-user-1',
     };
@@ -561,7 +564,32 @@ describe('injectInboundActorContext', () => {
     expect(text).toContain('trust_class: guardian');
     expect(text).toContain('source_channel: sms');
     expect(text).toContain('canonical_actor_identity: guardian-user-1');
+    expect(text).toContain('actor_display_name: Guardian Name');
+    expect(text).toContain('actor_sender_display_name: Guardian Name');
+    expect(text).toContain('actor_member_display_name: Guardian Name');
     expect(text).toContain('</inbound_actor_context>');
+  });
+
+  test('adds nickname guidance when member and sender display names differ', () => {
+    const ctx: InboundActorContext = {
+      sourceChannel: 'telegram',
+      canonicalActorIdentity: 'trusted-user-1',
+      actorIdentifier: '@jeff_handle',
+      actorDisplayName: 'Jeff',
+      actorSenderDisplayName: 'Jeffrey',
+      actorMemberDisplayName: 'Jeff',
+      trustClass: 'trusted_contact',
+      guardianIdentity: 'guardian-user-1',
+      memberStatus: 'active',
+      memberPolicy: 'allow',
+    };
+
+    const result = injectInboundActorContext(baseUserMessage, ctx);
+    const text = (result.content[0] as { type: 'text'; text: string }).text;
+    expect(text).toContain('actor_display_name: Jeff');
+    expect(text).toContain('actor_sender_display_name: Jeffrey');
+    expect(text).toContain('actor_member_display_name: Jeff');
+    expect(text).toContain('name_preference_note: actor_member_display_name is the guardian-preferred nickname');
   });
 
   test('includes behavioral guidance for trusted_contact actors', () => {

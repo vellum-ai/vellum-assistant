@@ -367,6 +367,7 @@ export async function runAgentLoopImpl(
           sourceChannel: gc.sourceChannel,
           externalChatId: gc.requesterChatId,
           senderExternalUserId: gc.requesterExternalUserId,
+          senderDisplayName: gc.requesterSenderDisplayName,
         });
         resolvedInboundActorContext = inboundActorContextFromTrust(actorTrust);
       } else {
