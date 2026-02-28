@@ -15,11 +15,11 @@ import { TOOL_DEFINITIONS, executeTool, type TestResult } from "./tools";
 
 // ── Constants ───────────────────────────────────────────────────────
 
-const MAX_ITERATIONS = 50;
+const MAX_ITERATIONS = 1000;
 const MAX_TEST_DURATION_MS = 5 * 60 * 1000; // 5 minutes per test
 const MAX_RETRIES = 5;
 const INITIAL_RETRY_DELAY_MS = 5000;
-const MODEL = "claude-sonnet-4-20250514";
+const MODEL = "claude-sonnet-4-6";
 
 const SYSTEM_PROMPT = `You are a QA test automation agent for a desktop application. Your job is to execute end-to-end test cases described in markdown and verify the expected outcomes.
 
@@ -43,7 +43,7 @@ Rules:
 - If a step fails (tool returns an error), try to recover once. If it still fails, report the test as failed with details.
 - You have a strict 5-minute time limit and a limited iteration budget. Work efficiently.
 
-Efficiency guidelines (CRITICAL — you will be killed after ~50 iterations):
+Efficiency guidelines (CRITICAL — work as fast as possible):
 - Combine multiple actions in a single applescript call when possible (e.g., dump the tree AND click a button in one script).
 - Do NOT dump the full accessibility tree every single time. Dump it once when you first encounter a new screen, then reference the elements you found. Only re-dump if your element reference fails.
 - When waiting for the app or assistant to respond, use a SINGLE wait call of 3-5 seconds, then check. Do not use many short waits.
