@@ -46,7 +46,7 @@ import {
 } from '../channel-guardian-service.js';
 import { getTransport } from '../channel-invite-transport.js';
 import { deliverChannelReply } from '../gateway-client.js';
-import { resolveGuardianContext } from '../guardian-context-resolver.js';
+import { getIsInteractiveFromContext, resolveGuardianContext } from '../guardian-context-resolver.js';
 import { routeGuardianReply } from '../guardian-reply-router.js';
 import {
   composeChannelVerifyReply,
@@ -1536,7 +1536,7 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
           },
           assistantId,
           guardianContext: toGuardianRuntimeContext(sourceChannel, guardianCtx),
-          isInteractive: guardianCtx.trustClass === 'guardian' || guardianCtx.trustClass === 'trusted_contact',
+          isInteractive: getIsInteractiveFromContext(guardianCtx),
           ...(cmdIntent ? { commandIntent: cmdIntent } : {}),
         },
         sourceChannel,

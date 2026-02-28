@@ -6,6 +6,7 @@ import { isChannelId, parseChannelId, parseInterfaceId } from '../channels/types
 import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
 import * as channelDeliveryStore from '../memory/channel-delivery-store.js';
 import { getLogger } from '../util/logger.js';
+import { getIsInteractiveFromContext } from './guardian-context-resolver.js';
 import { deliverReplyViaCallback } from './channel-reply-delivery.js';
 import type { MessageProcessor } from './http-types.js';
 
@@ -129,7 +130,7 @@ export async function sweepFailedEvents(
           },
           assistantId,
           guardianContext,
-          isInteractive: guardianContext?.trustClass === 'guardian' || guardianContext?.trustClass === 'trusted_contact',
+          isInteractive: getIsInteractiveFromContext(guardianContext),
         },
         sourceChannel,
         sourceInterface,

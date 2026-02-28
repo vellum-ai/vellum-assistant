@@ -38,6 +38,16 @@ export interface GuardianContext {
 export type ResolveGuardianContextInput = ResolveActorTrustInput;
 
 /**
+ * Canonical route-level policy for whether a turn can block on interactive
+ * approval prompts.
+ */
+export function getIsInteractiveFromContext(
+  ctx: Pick<GuardianContext, 'trustClass'> | Pick<GuardianRuntimeContext, 'trustClass'> | undefined,
+): boolean {
+  return ctx?.trustClass === 'guardian' || ctx?.trustClass === 'trusted_contact';
+}
+
+/**
  * Resolve route-level trust context from canonical identity state.
  */
 export function resolveGuardianContext(input: ResolveGuardianContextInput): GuardianContext {
