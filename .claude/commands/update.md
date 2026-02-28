@@ -67,7 +67,8 @@ PY
      cd ..
    )}"
 
-   # Resolve default assistant ID from lockfile (prefer first valid entry).
+   # Resolve default assistant ID from lockfile (sort by hatchedAt descending
+   # to match CLI loadLatestAssistant() behavior — most recently hatched wins).
    GATEWAY_DEFAULT_ASSISTANT_ID="${GATEWAY_DEFAULT_ASSISTANT_ID:-$(
      python3 - <<'PY'
 import json, os
@@ -75,12 +76,10 @@ lock_path = os.path.expanduser("~/.vellum.lock.json")
 try:
     with open(lock_path, "r", encoding="utf-8") as f:
         data = json.load(f)
-    for item in (data.get("assistants") or []):
-        if isinstance(item, dict):
-            aid = (item.get("assistantId") or "").strip()
-            if aid:
-                print(aid)
-                break
+    assistants = [a for a in (data.get("assistants") or []) if isinstance(a, dict) and (a.get("assistantId") or "").strip()]
+    assistants.sort(key=lambda a: a.get("hatchedAt") or "", reverse=True)
+    if assistants:
+        print(assistants[0]["assistantId"].strip())
 except Exception:
     pass
 PY
@@ -180,8 +179,10 @@ PY
    echo "  Daemon:   $DAEMON_STATUS"
    echo "  Gateway:  $GATEWAY_STATUS"
    # Extract routing config from gateway startup log
-   GATEWAY_POLICY=$(grep -o 'unmappedPolicy: "[^"]*"' ~/.vellum/gateway-dev.log 2>/dev/null | tail -1 || echo "unknown")
-   GATEWAY_HAS_DEFAULT=$(grep -o 'hasDefaultAssistant: [a-z]*' ~/.vellum/gateway-dev.log 2>/dev/null | tail -1 || echo "unknown")
+   GATEWAY_POLICY=$(grep -o 'unmappedPolicy: "[^"]*"' ~/.vellum/gateway-dev.log 2>/dev/null | tail -1)
+   GATEWAY_HAS_DEFAULT=$(grep -o 'hasDefaultAssistant: [a-z]*' ~/.vellum/gateway-dev.log 2>/dev/null | tail -1)
+   GATEWAY_POLICY="${GATEWAY_POLICY:-unknown}"
+   GATEWAY_HAS_DEFAULT="${GATEWAY_HAS_DEFAULT:-unknown}"
    echo "  Gateway routing: $GATEWAY_POLICY, $GATEWAY_HAS_DEFAULT"
    echo "  Gateway log: ~/.vellum/gateway-dev.log"
    echo "======================="
