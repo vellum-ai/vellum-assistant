@@ -108,6 +108,58 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertNil(viewModel.errorText)
     }
 
+    func testSendMessageDoesNotPrematurelyDenyPendingConfirmationForExplicitApprovePhrase() {
+        viewModel.sessionId = "sess-1"
+        var confirmation = ToolConfirmationData(
+            requestId: "req-approve",
+            toolName: "bash",
+            input: ["command": AnyCodable("ls -la")],
+            riskLevel: "low",
+            diff: nil,
+            allowlistOptions: [],
+            scopeOptions: [],
+            executionTarget: "host",
+            persistentDecisionsAllowed: true
+        )
+        confirmation.state = .pending
+        viewModel.messages.append(ChatMessage(role: .assistant, text: "", confirmation: confirmation))
+
+        viewModel.inputText = "approve"
+        viewModel.sendMessage()
+
+        XCTAssertEqual(
+            viewModel.messages.first(where: { $0.confirmation?.requestId == "req-approve" })?.confirmation?.state,
+            .pending,
+            "Explicit natural-language approval phrases should keep pending confirmation state until daemon resolution"
+        )
+    }
+
+    func testSendMessageStillPreemptivelyDeniesPendingConfirmationForRegularFollowUpText() {
+        viewModel.sessionId = "sess-1"
+        var confirmation = ToolConfirmationData(
+            requestId: "req-follow-up",
+            toolName: "bash",
+            input: ["command": AnyCodable("ls -la")],
+            riskLevel: "low",
+            diff: nil,
+            allowlistOptions: [],
+            scopeOptions: [],
+            executionTarget: "host",
+            persistentDecisionsAllowed: true
+        )
+        confirmation.state = .pending
+        viewModel.messages.append(ChatMessage(role: .assistant, text: "", confirmation: confirmation))
+
+        viewModel.inputText = "can you explain what this command does?"
+        viewModel.sendMessage()
+
+        XCTAssertEqual(
+            viewModel.messages.first(where: { $0.confirmation?.requestId == "req-follow-up" })?.confirmation?.state,
+            .denied,
+            "Non-decision follow-up text should keep the existing optimistic auto-deny behavior"
+        )
+    }
+
     // MARK: - Session Info
 
     func testSessionInfoStoresSessionId() {
