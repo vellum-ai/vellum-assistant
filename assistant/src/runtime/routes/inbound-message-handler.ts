@@ -27,8 +27,8 @@ import { canonicalizeInboundIdentity } from '../../util/canonicalize-identity.js
 import { IngressBlockedError } from '../../util/errors.js';
 import { getLogger } from '../../util/logger.js';
 import { readHttpToken } from '../../util/platform.js';
-import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
 import { notifyGuardianOfAccessRequest } from '../access-request-helper.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
 import {
   buildApprovalUIMetadata,
   getApprovalInfoByConversation,

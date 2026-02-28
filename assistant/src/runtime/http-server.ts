@@ -39,8 +39,8 @@ import * as externalConversationStore from '../memory/external-conversation-stor
 import { consumeCallback, consumeCallbackError } from '../security/oauth-callback-registry.js';
 import { getLogger } from '../util/logger.js';
 import { buildAssistantEvent } from './assistant-event.js';
-import { DAEMON_INTERNAL_ASSISTANT_ID } from './assistant-scope.js';
 import { assistantEventHub } from './assistant-event-hub.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from './assistant-scope.js';
 import { sweepFailedEvents } from './channel-retry-sweep.js';
 import { httpError } from './http-errors.js';
 // Middleware

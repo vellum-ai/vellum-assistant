@@ -3,7 +3,6 @@ import * as net from 'node:net';
 import { v4 as uuid } from 'uuid';
 
 import { createAssistantMessage, createUserMessage } from '../../agent/message-types.js';
-import { DAEMON_INTERNAL_ASSISTANT_ID } from '../../runtime/assistant-scope.js';
 import { type InterfaceId,isChannelId, parseChannelId, parseInterfaceId } from '../../channels/types.js';
 import { getConfig } from '../../config/loader.js';
 import { getAttachmentsForMessage, getFilePathForAttachment, setAttachmentThumbnail } from '../../memory/attachments-store.js';
@@ -18,6 +17,7 @@ import { getAttentionStateByConversationIds } from '../../memory/conversation-at
 import * as conversationStore from '../../memory/conversation-store.js';
 import { GENERATING_TITLE, queueGenerateConversationTitle, UNTITLED_FALLBACK } from '../../memory/conversation-title-service.js';
 import * as externalConversationStore from '../../memory/external-conversation-store.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from '../../runtime/assistant-scope.js';
 import { routeGuardianReply } from '../../runtime/guardian-reply-router.js';
 import * as pendingInteractions from '../../runtime/pending-interactions.js';
 import { checkIngressForSecrets } from '../../security/secret-ingress.js';

@@ -21,6 +21,7 @@ import {
   resolveActorTrust,
   toGuardianRuntimeContextFromTrust,
 } from '../runtime/actor-trust-resolver.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
 import {
   getPendingChallenge,
   validateAndConsumeChallenge,
@@ -32,7 +33,6 @@ import {
 import { redeemVoiceInviteCode } from '../runtime/ingress-service.js';
 import { parseJsonSafe } from '../util/json.js';
 import { getLogger } from '../util/logger.js';
-import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
 import { getAccessRequestPollIntervalMs, getTtsPlaybackDelayMs, getUserConsultationTimeoutMs } from './call-constants.js';
 import { CallController } from './call-controller.js';
 import { persistCallCompletionMessage } from './call-conversation-messages.js';

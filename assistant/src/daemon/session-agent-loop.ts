@@ -10,7 +10,6 @@
 import { v4 as uuid } from 'uuid';
 
 import type { AgentEvent,AgentLoop, CheckpointDecision } from '../agent/loop.js';
-import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
 import { createAssistantMessage } from '../agent/message-types.js';
 import type { ChannelId, InterfaceId, TurnChannelContext, TurnInterfaceContext } from '../channels/types.js';
 import { getConfig } from '../config/loader.js';
@@ -27,6 +26,7 @@ import type { PermissionPrompter } from '../permissions/prompter.js';
 import type { ContentBlock,Message } from '../providers/types.js';
 import type { Provider } from '../providers/types.js';
 import { resolveActorTrust } from '../runtime/actor-trust-resolver.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
 import type { UsageActor } from '../usage/actors.js';
 import { getLogger } from '../util/logger.js';
 import { truncate } from '../util/truncate.js';
