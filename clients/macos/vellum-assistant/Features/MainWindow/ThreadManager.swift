@@ -218,7 +218,10 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
         let viewModel = makeViewModel()
         viewModel.isHistoryLoaded = true  // No session yet — nothing to load
-        viewModel.onFirstUserMessage = { [weak self] _ in
+        // Promote on any first send (text, attachment, slash command).
+        // onUserMessageSent fires for all send types unlike onFirstUserMessage
+        // which skips empty text and slash commands.
+        viewModel.onUserMessageSent = { [weak self] in
             self?.promoteDraft()
         }
         draftViewModel = viewModel
@@ -232,6 +235,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         guard let viewModel = draftViewModel else { return }
 
         let thread = ThreadModel(title: "Untitled")
+        let threadId = thread.id
         threads.insert(thread, at: 0)
         chatViewModels[thread.id] = viewModel
         subscribeToBusyState(for: thread.id, viewModel: viewModel)
@@ -240,7 +244,18 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         touchVMAccessOrder(thread.id)
         evictStaleCachedViewModels()
         draftViewModel = nil
-        completedConversationCount += 1
+
+        // Wire up callbacks now that we have a real thread.
+        // completedConversationCount is incremented via onFirstUserMessage
+        // (not here) so createThread()-triggered promotions don't inflate it.
+        viewModel.onFirstUserMessage = { [weak self] _ in
+            self?.completedConversationCount += 1
+            self?.updateThreadTitle(id: threadId, title: "Untitled")
+        }
+        viewModel.onUserMessageSent = { [weak self] in
+            self?.updateLastInteracted(threadId: threadId)
+        }
+
         activeThreadId = thread.id
         updateLastInteracted(threadId: thread.id)
         log.info("Promoted draft to thread \(thread.id)")
