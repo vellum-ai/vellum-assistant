@@ -371,9 +371,8 @@ describe("twilio-sms-webhook", () => {
 
     // resetConversation should have been called
     expect(resetConversationMock).toHaveBeenCalledTimes(1);
-    const [, assistantId, sourceChannel, externalChatId] =
+    const [, sourceChannel, externalChatId] =
       resetConversationMock.mock.calls[0] as unknown[];
-    expect(assistantId).toBe("ast-default");
     expect(sourceChannel).toBe("sms");
     expect(externalChatId).toBe("+15551234567");
 
@@ -554,8 +553,8 @@ describe("twilio-sms-webhook", () => {
     expect(res.status).toBe(200);
     // resetConversation should have been called with the phone-routed assistant
     expect(resetConversationMock).toHaveBeenCalledTimes(1);
-    const [, assistantId] = resetConversationMock.mock.calls[0] as unknown[];
-    expect(assistantId).toBe("ast-beta");
+    const [, sourceChannel] = resetConversationMock.mock.calls[0] as unknown[];
+    expect(sourceChannel).toBe("sms");
     expect(sendSmsReplyMock).toHaveBeenCalledTimes(1);
     const [, , , replyAssistantId] = sendSmsReplyMock.mock.calls[0] as unknown[];
     expect(replyAssistantId).toBe("ast-beta");

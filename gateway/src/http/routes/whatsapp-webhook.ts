@@ -159,7 +159,6 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
           try {
             await resetConversation(
               config,
-              routing.assistantId,
               event.sourceChannel,
               event.message.externalChatId,
             );

@@ -111,7 +111,7 @@ describe("forwardToRuntime", () => {
     );
 
     const config = makeConfig();
-    const result = await forwardToRuntime(config, "assistant-a", payload);
+    const result = await forwardToRuntime(config, payload);
     expect(result.accepted).toBe(true);
     expect(result.eventId).toBe("evt-1");
     expect(result.assistantMessage?.content).toBe("Hi there!");
@@ -124,7 +124,7 @@ describe("forwardToRuntime", () => {
 
     const config = makeConfig();
     await expect(
-      forwardToRuntime(config, "assistant-a", payload),
+      forwardToRuntime(config, payload),
     ).rejects.toThrow("Runtime returned 400");
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -132,7 +132,7 @@ describe("forwardToRuntime", () => {
 
   test("5xx error retries and eventually succeeds", async () => {
     const config = makeConfig();
-    const expectedUrl = `${config.assistantRuntimeBaseUrl}/v1/assistants/assistant-a/channels/inbound`;
+    const expectedUrl = `${config.assistantRuntimeBaseUrl}/v1/channels/inbound`;
     let inboundCallCount = 0;
     fetchMock = mock(async (input) => {
       const calledUrl =
@@ -151,7 +151,7 @@ describe("forwardToRuntime", () => {
       return new Response(JSON.stringify(successBody), { status: 200 });
     });
 
-    const result = await forwardToRuntime(config, "assistant-a", payload);
+    const result = await forwardToRuntime(config, payload);
     expect(result.accepted).toBe(true);
     const callsToInboundRoute = fetchMock.mock.calls.filter((call) => {
       const calledUrl = call[0];
@@ -167,7 +167,7 @@ describe("forwardToRuntime", () => {
 
     const config = makeConfig();
     await expect(
-      forwardToRuntime(config, "assistant-a", payload),
+      forwardToRuntime(config, payload),
     ).rejects.toThrow("Runtime returned 500");
   });
 
@@ -177,7 +177,7 @@ describe("forwardToRuntime", () => {
     );
 
     const config = makeConfig();
-    const result = await forwardToRuntime(config, "assistant-a", payload);
+    const result = await forwardToRuntime(config, payload);
     const attachments = result.assistantMessage?.attachments ?? [];
     expect(attachments).toHaveLength(1);
     expect(attachments[0].id).toBe("att-1");
@@ -193,7 +193,7 @@ describe("forwardToRuntime", () => {
     );
 
     const config = makeConfig({ runtimeBearerToken: "my-secret-token" });
-    await forwardToRuntime(config, "assistant-a", payload);
+    await forwardToRuntime(config, payload);
 
     const calledInit = (fetchMock.mock.calls[0] as unknown[])[1] as RequestInit;
     const headers = calledInit.headers as Record<string, string>;
@@ -206,7 +206,7 @@ describe("forwardToRuntime", () => {
     );
 
     const config = makeConfig();
-    await forwardToRuntime(config, "assistant-a", payload);
+    await forwardToRuntime(config, payload);
 
     const calledInit = (fetchMock.mock.calls[0] as unknown[])[1] as RequestInit;
     const headers = calledInit.headers as Record<string, string>;
@@ -234,7 +234,7 @@ describe("downloadAttachment", () => {
     );
 
     const config = makeConfig();
-    const result = await downloadAttachment(config, "assistant-a", "att-1");
+    const result = await downloadAttachment(config, "att-1");
     expect(result.id).toBe("att-1");
     expect(result.filename).toBe("chart.png");
     expect(result.data).toBe("iVBORw0KGgo=");
@@ -250,7 +250,7 @@ describe("downloadAttachment", () => {
 
     const config = makeConfig();
     await expect(
-      downloadAttachment(config, "assistant-a", "nonexistent"),
+      downloadAttachment(config, "nonexistent"),
     ).rejects.toThrow("Attachment download failed (404)");
   });
 });

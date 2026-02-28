@@ -141,7 +141,6 @@ export function createTwilioSmsWebhookHandler(config: GatewayConfig) {
         try {
           await resetConversation(
             config,
-            routing.assistantId,
             normalized.sourceChannel,
             normalized.message.externalChatId,
           );
