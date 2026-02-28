@@ -6,14 +6,20 @@ import { type InterfaceId,isChannelId, parseChannelId, parseInterfaceId } from '
 import { getConfig } from '../../config/loader.js';
 import { getAttachmentsForMessage, getFilePathForAttachment, setAttachmentThumbnail } from '../../memory/attachments-store.js';
 import { getAttentionStateByConversationIds } from '../../memory/conversation-attention-store.js';
+import {
+  listCanonicalGuardianRequests,
+  listPendingCanonicalGuardianRequestsByDestinationConversation,
+} from '../../memory/canonical-guardian-store.js';
 import * as conversationStore from '../../memory/conversation-store.js';
 import { GENERATING_TITLE, queueGenerateConversationTitle, UNTITLED_FALLBACK } from '../../memory/conversation-title-service.js';
 import * as externalConversationStore from '../../memory/external-conversation-store.js';
+import { routeGuardianReply } from '../../runtime/guardian-reply-router.js';
 import { checkIngressForSecrets } from '../../security/secret-ingress.js';
 import { compileCustomPatterns, redactSecrets } from '../../security/secret-scanner.js';
 import { getSubagentManager } from '../../subagent/index.js';
 import { silentlyWithLog } from '../../util/silently.js';
 import { truncate } from '../../util/truncate.js';
+import { createApprovalConversationGenerator } from '../approval-generators.js';
 import { getAssistantName } from '../identity-helpers.js';
 import type { UserMessageAttachment } from '../ipc-contract.js';
 import type {
@@ -55,6 +61,8 @@ import {
   renderHistoryContent,
   wireEscalationHandler,
 } from './shared.js';
+
+const desktopApprovalConversationGenerator = createApprovalConversationGenerator();
 
 export async function handleUserMessage(
   msg: UserMessage,
@@ -451,8 +459,74 @@ export async function handleUserMessage(
       }
     }
 
+    // If exactly one live turn is waiting on confirmation (no queued turns),
+    // try to consume this text as an inline approval decision first.
+    if (
+      session.hasAnyPendingConfirmation()
+      && session.getQueueDepth() === 0
+      && messageText.trim().length > 0
+    ) {
+      try {
+        const pendingCanonicalRequestIdsForConversation = Array.from(new Set([
+          ...listPendingCanonicalGuardianRequestsByDestinationConversation(msg.sessionId, ipcChannel).map((request) => request.id),
+          ...listCanonicalGuardianRequests({
+            status: 'pending',
+            conversationId: msg.sessionId,
+          }).map((request) => request.id),
+        ]));
+
+        if (pendingCanonicalRequestIdsForConversation.length > 0) {
+          const routerResult = await routeGuardianReply({
+            messageText: messageText.trim(),
+            channel: ipcChannel,
+            actor: {
+              externalUserId: undefined,
+              channel: ipcChannel,
+              isTrusted: true,
+            },
+            conversationId: msg.sessionId,
+            pendingRequestIds: pendingCanonicalRequestIdsForConversation,
+            approvalConversationGenerator: desktopApprovalConversationGenerator,
+          });
+
+          if (routerResult.consumed && routerResult.type !== 'nl_keep_pending') {
+            // Mirror the normal queued/dequeued lifecycle so desktop clients can
+            // reconcile queued bubble state for this just-sent user message.
+            ctx.send(socket, {
+              type: 'message_queued',
+              sessionId: msg.sessionId,
+              requestId,
+              position: 0,
+            });
+            ctx.send(socket, {
+              type: 'message_dequeued',
+              sessionId: msg.sessionId,
+              requestId,
+            });
+
+            if (routerResult.replyText && routerResult.replyText.trim().length > 0) {
+              ctx.send(socket, {
+                type: 'assistant_text_delta',
+                text: routerResult.replyText,
+                sessionId: msg.sessionId,
+              });
+            }
+            ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
+
+            rlog.info(
+              { routerType: routerResult.type, decisionApplied: routerResult.decisionApplied, routerRequestId: routerResult.requestId },
+              'Consumed pending-confirmation reply before auto-deny',
+            );
+            return;
+          }
+        }
+      } catch (err) {
+        rlog.warn({ err }, 'Failed to process pending-confirmation reply; falling back to auto-deny behavior');
+      }
+    }
+
     // If the session has a pending tool confirmation, auto-deny it so the
-    // agent can process the user's follow-up message instead.  The agent
+    // agent can process the user's follow-up message instead. The agent
     // will see the denial and can re-request the tool if still needed.
     if (session.hasAnyPendingConfirmation()) {
       rlog.info('Auto-denying pending confirmation(s) due to new user message');
