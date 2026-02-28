@@ -1167,4 +1167,121 @@ describe('AgentLoop', () => {
     expect(sentBlock).toBeDefined();
     expect(sentBlock!.content).toBe(smallContent);
   });
+
+  // ---------------------------------------------------------------------------
+  // Sensitive output placeholder substitution tests
+  // ---------------------------------------------------------------------------
+
+  // 32. Tool results with sensitiveBindings populate substitution map and
+  //     final assistant message text is resolved with real values.
+  test('resolves sensitive output placeholders in final assistant message', async () => {
+    const placeholder = 'VELLUM_ASSISTANT_INVITE_CODE_TEST1234';
+    const realToken = 'realInviteToken999';
+
+    const { provider, calls } = createMockProvider([
+      toolUseResponse('t1', 'bash', { command: 'create invite' }),
+      // The LLM responds using the placeholder (it never saw the real token)
+      textResponse(`Here is your invite link: https://t.me/bot?start=iv_${placeholder}`),
+    ]);
+
+    const toolExecutor = async () => ({
+      content: `https://t.me/bot?start=iv_${placeholder}`,
+      isError: false,
+      sensitiveBindings: [{ kind: 'invite_code' as const, placeholder, value: realToken }],
+    });
+
+    const loop = new AgentLoop(provider, 'system', {}, dummyTools, toolExecutor);
+    const events: AgentEvent[] = [];
+    const history = await loop.run([userMessage], collectEvents(events));
+
+    // The final assistant message in history should contain the resolved real token
+    const lastAssistant = history[history.length - 1];
+    expect(lastAssistant.role).toBe('assistant');
+    const textBlock = lastAssistant.content.find(
+      (b): b is Extract<ContentBlock, { type: 'text' }> => b.type === 'text',
+    );
+    expect(textBlock).toBeDefined();
+    expect(textBlock!.text).toContain(realToken);
+    expect(textBlock!.text).not.toContain(placeholder);
+
+    // The message_complete event should also have the resolved text
+    const completeEvents = events.filter(
+      (e): e is Extract<AgentEvent, { type: 'message_complete' }> => e.type === 'message_complete',
+    );
+    // Find the final message_complete (the one after tools)
+    const lastComplete = completeEvents[completeEvents.length - 1];
+    const completeText = lastComplete.message.content.find(
+      (b): b is Extract<ContentBlock, { type: 'text' }> => b.type === 'text',
+    );
+    expect(completeText!.text).toContain(realToken);
+
+    // The tool result content in provider history should contain the PLACEHOLDER,
+    // NOT the raw token (model never sees the real value)
+    const secondCallMessages = calls[1].messages;
+    const toolResultMsg = secondCallMessages.find(
+      (m) => m.role === 'user' && m.content.some((b) => b.type === 'tool_result'),
+    );
+    expect(toolResultMsg).toBeDefined();
+    const toolResultBlock = toolResultMsg!.content.find(
+      (b): b is Extract<ContentBlock, { type: 'tool_result' }> => b.type === 'tool_result',
+    );
+    expect(toolResultBlock!.content).toContain(placeholder);
+    expect(toolResultBlock!.content).not.toContain(realToken);
+  });
+
+  // 33. Streamed text_delta events have placeholders resolved to real values
+  test('resolves sensitive output placeholders in streamed text_delta events', async () => {
+    const placeholder = 'VELLUM_ASSISTANT_INVITE_CODE_STRM5678';
+    const realToken = 'streamedRealToken';
+
+    const { provider } = createMockProvider([
+      toolUseResponse('t1', 'bash', { command: 'invite' }),
+      // Response text includes the placeholder
+      textResponse(`Link: https://t.me/bot?start=iv_${placeholder}`),
+    ]);
+
+    const toolExecutor = async () => ({
+      content: `https://t.me/bot?start=iv_${placeholder}`,
+      isError: false,
+      sensitiveBindings: [{ kind: 'invite_code' as const, placeholder, value: realToken }],
+    });
+
+    const loop = new AgentLoop(provider, 'system', {}, dummyTools, toolExecutor);
+    const events: AgentEvent[] = [];
+    await loop.run([userMessage], collectEvents(events));
+
+    // Collect all text_delta events from the final turn (after tool result)
+    const textDeltas = events.filter(
+      (e): e is Extract<AgentEvent, { type: 'text_delta' }> => e.type === 'text_delta',
+    );
+    const allStreamedText = textDeltas.map((e) => e.text).join('');
+
+    // Streamed text should contain the real token, not the placeholder
+    expect(allStreamedText).toContain(realToken);
+    expect(allStreamedText).not.toContain(placeholder);
+  });
+
+  // 34. Without sensitive bindings, text passes through unchanged
+  test('text passes through unchanged when no sensitive bindings exist', async () => {
+    const { provider } = createMockProvider([
+      toolUseResponse('t1', 'read_file', { path: '/test.txt' }),
+      textResponse('Normal response with no placeholders.'),
+    ]);
+
+    const toolExecutor = async () => ({
+      content: 'file contents',
+      isError: false,
+      // No sensitiveBindings
+    });
+
+    const loop = new AgentLoop(provider, 'system', {}, dummyTools, toolExecutor);
+    const events: AgentEvent[] = [];
+    const history = await loop.run([userMessage], collectEvents(events));
+
+    const lastAssistant = history[history.length - 1];
+    const textBlock = lastAssistant.content.find(
+      (b): b is Extract<ContentBlock, { type: 'text' }> => b.type === 'text',
+    );
+    expect(textBlock!.text).toBe('Normal response with no placeholders.');
+  });
 });

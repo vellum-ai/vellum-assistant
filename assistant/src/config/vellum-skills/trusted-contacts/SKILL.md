@@ -123,7 +123,7 @@ curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/ingress/members/<member_id>/block
 
 Use this when the guardian wants to invite someone to message the assistant on Telegram without needing their user ID upfront. The invite link is a shareable Telegram deep link — when someone opens it, they automatically get trusted-contact access.
 
-**Important**: Do **not** print the raw create-invite JSON response to chat. It includes a high-entropy `token` field that can be redacted in tool output. Instead, extract values in-shell and only print the final deep link.
+**Important**: The shell snippet below emits a `<vellum-sensitive-output>` directive containing the raw invite token. The tool executor automatically strips this directive and replaces the raw token with a placeholder so the LLM never sees it. The placeholder is resolved back to the real token in the final assistant reply.
 
 ```bash
 TOKEN=$(cat ~/.vellum/http-token)
@@ -150,6 +150,7 @@ if [ -z "$INVITE_TOKEN" ]; then
   exit 1
 fi
 
+echo "<vellum-sensitive-output kind=\"invite_code\" value=\"$INVITE_TOKEN\" />"
 echo "https://t.me/$BOT_USERNAME?start=iv_$INVITE_TOKEN"
 ```
 

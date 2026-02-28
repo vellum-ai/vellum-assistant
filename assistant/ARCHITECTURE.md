@@ -1909,6 +1909,18 @@ Connected channels are resolved at signal emission time: vellum is always includ
 
 
 
+### Sensitive Tool Output Placeholder Substitution
+
+Some tool outputs contain values that must reach the user's final reply but should never be visible to the LLM (e.g., invite tokens). The system handles this with a three-stage pipeline:
+
+1. **Directive extraction** (`src/tools/sensitive-output-placeholders.ts`): Tool output may include `<vellum-sensitive-output kind="invite_code" value="<raw>" />` directives. The executor strips directives, replaces raw values with deterministic placeholders (`VELLUM_ASSISTANT_INVITE_CODE_<shortId>`), and attaches `sensitiveBindings` metadata to the tool result.
+
+2. **Placeholder-only model context**: The agent loop stores placeholder->value bindings in a per-run `substitutionMap`. Tool results sent to the LLM contain only placeholders — the model generates conversational text referencing them without ever seeing the real values.
+
+3. **Post-generation substitution** (`src/agent/loop.ts`): Before emitting streamed `text_delta` events and before building the final `assistantMessage`, all placeholders are deterministically replaced with their real values. The substitution is chunk-safe for streaming (buffering partial placeholder prefixes across deltas).
+
+Key files: `src/tools/sensitive-output-placeholders.ts`, `src/tools/executor.ts` (extraction hook), `src/agent/loop.ts` (substitution), `src/config/vellum-skills/trusted-contacts/SKILL.md` (invite flow adoption).
+
 ### Notifications
 
 For full notification developer guidance and lifecycle details, see [`assistant/src/notifications/README.md`](src/notifications/README.md).

@@ -4,6 +4,8 @@ import { truncateOversizedToolResults } from '../context/tool-result-truncation.
 import { getHookManager } from '../hooks/manager.js';
 import type { ContentBlock,Message, Provider, ToolDefinition } from '../providers/types.js';
 import type { ToolResultContent } from '../providers/types.js';
+import { applyStreamingSubstitution, applySubstitutions } from '../tools/sensitive-output-placeholders.js';
+import type { SensitiveOutputBinding } from '../tools/sensitive-output-placeholders.js';
 import { getLogger, isDebug, truncateForLog } from '../util/logger.js';
 
 const log = getLogger('agent-loop');
@@ -63,14 +65,14 @@ export class AgentLoop {
   private tools: ToolDefinition[];
   private resolveTools: ((history: Message[]) => ToolDefinition[]) | null;
   private resolveSystemPrompt: ((history: Message[]) => ResolvedSystemPrompt) | null;
-  private toolExecutor: ((name: string, input: Record<string, unknown>, onOutput?: (chunk: string) => void) => Promise<{ content: string; isError: boolean; diff?: { filePath: string; oldContent: string; newContent: string; isNewFile: boolean }; status?: string; contentBlocks?: ContentBlock[] }>) | null;
+  private toolExecutor: ((name: string, input: Record<string, unknown>, onOutput?: (chunk: string) => void) => Promise<{ content: string; isError: boolean; diff?: { filePath: string; oldContent: string; newContent: string; isNewFile: boolean }; status?: string; contentBlocks?: ContentBlock[]; sensitiveBindings?: SensitiveOutputBinding[] }>) | null;
 
   constructor(
     provider: Provider,
     systemPrompt: string,
     config?: Partial<AgentLoopConfig>,
     tools?: ToolDefinition[],
-    toolExecutor?: (name: string, input: Record<string, unknown>, onOutput?: (chunk: string) => void) => Promise<{ content: string; isError: boolean; diff?: { filePath: string; oldContent: string; newContent: string; isNewFile: boolean }; status?: string; contentBlocks?: ContentBlock[] }>,
+    toolExecutor?: (name: string, input: Record<string, unknown>, onOutput?: (chunk: string) => void) => Promise<{ content: string; isError: boolean; diff?: { filePath: string; oldContent: string; newContent: string; isNewFile: boolean }; status?: string; contentBlocks?: ContentBlock[]; sensitiveBindings?: SensitiveOutputBinding[] }>,
     resolveTools?: (history: Message[]) => ToolDefinition[],
     resolveSystemPrompt?: (history: Message[]) => ResolvedSystemPrompt,
   ) {
@@ -96,6 +98,12 @@ export class AgentLoop {
     let lastLlmCallTime = 0;
     const debug = isDebug();
     const rlog = requestId ? log.child({ requestId }) : log;
+
+    // Per-run substitution map for sensitive output placeholders.
+    // Bindings are accumulated from tool results; placeholders are
+    // resolved in streamed deltas and final assistant message text.
+    const substitutionMap = new Map<string, string>();
+    let streamingPending = '';
 
     while (true) {
       if (signal?.aborted) break;
@@ -188,7 +196,17 @@ export class AgentLoop {
             config: providerConfig,
             onEvent: (event) => {
               if (event.type === 'text_delta') {
-                onEvent({ type: 'text_delta', text: event.text });
+                // Apply sensitive-output placeholder substitution (chunk-safe)
+                if (substitutionMap.size > 0) {
+                  const combined = streamingPending + event.text;
+                  const { emit, pending } = applyStreamingSubstitution(combined, substitutionMap);
+                  streamingPending = pending;
+                  if (emit.length > 0) {
+                    onEvent({ type: 'text_delta', text: emit });
+                  }
+                } else {
+                  onEvent({ type: 'text_delta', text: event.text });
+                }
               } else if (event.type === 'thinking_delta') {
                 onEvent({ type: 'thinking_delta', thinking: event.thinking });
               } else if (event.type === 'input_json_delta') {
@@ -238,9 +256,26 @@ export class AgentLoop {
           durationMs: providerDurationMs,
         });
 
+        // Flush any buffered streaming text from the substitution pipeline
+        if (streamingPending.length > 0) {
+          const flushed = applySubstitutions(streamingPending, substitutionMap);
+          if (flushed.length > 0) {
+            onEvent({ type: 'text_delta', text: flushed });
+          }
+          streamingPending = '';
+        }
+
+        // Apply sensitive-output placeholder substitution to final message text
+        const finalContent = substitutionMap.size > 0
+          ? response.content.map((block) =>
+              block.type === 'text'
+                ? { ...block, text: applySubstitutions(block.text, substitutionMap) }
+                : block)
+          : response.content;
+
         const assistantMessage: Message = {
           role: 'assistant',
-          content: response.content,
+          content: finalContent,
         };
         history.push(assistantMessage);
 
@@ -389,6 +424,17 @@ export class AgentLoop {
           }
         } else {
           toolResults = await toolExecutionPromise;
+        }
+
+        // Merge sensitive output bindings from tool results into the
+        // per-run substitution map. Bindings carry placeholder->value pairs
+        // that are resolved in streamed text deltas and final message text.
+        for (const { result } of toolResults) {
+          if (result.sensitiveBindings) {
+            for (const binding of result.sensitiveBindings) {
+              substitutionMap.set(binding.placeholder, binding.value);
+            }
+          }
         }
 
         // Collect result blocks preserving tool_use order (Promise.all maintains order)

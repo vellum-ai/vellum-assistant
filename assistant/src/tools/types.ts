@@ -1,6 +1,7 @@
 import type { SecretPromptResult } from '../permissions/secret-prompter.js';
 import type { AllowlistOption, RiskLevel, ScopeOption } from '../permissions/types.js';
 import type { ContentBlock,ToolDefinition } from '../providers/types.js';
+import type { SensitiveOutputBinding } from './sensitive-output-placeholders.js';
 
 export type ExecutionTarget = 'sandbox' | 'host';
 
@@ -163,6 +164,14 @@ export interface ToolExecutionResult {
   status?: string;
   /** Optional rich content blocks (e.g. images) to include alongside text in the tool result. */
   contentBlocks?: ContentBlock[];
+  /**
+   * Runtime-internal sensitive output bindings (placeholder -> real value).
+   * Populated by the executor when tool output contains
+   * `<vellum-sensitive-output>` directives. The agent loop merges these
+   * into a per-run substitution map for deterministic post-generation
+   * replacement. MUST NOT be emitted in client-facing events or logs.
+   */
+  sensitiveBindings?: SensitiveOutputBinding[];
 }
 
 export interface Tool {
