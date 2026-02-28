@@ -165,7 +165,10 @@ function findPendingCanonicalRequests(
   conversationId?: string,
 ): CanonicalGuardianRequest[] {
   // When explicit IDs are provided, look them up directly
-  if (pendingRequestIds && pendingRequestIds.length > 0) {
+  if (pendingRequestIds) {
+    if (pendingRequestIds.length === 0) {
+      return [];
+    }
     return pendingRequestIds
       .map(getCanonicalGuardianRequest)
       .filter((r): r is CanonicalGuardianRequest => r?.status === 'pending');

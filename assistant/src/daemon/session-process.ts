@@ -10,7 +10,10 @@ import { createAssistantMessage,createUserMessage } from '../agent/message-types
 import type { TurnChannelContext, TurnInterfaceContext } from '../channels/types.js';
 import { parseChannelId, parseInterfaceId } from '../channels/types.js';
 import { getConfig } from '../config/loader.js';
-import { listPendingCanonicalGuardianRequestsByDestinationConversation } from '../memory/canonical-guardian-store.js';
+import {
+  listCanonicalGuardianRequests,
+  listPendingCanonicalGuardianRequestsByDestinationConversation,
+} from '../memory/canonical-guardian-store.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { provenanceFromGuardianContext } from '../memory/conversation-store.js';
 import { extractPreferences } from '../notifications/preference-extractor.js';
@@ -362,10 +365,15 @@ export async function processMessage(
   session.currentActiveSurfaceId = activeSurfaceId;
   session.currentPage = currentPage;
   const trimmedContent = content.trim();
-  const canonicalPendingRequestsForConversation = trimmedContent.length > 0
-    ? listPendingCanonicalGuardianRequestsByDestinationConversation(session.conversationId, 'vellum')
+  const canonicalPendingRequestIdsForConversation = trimmedContent.length > 0
+    ? Array.from(new Set([
+        ...listPendingCanonicalGuardianRequestsByDestinationConversation(session.conversationId, 'vellum').map((request) => request.id),
+        ...listCanonicalGuardianRequests({
+          status: 'pending',
+          conversationId: session.conversationId,
+        }).map((request) => request.id),
+      ]))
     : [];
-  const canonicalPendingRequestIdsForConversation = canonicalPendingRequestsForConversation.map((request) => request.id);
 
   // ── Canonical guardian reply router (desktop/session path) ──
   // Desktop/session guardian replies are canonical-only. Messages consumed

@@ -205,6 +205,13 @@ describe('routing invariant: all decision paths reference applyCanonicalGuardian
     expect(source).not.toContain('getPendingDeliveriesByConversation');
   });
 
+  test('daemon/session-process.ts seeds router hints from delivery and conversation scopes', () => {
+    const fullPath = join(srcRoot, 'daemon/session-process.ts');
+    const source = readFileSync(fullPath, 'utf-8');
+    expect(source).toContain('listPendingCanonicalGuardianRequestsByDestinationConversation');
+    expect(source).toContain('listCanonicalGuardianRequests');
+  });
+
   test('guardian-reply-router routes all decisions through applyCanonicalGuardianDecision', () => {
     const fullPath = join(srcRoot, 'runtime/guardian-reply-router.ts');
     const source = readFileSync(fullPath, 'utf-8');
@@ -574,6 +581,30 @@ describe('routing invariant: disambiguation stays fail-closed', () => {
 
     const unchanged = getCanonicalGuardianRequest(req.id);
     expect(unchanged!.status).toBe('pending');
+  });
+
+  test('explicit empty pendingRequestIds hint stays fail-closed for trusted actors', async () => {
+    createCanonicalGuardianRequest({
+      kind: 'tool_approval',
+      sourceType: 'channel',
+      conversationId: 'conv-other',
+      guardianExternalUserId: 'guardian-1',
+      requestCode: 'HHH888',
+      toolName: 'shell',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+
+    const result = await routeGuardianReply(replyCtx({
+      messageText: 'approve',
+      actor: trustedActor(),
+      conversationId: 'conv-unrelated',
+      pendingRequestIds: [],
+      approvalConversationGenerator: undefined,
+    }));
+
+    expect(result.consumed).toBe(false);
+    expect(result.type).toBe('not_consumed');
+    expect(result.decisionApplied).toBe(false);
   });
 
   test('multiple hinted pending requests with plain-text approve returns disambiguation', async () => {
