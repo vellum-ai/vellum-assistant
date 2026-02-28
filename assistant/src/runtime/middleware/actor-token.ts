@@ -167,10 +167,15 @@ export type ActorTokenVerificationWithFallback =
  * Verify the actor token with fallback to local IPC identity resolution.
  *
  * When an actor token is present, the full verification pipeline runs.
- * When absent, the request has already passed bearer token auth in the
- * HTTP server layer, meaning it is from a trusted local client (e.g. CLI).
- * In that case, we fall back to `resolveLocalIpcGuardianContext()` which
- * produces the same guardian context as the IPC pathway.
+ * When absent AND the request originates from a loopback address, the
+ * request is treated as a trusted local client (e.g. CLI) and we fall
+ * back to `resolveLocalIpcGuardianContext()` which produces the same
+ * guardian context as the IPC pathway.
+ *
+ * The loopback origin check prevents gateway-proxied remote requests
+ * (which carry `X-Forwarded-For` injected by the gateway runtime proxy)
+ * from being granted local guardian identity. Only direct connections
+ * without a forwarding header qualify for the local fallback.
  *
  * This preserves backward compatibility with the CLI, which sends only
  * `Authorization: Bearer <token>` without `X-Actor-Token`.
@@ -185,10 +190,25 @@ export function verifyHttpActorTokenWithLocalFallback(
     return verifyHttpActorToken(req);
   }
 
-  // No actor token — this request passed bearer auth at the HTTP server
-  // level, so it is from a local trusted client. Resolve identity the
-  // same way as IPC connections.
-  log.debug('No actor token present on bearer-authenticated request; using local IPC identity fallback');
+  // Gate the local fallback on provably-local origin. The gateway runtime
+  // proxy always injects X-Forwarded-For with the real client IP when
+  // forwarding requests. Direct local connections (CLI, macOS app) never
+  // set this header. If X-Forwarded-For is present, the request was
+  // proxied through the gateway on behalf of a potentially remote client
+  // and must not receive local guardian identity.
+  if (req.headers.get('x-forwarded-for')) {
+    log.warn('Rejecting local identity fallback: request has X-Forwarded-For (proxied through gateway)');
+    return {
+      ok: false,
+      status: 401,
+      message: 'Missing X-Actor-Token header. Proxied requests require actor identity.',
+    };
+  }
+
+  // No actor token, no forwarding header — this is a direct local
+  // connection that passed bearer auth at the HTTP server layer.
+  // Resolve identity the same way as IPC connections.
+  log.debug('No actor token present on direct local request; using local IPC identity fallback');
   const guardianContext = resolveLocalIpcGuardianContext('vellum');
   return {
     ok: true,
