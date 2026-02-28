@@ -49,6 +49,7 @@ mock.module('../config/loader.js', () => ({
       model: undefined,
     },
     memory: { enabled: false },
+    notifications: { decisionModelIntent: 'latency-optimized' },
   }),
 }));
 

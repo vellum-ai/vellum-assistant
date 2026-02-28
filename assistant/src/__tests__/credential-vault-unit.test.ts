@@ -470,7 +470,7 @@ describe('credential_store tool — oauth2_connect error paths', () => {
       client_id: 'test-client-id',
     }, { ..._ctx, isInteractive: false });
     expect(result.isError).toBe(true);
-    expect(result.content).toContain('interactive client session');
+    expect(result.content).toContain('non-interactive session');
   });
 
   test('resolves gmail alias to integration:gmail', async () => {
@@ -672,7 +672,7 @@ describe('credential_store tool — tool definition', () => {
     expect(schema.required).toContain('action');
     const props = schema.properties as Record<string, Record<string, unknown>>;
     expect(props.action.enum).toEqual(
-      ['store', 'list', 'delete', 'prompt', 'oauth2_connect'],
+      ['store', 'list', 'delete', 'prompt', 'oauth2_connect', 'describe'],
     );
   });
 
