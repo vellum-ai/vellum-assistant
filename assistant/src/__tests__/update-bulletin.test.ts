@@ -53,7 +53,6 @@ mock.module('../util/platform.js', () => ({
   getInterfacesDir: () => '',
   getClipboardCommand: () => null,
   readLockfile: () => null,
-  normalizeAssistantId: (id: string) => id,
   writeLockfile: () => {},
   readPlatformToken: () => null,
   readSessionToken: () => null,

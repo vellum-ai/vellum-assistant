@@ -16,7 +16,8 @@ import { sendMessage as sendSms } from '../messaging/providers/sms/client.js';
 import { getCredentialMetadata } from '../tools/credentials/metadata-store.js';
 import { getLogger } from '../util/logger.js';
 import { normalizePhoneNumber } from '../util/phone.js';
-import { normalizeAssistantId, readHttpToken } from '../util/platform.js';
+import { readHttpToken } from '../util/platform.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from './assistant-scope.js';
 import {
   countRecentSendsToDestination,
   createOutboundSession,
@@ -243,7 +244,7 @@ function initiateGuardianVoiceCall(
 // ---------------------------------------------------------------------------
 
 export function startOutbound(params: StartOutboundParams): OutboundActionResult {
-  const assistantId = normalizeAssistantId(params.assistantId ?? 'self');
+  const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
   const channel = params.channel;
   const originConversationId = params.originConversationId;
 
@@ -541,7 +542,7 @@ function startOutboundVoice(
 // ---------------------------------------------------------------------------
 
 export function resendOutbound(params: ResendOutboundParams): OutboundActionResult {
-  const assistantId = normalizeAssistantId(params.assistantId ?? 'self');
+  const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
   const channel = params.channel;
   const originConversationId = params.originConversationId;
 
@@ -707,7 +708,7 @@ export function resendOutbound(params: ResendOutboundParams): OutboundActionResu
 // ---------------------------------------------------------------------------
 
 export function cancelOutbound(params: CancelOutboundParams): OutboundActionResult {
-  const assistantId = normalizeAssistantId(params.assistantId ?? 'self');
+  const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
   const channel = params.channel;
 
   const session = findActiveSession(assistantId, channel);

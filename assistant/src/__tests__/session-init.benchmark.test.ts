@@ -103,7 +103,6 @@ mock.module('../util/platform.js', () => ({
   getTCPPort: () => 8765,
   isIOSPairingEnabled: () => false,
   isTCPEnabled: () => false,
-  normalizeAssistantId: (id: string) => id,
   readHttpToken: () => null,
   readLockfile: () => null,
   readPlatformToken: () => null,

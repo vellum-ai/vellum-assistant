@@ -8,6 +8,7 @@
  */
 
 import type { ChannelId } from '../channels/types.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from './assistant-scope.js';
 import { getSqlite } from '../memory/db.js';
 import { findByTokenHash, hashToken, markInviteExpired, recordInviteUse, redeemInvite as storeRedeemInvite, findActiveVoiceInvites } from '../memory/ingress-invite-store.js';
 import { findMember, upsertMember } from '../memory/ingress-member-store.js';
@@ -223,7 +224,7 @@ export function redeemVoiceInviteCode(params: {
   sourceChannel: 'voice';
   code: string;
 }): VoiceRedemptionOutcome {
-  const { assistantId = 'self', callerExternalUserId, code } = params;
+  const { assistantId = DAEMON_INTERNAL_ASSISTANT_ID, callerExternalUserId, code } = params;
 
   if (!callerExternalUserId) {
     return { ok: false, reason: 'invalid_or_expired' };

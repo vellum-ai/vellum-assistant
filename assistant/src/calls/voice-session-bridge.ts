@@ -19,6 +19,7 @@ import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.
 import { resolveChannelCapabilities } from '../daemon/session-runtime-assembly.js';
 import { buildAssistantEvent } from '../runtime/assistant-event.js';
 import { assistantEventHub } from '../runtime/assistant-event-hub.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
 import { checkIngressForSecrets } from '../security/secret-ingress.js';
 import { computeToolApprovalDigest } from '../security/tool-approval-digest.js';
 import { IngressBlockedError } from '../util/errors.js';
@@ -306,7 +307,7 @@ export async function startVoiceTurn(opts: VoiceTurnOptions): Promise<VoiceTurnH
     ...session.memoryPolicy,
     strictSideEffects,
   };
-  session.setAssistantId(opts.assistantId ?? 'self');
+  session.setAssistantId(opts.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID);
   session.callSessionId = opts.callSessionId;
   session.setGuardianContext(opts.guardianContext ?? null);
   session.setCommandIntent(null);
@@ -330,7 +331,7 @@ export async function startVoiceTurn(opts: VoiceTurnOptions): Promise<VoiceTurnH
         ? (msg as { sessionId: string }).sessionId
         : undefined;
     const resolvedSessionId = msgSessionId ?? opts.conversationId;
-    const event = buildAssistantEvent('self', msg, resolvedSessionId);
+    const event = buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, msg, resolvedSessionId);
     hubChain = (async () => {
       await hubChain;
       try {
@@ -364,7 +365,7 @@ export async function startVoiceTurn(opts: VoiceTurnOptions): Promise<VoiceTurnH
             toolName: msg.toolName,
             inputDigest,
             consumingRequestId: msg.requestId,
-            assistantId: opts.assistantId ?? 'self',
+            assistantId: opts.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
             executionChannel: 'voice',
             conversationId: opts.conversationId,
             callSessionId: opts.callSessionId,

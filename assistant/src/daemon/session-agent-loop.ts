@@ -10,6 +10,7 @@
 import { v4 as uuid } from 'uuid';
 
 import type { AgentEvent,AgentLoop, CheckpointDecision } from '../agent/loop.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
 import { createAssistantMessage } from '../agent/message-types.js';
 import type { ChannelId, InterfaceId, TurnChannelContext, TurnInterfaceContext } from '../channels/types.js';
 import { getConfig } from '../config/loader.js';
@@ -363,7 +364,7 @@ export async function runAgentLoopImpl(
       const gc = ctx.guardianContext;
       if (gc.requesterExternalUserId && gc.requesterChatId) {
         const actorTrust = resolveActorTrust({
-          assistantId: ctx.assistantId ?? 'self',
+          assistantId: ctx.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
           sourceChannel: gc.sourceChannel,
           externalChatId: gc.requesterChatId,
           senderExternalUserId: gc.requesterExternalUserId,

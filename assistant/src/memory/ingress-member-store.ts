@@ -8,6 +8,7 @@
 import { and, desc, eq, or } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
+import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
 import { getDb } from './db.js';
 import { assistantIngressMembers } from './schema.js';
 
@@ -78,7 +79,7 @@ export function upsertMember(params: {
   createdBySessionId?: string;
   assistantId?: string;
 }): IngressMember {
-  const assistantId = params.assistantId ?? 'self';
+  const assistantId = params.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
 
   if (!params.externalUserId && !params.externalChatId) {
     throw new Error('At least one of externalUserId or externalChatId must be provided');
@@ -181,7 +182,7 @@ export function listMembers(params?: {
   offset?: number;
 }): IngressMember[] {
   const db = getDb();
-  const assistantId = params?.assistantId ?? 'self';
+  const assistantId = params?.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
 
   const conditions = [eq(assistantIngressMembers.assistantId, assistantId)];
   if (params?.sourceChannel) {
@@ -304,7 +305,7 @@ export function findMember(params: {
   }
 
   const db = getDb();
-  const assistantId = params.assistantId ?? 'self';
+  const assistantId = params.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
 
   // Prefer lookup by externalUserId when available, fall back to externalChatId
   const matchConditions = [];

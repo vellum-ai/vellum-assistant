@@ -22,6 +22,7 @@ import {
 import { revokeScopedApprovalGrantsForContext } from '../memory/scoped-approval-grants.js';
 import { computeToolApprovalDigest } from '../security/tool-approval-digest.js';
 import { getLogger } from '../util/logger.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
 import { readHttpToken } from '../util/platform.js';
 import { getMaxCallDurationMs, getUserConsultationTimeoutMs, SILENCE_TIMEOUT_MS } from './call-constants.js';
 import { persistCallCompletionMessage } from './call-conversation-messages.js';
@@ -247,7 +248,7 @@ export class CallController {
     this.task = task;
     this.isInbound = !task;
     this.broadcast = opts?.broadcast;
-    this.assistantId = opts?.assistantId ?? 'self';
+    this.assistantId = opts?.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
     this.guardianContext = opts?.guardianContext ?? null;
 
     // Resolve the conversation ID from the call session

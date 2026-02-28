@@ -15,6 +15,7 @@ import { answerCall } from '../calls/call-domain.js';
 import type { CanonicalGuardianRequest } from '../memory/canonical-guardian-store.js';
 import { emitNotificationSignal } from '../notifications/emit-signal.js';
 import { addRule } from '../permissions/trust-store.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
 import type { ApprovalAction } from '../runtime/channel-approval-types.js';
 import { createOutboundSession } from '../runtime/channel-guardian-service.js';
 import { deliverChannelReply } from '../runtime/gateway-client.js';
@@ -278,7 +279,7 @@ const accessRequestResolver: GuardianRequestResolver = {
     const requesterExternalUserId = request.requesterExternalUserId ?? '';
     const requesterChatId = request.requesterChatId ?? request.requesterExternalUserId ?? '';
     const decidedByExternalUserId = ctx.actor.externalUserId ?? '';
-    const assistantId = channelDeliveryContext?.assistantId ?? 'self';
+    const assistantId = channelDeliveryContext?.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
 
     if (decision.action === 'reject') {
       log.info(
@@ -461,7 +462,7 @@ const toolGrantRequestResolver: GuardianRequestResolver = {
   async resolve(ctx: ResolverContext): Promise<ResolverResult> {
     const { request, decision, channelDeliveryContext } = ctx;
     const requesterChatId = request.requesterChatId ?? request.requesterExternalUserId ?? '';
-    const assistantId = channelDeliveryContext?.assistantId ?? 'self';
+    const assistantId = channelDeliveryContext?.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
 
     if (decision.action === 'reject') {
       log.info(
