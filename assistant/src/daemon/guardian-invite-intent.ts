@@ -7,7 +7,7 @@
 
 export type GuardianInviteIntentResult =
   | { kind: 'none' }
-  | { kind: 'invite_management'; rewrittenContent: string; action?: 'create' | 'list' | 'revoke' };
+  | { kind: 'invite_management'; rewrittenContent: string; action?: 'create' | 'list' | 'revoke' | 'voice_create' | 'voice_list' | 'voice_revoke' };
 
 // ── Direct invite patterns ────────────────────────────────────────────────
 // These capture imperative requests to manage Telegram invite links.
@@ -22,6 +22,19 @@ const CREATE_INVITE_PATTERNS: RegExp[] = [
   /\binvite\s+(?:link\s+)?for\s+telegram\b/i,
 ];
 
+// ── Voice invite patterns ─────────────────────────────────────────────────
+// These capture imperative requests to manage voice (phone call) invite codes.
+
+const CREATE_VOICE_INVITE_PATTERNS: RegExp[] = [
+  /\bcreate\s+(?:an?\s+)?voice\s+invite\b/i,
+  /\bvoice\s+invite\s+(?:for|to)\s+\+?\d/i,
+  /\b(?:make|generate|get|set\s+up)\s+(?:a\s+|an\s+)?voice\s+invite\b/i,
+  /\binvite\s+(?:someone|somebody|a\s+friend|a\s+person)\s+(?:on|to|via|through|by)\s+(?:phone|voice|call)\b/i,
+  /\b(?:create|make|generate|get|set\s+up)\s+(?:a\s+|an\s+)?(?:phone|call)\s+invite\b/i,
+  /\binvite\s+(?:code\s+)?(?:for|via|by|on|through)\s+(?:phone|voice|call)\b/i,
+  /\b(?:phone|voice|call)\s+invite\s*(?:code)?\b/i,
+];
+
 const LIST_INVITE_PATTERNS: RegExp[] = [
   /\b(?:show|list|view|see|display)\s+(?:my\s+)?(?:active\s+)?invite(?:s|\s*links?)\b/i,
   /\b(?:show|list|view|see|display)\s+(?:my\s+)?(?:telegram\s+)?invite(?:s|\s*links?)\b/i,
@@ -29,10 +42,22 @@ const LIST_INVITE_PATTERNS: RegExp[] = [
   /\bhow\s+many\s+invite(?:s|\s*links?)\b/i,
 ];
 
+const LIST_VOICE_INVITE_PATTERNS: RegExp[] = [
+  /\b(?:show|list|view|see|display)\s+(?:my\s+)?(?:active\s+)?voice\s+invite(?:s)?\b/i,
+  /\b(?:show|list|view|see|display)\s+(?:my\s+)?(?:phone|call)\s+invite(?:s)?\b/i,
+  /\bwhat\s+voice\s+invite(?:s)?\s+(?:do\s+I\s+have|are\s+active|exist)\b/i,
+];
+
 const REVOKE_INVITE_PATTERNS: RegExp[] = [
   /\b(?:revoke|cancel|disable|invalidate|delete|remove)\s+(?:the\s+|my\s+|an?\s+)?invite\s*(?:link)?\b/i,
   /\b(?:revoke|cancel|disable|invalidate|delete|remove)\s+(?:the\s+|my\s+|an?\s+)?(?:telegram\s+)?invite\s*(?:link)?\b/i,
   /\binvite\s*(?:link)?\s+(?:revoke|cancel|disable|invalidate|delete|remove)\b/i,
+];
+
+const REVOKE_VOICE_INVITE_PATTERNS: RegExp[] = [
+  /\b(?:revoke|cancel|disable|invalidate|delete|remove)\s+(?:the\s+|my\s+|an?\s+)?voice\s+invite\b/i,
+  /\b(?:revoke|cancel|disable|invalidate|delete|remove)\s+(?:the\s+|my\s+|an?\s+)?(?:phone|call)\s+invite\b/i,
+  /\bvoice\s+invite\s+(?:revoke|cancel|disable|invalidate|delete|remove)\b/i,
 ];
 
 // ── Conceptual / question patterns ──────────────────────────────────────
@@ -58,12 +83,20 @@ function isConceptualQuestion(text: string): boolean {
   // Allow actionable requests through even though they start with
   // question-like words — these are imperative invite management requests.
   if (LIST_INVITE_PATTERNS.some((p) => p.test(cleaned))) return false;
+  if (LIST_VOICE_INVITE_PATTERNS.some((p) => p.test(cleaned))) return false;
   if (CREATE_INVITE_PATTERNS.some((p) => p.test(cleaned))) return false;
+  if (CREATE_VOICE_INVITE_PATTERNS.some((p) => p.test(cleaned))) return false;
   if (REVOKE_INVITE_PATTERNS.some((p) => p.test(cleaned))) return false;
+  if (REVOKE_VOICE_INVITE_PATTERNS.some((p) => p.test(cleaned))) return false;
   return CONCEPTUAL_PATTERNS.some((p) => p.test(cleaned));
 }
 
-function detectAction(text: string): 'create' | 'list' | 'revoke' | undefined {
+function detectAction(text: string): 'create' | 'list' | 'revoke' | 'voice_create' | 'voice_list' | 'voice_revoke' | undefined {
+  // Voice-specific patterns take precedence when the user explicitly mentions
+  // voice/phone/call — avoids misrouting to the Telegram invite flow.
+  if (REVOKE_VOICE_INVITE_PATTERNS.some((p) => p.test(text))) return 'voice_revoke';
+  if (LIST_VOICE_INVITE_PATTERNS.some((p) => p.test(text))) return 'voice_list';
+  if (CREATE_VOICE_INVITE_PATTERNS.some((p) => p.test(text))) return 'voice_create';
   // Check revoke and list before create — create patterns include the broad
   // `telegram invite link` matcher that would otherwise swallow revoke/list inputs.
   if (REVOKE_INVITE_PATTERNS.some((p) => p.test(text))) return 'revoke';
@@ -109,6 +142,9 @@ export function resolveGuardianInviteIntent(text: string): GuardianInviteIntentR
     create: 'The user wants to create a Telegram invite link. Create the invite, look up the bot username, and present the shareable deep link with copy-paste instructions.',
     list: 'The user wants to see their invite links. List all invites (especially active ones for Telegram) and present them in a readable format.',
     revoke: 'The user wants to revoke an invite link. List invites to identify the target, confirm with the user, then revoke it.',
+    voice_create: 'The user wants to create a voice (phone call) invite. Ask for the phone number if not provided, create a voice invite with sourceChannel "voice", and present the invite code with clear instructions: the invitee must call from the bound phone number AND enter the code when prompted.',
+    voice_list: 'The user wants to see their voice invites. List all invites with sourceChannel "voice" and present them in a readable format showing phone number, status, and code usage.',
+    voice_revoke: 'The user wants to revoke a voice invite. List voice invites to identify the target, confirm with the user, then revoke it.',
   };
 
   const rewrittenContent = [
