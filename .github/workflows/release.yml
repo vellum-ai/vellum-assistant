@@ -604,7 +604,7 @@ jobs:
           security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
 
   release:
-    needs: [bump-and-tag, publish-npm, publish-meta, build-macos, push-assistant-image, push-gateway-image, ci-cli, ci-gateway]
+    needs: [bump-and-tag, publish-npm, publish-meta, build-macos, push-assistant-image, push-gateway-image, ci-cli, ci-gateway, ci-assistant, ci-playwright]
     if: ${{ !cancelled() && needs.bump-and-tag.result == 'success' && needs.publish-npm.result == 'success' && needs.publish-meta.result == 'success' && needs.build-macos.result == 'success' && needs.ci-cli.result == 'success' && needs.ci-gateway.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -643,11 +643,6 @@ jobs:
             echo "**Build:** \`$VERSION\`"
             echo "**Commit:** [\`$SHORT_SHA\`](https://github.com/${{ github.repository }}/commit/$FULL_SHA)"
             echo "**Built at:** $TIMESTAMP"
-            echo ""
-            echo "---"
-            echo ""
-            echo "Download the DMG, open it, and drag Vellum to your Applications folder."
-            echo "Existing installations will auto-update via Sparkle."
           } > "$NOTES_FILE"
 
           ASSETS=()
@@ -753,6 +748,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     continue-on-error: true
+    outputs:
+      actual_result: ${{ steps.report.outputs.status }}
     steps:
       - uses: actions/checkout@v4
 
@@ -777,6 +774,11 @@ jobs:
         working-directory: assistant
         env:
           EXCLUDE_EXPERIMENTAL: 'true'
+
+      - name: Report actual result
+        id: report
+        if: always()
+        run: echo "status=${{ job.status }}" >> "$GITHUB_OUTPUT"
 
   ci-cli:
     runs-on: ubuntu-latest
@@ -916,6 +918,16 @@ jobs:
         working-directory: playwright
         run: bun run test
 
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright/playwright-report/
+            playwright/test-results/
+          retention-days: 30
+
   notify:
     if: always() && !cancelled()
     needs: [bump-and-tag, publish-npm, publish-meta, build-macos, push-assistant-image, push-gateway-image, release, update-platform, ci-assistant, ci-cli, ci-gateway, ci-playwright]
@@ -967,7 +979,7 @@ jobs:
           # Build CI status icons
           ci_icon() { if [ "$1" = "success" ]; then printf '✅'; else printf '❌'; fi; }
 
-          A=$(ci_icon "${{ needs.ci-assistant.outcome }}")
+          A=$(ci_icon "${{ needs.ci-assistant.outputs.actual_result }}")
           C=$(ci_icon "${{ needs.ci-cli.result }}")
           G=$(ci_icon "${{ needs.ci-gateway.result }}")
           P=$(ci_icon "${{ needs.ci-playwright.result }}")
@@ -975,7 +987,13 @@ jobs:
           AI=$(ci_icon "${{ needs.push-assistant-image.result }}")
           GI=$(ci_icon "${{ needs.push-gateway-image.result }}")
 
-          CI_LINE="*CI Checks:*  ${A} assistant    ${C} cli    ${G} gateway    ${P} playwright    ${D} desktop    ${AI} assistant-docker    ${GI} gateway-docker"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          PLAYWRIGHT_LINE=""
+          if [ "${{ needs.ci-playwright.result }}" != "success" ]; then
+            PLAYWRIGHT_LINE=" (<${RUN_URL}#artifacts|view report>)"
+          fi
+
+          CI_LINE="*CI Checks:*\n• ${A} assistant\n• ${C} cli\n• ${G} gateway\n• ${P} playwright${PLAYWRIGHT_LINE}\n• ${D} desktop\n• ${AI} assistant-docker\n• ${GI} gateway-docker"
           META_LINE="*Version:* \`${VERSION}\`\n*Triggered by:* ${{ github.actor }}"
 
           # Fetch release notes from GitHub release
@@ -998,12 +1016,17 @@ jobs:
               RELEASE_SUMMARY="$summary"
             fi
 
-            # Convert ## headings to Slack bold
-            RELEASE_NOTES_SECTION=$(echo "$RELEASE_BODY" | sed 's/^## \(.*\)/*\1*/g')
+            # Convert GitHub markdown to Slack mrkdwn:
+            RELEASE_NOTES_SECTION=$(echo "$RELEASE_BODY" | \
+              sed 's/^## \(.*\)/*\1*/g' | \
+              sed 's/\*\*\([^*]*\)\*\*/*\1*/g' | \
+              sed 's/\[\([^]]*\)\](\([^)]*\))/<\2|\1>/g' | \
+              sed '/^---$/d' | \
+              sed '/^Download the DMG.*Applications folder\.$/d' | \
+              sed '/^Existing installations will auto-update via Sparkle\.$/d')
           fi
 
           RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/${VERSION_TAG}"
-          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
           # Build JSON payload with jq
           BLOCKS="[]"

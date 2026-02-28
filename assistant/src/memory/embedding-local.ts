@@ -81,9 +81,11 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
       }
       this.pendingRequests.set(id, { resolve });
       this.workerProc.stdin.write(JSON.stringify({ id, texts }) + '\n');
-      this.workerProc.stdin.flush().catch(() => {
+      try {
+        this.workerProc.stdin.flush();
+      } catch {
         // Worker may have exited — pending request will be resolved by stdout reader cleanup
-      });
+      }
     });
   }
 

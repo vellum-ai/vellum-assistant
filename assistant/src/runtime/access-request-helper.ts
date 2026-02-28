@@ -105,14 +105,22 @@ export function notifyGuardianOfAccessRequest(
     }
   }
 
+  // The conversationId is assistant-scoped so the dedupe query below only
+  // matches requests for the same assistant. Without this, a pending request
+  // from assistant A could be returned for assistant B, allowing the caller
+  // to piggyback on A's guardian approval.
+  const conversationId = `access-req-${canonicalAssistantId}-${sourceChannel}-${senderExternalUserId}`;
+
   // Deduplicate: skip creation if there is already a pending canonical request
-  // for the same requester on this channel. Still return notified: true with
-  // the existing request ID so callers know the guardian was already notified.
+  // for the same requester on this channel *and* assistant. Still return
+  // notified: true with the existing request ID so callers know the guardian
+  // was already notified.
   const existingCanonical = listCanonicalGuardianRequests({
     status: 'pending',
     requesterExternalUserId: senderExternalUserId,
     sourceChannel,
     kind: 'access_request',
+    conversationId,
   });
   if (existingCanonical.length > 0) {
     log.debug(
@@ -130,7 +138,7 @@ export function notifyGuardianOfAccessRequest(
     kind: 'access_request',
     sourceType: 'channel',
     sourceChannel,
-    conversationId: `access-req-${sourceChannel}-${senderExternalUserId}`,
+    conversationId,
     requesterExternalUserId: senderExternalUserId,
     requesterChatId: externalChatId,
     guardianExternalUserId: guardianExternalUserId ?? undefined,

@@ -1,6 +1,10 @@
 # Vellum Assistant
 
-[![CI](https://github.com/vellum-ai/vellum-assistant/actions/workflows/ci-main-assistant.yaml/badge.svg)](https://github.com/vellum-ai/vellum-assistant/actions/workflows/ci-main-assistant.yaml)
+[![CI Assistant](https://github.com/vellum-ai/vellum-assistant/actions/workflows/ci-main-assistant.yaml/badge.svg)](https://github.com/vellum-ai/vellum-assistant/actions/workflows/ci-main-assistant.yaml)
+[![CI Gateway](https://github.com/vellum-ai/vellum-assistant/actions/workflows/ci-main-gateway.yaml/badge.svg)](https://github.com/vellum-ai/vellum-assistant/actions/workflows/ci-main-gateway.yaml)
+[![CI CLI](https://github.com/vellum-ai/vellum-assistant/actions/workflows/ci-main-cli.yaml/badge.svg)](https://github.com/vellum-ai/vellum-assistant/actions/workflows/ci-main-cli.yaml)
+[![CI macOS](https://github.com/vellum-ai/vellum-assistant/actions/workflows/ci-main-macos.yaml/badge.svg)](https://github.com/vellum-ai/vellum-assistant/actions/workflows/ci-main-macos.yaml)
+[![CI iOS](https://github.com/vellum-ai/vellum-assistant/actions/workflows/ci-ios.yml/badge.svg)](https://github.com/vellum-ai/vellum-assistant/actions/workflows/ci-ios.yml)
 
 AI-powered assistant platform by Vellum.
 

@@ -9,6 +9,17 @@ import { getArchivePath, getMetadataPath } from "../lib/retire-archive";
 import { exec } from "../lib/step-runner";
 
 export async function recover(): Promise<void> {
+  const args = process.argv.slice(3);
+  if (args.includes("--help") || args.includes("-h")) {
+    console.log("Usage: vellum recover <name>");
+    console.log("");
+    console.log("Restore a previously retired local assistant from its archive.");
+    console.log("");
+    console.log("Arguments:");
+    console.log("  <name>    Name of the retired assistant to recover");
+    process.exit(0);
+  }
+
   const name = process.argv[3];
   if (!name) {
     console.error("Usage: vellum recover <name>");

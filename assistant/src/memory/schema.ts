@@ -948,6 +948,9 @@ export const assistantIngressInvites = sqliteTable('assistant_ingress_invites', 
   expectedExternalUserId: text('expected_external_user_id'),
   voiceCodeHash: text('voice_code_hash'),
   voiceCodeDigits: integer('voice_code_digits'),
+  // Display metadata for personalized voice prompts (nullable — non-voice invites leave these NULL)
+  friendName: text('friend_name'),
+  guardianName: text('guardian_name'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
 });

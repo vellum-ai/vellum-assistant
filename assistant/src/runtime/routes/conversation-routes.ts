@@ -28,6 +28,7 @@ import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
 import { routeGuardianReply } from '../guardian-reply-router.js';
 import { httpError } from '../http-errors.js';
 import type {
+  ApprovalConversationGenerator,
   MessageProcessor,
   NonBlockingMessageProcessor,
   RuntimeAttachmentMetadata,
@@ -88,6 +89,7 @@ async function tryConsumeInlineApprovalReply(params: {
   }>;
   session: import('../../daemon/session.js').Session;
   onEvent: (msg: ServerMessage) => void;
+  approvalConversationGenerator?: ApprovalConversationGenerator;
 }): Promise<{ consumed: boolean; messageId?: string }> {
   const {
     conversationId,
@@ -97,15 +99,16 @@ async function tryConsumeInlineApprovalReply(params: {
     attachments,
     session,
     onEvent,
+    approvalConversationGenerator,
   } = params;
   const trimmedContent = content.trim();
 
-  // Only consume inline replies when there are no queued turns, matching
-  // the IPC path guard. With queued messages, "approve"/"no" should be
-  // processed in queue order rather than treated as a confirmation reply.
+  // Try inline approval interception whenever a pending confirmation exists.
+  // We intentionally do not block on queue depth: after an auto-deny, users
+  // often retry with "approve"/"yes" while the queue is still draining, and
+  // requiring an empty queue can create a deny/retry cascade.
   if (
     !session.hasAnyPendingConfirmation()
-    || session.getQueueDepth() > 0
     || trimmedContent.length === 0
   ) {
     return { consumed: false };
@@ -126,6 +129,7 @@ async function tryConsumeInlineApprovalReply(params: {
     },
     conversationId,
     pendingRequestIds,
+    approvalConversationGenerator,
   });
 
   if (!routerResult.consumed || routerResult.type === 'nl_keep_pending') {
@@ -378,6 +382,7 @@ export async function handleSendMessage(
     processMessage?: MessageProcessor;
     persistAndProcessMessage?: NonBlockingMessageProcessor;
     sendMessageDeps?: SendMessageDeps;
+    approvalConversationGenerator?: ApprovalConversationGenerator;
   },
 ): Promise<Response> {
   const body = await req.json() as {
@@ -456,10 +461,11 @@ export async function handleSendMessage(
         sourceChannel,
         sourceInterface,
         content: content ?? '',
-        attachments,
-        session,
-        onEvent,
-      });
+      attachments,
+      session,
+      onEvent,
+      approvalConversationGenerator: deps.approvalConversationGenerator,
+    });
       if (inlineReplyResult.consumed) {
         return Response.json(
           { accepted: true, ...(inlineReplyResult.messageId ? { messageId: inlineReplyResult.messageId } : {}) },

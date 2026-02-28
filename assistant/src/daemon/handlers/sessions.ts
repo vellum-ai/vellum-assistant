@@ -8,8 +8,11 @@ import { type InterfaceId,isChannelId, parseChannelId, parseInterfaceId } from '
 import { getConfig } from '../../config/loader.js';
 import { getAttachmentsForMessage, getFilePathForAttachment, setAttachmentThumbnail } from '../../memory/attachments-store.js';
 import {
+  createCanonicalGuardianRequest,
+  generateCanonicalRequestCode,
   listCanonicalGuardianRequests,
   listPendingCanonicalGuardianRequestsByDestinationConversation,
+  resolveCanonicalGuardianRequest,
 } from '../../memory/canonical-guardian-store.js';
 import { getAttentionStateByConversationIds } from '../../memory/conversation-attention-store.js';
 import * as conversationStore from '../../memory/conversation-store.js';
@@ -48,6 +51,7 @@ import { normalizeThreadType } from '../ipc-protocol.js';
 import { executeRecordingIntent } from '../recording-executor.js';
 import { resolveRecordingIntent } from '../recording-intent.js';
 import { classifyRecordingIntentFallback, containsRecordingKeywords } from '../recording-intent-fallback.js';
+import type { Session } from '../session.js';
 import { buildSessionErrorMessage,classifySessionError } from '../session-error.js';
 import { resolveChannelCapabilities } from '../session-runtime-assembly.js';
 import { generateVideoThumbnail } from '../video-thumbnail.js';
@@ -67,6 +71,86 @@ import {
 
 const desktopApprovalConversationGenerator = createApprovalConversationGenerator();
 
+function syncCanonicalStatusFromIpcConfirmationDecision(
+  requestId: string,
+  decision: ConfirmationResponse['decision'],
+): void {
+  const targetStatus = decision === 'deny' || decision === 'always_deny'
+    ? 'denied' as const
+    : 'approved' as const;
+
+  try {
+    resolveCanonicalGuardianRequest(requestId, 'pending', { status: targetStatus });
+  } catch (err) {
+    log.debug(
+      { err, requestId, targetStatus },
+      'Failed to resolve canonical request from IPC confirmation response',
+    );
+  }
+}
+
+function makeIpcEventSender(params: {
+  ctx: HandlerContext;
+  socket: net.Socket;
+  session: Session;
+  conversationId: string;
+  sourceChannel: string;
+}): (event: ServerMessage) => void {
+  const {
+    ctx,
+    socket,
+    session,
+    conversationId,
+    sourceChannel,
+  } = params;
+
+  return (event: ServerMessage) => {
+    if (event.type === 'confirmation_request') {
+      pendingInteractions.register(event.requestId, {
+        session,
+        conversationId,
+        kind: 'confirmation',
+        confirmationDetails: {
+          toolName: event.toolName,
+          input: event.input,
+          riskLevel: event.riskLevel,
+          executionTarget: event.executionTarget,
+          allowlistOptions: event.allowlistOptions,
+          scopeOptions: event.scopeOptions,
+          persistentDecisionsAllowed: event.persistentDecisionsAllowed,
+        },
+      });
+
+      try {
+        createCanonicalGuardianRequest({
+          id: event.requestId,
+          kind: 'tool_approval',
+          sourceType: 'desktop',
+          sourceChannel,
+          conversationId,
+          toolName: event.toolName,
+          status: 'pending',
+          requestCode: generateCanonicalRequestCode(),
+          expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+        });
+      } catch (err) {
+        log.debug(
+          { err, requestId: event.requestId, conversationId },
+          'Failed to create canonical request from IPC confirmation event',
+        );
+      }
+    } else if (event.type === 'secret_request') {
+      pendingInteractions.register(event.requestId, {
+        session,
+        conversationId,
+        kind: 'secret',
+      });
+    }
+
+    ctx.send(socket, event);
+  };
+}
+
 export async function handleUserMessage(
   msg: UserMessage,
   socket: net.Socket,
@@ -84,8 +168,14 @@ export async function handleUserMessage(
       wireEscalationHandler(session, socket, ctx);
     }
 
-    const sendEvent = (event: ServerMessage) => ctx.send(socket, event);
     const ipcChannel = parseChannelId(msg.channel) ?? 'vellum';
+    const sendEvent = makeIpcEventSender({
+      ctx,
+      socket,
+      session,
+      conversationId: msg.sessionId,
+      sourceChannel: ipcChannel,
+    });
     const ipcInterface = parseInterfaceId(msg.interface);
     if (!ipcInterface) {
       ctx.send(socket, {
@@ -462,11 +552,13 @@ export async function handleUserMessage(
       }
     }
 
-    // If exactly one live turn is waiting on confirmation (no queued turns),
-    // try to consume this text as an inline approval decision first.
+    // If a live turn is waiting on confirmation, try to consume this text as
+    // an inline approval decision before auto-deny. We intentionally do not
+    // gate on queue depth: users often retry "approve"/"yes" while the queue
+    // is draining after a prior denial, and requiring an empty queue causes a
+    // deny/retry cascade where natural-language approvals never land.
     if (
       session.hasAnyPendingConfirmation()
-      && session.getQueueDepth() === 0
       && messageText.trim().length > 0
     ) {
       try {
@@ -599,6 +691,7 @@ export async function handleUserMessage(
       // stale request IDs are not reused as routing candidates.
       for (const interaction of pendingInteractions.getByConversation(msg.sessionId)) {
         if (interaction.session === session && interaction.kind === 'confirmation') {
+          syncCanonicalStatusFromIpcConfirmationDecision(interaction.requestId, 'deny');
           pendingInteractions.resolve(interaction.requestId);
         }
       }
@@ -639,6 +732,8 @@ export function handleConfirmationResponse(
         msg.selectedPattern,
         msg.selectedScope,
       );
+      syncCanonicalStatusFromIpcConfirmationDecision(msg.requestId, msg.decision);
+      pendingInteractions.resolve(msg.requestId);
       return;
     }
   }
@@ -652,6 +747,8 @@ export function handleConfirmationResponse(
         msg.selectedPattern,
         msg.selectedScope,
       );
+      syncCanonicalStatusFromIpcConfirmationDecision(msg.requestId, msg.decision);
+      pendingInteractions.resolve(msg.requestId);
       return;
     }
   }
@@ -671,6 +768,7 @@ export function handleSecretResponse(
     clearTimeout(standalone.timer);
     pendingStandaloneSecrets.delete(msg.requestId);
     standalone.resolve({ value: msg.value ?? null, delivery: msg.delivery ?? 'store' });
+    pendingInteractions.resolve(msg.requestId);
     return;
   }
 
@@ -681,6 +779,7 @@ export function handleSecretResponse(
     if (session.hasPendingSecret(msg.requestId)) {
       ctx.touchSession(sessionId);
       session.handleSecretResponse(msg.requestId, msg.value, msg.delivery);
+      pendingInteractions.resolve(msg.requestId);
       return;
     }
   }
@@ -781,11 +880,11 @@ export async function handleSessionCreate(
 
   // Auto-send the initial message if provided, kick-starting the skill.
   if (msg.initialMessage) {
-    // Queue title generation immediately (matches all other creation paths).
-    // The agent loop success path will also attempt title generation, but
-    // queueGenerateConversationTitle is safe to call redundantly — the
-    // replaceability check prevents double-writes. This ensures the title
-    // is generated even if the agent loop fails or is cancelled.
+    // Queue title generation eagerly — some processMessage paths (guardian
+    // replies, unknown slash commands) bypass the agent loop entirely, so
+    // we can't rely on the agent loop's early title generation alone.
+    // The agent loop also queues title generation, but isReplaceableTitle
+    // prevents double-writes since the first to complete sets a real title.
     if (title === GENERATING_TITLE) {
       queueGenerateConversationTitle({
         conversationId: conversation.id,
@@ -802,9 +901,15 @@ export async function handleSessionCreate(
     }
 
     ctx.socketToSession.set(socket, conversation.id);
-    const sendEvent = (event: ServerMessage) => ctx.send(socket, event);
     const requestId = uuid();
     const transportChannel = parseChannelId(msg.transport?.channelId) ?? 'vellum';
+    const sendEvent = makeIpcEventSender({
+      ctx,
+      socket,
+      session,
+      conversationId: conversation.id,
+      sourceChannel: transportChannel,
+    });
     session.setTurnChannelContext({
       userMessageChannel: transportChannel,
       assistantMessageChannel: transportChannel,
@@ -1050,7 +1155,15 @@ export function handleHistoryRequest(
           surfaceId: s.surfaceId,
           surfaceType: s.surfaceType,
           title: s.title,
-          data: {} as Record<string, unknown>,
+          data: {
+            ...(s.surfaceType === 'dynamic_page'
+              ? {
+                  ...(s.data.preview ? { preview: s.data.preview } : {}),
+                  ...(s.data.appId ? { appId: s.data.appId } : {}),
+                  ...(s.data.appType ? { appType: s.data.appType } : {}),
+                }
+              : {}),
+          } as Record<string, unknown>,
           ...(s.actions ? { actions: s.actions } : {}),
           ...(s.display ? { display: s.display } : {}),
         })))
@@ -1137,7 +1250,16 @@ export async function handleRegenerate(
   }
   ctx.touchSession(msg.sessionId);
 
-  const sendEvent = (event: ServerMessage) => ctx.send(socket, event);
+  const regenerateChannel = parseChannelId(
+    session.getTurnChannelContext()?.assistantMessageChannel,
+  ) ?? 'vellum';
+  const sendEvent = makeIpcEventSender({
+    ctx,
+    socket,
+    session,
+    conversationId: msg.sessionId,
+    sourceChannel: regenerateChannel,
+  });
   const requestId = uuid();
   session.traceEmitter.emit('request_received', 'Regenerate requested', {
     requestId,

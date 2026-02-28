@@ -8,39 +8,31 @@ struct ConnectionStatusInfo {
     let icon: String
 }
 
-/// A reusable row that displays a labelled connection status with an animated
-/// refresh button. Used for Platform, Gateway, and Tunnel status indicators.
-struct ConnectionStatusRow: View {
-    let label: String
+// MARK: - Inline Connection Status
+
+/// A compact status indicator (icon + text + refresh) designed to sit inline
+/// next to a URL field. No label column — just the status badge and refresh.
+struct InlineConnectionStatus: View {
     let status: ConnectionStatusInfo
     var isRefreshing: Bool = false
     var lastChecked: Date? = nil
+    var accessibilityLabel: String = "connection"
     var onRefresh: (() -> Void)? = nil
-
-    /// Label font — defaults to `VFont.bodyMedium` to match Gateway/Tunnel.
-    var labelFont: Font = VFont.bodyMedium
-
-    /// Fixed width for the label column so icons line up across rows.
-    var labelWidth: CGFloat = 60
 
     @State private var spinning: Bool = false
 
     var body: some View {
         let isSpinning = isRefreshing || spinning
 
-        HStack(spacing: VSpacing.sm) {
-            Text(label)
-                .font(labelFont)
-                .foregroundColor(VColor.textSecondary)
-                .frame(width: labelWidth, alignment: .leading)
-
+        HStack(spacing: VSpacing.xs) {
             Image(systemName: status.icon)
                 .foregroundColor(status.color)
-                .font(.system(size: 12))
+                .font(.system(size: 11))
 
             Text(status.label)
-                .font(VFont.body)
+                .font(VFont.caption)
                 .foregroundColor(status.color)
+                .lineLimit(1)
 
             if let onRefresh {
                 let tooltipText: String = {
@@ -61,15 +53,13 @@ struct ConnectionStatusRow: View {
                     SpinningRefreshIcon(isSpinning: isSpinning)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Refresh \(label) status")
+                .accessibilityLabel("Refresh \(accessibilityLabel) status")
                 .help(tooltipText)
             }
-
-            Spacer()
         }
+        .fixedSize()
     }
 
-    /// Returns a human-readable relative time string (e.g. "just now", "2 minutes ago").
     private func relativeTimeString(from date: Date) -> String {
         let seconds = Int(-date.timeIntervalSinceNow)
         if seconds < 5 { return "just now" }

@@ -147,6 +147,8 @@ export async function handleCreateInvite(req: Request): Promise<Response> {
     expiresInMs: body.expiresInMs as number | undefined,
     expectedExternalUserId: body.expectedExternalUserId as string | undefined,
     voiceCodeDigits: body.voiceCodeDigits as number | undefined,
+    friendName: body.friendName as string | undefined,
+    guardianName: body.guardianName as string | undefined,
   });
 
   if (!result.ok) {

@@ -38,6 +38,9 @@ export interface IngressInvite {
   expectedExternalUserId: string | null;
   voiceCodeHash: string | null;
   voiceCodeDigits: number | null;
+  // Display metadata for personalized voice prompts (null for non-voice invites)
+  friendName: string | null;
+  guardianName: string | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -98,6 +101,8 @@ function rowToInvite(row: typeof assistantIngressInvites.$inferSelect): IngressI
     expectedExternalUserId: row.expectedExternalUserId,
     voiceCodeHash: row.voiceCodeHash,
     voiceCodeDigits: row.voiceCodeDigits,
+    friendName: row.friendName,
+    guardianName: row.guardianName,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -139,6 +144,8 @@ export function createInvite(params: {
   expectedExternalUserId?: string;
   voiceCodeHash?: string;
   voiceCodeDigits?: number;
+  friendName?: string;
+  guardianName?: string;
 }): { invite: IngressInvite; rawToken: string } {
   const db = getDb();
   const now = Date.now();
@@ -163,6 +170,8 @@ export function createInvite(params: {
     expectedExternalUserId: params.expectedExternalUserId ?? null,
     voiceCodeHash: params.voiceCodeHash ?? null,
     voiceCodeDigits: params.voiceCodeDigits ?? null,
+    friendName: params.friendName ?? null,
+    guardianName: params.guardianName ?? null,
     createdAt: now,
     updatedAt: now,
   };

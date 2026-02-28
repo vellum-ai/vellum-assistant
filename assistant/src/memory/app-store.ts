@@ -147,6 +147,9 @@ function savePages(appId: string, pages: Record<string, string>): void {
   mkdirSync(pagesDir, { recursive: true });
   for (const [filename, content] of Object.entries(pages)) {
     validatePageFilename(filename);
+    if (typeof content !== 'string') {
+      throw new Error(`Page content for "${filename}" must be a string, got ${typeof content}`);
+    }
     writeFileSync(join(pagesDir, filename), content, 'utf-8');
   }
 }
@@ -194,6 +197,9 @@ export function createApp(params: {
   // Write htmlDefinition to {appId}/index.html on disk
   const appDir = join(dir, app.id);
   mkdirSync(appDir, { recursive: true });
+  if (typeof params.htmlDefinition !== 'string') {
+    throw new Error(`htmlDefinition must be a string, got ${typeof params.htmlDefinition}`);
+  }
   writeFileSync(join(appDir, 'index.html'), params.htmlDefinition, 'utf-8');
 
   // Write preview to companion file to keep the JSON small

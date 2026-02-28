@@ -684,10 +684,6 @@ function DefaultMainScreen({
       </Box>
       <Text dimColor>{"─".repeat(totalWidth)}</Text>
       <Text> </Text>
-      <Tooltip text="Type ? or /help for available commands" delay={1000}>
-        <Text dimColor> ? for shortcuts</Text>
-      </Tooltip>
-      <Text> </Text>
     </Box>
   );
 }
@@ -745,6 +741,14 @@ function estimateItemHeight(item: FeedItem, terminalColumns: number): number {
   if (item.type === "help") {
     return 6;
   }
+  if (item.type === "status" || item.type === "error") {
+    const cols = Math.max(1, terminalColumns);
+    let lines = 0;
+    for (const line of item.text.split("\n")) {
+      lines += Math.max(1, Math.ceil(line.length / cols));
+    }
+    return lines;
+  }
   return 1;
 }
 
@@ -754,7 +758,7 @@ function calculateHeaderHeight(species: Species): number {
   const leftLineCount = 3 + artLength + 3;
   const rightLineCount = 11;
   const maxLines = Math.max(leftLineCount, rightLineCount);
-  return maxLines + 5;
+  return maxLines + 3;
 }
 
 const SCROLL_STEP = 5;
@@ -784,7 +788,7 @@ export function render(runtimeUrl: string, assistantId: string, species: Species
     })
     .catch(() => {});
 
-  return 1 + maxLines + 4;
+  return 1 + maxLines + 2;
 }
 
 interface SelectionWindowProps {
@@ -989,15 +993,15 @@ function ChatApp({
   const terminalColumns = stdout.columns || 80;
   const headerHeight = calculateHeaderHeight(species);
   const tooltipBubbleHeight = 3;
-  const showTooltip = inputFocused && inputValue.length === 0;
-  const tooltipHeight = showTooltip ? tooltipBubbleHeight : 0;
+  const inputAreaHeight = 4;
+
   const bottomHeight = selection
     ? selection.options.length + 3 + tooltipBubbleHeight
     : secretInput
       ? 5 + tooltipBubbleHeight
       : spinnerText
-        ? 4
-        : 3 + tooltipHeight;
+        ? 1 + inputAreaHeight
+        : inputAreaHeight;
   const availableRows = Math.max(3, terminalRows - headerHeight - bottomHeight);
 
   const addMessage = useCallback((msg: RuntimeMessage) => {
@@ -1823,12 +1827,6 @@ function ChatApp({
 
       {!selection && !secretInput ? (
         <Box flexDirection="column">
-          <Tooltip
-            text="Type a message or /help for commands"
-            visible={inputFocused && inputValue.length === 0}
-            position="above"
-            delay={1000}
-          />
           <Text dimColor>{"\u2500".repeat(terminalColumns)}</Text>
           <Box paddingLeft={1}>
             <Text color="green" bold>
@@ -1843,6 +1841,7 @@ function ChatApp({
           />
           </Box>
           <Text dimColor>{"\u2500".repeat(terminalColumns)}</Text>
+          <Text dimColor> ? for shortcuts</Text>
         </Box>
       ) : null}
     </Box>

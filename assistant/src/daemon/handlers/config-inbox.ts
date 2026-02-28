@@ -40,6 +40,8 @@ export function handleIngressInvite(
           note: msg.note,
           maxUses: msg.maxUses,
           expiresInMs: msg.expiresInMs,
+          friendName: msg.friendName,
+          guardianName: msg.guardianName,
         });
         if (!result.ok) {
           ctx.send(socket, { type: 'ingress_invite_response', success: false, error: result.error });

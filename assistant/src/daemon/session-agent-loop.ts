@@ -21,7 +21,7 @@ import { commitAppTurnChanges } from '../memory/app-git-service.js';
 import { getApp, listAppFiles } from '../memory/app-store.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { getConversationOriginChannel, getConversationOriginInterface, provenanceFromGuardianContext } from '../memory/conversation-store.js';
-import { isReplaceableTitle, queueGenerateConversationTitle, queueRegenerateConversationTitle } from '../memory/conversation-title-service.js';
+import { GENERATING_TITLE, isReplaceableTitle, queueGenerateConversationTitle, queueRegenerateConversationTitle, UNTITLED_FALLBACK } from '../memory/conversation-title-service.js';
 import { stripMemoryRecallMessages } from '../memory/retriever.js';
 import type { PermissionPrompter } from '../permissions/prompter.js';
 import type { ContentBlock,Message } from '../providers/types.js';
@@ -212,8 +212,40 @@ export async function runAgentLoopImpl(
         ctx.messages.pop();
         conversationStore.deleteMessageById(userMessageId);
       }
+      // Replace loading placeholder so the thread isn't stuck as "Generating title..."
+      const blockedConv = conversationStore.getConversation(ctx.conversationId);
+      if (blockedConv?.title === GENERATING_TITLE) {
+        conversationStore.updateConversationTitle(ctx.conversationId, UNTITLED_FALLBACK, 1);
+        onEvent({ type: 'session_title_updated', sessionId: ctx.conversationId, title: UNTITLED_FALLBACK });
+      }
       onEvent({ type: 'error', message: `Message blocked by hook "${preMessageResult.blockedBy}"` });
       return;
+    }
+
+    // Generate title early — the user message alone is sufficient context.
+    // Firing after hook gating but before the main LLM call removes the
+    // delay of waiting for the full assistant response. The second-pass
+    // regeneration at turn 3 will refine the title with more context.
+    // Deferred via setTimeout so the main agent loop LLM call is queued
+    // first, avoiding rate-limit slot contention. No abort signal — title
+    // generation should complete even if the user cancels the response,
+    // since the user message is already persisted.
+    const currentConvForTitle = conversationStore.getConversation(ctx.conversationId);
+    if (isReplaceableTitle(currentConvForTitle?.title ?? null)) {
+      setTimeout(() => {
+        queueGenerateConversationTitle({
+          conversationId: ctx.conversationId,
+          provider: ctx.provider,
+          userMessage: options?.titleText ?? content,
+          onTitleUpdated: (title) => {
+            onEvent({
+              type: 'session_title_updated',
+              sessionId: ctx.conversationId,
+              title,
+            });
+          },
+        });
+      }, 0);
     }
 
     const isFirstMessage = ctx.messages.length === 1;
@@ -719,27 +751,6 @@ export async function runAgentLoopImpl(
         type: 'message_complete',
         sessionId: ctx.conversationId,
         ...(emittedAttachments.length > 0 ? { attachments: emittedAttachments } : {}),
-      });
-    }
-
-    // Generate title if the current conversation title is still a replaceable
-    // placeholder. This replaces the previous `isFirstMessage` gate so that
-    // assistant-seeded/system-seeded threads also receive generated titles.
-    const currentConv = conversationStore.getConversation(ctx.conversationId);
-    if (isReplaceableTitle(currentConv?.title ?? null)) {
-      queueGenerateConversationTitle({
-        conversationId: ctx.conversationId,
-        provider: ctx.provider,
-        userMessage: options?.titleText ?? content,
-        assistantResponse: state.firstAssistantText || undefined,
-        onTitleUpdated: (title) => {
-          onEvent({
-            type: 'session_title_updated',
-            sessionId: ctx.conversationId,
-            title,
-          });
-        },
-        signal: abortController.signal,
       });
     }
 

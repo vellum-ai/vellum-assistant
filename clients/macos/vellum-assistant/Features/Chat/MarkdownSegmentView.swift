@@ -13,7 +13,8 @@ struct MarkdownSegmentView: View {
     var secondaryTextColor: Color = VColor.textSecondary
     var mutedTextColor: Color = VColor.textMuted
     var tintColor: Color = VColor.accent
-    var codeBackgroundColor: Color = VColor.backgroundSubtle
+    var codeTextColor: Color = VColor.codeText
+    var codeBackgroundColor: Color = VColor.codeBackground
     var hrColor: Color = VColor.surfaceBorder
 
     @Environment(\.conversationZoomScale) private var zoomScale
@@ -186,6 +187,9 @@ struct MarkdownSegmentView: View {
             hasher.combine(String(describing: segment))
         }
         hasher.combine(secondaryTextColor.description)
+        hasher.combine(textColor.description)
+        hasher.combine(codeTextColor.description)
+        hasher.combine(codeBackgroundColor.description)
         hasher.combine(zoomScale)
         let cacheKey = hasher.finalize()
 
@@ -195,7 +199,7 @@ struct MarkdownSegmentView: View {
             return cached.value
         }
 
-        let result = Self.buildAttributedStringUncached(from: segments, secondaryTextColor: secondaryTextColor, zoomScale: zoomScale)
+        let result = Self.buildAttributedStringUncached(from: segments, secondaryTextColor: secondaryTextColor, codeTextColor: codeTextColor, codeBackgroundColor: codeBackgroundColor, zoomScale: zoomScale)
 
         // Skip caching for very long segment groups to avoid a single huge
         // entry evicting many smaller, more frequently accessed entries.
@@ -221,6 +225,8 @@ struct MarkdownSegmentView: View {
     private static func buildAttributedStringUncached(
         from segments: [MarkdownSegment],
         secondaryTextColor: Color,
+        codeTextColor: Color = VColor.codeText,
+        codeBackgroundColor: Color = VColor.codeBackground,
         zoomScale: CGFloat = 1.0
     ) -> AttributedString {
         let mdOptions = AttributedString.MarkdownParsingOptions(
@@ -287,6 +293,24 @@ struct MarkdownSegmentView: View {
             default:
                 break
             }
+        }
+
+        // Apply background, text color, and padding to inline code spans
+        var codeRanges: [Range<AttributedString.Index>] = []
+        for run in result.runs {
+            if let intent = run.inlinePresentationIntent, intent.contains(.code) {
+                codeRanges.append(run.range)
+            }
+        }
+        for range in codeRanges.reversed() {
+            result[range].foregroundColor = codeTextColor
+            result[range].backgroundColor = codeBackgroundColor
+            var trailing = AttributedString("\u{2009}")
+            trailing.backgroundColor = codeBackgroundColor
+            result.insert(trailing, at: range.upperBound)
+            var leading = AttributedString("\u{2009}")
+            leading.backgroundColor = codeBackgroundColor
+            result.insert(leading, at: range.lowerBound)
         }
 
         return result

@@ -117,20 +117,33 @@ struct SettingsAccountTab: View {
                     .font(VFont.caption)
                     .foregroundColor(VColor.textSecondary)
 
-                VInlineActionField(text: $platformUrlText, placeholder: "https://platform.vellum.ai", isFocused: $isPlatformUrlFocused) {
-                    store.savePlatformBaseUrl(platformUrlText)
-                    Task { await store.checkVellumPlatform() }
-                }
-            }
+                HStack(spacing: VSpacing.sm) {
+                    VInlineActionField(text: $platformUrlText, placeholder: "https://platform.vellum.ai", isFocused: $isPlatformUrlFocused) {
+                        store.savePlatformBaseUrl(platformUrlText)
+                        Task { await store.checkVellumPlatform() }
+                    }
 
-            // Platform connection status
-            ConnectionStatusRow(
-                label: "Platform",
-                status: platformStatusInfo,
-                isRefreshing: store.isCheckingVellumPlatform,
-                lastChecked: store.platformLastChecked
-            ) {
-                Task { await store.checkVellumPlatform() }
+                    InlineConnectionStatus(
+                        status: platformStatusInfo,
+                        isRefreshing: store.isCheckingVellumPlatform,
+                        lastChecked: store.platformLastChecked,
+                        accessibilityLabel: "platform"
+                    ) {
+                        Task { await store.checkVellumPlatform() }
+                    }
+                }
+            } else {
+                HStack(spacing: VSpacing.sm) {
+                    InlineConnectionStatus(
+                        status: platformStatusInfo,
+                        isRefreshing: store.isCheckingVellumPlatform,
+                        lastChecked: store.platformLastChecked,
+                        accessibilityLabel: "platform"
+                    ) {
+                        Task { await store.checkVellumPlatform() }
+                    }
+                    Spacer()
+                }
             }
 
             Divider().background(VColor.surfaceBorder)

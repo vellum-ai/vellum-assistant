@@ -53,8 +53,24 @@ extension ChatBubble {
         let options = AttributedString.MarkdownParsingOptions(
             interpretedSyntax: .inlineOnlyPreservingWhitespace
         )
-        let result = (try? AttributedString(markdown: text, options: options))
+        var result = (try? AttributedString(markdown: text, options: options))
             ?? AttributedString(text)
+        var inlineCodeRanges: [Range<AttributedString.Index>] = []
+        for run in result.runs {
+            if let intent = run.inlinePresentationIntent, intent.contains(.code) {
+                inlineCodeRanges.append(run.range)
+            }
+        }
+        for range in inlineCodeRanges.reversed() {
+            result[range].foregroundColor = VColor.codeText
+            result[range].backgroundColor = VColor.codeBackground
+            var trailing = AttributedString("\u{2009}")
+            trailing.backgroundColor = VColor.codeBackground
+            result.insert(trailing, at: range.upperBound)
+            var leading = AttributedString("\u{2009}")
+            leading.backgroundColor = VColor.codeBackground
+            result.insert(leading, at: range.lowerBound)
+        }
         if isStreaming {
             lastStreamingInlineMarkdown = (text, result)
             return result
@@ -123,16 +139,19 @@ extension ChatBubble {
     var markdownText: AttributedString {
         let textToRender = message.text
         let trimmed = textToRender.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Include role in the cache key so user and assistant messages with
+        // identical text don't share entries (they use different inline code colors).
+        let cacheKey = isUser ? "u:\(trimmed)" : trimmed
 
         // Return cached value if available
-        if let cached = Self.markdownCache[trimmed] {
+        if let cached = Self.markdownCache[cacheKey] {
             Self.lruCounter += 1
-            Self.markdownCache[trimmed] = (cached.value, Self.lruCounter)
+            Self.markdownCache[cacheKey] = (cached.value, Self.lruCounter)
             return cached.value
         }
 
         // Streaming dedup: return the last-parsed result when text is unchanged.
-        if message.isStreaming, let last = Self.lastStreamingMarkdown, last.text == trimmed {
+        if message.isStreaming, let last = Self.lastStreamingMarkdown, last.text == cacheKey {
             return last.value
         }
 
@@ -142,6 +161,27 @@ extension ChatBubble {
         )
         var parsed = (try? AttributedString(markdown: trimmed, options: options))
             ?? AttributedString(trimmed)
+
+        // Apply background and text color to inline code spans,
+        // using user-bubble-appropriate colors when inside a user message.
+        let inlineCodeTextColor = isUser ? VColor.userBubbleText : VColor.codeText
+        let inlineCodeBgColor = isUser ? VColor.userBubbleText.opacity(0.1) : VColor.codeBackground
+        var markdownCodeRanges: [Range<AttributedString.Index>] = []
+        for run in parsed.runs {
+            if let intent = run.inlinePresentationIntent, intent.contains(.code) {
+                markdownCodeRanges.append(run.range)
+            }
+        }
+        for range in markdownCodeRanges.reversed() {
+            parsed[range].foregroundColor = inlineCodeTextColor
+            parsed[range].backgroundColor = inlineCodeBgColor
+            var trailing = AttributedString("\u{2009}")
+            trailing.backgroundColor = inlineCodeBgColor
+            parsed.insert(trailing, at: range.upperBound)
+            var leading = AttributedString("\u{2009}")
+            leading.backgroundColor = inlineCodeBgColor
+            parsed.insert(leading, at: range.lowerBound)
+        }
 
         // Highlight slash command token (e.g. /model) in blue
         if let slashMatch = trimmed.range(of: #"^/\w+"#, options: .regularExpression) {
@@ -155,7 +195,7 @@ extension ChatBubble {
         // Skip main cache during streaming — intermediate text wastes cache slots.
         // Store in the single-entry dedup cache instead.
         if message.isStreaming {
-            Self.lastStreamingMarkdown = (trimmed, parsed)
+            Self.lastStreamingMarkdown = (cacheKey, parsed)
             return parsed
         }
 
@@ -171,8 +211,8 @@ extension ChatBubble {
             }
         }
         Self.lruCounter += 1
-        let cost = Self.estimatedBytes(for: trimmed)
-        Self.markdownCache[trimmed] = (parsed, Self.lruCounter)
+        let cost = Self.estimatedBytes(for: cacheKey)
+        Self.markdownCache[cacheKey] = (parsed, Self.lruCounter)
         Self.estimatedCacheBytes += cost
         Self.evictIfOverBudget()
 

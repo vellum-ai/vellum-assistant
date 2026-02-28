@@ -13,6 +13,7 @@ import { loadAllAssistants, saveAssistantEntry, syncConfigToLockfile } from "../
 import type { AssistantEntry } from "../lib/assistant-config";
 import { hatchAws } from "../lib/aws";
 import {
+  GATEWAY_PORT,
   SPECIES_CONFIG,
   VALID_REMOTE_HOSTS,
   VALID_SPECIES,
@@ -21,6 +22,7 @@ import type { RemoteHost, Species } from "../lib/constants";
 import { hatchGcp } from "../lib/gcp";
 import type { PollResult, WatchHatchingResult } from "../lib/gcp";
 import { startLocalDaemon, startGateway, stopLocalProcesses } from "../lib/local";
+import { probePort } from "../lib/port-probe";
 import { isProcessAlive } from "../lib/process";
 import { generateRandomSuffix } from "../lib/random-name";
 import { validateAssistantName } from "../lib/retire-archive";
@@ -155,7 +157,22 @@ function parseArgs(): HatchArgs {
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
-    if (arg === "-d") {
+    if (arg === "--help" || arg === "-h") {
+      console.log("Usage: vellum hatch [species] [options]");
+      console.log("");
+      console.log("Create a new assistant instance.");
+      console.log("");
+      console.log("Species:");
+      console.log("  vellum       Default assistant (default)");
+      console.log("  openclaw     OpenClaw adapter");
+      console.log("");
+      console.log("Options:");
+      console.log("  -d                        Run in detached mode");
+      console.log("  --name <name>             Custom instance name");
+      console.log("  --remote <host>           Remote host (local, gcp, aws, custom)");
+      console.log("  --daemon-only             Start daemon only, skip gateway");
+      process.exit(0);
+    } else if (arg === "-d") {
       detached = true;
     } else if (arg === "--daemon-only") {
       daemonOnly = true;
@@ -496,6 +513,8 @@ async function displayPairingQRCode(runtimeUrl: string, bearerToken: string | un
     });
 
     if (!registerRes.ok) {
+      const body = await registerRes.text().catch(() => "");
+      console.warn(`⚠ Could not register pairing request: ${registerRes.status} ${registerRes.statusText}${body ? ` — ${body}` : ""}. Run \`vellum pair\` to try again.\n`);
       return;
     }
 
@@ -519,8 +538,10 @@ async function displayPairingQRCode(runtimeUrl: string, bearerToken: string | un
     console.log(qrString);
     console.log("This pairing request expires in 5 minutes.");
     console.log("Run `vellum pair` to generate a new one.\n");
-  } catch {
+  } catch (err) {
     // Non-fatal — pairing is optional
+    const reason = err instanceof Error ? err.message : String(err);
+    console.warn(`⚠ Could not generate pairing QR code: ${reason}. Run \`vellum pair\` to try again.\n`);
   }
 }
 
@@ -539,6 +560,32 @@ async function hatchLocal(species: Species, name: string | null, daemonOnly: boo
     if (daemonPid.alive || gatewayPid.alive) {
       console.log("🧹 Cleaning up stale local processes (no lock file entry)...\n");
       await stopLocalProcesses();
+    }
+
+    // Verify required ports are available before starting any services.
+    // Only check when no local assistants exist — if there are existing local
+    // assistants, their daemon/gateway/qdrant legitimately own these ports.
+    const RUNTIME_HTTP_PORT = Number(process.env.RUNTIME_HTTP_PORT) || 7821;
+    const QDRANT_PORT = 6333;
+    const requiredPorts = [
+      { name: "daemon", port: RUNTIME_HTTP_PORT },
+      { name: "gateway", port: GATEWAY_PORT },
+      { name: "qdrant", port: QDRANT_PORT },
+    ];
+    const conflicts: string[] = [];
+    await Promise.all(
+      requiredPorts.map(async ({ name, port }) => {
+        if (await probePort(port)) {
+          conflicts.push(`  - Port ${port} (${name}) is already in use`);
+        }
+      }),
+    );
+    if (conflicts.length > 0) {
+      throw new Error(
+        `Cannot hatch — required ports are already in use:\n${conflicts.join("\n")}\n\n` +
+          "Stop the conflicting processes or use environment variables to configure alternative ports " +
+          "(RUNTIME_HTTP_PORT, GATEWAY_PORT).",
+      );
     }
   }
 

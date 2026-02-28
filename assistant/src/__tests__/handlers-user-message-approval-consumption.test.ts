@@ -3,7 +3,7 @@ import * as net from 'node:net';
 import { beforeEach, describe, expect, mock, test } from 'bun:test';
 
 import type { HandlerContext } from '../daemon/handlers.js';
-import type { UserMessage } from '../daemon/ipc-contract.js';
+import type { ConfirmationResponse, UserMessage } from '../daemon/ipc-contract.js';
 import type { ServerMessage } from '../daemon/ipc-protocol.js';
 import { DebouncerMap } from '../util/debounce.js';
 
@@ -12,8 +12,13 @@ const routeGuardianReplyMock = mock(async () => ({
   decisionApplied: false,
   type: 'not_consumed' as const,
 })) as any;
+const createCanonicalGuardianRequestMock = mock(() => ({
+  id: 'canonical-id',
+}));
+const generateCanonicalRequestCodeMock = mock(() => 'ABC123');
 const listPendingByDestinationMock = mock(() => [] as Array<{ id: string; kind?: string }>);
 const listCanonicalMock = mock(() => [] as Array<{ id: string }>);
+const resolveCanonicalGuardianRequestMock = mock(() => null as { id: string } | null);
 const getByConversationMock = mock(
   () => [] as Array<{
     requestId: string;
@@ -21,6 +26,7 @@ const getByConversationMock = mock(
     session?: unknown;
   }>,
 );
+const registerMock = mock(() => {});
 const resolveMock = mock(() => undefined as unknown);
 const addMessageMock = mock(async () => ({ id: 'persisted-message-id' }));
 const getConfigMock = mock(() => ({
@@ -33,11 +39,15 @@ mock.module('../runtime/guardian-reply-router.js', () => ({
 }));
 
 mock.module('../memory/canonical-guardian-store.js', () => ({
+  createCanonicalGuardianRequest: createCanonicalGuardianRequestMock,
+  generateCanonicalRequestCode: generateCanonicalRequestCodeMock,
   listPendingCanonicalGuardianRequestsByDestinationConversation: listPendingByDestinationMock,
   listCanonicalGuardianRequests: listCanonicalMock,
+  resolveCanonicalGuardianRequest: resolveCanonicalGuardianRequestMock,
 }));
 
 mock.module('../runtime/pending-interactions.js', () => ({
+  register: registerMock,
   getByConversation: getByConversationMock,
   resolve: resolveMock,
 }));
@@ -72,7 +82,7 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
-import { handleUserMessage } from '../daemon/handlers/sessions.js';
+import { handleConfirmationResponse, handleUserMessage } from '../daemon/handlers/sessions.js';
 
 interface TestSession {
   messages: Array<{ role: string; content: unknown[] }>;
@@ -151,8 +161,12 @@ function makeSession(overrides: Partial<TestSession> = {}): TestSession {
 describe('handleUserMessage pending-confirmation reply interception', () => {
   beforeEach(() => {
     routeGuardianReplyMock.mockClear();
+    createCanonicalGuardianRequestMock.mockClear();
+    generateCanonicalRequestCodeMock.mockClear();
     listPendingByDestinationMock.mockClear();
     listCanonicalMock.mockClear();
+    resolveCanonicalGuardianRequestMock.mockClear();
+    registerMock.mockClear();
     getByConversationMock.mockClear();
     resolveMock.mockClear();
     addMessageMock.mockClear();
@@ -222,6 +236,28 @@ describe('handleUserMessage pending-confirmation reply interception', () => {
       (msg): msg is Extract<ServerMessage, { type: 'message_request_complete' }> => msg.type === 'message_request_complete',
     );
     expect(requestComplete?.runStillActive).toBe(false);
+  });
+
+  test('consumes decision replies even when queue depth is non-zero', async () => {
+    listPendingByDestinationMock.mockReturnValue([{ id: 'req-1', kind: 'tool_approval' }]);
+    listCanonicalMock.mockReturnValue([{ id: 'req-1' }]);
+    routeGuardianReplyMock.mockResolvedValue({
+      consumed: true,
+      decisionApplied: true,
+      type: 'canonical_decision_applied',
+      requestId: 'req-1',
+    });
+
+    const session = makeSession({
+      getQueueDepth: () => 2,
+    });
+    const { ctx } = createContext(session);
+
+    await handleUserMessage(makeMessage('approve'), {} as net.Socket, ctx);
+
+    expect(routeGuardianReplyMock).toHaveBeenCalledTimes(1);
+    expect((session.denyAllPendingConfirmations as any).mock.calls.length).toBe(0);
+    expect((session.enqueueMessage as any).mock.calls.length).toBe(0);
   });
 
   test('does not mutate in-memory history while processing', async () => {
@@ -314,5 +350,128 @@ describe('handleUserMessage pending-confirmation reply interception', () => {
     // session-scoped interaction should be resolved.
     expect(resolveMock).toHaveBeenCalledTimes(1);
     expect(resolveMock).toHaveBeenCalledWith('req-live');
+    expect(resolveCanonicalGuardianRequestMock).toHaveBeenCalledTimes(1);
+    expect(resolveCanonicalGuardianRequestMock).toHaveBeenCalledWith(
+      'req-live',
+      'pending',
+      { status: 'denied' },
+    );
+  });
+
+  test('registers IPC confirmation events for NL approval routing', async () => {
+    const session = makeSession({
+      hasAnyPendingConfirmation: () => false,
+      enqueueMessage: mock(() => ({ queued: false, requestId: 'direct-id' })),
+      processMessage: async (_content, _attachments, onEvent) => {
+        (onEvent as (msg: ServerMessage) => void)({
+          type: 'confirmation_request',
+          requestId: 'req-confirm-1',
+          toolName: 'call_start',
+          input: { phone_number: '+18084436762' },
+          riskLevel: 'high',
+          executionTarget: 'host',
+          allowlistOptions: [],
+          scopeOptions: [],
+          persistentDecisionsAllowed: false,
+        } as ServerMessage);
+        return 'msg-id';
+      },
+    });
+    const { ctx, sent } = createContext(session);
+
+    await handleUserMessage(makeMessage('please call now'), {} as net.Socket, ctx);
+
+    expect(registerMock).toHaveBeenCalledTimes(1);
+    expect(registerMock).toHaveBeenCalledWith(
+      'req-confirm-1',
+      expect.objectContaining({
+        conversationId: 'conv-1',
+        kind: 'confirmation',
+        session,
+        confirmationDetails: expect.objectContaining({
+          toolName: 'call_start',
+          riskLevel: 'high',
+          executionTarget: 'host',
+        }),
+      }),
+    );
+    expect(createCanonicalGuardianRequestMock).toHaveBeenCalledTimes(1);
+    expect(createCanonicalGuardianRequestMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'req-confirm-1',
+        kind: 'tool_approval',
+        sourceType: 'desktop',
+        sourceChannel: 'vellum',
+        conversationId: 'conv-1',
+        toolName: 'call_start',
+        status: 'pending',
+        requestCode: 'ABC123',
+      }),
+    );
+    expect(sent.some((event) => event.type === 'confirmation_request')).toBe(true);
+  });
+
+  test('syncs canonical status to approved for IPC allow decisions', () => {
+    const session = {
+      hasPendingConfirmation: (requestId: string) => requestId === 'req-confirm-allow',
+      handleConfirmationResponse: mock(() => {}),
+    };
+    const { ctx } = createContext(makeSession());
+    ctx.sessions.set('conv-1', session as any);
+
+    const msg: ConfirmationResponse = {
+      type: 'confirmation_response',
+      requestId: 'req-confirm-allow',
+      decision: 'always_allow',
+    };
+
+    handleConfirmationResponse(msg, {} as net.Socket, ctx);
+
+    expect((session.handleConfirmationResponse as any).mock.calls.length).toBe(1);
+    expect((session.handleConfirmationResponse as any).mock.calls[0]).toEqual([
+      'req-confirm-allow',
+      'always_allow',
+      undefined,
+      undefined,
+    ]);
+    expect(resolveCanonicalGuardianRequestMock).toHaveBeenCalledWith(
+      'req-confirm-allow',
+      'pending',
+      { status: 'approved' },
+    );
+    expect(resolveMock).toHaveBeenCalledWith('req-confirm-allow');
+  });
+
+  test('syncs canonical status to denied for IPC deny decisions in CU sessions', () => {
+    const cuSession = {
+      hasPendingConfirmation: (requestId: string) => requestId === 'req-confirm-deny',
+      handleConfirmationResponse: mock(() => {}),
+    };
+    const { ctx } = createContext(makeSession({
+      hasPendingConfirmation: () => false,
+    }));
+    ctx.cuSessions.set('cu-1', cuSession as any);
+
+    const msg: ConfirmationResponse = {
+      type: 'confirmation_response',
+      requestId: 'req-confirm-deny',
+      decision: 'always_deny',
+    };
+
+    handleConfirmationResponse(msg, {} as net.Socket, ctx);
+
+    expect((cuSession.handleConfirmationResponse as any).mock.calls.length).toBe(1);
+    expect((cuSession.handleConfirmationResponse as any).mock.calls[0]).toEqual([
+      'req-confirm-deny',
+      'always_deny',
+      undefined,
+      undefined,
+    ]);
+    expect(resolveCanonicalGuardianRequestMock).toHaveBeenCalledWith(
+      'req-confirm-deny',
+      'pending',
+      { status: 'denied' },
+    );
+    expect(resolveMock).toHaveBeenCalledWith('req-confirm-deny');
   });
 });
