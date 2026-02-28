@@ -149,25 +149,11 @@ struct ToolPermissionTesterView: View {
                 .labelsHidden()
 
         case .enumeration(let values):
-            Picker("", selection: fieldValueBinding(for: field.id)) {
-                Text("Select\u{2026}")
-                    .foregroundColor(VColor.textMuted)
-                    .tag("")
-                ForEach(values, id: \.self) { value in
-                    Text(value)
-                        .font(VFont.mono)
-                        .tag(value)
-                }
-            }
-            .labelsHidden()
-            .font(VFont.mono)
-            .padding(.vertical, VSpacing.xs)
-            .padding(.horizontal, VSpacing.sm)
-            .background(VColor.inputBackground)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-            .overlay(
-                RoundedRectangle(cornerRadius: VRadius.sm)
-                    .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+            VDropdown(
+                placeholder: "Select\u{2026}",
+                selection: fieldValueBinding(for: field.id),
+                options: values.map { (label: $0, value: $0) },
+                emptyValue: ""
             )
 
         case .json:
@@ -329,25 +315,11 @@ struct ToolPermissionTesterView: View {
                 .vInputStyle()
                 .font(VFont.mono)
         } else {
-            Picker("", selection: $model.toolName) {
-                Text("Select a tool\u{2026}")
-                    .foregroundColor(VColor.textMuted)
-                    .tag("")
-                ForEach(model.availableToolNames, id: \.self) { name in
-                    Text(name)
-                        .font(VFont.mono)
-                        .tag(name)
-                }
-            }
-            .labelsHidden()
-            .font(VFont.mono)
-            .padding(.vertical, VSpacing.xs)
-            .padding(.horizontal, VSpacing.sm)
-            .background(VColor.inputBackground)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-            .overlay(
-                RoundedRectangle(cornerRadius: VRadius.sm)
-                    .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+            VDropdown(
+                placeholder: "Select a Tool\u{2026}",
+                selection: $model.toolName,
+                options: model.availableToolNames.map { (label: $0, value: $0) },
+                emptyValue: ""
             )
         }
     }
