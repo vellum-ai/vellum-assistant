@@ -2665,8 +2665,10 @@ describe('background channel processing approval prompts', () => {
     deliverPromptSpy.mockRestore();
   });
 
-  test('non-guardian channel turns are not interactive to prevent self-approval', async () => {
-    // Set up a guardian binding for a DIFFERENT user so the sender is non-guardian
+  test('trusted-contact channel turns with resolvable guardian route are interactive', async () => {
+    // Set up a guardian binding for a DIFFERENT user so the sender is a
+    // trusted contact (not the guardian). The guardian route is resolvable
+    // because the binding exists — approval notifications can be delivered.
     createBinding({
       assistantId: 'self',
       channel: 'telegram',
@@ -2701,7 +2703,9 @@ describe('background channel processing approval prompts', () => {
     await new Promise((resolve) => setTimeout(resolve, 300));
 
     expect(processCalls.length).toBeGreaterThan(0);
-    expect(processCalls[0].options?.isInteractive).toBe(false);
+    // Trusted contacts with a resolvable guardian route should be interactive
+    // so approval prompts can be routed to the guardian for decision.
+    expect(processCalls[0].options?.isInteractive).toBe(true);
   });
 
   test('unverified channel turns never broadcast approval prompts', async () => {

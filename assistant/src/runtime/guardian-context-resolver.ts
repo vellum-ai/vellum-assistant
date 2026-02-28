@@ -62,6 +62,88 @@ export function resolveGuardianContext(input: ResolveGuardianContextInput): Guar
   };
 }
 
+// ---------------------------------------------------------------------------
+// Routing-state helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Routing state for a channel actor turn.
+ *
+ * Determines whether a turn should be treated as interactive (the caller
+ * can be kept waiting for a guardian to respond to an approval prompt) by
+ * combining trust class with guardian route resolvability.
+ *
+ * A guardian route is "resolvable" when a verified guardian binding exists
+ * for the channel — meaning there is a concrete destination to deliver
+ * approval notifications to. Without a resolvable guardian route, entering
+ * an interactive wait (up to 300s) is a dead-end: no guardian will ever
+ * see the prompt.
+ */
+export interface RoutingState {
+  /** Whether the actor's trust class alone permits interactive waits. */
+  canBeInteractive: boolean;
+  /** Whether a verified guardian destination exists for this channel. */
+  guardianRouteResolvable: boolean;
+  /**
+   * Whether the turn should actually enter an interactive prompt wait.
+   * True only when the actor can be interactive AND a guardian route is
+   * resolvable. This is the canonical decision used by processMessage.
+   */
+  promptWaitingAllowed: boolean;
+}
+
+/**
+ * Compute the routing state for a channel actor turn.
+ *
+ * Guardian actors are always interactive (they self-approve).
+ * Trusted contacts are only interactive when a guardian binding exists
+ * to receive approval notifications. Unknown actors are never interactive.
+ */
+export function resolveRoutingState(ctx: GuardianContext): RoutingState {
+  const isGuardian = ctx.trustClass === 'guardian';
+  const isTrustedContact = ctx.trustClass === 'trusted_contact';
+
+  // Guardians self-approve — they are always interactive and route-resolvable.
+  if (isGuardian) {
+    return {
+      canBeInteractive: true,
+      guardianRouteResolvable: true,
+      promptWaitingAllowed: true,
+    };
+  }
+
+  // Trusted contacts can be interactive only if a guardian destination
+  // exists. The guardian binding populates guardianExternalUserId during
+  // trust resolution; its presence means there is a verified guardian
+  // to route approval notifications to.
+  const guardianRouteResolvable = !!ctx.guardianExternalUserId;
+  if (isTrustedContact) {
+    return {
+      canBeInteractive: true,
+      guardianRouteResolvable,
+      promptWaitingAllowed: guardianRouteResolvable,
+    };
+  }
+
+  // Unknown actors are never interactive.
+  return {
+    canBeInteractive: false,
+    guardianRouteResolvable: !!ctx.guardianExternalUserId,
+    promptWaitingAllowed: false,
+  };
+}
+
+/**
+ * Convenience: compute routing state from a GuardianRuntimeContext
+ * (the shape persisted in stored payloads and used by the retry sweep).
+ */
+export function resolveRoutingStateFromRuntime(ctx: GuardianRuntimeContext): RoutingState {
+  return resolveRoutingState({
+    trustClass: ctx.trustClass,
+    guardianExternalUserId: ctx.guardianExternalUserId,
+  });
+}
+
 export function toGuardianRuntimeContext(sourceChannel: ChannelId, ctx: GuardianContext): GuardianRuntimeContext {
   return {
     sourceChannel,
