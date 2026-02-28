@@ -18,6 +18,7 @@ import {
   type CanonicalGuardianRequest,
 } from '../memory/canonical-guardian-store.js';
 import { emitNotificationSignal } from '../notifications/emit-signal.js';
+import { canonicalizeInboundIdentity } from '../util/canonicalize-identity.js';
 import { getLogger } from '../util/logger.js';
 import { getGuardianBinding } from './channel-guardian-service.js';
 
@@ -96,9 +97,18 @@ export function bridgeConfirmationRequestToGuardian(
   // guardian identity. A mismatch can occur if a guardian rebind happens between
   // message ingress and confirmation emission — sending the notification to the
   // new binding would leak requester/tool metadata to the wrong recipient.
+  //
+  // Both sides are canonicalized before comparison because the canonical request
+  // value was normalized by resolveGuardianContext() while the binding stores the
+  // raw identity. On phone channels the same guardian can have format variance
+  // (e.g. "+1 555-123-4567" vs "+15551234567") that would cause a false mismatch.
+  const canonicalBindingId = canonicalizeInboundIdentity(sourceChannel, binding.guardianExternalUserId);
+  const canonicalRequestId = canonicalRequest.guardianExternalUserId
+    ? canonicalizeInboundIdentity(sourceChannel, canonicalRequest.guardianExternalUserId)
+    : null;
   if (
-    canonicalRequest.guardianExternalUserId &&
-    binding.guardianExternalUserId !== canonicalRequest.guardianExternalUserId
+    canonicalRequestId &&
+    canonicalBindingId !== canonicalRequestId
   ) {
     log.warn(
       {
