@@ -206,6 +206,10 @@ extension MainWindowView {
                         windowState.closeDynamicPanel()
                     }
                 )
+                .id({
+                    if case .app(let id) = windowState.selection { return id }
+                    return nil
+                }() as String?)
             }
         case .appEditing:
             // VSplitView: ChatView (left) + workspace (right)
