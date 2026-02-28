@@ -548,11 +548,18 @@ export async function handleUserMessage(
               requestId,
             });
 
-            ctx.send(socket, {
-              type: 'assistant_text_delta',
-              text: replyText,
-              sessionId: msg.sessionId,
-            });
+            // Only emit the reply delta when no agent turn is in-flight.
+            // When the agent is active, currentAssistantMessageId on the client
+            // points to the agent's streaming message and this delta would
+            // contaminate it.  The reply is already persisted to the DB, so the
+            // client will see it on the next transcript reload / session switch.
+            if (!session.isProcessing()) {
+              ctx.send(socket, {
+                type: 'assistant_text_delta',
+                text: replyText,
+                sessionId: msg.sessionId,
+              });
+            }
             ctx.send(socket, {
               type: 'message_request_complete',
               sessionId: msg.sessionId,
