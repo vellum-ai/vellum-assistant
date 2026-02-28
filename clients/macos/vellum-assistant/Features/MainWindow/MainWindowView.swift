@@ -21,6 +21,8 @@ final class SharingState {
     var pendingPublish: (html: String, title: String?, appId: String?)?
     /// Timer for polling credential availability during setup flow.
     var credentialPollTimer: Timer?
+    /// Stashed handler so onDisappear can restore it when polling is active.
+    var previousVercelHandler: ((VercelApiConfigResponseMessage) -> Void)?
 }
 
 /// Sidebar interaction state -- hover, rename, expand/collapse lists, drawer.
@@ -198,7 +200,8 @@ struct MainWindowView: View {
         // after polling ends. Without this, the poll closure permanently
         // overwrites SettingsStore's onVercelApiConfigResponse and hasVercelKey
         // is never updated again.
-        let previousHandler = daemonClient.onVercelApiConfigResponse
+        sharing.previousVercelHandler = daemonClient.onVercelApiConfigResponse
+        let previousHandler = sharing.previousVercelHandler
 
         sharing.credentialPollTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [self] timer in
             Task { @MainActor in
@@ -208,6 +211,7 @@ struct MainWindowView: View {
                     sharing.credentialPollTimer = nil
                     sharing.pendingPublish = nil
                     daemonClient.onVercelApiConfigResponse = previousHandler
+                    sharing.previousVercelHandler = nil
                     return
                 }
 
@@ -222,6 +226,7 @@ struct MainWindowView: View {
                         sharing.credentialPollTimer = nil
                         sharing.pendingPublish = nil
                         daemonClient.onVercelApiConfigResponse = previousHandler
+                        sharing.previousVercelHandler = nil
                         // Auto-retry publish with saved params
                         publishPage(html: pending.html, title: pending.title, appId: pending.appId)
                     }
@@ -623,6 +628,10 @@ struct MainWindowView: View {
             sharing.credentialPollTimer?.invalidate()
             sharing.credentialPollTimer = nil
             sharing.pendingPublish = nil
+            if let handler = sharing.previousVercelHandler {
+                daemonClient.onVercelApiConfigResponse = handler
+                sharing.previousVercelHandler = nil
+            }
             daemonClient.stopSSE()
         }
         .onReceive(NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)) { _ in
