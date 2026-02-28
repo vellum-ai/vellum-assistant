@@ -92,11 +92,11 @@ describe('ingress member HTTP routes', () => {
     });
 
     const res = await handleUpsertMember(req);
-    const body = await res.json() as { ok: boolean; error: { message: string } };
+    const body = await res.json() as { ok: boolean; error: string };
 
     expect(res.status).toBe(400);
     expect(body.ok).toBe(false);
-    expect(body.error.message).toContain('sourceChannel');
+    expect(body.error).toContain('sourceChannel');
   });
 
   test('POST /v1/ingress/members — missing identity returns 400', async () => {
@@ -109,11 +109,11 @@ describe('ingress member HTTP routes', () => {
     });
 
     const res = await handleUpsertMember(req);
-    const body = await res.json() as { ok: boolean; error: { message: string } };
+    const body = await res.json() as { ok: boolean; error: string };
 
     expect(res.status).toBe(400);
     expect(body.ok).toBe(false);
-    expect(body.error.message).toContain('externalUserId');
+    expect(body.error).toContain('externalUserId');
   });
 
   test('GET /v1/ingress/members — lists members', async () => {
@@ -322,11 +322,11 @@ describe('ingress invite HTTP routes', () => {
     });
 
     const res = await handleCreateInvite(req);
-    const body = await res.json() as { ok: boolean; error: { message: string } };
+    const body = await res.json() as { ok: boolean; error: string };
 
     expect(res.status).toBe(400);
     expect(body.ok).toBe(false);
-    expect(body.error.message).toContain('sourceChannel');
+    expect(body.error).toContain('sourceChannel');
   });
 
   test('GET /v1/ingress/invites — lists invites', async () => {
@@ -412,11 +412,11 @@ describe('ingress invite HTTP routes', () => {
     });
 
     const res = await handleRedeemInvite(req);
-    const body = await res.json() as { ok: boolean; error: { message: string } };
+    const body = await res.json() as { ok: boolean; error: string };
 
     expect(res.status).toBe(400);
     expect(body.ok).toBe(false);
-    expect(body.error.message).toContain('token');
+    expect(body.error).toContain('token');
   });
 
   test('POST /v1/ingress/invites/redeem — invalid token returns 400', async () => {
