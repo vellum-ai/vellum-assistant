@@ -520,7 +520,7 @@ export class RelayConnection {
             { callSessionId: this.callSessionId, from: msg.from },
             'Inbound voice ACL: unknown caller has active voice invite — entering redemption flow',
           );
-          const inviteCodeLength = Math.max(...voiceInvites.map(i => i.voiceCodeDigits ?? 6));
+          const inviteCodeLength = Math.min(...voiceInvites.map(i => i.voiceCodeDigits ?? 6));
           this.startInviteRedemption(assistantId, msg.from, inviteCodeLength);
           return;
         }
