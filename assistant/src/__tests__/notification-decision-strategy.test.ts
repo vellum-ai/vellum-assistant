@@ -197,11 +197,16 @@ describe('notification decision strategy', () => {
     });
 
     test('ingress.access_request template includes caller name for voice-originated requests', () => {
+      // In production, senderIdentifier resolves to senderName for voice
+      // calls (senderName || senderUsername || senderExternalUserId), so
+      // both values are the caller's name. The phone number arrives via
+      // senderExternalUserId and should appear in the parenthetical.
       const signal = makeSignal({
         sourceEventName: 'ingress.access_request',
         contextPayload: {
-          senderIdentifier: '+15559998888',
+          senderIdentifier: 'Alice Smith',
           senderName: 'Alice Smith',
+          senderExternalUserId: '+15559998888',
           sourceChannel: 'voice',
           requestCode: 'V1C2E3',
         },
@@ -210,9 +215,9 @@ describe('notification decision strategy', () => {
       const copy = composeFallbackCopy(signal, channels);
       expect(copy.vellum).toBeDefined();
       expect(copy.vellum!.title).toBe('Access Request');
-      // Voice-originated requests should include the caller name and phone number
+      // Voice-originated requests should include the caller name and phone number in parentheses
       expect(copy.vellum!.body).toContain('Alice Smith');
-      expect(copy.vellum!.body).toContain('+15559998888');
+      expect(copy.vellum!.body).toContain('(+15559998888)');
       expect(copy.vellum!.body).toContain('calling');
     });
 

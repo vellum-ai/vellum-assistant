@@ -63,7 +63,7 @@ const TEMPLATES: Record<string, CopyTemplate> = {
 
     // Voice-originated access requests include caller name context
     if (sourceChannel === 'voice' && callerName) {
-      lines.push(`${callerName} (${requester}) is calling and requesting access to the assistant.`);
+      lines.push(`${callerName} (${str(payload.senderExternalUserId, requester)}) is calling and requesting access to the assistant.`);
     } else {
       lines.push(`${requester} is requesting access to the assistant.`);
     }

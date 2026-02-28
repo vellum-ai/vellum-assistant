@@ -1111,6 +1111,18 @@ export class RelayConnection {
       log.error({ err, callSessionId: this.callSessionId }, 'Failed to create access request for voice caller');
     }
 
+    // If the access request was not successfully created (notifyGuardianOfAccessRequest
+    // threw or returned notified: false), fail closed rather than leaving the caller
+    // stuck on hold with no guardian poll target.
+    if (!this.accessRequestId) {
+      log.warn(
+        { callSessionId: this.callSessionId },
+        'Access request ID is null after notification attempt — failing closed',
+      );
+      this.handleAccessRequestTimeout();
+      return;
+    }
+
     // Enter the bounded wait loop for the guardian decision
     this.startAccessRequestWait();
   }
