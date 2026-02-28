@@ -33,15 +33,20 @@ function getRepoRoot(): string {
 /**
  * Directories containing daemon/runtime source files that must not reference
  * `normalizeAssistantId` or hardcode assistant scope strings.
+ *
+ * Each directory gets both a `*.ts` glob (top-level files) and a `**\/*.ts`
+ * glob (nested files) so that `git grep` matches at all directory depths.
  */
-const SCANNED_DIR_GLOBS = [
-  'assistant/src/runtime/**/*.ts',
-  'assistant/src/daemon/**/*.ts',
-  'assistant/src/memory/**/*.ts',
-  'assistant/src/approvals/**/*.ts',
-  'assistant/src/calls/**/*.ts',
-  'assistant/src/tools/**/*.ts',
+const SCANNED_DIRS = [
+  'assistant/src/runtime',
+  'assistant/src/daemon',
+  'assistant/src/memory',
+  'assistant/src/approvals',
+  'assistant/src/calls',
+  'assistant/src/tools',
 ];
+
+const SCANNED_DIR_GLOBS = SCANNED_DIRS.flatMap((dir) => [`${dir}/*.ts`, `${dir}/**/*.ts`]);
 
 function isTestFile(filePath: string): boolean {
   return (
@@ -152,7 +157,10 @@ describe('assistant ID boundary', () => {
 
     // Check that there's no regex extracting assistantId from a /v1/assistants/ path
     // for use as a route handler (as opposed to the rewrite pattern).
-    const routeHandlerRegex = /\/v1\/assistants\/\(\[/;
+    // Match both literal slashes (/v1/assistants/([) and escaped slashes in regex
+    // literals (\/v1\/assistants\/([) so we catch patterns like:
+    //   endpoint.match(/^\/v1\/assistants\/([^/]+)\/(.+)$/)
+    const routeHandlerRegex = /\\?\/v1\\?\/assistants\\?\/\(\[/;
     const match = content.match(routeHandlerRegex);
     expect(
       match,
