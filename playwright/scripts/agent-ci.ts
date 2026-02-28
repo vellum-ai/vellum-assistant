@@ -149,8 +149,8 @@ const runListArgs = [
 const { stdout: previousRunId } = gh(runListArgs);
 
 // Trigger the workflow
-console.log(`Triggering ${WORKFLOW} with agent=true...`);
-const trigger = ghPassthrough(["workflow", "run", WORKFLOW, "-R", REPO, "-f", "agent=true"]);
+console.log(`Triggering ${WORKFLOW}...`);
+const trigger = ghPassthrough(["workflow", "run", WORKFLOW, "-R", REPO]);
 if (trigger !== 0) {
   process.exit(trigger);
 }

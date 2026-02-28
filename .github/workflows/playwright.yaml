@@ -2,12 +2,6 @@ name: Playwright Tests
 
 on:
   workflow_dispatch:
-    inputs:
-      agent:
-        description: 'Run agent-based tests instead of standard Playwright tests'
-        required: false
-        type: boolean
-        default: false
 
 concurrency:
   group: playwright-${{ github.run_id }}
@@ -79,7 +73,6 @@ jobs:
         run: bun install
 
       - name: Install Chromium
-        if: inputs.agent
         working-directory: playwright
         run: bunx playwright install --with-deps chromium
 
@@ -87,12 +80,7 @@ jobs:
         id: tests
         working-directory: playwright
         continue-on-error: true
-        run: |
-          if [ "${{ inputs.agent }}" = "true" ]; then
-            bun run test:agent
-          else
-            bun run test
-          fi
+        run: bun run test
 
       - name: Upload test artifacts
         id: upload-artifacts
