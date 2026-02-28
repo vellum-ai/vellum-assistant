@@ -93,7 +93,8 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
       try {
         transformers = await import(wrapperPath);
       } catch (err) {
-        log.warn({ err }, 'Failed to load downloaded embedding runtime, trying fallbacks');
+        const msg = err instanceof Error ? err.message : String(err);
+        log.warn({ error: msg, wrapperPath }, 'Failed to load downloaded embedding runtime, trying fallbacks');
       }
     }
 
