@@ -417,6 +417,27 @@ describe('session-tool-setup app refresh side effects', () => {
       });
     });
 
+    test('does not auto-open or refresh surfaces for app_create', async () => {
+      const ctx = makeCtx();
+      const executor = makeFakeExecutor({
+        content: JSON.stringify({ id: 'new-app-2', name: 'Silent App' }),
+        isError: false,
+      });
+      const broadcastSpy = mock(() => {});
+
+      const toolFn = createToolExecutor(
+        executor as unknown as ToolExecutor, noopPrompter, noopSecretPrompter,
+        ctx, noopLifecycleHandler, broadcastSpy,
+      );
+
+      await toolFn('app_create', { name: 'Silent App', html: '<p>hi</p>' });
+
+      // app_create should only broadcast — no surface refresh, no deployment update.
+      // These are handled by the app_create executor itself, which respects auto_open.
+      expect(refreshSpy).not.toHaveBeenCalled();
+      expect(updatePublishedSpy).not.toHaveBeenCalled();
+    });
+
     test('skips side effects when app_create result is an error', async () => {
       const ctx = makeCtx();
       const executor = makeFakeExecutor({ content: 'Error', isError: true });
