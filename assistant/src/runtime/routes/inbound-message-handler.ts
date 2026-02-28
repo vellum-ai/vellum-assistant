@@ -892,7 +892,7 @@ export async function handleChannelInbound(
     assistantId: canonicalAssistantId,
     sourceChannel,
     externalChatId,
-    senderExternalUserId: body.senderExternalUserId,
+    senderExternalUserId: rawSenderId ?? body.senderExternalUserId,
     senderUsername: body.senderUsername,
   });
 
