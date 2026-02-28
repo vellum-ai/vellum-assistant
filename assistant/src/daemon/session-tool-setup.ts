@@ -114,6 +114,7 @@ export function createToolExecutor(
       executionChannel: ctx.guardianContext?.sourceChannel,
       callSessionId: ctx.callSessionId,
       requesterExternalUserId: ctx.guardianContext?.requesterExternalUserId,
+      requesterChatId: ctx.guardianContext?.requesterChatId,
       onOutput,
       signal: ctx.abortController?.signal,
       sandboxOverride: ctx.sandboxOverride,
