@@ -54,6 +54,7 @@ mock.module('../util/logger.js', () => ({
   getLogger: () => new Proxy({} as Record<string, unknown>, {
     get: () => () => {},
   }),
+  isDebug: () => false,
 }));
 
 mock.module('../config/loader.js', () => ({

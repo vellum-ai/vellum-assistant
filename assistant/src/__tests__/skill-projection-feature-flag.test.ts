@@ -31,10 +31,22 @@ const DECLARED_LEGACY_KEY = 'skills.hatch-new-assistant.enabled';
 
 mock.module('../config/skills.js', () => ({
   loadSkillCatalog: () => mockCatalog,
+  checkSkillRequirements: () => ({ satisfied: true, missing: [] }),
 }));
 
 mock.module('../config/loader.js', () => ({
   getConfig: () => currentConfig,
+  loadConfig: () => currentConfig,
+  invalidateConfigCache: () => {},
+}));
+
+mock.module('../config/assistant-feature-flags.js', () => ({
+  isAssistantFeatureFlagEnabled: () => true,
+  loadDefaultsRegistry: () => ({}),
+}));
+
+mock.module('../config/skill-state.js', () => ({
+  skillFlagKey: (skillId: string) => `skills.${skillId}.enabled`,
 }));
 
 mock.module('../skills/active-skill-tools.js', () => {
@@ -184,6 +196,7 @@ mock.module('../util/logger.js', () => ({
     debug: () => {},
     error: () => {},
   }),
+  isDebug: () => false,
 }));
 
 // ---------------------------------------------------------------------------

@@ -317,6 +317,7 @@ mock.module('../providers/provider-send-message.js', () => ({
 
 mock.module('../memory/external-conversation-store.js', () => ({
   getBindingsForConversations: () => new Map(),
+  upsertBinding: () => {},
 }));
 
 // ── Mock subagent manager ──────────────────────────────────────────────────
