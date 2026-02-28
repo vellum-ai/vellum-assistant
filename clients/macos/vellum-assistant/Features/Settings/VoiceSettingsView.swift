@@ -388,6 +388,7 @@ struct VoiceSettingsView: View {
                 selection: $wakeWordTimeoutSeconds,
                 options: timeoutOptions
             )
+            .frame(width: 160)
             .accessibilityLabel("Conversation timeout duration")
         }
         .padding(VSpacing.lg)
