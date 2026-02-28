@@ -1,4 +1,5 @@
 import { consumeGrantForInvocation } from '../approvals/approval-primitive.js';
+import { createOrReuseToolGrantRequest } from '../runtime/tool-grant-request-helper.js';
 import { computeToolApprovalDigest } from '../security/tool-approval-digest.js';
 import { getTaskRunRules } from '../tasks/ephemeral-permissions.js';
 import { getLogger } from '../util/logger.js';
@@ -266,7 +267,48 @@ export class ToolApprovalHandler {
       }
 
       // No matching grant or race condition — deny.
-      const reason = guardianApprovalDeniedMessage(context.guardianActorRole, name);
+      //
+      // For verified non-guardian actors with sufficient context, escalate to
+      // the guardian by creating a canonical tool_grant_request. Unverified
+      // actors remain fail-closed with no escalation.
+      let escalationMessage: string | undefined;
+      if (
+        context.guardianActorRole === 'non-guardian'
+        && context.assistantId
+        && context.executionChannel
+        && context.requesterExternalUserId
+      ) {
+        const inputDigest = deferredConsumeParams?.inputDigest
+          ?? computeToolApprovalDigest(name, input);
+        const escalation = createOrReuseToolGrantRequest({
+          assistantId: context.assistantId,
+          sourceChannel: context.executionChannel as import('../channels/types.js').ChannelId,
+          conversationId: context.conversationId,
+          requesterExternalUserId: context.requesterExternalUserId,
+          requesterChatId: undefined,
+          toolName: name,
+          inputDigest,
+          questionText: `Trusted contact is requesting permission to use "${name}"`,
+        });
+
+        if ('created' in escalation) {
+          const codeSuffix = escalation.requestCode
+            ? ` (request code: ${escalation.requestCode})`
+            : '';
+          escalationMessage = `Permission denied for "${name}": this action requires guardian approval. `
+            + `A request has been sent to the guardian${codeSuffix}. `
+            + `Please retry after the guardian approves.`;
+        } else if ('deduped' in escalation) {
+          const codeSuffix = escalation.requestCode
+            ? ` (request code: ${escalation.requestCode})`
+            : '';
+          escalationMessage = `Permission denied for "${name}": guardian approval is already pending${codeSuffix}. `
+            + `Please retry after the guardian approves.`;
+        }
+        // If escalation.failed, fall through to generic denial message.
+      }
+
+      const reason = escalationMessage ?? guardianApprovalDeniedMessage(context.guardianActorRole, name);
       log.warn({
         toolName: name,
         sessionId: context.sessionId,
@@ -275,6 +317,7 @@ export class ToolApprovalHandler {
         executionTarget,
         reason: 'guardian_approval_required',
         grantMissReason: grantResult.reason,
+        escalated: !!escalationMessage,
       }, 'Guardian approval gate blocked untrusted actor tool invocation (no matching grant)');
       const durationMs = Date.now() - startTime;
       emitLifecycleEvent({
