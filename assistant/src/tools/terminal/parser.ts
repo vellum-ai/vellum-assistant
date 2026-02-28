@@ -132,6 +132,16 @@ function findWasmPath(pkg: string, file: string): string {
     return execDirPath;
   }
 
+  // Use module resolution to find the package. This handles hoisted
+  // dependencies (e.g. global bun installs where web-tree-sitter is at the
+  // top-level node_modules rather than nested under @vellumai/assistant).
+  try {
+    const resolved = require.resolve(`${pkg}/package.json`);
+    const pkgDir = dirname(resolved);
+    const resolvedPath = join(pkgDir, file);
+    if (existsSync(resolvedPath)) return resolvedPath;
+  } catch { /* fall through to manual resolution */ }
+
   const sourcePath = join(dir, '..', '..', '..', 'node_modules', pkg, file);
 
   if (existsSync(sourcePath)) return sourcePath;
