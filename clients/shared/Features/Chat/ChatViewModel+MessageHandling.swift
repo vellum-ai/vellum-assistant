@@ -825,7 +825,14 @@ extension ChatViewModel {
                let index = messages.firstIndex(where: { $0.id == messageId }) {
                 activeRequestIdToMessageId[msg.requestId] = messageId
                 messages[index].status = .processing
-                currentTurnUserText = messages[index].text.trimmingCharacters(in: .whitespacesAndNewlines)
+                // Only update currentTurnUserText when no agent turn is already
+                // in-flight. Synthetic dequeues from inline approval consumption
+                // arrive while the agent owns currentTurnUserText; overwriting it
+                // with the approval text (e.g. "approve") would break the error
+                // handler's secret_blocked message lookup.
+                if currentAssistantMessageId == nil {
+                    currentTurnUserText = messages[index].text.trimmingCharacters(in: .whitespacesAndNewlines)
+                }
                 // Clear attachment binary payloads now that the daemon has persisted them.
                 // Keep thumbnailImage for display; the full data can be re-fetched via HTTP if needed.
                 // Only clear for lazy-loadable attachments (sizeBytes != nil); locally-created
