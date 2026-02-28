@@ -300,6 +300,12 @@ describe('(a) target flow: trusted-contact inline guardian approval end-to-end',
     if (!result.allowed) return;
     expect(result.grantConsumed).toBe(true);
 
+    // followupState should be cleared after a successful inline grant
+    const resolved = listCanonicalGuardianRequests({ kind: 'tool_grant_request' });
+    expect(resolved.length).toBe(1);
+    const freshReq = getCanonicalGuardianRequest(resolved[0].id);
+    expect(freshReq?.followupState).toBeNull();
+
     // A guardian.question notification should have been emitted
     const questionSignals = emittedSignals.filter((s) => s.sourceEventName === 'guardian.question');
     expect(questionSignals.length).toBeGreaterThan(0);

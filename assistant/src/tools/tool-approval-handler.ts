@@ -439,6 +439,10 @@ export class ToolApprovalHandler {
           );
 
           if (waitResult.outcome === 'granted') {
+            // Clear the inline-wait stamp now that the grant has been consumed.
+            updateCanonicalGuardianRequest(escalation.requestId, {
+              followupState: null,
+            });
             log.info({
               toolName: name,
               sessionId: context.sessionId,
