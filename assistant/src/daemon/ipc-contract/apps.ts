@@ -342,6 +342,7 @@ export interface PublishPageResponse {
   publicUrl?: string;
   deploymentId?: string;
   error?: string;
+  errorCode?: string;
 }
 
 export interface UnpublishPageResponse {

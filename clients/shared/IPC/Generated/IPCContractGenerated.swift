@@ -3375,13 +3375,15 @@ public struct IPCPublishPageResponse: Codable, Sendable {
     public let publicUrl: String?
     public let deploymentId: String?
     public let error: String?
+    public let errorCode: String?
 
-    public init(type: String, success: Bool, publicUrl: String? = nil, deploymentId: String? = nil, error: String? = nil) {
+    public init(type: String, success: Bool, publicUrl: String? = nil, deploymentId: String? = nil, error: String? = nil, errorCode: String? = nil) {
         self.type = type
         self.success = success
         self.publicUrl = publicUrl
         self.deploymentId = deploymentId
         self.error = error
+        self.errorCode = errorCode
     }
 }
 
