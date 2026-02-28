@@ -1194,26 +1194,28 @@ describe('AgentLoop', () => {
     const events: AgentEvent[] = [];
     const history = await loop.run([userMessage], collectEvents(events));
 
-    // The final assistant message in history should contain the resolved real token
+    // The final assistant message in HISTORY should retain placeholders
+    // (so the model never sees real values on subsequent turns)
     const lastAssistant = history[history.length - 1];
     expect(lastAssistant.role).toBe('assistant');
-    const textBlock = lastAssistant.content.find(
+    const historyTextBlock = lastAssistant.content.find(
       (b): b is Extract<ContentBlock, { type: 'text' }> => b.type === 'text',
     );
-    expect(textBlock).toBeDefined();
-    expect(textBlock!.text).toContain(realToken);
-    expect(textBlock!.text).not.toContain(placeholder);
+    expect(historyTextBlock).toBeDefined();
+    expect(historyTextBlock!.text).toContain(placeholder);
+    expect(historyTextBlock!.text).not.toContain(realToken);
 
-    // The message_complete event should also have the resolved text
+    // The message_complete EVENT should contain the resolved real token
+    // (client-facing emissions carry the substituted values)
     const completeEvents = events.filter(
       (e): e is Extract<AgentEvent, { type: 'message_complete' }> => e.type === 'message_complete',
     );
-    // Find the final message_complete (the one after tools)
     const lastComplete = completeEvents[completeEvents.length - 1];
     const completeText = lastComplete.message.content.find(
       (b): b is Extract<ContentBlock, { type: 'text' }> => b.type === 'text',
     );
     expect(completeText!.text).toContain(realToken);
+    expect(completeText!.text).not.toContain(placeholder);
 
     // The tool result content in provider history should contain the PLACEHOLDER,
     // NOT the raw token (model never sees the real value)
