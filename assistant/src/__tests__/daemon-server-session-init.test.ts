@@ -203,6 +203,8 @@ mock.module('../providers/ratelimit.js', () => ({
 
 mock.module('../config/loader.js', () => ({
   getConfig: () => ({
+    ui: {},
+    
     provider: 'mock-provider',
     providerOrder: ['mock-provider'],
     maxTokens: 4096,
@@ -244,6 +246,15 @@ mock.module('../memory/external-conversation-store.js', () => ({
 }));
 
 mock.module('../memory/conversation-store.js', () => ({
+  setConversationOriginChannelIfUnset: () => {},
+  updateConversationContextWindow: () => {},
+  deleteMessageById: () => {},
+  updateConversationTitle: () => {},
+  updateConversationUsage: () => {},
+  addMessage: () => ({ id: 'mock-msg-id' }),
+  provenanceFromGuardianContext: () => ({ source: 'user', guardianContext: undefined }),
+  getConversationOriginInterface: () => null,
+  getConversationOriginChannel: () => null,
   getLatestConversation: () => conversation,
   createConversation: (titleOrOpts?: string | { title?: string; threadType?: string }) => {
     lastCreateConversationArgs = titleOrOpts;

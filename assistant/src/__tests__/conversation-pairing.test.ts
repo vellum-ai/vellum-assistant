@@ -49,6 +49,16 @@ const getConversationMock = mock((id: string) => {
 });
 
 mock.module('../memory/conversation-store.js', () => ({
+  getConversationThreadType: () => 'default',
+  setConversationOriginChannelIfUnset: () => {},
+  updateConversationContextWindow: () => {},
+  deleteMessageById: () => {},
+  updateConversationTitle: () => {},
+  updateConversationUsage: () => {},
+  getMessages: () => [],
+  provenanceFromGuardianContext: () => ({ source: 'user', guardianContext: undefined }),
+  getConversationOriginInterface: () => null,
+  getConversationOriginChannel: () => null,
   createConversation: createConversationMock,
   addMessage: addMessageMock,
   getConversation: getConversationMock,

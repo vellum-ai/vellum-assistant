@@ -19,6 +19,8 @@ mock.module('../util/logger.js', () => ({
 
 mock.module('../config/loader.js', () => ({
   getConfig: () => ({
+    ui: {},
+    
     daemon: { standaloneRecording: true },
     provider: 'mock-provider',
     model: 'mock-model',
@@ -233,6 +235,14 @@ mock.module('../daemon/handlers/recording.js', () => ({
 // ── Mock conversation store ────────────────────────────────────────────────
 
 mock.module('../memory/conversation-store.js', () => ({
+  getConversationThreadType: () => 'default',
+  setConversationOriginChannelIfUnset: () => {},
+  updateConversationContextWindow: () => {},
+  deleteMessageById: () => {},
+  updateConversationUsage: () => {},
+  provenanceFromGuardianContext: () => ({ source: 'user', guardianContext: undefined }),
+  getConversationOriginInterface: () => null,
+  getConversationOriginChannel: () => null,
   getMessages: () => [],
   addMessage: () => ({ id: 'msg-mock', role: 'assistant', content: '' }),
   createConversation: (titleOrOpts?: string | { title?: string }) => {

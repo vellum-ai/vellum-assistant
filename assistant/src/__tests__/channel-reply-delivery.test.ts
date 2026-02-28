@@ -50,6 +50,25 @@ mock.module('../runtime/gateway-client.js', () => ({
 }));
 
 mock.module('../memory/conversation-store.js', () => ({
+  getConversationThreadType: () => 'default',
+  setConversationOriginChannelIfUnset: () => {},
+  updateConversationContextWindow: () => {},
+  deleteMessageById: () => {},
+  updateConversationTitle: () => {},
+  updateConversationUsage: () => {},
+  addMessage: () => ({ id: 'mock-msg-id' }),
+  getConversation: () => ({
+    id: 'conv-1',
+    contextSummary: null,
+    contextCompactedMessageCount: 0,
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
+    totalEstimatedCost: 0,
+    title: null,
+  }),
+  provenanceFromGuardianContext: () => ({ source: 'user', guardianContext: undefined }),
+  getConversationOriginInterface: () => null,
+  getConversationOriginChannel: () => null,
   getMessages: () => conversationMessages,
 }));
 

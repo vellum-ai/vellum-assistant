@@ -17,6 +17,8 @@ mock.module('../util/logger.js', () => ({
 
 mock.module('../config/loader.js', () => ({
   getConfig: () => ({
+    ui: {},
+    
     daemon: { standaloneRecording: true },
     provider: 'mock-provider',
     permissions: { mode: 'legacy' },
@@ -49,6 +51,15 @@ const mockMessages: Array<{ id: string; role: string; content: string }> = [];
 let mockMessageIdCounter = 0;
 
 mock.module('../memory/conversation-store.js', () => ({
+  getConversationThreadType: () => 'default',
+  setConversationOriginChannelIfUnset: () => {},
+  updateConversationContextWindow: () => {},
+  deleteMessageById: () => {},
+  updateConversationTitle: () => {},
+  updateConversationUsage: () => {},
+  provenanceFromGuardianContext: () => ({ source: 'user', guardianContext: undefined }),
+  getConversationOriginInterface: () => null,
+  getConversationOriginChannel: () => null,
   getMessages: () => mockMessages,
   addMessage: (_convId: string, role: string, content: string) => {
     const msg = { id: `msg-${++mockMessageIdCounter}`, role, content };

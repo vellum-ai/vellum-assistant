@@ -31,6 +31,26 @@ const createdConversations: Array<{ title: string; threadType: string }> = [];
 let conversationIdCounter = 0;
 
 mock.module('../memory/conversation-store.js', () => ({
+  getConversationThreadType: () => 'default',
+  setConversationOriginChannelIfUnset: () => {},
+  updateConversationContextWindow: () => {},
+  deleteMessageById: () => {},
+  updateConversationTitle: () => {},
+  updateConversationUsage: () => {},
+  addMessage: () => ({ id: 'mock-msg-id' }),
+  getMessages: () => [],
+  getConversation: () => ({
+    id: 'conv-1',
+    contextSummary: null,
+    contextCompactedMessageCount: 0,
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
+    totalEstimatedCost: 0,
+    title: null,
+  }),
+  provenanceFromGuardianContext: () => ({ source: 'user', guardianContext: undefined }),
+  getConversationOriginInterface: () => null,
+  getConversationOriginChannel: () => null,
   createConversation: (opts: { title: string; threadType: string }) => {
     createdConversations.push(opts);
     return { id: `conv-${++conversationIdCounter}`, ...opts };
