@@ -471,11 +471,15 @@ export async function handleUserMessage(
       try {
         const pendingInteractionRequestIdsForConversation = pendingInteractions
           .getByConversation(msg.sessionId)
-          .filter((interaction) => interaction.kind === 'confirmation')
+          .filter(
+            (interaction) =>
+              interaction.kind === 'confirmation'
+              && interaction.session === session
+              && session.hasPendingConfirmation(interaction.requestId),
+          )
           .map((interaction) => interaction.requestId);
 
-        const pendingCanonicalRequestIdsForConversation = Array.from(new Set([
-          ...pendingInteractionRequestIdsForConversation,
+        const pendingCanonicalRequestIdsForConversation = [
           ...listPendingCanonicalGuardianRequestsByDestinationConversation(msg.sessionId, ipcChannel)
             .filter((request) => request.kind === 'tool_approval')
             .map((request) => request.id),
@@ -484,9 +488,14 @@ export async function handleUserMessage(
             conversationId: msg.sessionId,
             kind: 'tool_approval',
           }).map((request) => request.id),
+        ].filter((pendingRequestId) => session.hasPendingConfirmation(pendingRequestId));
+
+        const pendingRequestIdsForConversation = Array.from(new Set([
+          ...pendingInteractionRequestIdsForConversation,
+          ...pendingCanonicalRequestIdsForConversation,
         ]));
 
-        if (pendingCanonicalRequestIdsForConversation.length > 0) {
+        if (pendingRequestIdsForConversation.length > 0) {
           const routerResult = await routeGuardianReply({
             messageText: messageText.trim(),
             channel: ipcChannel,
@@ -496,7 +505,7 @@ export async function handleUserMessage(
               isTrusted: true,
             },
             conversationId: msg.sessionId,
-            pendingRequestIds: pendingCanonicalRequestIdsForConversation,
+            pendingRequestIds: pendingRequestIdsForConversation,
             approvalConversationGenerator: desktopApprovalConversationGenerator,
           });
 
@@ -585,6 +594,13 @@ export async function handleUserMessage(
     if (session.hasAnyPendingConfirmation()) {
       rlog.info('Auto-denying pending confirmation(s) due to new user message');
       session.denyAllPendingConfirmations();
+      // Keep the pending-interaction tracker aligned with the prompter so
+      // stale request IDs are not reused as routing candidates.
+      for (const interaction of pendingInteractions.getByConversation(msg.sessionId)) {
+        if (interaction.session === session && interaction.kind === 'confirmation') {
+          pendingInteractions.resolve(interaction.requestId);
+        }
+      }
     }
 
     dispatchUserMessage(

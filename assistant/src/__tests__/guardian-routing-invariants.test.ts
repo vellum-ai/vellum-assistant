@@ -732,6 +732,33 @@ describe('routing invariant: disambiguation stays fail-closed', () => {
     const resolved = getCanonicalGuardianRequest(req.id);
     expect(resolved!.status).toBe('approved');
   });
+
+  test('single pending request accepts "go for it" as deterministic approval', async () => {
+    const req = createCanonicalGuardianRequest({
+      kind: 'tool_approval',
+      sourceType: 'channel',
+      conversationId: 'conv-1',
+      guardianExternalUserId: 'guardian-1',
+      toolName: 'shell',
+      requestCode: 'GO1234',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+    registerPendingToolApprovalInteraction(req.id, 'conv-1', 'shell');
+
+    const result = await routeGuardianReply(replyCtx({
+      messageText: 'go for it',
+      conversationId: 'conv-1',
+      pendingRequestIds: [req.id],
+      approvalConversationGenerator: undefined,
+    }));
+
+    expect(result.consumed).toBe(true);
+    expect(result.decisionApplied).toBe(true);
+    expect(result.type).toBe('canonical_decision_applied');
+
+    const resolved = getCanonicalGuardianRequest(req.id);
+    expect(resolved!.status).toBe('approved');
+  });
 });
 
 // ===========================================================================

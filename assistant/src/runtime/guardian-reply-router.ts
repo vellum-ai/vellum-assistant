@@ -580,6 +580,7 @@ const EXPLICIT_APPROVE_PHRASES: ReadonlySet<string> = new Set([
   'yes',
   'y',
   'allow',
+  'go for it',
   'go ahead',
   'proceed',
   'do it',
