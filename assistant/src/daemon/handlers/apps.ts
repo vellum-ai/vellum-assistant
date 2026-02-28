@@ -77,28 +77,55 @@ export function handleAppDataRequest(
 }
 
 export function handleAppOpenRequest(msg: { appId: string }, socket: net.Socket, ctx: HandlerContext): void {
-  const appId = msg.appId;
-  if (!appId) {
-    ctx.send(socket, { type: 'error', message: 'app_open_request requires appId' });
-    return;
-  }
+  try {
+    const appId = msg.appId;
+    if (!appId) {
+      ctx.send(socket, { type: 'error', message: 'app_open_request requires appId' });
+      return;
+    }
 
-  const app = getApp(appId);
-  if (!app) {
+    const app = getApp(appId);
+    if (app) {
+      const surfaceId = `app-open-${uuid()}`;
+      ctx.send(socket, {
+        type: 'ui_surface_show',
+        sessionId: 'app-panel',
+        surfaceId,
+        surfaceType: 'dynamic_page',
+        title: app.name,
+        data: { html: app.htmlDefinition, appId: app.id, appType: app.appType },
+        display: 'panel',
+      } as UiSurfaceShow);
+      return;
+    }
+
+    // Fallback: the ID might be a surfaceId from an ephemeral ui_show surface
+    // (not a persistent app). Search active sessions for cached surface data.
+    for (const session of ctx.sessions.values()) {
+      const cached = session.surfaceState.get(appId);
+      if (cached && cached.surfaceType === 'dynamic_page') {
+        const data = cached.data as { preview?: { title?: string } };
+        const newSurfaceId = `app-open-${uuid()}`;
+        ctx.send(socket, {
+          type: 'ui_surface_show',
+          sessionId: 'app-panel',
+          surfaceId: newSurfaceId,
+          surfaceType: 'dynamic_page',
+          title: data.preview?.title,
+          data: cached.data,
+          display: 'panel',
+        } as UiSurfaceShow);
+        return;
+      }
+    }
+
+    log.warn({ appId }, 'App not found in store or session surfaces');
     ctx.send(socket, { type: 'error', message: `App not found: ${appId}` });
-    return;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err, appId: msg.appId }, 'Failed to handle app open request');
+    ctx.send(socket, { type: 'error', message: `Failed to open app: ${message}` });
   }
-
-  const surfaceId = `app-open-${uuid()}`;
-  ctx.send(socket, {
-    type: 'ui_surface_show',
-    sessionId: 'app-panel',
-    surfaceId,
-    surfaceType: 'dynamic_page',
-    title: app.name,
-    data: { html: app.htmlDefinition, appId: app.id, appType: app.appType },
-    display: 'panel',
-  } as UiSurfaceShow);
 }
 
 export function handleAppUpdatePreview(msg: AppUpdatePreviewRequest, socket: net.Socket, ctx: HandlerContext): void {
