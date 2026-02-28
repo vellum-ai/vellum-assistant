@@ -170,31 +170,37 @@ describe('assistant ID boundary', () => {
         'is the only acceptable place for the assistants/ prefix.',
     ).toBeNull();
 
-    // Also verify that the routeRequest method does not contain a direct
-    // /v1/assistants/ route match (i.e., the pattern is only in dispatchEndpoint
-    // as a rewrite, not in routeRequest as a handler).
+    // Scan the entire file for assistant-scoped path literals. The only
+    // acceptable occurrence is the transitional rewrite in dispatchEndpoint
+    // (the `assistantScopedMatch` regex and surrounding deprecation log).
+    // Any other reference — in routeRequest, handleAuthenticatedRequest, or
+    // anywhere else — would mean the daemon is treating assistant IDs as
+    // meaningful routing state.
     const lines = content.split('\n');
-    let inRouteRequest = false;
-    const routeRequestViolations: string[] = [];
+    const violations: string[] = [];
+
+    // Allowlist: lines that are part of the transitional dispatchEndpoint
+    // rewrite. We identify them by the `assistantScopedMatch` variable name
+    // or the "Transitional rewrite" comment.
+    const isTransitionalRewriteLine = (line: string): boolean =>
+      line.includes('assistantScopedMatch') ||
+      line.includes('Transitional rewrite');
 
     for (let i = 0; i < lines.length; i++) {
-      if (lines[i].includes('private async routeRequest(')) {
-        inRouteRequest = true;
-      }
-      if (inRouteRequest && lines[i].includes('private async handleAuthenticatedRequest(')) {
-        // Moved past routeRequest into the next method
-        break;
-      }
-      if (inRouteRequest && lines[i].includes('/v1/assistants/')) {
-        routeRequestViolations.push(`  line ${i + 1}: ${lines[i].trim()}`);
+      const line = lines[i];
+      // Match both literal /v1/assistants/ and escaped \/v1\/assistants\/
+      if (line.includes('/v1/assistants/') || line.includes('\\/v1\\/assistants\\/')) {
+        if (!isTransitionalRewriteLine(line)) {
+          violations.push(`  line ${i + 1}: ${line.trim()}`);
+        }
       }
     }
 
     expect(
-      routeRequestViolations,
-      'Found /v1/assistants/ references in routeRequest — this method should not ' +
-        'handle assistant-scoped paths directly.\n' +
-        routeRequestViolations.join('\n'),
+      violations,
+      'Found /v1/assistants/ references outside the transitional dispatchEndpoint rewrite — ' +
+        'the daemon HTTP server should not have assistant-scoped path literals.\n' +
+        violations.join('\n'),
     ).toEqual([]);
   });
 
