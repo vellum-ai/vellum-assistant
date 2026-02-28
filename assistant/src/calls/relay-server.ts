@@ -10,7 +10,6 @@ import { randomInt } from 'node:crypto';
 
 import type { ServerWebSocket } from 'bun';
 
-import { isAssistantFeatureFlagEnabled } from '../config/assistant-feature-flags.js';
 import { getConfig } from '../config/loader.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { findActiveVoiceInvites } from '../memory/ingress-invite-store.js';
@@ -180,6 +179,8 @@ export class RelayConnection {
   private inviteRedemptionAssistantId: string | null = null;
   private inviteRedemptionFromNumber: string | null = null;
   private inviteRedemptionCodeLength = 6;
+  private inviteRedemptionFriendName: string | null = null;
+  private inviteRedemptionGuardianName: string | null = null;
 
   constructor(ws: ServerWebSocket<RelayWebSocketData>, callSessionId: string) {
     this.ws = ws;
@@ -503,36 +504,30 @@ export class RelayConnection {
         // Before denying, check if there is an active voice invite bound
         // to the caller's phone number. If so, enter the invite redemption
         // subflow instead of denying the call outright.
-        // Gated behind the voice-invite-redemption feature flag (defaults OFF).
-        const voiceInviteEnabled = isAssistantFeatureFlagEnabled(
-          'feature_flags.voice-invite-redemption.enabled',
-          config,
-        );
+        let voiceInvites: ReturnType<typeof findActiveVoiceInvites> = [];
+        try {
+          voiceInvites = findActiveVoiceInvites({
+            assistantId,
+            expectedExternalUserId: msg.from,
+          });
+        } catch (err) {
+          log.warn({ err, callSessionId: this.callSessionId }, 'Failed to check voice invites for unknown caller');
+        }
 
-        if (voiceInviteEnabled) {
-          let voiceInvites: ReturnType<typeof findActiveVoiceInvites> = [];
-          try {
-            voiceInvites = findActiveVoiceInvites({
-              assistantId,
-              expectedExternalUserId: msg.from,
-            });
-          } catch (err) {
-            log.warn({ err, callSessionId: this.callSessionId }, 'Failed to check voice invites for unknown caller');
-          }
+        // Exclude invites that are past their expiresAt even if the DB
+        // status hasn't been lazily flipped to 'expired' yet.
+        const now = Date.now();
+        const nonExpiredInvites = voiceInvites.filter(i => !i.expiresAt || i.expiresAt > now);
 
-          // Exclude invites that are past their expiresAt even if the DB
-          // status hasn't been lazily flipped to 'expired' yet.
-          const now = Date.now();
-          const nonExpiredInvites = voiceInvites.filter(i => !i.expiresAt || i.expiresAt > now);
-
-          if (nonExpiredInvites.length > 0) {
-            log.info(
-              { callSessionId: this.callSessionId, from: msg.from },
-              'Inbound voice ACL: unknown caller has active voice invite — entering redemption flow',
-            );
-            this.startInviteRedemption(assistantId, msg.from);
-            return;
-          }
+        if (nonExpiredInvites.length > 0) {
+          // Use the first matching invite's metadata for personalized prompts
+          const matchedInvite = nonExpiredInvites[0];
+          log.info(
+            { callSessionId: this.callSessionId, from: msg.from },
+            'Inbound voice ACL: unknown caller has active voice invite — entering redemption flow',
+          );
+          this.startInviteRedemption(assistantId, msg.from, matchedInvite.friendName, matchedInvite.guardianName);
+          return;
         }
 
         log.info(
@@ -1001,13 +996,15 @@ export class RelayConnection {
    * who has an active voice invite. Prompts the caller to enter their
    * invite code via DTMF or speech.
    */
-  private startInviteRedemption(assistantId: string, fromNumber: string): void {
+  private startInviteRedemption(assistantId: string, fromNumber: string, friendName: string | null, guardianName: string | null): void {
     this.inviteRedemptionActive = true;
     this.inviteRedemptionAssistantId = assistantId;
     this.inviteRedemptionFromNumber = fromNumber;
+    this.inviteRedemptionFriendName = friendName;
+    this.inviteRedemptionGuardianName = guardianName;
     this.connectionState = 'verification_pending';
     this.verificationAttempts = 0;
-    this.verificationMaxAttempts = 3;
+    this.verificationMaxAttempts = 1;
     this.inviteRedemptionCodeLength = 6;
     this.dtmfBuffer = '';
 
@@ -1017,8 +1014,10 @@ export class RelayConnection {
       maxAttempts: this.verificationMaxAttempts,
     });
 
+    const displayFriend = friendName ?? 'there';
+    const displayGuardian = guardianName ?? 'your contact';
     this.sendTextToken(
-      'Please enter your 6-digit invite code using your keypad, or speak the digits now.',
+      `Welcome ${displayFriend}. Please enter the 6-digit code that ${displayGuardian} provided you to verify your identity.`,
       true,
     );
 
@@ -1073,46 +1072,43 @@ export class RelayConnection {
         this.startNormalCallFlow(this.controller, true);
       }
     } else {
-      this.verificationAttempts++;
+      // On any invalid/expired code, emit exact deterministic failure copy and end call immediately.
+      this.inviteRedemptionActive = false;
 
-      if (this.verificationAttempts >= this.verificationMaxAttempts) {
-        this.inviteRedemptionActive = false;
+      recordCallEvent(this.callSessionId, 'invite_redemption_failed', {
+        attempts: 1,
+      });
+      log.warn(
+        { callSessionId: this.callSessionId },
+        'Voice invite redemption failed — invalid or expired code',
+      );
 
-        recordCallEvent(this.callSessionId, 'invite_redemption_failed', {
-          attempts: this.verificationAttempts,
+      const displayGuardian = this.inviteRedemptionGuardianName ?? 'your contact';
+      this.sendTextToken(
+        `Sorry, the code you provided is incorrect or has since expired. Please ask ${displayGuardian} for a new code. Goodbye.`,
+        true,
+      );
+
+      this.connectionState = 'disconnecting';
+
+      updateCallSession(this.callSessionId, {
+        status: 'failed',
+        endedAt: Date.now(),
+        lastError: 'Voice invite redemption failed — invalid or expired code',
+      });
+
+      const failSession = getCallSession(this.callSessionId);
+      if (failSession) {
+        expirePendingQuestions(this.callSessionId);
+        persistCallCompletionMessage(failSession.conversationId, this.callSessionId).catch((err) => {
+          log.error({ err, conversationId: failSession.conversationId, callSessionId: this.callSessionId }, 'Failed to persist call completion message');
         });
-        log.warn(
-          { callSessionId: this.callSessionId, attempts: this.verificationAttempts },
-          'Voice invite redemption failed — max attempts reached',
-        );
-
-        this.sendTextToken('Too many invalid attempts. Goodbye.', true);
-
-        updateCallSession(this.callSessionId, {
-          status: 'failed',
-          endedAt: Date.now(),
-          lastError: 'Voice invite redemption failed — max attempts exceeded',
-        });
-
-        const failSession = getCallSession(this.callSessionId);
-        if (failSession) {
-          expirePendingQuestions(this.callSessionId);
-          persistCallCompletionMessage(failSession.conversationId, this.callSessionId).catch((err) => {
-            log.error({ err, conversationId: failSession.conversationId, callSessionId: this.callSessionId }, 'Failed to persist call completion message');
-          });
-          fireCallCompletionNotifier(failSession.conversationId, this.callSessionId);
-        }
-
-        setTimeout(() => {
-          this.endSession('Invite redemption failed');
-        }, 2000);
-      } else {
-        log.info(
-          { callSessionId: this.callSessionId, attempt: this.verificationAttempts, maxAttempts: this.verificationMaxAttempts },
-          'Voice invite redemption attempt failed — retrying',
-        );
-        this.sendTextToken('Invalid code. Please try again.', true);
+        fireCallCompletionNotifier(failSession.conversationId, this.callSessionId);
       }
+
+      setTimeout(() => {
+        this.endSession('Invite redemption failed');
+      }, 3000);
     }
   }
 

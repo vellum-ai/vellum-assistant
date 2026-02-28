@@ -138,7 +138,9 @@ import { setVoiceBridgeDeps } from '../calls/voice-session-bridge.js';
 import { createBinding, createChallenge } from '../memory/channel-guardian-store.js';
 import { addMessage, getMessages } from '../memory/conversation-store.js';
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
+import { createInvite } from '../memory/ingress-invite-store.js';
 import { upsertMember } from '../memory/ingress-member-store.js';
+import { generateVoiceCode, hashVoiceCode } from '../util/voice-code.js';
 import { conversations } from '../memory/schema.js';
 import {
   createOutboundSession,
@@ -205,6 +207,7 @@ function resetTables() {
   db.run('DELETE FROM messages');
   db.run('DELETE FROM conversations');
   db.run('DELETE FROM assistant_ingress_members');
+  db.run('DELETE FROM assistant_ingress_invites');
   db.run('DELETE FROM channel_guardian_verification_challenges');
   db.run('DELETE FROM channel_guardian_bindings');
   db.run('DELETE FROM channel_guardian_rate_limits');
@@ -1741,6 +1744,177 @@ describe('relay-server', () => {
 
     // Let the delayed endSession callback flush
     await new Promise((resolve) => setTimeout(resolve, 2100));
+
+    relay.destroy();
+  });
+
+  // ── Inbound voice invite redemption ──────────────────────────────────
+
+  test('inbound voice invite redemption: personalized welcome prompt with friend/guardian names', async () => {
+    ensureConversation('conv-invite-welcome');
+    const session = createCallSession({
+      conversationId: 'conv-invite-welcome',
+      provider: 'twilio',
+      fromNumber: '+15558887777',
+      toNumber: '+15551111111',
+      assistantId: 'self',
+    });
+
+    // Create a voice invite with friend/guardian names
+    const code = generateVoiceCode(6);
+    const codeHash = hashVoiceCode(code);
+    createInvite({
+      assistantId: 'self',
+      sourceChannel: 'voice',
+      maxUses: 1,
+      expectedExternalUserId: '+15558887777',
+      voiceCodeHash: codeHash,
+      voiceCodeDigits: 6,
+      friendName: 'Alice',
+      guardianName: 'Bob',
+    });
+
+    mockSendMessage.mockImplementation(createMockProviderResponse(['Hello, how can I help?']));
+
+    const { ws, relay } = createMockWs(session.id);
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'setup',
+      callSid: 'CA_invite_welcome',
+      from: '+15558887777',
+      to: '+15551111111',
+    }));
+
+    // Should be in verification-pending state for invite redemption
+    expect(relay.getConnectionState()).toBe('verification_pending');
+
+    // Check that the welcome prompt includes friend/guardian names
+    const textMessages = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+      .filter((m) => m.type === 'text');
+    expect(textMessages.some((m) => (m.token ?? '').includes('Welcome Alice'))).toBe(true);
+    expect(textMessages.some((m) => (m.token ?? '').includes('Bob provided you'))).toBe(true);
+
+    // Enter the correct code via DTMF
+    for (const digit of code) {
+      await relay.handleMessage(JSON.stringify({ type: 'dtmf', digit }));
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // Should have transitioned to connected
+    expect(relay.getConnectionState()).toBe('connected');
+
+    // Verify events
+    const events = getCallEvents(session.id);
+    expect(events.some((e) => e.eventType === 'invite_redemption_started')).toBe(true);
+    expect(events.some((e) => e.eventType === 'invite_redemption_succeeded')).toBe(true);
+
+    relay.destroy();
+  });
+
+  test('inbound voice invite redemption: invalid code gets exact failure copy with guardian name and call ends', async () => {
+    ensureConversation('conv-invite-fail');
+    const session = createCallSession({
+      conversationId: 'conv-invite-fail',
+      provider: 'twilio',
+      fromNumber: '+15558886666',
+      toNumber: '+15551111111',
+      assistantId: 'self',
+    });
+
+    // Create a voice invite with friend/guardian names
+    const code = generateVoiceCode(6);
+    const codeHash = hashVoiceCode(code);
+    createInvite({
+      assistantId: 'self',
+      sourceChannel: 'voice',
+      maxUses: 1,
+      expectedExternalUserId: '+15558886666',
+      voiceCodeHash: codeHash,
+      voiceCodeDigits: 6,
+      friendName: 'Carol',
+      guardianName: 'Dave',
+    });
+
+    const { ws, relay } = createMockWs(session.id);
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'setup',
+      callSid: 'CA_invite_fail',
+      from: '+15558886666',
+      to: '+15551111111',
+    }));
+
+    expect(relay.getConnectionState()).toBe('verification_pending');
+
+    // Enter a wrong code
+    for (const digit of '000000') {
+      await relay.handleMessage(JSON.stringify({ type: 'dtmf', digit }));
+    }
+
+    // Call should be marked as failed immediately
+    const updated = getCallSession(session.id);
+    expect(updated).not.toBeNull();
+    expect(updated!.status).toBe('failed');
+
+    // Should have sent the exact deterministic failure copy with guardian name
+    const textMessages = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+      .filter((m) => m.type === 'text');
+    expect(textMessages.some((m) => (m.token ?? '').includes('Sorry, the code you provided is incorrect or has since expired'))).toBe(true);
+    expect(textMessages.some((m) => (m.token ?? '').includes('Please ask Dave for a new code'))).toBe(true);
+
+    // Verify events
+    const events = getCallEvents(session.id);
+    expect(events.some((e) => e.eventType === 'invite_redemption_failed')).toBe(true);
+
+    // Let the delayed endSession callback flush
+    await new Promise((resolve) => setTimeout(resolve, 3100));
+
+    // Verify end message was sent
+    const endMessages = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string })
+      .filter((m) => m.type === 'end');
+    expect(endMessages.length).toBe(1);
+
+    relay.destroy();
+  });
+
+  test('inbound voice invite redemption: unknown caller with no active invite is still denied', async () => {
+    ensureConversation('conv-invite-no-invite');
+    const session = createCallSession({
+      conversationId: 'conv-invite-no-invite',
+      provider: 'twilio',
+      fromNumber: '+15558885555',
+      toNumber: '+15551111111',
+      assistantId: 'self',
+    });
+
+    // No voice invite created for this caller
+
+    const { ws, relay } = createMockWs(session.id);
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'setup',
+      callSid: 'CA_invite_no_invite',
+      from: '+15558885555',
+      to: '+15551111111',
+    }));
+
+    // Should have been denied (no invite, no challenge, unknown caller)
+    const updated = getCallSession(session.id);
+    expect(updated).not.toBeNull();
+    expect(updated!.status).toBe('failed');
+
+    // Should have sent a denial message, not an invite prompt
+    const textMessages = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+      .filter((m) => m.type === 'text');
+    expect(textMessages.some((m) => (m.token ?? '').includes('not authorized'))).toBe(true);
+
+    // Let any delayed endSession callback flush
+    await new Promise((resolve) => setTimeout(resolve, 3100));
 
     relay.destroy();
   });

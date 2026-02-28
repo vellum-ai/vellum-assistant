@@ -37,6 +37,7 @@ import {
   migrateReminderRoutingIntent,
   migrateSchemaIndexesAndColumns,
   migrateVoiceInviteColumns,
+  migrateVoiceInviteDisplayMetadata,
   recoverCrashedMigrations,
   runComplexMigrations,
   runLateMigrations,
@@ -164,6 +165,9 @@ export function initializeDb(): void {
 
   // 26. Voice invite columns on assistant_ingress_invites
   migrateVoiceInviteColumns(database);
+
+  // 27. Voice invite display metadata (friend_name, guardian_name) for personalized prompts
+  migrateVoiceInviteDisplayMetadata(database);
 
   validateMigrationState(database);
 }

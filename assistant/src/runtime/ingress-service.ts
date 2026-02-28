@@ -57,6 +57,8 @@ export interface InviteResponseData {
   expectedExternalUserId?: string;
   voiceCode?: string;
   voiceCodeDigits?: number;
+  friendName?: string;
+  guardianName?: string;
   createdAt: number;
 }
 
@@ -110,6 +112,8 @@ function inviteToResponse(inv: IngressInvite, opts?: { rawToken?: string; voiceC
     ...(inv.expectedExternalUserId ? { expectedExternalUserId: inv.expectedExternalUserId } : {}),
     ...(opts?.voiceCode ? { voiceCode: opts.voiceCode } : {}),
     ...(inv.voiceCodeDigits != null ? { voiceCodeDigits: inv.voiceCodeDigits } : {}),
+    ...(inv.friendName ? { friendName: inv.friendName } : {}),
+    ...(inv.guardianName ? { guardianName: inv.guardianName } : {}),
     createdAt: inv.createdAt,
   };
 }
@@ -149,6 +153,8 @@ export function createIngressInvite(params: {
   // Voice invite parameters
   expectedExternalUserId?: string;
   voiceCodeDigits?: number;
+  friendName?: string;
+  guardianName?: string;
 }): IngressResult<InviteResponseData> {
   if (!params.sourceChannel) {
     return { ok: false, error: 'sourceChannel is required for create' };
@@ -168,6 +174,12 @@ export function createIngressInvite(params: {
     if (!isValidE164(params.expectedExternalUserId)) {
       return { ok: false, error: 'expectedExternalUserId must be in E.164 format (e.g., +15551234567)' };
     }
+    if (!params.friendName?.trim()) {
+      return { ok: false, error: 'friendName is required for voice invites' };
+    }
+    if (!params.guardianName?.trim()) {
+      return { ok: false, error: 'guardianName is required for voice invites' };
+    }
     voiceCode = generateVoiceCode(6);
     voiceCodeHash = hashVoiceCode(voiceCode);
   }
@@ -181,6 +193,8 @@ export function createIngressInvite(params: {
       expectedExternalUserId: params.expectedExternalUserId,
       voiceCodeHash,
       voiceCodeDigits: 6,
+      friendName: params.friendName,
+      guardianName: params.guardianName,
     } : {}),
   });
   // Voice invites must not expose the token — callers must redeem via the
