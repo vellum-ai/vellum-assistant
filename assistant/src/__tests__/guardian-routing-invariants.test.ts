@@ -271,7 +271,7 @@ describe('routing invariant: identity checks enforced before decisions', () => {
     expect(result.applied).toBe(true);
   });
 
-  test('request with no guardian binding accepts any actor', async () => {
+  test('request with no guardian binding rejects non-trusted actor', async () => {
     const req = createCanonicalGuardianRequest({
       kind: 'tool_approval',
       sourceType: 'channel',
@@ -286,7 +286,9 @@ describe('routing invariant: identity checks enforced before decisions', () => {
       actorContext: guardianActor({ externalUserId: 'anyone' }),
     });
 
-    expect(result.applied).toBe(true);
+    expect(result.applied).toBe(false);
+    if (result.applied) return;
+    expect(result.reason).toBe('identity_mismatch');
   });
 
   test('identity mismatch on code-only message blocks detail leakage', async () => {
@@ -907,14 +909,14 @@ describe('routing invariant: callback buttons route through canonical primitive'
 });
 
 // ===========================================================================
-// SECTION 9: Destination hint-based NL approval for missing guardianExternalUserId
+// SECTION 9: Destination hints do not bypass identity binding for tool_approval
 // ===========================================================================
 
-describe('routing invariant: destination hints enable NL approval without guardianExternalUserId', () => {
+describe('routing invariant: destination hints do not bypass tool_approval identity binding', () => {
   beforeEach(() => resetTables());
 
-  test('explicit pendingRequestIds from destination hints allows deterministic plain-text approval when guardianExternalUserId is missing', async () => {
-    // Voice-originated pending_question: no guardianExternalUserId
+  test('explicit pendingRequestIds still fail closed when guardianExternalUserId is missing', async () => {
+    // Voice-originated tool approval with missing guardian identity binding.
     const req = createCanonicalGuardianRequest({
       kind: 'tool_approval',
       sourceType: 'voice',
@@ -939,11 +941,11 @@ describe('routing invariant: destination hints enable NL approval without guardi
     }));
 
     expect(result.consumed).toBe(true);
-    expect(result.type).toBe('canonical_decision_applied');
-    expect(result.decisionApplied).toBe(true);
+    expect(result.type).toBe('canonical_decision_stale');
+    expect(result.decisionApplied).toBe(false);
 
     const resolved = getCanonicalGuardianRequest(req.id);
-    expect(resolved!.status).toBe('approved');
+    expect(resolved!.status).toBe('pending');
   });
 
   test('without destination hints, missing guardianExternalUserId means no pending requests found', async () => {

@@ -248,7 +248,7 @@ describe('applyCanonicalGuardianDecision', () => {
     expect(result.grantMinted).toBe(false);
   });
 
-  test('allows decision when request has no guardian binding', async () => {
+  test('rejects non-trusted decision when tool approval has no guardian binding', async () => {
     const req = createCanonicalGuardianRequest({
       kind: 'tool_approval',
       sourceType: 'channel',
@@ -263,7 +263,9 @@ describe('applyCanonicalGuardianDecision', () => {
       actorContext: guardianActor({ externalUserId: 'anyone' }),
     });
 
-    expect(result.applied).toBe(true);
+    expect(result.applied).toBe(false);
+    if (result.applied) return;
+    expect(result.reason).toBe('identity_mismatch');
   });
 
   // ── Stale / already-resolved (race condition) ──────────────────────

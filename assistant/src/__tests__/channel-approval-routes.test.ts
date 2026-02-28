@@ -2709,8 +2709,8 @@ describe('NL approval routing via destination-scoped canonical requests', () => 
     noopProcessMessage.mockClear();
   });
 
-  test('guardian plain-text "yes" resolves a pending_question with no guardianExternalUserId via delivery-scoped hint', async () => {
-    // Simulate a voice-originated pending_question without guardianExternalUserId
+  test('guardian plain-text "yes" fails closed for tool_approval with no guardianExternalUserId', async () => {
+    // Simulate a voice-originated tool approval without guardianExternalUserId
     const guardianChatId = 'guardian-chat-nl-1';
     const guardianUserId = 'guardian-user-nl-1';
 
@@ -2759,12 +2759,12 @@ describe('NL approval routing via destination-scoped canonical requests', () => 
     const body = await res.json() as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
-    expect(body.canonicalRouter).toBe('canonical_decision_applied');
+    expect(body.canonicalRouter).toBe('canonical_decision_stale');
 
-    // Verify the request was resolved
+    // Verify the request remains pending (identity-bound fail-closed).
     const resolved = getCanonicalGuardianRequest(canonicalReq.id);
     expect(resolved).not.toBeNull();
-    expect(resolved!.status).toBe('approved');
+    expect(resolved!.status).toBe('pending');
   });
 
   test('inbound from different chat ID does not auto-match delivery-scoped canonical request', async () => {
