@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test';
+import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test';
 
 import type { ToolExecutionResult, ToolLifecycleEvent, ToolPermissionDeniedEvent } from '../tools/types.js';
 
@@ -100,7 +100,11 @@ function makePrompter(): PermissionPrompter {
   } as unknown as PermissionPrompter;
 }
 
-afterAll(() => { mock.restore(); });
+import { resetDb } from '../memory/db.js';
+import { initializeDb } from '../memory/db-init.js';
+
+beforeAll(() => { initializeDb(); });
+afterAll(() => { resetDb(); mock.restore(); });
 
 // =====================================================================
 // Unit tests: isGuardianControlPlaneInvocation
