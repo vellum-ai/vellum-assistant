@@ -200,6 +200,29 @@ struct QRPairingSheet: View {
                     .padding(.horizontal, VSpacing.xl)
             }
 
+            if let payload = scannedPayload {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("QR Code Data")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                    Group {
+                        Text("Gateway: \(payload.gatewayURL)")
+                        Text("LAN: \(payload.localLanUrl ?? "none")")
+                        Text("Host ID: \(String(payload.hostId.prefix(12)))…")
+                        Text("Request ID: \(String(payload.pairingRequestId.prefix(8)))…")
+                    }
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(VColor.textSecondary)
+                }
+                .padding(.horizontal, VSpacing.xl)
+                .padding(.vertical, VSpacing.sm)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color(.systemGray6))
+                )
+                .padding(.horizontal, VSpacing.xl)
+            }
+
             Spacer()
 
             VStack(spacing: VSpacing.md) {
