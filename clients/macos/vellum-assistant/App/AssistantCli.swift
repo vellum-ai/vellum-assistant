@@ -467,17 +467,24 @@ final class AssistantCli {
             }
         }
 
-        try proc.run()
-        log.info("CLI remote hatch launched with pid \(proc.processIdentifier)")
-
         // Use terminationHandler + continuation instead of waitUntilExit()
         // so the MainActor is suspended (not blocked), allowing queued
         // onOutput callbacks to update the UI while the process runs.
+        // proc.run() is called INSIDE the continuation to avoid a race
+        // where the process exits before terminationHandler is set.
         let status: Int32 = try await withCheckedThrowingContinuation { continuation in
             proc.terminationHandler = { finished in
                 stdoutHandle.readabilityHandler = nil
                 stderrHandle.readabilityHandler = nil
                 continuation.resume(returning: finished.terminationStatus)
+            }
+            do {
+                try proc.run()
+                log.info("CLI remote hatch launched with pid \(proc.processIdentifier)")
+            } catch {
+                stdoutHandle.readabilityHandler = nil
+                stderrHandle.readabilityHandler = nil
+                continuation.resume(throwing: error)
             }
         }
 
@@ -521,9 +528,6 @@ final class AssistantCli {
         env["VELLUM_DESKTOP_APP"] = "1"
         proc.environment = env
 
-        try proc.run()
-        log.info("CLI pair launched with pid \(proc.processIdentifier)")
-
         let stdoutHandle = stdoutPipe.fileHandleForReading
         let stderrHandle = stderrPipe.fileHandleForReading
 
@@ -541,11 +545,21 @@ final class AssistantCli {
             if !trimmed.isEmpty { onOutput(trimmed) }
         }
 
+        // proc.run() is called INSIDE the continuation to avoid a race
+        // where the process exits before terminationHandler is set.
         let status: Int32 = try await withCheckedThrowingContinuation { continuation in
             proc.terminationHandler = { finished in
                 stdoutHandle.readabilityHandler = nil
                 stderrHandle.readabilityHandler = nil
                 continuation.resume(returning: finished.terminationStatus)
+            }
+            do {
+                try proc.run()
+                log.info("CLI pair launched with pid \(proc.processIdentifier)")
+            } catch {
+                stdoutHandle.readabilityHandler = nil
+                stderrHandle.readabilityHandler = nil
+                continuation.resume(throwing: error)
             }
         }
 
