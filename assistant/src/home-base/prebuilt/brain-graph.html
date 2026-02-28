@@ -1025,10 +1025,12 @@
 
     // ── Empty state ──────────────────────────────────────────────
     if (entities.length === 0 && memorySummary.length === 0) {
-      const overlay = document.createElement('div');
-      overlay.className = 'state-overlay';
-      overlay.innerHTML = '<div class="icon">🌱</div><h3>No knowledge yet</h3><p>Start a conversation to grow it!</p>';
-      panel.appendChild(overlay);
+      if (!panel.querySelector('.state-overlay')) {
+        const overlay = document.createElement('div');
+        overlay.className = 'state-overlay';
+        overlay.innerHTML = '<div class="icon">🌱</div><h3>No knowledge yet</h3><p>Start a conversation to grow it!</p>';
+        panel.appendChild(overlay);
+      }
       return;
     }
 
