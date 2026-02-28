@@ -236,6 +236,12 @@ export async function handleTwilioConfig(
       const sms = (raw?.sms ?? {}) as Record<string, unknown>;
       sms.phoneNumber = purchased.phoneNumber;
 
+      // Clear any legacy assistant-mapped phone entries that may override
+      // the newly provisioned number in gateway routing.
+      if (sms.assistantPhoneNumbers && typeof sms.assistantPhoneNumbers === 'object') {
+        delete sms.assistantPhoneNumbers;
+      }
+
       const wasSuppressed = ctx.suppressConfigReload;
       ctx.setSuppressConfigReload(true);
       try {
