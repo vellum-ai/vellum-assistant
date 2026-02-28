@@ -31,8 +31,8 @@ const commands = {
   email,
   hatch,
   login,
-  pair,
   logout,
+  pair,
   ps,
   recover,
   retire,
@@ -90,9 +90,9 @@ async function main() {
     console.log("  contacts Manage the contact graph");
     console.log("  email    Email operations (status, create inbox)");
     console.log("  hatch    Create a new assistant instance");
-    console.log("  pair     Pair with a remote assistant via QR code");
     console.log("  login    Log in to the Vellum platform");
     console.log("  logout   Log out of the Vellum platform");
+    console.log("  pair     Pair with a remote assistant via QR code");
     console.log("  ps       List assistants (or processes for a specific assistant)");
     console.log("  recover  Restore a previously retired local assistant");
     console.log("  retire   Delete an assistant instance");

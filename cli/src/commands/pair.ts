@@ -72,6 +72,14 @@ async function pollForApproval(
 
 export async function pair(): Promise<void> {
   const args = process.argv.slice(3);
+
+  if (args.includes("--help") || args.includes("-h")) {
+    console.log("Usage: vellum pair <path-to-qrcode.png>");
+    console.log("");
+    console.log("Pair with a remote assistant by scanning the QR code PNG generated during setup.");
+    process.exit(0);
+  }
+
   const qrCodePath = args[0] || process.env.VELLUM_CUSTOM_QR_CODE_PATH;
 
   if (!qrCodePath) {
