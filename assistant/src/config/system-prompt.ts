@@ -3,6 +3,7 @@ import { join } from 'node:path';
 
 import type { ResponseTier } from '../daemon/response-tier.js';
 import { listCredentialMetadata } from '../tools/credentials/metadata-store.js';
+import { resolveBundledDir } from '../util/bundled-asset.js';
 import { getLogger } from '../util/logger.js';
 import { getWorkspaceDir, getWorkspacePromptPath, isMacOS } from '../util/platform.js';
 import { isAssistantFeatureFlagEnabled } from './assistant-feature-flags.js';
@@ -26,7 +27,7 @@ const PROMPT_FILES = ['SOUL.md', 'IDENTITY.md', 'USER.md'] as const;
  * signal that onboarding is complete.
  */
 export function ensurePromptFiles(): void {
-  const templatesDir = join(import.meta.dirname ?? __dirname, 'templates');
+  const templatesDir = resolveBundledDir(import.meta.dirname ?? __dirname, 'templates', 'templates');
 
   // Track whether this is a fresh workspace (no core prompt files exist yet).
   const isFirstRun = PROMPT_FILES.every(

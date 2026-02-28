@@ -1,6 +1,7 @@
 import { chmodSync, cpSync, type Dirent,readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { resolveBundledDir } from '../util/bundled-asset.js';
 import { pathExists } from '../util/fs.js';
 import { getLogger } from '../util/logger.js';
 import { getHooksDir } from '../util/platform.js';
@@ -15,7 +16,7 @@ const log = getLogger('hooks-templates');
  * - Newly installed hooks are disabled by default.
  */
 export function installTemplates(): void {
-  const templatesDir = join(import.meta.dirname ?? __dirname, '../../hook-templates');
+  const templatesDir = resolveBundledDir(import.meta.dirname ?? __dirname, '../../hook-templates', 'hook-templates');
   if (!pathExists(templatesDir)) return;
 
   const hooksDir = getHooksDir();
