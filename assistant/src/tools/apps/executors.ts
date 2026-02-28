@@ -102,6 +102,21 @@ export async function executeAppCreate(
   const preview = input.preview;
   const appType = input.type === 'site' ? 'site' as const : 'app' as const;
 
+  // Validate required fields — LLM input is not type-checked at runtime
+  if (typeof name !== 'string' || name.trim() === '') {
+    return { content: JSON.stringify({ error: 'name is required and must be a non-empty string' }), isError: true };
+  }
+  if (typeof htmlDefinition !== 'string') {
+    return { content: JSON.stringify({ error: 'html is required and must be a string containing the HTML definition' }), isError: true };
+  }
+  if (pages) {
+    for (const [filename, content] of Object.entries(pages)) {
+      if (typeof content !== 'string') {
+        return { content: JSON.stringify({ error: `pages["${filename}"] must be a string, got ${typeof content}` }), isError: true };
+      }
+    }
+  }
+
   const app = store.createApp({ name, description, schemaJson, htmlDefinition, pages, appType });
 
   if (input.set_as_home_base) {
