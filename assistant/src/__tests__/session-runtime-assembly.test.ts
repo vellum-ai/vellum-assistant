@@ -1,19 +1,19 @@
 import { describe, expect,test } from 'bun:test';
 
 import { buildChannelAwarenessSection } from '../config/system-prompt.js';
-import type { ChannelCapabilities, ChannelTurnContextParams, GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
+import type { ChannelCapabilities, ChannelTurnContextParams, InboundActorContext } from '../daemon/session-runtime-assembly.js';
 import {
   applyRuntimeInjections,
   buildChannelTurnContextBlock,
   injectChannelCapabilityContext,
   injectChannelTurnContext,
-  injectGuardianContext,
+  injectInboundActorContext,
   injectTemporalContext,
   resolveChannelCapabilities,
   sanitizePttActivationKey,
   stripChannelCapabilityContext,
   stripChannelTurnContext,
-  stripGuardianContext,
+  stripInboundActorContext,
   stripTemporalContext,
 } from '../daemon/session-runtime-assembly.js';
 import type { Message } from '../providers/types.js';
@@ -534,90 +534,118 @@ describe('applyRuntimeInjections with temporalContext', () => {
 });
 
 // ---------------------------------------------------------------------------
-// guardian_context
+// inbound_actor_context
 // ---------------------------------------------------------------------------
 
-describe('injectGuardianContext', () => {
+describe('injectInboundActorContext', () => {
   const baseUserMessage: Message = {
     role: 'user',
     content: [{ type: 'text', text: 'Can you text me updates?' }],
   };
 
-  test('prepends guardian_context block to user message', () => {
-    const ctx: GuardianRuntimeContext = {
+  test('prepends inbound_actor_context block to user message', () => {
+    const ctx: InboundActorContext = {
       sourceChannel: 'sms',
-      actorRole: 'guardian',
-      guardianExternalUserId: 'guardian-user-1',
-      guardianChatId: '+15550001111',
-      requesterIdentifier: '+15550001111',
-      requesterExternalUserId: 'guardian-user-1',
-      requesterChatId: '+15550001111',
+      canonicalActorIdentity: 'guardian-user-1',
+      actorIdentifier: '+15550001111',
+      trustClass: 'guardian',
+      guardianIdentity: 'guardian-user-1',
     };
 
-    const result = injectGuardianContext(baseUserMessage, ctx);
+    const result = injectInboundActorContext(baseUserMessage, ctx);
     expect(result.content.length).toBe(2);
     const injected = result.content[0];
     expect(injected.type).toBe('text');
     const text = (injected as { type: 'text'; text: string }).text;
-    expect(text).toContain('<guardian_context>');
-    expect(text).toContain('actor_role: guardian');
+    expect(text).toContain('<inbound_actor_context>');
+    expect(text).toContain('trust_class: guardian');
     expect(text).toContain('source_channel: sms');
-    expect(text).toContain('</guardian_context>');
+    expect(text).toContain('canonical_actor_identity: guardian-user-1');
+    expect(text).toContain('</inbound_actor_context>');
   });
 
-  test('includes behavioral guidance for non-guardian actors', () => {
-    const ctx: GuardianRuntimeContext = {
+  test('includes behavioral guidance for trusted_contact actors', () => {
+    const ctx: InboundActorContext = {
       sourceChannel: 'telegram',
-      actorRole: 'non-guardian',
-      guardianExternalUserId: 'guardian-user-1',
-      guardianChatId: 'chat-1',
-      requesterIdentifier: '@someone',
-      requesterExternalUserId: 'other-user-1',
-      requesterChatId: 'chat-2',
+      canonicalActorIdentity: 'other-user-1',
+      actorIdentifier: '@someone',
+      trustClass: 'trusted_contact',
+      guardianIdentity: 'guardian-user-1',
+      memberStatus: 'active',
+      memberPolicy: 'default',
     };
 
-    const result = injectGuardianContext(baseUserMessage, ctx);
+    const result = injectInboundActorContext(baseUserMessage, ctx);
     const text = (result.content[0] as { type: 'text'; text: string }).text;
     expect(text).toContain('non-guardian account');
     expect(text).toContain('Do not explain the verification system');
+    expect(text).toContain('member_status: active');
+    expect(text).toContain('member_policy: default');
+  });
+
+  test('includes behavioral guidance for unknown actors', () => {
+    const ctx: InboundActorContext = {
+      sourceChannel: 'telegram',
+      canonicalActorIdentity: null,
+      trustClass: 'unknown',
+      denialReason: 'no_identity',
+    };
+
+    const result = injectInboundActorContext(baseUserMessage, ctx);
+    const text = (result.content[0] as { type: 'text'; text: string }).text;
+    expect(text).toContain('non-guardian account');
+    expect(text).toContain('Do not explain the verification system');
+    expect(text).toContain('denial_reason: no_identity');
   });
 
   test('omits non-guardian behavioral guidance for guardian actors', () => {
-    const ctx: GuardianRuntimeContext = {
+    const ctx: InboundActorContext = {
       sourceChannel: 'telegram',
-      actorRole: 'guardian',
-      guardianExternalUserId: 'guardian-user-1',
-      guardianChatId: 'chat-1',
-      requesterIdentifier: '@guardian',
-      requesterExternalUserId: 'guardian-user-1',
-      requesterChatId: 'chat-1',
+      canonicalActorIdentity: 'guardian-user-1',
+      actorIdentifier: '@guardian',
+      trustClass: 'guardian',
+      guardianIdentity: 'guardian-user-1',
     };
 
-    const result = injectGuardianContext(baseUserMessage, ctx);
+    const result = injectInboundActorContext(baseUserMessage, ctx);
     const text = (result.content[0] as { type: 'text'; text: string }).text;
     expect(text).not.toContain('non-guardian account');
   });
+
+  test('omits member_status and member_policy when not provided', () => {
+    const ctx: InboundActorContext = {
+      sourceChannel: 'sms',
+      canonicalActorIdentity: 'user-1',
+      trustClass: 'unknown',
+      denialReason: 'no_binding',
+    };
+
+    const result = injectInboundActorContext(baseUserMessage, ctx);
+    const text = (result.content[0] as { type: 'text'; text: string }).text;
+    expect(text).not.toContain('member_status');
+    expect(text).not.toContain('member_policy');
+  });
 });
 
-describe('stripGuardianContext', () => {
-  test('strips guardian_context blocks from user messages', () => {
+describe('stripInboundActorContext', () => {
+  test('strips inbound_actor_context blocks from user messages', () => {
     const messages: Message[] = [
       {
         role: 'user',
         content: [
-          { type: 'text', text: '<guardian_context>\nactor_role: guardian\n</guardian_context>' },
+          { type: 'text', text: '<inbound_actor_context>\ntrust_class: guardian\n</inbound_actor_context>' },
           { type: 'text', text: 'Hello' },
         ],
       },
     ];
-    const result = stripGuardianContext(messages);
+    const result = stripInboundActorContext(messages);
     expect(result).toHaveLength(1);
     expect(result[0].content).toHaveLength(1);
     expect((result[0].content[0] as { type: 'text'; text: string }).text).toBe('Hello');
   });
 });
 
-describe('applyRuntimeInjections with guardianContext', () => {
+describe('applyRuntimeInjections with inboundActorContext', () => {
   const baseMessages: Message[] = [
     {
       role: 'user',
@@ -625,20 +653,21 @@ describe('applyRuntimeInjections with guardianContext', () => {
     },
   ];
 
-  test('injects guardian context when provided', () => {
+  test('injects inbound actor context when provided', () => {
     const result = applyRuntimeInjections(baseMessages, {
-      guardianContext: {
+      inboundActorContext: {
         sourceChannel: 'sms',
-        actorRole: 'non-guardian',
-        guardianExternalUserId: 'guardian-1',
-        requesterExternalUserId: 'requester-1',
-        requesterIdentifier: '+15550002222',
-        requesterChatId: '+15550002222',
+        canonicalActorIdentity: 'requester-1',
+        actorIdentifier: '+15550002222',
+        trustClass: 'trusted_contact',
+        guardianIdentity: 'guardian-1',
+        memberStatus: 'active',
+        memberPolicy: 'default',
       },
     });
     expect(result).toHaveLength(1);
     expect(result[0].content).toHaveLength(2);
-    expect((result[0].content[0] as { type: 'text'; text: string }).text).toContain('<guardian_context>');
+    expect((result[0].content[0] as { type: 'text'; text: string }).text).toContain('<inbound_actor_context>');
   });
 });
 
