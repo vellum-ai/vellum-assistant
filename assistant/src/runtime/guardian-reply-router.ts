@@ -237,6 +237,7 @@ export async function routeGuardianReply(
 ): Promise<GuardianReplyResult> {
   const { messageText, actor, conversationId, callbackData, approvalConversationGenerator, channelDeliveryContext } = ctx;
   const pendingRequests = findPendingCanonicalRequests(actor, ctx.pendingRequestIds, conversationId);
+  const scopedPendingRequestIds = ctx.pendingRequestIds ? new Set(ctx.pendingRequestIds) : null;
 
   // ── 1. Deterministic callback parsing (button presses) ──
   // No conversationId scoping here — the guardian's reply comes from a
@@ -257,6 +258,17 @@ export async function routeGuardianReply(
     const codeResult = parseRequestCode(messageText);
     if (codeResult) {
       const { request } = codeResult;
+      if (scopedPendingRequestIds && !scopedPendingRequestIds.has(request.id)) {
+        log.info(
+          {
+            event: 'router_code_out_of_scope',
+            requestId: request.id,
+            pendingHintCount: scopedPendingRequestIds.size,
+          },
+          'Request code matched a pending request outside the caller-provided scope; ignoring',
+        );
+        return notConsumed();
+      }
 
       if (request.status !== 'pending') {
         log.info(

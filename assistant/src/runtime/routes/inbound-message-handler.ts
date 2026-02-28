@@ -1401,6 +1401,8 @@ function startPendingApprovalPromptWatcher(params: {
   sourceChannel: ChannelId;
   externalChatId: string;
   guardianTrustClass: GuardianContext['trustClass'];
+  guardianExternalUserId?: string;
+  requesterExternalUserId?: string;
   replyCallbackUrl: string;
   bearerToken?: string;
   assistantId?: string;
@@ -1411,6 +1413,8 @@ function startPendingApprovalPromptWatcher(params: {
     sourceChannel,
     externalChatId,
     guardianTrustClass,
+    guardianExternalUserId,
+    requesterExternalUserId,
     replyCallbackUrl,
     bearerToken,
     assistantId,
@@ -1419,7 +1423,12 @@ function startPendingApprovalPromptWatcher(params: {
 
   // Approval prompt delivery is guardian-only. Non-guardian and unverified
   // actors must never receive approval prompt broadcasts for the conversation.
-  if (guardianTrustClass !== 'guardian') {
+  // We also require an explicit identity match against the bound guardian to
+  // avoid broadcasting prompts when trustClass is stale/mis-scoped.
+  const isBoundGuardianActor = guardianTrustClass === 'guardian'
+    && !!guardianExternalUserId
+    && requesterExternalUserId === guardianExternalUserId;
+  if (!isBoundGuardianActor) {
     return () => {};
   }
 
@@ -1502,6 +1511,8 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
         sourceChannel,
         externalChatId,
         guardianTrustClass: guardianCtx.trustClass,
+        guardianExternalUserId: guardianCtx.guardianExternalUserId,
+        requesterExternalUserId: guardianCtx.requesterExternalUserId,
         replyCallbackUrl,
         bearerToken,
         assistantId,

@@ -176,6 +176,16 @@ async function tryConsumeInlineApprovalReply(params: {
   return { consumed: true, messageId };
 }
 
+function resolveCanonicalRequestSourceType(sourceChannel: string | undefined): 'desktop' | 'channel' | 'voice' {
+  if (sourceChannel === 'voice') {
+    return 'voice';
+  }
+  if (sourceChannel === 'vellum') {
+    return 'desktop';
+  }
+  return 'channel';
+}
+
 function getInterfaceFilesWithMtimes(interfacesDir: string | null): Array<{ path: string; mtimeMs: number }> {
   if (!interfacesDir || !existsSync(interfacesDir)) return [];
   const results: Array<{ path: string; mtimeMs: number }> = [];
@@ -319,12 +329,17 @@ function makeHubPublisher(
 
       // Create a canonical guardian request so IPC/HTTP handlers can find it
       // via applyCanonicalGuardianDecision.
+      const guardianContext = session.guardianContext;
+      const sourceChannel = guardianContext?.sourceChannel ?? 'vellum';
       createCanonicalGuardianRequest({
         id: msg.requestId,
         kind: 'tool_approval',
-        sourceType: 'desktop',
-        sourceChannel: 'vellum',
+        sourceType: resolveCanonicalRequestSourceType(sourceChannel),
+        sourceChannel,
         conversationId,
+        requesterExternalUserId: guardianContext?.requesterExternalUserId,
+        requesterChatId: guardianContext?.requesterChatId,
+        guardianExternalUserId: guardianContext?.guardianExternalUserId,
         toolName: msg.toolName,
         status: 'pending',
         requestCode: generateCanonicalRequestCode(),
