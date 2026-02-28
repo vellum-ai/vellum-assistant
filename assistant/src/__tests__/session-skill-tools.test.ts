@@ -205,6 +205,27 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
+mock.module('../config/loader.js', () => ({
+  getConfig: () => ({
+    skills: { entries: {}, allowBundled: null },
+    assistantFeatureFlagValues: {},
+  }),
+  loadConfig: () => ({
+    skills: { entries: {}, allowBundled: null },
+    assistantFeatureFlagValues: {},
+  }),
+  invalidateConfigCache: () => {},
+}));
+
+mock.module('../config/assistant-feature-flags.js', () => ({
+  isAssistantFeatureFlagEnabled: () => true,
+  loadDefaultsRegistry: () => ({}),
+}));
+
+mock.module('../config/skill-state.js', () => ({
+  skillFlagKey: (skillId: string) => `feature_flags.${skillId}.enabled`,
+}));
+
 // ---------------------------------------------------------------------------
 // Import module under test (after mocks)
 // ---------------------------------------------------------------------------
@@ -1674,7 +1695,7 @@ describe('bundled skill: browser', () => {
     sessionState = new Map<string, string>();
   });
 
-  test('browser skill activation via loaded_skill marker projects all 10 tool definitions', () => {
+  test('browser skill activation via loaded_skill marker projects all 14 tool definitions', () => {
     mockCatalog = [makeSkill('browser', '/path/to/bundled-skills/browser')];
     mockManifests = { browser: makeManifest([...BROWSER_TOOL_NAMES]) };
 
@@ -1684,7 +1705,7 @@ describe('bundled skill: browser', () => {
 
     const result = projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
 
-    expect(result.toolDefinitions).toHaveLength(10);
+    expect(result.toolDefinitions).toHaveLength(14);
     expect(result.toolDefinitions.map((d) => d.name)).toEqual([...BROWSER_TOOL_NAMES]);
     expect(result.allowedToolNames).toEqual(new Set(BROWSER_TOOL_NAMES));
   });
@@ -1718,7 +1739,7 @@ describe('bundled skill: browser', () => {
 
     const tools = mockRegisteredTools.get('browser');
     expect(tools).toBeDefined();
-    expect(tools!.length).toBe(10);
+    expect(tools!.length).toBe(14);
 
     for (const tool of tools!) {
       expect(tool.origin).toBe('skill');
@@ -2411,8 +2432,8 @@ describe('browser skill migration harness', () => {
     expect(id1).not.toBe(id2);
   });
 
-  test('BROWSER_TOOL_NAMES contains all 10 browser tools', () => {
-    expect(BROWSER_TOOL_NAMES).toHaveLength(10);
+  test('BROWSER_TOOL_NAMES contains all 14 browser tools', () => {
+    expect(BROWSER_TOOL_NAMES).toHaveLength(14);
     expect(BROWSER_TOOL_NAMES).toContain('browser_navigate');
     expect(BROWSER_TOOL_NAMES).toContain('browser_fill_credential');
   });
