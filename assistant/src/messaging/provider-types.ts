@@ -81,3 +81,27 @@ export interface SendOptions {
   /** Optional assistant scope for multi-assistant channels. */
   assistantId?: string;
 }
+
+/** Result from a sender digest scan — groups messages by sender for bulk cleanup. */
+export interface SenderDigestEntry {
+  id: string;
+  displayName: string;
+  email: string;
+  messageCount: number;
+  hasUnsubscribe: boolean;
+  newestMessageId: string;
+  searchQuery: string;
+  messageIds: string[];
+  hasMore: boolean;
+}
+
+export interface SenderDigestResult {
+  senders: SenderDigestEntry[];
+  totalScanned: number;
+  queryUsed: string;
+}
+
+export interface ArchiveResult {
+  archived: number;
+  truncated?: boolean;
+}

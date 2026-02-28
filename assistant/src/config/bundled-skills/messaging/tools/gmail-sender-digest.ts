@@ -161,7 +161,12 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
         sample_subjects: s.sampleSubjects,
       }));
 
-      return ok(JSON.stringify({ senders: result, total_scanned: allMessageIds.length }));
+      return ok(JSON.stringify({
+        senders: result,
+        total_scanned: allMessageIds.length,
+        query_used: query,
+        note: `message_count reflects emails found per sender within the ${allMessageIds.length} messages scanned. The archive tool may find additional messages beyond this sample.`,
+      }));
     });
   } catch (e) {
     return err(e instanceof Error ? e.message : String(e));

@@ -7,6 +7,7 @@
 
 import type { MessagingProvider } from '../../provider.js';
 import type {
+  ArchiveResult,
   ConnectionInfo,
   Conversation,
   HistoryOptions,
@@ -14,6 +15,8 @@ import type {
   Message,
   SearchOptions,
   SearchResult,
+  SenderDigestEntry,
+  SenderDigestResult,
   SendOptions,
   SendResult,
 } from '../../provider-types.js';
@@ -190,5 +193,129 @@ export const gmailMessagingProvider: MessagingProvider = {
   async markRead(token: string, _conversationId: string, messageId?: string): Promise<void> {
     if (!messageId) return;
     await gmail.modifyMessage(token, messageId, { removeLabelIds: ['UNREAD'] });
+  },
+
+  async senderDigest(token: string, query: string, options?: { maxMessages?: number; maxSenders?: number }): Promise<SenderDigestResult> {
+    const maxMessages = Math.min(options?.maxMessages ?? 500, 2000);
+    const maxSenders = options?.maxSenders ?? 30;
+    const maxIdsPerSender = 1000;
+
+    const allMessageIds: string[] = [];
+    let pageToken: string | undefined;
+
+    while (allMessageIds.length < maxMessages) {
+      const pageSize = Math.min(100, maxMessages - allMessageIds.length);
+      const listResp = await gmail.listMessages(token, query, pageSize, pageToken);
+      const ids = (listResp.messages ?? []).map((m) => m.id);
+      if (ids.length === 0) break;
+      allMessageIds.push(...ids);
+      pageToken = listResp.nextPageToken ?? undefined;
+      if (!pageToken) break;
+    }
+
+    if (allMessageIds.length === 0) {
+      return { senders: [], totalScanned: 0, queryUsed: query };
+    }
+
+    const messages = await gmail.batchGetMessages(token, allMessageIds, 'metadata', [
+      'From', 'List-Unsubscribe',
+    ]);
+
+    const senderMap = new Map<string, {
+      displayName: string; email: string; messageCount: number;
+      hasUnsubscribe: boolean; newestMessageId: string;
+      newestUnsubscribableMessageId: string | null; newestUnsubscribableEpoch: number;
+      messageIds: string[]; hasMore: boolean;
+    }>();
+
+    for (const msg of messages) {
+      const headers = msg.payload?.headers ?? [];
+      const fromHeader = headers.find((h) => h.name.toLowerCase() === 'from')?.value ?? '';
+      const listUnsub = headers.find((h) => h.name.toLowerCase() === 'list-unsubscribe')?.value;
+
+      const match = fromHeader.match(/^(.+?)\s*<([^>]+)>$/);
+      const email = match ? match[2].toLowerCase() : fromHeader.trim().toLowerCase();
+      const displayName = match ? match[1].replace(/^["']|["']$/g, '').trim() : '';
+      if (!email) continue;
+
+      let agg = senderMap.get(email);
+      if (!agg) {
+        agg = {
+          displayName, email, messageCount: 0, hasUnsubscribe: false,
+          newestMessageId: msg.id, newestUnsubscribableMessageId: null,
+          newestUnsubscribableEpoch: 0, messageIds: [], hasMore: false,
+        };
+        senderMap.set(email, agg);
+      }
+
+      agg.messageCount++;
+      if (listUnsub) agg.hasUnsubscribe = true;
+      if (!agg.displayName && displayName) agg.displayName = displayName;
+
+      if (agg.messageIds.length < maxIdsPerSender) {
+        agg.messageIds.push(msg.id);
+      } else {
+        agg.hasMore = true;
+      }
+
+      const msgEpoch = msg.internalDate ? Number(msg.internalDate) : 0;
+      if (listUnsub && msgEpoch >= agg.newestUnsubscribableEpoch) {
+        agg.newestUnsubscribableMessageId = msg.id;
+        agg.newestUnsubscribableEpoch = msgEpoch;
+      }
+    }
+
+    const sorted = [...senderMap.values()]
+      .sort((a, b) => b.messageCount - a.messageCount)
+      .slice(0, maxSenders);
+
+    const senders: SenderDigestEntry[] = sorted.map((s) => ({
+      id: Buffer.from(s.email).toString('base64url'),
+      displayName: s.displayName || s.email.split('@')[0],
+      email: s.email,
+      messageCount: s.messageCount,
+      hasUnsubscribe: s.hasUnsubscribe,
+      newestMessageId: (s.hasUnsubscribe && s.newestUnsubscribableMessageId)
+        ? s.newestUnsubscribableMessageId
+        : s.newestMessageId,
+      searchQuery: `from:${s.email} ${query}`,
+      messageIds: s.messageIds,
+      hasMore: s.hasMore,
+    }));
+
+    return { senders, totalScanned: allMessageIds.length, queryUsed: query };
+  },
+
+  async archiveByQuery(token: string, query: string): Promise<ArchiveResult> {
+    const maxMessages = 5000;
+    const batchModifyLimit = 1000;
+
+    const allMessageIds: string[] = [];
+    let pageToken: string | undefined;
+    let truncated = false;
+
+    while (allMessageIds.length < maxMessages) {
+      const listResp = await gmail.listMessages(token, query, Math.min(500, maxMessages - allMessageIds.length), pageToken);
+      const ids = (listResp.messages ?? []).map((m) => m.id);
+      if (ids.length === 0) break;
+      allMessageIds.push(...ids);
+      pageToken = listResp.nextPageToken ?? undefined;
+      if (!pageToken) break;
+    }
+
+    if (allMessageIds.length >= maxMessages && pageToken) {
+      truncated = true;
+    }
+
+    if (allMessageIds.length === 0) {
+      return { archived: 0 };
+    }
+
+    for (let i = 0; i < allMessageIds.length; i += batchModifyLimit) {
+      const chunk = allMessageIds.slice(i, i + batchModifyLimit);
+      await gmail.batchModifyMessages(token, chunk, { removeLabelIds: ['INBOX'] });
+    }
+
+    return { archived: allMessageIds.length, truncated };
   },
 };
