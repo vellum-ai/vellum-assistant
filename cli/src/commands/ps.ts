@@ -381,36 +381,16 @@ async function listAllAssistants(): Promise<void> {
 
   await Promise.all(
     assistants.map(async (a, rowIndex) => {
-      const cloud = resolveCloud(a);
-
-      let status: string;
-      let detail: string | null = null;
-
-      if (cloud === "local") {
-        // For local assistants, use process detection instead of HTTP health
-        // check. The HTTP check is unreliable (localhost may resolve to IPv6
-        // while the gateway listens on IPv4).
-        const procs = await getLocalProcesses(a);
-        const daemonProc = procs.find((p) => p.name === "daemon");
-        if (daemonProc && daemonProc.status.includes("running")) {
-          status = "running";
-        } else {
-          status = "not running";
-        }
-      } else {
-        const health = await checkHealth(a.runtimeUrl);
-        status = health.status;
-        detail = health.detail;
-      }
+      const health = await checkHealth(a.runtimeUrl);
 
       const infoParts = [a.runtimeUrl];
       if (a.cloud) infoParts.push(`cloud: ${a.cloud}`);
       if (a.species) infoParts.push(`species: ${a.species}`);
-      if (detail) infoParts.push(detail);
+      if (health.detail) infoParts.push(health.detail);
 
       const updatedRow: TableRow = {
         name: a.assistantId,
-        status: withStatusEmoji(status),
+        status: withStatusEmoji(health.status),
         info: infoParts.join(" | "),
       };
 
