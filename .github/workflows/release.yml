@@ -604,7 +604,7 @@ jobs:
           security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
 
   release:
-    needs: [bump-and-tag, publish-npm, publish-meta, build-macos, push-assistant-image, push-gateway-image, ci-cli, ci-gateway]
+    needs: [bump-and-tag, publish-npm, publish-meta, build-macos, push-assistant-image, push-gateway-image, ci-cli, ci-gateway, ci-assistant, ci-playwright]
     if: ${{ !cancelled() && needs.bump-and-tag.result == 'success' && needs.publish-npm.result == 'success' && needs.publish-meta.result == 'success' && needs.build-macos.result == 'success' && needs.ci-cli.result == 'success' && needs.ci-gateway.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
