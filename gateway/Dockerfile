@@ -1,5 +1,5 @@
 # Build stage
-FROM debian:bookworm AS builder
+FROM debian:trixie@sha256:3615a749858a1cba49b408fb49c37093db813321355a9ab7c1f9f4836341e9db AS builder
 
 WORKDIR /app
 
@@ -17,7 +17,7 @@ RUN bun install --frozen-lockfile --production
 COPY . .
 
 # Runtime stage
-FROM debian:bookworm-slim AS runner
+FROM debian:trixie-slim@sha256:1d3c811171a08a5adaa4a163fbafd96b61b87aa871bbc7aa15431ac275d3d430 AS runner
 
 WORKDIR /app
 
