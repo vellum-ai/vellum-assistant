@@ -27,6 +27,8 @@ mock.module('../util/logger.js', () => ({
 
 mock.module('../config/loader.js', () => ({
   getConfig: () => ({
+    ui: {},
+    
     model: 'test',
     provider: 'test',
     apiKeys: {},
@@ -182,9 +184,9 @@ describe('Runtime attachment metadata', () => {
       `http://127.0.0.1:${port}/v1/attachments/nonexistent-id`,
       { headers: AUTH_HEADERS },
     );
-    const body = await res.json() as { error: string };
+    const body = await res.json() as { error: { message: string; code?: string } };
 
     expect(res.status).toBe(404);
-    expect(body.error).toBe('Attachment not found');
+    expect(body.error.message).toBe('Attachment not found');
   });
 });

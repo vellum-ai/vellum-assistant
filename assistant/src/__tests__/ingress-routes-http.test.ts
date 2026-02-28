@@ -96,7 +96,7 @@ describe('ingress member HTTP routes', () => {
 
     expect(res.status).toBe(400);
     expect(body.ok).toBe(false);
-    expect(body.error).toContain('sourceChannel');
+    expect(body.error.message).toContain('sourceChannel');
   });
 
   test('POST /v1/ingress/members — missing identity returns 400', async () => {
@@ -113,7 +113,7 @@ describe('ingress member HTTP routes', () => {
 
     expect(res.status).toBe(400);
     expect(body.ok).toBe(false);
-    expect(body.error).toContain('externalUserId');
+    expect(body.error.message).toContain('externalUserId');
   });
 
   test('GET /v1/ingress/members — lists members', async () => {
@@ -326,7 +326,7 @@ describe('ingress invite HTTP routes', () => {
 
     expect(res.status).toBe(400);
     expect(body.ok).toBe(false);
-    expect(body.error).toContain('sourceChannel');
+    expect(body.error.message).toContain('sourceChannel');
   });
 
   test('GET /v1/ingress/invites — lists invites', async () => {
@@ -416,7 +416,7 @@ describe('ingress invite HTTP routes', () => {
 
     expect(res.status).toBe(400);
     expect(body.ok).toBe(false);
-    expect(body.error).toContain('token');
+    expect(body.error.message).toContain('token');
   });
 
   test('POST /v1/ingress/invites/redeem — invalid token returns 400', async () => {

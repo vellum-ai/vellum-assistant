@@ -37,6 +37,8 @@ mock.module('../util/logger.js', () => ({
 
 mock.module('../config/loader.js', () => ({
   getConfig: () => ({
+    ui: {},
+    
     model: 'test',
     provider: 'test',
     apiKeys: {},
@@ -181,8 +183,8 @@ describe('SSE route — capacity limit', () => {
 
     const response = handleSubscribeAssistantEvents(req, new URL(req.url), { hub });
     expect(response.status).toBe(503);
-    const body = await response.json() as { error: string };
-    expect(body.error).toMatch(/Too many concurrent connections/);
+    const body = await response.json() as { error: { message: string; code?: string } };
+    expect(body.error.message).toMatch(/Too many concurrent connections/);
   });
 
   test('returns 200 when hub has remaining capacity', () => {

@@ -365,7 +365,7 @@ describe('HTTP route: handleStartOutbound', () => {
     const resp = await handleStartOutbound(req);
     expect(resp.status).toBe(400);
     const body = await resp.json() as Record<string, unknown>;
-    expect(body.error).toBe('missing_channel');
+    expect(body.error.message).toBe('missing_channel');
   });
 
   test('returns 400 for missing destination (SMS)', async () => {
@@ -373,7 +373,7 @@ describe('HTTP route: handleStartOutbound', () => {
     const resp = await handleStartOutbound(req);
     expect(resp.status).toBe(400);
     const body = await resp.json() as Record<string, unknown>;
-    expect(body.error).toBe('missing_destination');
+    expect(body.error.message).toBe('missing_destination');
   });
 
   test('returns 200 for valid SMS start', async () => {
@@ -392,7 +392,7 @@ describe('HTTP route: handleResendOutbound', () => {
     const resp = await handleResendOutbound(req);
     expect(resp.status).toBe(400);
     const body = await resp.json() as Record<string, unknown>;
-    expect(body.error).toBe('missing_channel');
+    expect(body.error.message).toBe('missing_channel');
   });
 
   test('returns 400 for no_active_session', async () => {
@@ -400,7 +400,7 @@ describe('HTTP route: handleResendOutbound', () => {
     const resp = await handleResendOutbound(req);
     expect(resp.status).toBe(400);
     const body = await resp.json() as Record<string, unknown>;
-    expect(body.error).toBe('no_active_session');
+    expect(body.error.message).toBe('no_active_session');
   });
 
   test('passes originConversationId through on successful resend', async () => {
@@ -433,7 +433,7 @@ describe('HTTP route: handleCancelOutbound', () => {
     const resp = await handleCancelOutbound(req);
     expect(resp.status).toBe(400);
     const body = await resp.json() as Record<string, unknown>;
-    expect(body.error).toBe('missing_channel');
+    expect(body.error.message).toBe('missing_channel');
   });
 
   test('returns 400 for no_active_session', async () => {
@@ -441,7 +441,7 @@ describe('HTTP route: handleCancelOutbound', () => {
     const resp = await handleCancelOutbound(req);
     expect(resp.status).toBe(400);
     const body = await resp.json() as Record<string, unknown>;
-    expect(body.error).toBe('no_active_session');
+    expect(body.error.message).toBe('no_active_session');
   });
 
   test('returns 200 when active session is cancelled', async () => {

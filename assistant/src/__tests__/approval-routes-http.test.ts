@@ -36,6 +36,8 @@ mock.module('../util/logger.js', () => ({
 
 mock.module('../config/loader.js', () => ({
   getConfig: () => ({
+    ui: {},
+    
     model: 'test',
     provider: 'test',
     apiKeys: {},
@@ -549,8 +551,8 @@ describe('standalone approval endpoints — HTTP layer', () => {
       });
 
       expect(res.status).toBe(403);
-      const body = await res.json() as { error: string };
-      expect(body.error).toContain('pattern');
+      const body = await res.json() as { error: { message: string; code?: string } };
+      expect(body.error.message).toContain('pattern');
 
       await stopServer();
     });
@@ -579,8 +581,8 @@ describe('standalone approval endpoints — HTTP layer', () => {
       });
 
       expect(res.status).toBe(403);
-      const body = await res.json() as { error: string };
-      expect(body.error).toContain('scope');
+      const body = await res.json() as { error: { message: string; code?: string } };
+      expect(body.error.message).toContain('scope');
 
       await stopServer();
     });

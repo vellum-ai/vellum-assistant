@@ -47,6 +47,8 @@ const mockCallsConfig = {
 
 mock.module('../config/loader.js', () => ({
   getConfig: () => ({
+    ui: {},
+    
     model: 'test',
     provider: 'test',
     apiKeys: {},
@@ -227,8 +229,8 @@ describe('runtime call routes — HTTP layer', () => {
     });
 
     expect(res.status).toBe(400);
-    const body = await res.json() as { error: string };
-    expect(body.error).toContain('conversationId');
+    const body = await res.json() as { error: { message: string; code?: string } };
+    expect(body.error.message).toContain('conversationId');
 
     await stopServer();
   });
@@ -269,8 +271,8 @@ describe('runtime call routes — HTTP layer', () => {
     });
 
     expect(res.status).toBe(400);
-    const body = await res.json() as { error: string };
-    expect(body.error).toContain('E.164');
+    const body = await res.json() as { error: { message: string; code?: string } };
+    expect(body.error.message).toContain('E.164');
 
     await stopServer();
   });
@@ -285,8 +287,8 @@ describe('runtime call routes — HTTP layer', () => {
     });
 
     expect(res.status).toBe(400);
-    const body = await res.json() as { error: string };
-    expect(body.error).toContain('Invalid JSON');
+    const body = await res.json() as { error: { message: string; code?: string } };
+    expect(body.error.message).toContain('Invalid JSON');
 
     await stopServer();
   });
@@ -309,8 +311,8 @@ describe('runtime call routes — HTTP layer', () => {
     // user_number mode requires a configured user phone number;
     // since we haven't set one, this should return a 400 explaining why
     expect(res.status).toBe(400);
-    const body = await res.json() as { error: string };
-    expect(body.error).toContain('user_number');
+    const body = await res.json() as { error: { message: string; code?: string } };
+    expect(body.error.message).toContain('user_number');
 
     await stopServer();
   });
@@ -364,11 +366,11 @@ describe('runtime call routes — HTTP layer', () => {
     });
 
     expect(res.status).toBe(400);
-    const body = await res.json() as { error: string };
-    expect(body.error).toContain('Invalid callerIdentityMode');
-    expect(body.error).toContain('bogus');
-    expect(body.error).toContain('assistant_number');
-    expect(body.error).toContain('user_number');
+    const body = await res.json() as { error: { message: string; code?: string } };
+    expect(body.error.message).toContain('Invalid callerIdentityMode');
+    expect(body.error.message).toContain('bogus');
+    expect(body.error.message).toContain('assistant_number');
+    expect(body.error.message).toContain('user_number');
 
     await stopServer();
   });
@@ -510,8 +512,8 @@ describe('runtime call routes — HTTP layer', () => {
     });
 
     expect(res.status).toBe(400);
-    const body = await res.json() as { error: string };
-    expect(body.error).toContain('Invalid JSON');
+    const body = await res.json() as { error: { message: string; code?: string } };
+    expect(body.error.message).toContain('Invalid JSON');
 
     await stopServer();
   });
@@ -534,8 +536,8 @@ describe('runtime call routes — HTTP layer', () => {
     });
 
     expect(res.status).toBe(404);
-    const body = await res.json() as { error: string };
-    expect(body.error).toContain('pending question');
+    const body = await res.json() as { error: { message: string; code?: string } };
+    expect(body.error.message).toContain('pending question');
 
     await stopServer();
   });
@@ -583,8 +585,8 @@ describe('runtime call routes — HTTP layer', () => {
     });
 
     expect(res.status).toBe(409);
-    const body = await res.json() as { error: string };
-    expect(body.error).toContain('orchestrator');
+    const body = await res.json() as { error: { message: string; code?: string } };
+    expect(body.error.message).toContain('orchestrator');
 
     await stopServer();
   });
@@ -609,8 +611,8 @@ describe('runtime call routes — HTTP layer', () => {
     });
 
     expect(res.status).toBe(400);
-    const body = await res.json() as { error: string };
-    expect(body.error).toContain('Invalid JSON');
+    const body = await res.json() as { error: { message: string; code?: string } };
+    expect(body.error.message).toContain('Invalid JSON');
 
     await stopServer();
   });
@@ -633,8 +635,8 @@ describe('runtime call routes — HTTP layer', () => {
     });
 
     expect(res.status).toBe(400);
-    const body = await res.json() as { error: string };
-    expect(body.error).toContain('instructionText');
+    const body = await res.json() as { error: { message: string; code?: string } };
+    expect(body.error.message).toContain('instructionText');
 
     await stopServer();
   });
@@ -657,8 +659,8 @@ describe('runtime call routes — HTTP layer', () => {
     });
 
     expect(res.status).toBe(400);
-    const body = await res.json() as { error: string };
-    expect(body.error).toContain('instructionText');
+    const body = await res.json() as { error: { message: string; code?: string } };
+    expect(body.error.message).toContain('instructionText');
 
     await stopServer();
   });
@@ -673,8 +675,8 @@ describe('runtime call routes — HTTP layer', () => {
     });
 
     expect(res.status).toBe(404);
-    const body = await res.json() as { error: string };
-    expect(body.error).toContain('No call session found');
+    const body = await res.json() as { error: { message: string; code?: string } };
+    expect(body.error.message).toContain('No call session found');
 
     await stopServer();
   });
@@ -699,8 +701,8 @@ describe('runtime call routes — HTTP layer', () => {
     });
 
     expect(res.status).toBe(409);
-    const body = await res.json() as { error: string };
-    expect(body.error).toContain('not active');
+    const body = await res.json() as { error: { message: string; code?: string } };
+    expect(body.error.message).toContain('not active');
 
     await stopServer();
   });
@@ -723,8 +725,8 @@ describe('runtime call routes — HTTP layer', () => {
     });
 
     expect(res.status).toBe(409);
-    const body = await res.json() as { error: string };
-    expect(body.error).toContain('orchestrator');
+    const body = await res.json() as { error: { message: string; code?: string } };
+    expect(body.error.message).toContain('orchestrator');
 
     await stopServer();
   });
