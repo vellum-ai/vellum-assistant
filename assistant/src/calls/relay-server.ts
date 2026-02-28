@@ -1061,16 +1061,14 @@ export class RelayConnection {
       );
 
       if (this.controller) {
+        const redeemedActorTrust = resolveActorTrust({
+          assistantId: this.inviteRedemptionAssistantId,
+          sourceChannel: 'voice',
+          externalChatId: this.inviteRedemptionFromNumber,
+          senderExternalUserId: this.inviteRedemptionFromNumber,
+        });
         this.controller.setGuardianContext(
-          toGuardianRuntimeContext(
-            'voice',
-            resolveGuardianContext({
-              assistantId: this.inviteRedemptionAssistantId,
-              sourceChannel: 'voice',
-              externalChatId: this.inviteRedemptionFromNumber,
-              senderExternalUserId: this.inviteRedemptionFromNumber,
-            }),
-          ),
+          toGuardianRuntimeContextFromTrust(redeemedActorTrust, this.inviteRedemptionFromNumber),
         );
         this.startNormalCallFlow(this.controller, true);
       }

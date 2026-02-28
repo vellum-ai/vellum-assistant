@@ -71,7 +71,7 @@ describe('channel-invite-transport', () => {
 
   describe('telegram buildShareableInvite', () => {
     test('produces a valid Telegram deep link', () => {
-      const result = telegramInviteTransport.buildShareableInvite({
+      const result = telegramInviteTransport.buildShareableInvite!({
         rawToken: 'abc123_test-token',
         sourceChannel: 'telegram',
       });
@@ -81,15 +81,15 @@ describe('channel-invite-transport', () => {
     });
 
     test('deep link is deterministic for the same token', () => {
-      const a = telegramInviteTransport.buildShareableInvite({ rawToken: 'tok1', sourceChannel: 'telegram' });
-      const b = telegramInviteTransport.buildShareableInvite({ rawToken: 'tok1', sourceChannel: 'telegram' });
+      const a = telegramInviteTransport.buildShareableInvite!({ rawToken: 'tok1', sourceChannel: 'telegram' });
+      const b = telegramInviteTransport.buildShareableInvite!({ rawToken: 'tok1', sourceChannel: 'telegram' });
       expect(a.url).toBe(b.url);
       expect(a.displayText).toBe(b.displayText);
     });
 
     test('uses the configured bot username', () => {
       mockBotUsername = 'my_custom_bot';
-      const result = telegramInviteTransport.buildShareableInvite({
+      const result = telegramInviteTransport.buildShareableInvite!({
         rawToken: 'token',
         sourceChannel: 'telegram',
       });
@@ -103,7 +103,7 @@ describe('channel-invite-transport', () => {
       delete process.env.TELEGRAM_BOT_USERNAME;
       try {
         expect(() =>
-          telegramInviteTransport.buildShareableInvite({
+          telegramInviteTransport.buildShareableInvite!({
             rawToken: 'token',
             sourceChannel: 'telegram',
           }),
@@ -118,7 +118,7 @@ describe('channel-invite-transport', () => {
       const prev = process.env.TELEGRAM_BOT_USERNAME;
       process.env.TELEGRAM_BOT_USERNAME = 'env_bot';
       try {
-        const result = telegramInviteTransport.buildShareableInvite({
+        const result = telegramInviteTransport.buildShareableInvite!({
           rawToken: 'token',
           sourceChannel: 'telegram',
         });
