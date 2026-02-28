@@ -291,16 +291,19 @@ struct SettingsChannelsTab: View {
             } else if telegramSetupExpanded {
                 telegramCredentialEntry
             } else {
-                channelStatusRow(
-                    label: "Bot",
-                    icon: "exclamationmark.triangle",
-                    iconColor: VColor.warning,
-                    value: "Not configured",
-                    valueColor: VColor.textMuted,
-                    action: .init(label: "Set Up", style: .secondary) {
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    HStack(spacing: VSpacing.sm) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .foregroundColor(VColor.warning)
+                            .font(.system(size: 12))
+                        Text("Not configured")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                    }
+                    VButton(label: "Set Up", style: .secondary, size: .large) {
                         telegramSetupExpanded = true
                     }
-                )
+                }
             }
 
             if let error = store.telegramError {
@@ -461,16 +464,19 @@ struct SettingsChannelsTab: View {
             } else if slackChannelSetupExpanded {
                 slackChannelCredentialEntry
             } else {
-                channelStatusRow(
-                    label: "Bot",
-                    icon: "exclamationmark.triangle",
-                    iconColor: VColor.warning,
-                    value: "Not configured",
-                    valueColor: VColor.textMuted,
-                    action: .init(label: "Set Up", style: .secondary) {
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    HStack(spacing: VSpacing.sm) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .foregroundColor(VColor.warning)
+                            .font(.system(size: 12))
+                        Text("Not configured")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                    }
+                    VButton(label: "Set Up", style: .secondary, size: .large) {
                         slackChannelSetupExpanded = true
                     }
-                )
+                }
             }
 
             if let error = store.slackChannelError {
@@ -568,16 +574,19 @@ struct SettingsChannelsTab: View {
             } else if twilioSetupExpanded {
                 twilioCredentialEntry
             } else {
-                channelStatusRow(
-                    label: "Credentials",
-                    icon: "exclamationmark.triangle",
-                    iconColor: VColor.warning,
-                    value: "Not configured",
-                    valueColor: VColor.textMuted,
-                    action: .init(label: "Set Up", style: .secondary) {
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    HStack(spacing: VSpacing.sm) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .foregroundColor(VColor.warning)
+                            .font(.system(size: 12))
+                        Text("Not configured")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                    }
+                    VButton(label: "Set Up", style: .secondary, size: .large) {
                         twilioSetupExpanded = true
                     }
-                )
+                }
             }
 
             // Phone number row (only when credentials exist)
@@ -653,16 +662,19 @@ struct SettingsChannelsTab: View {
             } else if voiceSetupExpanded {
                 voiceCredentialEntry
             } else {
-                channelStatusRow(
-                    label: "Credentials",
-                    icon: "exclamationmark.triangle",
-                    iconColor: VColor.warning,
-                    value: "Not configured",
-                    valueColor: VColor.textMuted,
-                    action: .init(label: "Set Up", style: .secondary) {
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    HStack(spacing: VSpacing.sm) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .foregroundColor(VColor.warning)
+                            .font(.system(size: 12))
+                        Text("Not configured")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                    }
+                    VButton(label: "Set Up", style: .secondary, size: .large) {
                         voiceSetupExpanded = true
                     }
-                )
+                }
             }
 
             // Phone number row (only when credentials exist)
