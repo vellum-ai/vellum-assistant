@@ -397,7 +397,7 @@ A complementary access-granting flow where the guardian proactively creates a sh
 | Channel | Status | Prerequisites |
 |---------|--------|--------------|
 | Telegram | Shipped | Bot username resolved from credential metadata or `TELEGRAM_BOT_USERNAME` env |
-| Voice | Shipped | Identity-bound voice code redemption via DTMF/speech in the relay state machine. Gated behind `feature_flags.voice-invite-redemption.enabled` (default OFF). |
+| Voice | Shipped | Identity-bound voice code redemption via DTMF/speech in the relay state machine. Always-on canonical behavior with personalized friend/guardian name prompts. |
 | SMS | Deferred | Needs a deep-link strategy compatible with SMS (short URL or web redemption page) |
 | Slack | Deferred | Needs DM-safe ingress — Socket Mode handles channel messages but DM-initiated invite flows need routing |
 
@@ -413,18 +413,16 @@ Voice invites use a short numeric code (4-10 digits, default 6) instead of a URL
 
 **Call-time redemption subflow (`invite_redemption_pending`):**
 1. Unknown caller dials in. `relay-server.ts` resolves trust via `resolveActorTrust`. Caller is `unknown`, no pending guardian challenge.
-2. If `feature_flags.voice-invite-redemption.enabled` is ON, the relay checks `findActiveVoiceInvites` for invites bound to the caller's phone number.
-3. If active, non-expired invites exist, the relay enters the `invite_redemption_pending` state (reuses the `verification_pending` connection state) and prompts the caller to enter their invite code via DTMF or speech.
+2. The relay checks `findActiveVoiceInvites` for invites bound to the caller's phone number.
+3. If active, non-expired invites exist, the relay enters the `invite_redemption_pending` state (reuses the `verification_pending` connection state) and prompts the caller with personalized copy: `Welcome <friend-name>. Please enter the 6-digit code that <guardian-name> provided you to verify your identity.`
 4. `redeemVoiceInviteCode` validates: identity match, code hash match, expiry, use count. On success, an active member record is upserted and the call transitions to the normal call flow.
-5. On failure, the caller gets up to 3 attempts. After max attempts, the call is terminated.
+5. On invalid/expired code, the caller hears deterministic failure copy: `Sorry, the code you provided is incorrect or has since expired. Please ask <guardian-name> for a new code. Goodbye.` and the call ends immediately.
 
 **Security invariants:**
 - The plaintext voice code is returned exactly once at creation time and never stored.
 - Voice invites are identity-bound: `expectedExternalUserId` must match the caller's E.164 number. An attacker with the code but the wrong phone number cannot redeem.
 - Failure responses are intentionally generic (`invalid_or_expired`) to prevent oracle attacks.
 - Blocked members cannot bypass the guardian's explicit block via invite redemption.
-
-**Feature flag:** `feature_flags.voice-invite-redemption.enabled` (default OFF). When disabled, unknown callers with active voice invites are denied normally — the invite check is skipped entirely.
 
 **Key source files:**
 
