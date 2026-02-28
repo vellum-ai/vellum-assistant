@@ -392,26 +392,56 @@ A complementary access-granting flow where the guardian proactively creates a sh
 
 **Inbound intercept points:** Invite token extraction runs early in the inbound handler, before ACL denial, so valid invites short-circuit the membership check. Two intercept branches handle: (a) non-members — the invite creates their first member record; (b) inactive members (revoked/pending) — the invite reactivates them.
 
-**Deferred channel adapters:**
+**Channel adapter status:**
 
 | Channel | Status | Prerequisites |
 |---------|--------|--------------|
 | Telegram | Shipped | Bot username resolved from credential metadata or `TELEGRAM_BOT_USERNAME` env |
+| Voice | Shipped | Identity-bound voice code redemption via DTMF/speech in the relay state machine. Gated behind `feature_flags.voice-invite-redemption.enabled` (default OFF). |
 | SMS | Deferred | Needs a deep-link strategy compatible with SMS (short URL or web redemption page) |
 | Slack | Deferred | Needs DM-safe ingress — Socket Mode handles channel messages but DM-initiated invite flows need routing |
-| Voice | Deferred | Needs DTMF or speech-based token capture integrated with the voice relay state machine |
+
+### Voice Invite Flow (invite_redemption_pending)
+
+Voice invites use a short numeric code (4-10 digits, default 6) instead of a URL token. The guardian creates an invite bound to the invitee's E.164 phone number; the invitee redeems it by entering the code during an inbound voice call.
+
+**Creation flow:**
+1. Guardian creates a voice invite via `POST /v1/ingress/invites` with `sourceChannel: "voice"` and `expectedExternalUserId` (E.164 phone).
+2. `ingress-service.ts` generates a cryptographically random numeric code (`generateVoiceCode`), hashes it with SHA-256 (`hashVoiceCode`), and stores only the hash.
+3. The one-time plaintext `voiceCode` is returned in the creation response. The raw token is NOT returned for voice invites — redemption uses the identity-bound code flow exclusively.
+4. Guardian communicates the code to the invitee out-of-band.
+
+**Call-time redemption subflow (`invite_redemption_pending`):**
+1. Unknown caller dials in. `relay-server.ts` resolves trust via `resolveActorTrust`. Caller is `unknown`, no pending guardian challenge.
+2. If `feature_flags.voice-invite-redemption.enabled` is ON, the relay checks `findActiveVoiceInvites` for invites bound to the caller's phone number.
+3. If active, non-expired invites exist, the relay enters the `invite_redemption_pending` state (reuses the `verification_pending` connection state) and prompts the caller to enter their invite code via DTMF or speech.
+4. `redeemVoiceInviteCode` validates: identity match, code hash match, expiry, use count. On success, an active member record is upserted and the call transitions to the normal call flow.
+5. On failure, the caller gets up to 3 attempts. After max attempts, the call is terminated.
+
+**Security invariants:**
+- The plaintext voice code is returned exactly once at creation time and never stored.
+- Voice invites are identity-bound: `expectedExternalUserId` must match the caller's E.164 number. An attacker with the code but the wrong phone number cannot redeem.
+- Failure responses are intentionally generic (`invalid_or_expired`) to prevent oracle attacks.
+- Blocked members cannot bypass the guardian's explicit block via invite redemption.
+
+**Feature flag:** `feature_flags.voice-invite-redemption.enabled` (default OFF). When disabled, unknown callers with active voice invites are denied normally — the invite check is skipped entirely.
 
 **Key source files:**
 
 | File | Purpose |
 |------|---------|
-| `src/runtime/invite-redemption-service.ts` | Core redemption engine — token validation, member creation, discriminated-union outcomes |
+| `src/runtime/invite-redemption-service.ts` | Core redemption engine — token validation, voice code redemption, member creation, discriminated-union outcomes |
 | `src/runtime/invite-redemption-templates.ts` | Deterministic reply templates for each redemption outcome |
 | `src/runtime/channel-invite-transport.ts` | Transport adapter registry with `buildShareableInvite` / `extractInboundToken` interface |
 | `src/runtime/channel-invite-transports/telegram.ts` | Telegram adapter — `t.me/<bot>?start=iv_<token>` deep links, `/start iv_<token>` extraction |
+| `src/runtime/channel-invite-transports/voice.ts` | Voice transport adapter — code-based redemption metadata |
 | `src/daemon/guardian-invite-intent.ts` | Intent detection — routes create/list/revoke requests into the trusted-contacts skill |
 | `src/runtime/ingress-service.ts` | Shared business logic for invite/member operations (used by both HTTP routes and IPC) |
+| `src/runtime/routes/ingress-routes.ts` | HTTP API handlers for member/invite management including voice invite creation and redemption |
 | `src/runtime/routes/inbound-message-handler.ts` | Invite token intercept in the inbound flow (non-member and inactive-member branches) |
+| `src/calls/relay-server.ts` | Voice relay state machine — `invite_redemption_pending` subflow, feature flag gate |
+| `src/util/voice-code.ts` | Cryptographic voice code generation and SHA-256 hashing |
+| `src/memory/ingress-invite-store.ts` | Invite persistence including `findActiveVoiceInvites` for identity-bound lookup |
 
 ### Update Bulletin System
 

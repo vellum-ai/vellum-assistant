@@ -10,6 +10,7 @@ import { randomInt } from 'node:crypto';
 
 import type { ServerWebSocket } from 'bun';
 
+import { isAssistantFeatureFlagEnabled } from '../config/assistant-feature-flags.js';
 import { getConfig } from '../config/loader.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { revokeScopedApprovalGrantsForContext } from '../memory/scoped-approval-grants.js';
@@ -505,29 +506,37 @@ export class RelayConnection {
         // Before denying, check if there is an active voice invite bound
         // to the caller's phone number. If so, enter the invite redemption
         // subflow instead of denying the call outright.
-        let voiceInvites: ReturnType<typeof findActiveVoiceInvites> = [];
-        try {
-          voiceInvites = findActiveVoiceInvites({
-            assistantId,
-            expectedExternalUserId: msg.from,
-          });
-        } catch (err) {
-          log.warn({ err, callSessionId: this.callSessionId }, 'Failed to check voice invites for unknown caller');
-        }
+        // Gated behind the voice-invite-redemption feature flag (defaults OFF).
+        const voiceInviteEnabled = isAssistantFeatureFlagEnabled(
+          'feature_flags.voice-invite-redemption.enabled',
+          config,
+        );
 
-        // Exclude invites that are past their expiresAt even if the DB
-        // status hasn't been lazily flipped to 'expired' yet.
-        const now = Date.now();
-        const nonExpiredInvites = voiceInvites.filter(i => !i.expiresAt || i.expiresAt > now);
+        if (voiceInviteEnabled) {
+          let voiceInvites: ReturnType<typeof findActiveVoiceInvites> = [];
+          try {
+            voiceInvites = findActiveVoiceInvites({
+              assistantId,
+              expectedExternalUserId: msg.from,
+            });
+          } catch (err) {
+            log.warn({ err, callSessionId: this.callSessionId }, 'Failed to check voice invites for unknown caller');
+          }
 
-        if (nonExpiredInvites.length > 0) {
-          log.info(
-            { callSessionId: this.callSessionId, from: msg.from },
-            'Inbound voice ACL: unknown caller has active voice invite — entering redemption flow',
-          );
-          const inviteCodeLength = Math.min(...nonExpiredInvites.map(i => i.voiceCodeDigits ?? 6));
-          this.startInviteRedemption(assistantId, msg.from, inviteCodeLength);
-          return;
+          // Exclude invites that are past their expiresAt even if the DB
+          // status hasn't been lazily flipped to 'expired' yet.
+          const now = Date.now();
+          const nonExpiredInvites = voiceInvites.filter(i => !i.expiresAt || i.expiresAt > now);
+
+          if (nonExpiredInvites.length > 0) {
+            log.info(
+              { callSessionId: this.callSessionId, from: msg.from },
+              'Inbound voice ACL: unknown caller has active voice invite — entering redemption flow',
+            );
+            const inviteCodeLength = Math.min(...nonExpiredInvites.map(i => i.voiceCodeDigits ?? 6));
+            this.startInviteRedemption(assistantId, msg.from, inviteCodeLength);
+            return;
+          }
         }
 
         log.info(

@@ -31,6 +31,7 @@ import {
   handleListInvites,
   handleListMembers,
   handleRedeemInvite,
+  handleRedeemVoiceInvite,
   handleRevokeInvite,
   handleRevokeMember,
   handleUpsertMember,
@@ -439,5 +440,233 @@ describe('ingress service shared logic', () => {
     const revoked = await revokeRes.json() as { invite: { id: string; status: string } };
     expect(revoked.invite.status).toBe('revoked');
     expect(revoked.invite.id).toBe(created.invite.id);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Voice invite routes
+// ---------------------------------------------------------------------------
+
+describe('voice invite HTTP routes', () => {
+  beforeEach(resetTables);
+
+  test('POST /v1/ingress/invites with sourceChannel voice — creates invite with voiceCode, stores hash only', async () => {
+    const req = new Request('http://localhost/v1/ingress/invites', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sourceChannel: 'voice',
+        expectedExternalUserId: '+15551234567',
+        maxUses: 3,
+      }),
+    });
+
+    const res = await handleCreateInvite(req);
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(res.status).toBe(201);
+    expect(body.ok).toBe(true);
+    const invite = body.invite as Record<string, unknown>;
+    expect(invite.sourceChannel).toBe('voice');
+    // Voice code should be returned (6 digits by default)
+    expect(typeof invite.voiceCode).toBe('string');
+    expect((invite.voiceCode as string).length).toBe(6);
+    expect(/^\d{6}$/.test(invite.voiceCode as string)).toBe(true);
+    // Hash should be stored
+    expect(typeof invite.tokenHash).toBe('string');
+    expect((invite.tokenHash as string).length).toBeGreaterThan(0);
+    // voiceCodeDigits should be recorded
+    expect(invite.voiceCodeDigits).toBe(6);
+    // expectedExternalUserId should be recorded
+    expect(invite.expectedExternalUserId).toBe('+15551234567');
+  });
+
+  test('voice invite creation requires expectedExternalUserId', async () => {
+    const req = new Request('http://localhost/v1/ingress/invites', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sourceChannel: 'voice',
+      }),
+    });
+
+    const res = await handleCreateInvite(req);
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(res.status).toBe(400);
+    expect(body.ok).toBe(false);
+    expect(body.error).toContain('expectedExternalUserId');
+  });
+
+  test('voice invite creation validates E.164 format', async () => {
+    const req = new Request('http://localhost/v1/ingress/invites', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sourceChannel: 'voice',
+        expectedExternalUserId: 'not-a-phone-number',
+      }),
+    });
+
+    const res = await handleCreateInvite(req);
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(res.status).toBe(400);
+    expect(body.ok).toBe(false);
+    expect(body.error).toContain('E.164');
+  });
+
+  test('voiceCodeDigits validation — rejects values below 4', async () => {
+    const req = new Request('http://localhost/v1/ingress/invites', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sourceChannel: 'voice',
+        expectedExternalUserId: '+15551234567',
+        voiceCodeDigits: 3,
+      }),
+    });
+
+    const res = await handleCreateInvite(req);
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(res.status).toBe(400);
+    expect(body.ok).toBe(false);
+    expect(body.error).toContain('voiceCodeDigits');
+  });
+
+  test('voiceCodeDigits validation — rejects values above 10', async () => {
+    const req = new Request('http://localhost/v1/ingress/invites', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sourceChannel: 'voice',
+        expectedExternalUserId: '+15551234567',
+        voiceCodeDigits: 11,
+      }),
+    });
+
+    const res = await handleCreateInvite(req);
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(res.status).toBe(400);
+    expect(body.ok).toBe(false);
+    expect(body.error).toContain('voiceCodeDigits');
+  });
+
+  test('voiceCodeDigits validation — accepts custom digit count within range', async () => {
+    const req = new Request('http://localhost/v1/ingress/invites', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sourceChannel: 'voice',
+        expectedExternalUserId: '+15551234567',
+        voiceCodeDigits: 8,
+      }),
+    });
+
+    const res = await handleCreateInvite(req);
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(res.status).toBe(201);
+    expect(body.ok).toBe(true);
+    const invite = body.invite as Record<string, unknown>;
+    expect((invite.voiceCode as string).length).toBe(8);
+    expect(invite.voiceCodeDigits).toBe(8);
+  });
+
+  test('voice invites do NOT return token in response', async () => {
+    const req = new Request('http://localhost/v1/ingress/invites', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sourceChannel: 'voice',
+        expectedExternalUserId: '+15551234567',
+      }),
+    });
+
+    const res = await handleCreateInvite(req);
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(res.status).toBe(201);
+    const invite = body.invite as Record<string, unknown>;
+    // Voice invites must not expose the raw token — callers redeem via
+    // the identity-bound voice code flow
+    expect(invite.token).toBeUndefined();
+  });
+
+  test('POST /v1/ingress/invites/redeem-voice — redeems a voice invite code', async () => {
+    // Create a voice invite
+    const createRes = await handleCreateInvite(new Request('http://localhost/v1/ingress/invites', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sourceChannel: 'voice',
+        expectedExternalUserId: '+15551234567',
+        maxUses: 1,
+      }),
+    }));
+    const created = await createRes.json() as { invite: { voiceCode: string } };
+
+    // Redeem the voice code
+    const redeemReq = new Request('http://localhost/v1/ingress/invites/redeem-voice', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        callerExternalUserId: '+15551234567',
+        code: created.invite.voiceCode,
+      }),
+    });
+
+    const res = await handleRedeemVoiceInvite(redeemReq);
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(res.status).toBe(200);
+    expect(body.ok).toBe(true);
+    expect(body.type).toBe('redeemed');
+    expect(typeof body.memberId).toBe('string');
+    expect(typeof body.inviteId).toBe('string');
+  });
+
+  test('POST /v1/ingress/invites/redeem-voice — missing fields returns 400', async () => {
+    const req = new Request('http://localhost/v1/ingress/invites/redeem-voice', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ callerExternalUserId: '+15551234567' }),
+    });
+
+    const res = await handleRedeemVoiceInvite(req);
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(res.status).toBe(400);
+    expect(body.ok).toBe(false);
+  });
+
+  test('POST /v1/ingress/invites/redeem-voice — wrong code returns 400', async () => {
+    // Create a voice invite
+    await handleCreateInvite(new Request('http://localhost/v1/ingress/invites', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sourceChannel: 'voice',
+        expectedExternalUserId: '+15551234567',
+        maxUses: 1,
+      }),
+    }));
+
+    const req = new Request('http://localhost/v1/ingress/invites/redeem-voice', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        callerExternalUserId: '+15551234567',
+        code: '000000',
+      }),
+    });
+
+    const res = await handleRedeemVoiceInvite(req);
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(res.status).toBe(400);
+    expect(body.ok).toBe(false);
   });
 });
