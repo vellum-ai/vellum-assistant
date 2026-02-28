@@ -1003,6 +1003,17 @@ extension IPCMessageDequeued {
     }
 }
 
+/// Request-level terminal signal for a queued/dequeued lifecycle.
+/// Does not imply the active assistant turn has completed.
+/// Backed by generated `IPCMessageRequestComplete`.
+public typealias MessageRequestCompleteMessage = IPCMessageRequestComplete
+
+extension IPCMessageRequestComplete {
+    public init(sessionId: String, requestId: String, runStillActive: Bool? = nil) {
+        self.init(type: "message_request_complete", sessionId: sessionId, requestId: requestId, runStillActive: runStillActive)
+    }
+}
+
 /// Notifies client that a queued message was successfully deleted.
 /// Backed by generated `IPCMessageQueuedDeleted`.
 public typealias MessageQueuedDeletedMessage = IPCMessageQueuedDeleted
@@ -2245,6 +2256,7 @@ public enum ServerMessage: Decodable, Sendable {
     case appDataResponse(AppDataResponseMessage)
     case messageQueued(MessageQueuedMessage)
     case messageDequeued(MessageDequeuedMessage)
+    case messageRequestComplete(MessageRequestCompleteMessage)
     case messageQueuedDeleted(MessageQueuedDeletedMessage)
     case skillsListResponse(SkillsListResponseMessage)
     case skillDetailResponse(SkillDetailResponseMessage)
@@ -2479,6 +2491,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "message_dequeued":
             let message = try MessageDequeuedMessage(from: decoder)
             self = .messageDequeued(message)
+        case "message_request_complete":
+            let message = try MessageRequestCompleteMessage(from: decoder)
+            self = .messageRequestComplete(message)
         case "message_queued_deleted":
             let message = try MessageQueuedDeletedMessage(from: decoder)
             self = .messageQueuedDeleted(message)

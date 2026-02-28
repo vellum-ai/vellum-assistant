@@ -565,6 +565,7 @@ extension ChatViewModel {
                 pendingQueuedCount = 0
                 pendingMessageIds = []
                 requestIdToMessageId = [:]
+                activeRequestIdToMessageId = [:]
                 pendingLocalDeletions.removeAll()
                 for i in messages.indices {
                     if case .queued = messages[i].status, messages[i].role == .user {
@@ -681,6 +682,7 @@ extension ChatViewModel {
                     }
                 }
             }
+            activeRequestIdToMessageId.removeAll()
             dispatchPendingSendDirect()
             // Refresh guardian prompts on message completion (cheap consistency check)
             refreshGuardianPrompts()
@@ -744,6 +746,7 @@ extension ChatViewModel {
                 pendingQueuedCount = 0
                 pendingMessageIds = []
                 requestIdToMessageId = [:]
+                activeRequestIdToMessageId = [:]
                 pendingLocalDeletions.removeAll()
                 for i in messages.indices {
                     if case .queued = messages[i].status, messages[i].role == .user {
@@ -796,7 +799,9 @@ extension ChatViewModel {
             guard belongsToSession(msg.sessionId) else { return }
             pendingQueuedCount = max(0, pendingQueuedCount - 1)
             // Remove the message from the UI
-            if let messageId = requestIdToMessageId.removeValue(forKey: msg.requestId) {
+            let messageId = requestIdToMessageId.removeValue(forKey: msg.requestId)
+                ?? activeRequestIdToMessageId.removeValue(forKey: msg.requestId)
+            if let messageId {
                 messages.removeAll { $0.id == messageId }
             }
             // Recompute positions for remaining queued messages
@@ -818,6 +823,7 @@ extension ChatViewModel {
             // so assistantTextDelta tags the response correctly.
             if let messageId = requestIdToMessageId.removeValue(forKey: msg.requestId),
                let index = messages.firstIndex(where: { $0.id == messageId }) {
+                activeRequestIdToMessageId[msg.requestId] = messageId
                 messages[index].status = .processing
                 currentTurnUserText = messages[index].text.trimmingCharacters(in: .whitespacesAndNewlines)
                 // Clear attachment binary payloads now that the daemon has persisted them.
@@ -841,8 +847,24 @@ extension ChatViewModel {
             isThinking = true
             isSending = true
 
+        case .messageRequestComplete(let msg):
+            guard belongsToSession(msg.sessionId) else { return }
+            if let messageId = activeRequestIdToMessageId.removeValue(forKey: msg.requestId),
+               let index = messages.firstIndex(where: { $0.id == messageId }),
+               messages[index].role == .user,
+               messages[index].status == .processing {
+                messages[index].status = .sent
+            }
+            if msg.runStillActive == false && pendingQueuedCount == 0 {
+                isSending = false
+                isThinking = false
+            }
+
         case .generationHandoff(let handoff):
             guard belongsToSession(handoff.sessionId) else { return }
+            if let requestId = handoff.requestId {
+                activeRequestIdToMessageId.removeValue(forKey: requestId)
+            }
             isThinking = false
             // Flush buffered text so it lands on the current assistant message
             // before we clear the ID and hand off to the next queued turn.
@@ -956,6 +978,7 @@ extension ChatViewModel {
                         }
                         pendingMessageIds.removeAll { $0 == blockedMessageId }
                         requestIdToMessageId = requestIdToMessageId.filter { $0.value != blockedMessageId }
+                        activeRequestIdToMessageId = activeRequestIdToMessageId.filter { $0.value != blockedMessageId }
                         pendingLocalDeletions.remove(blockedMessageId)
                         messages.remove(at: blockedMessageIndex)
                     }
@@ -976,6 +999,7 @@ extension ChatViewModel {
                 pendingQueuedCount = 0
                 pendingMessageIds = []
                 requestIdToMessageId = [:]
+                activeRequestIdToMessageId = [:]
                 for i in messages.indices {
                     if case .queued = messages[i].status, messages[i].role == .user {
                         messages[i].status = .sent
@@ -990,6 +1014,7 @@ extension ChatViewModel {
                 isSending = false
                 pendingMessageIds = []
                 requestIdToMessageId = [:]
+                activeRequestIdToMessageId = [:]
             }
 
         case .confirmationRequest(let msg):
@@ -1434,6 +1459,7 @@ extension ChatViewModel {
                 pendingQueuedCount = 0
                 pendingMessageIds = []
                 requestIdToMessageId = [:]
+                activeRequestIdToMessageId = [:]
                 for i in messages.indices {
                     if case .queued = messages[i].status, messages[i].role == .user {
                         messages[i].status = .sent
@@ -1462,6 +1488,7 @@ extension ChatViewModel {
                     // No queued work remains — safe to tear down everything.
                     pendingMessageIds = []
                     requestIdToMessageId = [:]
+                    activeRequestIdToMessageId = [:]
                 } else {
                     // The daemon drains queued work after a session_error
                     // (session.ts calls drainQueue in `finally`), so preserve
