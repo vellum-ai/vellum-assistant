@@ -330,6 +330,7 @@ export async function handleMessageComplete(
   // Clean assistant content and accumulate directives
   const { cleanedContent, directives: msgDirectives, warnings: msgWarnings } =
     cleanAssistantContent(event.message.content);
+  const cleanedBlocks = cleanedContent as ContentBlock[];
   state.accumulatedDirectives.push(...msgDirectives);
   state.directiveWarnings.push(...msgWarnings);
   if (msgDirectives.length > 0) {
@@ -340,7 +341,7 @@ export async function handleMessageComplete(
   }
 
   // Build content with UI surfaces
-  const contentWithSurfaces: ContentBlock[] = [...cleanedContent as ContentBlock[]];
+  const contentWithSurfaces: ContentBlock[] = [...cleanedBlocks];
   for (const surface of deps.ctx.currentTurnSurfaces) {
     contentWithSurfaces.push({
       type: 'ui_surface',
@@ -371,9 +372,9 @@ export async function handleMessageComplete(
   deps.ctx.currentTurnSurfaces = [];
 
   // Emit trace event
-  const charCount = cleanedContent
-    .filter((b) => (b as Record<string, unknown>).type === 'text')
-    .reduce((sum: number, b) => sum + ((b as { text?: string }).text?.length ?? 0), 0);
+  const charCount = cleanedBlocks
+    .filter((b): b is Extract<ContentBlock, { type: 'text' }> => b.type === 'text')
+    .reduce((sum, b) => sum + b.text.length, 0);
   const toolUseCount = event.message.content
     .filter((b) => b.type === 'tool_use')
     .length;
