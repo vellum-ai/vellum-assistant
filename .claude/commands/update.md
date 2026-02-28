@@ -36,7 +36,7 @@ Pull the latest changes from main, restart the backend daemon, rebuild/launch th
    cd assistant && bun run daemon:restart:http && cd ..
    ```
 
-5. Resolve gateway ingress, Twilio auth, and routing env from local config/credential store:
+5. Resolve gateway env and start the source gateway. These MUST run in the same shell so variables persist:
    ```bash
    INGRESS_PUBLIC_BASE_URL="$(
      python3 - <<'PY'
@@ -67,76 +67,40 @@ PY
      cd ..
    )}"
 
-   # Mirror CLI startGateway() behavior: only auto-enable default routing
-   # when exactly one assistant is present in ~/.vellum.lock.json.
-   ASSISTANT_ROUTING_INFO="$(
+   # Resolve default assistant ID from lockfile (prefer first valid entry).
+   GATEWAY_DEFAULT_ASSISTANT_ID="${GATEWAY_DEFAULT_ASSISTANT_ID:-$(
      python3 - <<'PY'
 import json, os
 lock_path = os.path.expanduser("~/.vellum.lock.json")
-count = 0
-assistant_id = ""
 try:
     with open(lock_path, "r", encoding="utf-8") as f:
         data = json.load(f)
-    assistants = data.get("assistants")
-    if isinstance(assistants, list):
-        valid = []
-        for item in assistants:
-            if isinstance(item, dict):
-                raw_id = item.get("assistantId")
-                raw_url = item.get("runtimeUrl")
-                if isinstance(raw_id, str) and isinstance(raw_url, str):
-                    aid = raw_id.strip()
-                    if aid:
-                        valid.append(aid)
-        count = len(valid)
-        if count == 1:
-            assistant_id = valid[0]
+    for item in (data.get("assistants") or []):
+        if isinstance(item, dict):
+            aid = (item.get("assistantId") or "").strip()
+            if aid:
+                print(aid)
+                break
 except Exception:
     pass
-print(count)
-print(assistant_id)
 PY
-   )"
-   ASSISTANT_COUNT="$(printf '%s\n' "$ASSISTANT_ROUTING_INFO" | sed -n '1p')"
-   SINGLE_ASSISTANT_ID="$(printf '%s\n' "$ASSISTANT_ROUTING_INFO" | sed -n '2p')"
+   )}"
 
-   if [ -z "${GATEWAY_UNMAPPED_POLICY:-}" ] && [ "$ASSISTANT_COUNT" = "1" ]; then
-     GATEWAY_UNMAPPED_POLICY="default"
-   fi
-   if [ -z "${GATEWAY_DEFAULT_ASSISTANT_ID:-}" ] && [ "$ASSISTANT_COUNT" = "1" ]; then
-     GATEWAY_DEFAULT_ASSISTANT_ID="$SINGLE_ASSISTANT_ID"
-   fi
-   if [ "${GATEWAY_UNMAPPED_POLICY:-}" = "default" ] && [ -z "${GATEWAY_DEFAULT_ASSISTANT_ID:-}" ]; then
+   # Always default to "default" routing policy (matches CLI startGateway() behavior).
+   GATEWAY_UNMAPPED_POLICY="${GATEWAY_UNMAPPED_POLICY:-default}"
+
+   if [ "$GATEWAY_UNMAPPED_POLICY" = "default" ] && [ -z "$GATEWAY_DEFAULT_ASSISTANT_ID" ]; then
      echo "WARNING: GATEWAY_UNMAPPED_POLICY=default but no GATEWAY_DEFAULT_ASSISTANT_ID is set. Falling back to reject."
      GATEWAY_UNMAPPED_POLICY="reject"
    fi
 
-   if [ -z "$INGRESS_PUBLIC_BASE_URL" ]; then
-     echo "WARNING: INGRESS_PUBLIC_BASE_URL is empty (Twilio signature validation may fail)."
-   fi
-   if [ -z "$TWILIO_AUTH_TOKEN" ]; then
-     echo "WARNING: TWILIO_AUTH_TOKEN is empty (Twilio webhooks will be rejected)."
-   fi
-   if [ -z "$TWILIO_ACCOUNT_SID" ]; then
-     echo "WARNING: TWILIO_ACCOUNT_SID is empty (SMS delivery will fail)."
-   fi
-   if [ -z "$TWILIO_PHONE_NUMBER" ]; then
-     echo "WARNING: TWILIO_PHONE_NUMBER is empty (SMS delivery will fail)."
-   fi
-   if [ "${GATEWAY_UNMAPPED_POLICY:-}" = "default" ]; then
-     if [ -n "${GATEWAY_DEFAULT_ASSISTANT_ID:-}" ]; then
-       echo "Gateway routing: default -> ${GATEWAY_DEFAULT_ASSISTANT_ID}"
-     else
-       echo "WARNING: Gateway routing policy is default but default assistant is empty."
-     fi
-   else
-     echo "Gateway routing: ${GATEWAY_UNMAPPED_POLICY:-reject}"
-   fi
-   ```
+   [ -z "$INGRESS_PUBLIC_BASE_URL" ] && echo "WARNING: INGRESS_PUBLIC_BASE_URL is empty (Twilio signature validation may fail)."
+   [ -z "$TWILIO_AUTH_TOKEN" ] && echo "WARNING: TWILIO_AUTH_TOKEN is empty (Twilio webhooks will be rejected)."
+   [ -z "$TWILIO_ACCOUNT_SID" ] && echo "WARNING: TWILIO_ACCOUNT_SID is empty (SMS delivery will fail)."
+   [ -z "$TWILIO_PHONE_NUMBER" ] && echo "WARNING: TWILIO_PHONE_NUMBER is empty (SMS delivery will fail)."
+   echo "Gateway routing: $GATEWAY_UNMAPPED_POLICY${GATEWAY_DEFAULT_ASSISTANT_ID:+ -> $GATEWAY_DEFAULT_ASSISTANT_ID}"
 
-6. Start the source gateway first (so the app connects to this instance). Run in background with logs:
-   ```bash
+   # Start the source gateway (must be in the same shell block so env vars are available)
    cd gateway
    mkdir -p "${HOME}/.vellum"
    nohup env \
@@ -146,14 +110,14 @@ PY
      TWILIO_AUTH_TOKEN="$TWILIO_AUTH_TOKEN" \
      TWILIO_ACCOUNT_SID="$TWILIO_ACCOUNT_SID" \
      TWILIO_PHONE_NUMBER="$TWILIO_PHONE_NUMBER" \
-     ${GATEWAY_UNMAPPED_POLICY:+GATEWAY_UNMAPPED_POLICY="$GATEWAY_UNMAPPED_POLICY"} \
-     ${GATEWAY_DEFAULT_ASSISTANT_ID:+GATEWAY_DEFAULT_ASSISTANT_ID="$GATEWAY_DEFAULT_ASSISTANT_ID"} \
+     GATEWAY_UNMAPPED_POLICY="$GATEWAY_UNMAPPED_POLICY" \
+     GATEWAY_DEFAULT_ASSISTANT_ID="$GATEWAY_DEFAULT_ASSISTANT_ID" \
      bun run dev:proxy \
      > "${HOME}/.vellum/gateway-dev.log" 2>&1 &
    cd ..
    ```
 
-7. Poll gateway health with retries (fail fast before building the macOS app):
+6. Poll gateway health with retries (fail fast before building the macOS app):
    ```bash
    # Poll gateway health with retries
    GATEWAY_HEALTHY=false
@@ -196,7 +160,7 @@ PY
    fi
    ```
 
-8. Build the macOS app from source synchronously (wait for build to complete before launching to avoid opening a stale build), then launch with file-watching in the background:
+7. Build the macOS app from source synchronously (wait for build to complete before launching to avoid opening a stale build), then launch with file-watching in the background:
    ```bash
    REPO_ROOT="$(pwd)"
    cd clients/macos && VELLUM_GATEWAY_DIR="$REPO_ROOT/gateway" ./build.sh
@@ -207,7 +171,7 @@ PY
    cd clients/macos && VELLUM_GATEWAY_DIR="$REPO_ROOT/gateway" ./build.sh run &
    ```
 
-9. Print startup summary:
+8. Print startup summary (re-read values from gateway log since shell vars don't persist across steps):
    ```bash
    echo ""
    echo "=== Startup Summary ==="
@@ -215,11 +179,10 @@ PY
    GATEWAY_STATUS=$(curl -sS --max-time 2 http://127.0.0.1:7830/healthz 2>&1 || echo "UNHEALTHY")
    echo "  Daemon:   $DAEMON_STATUS"
    echo "  Gateway:  $GATEWAY_STATUS"
-   echo "  Ingress:  ${INGRESS_PUBLIC_BASE_URL:-<not set>}"
-   echo "  Twilio SID:   $([ -n "$TWILIO_ACCOUNT_SID" ] && echo 'present' || echo 'MISSING')"
-   echo "  Twilio Token: $([ -n "$TWILIO_AUTH_TOKEN" ] && echo 'present' || echo 'MISSING')"
-   echo "  Twilio Phone: $([ -n "$TWILIO_PHONE_NUMBER" ] && echo "$TWILIO_PHONE_NUMBER" || echo 'MISSING')"
-   echo "  Gateway routing: ${GATEWAY_UNMAPPED_POLICY:-reject} ${GATEWAY_DEFAULT_ASSISTANT_ID:+(default: $GATEWAY_DEFAULT_ASSISTANT_ID)}"
+   # Extract routing config from gateway startup log
+   GATEWAY_POLICY=$(grep -o 'unmappedPolicy: "[^"]*"' ~/.vellum/gateway-dev.log 2>/dev/null | tail -1 || echo "unknown")
+   GATEWAY_HAS_DEFAULT=$(grep -o 'hasDefaultAssistant: [a-z]*' ~/.vellum/gateway-dev.log 2>/dev/null | tail -1 || echo "unknown")
+   echo "  Gateway routing: $GATEWAY_POLICY, $GATEWAY_HAS_DEFAULT"
    echo "  Gateway log: ~/.vellum/gateway-dev.log"
    echo "======================="
    echo ""
