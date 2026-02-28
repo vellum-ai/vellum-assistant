@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { type AppDefinition,createApp, listApps } from '../../memory/app-store.js';
+import { resolveBundledDir } from '../../util/bundled-asset.js';
 import { getLogger } from '../../util/logger.js';
 import {
   HOME_BASE_PREBUILT_DESCRIPTION_PREFIX,
@@ -25,7 +26,7 @@ export interface PrebuiltHomeBaseTaskPayload {
 }
 
 function getPrebuiltDir(): string {
-  return import.meta.dirname ?? __dirname;
+  return resolveBundledDir(import.meta.dirname ?? __dirname, '.', 'prebuilt');
 }
 
 function loadSeedMetadata(): SeedMetadata {
