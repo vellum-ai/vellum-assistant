@@ -245,7 +245,7 @@ Required fields:
 Optional fields:
 - `maxUses` — how many times the code can be used (default: 1)
 - `expiresInMs` — expiration time in milliseconds from now (e.g., `86400000` for 24 hours). Defaults to 7 days if omitted.
-- `voiceCodeDigits` — _(reserved, always 6)_ the code is always 6 digits in the current implementation
+- ~~`voiceCodeDigits`~~ — always 6 digits; this parameter is accepted but ignored
 - `note` — a human-readable label for the invite (e.g., "For Mom", "Dr. Smith")
 
 The create response contains `{ ok: true, invite: { id, voiceCode, expectedExternalUserId, ... } }`. The `voiceCode` is the numeric code the invitee must enter — it is only returned at creation time.
@@ -282,7 +282,7 @@ Optional query parameters:
 
 The response format is the same as regular invites but voice invites also include:
 - `expectedExternalUserId` — the bound phone number
-- `voiceCodeDigits` — length of the code (the code itself is not retrievable after creation)
+- `voiceCodeDigits` — always 6 (the code itself is not retrievable after creation)
 
 **Presenting results**: Format as a readable list. Show the note (or "unnamed" as fallback), bound phone number, status, uses remaining, and expiration. Highlight which invites are still active.
 
