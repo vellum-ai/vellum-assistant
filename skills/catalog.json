@@ -25,38 +25,28 @@
       "name": "Google OAuth Setup",
       "description": "Create Google Cloud OAuth credentials for Gmail integration using browser automation",
       "emoji": "\ud83d\udd11",
-      "includes": [
-        "browser",
-        "public-ingress"
-      ]
+      "includes": ["browser", "public-ingress"]
     },
     {
       "id": "slack-oauth-setup",
       "name": "Slack OAuth Setup",
       "description": "Create Slack App and OAuth credentials for Slack integration using browser automation",
       "emoji": "\ud83d\udd11",
-      "includes": [
-        "browser",
-        "public-ingress"
-      ]
+      "includes": ["browser", "public-ingress"]
     },
     {
       "id": "telegram-setup",
       "name": "Telegram Setup",
       "description": "Connect a Telegram bot to the Vellum Assistant gateway with automated webhook registration and credential storage",
       "emoji": "\ud83e\udd16",
-      "includes": [
-        "public-ingress"
-      ]
+      "includes": ["public-ingress"]
     },
     {
       "id": "twilio-setup",
       "name": "Twilio Setup",
       "description": "Configure Twilio credentials and phone numbers for voice calls and SMS messaging",
       "emoji": "\ud83d\udcf1",
-      "includes": [
-        "public-ingress"
-      ]
+      "includes": ["public-ingress"]
     },
     {
       "id": "sms-setup",
@@ -69,10 +59,7 @@
       "name": "Notion OAuth Setup",
       "description": "Create a Notion integration and OAuth credentials for Notion integration using browser automation",
       "emoji": "\ud83d\udd11",
-      "includes": [
-        "browser",
-        "public-ingress"
-      ]
+      "includes": ["browser", "public-ingress"]
     },
     {
       "id": "notion",
@@ -83,11 +70,9 @@
     {
       "id": "oauth-setup",
       "name": "OAuth Setup",
-      "description": "Connect any OAuth service \u2014 create app credentials and authorize via browser automation. Works for any provider with a well-known config.",
+      "description": "Connect any OAuth service — create app credentials and authorize via browser automation. Works for any provider with a well-known config.",
       "emoji": "\ud83d\udd11",
-      "includes": [
-        "browser"
-      ]
+      "includes": ["browser"]
     },
     {
       "id": "guardian-verify-setup",
@@ -98,7 +83,7 @@
     {
       "id": "trusted-contacts",
       "name": "Trusted Contacts",
-      "description": "Manage trusted contacts and Telegram invite links \u2014 list, allow, revoke, block users, and create/list/revoke shareable invite links",
+      "description": "Manage trusted contacts \u2014 list, allow, revoke, and block users who can message the assistant through external channels",
       "emoji": "\ud83d\udc65"
     }
   ]
