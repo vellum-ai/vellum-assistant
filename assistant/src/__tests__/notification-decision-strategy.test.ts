@@ -196,6 +196,45 @@ describe('notification decision strategy', () => {
       expect(copy.vellum!.body).toContain('open invite flow');
     });
 
+    test('ingress.access_request template includes caller name for voice-originated requests', () => {
+      const signal = makeSignal({
+        sourceEventName: 'ingress.access_request',
+        contextPayload: {
+          senderIdentifier: '+15559998888',
+          senderName: 'Alice Smith',
+          sourceChannel: 'voice',
+          requestCode: 'V1C2E3',
+        },
+      });
+
+      const copy = composeFallbackCopy(signal, channels);
+      expect(copy.vellum).toBeDefined();
+      expect(copy.vellum!.title).toBe('Access Request');
+      // Voice-originated requests should include the caller name and phone number
+      expect(copy.vellum!.body).toContain('Alice Smith');
+      expect(copy.vellum!.body).toContain('+15559998888');
+      expect(copy.vellum!.body).toContain('calling');
+    });
+
+    test('ingress.access_request template falls back to non-voice copy when sourceChannel is not voice', () => {
+      const signal = makeSignal({
+        sourceEventName: 'ingress.access_request',
+        contextPayload: {
+          senderIdentifier: 'user-123',
+          senderName: 'Bob Jones',
+          sourceChannel: 'telegram',
+          requestCode: 'T1G2M3',
+        },
+      });
+
+      const copy = composeFallbackCopy(signal, channels);
+      expect(copy.vellum).toBeDefined();
+      // Non-voice should use the standard "requesting access" text, not "calling"
+      expect(copy.vellum!.body).toContain('user-123');
+      expect(copy.vellum!.body).toContain('requesting access');
+      expect(copy.vellum!.body).not.toContain('calling');
+    });
+
     test('ingress.access_request Telegram deliveryText is concise', () => {
       const signal = makeSignal({
         sourceEventName: 'ingress.access_request',

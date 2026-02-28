@@ -57,7 +57,17 @@ const TEMPLATES: Record<string, CopyTemplate> = {
   'ingress.access_request': (payload) => {
     const requester = str(payload.senderIdentifier, 'Someone');
     const requestCode = nonEmpty(typeof payload.requestCode === 'string' ? payload.requestCode : undefined);
-    const lines: string[] = [`${requester} is requesting access to the assistant.`];
+    const sourceChannel = typeof payload.sourceChannel === 'string' ? payload.sourceChannel : undefined;
+    const callerName = nonEmpty(typeof payload.senderName === 'string' ? payload.senderName : undefined);
+    const lines: string[] = [];
+
+    // Voice-originated access requests include caller name context
+    if (sourceChannel === 'voice' && callerName) {
+      lines.push(`${callerName} (${requester}) is calling and requesting access to the assistant.`);
+    } else {
+      lines.push(`${requester} is requesting access to the assistant.`);
+    }
+
     if (requestCode) {
       const code = requestCode.toUpperCase();
       lines.push(`Reply "${code} approve" to grant access or "${code} reject" to deny.`);
