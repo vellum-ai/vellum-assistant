@@ -2267,9 +2267,10 @@ describe('relay-server', () => {
     // Verify no provider (LLM) call was made as part of the approval handoff
     expect(mockSendMessage.mock.calls.length).toBe(providerCallCountBefore);
 
-    // Verify events
+    // Verify events — including assistant_spoke for transcript parity
     const events = getCallEvents(session.id);
     expect(events.some((e) => e.eventType === 'inbound_acl_access_approved')).toBe(true);
+    expect(events.some((e) => e.eventType === 'assistant_spoke')).toBe(true);
     expect(events.some((e) => e.eventType === 'inbound_acl_post_approval_handoff_spoken')).toBe(true);
 
     // Session should be in_progress
