@@ -30,7 +30,7 @@ When the user asks to "connect my email", "set up email", "manage my email", or 
 
 1. **Discover what's connected.** Call `messaging_auth_test` for `gmail` (and any other email-capable platforms). If one succeeds, tell the user it's already connected and proceed with their request.
 2. **If nothing is connected**, ask which provider they use — but keep it brief and conversational (e.g., "Which email do you use — Gmail, Outlook, etc.?"), not a numbered list of options with descriptions.
-3. **Once the provider is known, act immediately.** Don't present setup options or explain OAuth. Just start the connection flow for that provider (e.g., follow the Gmail section below). If credentials aren't configured, go straight into the setup skill.
+3. **Once the provider is known, act immediately.** Don't present setup options or explain OAuth. If it's Gmail, follow the Gmail section below. For any other provider, let the user know that only Gmail is fully supported right now, and offer to set up Gmail instead.
 
 ### Gmail
 1. **Try connecting directly first.** Call `credential_store` with `action: "oauth2_connect"` and `service: "gmail"`. The tool auto-fills Google's OAuth endpoints and looks up any previously stored client credentials — so this single call may be all that's needed.
@@ -251,7 +251,7 @@ When a user asks to declutter, clean up, or organize their email — start scann
 
 - **Gmail connected**: Use the Gmail-specific tools (`gmail_sender_digest`, `gmail_archive_by_query`, `gmail_unsubscribe`, `gmail_filters`) — they have richer features like unsubscribe support and filter creation.
 - **Non-Gmail email connected**: Use the generic tools (`messaging_sender_digest`, `messaging_archive_by_sender`) — they work with any provider that supports these operations. Skip unsubscribe and filter offers since they are Gmail-specific.
-- **Nothing connected**: Ask which email provider they use, then go straight into the connection flow for that provider. Don't present a menu of options or explain what OAuth is — just ask the one question you need ("Which email do you use?"), and once they answer, start setup immediately.
+- **Nothing connected**: Ask which email provider they use. If it's Gmail, go straight into the Gmail connection flow. For other providers, let the user know only Gmail is supported right now and offer to set up Gmail instead. Don't present a menu of options or explain what OAuth is.
 
 ### Workflow
 
