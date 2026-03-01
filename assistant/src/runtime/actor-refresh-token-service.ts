@@ -11,11 +11,6 @@ import { createHash, randomBytes } from 'node:crypto';
 
 import { getDb } from '../memory/db.js';
 import { getLogger } from '../util/logger.js';
-import { hashToken, mintActorToken } from './actor-token-service.js';
-import {
-  createActorTokenRecord,
-  revokeByDeviceBinding as revokeActorTokensByDevice,
-} from './actor-token-store.js';
 import {
   createRefreshTokenRecord,
   findByTokenHash as findRefreshByHash,
@@ -23,6 +18,11 @@ import {
   revokeByDeviceBinding as revokeRefreshTokensByDevice,
   revokeFamily,
 } from './actor-refresh-token-store.js';
+import { hashToken, mintActorToken } from './actor-token-service.js';
+import {
+  createActorTokenRecord,
+  revokeByDeviceBinding as revokeActorTokensByDevice,
+} from './actor-token-store.js';
 
 const log = getLogger('actor-refresh-token-service');
 
