@@ -29,11 +29,9 @@ Gmail, Slack, and Telegram setup all require a publicly reachable URL for OAuth 
 When the user asks to "connect my email", "set up email", "manage my email", or similar — and has not named a specific provider:
 
 1. **Discover what's connected.** Call `messaging_auth_test` for `gmail` (and any other email-capable platforms). If one succeeds, tell the user it's already connected and proceed.
-2. **If nothing is connected, ask which provider.** Present the user with a choice:
-   - "Which email service do you use?"
-   - Offer: **Gmail**, **Outlook** (not yet supported), or other
-   - If the user picks a provider that isn't supported yet, let them know and suggest Gmail if applicable.
-3. **Once the provider is known**, follow the corresponding setup section below (e.g., "Gmail" for Gmail).
+2. **If nothing is connected and the user wants to DO something** (declutter, read, search, send, check email, etc.): Start Gmail setup immediately — say something like "Let me get your email connected first" and follow the Gmail setup flow below. Gmail is the most common provider; if the user doesn't use Gmail, they'll say so.
+3. **If nothing is connected and the user only asked to "connect email" or "set up email"**: Ask which provider they use.
+4. **Once the provider is known**, follow the corresponding setup section below (e.g., "Gmail" for Gmail).
 
 ### Gmail
 1. **Try connecting directly first.** Call `credential_store` with `action: "oauth2_connect"` and `service: "gmail"`. The tool auto-fills Google's OAuth endpoints and looks up any previously stored client credentials — so this single call may be all that's needed.
@@ -104,7 +102,7 @@ When a messaging tool fails with a token or authorization error:
 - If the user specifies a platform (e.g., "check my Slack"), pass it as the `platform` parameter.
 - If only one platform is connected, it is auto-selected.
 - If multiple platforms are connected and the user doesn't specify, ask which platform they mean — or search across all of them.
-- **Do not assume a specific provider.** When the user says "email" or "manage my email" without naming a provider, follow the **Email Connection Flow** above — check what's connected, then ask which provider if nothing is. Never skip straight to a specific provider's setup.
+- **Default to Gmail for action-oriented requests.** When the user says "email" and wants to *do* something (declutter, check, search, send), check what's connected. If nothing is, start Gmail setup immediately — don't ask which provider. Only ask which provider when the user's explicit intent is to "connect" or "set up" email without specifying a provider.
 
 ## Capabilities
 
@@ -248,13 +246,13 @@ Use `messaging_analyze_activity` to classify channels or conversations by activi
 
 ## Email Decluttering
 
-When a user asks to declutter, clean up, or organize their email — start scanning immediately. Don't ask what kind of cleanup they want or request permission to read their inbox. Just scan and show them what you found.
+When a user asks to declutter, clean up, or organize their email — start acting immediately. Don't ask what kind of cleanup they want, don't request permission to read their inbox, and don't present options or menus.
 
 ### Provider Selection
 
 - **Gmail connected**: Use the Gmail-specific tools (`gmail_sender_digest`, `gmail_archive_by_query`, `gmail_unsubscribe`, `gmail_filters`) — they have richer features like unsubscribe support and filter creation.
 - **Non-Gmail email connected**: Use the generic tools (`messaging_sender_digest`, `messaging_archive_by_sender`) — they work with any provider that supports these operations. Skip unsubscribe and filter offers since they are Gmail-specific.
-- **Do not assume Gmail.** Check what's connected first.
+- **Nothing connected**: Start Gmail setup immediately — say something like "Let me get your email connected so I can help with that" and follow the Gmail connection flow. Don't ask which provider, don't present options, don't explain OAuth. The user asked to declutter, not to troubleshoot — get them connected as fast as possible and then start the declutter.
 
 ### Workflow
 
