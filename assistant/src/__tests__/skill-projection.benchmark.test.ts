@@ -35,6 +35,21 @@ mock.module('../config/skills.js', () => ({
       bundled: false,
       userInvocable: false,
     })),
+  // Needed by transitive deps (skill-state.ts imports this)
+  checkSkillRequirements: () => ({ eligible: true, missing: {} }),
+  getSkillsDir: () => '/tmp/fake-skills',
+  getBundledSkillsDir: () => '/tmp/fake-bundled-skills',
+  resolveSkillSelector: () => ({ found: false }),
+  loadSkillBySelector: () => ({ found: false }),
+  readCachedSkillIcon: () => undefined,
+}));
+
+// Mock skill-state.js to break the transitive import chain — the benchmark
+// only needs skillFlagKey and doesn't exercise resolveSkillStates.
+mock.module('../config/skill-state.js', () => ({
+  skillFlagKey: (id: string) => `feature_flags.${id}.enabled`,
+  isSkillFeatureEnabled: () => true,
+  resolveSkillStates: () => [],
 }));
 
 mock.module('../skills/tool-manifest.js', () => ({
