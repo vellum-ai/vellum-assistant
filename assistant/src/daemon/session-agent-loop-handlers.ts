@@ -49,6 +49,10 @@ export interface EventHandlerState {
   readonly directiveWarnings: string[];
   readonly toolUseIdToName: Map<string, string>;
   currentTurnToolNames: string[];
+  /** Tracks whether the first text delta has been emitted this turn for activity state transitions. */
+  firstTextDeltaEmitted: boolean;
+  /** Tracks whether a thinking delta has been emitted this turn for activity state transitions. */
+  firstThinkingDeltaEmitted: boolean;
 }
 
 /** Immutable context shared across event handlers within a single agent loop run. */
@@ -86,6 +90,8 @@ export function createEventHandlerState(): EventHandlerState {
     directiveWarnings: [],
     toolUseIdToName: new Map(),
     currentTurnToolNames: [],
+    firstTextDeltaEmitted: false,
+    firstThinkingDeltaEmitted: false,
   };
 }
 
@@ -136,6 +142,10 @@ export function handleTextDelta(
   const drained = drainDirectiveDisplayBuffer(state.pendingDirectiveDisplayBuffer);
   state.pendingDirectiveDisplayBuffer = drained.bufferedRemainder;
   if (drained.emitText.length > 0) {
+    if (!state.firstTextDeltaEmitted) {
+      state.firstTextDeltaEmitted = true;
+      deps.ctx.emitActivityState('streaming', 'first_text_delta', 'assistant_turn', deps.reqId);
+    }
     deps.onEvent({ type: 'assistant_text_delta', text: drained.emitText, sessionId: deps.ctx.conversationId });
     if (deps.shouldGenerateTitle) state.firstAssistantText += drained.emitText;
   }
@@ -146,6 +156,10 @@ export function handleThinkingDelta(
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: 'thinking_delta' }>,
 ): void {
+  if (!state.firstThinkingDeltaEmitted) {
+    state.firstThinkingDeltaEmitted = true;
+    deps.ctx.emitActivityState('thinking', 'thinking_delta', 'assistant_turn', deps.reqId);
+  }
   if (!deps.ctx.streamThinking) return;
   emitLlmCallStartedIfNeeded(state, deps);
   deps.onEvent({ type: 'assistant_thinking_delta', thinking: event.thinking });
@@ -158,6 +172,7 @@ export function handleToolUse(
 ): void {
   state.toolUseIdToName.set(event.id, event.name);
   state.currentTurnToolNames.push(event.name);
+  deps.ctx.emitActivityState('tool_running', 'tool_use_start', 'assistant_turn', deps.reqId);
   deps.onEvent({ type: 'tool_use_start', toolName: event.name, input: event.input, sessionId: deps.ctx.conversationId });
 }
 
@@ -258,6 +273,11 @@ export function handleToolResult(
       }
     }
   }
+
+  // Reset so that the next LLM exchange (think → stream) after this tool
+  // call re-emits the activity state transitions.
+  state.firstTextDeltaEmitted = false;
+  state.firstThinkingDeltaEmitted = false;
 }
 
 export function handleError(

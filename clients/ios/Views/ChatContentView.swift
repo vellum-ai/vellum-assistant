@@ -154,8 +154,7 @@ struct ChatContentView: View {
                         }
 
                         // Typing / step indicator shown while generating
-                        let hasPendingConfirmation = viewModel.messages.last?.confirmation?.state == .pending
-                        if viewModel.isSending && !hasPendingConfirmation {
+                        if viewModel.isSending {
                             let lastMessage = viewModel.messages.last
                             let allToolCalls = lastMessage?.toolCalls ?? []
                             let isStreaming = lastMessage?.isStreaming == true

@@ -137,6 +137,21 @@ async function tryConsumeInlineApprovalReply(params: {
     return { consumed: false };
   }
 
+  // Emit authoritative confirmation state for the resolved request.
+  // The onStateSignal listener routes these to the SSE hub automatically.
+  if (routerResult.requestId) {
+    const resolvedState = routerResult.decisionApplied
+      ? (routerResult.type === 'nl_deny' || routerResult.type === 'nl_deny_all' ? 'denied' : 'approved') as const
+      : 'resolved_stale' as const;
+    session.emitConfirmationStateChanged({
+      sessionId: conversationId,
+      requestId: routerResult.requestId,
+      state: resolvedState,
+      source: 'inline_nl' as const,
+      decisionText: trimmedContent,
+    });
+  }
+
   // Decision has been applied — transcript persistence is best-effort.
   // If DB writes fail, we still return consumed: true so the approval text
   // is not re-processed as a new user turn.
@@ -460,6 +475,11 @@ export async function handleSendMessage(
     // so that memory extraction is not silently disabled by unverified provenance.
     session.setGuardianContext({ trustClass: 'guardian', sourceChannel: sourceChannel ?? 'http' });
     const onEvent = makeHubPublisher(smDeps, mapping.conversationId, session);
+    // Route server-authoritative state signals (confirmation_state_changed,
+    // assistant_activity_state) to the SSE hub. Without this, these signals
+    // only travel through session.sendToClient, which is a no-op for
+    // socketless HTTP sessions.
+    session.setStateSignalListener(onEvent);
 
     const attachments = hasAttachments
       ? smDeps.resolveAttachments(attachmentIds)
@@ -493,6 +513,18 @@ export async function handleSendMessage(
       // If a tool confirmation is pending, auto-deny it so the agent
       // can finish the current turn and process this queued message.
       if (session.hasAnyPendingConfirmation()) {
+        // Emit authoritative denial state for each pending request.
+        // The onStateSignal listener routes these to the SSE hub automatically.
+        for (const interaction of pendingInteractions.getByConversation(mapping.conversationId)) {
+          if (interaction.session === session && interaction.kind === 'confirmation') {
+            session.emitConfirmationStateChanged({
+              sessionId: mapping.conversationId,
+              requestId: interaction.requestId,
+              state: 'denied' as const,
+              source: 'auto_deny' as const,
+            });
+          }
+        }
         session.denyAllPendingConfirmations();
         pendingInteractions.removeBySession(session);
       }

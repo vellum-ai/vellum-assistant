@@ -21,12 +21,23 @@ interface PendingPrompt {
   timer: ReturnType<typeof setTimeout>;
 }
 
+export type ConfirmationStateCallback = (
+  requestId: string,
+  state: 'pending' | 'approved' | 'denied' | 'timed_out' | 'resolved_stale',
+  source: 'button' | 'inline_nl' | 'auto_deny' | 'timeout' | 'system',
+) => void;
+
 export class PermissionPrompter {
   private pending = new Map<string, PendingPrompt>();
   private sendToClient: (msg: ServerMessage) => void;
+  private onStateChanged?: ConfirmationStateCallback;
 
   constructor(sendToClient: (msg: ServerMessage) => void) {
     this.sendToClient = sendToClient;
+  }
+
+  setOnStateChanged(cb: ConfirmationStateCallback): void {
+    this.onStateChanged = cb;
   }
 
   updateSender(sendToClient: (msg: ServerMessage) => void): void {
@@ -60,6 +71,7 @@ export class PermissionPrompter {
       const timer = setTimeout(() => {
         this.pending.delete(requestId);
         log.warn({ requestId, toolName }, 'Permission prompt timed out, defaulting to deny');
+        this.onStateChanged?.(requestId, 'timed_out', 'timeout');
         resolve({ decision: 'deny' });
       }, timeoutMs);
 
@@ -90,6 +102,8 @@ export class PermissionPrompter {
         executionTarget,
         persistentDecisionsAllowed: persistentDecisionsAllowed ?? true,
       });
+
+      this.onStateChanged?.(requestId, 'pending', 'system');
     });
   }
 

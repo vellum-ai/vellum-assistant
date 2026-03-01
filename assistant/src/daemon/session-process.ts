@@ -87,6 +87,12 @@ export interface ProcessSessionContext {
   setTurnChannelContext(ctx: TurnChannelContext): void;
   getTurnInterfaceContext(): TurnInterfaceContext | null;
   setTurnInterfaceContext(ctx: TurnInterfaceContext): void;
+  emitActivityState(
+    phase: 'idle' | 'thinking' | 'streaming' | 'tool_running' | 'awaiting_confirmation',
+    reason: 'message_dequeued' | 'thinking_delta' | 'first_text_delta' | 'tool_use_start' | 'confirmation_requested' | 'confirmation_resolved' | 'message_complete' | 'generation_cancelled' | 'error_terminal',
+    anchor?: 'assistant_turn' | 'user_turn' | 'global',
+    requestId?: string,
+  ): void;
 }
 
 function resolveQueuedTurnContext(
@@ -162,6 +168,7 @@ export async function drainQueue(session: ProcessSessionContext, reason: QueueDr
     sessionId: session.conversationId,
     requestId: next.requestId,
   });
+  session.emitActivityState('thinking', 'message_dequeued', 'assistant_turn', next.requestId);
 
   const queuedTurnCtx = resolveQueuedTurnContext(next, session.getTurnChannelContext());
   if (queuedTurnCtx) {
