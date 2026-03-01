@@ -649,8 +649,9 @@
         if (label) label.classList.remove('hidden-category');
       }
       // Apply visibility to 2D D3 nodes
+      // Memory nodes carry type='Memory' with the real category in kind, so prefer kind for them.
       d3.selectAll('.node-group').each(function(d) {
-        var type = (d.type || d.kind || '').toLowerCase();
+        var type = (d.type === 'Memory' ? d.kind : (d.type || d.kind || '')).toLowerCase();
         var visible = !hiddenCategories[type];
         d3.select(this).style('display', visible ? null : 'none');
       });
@@ -1085,9 +1086,10 @@
         window.brainData = data;
         updateStats(data);
         renderBrain(data);
-        // Re-apply active category filters after re-render
+        // Re-apply active category filters after re-render.
+        // Memory nodes carry type='Memory' with the real category in kind, so prefer kind for them.
         d3.selectAll('.node-group').each(function(d) {
-          var type = (d.type || d.kind || '').toLowerCase();
+          var type = (d.type === 'Memory' ? d.kind : (d.type || d.kind || '')).toLowerCase();
           if (hiddenCategories[type]) d3.select(this).style('display', 'none');
         });
         // If the user switched to 3D before this fetch resolved, the panel is
@@ -1154,6 +1156,8 @@
   let renderer = null;
   // animate reference stored here so resumeThreeD can call it without a closure capture issue
   let animateFn = null;
+  // Stored so destroyThreeD can remove it and prevent stale calls into a null renderer after refresh
+  let resizeHandler = null;
 
   function stopAnimation() {
     if (animFrameId !== null) {
@@ -1174,6 +1178,10 @@
   // Reset 3D state so initThreeD can be called again after a refresh
   window.destroyThreeD = function destroyThreeD() {
     stopAnimation();
+    if (resizeHandler) {
+      window.removeEventListener('resize', resizeHandler);
+      resizeHandler = null;
+    }
     if (renderer) {
       renderer.dispose();
       renderer = null;
@@ -1363,6 +1371,8 @@
     const tooltip = document.getElementById('tooltip');
 
     canvas.addEventListener('mousemove', function(event) {
+      // Guard against stale listener firing after destroyThreeD nulls the renderer
+      if (!renderer) return;
       const rect = canvas.getBoundingClientRect();
       mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
       mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
@@ -1403,20 +1413,37 @@
       nodeMeshes.forEach(function (mesh) {
         const entity = nodeEntityMap.get(mesh);
         if (!entity) return;
-        const type = (entity.type || entity.kind || '').toLowerCase();
+        // Memory nodes carry type='Memory' with the real category in kind, so prefer kind for them.
+        const type = (entity.type === 'Memory' ? entity.kind : (entity.type || entity.kind || '')).toLowerCase();
         mesh.visible = !hiddenCategories[type];
       });
     };
 
+    // Replay any checkbox state that was set before 3D was initialised.
+    // If the user unchecked categories while in 2D view, those hidden states
+    // are recorded in the checkboxes but filterThreeDCategories didn't exist yet.
+    (function replayHiddenCategories() {
+      var hidden = {};
+      document.querySelectorAll('.legend-item input[type="checkbox"]').forEach(function(cb) {
+        if (!cb.checked) hidden[cb.dataset.category || cb.value] = true;
+      });
+      if (Object.keys(hidden).length > 0) {
+        window.filterThreeDCategories(hidden);
+      }
+    })();
+
     // ── Resize handler ────────────────────────────────────────────
     function onResize() {
+      // Guard against stale listener firing after destroyThreeD nulls the renderer
+      if (!renderer) return;
       const { w, h } = getSize();
       if (w === 0 || h === 0) return;
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
       renderer.setSize(w, h);
     }
-    window.addEventListener('resize', onResize);
+    resizeHandler = onResize;
+    window.addEventListener('resize', resizeHandler);
 
     // ── Animation loop ────────────────────────────────────────────
     function animate() {
