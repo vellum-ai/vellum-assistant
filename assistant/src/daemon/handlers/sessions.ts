@@ -763,24 +763,13 @@ export function handleConfirmationResponse(
   for (const [sessionId, session] of ctx.sessions) {
     if (session.hasPendingConfirmation(msg.requestId)) {
       ctx.touchSession(sessionId);
-      const resolvedState = (msg.decision === 'deny' || msg.decision === 'always_deny') ? 'denied' as const : 'approved' as const;
-      session.emitConfirmationStateChanged({
-        sessionId,
-        requestId: msg.requestId,
-        state: resolvedState,
-        source: 'button',
-      });
-      // When the run will resume after approval, transition to thinking
-      if (resolvedState === 'approved') {
-        session.emitActivityState('thinking', 'confirmation_resolved', 'assistant_turn');
-      } else {
-        session.emitActivityState('thinking', 'confirmation_resolved', 'assistant_turn');
-      }
       session.handleConfirmationResponse(
         msg.requestId,
         msg.decision,
         msg.selectedPattern,
         msg.selectedScope,
+        undefined,
+        { source: 'button' },
       );
       syncCanonicalStatusFromIpcConfirmationDecision(msg.requestId, msg.decision);
       pendingInteractions.resolve(msg.requestId);

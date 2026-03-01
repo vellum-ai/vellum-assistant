@@ -163,6 +163,15 @@ export class Session {
   /** @internal */ currentTurnChannelContext: TurnChannelContext | null = null;
   /** @internal */ currentTurnInterfaceContext: TurnInterfaceContext | null = null;
   /** @internal */ activityVersion = 0;
+  /**
+   * Optional callback invoked whenever a server-authoritative state signal
+   * (confirmation_state_changed or assistant_activity_state) is emitted.
+   *
+   * HTTP/SSE sessions set this so the hub publisher receives these events —
+   * without it, the signals only travel through `sendToClient`, which is a
+   * no-op for socketless sessions.
+   */
+  private onStateSignal?: (msg: ServerMessage) => void;
 
   constructor(
     conversationId: string,
@@ -373,6 +382,17 @@ export class Session {
     return this.sendToClient;
   }
 
+  /**
+   * Register a callback for server-authoritative state signals
+   * (confirmation_state_changed, assistant_activity_state).
+   *
+   * This enables HTTP/SSE sessions to receive these events through the
+   * hub publisher, since `sendToClient` is a no-op for socketless sessions.
+   */
+  setStateSignalListener(listener: (msg: ServerMessage) => void): void {
+    this.onStateSignal = listener;
+  }
+
   setSandboxOverride(enabled: boolean | undefined): void {
     this.sandboxOverride = enabled;
   }
@@ -470,6 +490,11 @@ export class Session {
     selectedPattern?: string,
     selectedScope?: string,
     decisionContext?: string,
+    emissionContext?: {
+      source?: ConfirmationStateChanged['source'];
+      causedByRequestId?: string;
+      decisionText?: string;
+    },
   ): void {
     this.prompter.resolveConfirmation(
       requestId,
@@ -478,6 +503,22 @@ export class Session {
       selectedScope,
       decisionContext,
     );
+
+    // Emit authoritative confirmation state and activity transition centrally
+    // so ALL callers (IPC handlers, /v1/confirm, channel bridges) get
+    // consistent events without duplicating emission logic.
+    const resolvedState = (decision === 'deny' || decision === 'always_deny')
+      ? 'denied' as const
+      : 'approved' as const;
+    this.emitConfirmationStateChanged({
+      sessionId: this.conversationId,
+      requestId,
+      state: resolvedState,
+      source: emissionContext?.source ?? 'button',
+      ...(emissionContext?.causedByRequestId ? { causedByRequestId: emissionContext.causedByRequestId } : {}),
+      ...(emissionContext?.decisionText ? { decisionText: emissionContext.decisionText } : {}),
+    });
+    this.emitActivityState('thinking', 'confirmation_resolved', 'assistant_turn');
   }
 
   handleSecretResponse(requestId: string, value?: string, delivery?: 'store' | 'transient_send'): void {
@@ -487,7 +528,9 @@ export class Session {
   // ── Server-authoritative state signals ─────────────────────────────
 
   emitConfirmationStateChanged(params: Omit<ConfirmationStateChanged, 'type'>): void {
-    this.sendToClient({ type: 'confirmation_state_changed', ...params });
+    const msg: ServerMessage = { type: 'confirmation_state_changed', ...params } as ServerMessage;
+    this.sendToClient(msg);
+    this.onStateSignal?.(msg);
   }
 
   emitActivityState(
@@ -497,7 +540,7 @@ export class Session {
     requestId?: string,
   ): void {
     this.activityVersion++;
-    this.sendToClient({
+    const msg: ServerMessage = {
       type: 'assistant_activity_state',
       sessionId: this.conversationId,
       activityVersion: this.activityVersion,
@@ -505,7 +548,9 @@ export class Session {
       anchor,
       requestId,
       reason,
-    });
+    } as ServerMessage;
+    this.sendToClient(msg);
+    this.onStateSignal?.(msg);
   }
 
   setChannelCapabilities(caps: ChannelCapabilities | null): void {

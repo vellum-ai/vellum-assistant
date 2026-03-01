@@ -138,21 +138,18 @@ async function tryConsumeInlineApprovalReply(params: {
   }
 
   // Emit authoritative confirmation state for the resolved request.
-  // Publish through both session.sendToClient (for IPC) and onEvent
-  // (for HTTP/SSE hub consumers).
+  // The onStateSignal listener routes these to the SSE hub automatically.
   if (routerResult.requestId) {
     const resolvedState = routerResult.decisionApplied
       ? (routerResult.type === 'nl_deny' || routerResult.type === 'nl_deny_all' ? 'denied' : 'approved') as const
       : 'resolved_stale' as const;
-    const stateMsg = {
+    session.emitConfirmationStateChanged({
       sessionId: conversationId,
       requestId: routerResult.requestId,
       state: resolvedState,
       source: 'inline_nl' as const,
       decisionText: trimmedContent,
-    };
-    session.emitConfirmationStateChanged(stateMsg);
-    onEvent({ type: 'confirmation_state_changed', ...stateMsg });
+    });
   }
 
   // Decision has been applied — transcript persistence is best-effort.
@@ -478,6 +475,11 @@ export async function handleSendMessage(
     // so that memory extraction is not silently disabled by unverified provenance.
     session.setGuardianContext({ trustClass: 'guardian', sourceChannel: sourceChannel ?? 'http' });
     const onEvent = makeHubPublisher(smDeps, mapping.conversationId, session);
+    // Route server-authoritative state signals (confirmation_state_changed,
+    // assistant_activity_state) to the SSE hub. Without this, these signals
+    // only travel through session.sendToClient, which is a no-op for
+    // socketless HTTP sessions.
+    session.setStateSignalListener(onEvent);
 
     const attachments = hasAttachments
       ? smDeps.resolveAttachments(attachmentIds)
@@ -512,18 +514,15 @@ export async function handleSendMessage(
       // can finish the current turn and process this queued message.
       if (session.hasAnyPendingConfirmation()) {
         // Emit authoritative denial state for each pending request.
-        // Publish through both session.sendToClient (for IPC) and onEvent
-        // (for HTTP/SSE hub consumers).
+        // The onStateSignal listener routes these to the SSE hub automatically.
         for (const interaction of pendingInteractions.getByConversation(mapping.conversationId)) {
           if (interaction.session === session && interaction.kind === 'confirmation') {
-            const stateMsg = {
+            session.emitConfirmationStateChanged({
               sessionId: mapping.conversationId,
               requestId: interaction.requestId,
               state: 'denied' as const,
               source: 'auto_deny' as const,
-            };
-            session.emitConfirmationStateChanged(stateMsg);
-            onEvent({ type: 'confirmation_state_changed', ...stateMsg });
+            });
           }
         }
         session.denyAllPendingConfirmations();

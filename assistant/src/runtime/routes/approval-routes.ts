@@ -37,7 +37,9 @@ export async function handleConfirm(req: Request): Promise<Response> {
     return httpError('NOT_FOUND', 'No pending interaction found for this requestId', 404);
   }
 
-  interaction.session.handleConfirmationResponse(requestId, decision);
+  interaction.session.handleConfirmationResponse(requestId, decision, undefined, undefined, undefined, {
+    source: 'button',
+  });
   return Response.json({ accepted: true });
 }
 
