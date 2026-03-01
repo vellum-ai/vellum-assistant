@@ -150,7 +150,7 @@ const DEFAULT_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
  * Mint a new actor token.
  *
  * @param params Token claims (assistantId, platform, deviceId, guardianPrincipalId).
- * @param ttlMs  Optional TTL in milliseconds. Defaults to 90 days.
+ * @param ttlMs  Optional TTL in milliseconds. Defaults to 30 days.
  *               Pass `null` explicitly for a non-expiring token.
  * @returns The raw token, its hash, and the embedded claims.
  */
