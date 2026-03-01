@@ -35,7 +35,7 @@ public struct ToolConfirmationBubble: View {
     }
 
     private var hasRuleOptions: Bool {
-        !confirmation.allowlistOptions.isEmpty && !confirmation.scopeOptions.isEmpty
+        !confirmation.allowlistOptions.isEmpty
     }
 
     private var needsScopeChoice: Bool {
@@ -542,10 +542,10 @@ public struct ToolConfirmationBubble: View {
                         itemCount: confirmation.scopeOptions.count
                     )
                 } else {
-                    // No scope options available — fall back to one-time allow
+                    // No scope options (non-scoped tool) — auto-use "everywhere"
                     showAlwaysAllowMenu = false
                     popoverKeyboardModel = nil
-                    onAllow()
+                    onAlwaysAllow(confirmation.requestId, option.pattern, "everywhere", alwaysAllowDecision)
                 }
             }
         } else if showScopePickerMenu {
@@ -653,8 +653,8 @@ public struct ToolConfirmationBubble: View {
                 itemCount: confirmation.scopeOptions.count
             )
         } else {
-            // No scope options — fall back to one-time allow
-            onAllow()
+            // No scope options (non-scoped tool) — auto-use "everywhere"
+            onAlwaysAllow(confirmation.requestId, pattern, "everywhere", alwaysAllowDecision)
         }
     }
 
@@ -683,7 +683,7 @@ public struct ToolConfirmationBubble: View {
 
     @ViewBuilder
     private var alwaysAllowInlineButton: some View {
-        if hasRuleOptions && confirmation.allowlistOptions.count > 1 {
+        if !confirmation.allowlistOptions.isEmpty && confirmation.allowlistOptions.count > 1 {
             alwaysAllowDropdown
         } else {
             let patternDesc = confirmation.allowlistOptions.first?.description ?? ""
@@ -780,10 +780,10 @@ public struct ToolConfirmationBubble: View {
                                     itemCount: confirmation.scopeOptions.count
                                 )
                             } else {
-                                // No scope options available — fall back to one-time allow
+                                // No scope options (non-scoped tool) — auto-use "everywhere"
                                 showAlwaysAllowMenu = false
                                 popoverKeyboardModel = nil
-                                onAllow()
+                                onAlwaysAllow(confirmation.requestId, option.pattern, "everywhere", alwaysAllowDecision)
                             }
                         }
 
