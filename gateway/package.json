@@ -3,7 +3,8 @@
   "version": "0.4.6",
   "type": "module",
   "exports": {
-    "./twilio/verify": "./src/twilio/verify.ts"
+    "./twilio/verify": "./src/twilio/verify.ts",
+    "./package.json": "./package.json"
   },
   "scripts": {
     "dev": "bun run --watch src/index.ts",
