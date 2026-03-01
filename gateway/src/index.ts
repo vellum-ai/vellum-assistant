@@ -36,6 +36,7 @@ import { matchIngressControlPlaneRoute } from "./http/routes/ingress-control-pla
 import { createTwilioControlPlaneProxyHandler } from "./http/routes/twilio-control-plane-proxy.js";
 import { createChannelReadinessProxyHandler } from "./http/routes/channel-readiness-proxy.js";
 import { createRuntimeHealthProxyHandler } from "./http/routes/runtime-health-proxy.js";
+import { createLlmGenerateProxyHandler } from "./http/routes/llm-generate-proxy.js";
 import { createBrainGraphProxyHandler } from "./http/routes/brain-graph-proxy.js";
 import { validateBearerToken } from "./http/auth/bearer.js";
 import { getLogger, initLogger } from "./logger.js";
@@ -210,6 +211,7 @@ function main() {
   const twilioControlPlaneProxy = createTwilioControlPlaneProxyHandler(config);
   const channelReadinessProxy = createChannelReadinessProxyHandler(config);
   const runtimeHealthProxy = createRuntimeHealthProxyHandler(config);
+  const llmGenerateProxy = createLlmGenerateProxyHandler(config);
   const brainGraphProxy = createBrainGraphProxyHandler(config);
   const handleFeatureFlagsGet = createFeatureFlagsGetHandler();
   const handleFeatureFlagsPatch = createFeatureFlagsPatchHandler();
@@ -451,6 +453,16 @@ function main() {
         const authError = requireRuntimeBearerAuth();
         if (authError) return authError;
         return runtimeHealthProxy.handleRuntimeHealth(tracedReq);
+      }
+
+      // ── LLM generate proxy ──
+      // Always available regardless of runtimeProxyEnabled so that host-target
+      // skill tools can call the daemon's provider abstraction layer via
+      // $INTERNAL_GATEWAY_BASE_URL without requiring the broad runtime proxy.
+      if (url.pathname === "/v1/llm/generate" && req.method === "POST") {
+        const authError = requireRuntimeBearerAuth();
+        if (authError) return authError;
+        return llmGenerateProxy.handleLlmGenerate(tracedReq);
       }
 
       // ── Brain graph proxy ──

@@ -254,7 +254,7 @@ Extract memory items about this Reddit user's personality, interests, preference
         modelIntent: 'latency-optimized',
         max_tokens: 4096,
         system: systemPrompt,
-        messages: [{ role: 'user', content: userPrompt }],
+        messages: [{ role: 'user', content: [{ type: 'text', text: userPrompt }] }],
         tools: [{
           name: 'store_personality_items',
           description: 'Store extracted personality and interest items about the Reddit user',
