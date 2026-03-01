@@ -1,7 +1,6 @@
 ---
 fixture: desktop-app
 experimental: true
-required_env: ANTHROPIC_API_KEY
 ---
 
 # Hatch Assistant on GCP
