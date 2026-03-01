@@ -180,7 +180,7 @@ Guardian actor-role *classification* (determining whether a sender is guardian, 
 |-----------------|-------------|
 | `forceStrictSideEffects` | Automatically set on runs triggered by non-guardian or unverified-channel senders so all side-effect tools require approval. |
 | **Fail-closed no-binding** | When no guardian binding exists for a channel, the sender is classified as `unverified_channel`. Any sensitive action is auto-denied with a notice that no guardian has been configured. |
-| **Fail-closed no-identity** | When `senderExternalUserId` is absent, the actor is classified as `unverified_channel` (even if no guardian binding exists yet). |
+| **Fail-closed no-identity** | When `actorExternalId` is absent, the actor is classified as `unverified_channel` (even if no guardian binding exists yet). |
 | **Guardian-only approval** | Non-guardian senders cannot approve their own pending actions. Only the verified guardian can approve or deny. |
 | **Expired approval auto-deny** | A proactive sweep runs every 60 seconds to find expired guardian approval requests (30-minute TTL). Expired approvals are auto-denied, and both the requester and guardian are notified. If a non-guardian interacts before the sweep runs, the expiry is also detected reactively. |
 
@@ -273,7 +273,7 @@ The channel guardian service generates verification challenge instructions with 
 
 ### Vellum Guardian Identity (Actor Tokens)
 
-The vellum channel (macOS, iOS, CLI) uses HMAC-SHA256 signed actor tokens to bind guardian identity to HTTP requests. This enables identity-based authentication for the local desktop/mobile channel, paralleling how external channels (Telegram, SMS) use `externalUserId` for guardian identity.
+The vellum channel (macOS, iOS, CLI) uses HMAC-SHA256 signed actor tokens to bind guardian identity to HTTP requests. This enables identity-based authentication for the local desktop/mobile channel, paralleling how external channels (Telegram, SMS) use `actorExternalId` for guardian identity.
 
 - **Bootstrap**: After hatch, the macOS client calls `POST /v1/integrations/guardian/vellum/bootstrap` with `{ platform, deviceId }`. Returns `{ guardianPrincipalId, actorToken, isNew }`. The endpoint is idempotent -- repeated calls with the same device return the same principal but mint a fresh token (revoking the previous one).
 - **iOS pairing**: The pairing response includes an `actorToken` automatically when a vellum guardian binding exists.
@@ -292,15 +292,15 @@ Guardian verification establishes a cryptographic trust binding between a human 
 1. **Challenge creation** — The owner initiates verification from the desktop UI, which sends a guardian-verification IPC message (`create_challenge` action) to the daemon. The daemon generates a random secret (32-byte hex for unbound inbound/bootstrap sessions, 6-digit numeric for identity-bound sessions), hashes it with SHA-256, stores the hash with a 10-minute TTL, and returns the raw secret to the desktop.
 2. **Code sharing** — The desktop displays the code and instructs the owner to reply with that code in the target channel conversation (e.g., Telegram or SMS).
 3. **Verification** — When the message arrives at `/channels/inbound`, the handler intercepts valid verification-code replies before normal message processing. It hashes the provided code, looks up a matching pending challenge, validates expiry, and consumes the challenge (preventing replay).
-4. **Binding** — On success, any existing active binding for the `(assistantId, channel)` pair is revoked, and a new guardian binding is created with the verifier's `externalUserId` and `chatId`. The verifier receives a confirmation message.
+4. **Binding** — On success, any existing active binding for the `(assistantId, channel)` pair is revoked, and a new guardian binding is created with the verifier's `actorExternalId` and `chatId` (DB columns: `externalUserId`, `chatId`). The verifier receives a confirmation message.
 
 Rate limiting protects against brute-force attempts: 5 invalid attempts within 15 minutes trigger a 30-minute lockout per `(assistantId, channel, actor)` tuple. The same generic failure message is returned for both invalid codes and rate-limited attempts to avoid leaking state.
 
 ### Ingress ACL Enforcement
 
-The ingress ACL runs at the top of the channel inbound handler, before guardian role resolution and message processing. When `senderExternalUserId` is present, the handler enforces this decision chain:
+The ingress ACL runs at the top of the channel inbound handler, before guardian role resolution and message processing. When `actorExternalId` is present, the handler enforces this decision chain:
 
-1. **Member lookup** — Look up the sender in `assistant_ingress_members` by `(sourceChannel, externalUserId)` or `(sourceChannel, externalChatId)`.
+1. **Member lookup** — Look up the sender in `assistant_ingress_members` by `(sourceChannel, actorExternalId)` or `(sourceChannel, conversationExternalId)`. The DB uses `externalUserId` and `externalChatId` column names internally.
 2. **Non-member denial** — If no member record exists, the message is denied with `not_a_member`.
 3. **Status check** — If the member exists but is not `active` (e.g., `revoked` or `blocked`), the message is denied.
 4. **Policy check** — The member's `policy` field determines routing:
@@ -498,7 +498,7 @@ The image runs as non-root user `assistant` (uid 1001) and exposes port `3001`.
 | 403 `GATEWAY_ORIGIN_REQUIRED` on `/channels/inbound` | Missing or invalid `X-Gateway-Origin` header | Ensure `RUNTIME_GATEWAY_ORIGIN_SECRET` is set to the same value on both gateway and runtime. If not using a dedicated secret, ensure the bearer token (`RUNTIME_BEARER_TOKEN` or `~/.vellum/http-token`) is shared. |
 | Non-guardian actions silently denied | No guardian binding for the channel. The system is fail-closed for unverified channels. | Run the guardian verification flow from the desktop UI to bind a guardian. |
 | Guardian approval expired | The 30-minute TTL elapsed. The proactive sweep auto-denied the approval and notified both parties. | The requester must re-trigger the action. |
-| `forceStrictSideEffects` unexpectedly active | The sender is classified as `non-guardian` or `unverified_channel` | Verify the sender's `externalUserId` matches the guardian binding, or set up a guardian binding for the channel. |
+| `forceStrictSideEffects` unexpectedly active | The sender is classified as `non-guardian` or `unverified_channel` | Verify the sender's `actorExternalId` matches the guardian binding, or set up a guardian binding for the channel. |
 
 ### Invalid RRULE set expressions
 

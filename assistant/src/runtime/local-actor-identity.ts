@@ -66,8 +66,8 @@ export function resolveLocalIpcGuardianContext(
   const guardianCtx = resolveGuardianContext({
     assistantId,
     sourceChannel: 'vellum',
-    externalChatId: 'local',
-    senderExternalUserId: guardianPrincipalId,
+    conversationExternalId: 'local',
+    actorExternalId: guardianPrincipalId,
   });
 
   // Overlay the caller's actual sourceChannel onto the resolved context

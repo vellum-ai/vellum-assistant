@@ -21,7 +21,10 @@ extension ChatBubble {
     }
 
     /// Groups consecutive tool call refs for rendering.
-    enum ContentGroup {
+    /// Hashable so ForEach can use stable identity based on content rather than
+    /// array offset, which avoids spurious view invalidation when the array is
+    /// recreated with identical values on each render pass.
+    enum ContentGroup: Hashable {
         case text(Int)
         case toolCalls([Int])
         case surface(Int)
@@ -50,8 +53,12 @@ extension ChatBubble {
     var interleavedContent: some View {
         let groups = groupContentBlocks()
 
-        // Render all content groups in order: text, tool calls, and surfaces
-        ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
+        // Render all content groups in order: text, tool calls, and surfaces.
+        // Uses \.self identity (backed by Hashable conformance) instead of
+        // \.offset so SwiftUI can skip re-evaluating children whose content
+        // hasn't changed — prevents a view-update death spiral on long
+        // conversations with many interleaved blocks.
+        ForEach(groups, id: \.self) { group in
             switch group {
             case .text(let i):
                 if i < message.textSegments.count {

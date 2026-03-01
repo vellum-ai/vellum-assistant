@@ -62,16 +62,16 @@ bun run dev
 v1 uses deterministic settings-based routing (no database):
 
 1. **phone_number match** (SMS only) — reverse lookup of the inbound `To` number against `assistantPhoneNumbers` (a `Record<string, string>` mapping assistant IDs to E.164 phone numbers, propagated from the assistant config file). This allows each assistant to have its own dedicated phone number, and inbound SMS is routed to the correct assistant based on which number received the message.
-2. **chat_id match** — explicit `chat:<chat_id>` entry in routing JSON
-3. **user_id match** — explicit `user:<user_id>` entry in routing JSON
+2. **conversation_id match** — explicit `conversation:<conversation_id>` entry in routing JSON
+3. **actor_id match** — explicit `actor:<actor_id>` entry in routing JSON
 4. **Unmapped policy** — `reject` (drop with message) or `default` (forward to `GATEWAY_DEFAULT_ASSISTANT_ID`)
 
 ### Routing JSON format
 
 ```json
 {
-  "chat:12345": "assistant-id-a",
-  "user:67890": "assistant-id-b"
+  "conversation:12345": "assistant-id-a",
+  "actor:67890": "assistant-id-b"
 }
 ```
 
@@ -108,7 +108,7 @@ The `/webhooks/twilio/voice` endpoint handles both outbound and inbound voice ca
 When the voice webhook is called without a `callSessionId` query parameter, the gateway treats it as an inbound call and resolves the assistant using the same routing chain as SMS:
 
 1. **`resolveAssistantByPhoneNumber(config, To)`** — Reverse lookup of the inbound `To` number against `assistantPhoneNumbers`. If the dialed number matches an assistant's configured phone number, that assistant handles the call.
-2. **Fallback to `resolveAssistant(From, From)`** — If no phone number match is found, the standard routing chain is used: `chat_id` match, `user_id` match, then the unmapped policy.
+2. **Fallback to `resolveAssistant(From, From)`** — If no phone number match is found, the standard routing chain is used: `conversation_id` match, `actor_id` match, then the unmapped policy.
 3. **TwiML Reject for unmapped** — When the unmapped policy is `reject` (and no route matches), the gateway returns `<Reject reason="rejected"/>` TwiML directly to Twilio. Twilio plays a busy signal and hangs up. The call is never forwarded to the runtime.
 4. **Forward with assistantId** — When routing succeeds, the gateway forwards the voice webhook to the runtime at `POST /v1/internal/twilio/voice-webhook` with a JSON body containing `{ params, originalUrl, assistantId }`. The runtime calls `createInboundVoiceSession()` to bootstrap a session keyed by CallSid, then returns TwiML pointing Twilio to the ConversationRelay WebSocket.
 
@@ -131,8 +131,8 @@ The `/webhooks/twilio/sms` endpoint receives inbound SMS messages from Twilio. O
 2. **MessageSid dedup** — Each `MessageSid` is tracked in an in-memory dedup cache. Duplicate webhook deliveries (Twilio retries) are silently accepted without re-forwarding.
 3. **MMS detection** — The gateway treats a message as MMS when any of the following conditions are met: `NumMedia > 0`, any `MediaUrl<N>` key has a non-empty value, or any `MediaContentType<N>` key has a non-empty value. This catches media attachments even when Twilio omits `NumMedia`. The gateway replies with an unsupported notice ("MMS is not supported yet") and does not forward the payload to the runtime.
 4. **`/new` command** — When the message body is exactly `/new` (case-insensitive, trimmed), the gateway resolves routing first. If routing is rejected, the gateway sends a rejection notice SMS to the sender (matching Telegram rejection semantics) and does not forward the message. If routing succeeds, the gateway resets the conversation via the runtime API and sends a confirmation SMS. The message is never forwarded to the runtime.
-5. **Normalization** — The form-encoded Twilio payload is normalized into a `GatewayInboundEventV1` with `sourceChannel: "sms"`. The sender's phone number (`From`) is used as both `externalChatId` and `externalUserId`.
-6. **Routing** — Phone-number-based routing is checked first: the `To` number is looked up in `assistantPhoneNumbers` to find the target assistant. If no match, the standard routing chain (chat_id -> user_id -> default/reject) is used.
+5. **Normalization** — The form-encoded Twilio payload is normalized into a `GatewayInboundEvent` with `sourceChannel: "sms"`. The sender's phone number (`From`) is used as both `conversationExternalId` and `actorExternalId`.
+6. **Routing** — Phone-number-based routing is checked first: the `To` number is looked up in `assistantPhoneNumbers` to find the target assistant. If no match, the standard routing chain (conversation_id -> actor_id -> default/reject) is used.
 7. **Forwarding** — The event is forwarded to the runtime via `POST /channels/inbound` with SMS-specific transport hints (`chat-first-medium`, `sms-character-limits`, etc.) and a `replyCallbackUrl` pointing to `/deliver/sms`.
 
 SMS is text-only in v1 — MMS payloads are explicitly rejected with a user-facing notice.
@@ -154,13 +154,13 @@ Outbound SMS is sent via the Twilio Messages API using the configured `TWILIO_PH
 
 ## Callback Query Handling
 
-The gateway normalizes Telegram `callback_query` updates (inline button clicks) into the same `GatewayInboundEventV1` format used for regular messages. When a `callback_query` is present in the webhook payload, the normalizer extracts:
+The gateway normalizes Telegram `callback_query` updates (inline button clicks) into the same `GatewayInboundEvent` format used for regular messages. When a `callback_query` is present in the webhook payload, the normalizer extracts:
 
 - `callbackQueryId` — the Telegram callback query ID
 - `callbackData` — the opaque data string attached to the button (e.g., `apr:<runId>:<action>`)
 - `content` — set to the callback data string (so the runtime always has content to process)
 
-These fields are forwarded to the runtime in the `/channels/inbound` payload alongside the standard `externalChatId`, `externalMessageId`, and sender metadata. The runtime uses `callbackData` to route the click to the appropriate approval handler.
+These fields are forwarded to the runtime in the `/channels/inbound` payload alongside the standard `conversationExternalId`, `externalMessageId`, and actor metadata. The runtime uses `callbackData` to route the click to the appropriate approval handler.
 
 **Normalization constraints:** Only DM-only (`private` chat type) callback queries are processed. Group and channel callbacks are dropped and acknowledged with `answerCallbackQuery` so the Telegram button spinner clears. Callback queries with no `data` field or no associated `message` are also dropped.
 
@@ -213,7 +213,7 @@ The gateway serves as the single public ingress point for all external callbacks
 | `/webhooks/twilio/status` | POST | Twilio status callback (validated via HMAC-SHA1 signature) |
 | `/webhooks/twilio/connect-action` | POST | Twilio connect-action callback (validated via HMAC-SHA1 signature) |
 | `/webhooks/twilio/relay` | WS | Twilio ConversationRelay WebSocket (bidirectional proxy to runtime, requires `callSessionId` query param) |
-| `/webhooks/twilio/sms` | POST | Twilio SMS webhook — validates X-Twilio-Signature (HMAC-SHA1), normalizes into `GatewayInboundEventV1` with `sourceChannel: "sms"`, deduplicates by `MessageSid`, and forwards to runtime |
+| `/webhooks/twilio/sms` | POST | Twilio SMS webhook — validates X-Twilio-Signature (HMAC-SHA1), normalizes into `GatewayInboundEvent` with `sourceChannel: "sms"`, deduplicates by `MessageSid`, and forwards to runtime |
 | `/deliver/sms` | POST | Internal endpoint for the assistant runtime to deliver outbound SMS messages via the Twilio Messages API |
 | `/webhooks/oauth/callback` | GET | OAuth2 callback endpoint — receives authorization codes from OAuth providers (Google, Slack, etc.) and forwards them to the assistant runtime |
 | `/v1/integrations/guardian/challenge` | POST | Authenticated control-plane proxy for creating guardian verification challenges |
@@ -423,4 +423,4 @@ See [`benchmarking/gateway/README.md`](../benchmarking/gateway/README.md) for lo
 | Non-guardian actions auto-denied with "no guardian configured" | No guardian binding exists for the channel. The runtime is fail-closed for unverified channels. | Set up a guardian by running the verification flow from the desktop UI. |
 | Approval prompt not delivered to guardian | The `replyCallbackUrl` may be unreachable, or the guardian's chat ID is stale | Verify `GATEWAY_INTERNAL_BASE_URL` is set correctly (especially in containerized deployments). Re-verify the guardian if the chat ID has changed. |
 | Guardian approval expired | The 30-minute TTL elapsed without a decision. A proactive sweep (every 60s) auto-denied the approval and notified both the requester and guardian. | The non-guardian user must re-trigger the action. |
-| "Only the verified guardian can approve or deny" | A non-guardian sender attempted to respond to a guardian approval prompt | Only the guardian whose `externalUserId` matches the approval request can approve or deny. |
+| "Only the verified guardian can approve or deny" | A non-guardian sender attempted to respond to a guardian approval prompt | Only the guardian whose `actorExternalId` matches the approval request can approve or deny. |

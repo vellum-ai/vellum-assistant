@@ -6,6 +6,7 @@ struct ComposerSection: View {
     let hasAPIKey: Bool
     let isSending: Bool
     let hasPendingConfirmation: Bool
+    var onAllowPendingConfirmation: (() -> Void)? = nil
     let isRecording: Bool
     let suggestion: String?
     let pendingAttachments: [ChatAttachment]
@@ -75,6 +76,7 @@ struct ComposerSection: View {
                 hasAPIKey: hasAPIKey,
                 isSending: isSending,
                 hasPendingConfirmation: hasPendingConfirmation,
+                onAllowPendingConfirmation: onAllowPendingConfirmation,
                 isRecording: isRecording,
                 suggestion: suggestion,
                 pendingAttachments: pendingAttachments,

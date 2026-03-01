@@ -56,10 +56,10 @@ export interface ActorTrustContext {
 export interface ResolveActorTrustInput {
   assistantId: string;
   sourceChannel: ChannelId;
-  externalChatId: string;
-  senderExternalUserId?: string;
-  senderUsername?: string;
-  senderDisplayName?: string;
+  conversationExternalId: string;
+  actorExternalId?: string;
+  actorUsername?: string;
+  actorDisplayName?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -78,16 +78,16 @@ export interface ResolveActorTrustInput {
 export function resolveActorTrust(input: ResolveActorTrustInput): ActorTrustContext {
   const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
 
-  const rawUserId = typeof input.senderExternalUserId === 'string' && input.senderExternalUserId.trim().length > 0
-    ? input.senderExternalUserId.trim()
+  const rawUserId = typeof input.actorExternalId === 'string' && input.actorExternalId.trim().length > 0
+    ? input.actorExternalId.trim()
     : undefined;
 
-  const senderUsername = typeof input.senderUsername === 'string' && input.senderUsername.trim().length > 0
-    ? input.senderUsername.trim()
+  const senderUsername = typeof input.actorUsername === 'string' && input.actorUsername.trim().length > 0
+    ? input.actorUsername.trim()
     : undefined;
 
-  const senderDisplayName = typeof input.senderDisplayName === 'string' && input.senderDisplayName.trim().length > 0
-    ? input.senderDisplayName.trim()
+  const senderDisplayName = typeof input.actorDisplayName === 'string' && input.actorDisplayName.trim().length > 0
+    ? input.actorDisplayName.trim()
     : undefined;
 
   // Canonical identity: normalize phone-like channels to E.164.
@@ -137,7 +137,7 @@ export function resolveActorTrust(input: ResolveActorTrustInput): ActorTrustCont
     assistantId,
     sourceChannel: input.sourceChannel,
     externalUserId: canonicalSenderId,
-    externalChatId: input.externalChatId,
+    externalChatId: input.conversationExternalId,
   });
 
   // In group chats, findMember may match on externalChatId and return a
@@ -202,20 +202,20 @@ export function resolveActorTrust(input: ResolveActorTrustInput): ActorTrustCont
  */
 export function toGuardianRuntimeContextFromTrust(
   ctx: ActorTrustContext,
-  externalChatId: string,
+  conversationExternalId: string,
 ): GuardianRuntimeContext {
   return {
     sourceChannel: ctx.actorMetadata.channel,
     trustClass: ctx.trustClass,
     guardianChatId: ctx.guardianBindingMatch?.guardianDeliveryChatId ??
-      (ctx.trustClass === 'guardian' ? externalChatId : undefined),
+      (ctx.trustClass === 'guardian' ? conversationExternalId : undefined),
     guardianExternalUserId: ctx.guardianBindingMatch?.guardianExternalUserId,
     requesterIdentifier: ctx.actorMetadata.identifier,
     requesterDisplayName: ctx.actorMetadata.displayName,
     requesterSenderDisplayName: ctx.actorMetadata.senderDisplayName,
     requesterMemberDisplayName: ctx.actorMetadata.memberDisplayName,
     requesterExternalUserId: ctx.canonicalSenderId ?? undefined,
-    requesterChatId: externalChatId,
+    requesterChatId: conversationExternalId,
     denialReason: ctx.denialReason,
   };
 }

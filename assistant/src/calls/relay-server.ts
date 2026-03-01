@@ -510,8 +510,8 @@ export class RelayConnection {
     const initialActorTrust = resolveActorTrust({
       assistantId,
       sourceChannel: 'voice',
-      externalChatId: otherPartyNumber,
-      senderExternalUserId: otherPartyNumber || undefined,
+      conversationExternalId: otherPartyNumber,
+      actorExternalId: otherPartyNumber || undefined,
     });
     const initialGuardianContext = toGuardianRuntimeContextFromTrust(initialActorTrust, otherPartyNumber);
 
@@ -561,8 +561,8 @@ export class RelayConnection {
       const actorTrust = resolveActorTrust({
         assistantId,
         sourceChannel: 'voice',
-        externalChatId: msg.from,
-        senderExternalUserId: msg.from || undefined,
+        conversationExternalId: msg.from,
+        actorExternalId: msg.from || undefined,
       });
 
       // Check for a pending voice guardian challenge before the ACL deny
@@ -979,8 +979,8 @@ export class RelayConnection {
           const verifiedActorTrust = resolveActorTrust({
             assistantId: this.guardianChallengeAssistantId,
             sourceChannel: 'voice',
-            externalChatId: this.guardianVerificationFromNumber,
-            senderExternalUserId: this.guardianVerificationFromNumber,
+            conversationExternalId: this.guardianVerificationFromNumber,
+            actorExternalId: this.guardianVerificationFromNumber,
           });
           this.controller.setGuardianContext(
             toGuardianRuntimeContextFromTrust(verifiedActorTrust, this.guardianVerificationFromNumber),
@@ -1153,9 +1153,9 @@ export class RelayConnection {
       const accessResult = notifyGuardianOfAccessRequest({
         canonicalAssistantId: this.accessRequestAssistantId,
         sourceChannel: 'voice',
-        externalChatId: this.accessRequestFromNumber,
-        senderExternalUserId: this.accessRequestFromNumber,
-        senderName: callerName,
+        conversationExternalId: this.accessRequestFromNumber,
+        actorExternalId: this.accessRequestFromNumber,
+        actorDisplayName: callerName,
       });
 
       if (accessResult.notified) {
@@ -1308,8 +1308,8 @@ export class RelayConnection {
     const updatedTrust = resolveActorTrust({
       assistantId,
       sourceChannel: 'voice',
-      externalChatId: fromNumber,
-      senderExternalUserId: fromNumber,
+      conversationExternalId: fromNumber,
+      actorExternalId: fromNumber,
     });
 
     if (this.controller) {
@@ -1583,8 +1583,8 @@ export class RelayConnection {
         const redeemedActorTrust = resolveActorTrust({
           assistantId: this.inviteRedemptionAssistantId,
           sourceChannel: 'voice',
-          externalChatId: this.inviteRedemptionFromNumber,
-          senderExternalUserId: this.inviteRedemptionFromNumber,
+          conversationExternalId: this.inviteRedemptionFromNumber,
+          actorExternalId: this.inviteRedemptionFromNumber,
         });
         this.controller.setGuardianContext(
           toGuardianRuntimeContextFromTrust(redeemedActorTrust, this.inviteRedemptionFromNumber),

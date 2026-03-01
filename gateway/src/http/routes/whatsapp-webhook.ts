@@ -101,7 +101,7 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
 
     for (const normalized of normalizedMessages) {
       const { event, whatsappMessageId, mediaType } = normalized;
-      const from = event.message.externalChatId;
+      const from = event.message.conversationExternalId;
 
       // Dedup by WhatsApp message ID — atomically reserve so concurrent retries
       // are blocked while the first request is still processing.
@@ -160,7 +160,7 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
             await resetConversation(
               config,
               event.sourceChannel,
-              event.message.externalChatId,
+              event.message.conversationExternalId,
             );
             sendWhatsAppReply(config, from, "Starting a new conversation!").catch((err) => {
               tlog.error({ err }, "Failed to send /new confirmation");

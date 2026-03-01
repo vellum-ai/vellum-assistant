@@ -34,17 +34,17 @@ export async function handleReplayDeadLetters(req: Request): Promise<Response> {
 export async function handleChannelDeliveryAck(req: Request): Promise<Response> {
   const body = await req.json() as {
     sourceChannel?: string;
-    externalChatId?: string;
+    conversationExternalId?: string;
     externalMessageId?: string;
   };
 
-  const { sourceChannel, externalChatId, externalMessageId } = body;
+  const { sourceChannel, conversationExternalId, externalMessageId } = body;
 
   if (!sourceChannel || typeof sourceChannel !== 'string') {
     return httpError('BAD_REQUEST', 'sourceChannel is required', 400);
   }
-  if (!externalChatId || typeof externalChatId !== 'string') {
-    return httpError('BAD_REQUEST', 'externalChatId is required', 400);
+  if (!conversationExternalId || typeof conversationExternalId !== 'string') {
+    return httpError('BAD_REQUEST', 'conversationExternalId is required', 400);
   }
   if (!externalMessageId || typeof externalMessageId !== 'string') {
     return httpError('BAD_REQUEST', 'externalMessageId is required', 400);
@@ -52,7 +52,7 @@ export async function handleChannelDeliveryAck(req: Request): Promise<Response> 
 
   const acked = channelDeliveryStore.acknowledgeDelivery(
     sourceChannel,
-    externalChatId,
+    conversationExternalId,
     externalMessageId,
   );
 

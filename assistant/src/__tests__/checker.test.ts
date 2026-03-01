@@ -63,7 +63,7 @@ mock.module('../config/loader.js', () => ({
   setNestedValue: () => {},
 }));
 
-import { _resetLegacyDeprecationWarning,check, classifyRisk, generateAllowlistOptions, generateScopeOptions } from '../permissions/checker.js';
+import { _resetLegacyDeprecationWarning,check, classifyRisk, generateAllowlistOptions, generateScopeOptions, SCOPE_AWARE_TOOLS } from '../permissions/checker.js';
 import { getDefaultRuleTemplates } from '../permissions/defaults.js';
 import { addRule, clearCache, findHighestPriorityRule } from '../permissions/trust-store.js';
 import type { TrustRule } from '../permissions/types.js';
@@ -1341,21 +1341,42 @@ describe('Permission Checker', () => {
       expect(options[2]).toEqual({ label: 'everywhere', scope: 'everywhere' });
     });
 
-    test('scope options are always project → parent → everywhere regardless of tool', () => {
+    test('scope-aware tools all produce the same directory-based ordering', () => {
       const workingDir = join(homedir(), 'projects', 'myapp');
 
-      // Non-host tool
-      const nonHostOpts = generateScopeOptions(workingDir, 'bash');
-      expect(nonHostOpts[0].scope).toBe(workingDir);
-      expect(nonHostOpts[nonHostOpts.length - 1].scope).toBe('everywhere');
+      const bashOpts = generateScopeOptions(workingDir, 'bash');
+      expect(bashOpts[0].scope).toBe(workingDir);
+      expect(bashOpts[bashOpts.length - 1].scope).toBe('everywhere');
 
-      // Host tool — same order now
-      const hostOpts = generateScopeOptions(workingDir, 'host_bash');
-      expect(hostOpts[0].scope).toBe(workingDir);
-      expect(hostOpts[hostOpts.length - 1].scope).toBe('everywhere');
+      const hostBashOpts = generateScopeOptions(workingDir, 'host_bash');
+      expect(bashOpts.map(o => o.scope)).toEqual(hostBashOpts.map(o => o.scope));
 
-      // Same ordering for both
-      expect(nonHostOpts.map(o => o.scope)).toEqual(hostOpts.map(o => o.scope));
+      const fileOpts = generateScopeOptions(workingDir, 'file_write');
+      expect(bashOpts.map(o => o.scope)).toEqual(fileOpts.map(o => o.scope));
+    });
+
+    test('returns empty for non-scoped tools', () => {
+      const workingDir = join(homedir(), 'projects', 'myapp');
+      expect(generateScopeOptions(workingDir, 'web_fetch')).toHaveLength(0);
+      expect(generateScopeOptions(workingDir, 'browser_navigate')).toHaveLength(0);
+      expect(generateScopeOptions(workingDir, 'skill_load')).toHaveLength(0);
+      expect(generateScopeOptions(workingDir, 'credential_store')).toHaveLength(0);
+      expect(generateScopeOptions(workingDir, 'computer_use_click')).toHaveLength(0);
+      expect(generateScopeOptions(workingDir, 'my_custom_mcp_tool')).toHaveLength(0);
+    });
+
+    test('returns directory options when toolName is omitted (backward compat)', () => {
+      const options = generateScopeOptions('/home/user/project');
+      expect(options).toHaveLength(3);
+      expect(options[0].scope).toBe('/home/user/project');
+    });
+
+    test('SCOPE_AWARE_TOOLS contains only filesystem and shell tools', () => {
+      expect(SCOPE_AWARE_TOOLS).toEqual(new Set([
+        'bash', 'host_bash',
+        'file_read', 'file_write', 'file_edit',
+        'host_file_read', 'host_file_write', 'host_file_edit',
+      ]));
     });
   });
 

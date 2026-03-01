@@ -811,6 +811,14 @@ function buildDynamicSkillWorkflowSection(config: import('./schema.js').Assistan
     );
   }
 
+  if (isAssistantFeatureFlagEnabled('feature_flags.messaging.enabled', config)) {
+    lines.push(
+      '',
+      '### Messaging Skill',
+      'When the user asks about email, messaging, inbox management, or wants to read/send/search messages on any platform (Gmail, Slack, Telegram, SMS), load the "messaging" skill using `skill_load`. The messaging skill handles connection setup, credential flows, and all messaging operations — do not improvise setup instructions from general knowledge.',
+    );
+  }
+
   return lines.join('\n');
 }
 

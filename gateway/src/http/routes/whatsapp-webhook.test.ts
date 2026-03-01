@@ -173,11 +173,11 @@ describe('whatsapp-webhook', () => {
         receivedAt: new Date().toISOString(),
         message: {
           content: 'hello from whatsapp',
-          externalChatId: '15551230000',
+          conversationExternalId: '15551230000',
           externalMessageId: 'wamid-1',
         },
-        sender: {
-          externalUserId: '15551230000',
+        actor: {
+          actorExternalId: '15551230000',
           displayName: 'Alice',
         },
         source: {
@@ -217,11 +217,11 @@ describe('whatsapp-webhook', () => {
         receivedAt: new Date().toISOString(),
         message: {
           content: 'hello',
-          externalChatId: '15550000001',
+          conversationExternalId: '15550000001',
           externalMessageId: 'wamid-fail',
         },
-        sender: {
-          externalUserId: '15550000001',
+        actor: {
+          actorExternalId: '15550000001',
           displayName: 'Bob',
         },
         source: {

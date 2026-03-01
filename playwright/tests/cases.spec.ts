@@ -17,7 +17,7 @@ import { setupFixture, type FixtureContext } from "../agent/fixtures";
 
 // ── Markdown Parsing ────────────────────────────────────────────────
 
-function parseFrontmatter(content: string): { fixture?: string; requiredEnv?: string[]; body: string } {
+function parseFrontmatter(content: string): { fixture?: string; requiredEnv?: string[]; experimental?: boolean; body: string } {
   const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
   if (!frontmatterMatch) {
     return { body: content };
@@ -27,6 +27,7 @@ function parseFrontmatter(content: string): { fixture?: string; requiredEnv?: st
   const body = frontmatterMatch[2];
   let fixture: string | undefined;
   let requiredEnv: string[] | undefined;
+  let experimental: boolean | undefined;
 
   for (const line of frontmatterBlock.split("\n")) {
     const [key, ...valueParts] = line.split(":");
@@ -34,10 +35,12 @@ function parseFrontmatter(content: string): { fixture?: string; requiredEnv?: st
       fixture = valueParts.join(":").trim();
     } else if (key.trim() === "required_env") {
       requiredEnv = valueParts.join(":").trim().split(",").map((v) => v.trim()).filter(Boolean);
+    } else if (key.trim() === "experimental") {
+      experimental = valueParts.join(":").trim().toLowerCase() === "true";
     }
   }
 
-  return { fixture, requiredEnv, body };
+  return { fixture, requiredEnv, experimental, body };
 }
 
 function checkRequiredEnv(requiredEnv: string[] | undefined): void {
@@ -82,10 +85,15 @@ const caseFiles = readdirSync(casesDir).filter((f) => f.endsWith(".md"));
 for (const file of caseFiles) {
   const filePath = path.join(casesDir, file);
   const rawContent = readFileSync(filePath, "utf-8");
-  const { fixture, requiredEnv, body } = parseFrontmatter(rawContent);
+  const { fixture, requiredEnv, experimental, body } = parseFrontmatter(rawContent);
   const testName = file.replace(/\.md$/, "");
 
   test(testName, async ({ page }, testInfo) => {
+    if (experimental && !process.env.RUN_EXPERIMENTAL) {
+      test.skip();
+      return;
+    }
+
     checkRequiredEnv(requiredEnv);
 
     let fixtureCtx: FixtureContext | undefined;
