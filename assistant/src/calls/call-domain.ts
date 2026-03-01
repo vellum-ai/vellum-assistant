@@ -9,6 +9,7 @@ import { getTwilioUserPhoneNumber } from '../config/env.js';
 import { loadConfig } from '../config/loader.js';
 import { VALID_CALLER_IDENTITY_MODES } from '../config/schema.js';
 import type { AssistantConfig } from '../config/types.js';
+import { resolveCallbackUrl } from '../inbound/platform-callback-registration.js';
 import { getTwilioStatusCallbackUrl,getTwilioVoiceWebhookUrl } from '../inbound/public-ingress-urls.js';
 import { getOrCreateConversation } from '../memory/conversation-key-store.js';
 import { queueGenerateConversationTitle } from '../memory/conversation-title-service.js';
@@ -357,11 +358,23 @@ export async function startCall(input: StartCallInput): Promise<StartCallResult 
 
     log.info({ callSessionId: session.id, voiceConversationId, initiatedFrom: conversationId, to: phoneNumber, from: fromNumber, task }, 'Initiating outbound call');
 
+    const webhookUrl = await resolveCallbackUrl(
+      getTwilioVoiceWebhookUrl(ingressConfig, session.id),
+      'webhooks/twilio/voice',
+      'twilio_voice',
+      { callSessionId: session.id },
+    );
+    const statusCallbackUrl = await resolveCallbackUrl(
+      getTwilioStatusCallbackUrl(ingressConfig),
+      'webhooks/twilio/status',
+      'twilio_status',
+    );
+
     const { callSid } = await provider.initiateCall({
       from: fromNumber,
       to: phoneNumber,
-      webhookUrl: getTwilioVoiceWebhookUrl(ingressConfig, session.id),
-      statusCallbackUrl: getTwilioStatusCallbackUrl(ingressConfig),
+      webhookUrl,
+      statusCallbackUrl,
     });
 
     updateCallSession(session.id, { providerCallSid: callSid });
@@ -686,8 +699,17 @@ export async function startGuardianVerificationCall(
     });
     sessionId = session.id;
 
-    const webhookUrl = getTwilioVoiceWebhookUrl(config, session.id);
-    const statusCallbackUrl = getTwilioStatusCallbackUrl(config);
+    const webhookUrl = await resolveCallbackUrl(
+      getTwilioVoiceWebhookUrl(config, session.id),
+      'webhooks/twilio/voice',
+      'twilio_voice',
+      { callSessionId: session.id },
+    );
+    const statusCallbackUrl = await resolveCallbackUrl(
+      getTwilioStatusCallbackUrl(config),
+      'webhooks/twilio/status',
+      'twilio_status',
+    );
 
     const { callSid } = await provider.initiateCall({
       from: identityResult.fromNumber,

@@ -10,6 +10,7 @@ import {
   setIngressPublicBaseUrl,
 } from '../../config/env.js';
 import { loadRawConfig, saveRawConfig } from '../../config/loader.js';
+import { registerCallbackRoute, resolveCallbackUrl, shouldUsePlatformCallbacks } from '../../inbound/platform-callback-registration.js';
 import {
   getTwilioSmsWebhookUrl,
   getTwilioStatusCallbackUrl,
@@ -92,9 +93,21 @@ export async function syncTwilioWebhooks(
   ingressConfig: IngressConfig,
 ): Promise<{ success: boolean; warning?: string }> {
   try {
-    const voiceUrl = getTwilioVoiceWebhookUrl(ingressConfig);
-    const statusCallbackUrl = getTwilioStatusCallbackUrl(ingressConfig);
-    const smsUrl = getTwilioSmsWebhookUrl(ingressConfig);
+    const voiceUrl = await resolveCallbackUrl(
+      getTwilioVoiceWebhookUrl(ingressConfig),
+      'webhooks/twilio/voice',
+      'twilio_voice',
+    );
+    const statusCallbackUrl = await resolveCallbackUrl(
+      getTwilioStatusCallbackUrl(ingressConfig),
+      'webhooks/twilio/status',
+      'twilio_status',
+    );
+    const smsUrl = await resolveCallbackUrl(
+      getTwilioSmsWebhookUrl(ingressConfig),
+      'webhooks/twilio/sms',
+      'twilio_sms',
+    );
     await updatePhoneNumberWebhooks(accountSid, authToken, phoneNumber, {
       voiceUrl,
       statusCallbackUrl,
@@ -183,6 +196,15 @@ export async function handleIngressConfig(
       // Use the effective URL from process.env (which accounts for the
       // fallback branch above) rather than the raw `value` from the UI.
       const effectiveUrl = isEnabled ? getIngressPublicBaseUrl() : undefined;
+
+      // When containerized with a platform, register the Telegram callback
+      // route so the platform knows how to forward Telegram webhooks.
+      if (effectiveUrl && shouldUsePlatformCallbacks()) {
+        registerCallbackRoute('webhooks/telegram', 'telegram').catch((err) => {
+          log.warn({ err }, 'Failed to register Telegram platform callback route');
+        });
+      }
+
       triggerGatewayReconcile(effectiveUrl);
 
       // Best-effort Twilio webhook reconciliation: when ingress is being

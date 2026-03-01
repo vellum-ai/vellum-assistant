@@ -179,12 +179,20 @@ async function runGatewayFlow(
   codeChallenge: string,
   state: string,
 ): Promise<OAuth2FlowResult> {
+  // Dynamic imports required here to avoid circular dependencies with
+  // config/loader → security → oauth2 module chains.
   const { loadConfig } = await import('../config/loader.js');
   const { getOAuthCallbackUrl } = await import('../inbound/public-ingress-urls.js');
+  const { resolveCallbackUrl } = await import('../inbound/platform-callback-registration.js');
   const { registerPendingCallback } = await import('./oauth-callback-registry.js');
 
   const appConfig = loadConfig();
-  const redirectUri = getOAuthCallbackUrl(appConfig);
+  const directRedirectUri = getOAuthCallbackUrl(appConfig);
+  const redirectUri = await resolveCallbackUrl(
+    directRedirectUri,
+    'webhooks/oauth/callback',
+    'oauth',
+  );
 
   const codePromise = new Promise<string>((resolve, reject) => {
     registerPendingCallback(state, resolve, reject);
@@ -385,12 +393,20 @@ export async function prepareOAuth2Flow(
     return prepareLoopbackFlow(config, options?.loopbackPort);
   }
 
+  // Dynamic imports required here to avoid circular dependencies with
+  // config/loader → security → oauth2 module chains.
   const { loadConfig } = await import('../config/loader.js');
   const { getOAuthCallbackUrl } = await import('../inbound/public-ingress-urls.js');
+  const { resolveCallbackUrl } = await import('../inbound/platform-callback-registration.js');
   const { registerPendingCallback } = await import('./oauth-callback-registry.js');
 
   const appConfig = loadConfig();
-  const redirectUri = getOAuthCallbackUrl(appConfig);
+  const directRedirectUri = getOAuthCallbackUrl(appConfig);
+  const redirectUri = await resolveCallbackUrl(
+    directRedirectUri,
+    'webhooks/oauth/callback',
+    'oauth',
+  );
 
   const codeVerifier = generateCodeVerifier();
   const codeChallenge = generateCodeChallenge(codeVerifier);
@@ -590,12 +606,23 @@ export async function startOAuth2Flow(
 
   let hasPublicUrl = false;
   try {
+    // Dynamic imports required here to avoid circular dependencies with
+    // config/loader → security → oauth2 module chains.
     const { loadConfig } = await import('../config/loader.js');
     const { getPublicBaseUrl } = await import('../inbound/public-ingress-urls.js');
     getPublicBaseUrl(loadConfig());
     hasPublicUrl = true;
   } catch {
     // No public URL configured
+  }
+
+  // When containerized with a platform, callback routes are registered
+  // through the platform gateway — treat as having a public URL.
+  if (!hasPublicUrl) {
+    const { shouldUsePlatformCallbacks } = await import('../inbound/platform-callback-registration.js');
+    if (shouldUsePlatformCallbacks()) {
+      hasPublicUrl = true;
+    }
   }
 
   // Determine transport: explicit option > auto-detect from config
