@@ -37,7 +37,7 @@ final class SidebarInteractionState {
     var showAllThreads: Bool = false
     var showAllScheduleThreads: Bool = false
     var showAllApps: Bool = false
-    var showControlCenterDrawer: Bool = false
+    var showPreferencesDrawer: Bool = false
     /// Thread ID that is currently the drop target during a drag-and-drop reorder.
     var dropTargetThreadId: UUID?
     /// Thread ID currently being dragged (set on drag start, cleared on drop).
@@ -561,31 +561,31 @@ struct MainWindowView: View {
                     .animation(VAnimation.panel, value: sidebarExpanded)
                 }
                 .overlay {
-                    // Click-outside-to-dismiss background for control center drawer
-                    if sidebar.showControlCenterDrawer {
+                    // Click-outside-to-dismiss background for preferences drawer
+                    if sidebar.showPreferencesDrawer {
                         Color.clear
                             .contentShape(Rectangle())
                             .onTapGesture {
                                 withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
-                                    sidebar.showControlCenterDrawer = false
+                                    sidebar.showPreferencesDrawer = false
                                 }
                             }
                     }
                 }
                 .overlay(alignment: .bottomLeading) {
-                    // Control center drawer rendered at top level so it floats above all content
-                    if sidebar.showControlCenterDrawer {
+                    // Preferences drawer rendered at top level so it floats above all content
+                    if sidebar.showPreferencesDrawer {
                         let drawerWidth = sidebarExpandedWidth - VSpacing.sm * 2
                         let drawerX = sidebarExpanded
                             ? 16 + VSpacing.sm
                             : 16 + sidebarCollapsedWidth - VSpacing.xs
                         DrawerMenuView(
                             onSettings: {
-                                sidebar.showControlCenterDrawer = false
+                                sidebar.showPreferencesDrawer = false
                                 windowState.selection = .panel(.settings)
                             },
                             onDebug: {
-                                sidebar.showControlCenterDrawer = false
+                                sidebar.showPreferencesDrawer = false
                                 windowState.selection = .panel(.debug)
                             }
                         )
@@ -1379,11 +1379,11 @@ struct MainWindowView: View {
 
             Spacer(minLength: VSpacing.sm)
 
-            // Control Center row (fixed)
-            ControlCenterRow(
+            // Preferences row (fixed)
+            PreferencesRow(
                 onToggle: {
                     withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
-                        sidebar.showControlCenterDrawer.toggle()
+                        sidebar.showPreferencesDrawer.toggle()
                     }
                 }
             )
@@ -1561,9 +1561,9 @@ struct MainWindowView: View {
 
             Spacer()
 
-            SidebarNavRow(icon: "gearshape", label: "Control Center", isActive: false, isExpanded: false) {
+            SidebarNavRow(icon: "slider.horizontal.3", label: "Preferences", isActive: false, isExpanded: false) {
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
-                    sidebar.showControlCenterDrawer.toggle()
+                    sidebar.showPreferencesDrawer.toggle()
                 }
             }
 
@@ -1785,13 +1785,13 @@ private struct SidebarThreadsHeader: View {
     }
 }
 
-private struct ControlCenterRow: View {
+private struct PreferencesRow: View {
     let onToggle: () -> Void
 
     var body: some View {
         VButton(
-            label: "Control Center",
-            leftIcon: "gearshape",
+            label: "Preferences",
+            leftIcon: "slider.horizontal.3",
             rightIcon: "chevron.up",
             style: .secondary,
             size: .medium,
