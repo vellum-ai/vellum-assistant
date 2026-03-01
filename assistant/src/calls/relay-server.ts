@@ -1596,7 +1596,7 @@ export class RelayConnection {
     const intervalMs = elapsed < initialWindow
       ? getGuardianWaitUpdateInitialIntervalMs()
       : getGuardianWaitUpdateSteadyMinIntervalMs() +
-        Math.floor(Math.random() * (getGuardianWaitUpdateSteadyMaxIntervalMs() - getGuardianWaitUpdateSteadyMinIntervalMs()));
+        Math.floor(Math.random() * Math.max(0, getGuardianWaitUpdateSteadyMaxIntervalMs() - getGuardianWaitUpdateSteadyMinIntervalMs()));
 
     this.accessRequestHeartbeatTimer = setTimeout(() => {
       if (!this.accessRequestWaitActive) return;
