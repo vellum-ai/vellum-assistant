@@ -12,6 +12,7 @@ import * as attachmentsStore from '../../memory/attachments-store.js';
 import {
   createCanonicalGuardianRequest,
   generateCanonicalRequestCode,
+  getCanonicalGuardianRequest,
   listCanonicalGuardianRequests,
   listPendingCanonicalGuardianRequestsByDestinationConversation,
 } from '../../memory/canonical-guardian-store.js';
@@ -140,9 +141,16 @@ async function tryConsumeInlineApprovalReply(params: {
   // Emit authoritative confirmation state for the resolved request.
   // The onStateSignal listener routes these to the SSE hub automatically.
   if (routerResult.requestId) {
-    const resolvedState = routerResult.decisionApplied
-      ? (routerResult.type === 'nl_deny' || routerResult.type === 'nl_deny_all' ? 'denied' : 'approved') as const
-      : 'resolved_stale' as const;
+    let resolvedState: 'approved' | 'denied' | 'resolved_stale';
+    if (!routerResult.decisionApplied) {
+      resolvedState = 'resolved_stale';
+    } else {
+      // Determine actual decision from the canonical request's resolved status.
+      // The router result type is 'canonical_decision_applied' for both approve
+      // and reject, so we query the request to get the actual resolved status.
+      const resolvedRequest = getCanonicalGuardianRequest(routerResult.requestId);
+      resolvedState = resolvedRequest?.status === 'denied' ? 'denied' : 'approved';
+    }
     session.emitConfirmationStateChanged({
       sessionId: conversationId,
       requestId: routerResult.requestId,
@@ -150,6 +158,11 @@ async function tryConsumeInlineApprovalReply(params: {
       source: 'inline_nl' as const,
       decisionText: trimmedContent,
     });
+    // The agent loop continues after both approval and denial, so
+    // always emit a thinking transition when the decision was applied.
+    if (routerResult.decisionApplied) {
+      session.emitActivityState('thinking', 'confirmation_resolved', 'assistant_turn');
+    }
   }
 
   // Decision has been applied — transcript persistence is best-effort.
