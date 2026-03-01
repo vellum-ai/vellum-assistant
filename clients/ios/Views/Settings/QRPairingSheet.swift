@@ -573,6 +573,7 @@ struct QRPairingSheet: View {
             )
         } else if let actorToken = actorToken, !actorToken.isEmpty {
             ActorTokenManager.setToken(actorToken)
+            ActorTokenManager.clearRefreshMetadata()
         } else {
             ActorTokenManager.deleteToken()
         }
