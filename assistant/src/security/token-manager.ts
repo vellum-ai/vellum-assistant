@@ -199,7 +199,7 @@ export async function withValidToken<T>(
   if (!token) {
     const isGoogle = service === 'integration:gmail';
     const googleHint = isGoogle
-      ? ' Do NOT fabricate credentials. Install and load the "google-oauth-setup" skill to set up OAuth credentials properly.'
+      ? ' Try reconnecting by calling credential_store with action "oauth2_connect" and service "gmail".'
       : '';
     throw new TokenExpiredError(service, `No access token found for "${service}". Authorization required.${googleHint}`);
   }
