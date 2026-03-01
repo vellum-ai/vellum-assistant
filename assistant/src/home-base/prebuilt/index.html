@@ -488,6 +488,24 @@
       </div>
     </section>
 
+    <!-- Brain Knowledge -->
+    <section class="section" id="home-base-brain-lane">
+      <div class="section-header anim anim-d6"><h2>Knowledge</h2></div>
+
+      <div class="card-stack">
+        <div class="card feature anim anim-d6">
+          <div class="card-icon">🧠</div>
+          <div class="card-body">
+            <div class="task">Knowledge Brain</div>
+            <div class="task-meta" id="home-base-brain-count">Loading...</div>
+            <div class="task-controls">
+              <a href="/v1/brain-graph-ui" class="task-button primary" id="home-base-brain-view">View →</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- Onboarding -->
     <section class="section" id="home-base-onboarding-lane">
       <div class="section-header anim anim-d6"><h2>Set up your assistant</h2></div>
@@ -656,6 +674,28 @@
           });
         });
       }
+
+      // Fetch brain graph count for the Knowledge Brain card.
+      (function () {
+        var countEl = byId('home-base-brain-count');
+        if (!countEl) return;
+        var apiToken = document.querySelector('meta[name="api-token"]');
+        var headers = {};
+        if (apiToken && apiToken.content) headers['Authorization'] = 'Bearer ' + apiToken.content;
+        fetch('/v1/brain-graph', { headers: headers })
+          .then(function (res) {
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            return res.json();
+          })
+          .then(function (data) {
+            var entities = (data.entities || []).length;
+            var relations = (data.relations || []).length;
+            countEl.textContent = entities + ' nodes \u2022 ' + relations + ' relations';
+          })
+          .catch(function () {
+            countEl.textContent = '\u2014';
+          });
+      })();
     })();
   </script>
 </body>
