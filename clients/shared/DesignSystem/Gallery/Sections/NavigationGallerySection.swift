@@ -3,6 +3,7 @@ import SwiftUI
 
 struct NavigationGallerySection: View {
     @State private var segmentSelection = 0
+    @State private var pillSelection = "active"
     @State private var selectedTab = 0
 
     private let segmentItems = ["All", "Active", "Archived", "Drafts"]
@@ -39,6 +40,35 @@ struct NavigationGallerySection: View {
                             .frame(maxWidth: .infinity)
                             .padding(VSpacing.xl)
                     }
+                }
+            }
+
+            Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
+
+            // MARK: - VSegmentedControl (Pill)
+            GallerySectionHeader(
+                title: "VSegmentedControl (Pill)",
+                description: "Pill-style segmented control with filled accent background on selection."
+            )
+
+            VCard {
+                VStack(alignment: .leading, spacing: VSpacing.xl) {
+                    Text("Selected: \(pillSelection)")
+                        .font(VFont.mono)
+                        .foregroundColor(VColor.textMuted)
+
+                    Divider().background(VColor.surfaceBorder)
+
+                    VSegmentedControl(
+                        items: [
+                            (label: "All", tag: "all"),
+                            (label: "Active", tag: "active"),
+                            (label: "Archived", tag: "archived"),
+                        ],
+                        selection: $pillSelection,
+                        style: .pill
+                    )
+                    .frame(maxWidth: 300)
                 }
             }
 

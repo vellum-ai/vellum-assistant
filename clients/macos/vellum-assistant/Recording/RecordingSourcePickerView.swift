@@ -30,14 +30,11 @@ struct RecordingSourcePickerView: View {
                 .padding(.bottom, VSpacing.md)
 
             // Scope picker (Display / Window)
-            Picker("Capture", selection: $viewModel.captureScope) {
-                ForEach(CaptureScope.allCases, id: \.self) { scope in
-                    Text(scope.rawValue).tag(scope)
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .controlSize(.large)
+            VSegmentedControl(
+                items: CaptureScope.allCases.map { (label: $0.rawValue, tag: $0) },
+                selection: $viewModel.captureScope,
+                style: .pill
+            )
             .padding(.horizontal, VSpacing.lg)
             .padding(.bottom, VSpacing.sm)
 

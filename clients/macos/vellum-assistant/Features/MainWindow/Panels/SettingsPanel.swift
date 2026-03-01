@@ -572,12 +572,14 @@ struct SettingsPanel: View {
                     .font(VFont.body)
                     .foregroundColor(VColor.textSecondary)
                 Spacer()
-                Picker("", selection: $store.twitterMode) {
-                    Text("Local (BYO App)").tag("local_byo")
-                    Text("Managed").tag("managed")
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
+                VSegmentedControl(
+                    items: [
+                        (label: "Local (BYO App)", tag: "local_byo"),
+                        (label: "Managed", tag: "managed"),
+                    ],
+                    selection: $store.twitterMode,
+                    style: .pill
+                )
                 .fixedSize()
                 .onChange(of: store.twitterMode) { _, newValue in
                     store.setTwitterMode(newValue)
