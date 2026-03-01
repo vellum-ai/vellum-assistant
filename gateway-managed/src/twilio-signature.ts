@@ -1,9 +1,11 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { verifyTwilioSignature } from "@vellumai/vellum-gateway/twilio/verify";
 
 import type {
   ManagedGatewayConfig,
   ManagedGatewayTwilioAuthTokenMetadata,
 } from "./config.js";
+
+export { computeTwilioSignature } from "@vellumai/vellum-gateway/twilio/verify";
 
 export type ManagedGatewayTwilioSignatureValidationResult =
   | {
@@ -15,37 +17,6 @@ export type ManagedGatewayTwilioSignatureValidationResult =
     code: "missing_signature" | "no_active_tokens" | "invalid_signature";
     detail: string;
   };
-
-export function computeTwilioSignature(
-  url: string,
-  params: Record<string, string>,
-  authToken: string,
-): string {
-  const sortedKeys = Object.keys(params).sort();
-  let data = url;
-  for (const key of sortedKeys) {
-    data += key + params[key];
-  }
-
-  return createHmac("sha1", authToken)
-    .update(data)
-    .digest("base64");
-}
-
-export function verifyTwilioSignatureWithAuthToken(
-  url: string,
-  params: Record<string, string>,
-  signature: string,
-  authToken: string,
-): boolean {
-  const computed = computeTwilioSignature(url, params, authToken);
-  const a = Buffer.from(computed);
-  const b = Buffer.from(signature);
-  if (a.length !== b.length) {
-    return false;
-  }
-  return timingSafeEqual(a, b);
-}
 
 export function validateManagedTwilioSignature(
   config: ManagedGatewayConfig,
@@ -78,7 +49,7 @@ export function validateManagedTwilioSignature(
 
   for (const url of urls) {
     for (const token of activeTokens) {
-      if (verifyTwilioSignatureWithAuthToken(
+      if (verifyTwilioSignature(
         url,
         args.params,
         signature,

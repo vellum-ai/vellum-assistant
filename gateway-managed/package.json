@@ -10,6 +10,9 @@
     "typecheck": "bunx tsc --noEmit",
     "smoke:staging": "bash deploy/scripts/smoke-check-staging.sh"
   },
+  "dependencies": {
+    "@vellumai/vellum-gateway": "file:../gateway"
+  },
   "devDependencies": {
     "@types/bun": "^1.2.4",
     "typescript": "^5.7.3"
