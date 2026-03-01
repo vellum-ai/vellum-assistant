@@ -20,7 +20,7 @@ spec:
       containers:
         - name: managed-gateway
           image: ghcr.io/vellum-ai/vellum-managed-gateway:latest
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           ports:
             - name: http
               containerPort: 7831
@@ -35,6 +35,11 @@ spec:
               value: "true"
             - name: MANAGED_GATEWAY_INTERNAL_AUTH_MODE
               value: "bearer"
+            - name: MANAGED_GATEWAY_INTERNAL_BEARER_TOKENS
+              valueFrom:
+                secretKeyRef:
+                  name: managed-gateway-secrets
+                  key: internal-bearer-tokens
             - name: MANAGED_GATEWAY_INTERNAL_AUTH_AUDIENCE
               value: "managed-gateway-internal"
             - name: MANAGED_GATEWAY_TWILIO_AUTH_TOKENS
