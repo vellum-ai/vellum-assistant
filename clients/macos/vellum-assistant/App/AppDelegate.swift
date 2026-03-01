@@ -626,10 +626,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             var delay: UInt64 = 2_000_000_000 // 2 seconds initial
             let maxDelay: UInt64 = 60_000_000_000 // 60 seconds cap
 
+            // Separate backoff for waiting on daemon connection, matching the
+            // iOS implementation. Prevents busy-waiting at a fixed interval
+            // when the daemon is unreachable for extended periods.
+            var connectionDelay: UInt64 = 2_000_000_000 // 2 seconds initial
+            let connectionMaxDelay: UInt64 = 300_000_000_000 // 5 minutes cap
+
             while !Task.isCancelled {
                 // Wait for the daemon to be connected before attempting.
                 guard self.daemonClient.isConnected else {
-                    try? await Task.sleep(nanoseconds: delay)
+                    try? await Task.sleep(nanoseconds: connectionDelay)
+                    connectionDelay = min(connectionDelay * 2, connectionMaxDelay)
                     continue
                 }
 

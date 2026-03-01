@@ -111,12 +111,20 @@ function sweepPendingDeviceIds(): void {
 }
 
 /**
+ * In-flight mint guard — prevents overlapping status polls from triggering
+ * concurrent token mints for the same pairing request. The second mint
+ * would revoke the first token, leaving the client with an invalid token.
+ */
+const mintingInFlight = new Set<string>();
+
+/**
  * Clean up all transient pairing state for a given request.
  * Called when pairing is denied or otherwise finalized.
  */
 export function cleanupPairingState(pairingRequestId: string): void {
   pendingDeviceIds.delete(pairingRequestId);
   approvedActorTokens.delete(pairingRequestId);
+  mintingInFlight.delete(pairingRequestId);
 }
 
 export interface PairingHandlerContext {
@@ -245,6 +253,11 @@ export function handlePairingStatus(url: URL, ctx: PairingHandlerContext): Respo
     return httpError('FORBIDDEN', 'Forbidden', 403);
   }
 
+  // Sweep stale transient entries on every poll — not just approved ones —
+  // so abandoned pairing attempts don't accumulate indefinitely.
+  sweepApprovedTokens();
+  sweepPendingDeviceIds();
+
   const entry = ctx.pairingStore.get(id);
   if (!entry) {
     // Pairing expired or was swept — clean up any lingering pending device ID
@@ -253,10 +266,6 @@ export function handlePairingStatus(url: URL, ctx: PairingHandlerContext): Respo
   }
 
   if (entry.status === 'approved') {
-    // Sweep expired entries on each poll
-    sweepApprovedTokens();
-    sweepPendingDeviceIds();
-
     // Mint the actor token on first approved poll if we still have the
     // raw deviceId from the pairing request. Once minted, the token is
     // cached in approvedActorTokens with a TTL so subsequent polls can
@@ -264,14 +273,19 @@ export function handlePairingStatus(url: URL, ctx: PairingHandlerContext): Respo
     // The pending deviceId is only removed after a successful mint so
     // transient failures allow retries on subsequent polls.
     let tokenEntry = approvedActorTokens.get(id);
-    if (!tokenEntry) {
+    if (!tokenEntry && !mintingInFlight.has(id)) {
       const pending = pendingDeviceIds.get(id);
       if (pending) {
-        const actorToken = mintPairingActorToken(pending.deviceId, 'ios');
-        if (actorToken) {
-          pendingDeviceIds.delete(id);
-          tokenEntry = { actorToken, approvedAt: Date.now() };
-          approvedActorTokens.set(id, tokenEntry);
+        mintingInFlight.add(id);
+        try {
+          const actorToken = mintPairingActorToken(pending.deviceId, 'ios');
+          if (actorToken) {
+            pendingDeviceIds.delete(id);
+            tokenEntry = { actorToken, approvedAt: Date.now() };
+            approvedActorTokens.set(id, tokenEntry);
+          }
+        } finally {
+          mintingInFlight.delete(id);
         }
       }
     }

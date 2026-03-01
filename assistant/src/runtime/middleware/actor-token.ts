@@ -147,6 +147,14 @@ export function isActorBoundGuardian(claims: ActorTokenClaims): boolean {
 // Bearer-auth fallback variants
 // ---------------------------------------------------------------------------
 
+/** Loopback addresses — used to gate the local identity fallback. */
+const LOOPBACK_ADDRESSES = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
+
+/** Bun server shape needed for requestIP — avoids importing the full Bun type. */
+type ServerWithRequestIP = {
+  requestIP(req: Request): { address: string; family: string; port: number } | null;
+};
+
 /**
  * Result for the fallback verification path where the actor token is absent
  * but the request is bearer-authenticated (local trusted client like CLI).
@@ -172,16 +180,21 @@ export type ActorTokenVerificationWithFallback =
  * back to `resolveLocalIpcGuardianContext()` which produces the same
  * guardian context as the IPC pathway.
  *
- * The loopback origin check prevents gateway-proxied remote requests
- * (which carry `X-Forwarded-For` injected by the gateway runtime proxy)
- * from being granted local guardian identity. Only direct connections
- * without a forwarding header qualify for the local fallback.
+ * Two conditions must BOTH be met for the local fallback:
+ * 1. No X-Forwarded-For header (rules out gateway-proxied requests).
+ * 2. The peer remote address is a loopback address (rules out LAN/container
+ *    connections when the runtime binds to 0.0.0.0).
+ *
+ * When `server` is provided, the peer address is checked via
+ * `server.requestIP(req)`. When omitted (legacy callers), the function
+ * falls back to the X-Forwarded-For-only check for backward compatibility.
  *
  * This preserves backward compatibility with the CLI, which sends only
  * `Authorization: Bearer <token>` without `X-Actor-Token`.
  */
 export function verifyHttpActorTokenWithLocalFallback(
   req: Request,
+  server?: ServerWithRequestIP,
 ): ActorTokenVerificationWithFallback {
   const rawToken = extractActorToken(req);
 
@@ -205,9 +218,24 @@ export function verifyHttpActorTokenWithLocalFallback(
     };
   }
 
-  // No actor token, no forwarding header — this is a direct local
-  // connection that passed bearer auth at the HTTP server layer.
-  // Resolve identity the same way as IPC connections.
+  // When the server handle is available, verify the peer address is
+  // actually loopback. This prevents LAN or container peers from
+  // receiving local guardian identity when the runtime binds to 0.0.0.0.
+  if (server) {
+    const peerIp = server.requestIP(req)?.address;
+    if (!peerIp || !LOOPBACK_ADDRESSES.has(peerIp)) {
+      log.warn({ peerIp }, 'Rejecting local identity fallback: peer is not loopback');
+      return {
+        ok: false,
+        status: 401,
+        message: 'Missing X-Actor-Token header. Non-loopback requests require actor identity.',
+      };
+    }
+  }
+
+  // No actor token, no forwarding header, and (when checkable) the peer
+  // is on loopback — this is a direct local connection that passed bearer
+  // auth at the HTTP server layer. Resolve identity the same way as IPC.
   log.debug('No actor token present on direct local request; using local IPC identity fallback');
   const guardianContext = resolveLocalIpcGuardianContext('vellum');
   return {
