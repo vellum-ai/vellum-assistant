@@ -240,16 +240,18 @@ _vellum_completions() {
       COMPREPLY=( $(compgen -W "list remove clear" -- "${cur}") )
       ;;
     client|retire)
-      local instances
 BASH_COMP
 
-    # Append the dynamic lockfile lookup (needs variable expansion)
+    # Append the dynamic lockfile lookup (needs variable expansion).
+    # Use a while-read loop instead of compgen -W to avoid shell expansion
+    # on lockfile values (prevents command injection via crafted assistant IDs).
     cat >> "${COMP_DIR}/completions.bash" << BASH_COMP_DYN
-      instances="\$(${LOCKFILE_GREP} | tr '\n' ' ')"
+      while IFS= read -r _vellum_id; do
+        [[ -n "\$_vellum_id" && "\$_vellum_id" == "\${cur}"* ]] && COMPREPLY+=("\$_vellum_id")
+      done < <(${LOCKFILE_GREP})
 BASH_COMP_DYN
 
     cat >> "${COMP_DIR}/completions.bash" << 'BASH_COMP_END'
-      COMPREPLY=( $(compgen -W "${instances}" -- "${cur}") )
       ;;
   esac
 
