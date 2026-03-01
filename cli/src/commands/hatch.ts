@@ -509,7 +509,7 @@ async function displayPairingQRCode(runtimeUrl: string, bearerToken: string | un
     const pairingRequestId = randomUUID();
     const pairingSecret = randomBytes(32).toString("hex");
 
-    const registerRes = await fetch(`${runtimeUrl}/v1/pairing/register`, {
+    const registerRes = await fetch(`${runtimeUrl}/pairing/register`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

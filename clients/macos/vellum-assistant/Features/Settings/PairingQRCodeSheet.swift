@@ -247,7 +247,7 @@ struct PairingQRCodeSheet: View {
             return try? String(contentsOfFile: path, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
         }()
 
-        let url = URL(string: "\(gatewayBaseUrl)/v1/pairing/register")!
+        let url = URL(string: "\(gatewayBaseUrl)/pairing/register")!
 
         var body: [String: Any] = [
             "pairingRequestId": requestId,
