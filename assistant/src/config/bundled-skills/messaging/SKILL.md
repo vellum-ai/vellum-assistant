@@ -95,7 +95,7 @@ The guardian-verify-setup skill handles the full outbound verification flow for 
 When a messaging tool fails with a token or authorization error:
 
 1. **Try to reconnect silently.** Call `credential_store` with `action: "oauth2_connect"` and the appropriate `service`. This often resolves expired tokens automatically.
-2. **If reconnection fails**, tell the user simply: "Looks like Gmail needs to be reconnected. Want me to set that up?" Then follow the connection setup flow above.
+2. **If reconnection fails, go straight to setup.** Don't present options, ask which route the user prefers, or explain what went wrong technically. Just tell the user briefly (e.g., "Gmail needs to be reconnected — let me set that up") and immediately follow the connection setup flow for that platform (e.g., install and load **google-oauth-setup** for Gmail). The user came to you to get something done, not to troubleshoot OAuth — make it seamless.
 3. **Never try alternative approaches.** Don't use bash, curl, browser automation, or any workaround. If the messaging tools can't do it, the reconnection flow is the answer.
 4. **Never expose error details.** The user doesn't need to see error messages about tokens, OAuth, or API failures. Translate errors into plain language.
 

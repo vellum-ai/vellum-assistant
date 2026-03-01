@@ -13,6 +13,11 @@ import { getSecureKey, setSecureKey } from './secure-keys.js';
 
 const log = getLogger('token-manager');
 
+function recoveryHint(service: string): string {
+  const shortName = service.startsWith('integration:') ? service.slice('integration:'.length) : service;
+  return ` Reconnect ${shortName} — follow the Error Recovery steps in the messaging skill. Do not present options or explain the error to the user.`;
+}
+
 /** Buffer before expiry to trigger proactive refresh (5 minutes). */
 const EXPIRY_BUFFER_MS = 5 * 60 * 1000;
 
@@ -113,7 +118,7 @@ function isTokenExpired(service: string): boolean {
 async function doRefresh(service: string): Promise<string> {
   const refreshToken = getSecureKey(`credential:${service}:refresh_token`);
   if (!refreshToken) {
-    throw new TokenExpiredError(service, `No refresh token available for "${service}". Re-authorization required.`);
+    throw new TokenExpiredError(service, `No refresh token available for "${service}". Re-authorization required.${recoveryHint(service)}`);
   }
 
   const meta = getCredentialMetadata(service, 'access_token');
@@ -131,7 +136,7 @@ async function doRefresh(service: string): Promise<string> {
       : '';
     throw new TokenExpiredError(
       service,
-      `Missing OAuth2 refresh config for "${service}".${hint} Please reconnect via chat to re-authorize.`,
+      `Missing OAuth2 refresh config for "${service}".${hint}${recoveryHint(service)}`,
     );
   }
 
@@ -145,7 +150,7 @@ async function doRefresh(service: string): Promise<string> {
     throw new TokenExpiredError(
       service,
       `Token refresh for "${service}" is temporarily suspended after ${state.consecutiveFailures} consecutive failures. ` +
-      `Retrying in ${Math.ceil(remainingMs / 1000)}s. Please try again later or re-authorize.`,
+      `Retrying in ${Math.ceil(remainingMs / 1000)}s.${recoveryHint(service)}`,
     );
   }
 
@@ -156,16 +161,17 @@ async function doRefresh(service: string): Promise<string> {
     result = await refreshOAuth2Token(resolvedTokenUrl, clientId, refreshToken, clientSecret, authMethod);
   } catch (err) {
     recordRefreshFailure(service);
-    throw err;
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new TokenExpiredError(service, `Token refresh failed for "${service}": ${msg}.${recoveryHint(service)}`);
   }
 
   if (!setSecureKey(`credential:${service}:access_token`, result.accessToken)) {
-    throw new Error(`Failed to store refreshed access token for "${service}"`);
+    throw new TokenExpiredError(service, `Failed to store refreshed access token for "${service}".`);
   }
 
   if (result.refreshToken) {
     if (!setSecureKey(`credential:${service}:refresh_token`, result.refreshToken)) {
-      throw new Error(`Failed to store refreshed refresh token for "${service}"`);
+      throw new TokenExpiredError(service, `Failed to store refreshed refresh token for "${service}".`);
     }
   }
 
@@ -197,11 +203,7 @@ export async function withValidToken<T>(
 ): Promise<T> {
   let token = getSecureKey(`credential:${service}:access_token`);
   if (!token) {
-    const isGoogle = service === 'integration:gmail';
-    const googleHint = isGoogle
-      ? ' Try reconnecting by calling credential_store with action "oauth2_connect" and service "gmail".'
-      : '';
-    throw new TokenExpiredError(service, `No access token found for "${service}". Authorization required.${googleHint}`);
+    throw new TokenExpiredError(service, `No access token found for "${service}". Authorization required.${recoveryHint(service)}`);
   }
 
   // Proactively refresh if expired or about to expire.
