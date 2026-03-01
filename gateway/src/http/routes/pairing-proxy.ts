@@ -104,6 +104,11 @@ export function createPairingProxyHandler(config: GatewayConfig) {
   }
 
   return {
+    /** POST /pairing/register — proxy to daemon (bearer-authenticated) */
+    async handlePairingRegister(req: Request): Promise<Response> {
+      return proxyToRuntime(req, "/v1/pairing/register", "");
+    },
+
     /** POST /pairing/request — proxy to daemon */
     async handlePairingRequest(req: Request): Promise<Response> {
       return proxyToRuntime(req, "/v1/pairing/request", "");
