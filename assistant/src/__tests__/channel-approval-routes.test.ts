@@ -377,7 +377,7 @@ describe('inbound text matching approval phrases triggers decision handling', ()
 // 4. Non-decision messages during pending approval (no conversational engine)
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe('non-decision messages during pending approval (no conversational engine)', () => {
+describe('non-decision messages during pending approval (legacy fallback)', () => {
   beforeEach(() => {
     createBinding({
       assistantId: 'self',
@@ -2950,7 +2950,7 @@ describe('trusted-contact self-approval blocked before guardian approval row exi
     deliverSpy.mockRestore();
   });
 
-  test('trusted contact cannot self-approve when no guardian approval row exists', async () => {
+  test('trusted contact cannot self-approve via legacy parser when no guardian approval row exists', async () => {
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
 
     const initReq = makeInboundRequest({
@@ -2970,8 +2970,8 @@ describe('trusted-contact self-approval blocked before guardian approval row exi
 
     deliverSpy.mockClear();
 
-    // No conversational engine — the non-guardian self-approval guard
-    // blocks the decision before it can reach any parser.
+    // No conversational engine — falls through to legacy parser path.
+    // "approve" would normally be parsed as an approval decision.
     const req = makeInboundRequest({
       content: 'approve',
       conversationExternalId: 'tc-selfapproval-chat',

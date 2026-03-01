@@ -5,7 +5,7 @@ Standalone service that serves as the public ingress boundary for all external w
 ## Architecture
 
 ```
-Telegram → gateway/ → Assistant Runtime (/v1/channels/inbound) → gateway/ → Telegram
+Telegram → gateway/ → Assistant Runtime (/v1/assistants/:id/channels/inbound) → gateway/ → Telegram
 
 Client → gateway/ (Bearer auth) → Assistant Runtime (any path)
 ```
@@ -316,12 +316,12 @@ By default (`GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH=true`), proxied requests must in
 
 ```bash
 # Unauthorized (expect 401 when auth required)
-curl -i http://localhost:7830/v1/health
+curl -i http://localhost:7830/v1/assistants/test/health
 
 # Authorized (expect 200)
 curl -i \
   -H "Authorization: Bearer $RUNTIME_PROXY_BEARER_TOKEN" \
-  http://localhost:7830/v1/health
+  http://localhost:7830/v1/assistants/test/health
 
 # Telegram still uses webhook secret flow, not bearer auth
 curl -i -X POST http://localhost:7830/webhooks/telegram

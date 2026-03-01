@@ -1,5 +1,7 @@
 import { describe, expect, mock, test } from 'bun:test';
 
+import type { RuntimeMessageSessionOptions } from '../runtime/http-types.js';
+
 mock.module('../util/logger.js', () => ({
   getLogger: () => new Proxy({} as Record<string, unknown>, {
     get: () => () => {},
@@ -27,23 +29,37 @@ const mockLoopbackServer: ServerWithRequestIP = {
 };
 
 describe('handleSendMessage', () => {
-  test('returns 503 when sendMessageDeps is not configured', async () => {
+  test('legacy fallback passes guardian context to processor', async () => {
+    let capturedOptions: RuntimeMessageSessionOptions | undefined;
+    let capturedSourceChannel: string | undefined;
+
     const req = new Request('http://localhost/v1/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        conversationKey: 'no-deps-key',
-        content: 'Hello without deps',
+        conversationKey: 'legacy-fallback-key',
+        content: 'Hello from legacy fallback',
         sourceChannel: 'telegram',
         interface: 'telegram',
       }),
     });
 
-    const res = await handleSendMessage(req, {}, mockLoopbackServer);
+    const res = await handleSendMessage(req, {
+      processMessage: async (_conversationId, _content, _attachmentIds, options, sourceChannel) => {
+        capturedOptions = options;
+        capturedSourceChannel = sourceChannel;
+        return { messageId: 'msg-legacy-fallback' };
+      },
+    }, mockLoopbackServer);
 
-    expect(res.status).toBe(503);
-    const body = await res.json() as { error: { code: string; message: string } };
-    expect(body.error.code).toBe('SERVICE_UNAVAILABLE');
-    expect(body.error.message).toBe('Message processing not configured');
+    const body = await res.json() as { accepted: boolean; messageId: string };
+    expect(res.status).toBe(202);
+    expect(body.accepted).toBe(true);
+    expect(body.messageId).toBe('msg-legacy-fallback');
+    expect(capturedSourceChannel).toBe('telegram');
+    expect(capturedOptions?.guardianContext).toEqual(expect.objectContaining({
+      trustClass: 'guardian',
+      sourceChannel: 'telegram',
+    }));
   });
 });

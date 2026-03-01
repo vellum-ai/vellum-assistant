@@ -724,6 +724,8 @@ export class RuntimeHttpServer {
 
       if (endpoint === 'messages' && req.method === 'POST') {
         return await handleSendMessage(req, {
+          processMessage: this.processMessage,
+          persistAndProcessMessage: this.persistAndProcessMessage,
           sendMessageDeps: this.sendMessageDeps,
           approvalConversationGenerator: this.approvalConversationGenerator,
         }, server);
