@@ -504,7 +504,9 @@ export async function routeGuardianReply(
     // Attach the engine's reply text for stale/expired/identity-mismatch cases,
     // but preserve resolver-authored replies (for example verification codes)
     // and explicit resolver-failure text.
-    const hasResolverReplyText = Boolean(result.canonicalResult?.resolverReplyText);
+    const hasResolverReplyText = Boolean(
+      result.canonicalResult?.applied && result.canonicalResult.resolverReplyText,
+    );
     if (engineResult.replyText && result.type !== 'canonical_resolver_failed' && !hasResolverReplyText) {
       result.replyText = engineResult.replyText;
     }
