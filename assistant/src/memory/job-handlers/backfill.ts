@@ -29,16 +29,9 @@ type ProvenanceTrustClass = 'guardian' | 'trusted_contact' | 'unknown';
 function parseProvenanceTrustClass(rawMetadata: string | null): ProvenanceTrustClass | undefined {
   if (!rawMetadata) return undefined;
   try {
-    const parsedJson: unknown = JSON.parse(rawMetadata);
-    const parsed = messageMetadataSchema.safeParse(parsedJson);
+    const parsed = messageMetadataSchema.safeParse(JSON.parse(rawMetadata));
     if (!parsed.success) return undefined;
-    if (parsed.data.provenanceTrustClass) return parsed.data.provenanceTrustClass;
-    // Legacy fallback for rows written before provenanceTrustClass existed.
-    const legacyRole = (parsedJson as { provenanceActorRole?: unknown }).provenanceActorRole;
-    if (legacyRole === 'guardian') return 'guardian';
-    if (legacyRole === 'non-guardian') return 'trusted_contact';
-    if (legacyRole === 'unverified_channel') return 'unknown';
-    return undefined;
+    return parsed.data.provenanceTrustClass;
   } catch {
     return undefined;
   }

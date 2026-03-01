@@ -155,7 +155,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
       assistantMessageChannel: sourceChannel,
       userMessageInterface: sourceInterface,
       assistantMessageInterface: sourceInterface,
-      provenanceActorRole: 'guardian' as const,
+      provenanceTrustClass: 'guardian' as const,
     };
 
     const userMessage = createUserMessage(content, attachments);

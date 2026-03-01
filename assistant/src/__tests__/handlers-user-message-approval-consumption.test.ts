@@ -213,7 +213,7 @@ describe('handleUserMessage pending-confirmation reply interception', () => {
         assistantMessageChannel: 'vellum',
         userMessageInterface: 'macos',
         assistantMessageInterface: 'macos',
-        provenanceActorRole: 'guardian',
+        provenanceTrustClass: 'guardian',
       }),
     );
     expect(addMessageMock).toHaveBeenCalledWith(
@@ -225,7 +225,7 @@ describe('handleUserMessage pending-confirmation reply interception', () => {
         assistantMessageChannel: 'vellum',
         userMessageInterface: 'macos',
         assistantMessageInterface: 'macos',
-        provenanceActorRole: 'guardian',
+        provenanceTrustClass: 'guardian',
       }),
     );
     expect(sent.map((msg) => msg.type)).toEqual([

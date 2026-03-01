@@ -641,7 +641,7 @@ export async function handleUserMessage(
               assistantMessageChannel: ipcChannel,
               userMessageInterface: ipcInterface,
               assistantMessageInterface: ipcInterface,
-              provenanceActorRole: 'guardian' as const,
+              provenanceTrustClass: 'guardian' as const,
             };
 
             const consumedUserMessage = createUserMessage(messageText, msg.attachments ?? []);
