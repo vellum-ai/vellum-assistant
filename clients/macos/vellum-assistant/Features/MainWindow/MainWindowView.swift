@@ -193,7 +193,7 @@ struct MainWindowView: View {
                     }
                     // Inject message into active session to trigger assistant-driven setup
                     if let viewModel = threadManager.activeViewModel {
-                        viewModel.inputText = "I want to publish my app but I don't have a Vercel API token set up yet. Can you help me create one and then publish my app?"
+                        viewModel.inputText = "I need to set up a Vercel API token to publish my app. Please load the vercel-token-setup skill and follow its instructions."
                         viewModel.sendMessage()
                     }
                     startCredentialPollForPublish()

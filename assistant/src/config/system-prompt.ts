@@ -839,13 +839,15 @@ function formatSkillsCatalog(skills: SkillSummary[]): string {
     const nameAttr = escapeXml(skill.name);
     const descAttr = escapeXml(skill.description);
     const locAttr = escapeXml(skill.directoryPath);
-    lines.push(`<skill id="${idAttr}" name="${nameAttr}" description="${descAttr}" location="${locAttr}" />`);
+    const credAttr = skill.credentialSetupFor ? ` credential-setup-for="${escapeXml(skill.credentialSetupFor)}"` : '';
+    lines.push(`<skill id="${idAttr}" name="${nameAttr}" description="${descAttr}" location="${locAttr}"${credAttr} />`);
   }
   lines.push('</available_skills>');
 
   return [
     '## Available Skills',
     'The following skills are available. Before executing one, call the `skill_load` tool with its `id` to load the full instructions.',
+    'When a credential is missing, check if any skill declares `credential-setup-for` matching that service — if so, load that skill.',
     '',
     lines.join('\n'),
   ].join('\n');
