@@ -1566,7 +1566,7 @@ function startTrustedContactApprovalNotifier(params: {
         if (info && !globalNotifiedApprovalRequestIds.has(info.requestId)) {
           globalNotifiedApprovalRequestIds.set(info.requestId, conversationId);
           const guardianName = resolveGuardianDisplayName(
-            assistantId ?? 'self',
+            assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
             sourceChannel,
           );
           const waitingText = guardianName
@@ -1576,7 +1576,7 @@ function startTrustedContactApprovalNotifier(params: {
             await deliverChannelReply(replyCallbackUrl, {
               chatId: externalChatId,
               text: waitingText,
-              assistantId: assistantId ?? 'self',
+              assistantId: assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
             }, bearerToken);
           } catch (err) {
             log.warn({ err, conversationId }, 'Failed to deliver trusted-contact pending-approval notification');

@@ -18,6 +18,7 @@ import { getGatewayInternalBaseUrl, getTwilioPhoneNumberEnv } from '../../../con
 import { loadConfig } from '../../../config/loader.js';
 import { getOrCreateConversation } from '../../../memory/conversation-key-store.js';
 import * as externalConversationStore from '../../../memory/external-conversation-store.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from '../../../runtime/assistant-scope.js';
 import { getSecureKey } from '../../../security/secure-keys.js';
 import { readHttpToken } from '../../../util/platform.js';
 import type { MessagingProvider } from '../../provider.js';
@@ -83,7 +84,16 @@ export const smsMessagingProvider: MessagingProvider = {
    * the `from` for outbound messages.
    */
   isConnected(): boolean {
-    return hasTwilioCredentials() && !!getPhoneNumber();
+    if (!hasTwilioCredentials()) return false;
+    if (getPhoneNumber()) return true;
+    try {
+      const config = loadConfig();
+      const mappings = config.sms?.assistantPhoneNumbers as Record<string, string> | undefined;
+      if (mappings && Object.keys(mappings).length > 0) return true;
+    } catch {
+      // Config may not be available yet
+    }
+    return false;
   },
 
   async testConnection(_token: string): Promise<ConnectionInfo> {
@@ -128,15 +138,20 @@ export const smsMessagingProvider: MessagingProvider = {
 
     // Upsert external conversation binding so the conversation key mapping
     // exists for the next inbound SMS from this number.
+    const isSelfScope = !assistantId || assistantId === DAEMON_INTERNAL_ASSISTANT_ID;
     try {
       const sourceChannel = 'sms';
-      const conversationKey = `${sourceChannel}:${conversationId}`;
+      const conversationKey = isSelfScope
+        ? `${sourceChannel}:${conversationId}`
+        : `asst:${assistantId}:${sourceChannel}:${conversationId}`;
       const { conversationId: internalId } = getOrCreateConversation(conversationKey);
-      externalConversationStore.upsertOutboundBinding({
-        conversationId: internalId,
-        sourceChannel,
-        externalChatId: conversationId,
-      });
+      if (isSelfScope) {
+        externalConversationStore.upsertOutboundBinding({
+          conversationId: internalId,
+          sourceChannel,
+          externalChatId: conversationId,
+        });
+      }
     } catch {
       // Best-effort — don't fail the send if binding upsert fails
     }

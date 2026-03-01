@@ -360,7 +360,7 @@ function makeHubPublisher(
           guardianContext,
           conversationId,
           toolName: msg.toolName,
-          assistantId: session.assistantId ?? 'self',
+          assistantId: session.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
         });
       }
     } else if (msg.type === 'secret_request') {
