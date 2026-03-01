@@ -1,10 +1,9 @@
-import { v4 as uuid } from 'uuid';
-
 import type { ServerMessage } from '../../daemon/ipc-contract.js';
 import { browserManager, SCREENCAST_HEIGHT, SCREENCAST_WIDTH } from './browser-manager.js';
 
-// Track active screencast sessions
-const activeScreencasts = new Map<string, { surfaceId: string }>();
+// Track which sessions have an active browser page (no PiP surface — the user
+// watches the actual browser window directly).
+const activeBrowserSessions = new Set<string>();
 
 // Registry of sendToClient callbacks per session
 const sessionSenders = new Map<string, (msg: ServerMessage) => void>();
@@ -32,82 +31,55 @@ function getSender(sessionId: string): ((msg: ServerMessage) => void) | undefine
 
 export async function ensureScreencast(
   sessionId: string,
-  sendToClient: (msg: ServerMessage) => void,
+  _sendToClient: (msg: ServerMessage) => void,
 ): Promise<void> {
-  if (activeScreencasts.has(sessionId)) return;
+  if (activeBrowserSessions.has(sessionId)) return;
 
-  const surfaceId = uuid();
-  activeScreencasts.set(sessionId, { surfaceId });
+  activeBrowserSessions.add(sessionId);
 
   try {
     // Ensure the page exists (may trigger browser launch/connect)
     await browserManager.getOrCreateSessionPage(sessionId);
 
-    // Skip PiP surface and CDP screencast — the user watches the actual
+    // No PiP surface or CDP screencast — the user watches the actual
     // browser window directly (positioned in top-right via positionWindowSidebar).
   } catch (err) {
     // Roll back so future calls can retry
-    activeScreencasts.delete(sessionId);
+    activeBrowserSessions.delete(sessionId);
     throw err;
   }
 }
 
 export function updateBrowserStatus(
   sessionId: string,
-  sendToClient: (msg: ServerMessage) => void,
-  status: 'navigating' | 'idle' | 'interacting',
-  actionText?: string,
-  currentUrl?: string,
+  _sendToClient: (msg: ServerMessage) => void,
+  _status: 'navigating' | 'idle' | 'interacting',
+  _actionText?: string,
+  _currentUrl?: string,
 ): void {
-  const state = activeScreencasts.get(sessionId);
-  if (!state) return;
-
-  const update: Record<string, unknown> = { status };
-  if (actionText !== undefined) update.actionText = actionText;
-  if (currentUrl !== undefined) update.currentUrl = currentUrl;
-
-  sendToClient({
-    type: 'ui_surface_update',
-    sessionId,
-    surfaceId: state.surfaceId,
-    data: update,
-  });
+  // No-op: PiP surface was removed so there is no ui_surface to update.
+  // The function signature is preserved to avoid churn at callsites.
+  if (!activeBrowserSessions.has(sessionId)) return;
 }
 
 export async function updatePagesList(
   sessionId: string,
-  sendToClient: (msg: ServerMessage) => void,
+  _sendToClient: (msg: ServerMessage) => void,
 ): Promise<void> {
-  const state = activeScreencasts.get(sessionId);
-  if (!state) return;
-
-  const page = await browserManager.getOrCreateSessionPage(sessionId);
-  const currentUrl = page.url();
-  const title = await page.title();
-
-  sendToClient({
-    type: 'ui_surface_update',
-    sessionId,
-    surfaceId: state.surfaceId,
-    data: {
-      currentUrl,
-      pages: [{ id: sessionId, title: title || 'Untitled', url: currentUrl, active: true }],
-    },
-  });
+  // No-op: PiP surface was removed so there is no ui_surface to update.
+  if (!activeBrowserSessions.has(sessionId)) return;
 }
 
 export async function stopBrowserScreencast(
   sessionId: string,
   _sendToClient: (msg: ServerMessage) => void,
 ): Promise<void> {
-  const state = activeScreencasts.get(sessionId);
-  if (!state) return;
+  if (!activeBrowserSessions.has(sessionId)) return;
 
   // Safe no-op if CDP screencast was never started
   await browserManager.stopScreencast(sessionId);
 
-  // Skip ui_surface_dismiss — no PiP surface was shown
-  activeScreencasts.delete(sessionId);
+  activeBrowserSessions.delete(sessionId);
 }
 
 export async function getElementBounds(
@@ -139,37 +111,24 @@ export async function getElementBounds(
 
 export function updateHighlights(
   sessionId: string,
-  sendToClient: (msg: ServerMessage) => void,
-  highlights: Array<{ x: number; y: number; w: number; h: number; label: string }>,
+  _sendToClient: (msg: ServerMessage) => void,
+  _highlights: Array<{ x: number; y: number; w: number; h: number; label: string }>,
 ): void {
-  const state = activeScreencasts.get(sessionId);
-  if (!state) return;
-  sendToClient({
-    type: 'ui_surface_update',
-    sessionId,
-    surfaceId: state.surfaceId,
-    data: { highlights },
-  });
+  // No-op: PiP surface was removed so there is no ui_surface to update.
+  if (!activeBrowserSessions.has(sessionId)) return;
 }
 
 export async function stopAllScreencasts(): Promise<void> {
-  const entries = Array.from(activeScreencasts.entries());
-  for (const [sessionId] of entries) {
+  for (const sessionId of activeBrowserSessions) {
     try {
       await browserManager.stopScreencast(sessionId);
     } catch { /* best-effort */ }
-    // Skip ui_surface_dismiss — no PiP surfaces were shown
   }
-  activeScreencasts.clear();
+  activeBrowserSessions.clear();
 }
 
 export function isScreencastActive(sessionId: string): boolean {
-  return activeScreencasts.has(sessionId);
+  return activeBrowserSessions.has(sessionId);
 }
 
 export { getSender };
-
-export function getScreencastSurfaceId(sessionId: string): string | null {
-  const state = activeScreencasts.get(sessionId);
-  return state?.surfaceId ?? null;
-}

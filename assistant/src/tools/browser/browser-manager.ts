@@ -719,6 +719,7 @@ class BrowserManager {
         pollTimer = setInterval(() => {
           try {
             if (page.isClosed()) {
+              this.interactiveModeSessions.delete(sessionId);
               resolver();
               return;
             }
@@ -730,6 +731,7 @@ class BrowserManager {
             }
           } catch {
             // Page may have been closed — resolve gracefully
+            this.interactiveModeSessions.delete(sessionId);
             resolver();
           }
         }, 2000);
