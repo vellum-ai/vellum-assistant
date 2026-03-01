@@ -151,11 +151,13 @@ export function handleChannelDecision(
     if (
       details &&
       details.persistentDecisionsAllowed !== false &&
-      details.allowlistOptions?.length &&
-      details.scopeOptions?.length
+      details.allowlistOptions?.length
     ) {
       const pattern = details.allowlistOptions[0].pattern;
-      const scope = details.scopeOptions[0].scope;
+      // Non-scoped tools (web_fetch, network_request, etc.) have empty
+      // scopeOptions — default to 'everywhere' so approve_always still
+      // persists a trust rule instead of silently degrading to one-time.
+      const scope = details.scopeOptions?.length ? details.scopeOptions[0].scope : 'everywhere';
       // Only persist executionTarget for skill-origin tools — core tools don't
       // set it in their PolicyContext, so a persisted value would prevent the
       // rule from ever matching on subsequent permission checks.

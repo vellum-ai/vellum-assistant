@@ -233,7 +233,7 @@ export async function startCli(): Promise<void> {
     process.stdout.write(`\u2502\n`);
     process.stdout.write(`\u2502 [a] Allow once\n`);
     process.stdout.write(`\u2502 [d] Deny once\n`);
-    if (req.allowlistOptions.length > 0) {
+    if (req.allowlistOptions.length > 0 && req.scopeOptions.length > 0) {
       process.stdout.write(`\u2502 [A] Allowlist...\n`);
       process.stdout.write(`\u2502 [H] Allowlist (high-risk)...\n`);
       process.stdout.write(`\u2502 [D] Denylist...\n`);

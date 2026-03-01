@@ -163,11 +163,13 @@ const pendingInteractionResolver: GuardianRequestResolver = {
         decision.action === 'approve_always' &&
         details &&
         details.persistentDecisionsAllowed !== false &&
-        details.allowlistOptions?.length &&
-        details.scopeOptions?.length
+        details.allowlistOptions?.length
       ) {
         const pattern = details.allowlistOptions[0].pattern;
-        const scope = details.scopeOptions[0].scope;
+        // Non-scoped tools (web_fetch, network_request, etc.) have empty
+        // scopeOptions — default to 'everywhere' so approve_always still
+        // persists a trust rule instead of silently degrading to one-time.
+        const scope = details.scopeOptions?.length ? details.scopeOptions[0].scope : 'everywhere';
         const tool = getTool(details.toolName);
         const executionTarget = tool?.origin === 'skill' ? details.executionTarget : undefined;
         addRule(details.toolName, pattern, scope, 'allow', 100, { executionTarget });
