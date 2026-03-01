@@ -34,9 +34,9 @@ struct ChatView: View {
     var onModelPickerSelect: ((UUID, String) -> Void)?
     var selectedModel: String = ""
     var configuredProviders: Set<String> = []
-    var assistantActivityPhase: String = "idle"
-    var assistantActivityAnchor: String = "global"
-    var assistantActivityReason: String? = nil
+    let assistantActivityPhase: String
+    let assistantActivityAnchor: String
+    let assistantActivityReason: String?
     let onConfirmationAllow: (String) -> Void
     let onConfirmationDeny: (String) -> Void
     let onAlwaysAllow: (String, String, String, String) -> Void
@@ -611,6 +611,9 @@ private struct ChatViewPreviewWrapper: View {
                 onDropImageData: { _, _ in },
                 onPaste: {},
                 onMicrophoneToggle: {},
+                assistantActivityPhase: "idle",
+                assistantActivityAnchor: "global",
+                assistantActivityReason: nil,
                 onConfirmationAllow: { _ in },
                 onConfirmationDeny: { _ in },
                 onAlwaysAllow: { _, _, _, _ in },
