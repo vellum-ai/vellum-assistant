@@ -83,28 +83,6 @@ export function findByTokenHash(tokenHash: string): RefreshTokenRecord | null {
   return row ? rowToRecord(row) : null;
 }
 
-/** Find the active refresh token for a device binding. */
-export function findActiveByDeviceBinding(
-  assistantId: string,
-  guardianPrincipalId: string,
-  hashedDeviceId: string,
-): RefreshTokenRecord | null {
-  const db = getDb();
-  const row = db
-    .select()
-    .from(actorRefreshTokenRecords)
-    .where(
-      and(
-        eq(actorRefreshTokenRecords.assistantId, assistantId),
-        eq(actorRefreshTokenRecords.guardianPrincipalId, guardianPrincipalId),
-        eq(actorRefreshTokenRecords.hashedDeviceId, hashedDeviceId),
-        eq(actorRefreshTokenRecords.status, 'active'),
-      ),
-    )
-    .get();
-  return row ? rowToRecord(row) : null;
-}
-
 /**
  * Atomically mark a refresh token as rotated (used successfully, replaced by a new one).
  * Uses a single conditional UPDATE and checks the affected row count to ensure
@@ -130,18 +108,11 @@ export function markRotated(tokenHash: string): boolean {
 export function revokeFamily(familyId: string): number {
   const db = getDb();
   const now = Date.now();
-  const matching = db
-    .select({ id: actorRefreshTokenRecords.id })
-    .from(actorRefreshTokenRecords)
-    .where(eq(actorRefreshTokenRecords.familyId, familyId))
-    .all();
-  if (matching.length === 0) return 0;
-
   db.update(actorRefreshTokenRecords)
     .set({ status: 'revoked', updatedAt: now })
     .where(eq(actorRefreshTokenRecords.familyId, familyId))
     .run();
-  return matching.length;
+  return rawChanges();
 }
 
 /** Revoke all active refresh tokens for a device binding. */
@@ -152,39 +123,18 @@ export function revokeByDeviceBinding(
 ): number {
   const db = getDb();
   const now = Date.now();
-  const condition = and(
-    eq(actorRefreshTokenRecords.assistantId, assistantId),
-    eq(actorRefreshTokenRecords.guardianPrincipalId, guardianPrincipalId),
-    eq(actorRefreshTokenRecords.hashedDeviceId, hashedDeviceId),
-    eq(actorRefreshTokenRecords.status, 'active'),
-  );
-  const matching = db
-    .select({ id: actorRefreshTokenRecords.id })
-    .from(actorRefreshTokenRecords)
-    .where(condition)
-    .all();
-  if (matching.length === 0) return 0;
-
   db.update(actorRefreshTokenRecords)
     .set({ status: 'revoked', updatedAt: now })
-    .where(condition)
-    .run();
-  return matching.length;
-}
-
-/** Update inactivity expiry timestamp on successful use. */
-export function touchInactivityExpiry(tokenHash: string, newInactivityExpiresAt: number): void {
-  const db = getDb();
-  const now = Date.now();
-  db.update(actorRefreshTokenRecords)
-    .set({ inactivityExpiresAt: newInactivityExpiresAt, lastUsedAt: now, updatedAt: now })
     .where(
       and(
-        eq(actorRefreshTokenRecords.tokenHash, tokenHash),
+        eq(actorRefreshTokenRecords.assistantId, assistantId),
+        eq(actorRefreshTokenRecords.guardianPrincipalId, guardianPrincipalId),
+        eq(actorRefreshTokenRecords.hashedDeviceId, hashedDeviceId),
         eq(actorRefreshTokenRecords.status, 'active'),
       ),
     )
     .run();
+  return rawChanges();
 }
 
 function rowToRecord(row: typeof actorRefreshTokenRecords.$inferSelect): RefreshTokenRecord {
