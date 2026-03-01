@@ -1,102 +1,27 @@
-# Vellum Managed Gateway
+# Vellum Managed Gateway Contracts
 
-Managed gateway service skeleton for Vellum-owned shared channel identities.
+This directory publishes **public compatibility artifacts** for the managed shared-identity gateway lane.
 
-## Current scope
+The deployable managed-gateway runtime is platform-owned and maintained in `vellum-assistant-platform`.
+This OSS repo intentionally keeps only contracts and fixtures so integrators and reviewers can validate wire compatibility.
 
-- package scaffold and startup entrypoint
-- strict startup config validation for enabled managed gateway mode
-- internal auth middleware abstraction for bearer and mTLS service auth
-- Django internal route resolve endpoint wiring for managed route lookup
-- staging deployment manifests, smoke checks, and rollout/rollback runbook
-- Twilio signature verifier primitives with rotation/revocation/expiry support
-- managed Twilio SMS webhook endpoint skeleton with explicit auth/validation envelopes
-- managed Twilio voice webhook endpoint skeleton with explicit auth/validation envelopes
-- shared inbound event normalization for managed Twilio SMS and voice payloads
-- managed route-resolution call (`phone -> assistant_id`) to Django before webhook acceptance
-- managed inbound dispatch call (`route -> Django -> vembda -> runtime`) after route resolution
-- health and readiness endpoints:
-  - `/healthz`
-  - `/readyz`
-  - `/v1/internal/managed-gateway/healthz/`
-  - `/v1/internal/managed-gateway/readyz/`
-- route resolve endpoint:
-  - `POST /v1/internal/managed-gateway/routes/resolve/`
-- inbound dispatch endpoint:
-  - `POST /v1/internal/managed-gateway/inbound/dispatch/`
-- Twilio inbound endpoint:
-  - `POST /webhooks/twilio/sms`
-  - `POST /webhooks/twilio/voice`
+## Contents
 
-## Configuration
+- Route resolve contract:
+  - [`route-resolve-contract.md`](./route-resolve-contract.md)
+- Inbound dispatch contract:
+  - [`inbound-dispatch-contract.md`](./inbound-dispatch-contract.md)
+- Managed Twilio webhook contracts:
+  - [`managed-twilio-sms-webhook-contract.md`](./managed-twilio-sms-webhook-contract.md)
+  - [`managed-twilio-voice-webhook-contract.md`](./managed-twilio-voice-webhook-contract.md)
+- Canonical fixtures:
+  - [`fixtures/route-resolve-request.json`](./fixtures/route-resolve-request.json)
+  - [`fixtures/route-resolve-response.json`](./fixtures/route-resolve-response.json)
+  - [`fixtures/inbound-dispatch-request.json`](./fixtures/inbound-dispatch-request.json)
+  - [`fixtures/inbound-dispatch-response.json`](./fixtures/inbound-dispatch-response.json)
 
-- `MANAGED_GATEWAY_ENABLED` (default `true`)
-- `MANAGED_GATEWAY_DJANGO_INTERNAL_BASE_URL` (required when enabled and strict validation is on)
-- `MANAGED_GATEWAY_STRICT_STARTUP_VALIDATION` (default `true`)
-- `MANAGED_GATEWAY_INTERNAL_AUTH_MODE` (`bearer` or `mtls`)
-- `MANAGED_GATEWAY_INTERNAL_AUTH_AUDIENCE` (expected audience for internal callers)
-- `MANAGED_GATEWAY_INTERNAL_BEARER_TOKENS` (JSON token catalog)
-- `MANAGED_GATEWAY_INTERNAL_REVOKED_TOKEN_IDS` (comma-separated token IDs)
-- `MANAGED_GATEWAY_INTERNAL_MTLS_PRINCIPALS` (comma-separated principal IDs)
-- `MANAGED_GATEWAY_TWILIO_AUTH_TOKENS` (JSON Twilio signature token catalog)
-- `MANAGED_GATEWAY_TWILIO_REVOKED_TOKEN_IDS` (comma-separated Twilio token IDs)
+## Ownership Boundary
 
-## Run locally
-
-```bash
-cd gateway-managed
-bun install
-bun run dev
-```
-
-## Tests
-
-```bash
-cd gateway-managed
-bun run test
-```
-
-## Internal Auth Lifecycle
-
-- Issuance: add a new entry to `MANAGED_GATEWAY_INTERNAL_BEARER_TOKENS` with `token_id`, `principal`, `audience`, `scopes`, and optional `expires_at`.
-- Rotation: keep old and new bearer entries active during rollout overlap.
-- Revocation: set `revoked: true` on a token entry or add its `token_id` to `MANAGED_GATEWAY_INTERNAL_REVOKED_TOKEN_IDS`.
-- Expiry: set `expires_at` as ISO-8601 UTC; expired bearer tokens are rejected.
-
-## Twilio Signature Token Lifecycle
-
-- Issuance: add a new entry to `MANAGED_GATEWAY_TWILIO_AUTH_TOKENS` with `token_id`, `auth_token`, and optional `expires_at`.
-- Rotation: keep old and new Twilio auth token entries active during overlap.
-- Revocation: set `revoked: true` on a token entry or add its `token_id` to `MANAGED_GATEWAY_TWILIO_REVOKED_TOKEN_IDS`.
-- Expiry: set `expires_at` as ISO-8601 UTC; expired Twilio tokens are ignored by signature validation.
-
-## Route Resolve Contract
-
-Managed gateway route resolution contract lives in [`route-resolve-contract.md`](./route-resolve-contract.md).
-
-## Inbound Dispatch Contract
-
-Managed gateway inbound dispatch contract lives in [`inbound-dispatch-contract.md`](./inbound-dispatch-contract.md).
-
-## Managed Twilio SMS Webhook Contract
-
-Managed Twilio SMS webhook contract lives in [`managed-twilio-sms-webhook-contract.md`](./managed-twilio-sms-webhook-contract.md).
-
-## Managed Twilio Voice Webhook Contract
-
-Managed Twilio voice webhook contract lives in [`managed-twilio-voice-webhook-contract.md`](./managed-twilio-voice-webhook-contract.md).
-
-## Managed Inbound Event Shape
-
-Managed Twilio payloads normalize into a shared internal event shape before route-resolution and managed dispatch forwarding. Current normalizers live in `src/twilio-normalize.ts`.
-
-## Staging Deployment Artifacts
-
-- Deployment scaffolding index: [`deploy/README.md`](./deploy/README.md)
-- Kubernetes stubs:
-  - [`deploy/k8s/deployment.staging.yaml`](./deploy/k8s/deployment.staging.yaml)
-  - [`deploy/k8s/service.staging.yaml`](./deploy/k8s/service.staging.yaml)
-- Manifest + optional live probe checks:
-  - `bun run smoke:staging`
-- Rollout and rollback runbook:
-  - [`deploy/staging-rollout.md`](./deploy/staging-rollout.md)
+1. Runtime implementation, deployment manifests, and operational runbooks are platform-owned.
+2. This directory is contract-only and should not reintroduce a deployable managed-gateway service.
+3. Contract changes should be versioned and coordinated with platform runtime updates.

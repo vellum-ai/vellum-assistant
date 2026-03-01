@@ -8,7 +8,7 @@ This file is the cross-system architecture index. Detailed designs live in domai
 |---|---|
 | Assistant runtime | [`assistant/ARCHITECTURE.md`](assistant/ARCHITECTURE.md) |
 | Gateway ingress/webhooks | [`gateway/ARCHITECTURE.md`](gateway/ARCHITECTURE.md) |
-| Managed gateway service | [`gateway-managed/ARCHITECTURE.md`](gateway-managed/ARCHITECTURE.md) |
+| Managed gateway contracts | [`gateway-managed/ARCHITECTURE.md`](gateway-managed/ARCHITECTURE.md) |
 | Clients (macOS/iOS) | [`clients/ARCHITECTURE.md`](clients/ARCHITECTURE.md) |
 | Assistant memory deep dive | [`assistant/docs/architecture/memory.md`](assistant/docs/architecture/memory.md) |
 | Assistant integrations deep dive | [`assistant/docs/architecture/integrations.md`](assistant/docs/architecture/integrations.md) |
@@ -21,7 +21,7 @@ This file is the cross-system architecture index. Detailed designs live in domai
 ## Cross-Cutting Invariants
 
 - Public ingress is gateway-only; external webhook/API routes are implemented in `gateway/` and forwarded internally.
-- Managed shared-identity channel routing runs in a separate `gateway-managed/` service lane from the per-assistant `gateway/` lane.
+- Managed shared-identity channel routing runs in a separate managed-gateway service lane from the per-assistant `gateway/` lane. The deployable managed-gateway runtime is platform-owned; this repo keeps public contracts/fixtures under `gateway-managed/`.
 - Production LLM calls go through the provider abstraction, not provider SDKs in feature code.
 - Notification producers emit through `emitNotificationSignal()` to preserve decisioning and audit invariants. Reminder routing metadata (`routingIntent`, `routingHints`) flows through the signal and is enforced post-decision to control multi-channel fanout. The decision engine produces per-channel thread actions (`start_new` / `reuse_existing`) validated against a candidate set; `notification_thread_created` IPC is emitted only on actual creation, not on reuse.
 - Memory extraction/recall must enforce actor-role provenance gates for untrusted actors.
