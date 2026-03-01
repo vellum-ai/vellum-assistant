@@ -379,30 +379,33 @@ export async function runDaemon(): Promise<void> {
         // Setting toolsDisabled causes the resolveTools callback to return
         // an empty tool list, preventing the LLM from seeing or invoking
         // any tools during the pointer agent loop.
+        //
+        // The outer try/finally ensures toolsDisabled is always reset even
+        // if persistUserMessage or any other step throws before the agent
+        // loop's own try/finally would run.
         session.toolsDisabled = true;
-
-        const messageId = await session.persistUserMessage(
-          instruction,
-          [],
-          undefined,
-          { pointerInstruction: true },
-          '[Call status event]',
-        );
-
-        // Helper: roll back persisted messages on failure, then reload
-        // in-memory history from the (now cleaned) DB. Reloading avoids
-        // stale-index issues when context compaction reassigns the
-        // messages array during runAgentLoop.
-        const rollback = async (extraMessageIds?: string[]) => {
-          try { conversationStore.deleteMessageById(messageId); } catch { /* best effort */ }
-          for (const id of extraMessageIds ?? []) {
-            try { conversationStore.deleteMessageById(id); } catch { /* best effort */ }
-          }
-          try { await session.loadFromDb(); } catch { /* best effort */ }
-        };
-
-        let agentLoopError: string | undefined;
         try {
+          const messageId = await session.persistUserMessage(
+            instruction,
+            [],
+            undefined,
+            { pointerInstruction: true },
+            '[Call status event]',
+          );
+
+          // Helper: roll back persisted messages on failure, then reload
+          // in-memory history from the (now cleaned) DB. Reloading avoids
+          // stale-index issues when context compaction reassigns the
+          // messages array during runAgentLoop.
+          const rollback = async (extraMessageIds?: string[]) => {
+            try { conversationStore.deleteMessageById(messageId); } catch { /* best effort */ }
+            for (const id of extraMessageIds ?? []) {
+              try { conversationStore.deleteMessageById(id); } catch { /* best effort */ }
+            }
+            try { await session.loadFromDb(); } catch { /* best effort */ }
+          };
+
+          let agentLoopError: string | undefined;
           await session.runAgentLoop(instruction, messageId, (msg) => {
             if ('type' in msg && (msg.type === 'error' || msg.type === 'session_error')) {
               agentLoopError = 'message' in msg
@@ -412,60 +415,60 @@ export async function runDaemon(): Promise<void> {
                   : 'Agent loop failed';
             }
           });
+          if (agentLoopError) {
+            // Remove any assistant messages persisted during the failed run
+            // (e.g. session_error text) so the deterministic fallback is the
+            // only visible pointer output for this event. Scope to the
+            // assistant message immediately following the instruction to
+            // avoid deleting messages from other concurrent turns.
+            const allMsgs = conversationStore.getMessages(conversationId);
+            const instrIdx = allMsgs.findIndex((m) => m.id === messageId);
+            const nextMsg = instrIdx >= 0 ? allMsgs[instrIdx + 1] : undefined;
+            const extraIds = nextMsg && nextMsg.role === 'assistant' ? [nextMsg.id] : [];
+            await rollback(extraIds);
+            throw new Error(agentLoopError);
+          }
+
+          // Post-generation fact check: verify the assistant's response
+          // includes all required factual details (phone number, duration,
+          // outcome keyword, etc.). If the model omitted or rewrote them,
+          // remove both the instruction and generated messages and throw so
+          // the deterministic fallback fires.
+          //
+          // Find the assistant message generated *after* the pointer
+          // instruction (messageId) rather than the conversation-wide latest,
+          // because runAgentLoop's finally block may drain queued work that
+          // appends unrelated assistant messages.
+          if (requiredFacts && requiredFacts.length > 0) {
+            const allMessages = conversationStore.getMessages(conversationId);
+            const instructionIdx = allMessages.findIndex((m) => m.id === messageId);
+            const pointerReply = instructionIdx >= 0
+              ? allMessages.find((m, i) => i > instructionIdx && m.role === 'assistant')
+              : undefined;
+            if (pointerReply) {
+              let generatedText = '';
+              try {
+                const blocks = JSON.parse(pointerReply.content) as Array<{ type: string; text?: string }>;
+                generatedText = blocks
+                  .filter((b) => b.type === 'text')
+                  .map((b) => b.text ?? '')
+                  .join('');
+              } catch { /* non-JSON content — treat as empty */ }
+
+              const missingFacts = requiredFacts.filter((fact) => !generatedText.includes(fact));
+              if (missingFacts.length > 0) {
+                log.warn(
+                  { conversationId, missingFacts },
+                  'Generated pointer text failed fact validation — falling back to deterministic',
+                );
+                await rollback([pointerReply.id]);
+                throw new Error('Generated pointer text failed fact validation');
+              }
+            }
+          }
         } finally {
           // Restore tool availability so subsequent turns aren't affected.
           session.toolsDisabled = false;
-        }
-        if (agentLoopError) {
-          // Remove any assistant messages persisted during the failed run
-          // (e.g. session_error text) so the deterministic fallback is the
-          // only visible pointer output for this event. Scope to the
-          // assistant message immediately following the instruction to
-          // avoid deleting messages from other concurrent turns.
-          const allMsgs = conversationStore.getMessages(conversationId);
-          const instrIdx = allMsgs.findIndex((m) => m.id === messageId);
-          const nextMsg = instrIdx >= 0 ? allMsgs[instrIdx + 1] : undefined;
-          const extraIds = nextMsg && nextMsg.role === 'assistant' ? [nextMsg.id] : [];
-          await rollback(extraIds);
-          throw new Error(agentLoopError);
-        }
-
-        // Post-generation fact check: verify the assistant's response
-        // includes all required factual details (phone number, duration,
-        // outcome keyword, etc.). If the model omitted or rewrote them,
-        // remove both the instruction and generated messages and throw so
-        // the deterministic fallback fires.
-        //
-        // Find the assistant message generated *after* the pointer
-        // instruction (messageId) rather than the conversation-wide latest,
-        // because runAgentLoop's finally block may drain queued work that
-        // appends unrelated assistant messages.
-        if (requiredFacts && requiredFacts.length > 0) {
-          const allMessages = conversationStore.getMessages(conversationId);
-          const instructionIdx = allMessages.findIndex((m) => m.id === messageId);
-          const pointerReply = instructionIdx >= 0
-            ? allMessages.find((m, i) => i > instructionIdx && m.role === 'assistant')
-            : undefined;
-          if (pointerReply) {
-            let generatedText = '';
-            try {
-              const blocks = JSON.parse(pointerReply.content) as Array<{ type: string; text?: string }>;
-              generatedText = blocks
-                .filter((b) => b.type === 'text')
-                .map((b) => b.text ?? '')
-                .join('');
-            } catch { /* non-JSON content — treat as empty */ }
-
-            const missingFacts = requiredFacts.filter((fact) => !generatedText.includes(fact));
-            if (missingFacts.length > 0) {
-              log.warn(
-                { conversationId, missingFacts },
-                'Generated pointer text failed fact validation — falling back to deterministic',
-              );
-              await rollback([pointerReply.id]);
-              throw new Error('Generated pointer text failed fact validation');
-            }
-          }
         }
       });
       runtimeHttp.setPairingBroadcast((msg) => server.broadcast(msg as ServerMessage));
