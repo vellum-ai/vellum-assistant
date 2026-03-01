@@ -10,7 +10,6 @@ import { type ChildProcess, spawn } from "child_process";
 import { mkdirSync, readdirSync, readFileSync } from "fs";
 import path from "path";
 
-import Anthropic from "@anthropic-ai/sdk";
 import { test, expect } from "@playwright/test";
 
 import { runAgent } from "../agent/agent";
@@ -39,63 +38,6 @@ function parseFrontmatter(content: string): { fixture?: string; experimental?: b
   }
 
   return { fixture, experimental, body };
-}
-
-/**
- * Infer required environment variables from the test file content using an LLM.
- *
- * Sends the test body to Claude Haiku to identify environment variable names
- * that would need to be set for the test to run. This allows test authors to
- * write natural language without explicitly listing env vars in frontmatter.
- */
-async function inferRequiredEnv(content: string): Promise<string[]> {
-  try {
-    const client = new Anthropic();
-    const response = await client.messages.create({
-      model: "claude-3-5-haiku-latest",
-      max_tokens: 256,
-      messages: [
-        {
-          role: "user",
-          content: [
-            "Analyze the following test case description and identify all environment",
-            "variable names that would need to be set for this test to run. Look for",
-            "references to API keys, tokens, secrets, credentials, or any other values",
-            "that would typically be stored as environment variables.",
-            "",
-            "Return ONLY a JSON array of environment variable names, e.g.",
-            '["ANTHROPIC_API_KEY"]. If none are needed, return [].',
-            "",
-            "Test case:",
-            content,
-          ].join("\n"),
-        },
-      ],
-    });
-
-    const text = response.content
-      .filter((b): b is Anthropic.TextBlock => b.type === "text")
-      .map((b) => b.text)
-      .join("");
-
-    const match = text.match(/\[.*\]/s);
-    if (!match) return [];
-
-    const parsed = JSON.parse(match[0]);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter((v): v is string => typeof v === "string");
-  } catch {
-    // If the LLM call fails (no API key, network error, etc.), skip the check
-    return [];
-  }
-}
-
-function checkRequiredEnv(requiredEnv: string[]): void {
-  if (requiredEnv.length === 0) return;
-  const missing = requiredEnv.filter((v) => !process.env[v]);
-  if (missing.length > 0) {
-    throw new Error(`Missing required env vars: ${missing.join(", ")}`);
-  }
 }
 
 // ── macOS Screen Recording ──────────────────────────────────────────
@@ -140,8 +82,6 @@ for (const file of caseFiles) {
       test.skip();
       return;
     }
-
-    checkRequiredEnv(await inferRequiredEnv(body));
 
     let fixtureCtx: FixtureContext | undefined;
     let recorder: ChildProcess | undefined;
