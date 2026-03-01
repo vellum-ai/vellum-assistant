@@ -14,7 +14,7 @@ public class ActorCredentialRefresher {
     /// Attempts a single refresh. Thread-safe via @MainActor or serial dispatch.
     /// `baseURL` is the gateway URL (e.g. https://gateway.example.com).
     /// `bearerToken` is the runtime bearer for auth.
-    public static func refresh(baseURL: String, bearerToken: String?) async -> RefreshResult {
+    public static func refresh(baseURL: String, bearerToken: String?, platform: String, deviceId: String) async -> RefreshResult {
         guard let refreshToken = ActorTokenManager.getRefreshToken() else {
             return .terminalError(reason: "no_refresh_token")
         }
@@ -40,7 +40,7 @@ public class ActorCredentialRefresher {
             request.setValue(actorToken, forHTTPHeaderField: "X-Actor-Token")
         }
 
-        let body: [String: Any] = ["refreshToken": refreshToken]
+        let body: [String: Any] = ["refreshToken": refreshToken, "platform": platform, "deviceId": deviceId]
 
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -74,7 +74,7 @@ public class ActorCredentialRefresher {
             // Check for terminal errors
             if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let error = json["error"] as? String {
-                let terminalErrors = ["refresh_reuse_detected", "revoked", "device_binding_mismatch", "invalid_refresh_token", "refresh_token_expired"]
+                let terminalErrors = ["refresh_reuse_detected", "revoked", "device_binding_mismatch", "refresh_invalid", "refresh_expired"]
                 if terminalErrors.contains(error) {
                     return .terminalError(reason: error)
                 }

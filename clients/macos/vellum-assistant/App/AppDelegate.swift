@@ -678,7 +678,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
                     let result = await ActorCredentialRefresher.refresh(
                         baseURL: baseURL,
-                        bearerToken: bearerToken
+                        bearerToken: bearerToken,
+                        platform: "macos",
+                        deviceId: PairingQRCodeSheet.computeHostId()
                     )
 
                     switch result {

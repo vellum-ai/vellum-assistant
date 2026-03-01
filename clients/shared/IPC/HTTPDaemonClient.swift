@@ -888,9 +888,18 @@ public final class HTTPTransport {
             guard let self else { return }
             defer { self.isRefreshing = false }
 
+            #if os(macOS)
+            let refreshPlatform = "macos"
+            #else
+            let refreshPlatform = "ios"
+            #endif
+            let refreshDeviceId = APIKeyManager.shared.getAPIKey(provider: "pairing-device-id") ?? ""
+
             let result = await ActorCredentialRefresher.refresh(
                 baseURL: self.baseURL,
-                bearerToken: self.bearerToken
+                bearerToken: self.bearerToken,
+                platform: refreshPlatform,
+                deviceId: refreshDeviceId
             )
 
             switch result {

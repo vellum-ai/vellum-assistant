@@ -115,7 +115,7 @@ export function mintRefreshToken(params: {
   return {
     refreshToken,
     refreshTokenHash,
-    refreshTokenExpiresAt: absoluteExpiresAt,
+    refreshTokenExpiresAt: Math.min(absoluteExpiresAt, inactivityExpiresAt),
     refreshAfter: now + Math.floor(ACCESS_TOKEN_TTL_MS * REFRESH_AFTER_FRACTION),
   };
 }
@@ -240,8 +240,11 @@ export function rotateCredentials(params: {
     return { ok: false, error: 'device_binding_mismatch' };
   }
 
-  // Mark old refresh token as rotated
-  markRotated(refreshTokenHash);
+  // Mark old refresh token as rotated (atomic CAS — fails if a concurrent request already consumed it)
+  const didRotate = markRotated(refreshTokenHash);
+  if (!didRotate) {
+    return { ok: false, error: 'refresh_reuse_detected' };
+  }
 
   // Revoke old access tokens for this device
   revokeActorTokensByDevice(record.assistantId, record.guardianPrincipalId, record.hashedDeviceId);

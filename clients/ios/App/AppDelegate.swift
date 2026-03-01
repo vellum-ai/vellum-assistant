@@ -217,7 +217,9 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 
                     let result = await ActorCredentialRefresher.refresh(
                         baseURL: httpTransport.baseURL,
-                        bearerToken: httpTransport.bearerToken
+                        bearerToken: httpTransport.bearerToken,
+                        platform: "ios",
+                        deviceId: Self.getOrCreateDeviceId()
                     )
 
                     switch result {
