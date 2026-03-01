@@ -19,7 +19,6 @@ import {
   startOutbound,
 } from '../../runtime/guardian-outbound-actions.js';
 import type {
-  ChannelReadinessRequest,
   GuardianVerificationRequest,
   GuardianVerificationResponse,
 } from '../ipc-protocol.js';
@@ -225,53 +224,6 @@ export function handleGuardianVerification(
 }
 
 
-// ---------------------------------------------------------------------------
-// Channel readiness handler
-// ---------------------------------------------------------------------------
-
-export async function handleChannelReadiness(
-  msg: ChannelReadinessRequest,
-  socket: net.Socket,
-  ctx: HandlerContext,
-): Promise<void> {
-  try {
-    const service = getReadinessService();
-
-    if (msg.action === 'refresh') {
-      if (msg.channel) {
-        service.invalidateChannel(msg.channel);
-      } else {
-        service.invalidateAll();
-      }
-    }
-
-    const snapshots = await service.getReadiness(msg.channel, msg.includeRemote);
-
-    ctx.send(socket, {
-      type: 'channel_readiness_response',
-      success: true,
-      snapshots: snapshots.map((s) => ({
-        channel: s.channel,
-        ready: s.ready,
-        checkedAt: s.checkedAt,
-        stale: s.stale,
-        reasons: s.reasons,
-        localChecks: s.localChecks,
-        remoteChecks: s.remoteChecks,
-      })),
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    log.error({ err }, 'Failed to handle channel readiness');
-    ctx.send(socket, {
-      type: 'channel_readiness_response',
-      success: false,
-      error: message,
-    });
-  }
-}
-
 export const channelHandlers = defineHandlers({
-  channel_readiness: handleChannelReadiness,
   guardian_verification: handleGuardianVerification,
 });

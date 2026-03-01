@@ -668,22 +668,6 @@ exports[`IPC message snapshots ClientMessage types telegram_config serializes to
 }
 `;
 
-exports[`IPC message snapshots ClientMessage types twilio_config serializes to expected JSON 1`] = `
-{
-  "action": "get",
-  "type": "twilio_config",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types channel_readiness serializes to expected JSON 1`] = `
-{
-  "action": "get",
-  "channel": "sms",
-  "includeRemote": true,
-  "type": "channel_readiness",
-}
-`;
-
 exports[`IPC message snapshots ClientMessage types guardian_verification serializes to expected JSON 1`] = `
 {
   "action": "create_challenge",
@@ -2324,76 +2308,6 @@ exports[`IPC message snapshots ServerMessage types telegram_config_response seri
   "hasWebhookSecret": true,
   "success": true,
   "type": "telegram_config_response",
-}
-`;
-
-exports[`IPC message snapshots ServerMessage types twilio_config_response serializes to expected JSON 1`] = `
-{
-  "compliance": {
-    "numberType": "toll_free",
-    "verificationSid": "TF_VER_001",
-    "verificationStatus": "TWILIO_APPROVED",
-  },
-  "diagnostics": {
-    "actionItems": [],
-    "compliance": {
-      "detail": "Toll-free verification: TWILIO_APPROVED",
-      "status": "TWILIO_APPROVED",
-    },
-    "overallStatus": "healthy",
-    "readiness": {
-      "issues": [],
-      "ready": true,
-    },
-  },
-  "hasCredentials": true,
-  "phoneNumber": "+15551234567",
-  "success": true,
-  "testResult": {
-    "finalStatus": "delivered",
-    "initialStatus": "queued",
-    "messageSid": "SM-test-001",
-    "to": "+15559876543",
-  },
-  "type": "twilio_config_response",
-}
-`;
-
-exports[`IPC message snapshots ServerMessage types channel_readiness_response serializes to expected JSON 1`] = `
-{
-  "snapshots": [
-    {
-      "channel": "sms",
-      "checkedAt": 1700000000000,
-      "localChecks": [
-        {
-          "message": "Twilio credentials are not configured",
-          "name": "twilio_credentials",
-          "passed": false,
-        },
-        {
-          "message": "Phone number is assigned",
-          "name": "phone_number",
-          "passed": true,
-        },
-        {
-          "message": "Public ingress URL is configured",
-          "name": "ingress",
-          "passed": true,
-        },
-      ],
-      "ready": false,
-      "reasons": [
-        {
-          "code": "twilio_credentials",
-          "text": "Twilio credentials are not configured",
-        },
-      ],
-      "stale": false,
-    },
-  ],
-  "success": true,
-  "type": "channel_readiness_response",
 }
 `;
 

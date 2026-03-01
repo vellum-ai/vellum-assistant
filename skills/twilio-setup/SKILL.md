@@ -6,7 +6,26 @@ includes: ["public-ingress"]
 metadata: {"vellum": {"emoji": "\ud83d\udcf1"}}
 ---
 
-You are helping your user configure Twilio for voice calls and SMS messaging. Twilio is the shared telephony provider for both the **phone-calls** and **SMS messaging** capabilities. When this skill is invoked, walk through each step below using the `twilio_config` IPC contract and existing tools.
+You are helping your user configure Twilio for voice calls and SMS messaging. Twilio is the shared telephony provider for both the **phone-calls** and **SMS messaging** capabilities. When this skill is invoked, walk through each step below using the Twilio HTTP control-plane endpoints and existing tools.
+
+## Quick Start
+
+```bash
+TOKEN=$(cat ~/.vellum/http-token)
+# 1. Check current status
+curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/config" \
+  -H "Authorization: Bearer $TOKEN"
+# 2. Store credentials (after collecting via credential_store prompt)
+curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/credentials" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"accountSid":"ACxxx","authToken":"xxx"}'
+# 3. Provision or assign a number
+curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/numbers/provision" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"country":"US","areaCode":"415"}'
+```
+
+For voice call setup after Twilio is configured, use `phone-calls` + `call_start`.
 
 ## Overview
 
@@ -16,42 +35,40 @@ This skill manages the full Twilio lifecycle:
 - **Phone number assignment** — Assign an existing Twilio number to the assistant
 - **Status checking** — Verify credentials and assigned number
 
-All operations go through the `twilio_config` IPC handler on the daemon, which validates inputs, stores credentials securely, and manages phone number state.
+All operations go through the Twilio HTTP control-plane endpoints on the gateway, which validates inputs, stores credentials securely, and manages phone number state.
 
 ### Multi-Assistant Setups
 
-In a multi-assistant environment (multiple assistants sharing the same daemon), some `twilio_config` actions are **assistant-scoped** while others are **global** (shared across all assistants):
+In a multi-assistant environment (multiple assistants sharing the same daemon), some actions are **assistant-scoped** while others are **global** (shared across all assistants):
 
 **Global actions** (ignore `assistantId` — credentials are shared across all assistants):
-- `set_credentials` — Stores Account SID and Auth Token in global secure storage (`credential:twilio:*` keys). All assistants share the same Twilio account credentials.
-- `clear_credentials` — Removes the globally stored Account SID and Auth Token. This affects all assistants.
+- `POST /v1/integrations/twilio/credentials` — Stores Account SID and Auth Token in global secure storage (`credential:twilio:*` keys). All assistants share the same Twilio account credentials.
+- `DELETE /v1/integrations/twilio/credentials` — Removes the globally stored Account SID and Auth Token. This affects all assistants.
 
-**Assistant-scoped actions** (use `assistantId` to scope phone number configuration per assistant):
-- `get` — Returns the phone number assigned to the specified assistant (falls back to the legacy global number if no per-assistant mapping exists).
-- `assign_number` — Assigns a phone number to a specific assistant via the per-assistant mapping.
-- `provision_number` — Provisions a new number and assigns it to the specified assistant.
-- `list_numbers` — Lists all phone numbers on the shared Twilio account (uses global credentials).
+**Assistant-scoped actions** (use `assistantId` query parameter to scope phone number configuration per assistant):
+- `GET /v1/integrations/twilio/config` — Returns the phone number assigned to the specified assistant (falls back to the legacy global number if no per-assistant mapping exists).
+- `POST /v1/integrations/twilio/numbers/assign` — Assigns a phone number to a specific assistant via the per-assistant mapping.
+- `POST /v1/integrations/twilio/numbers/provision` — Provisions a new number and assigns it to the specified assistant.
+- `GET /v1/integrations/twilio/numbers` — Lists all phone numbers on the shared Twilio account (uses global credentials).
 
-Include `assistantId` in assistant-scoped actions whenever:
+Include `assistantId` as a query parameter in assistant-scoped requests whenever:
 - Multiple assistants share the same Twilio account but use different phone numbers
 - You want to ensure configuration changes only affect a specific assistant
 - The user has explicitly selected or referenced a particular assistant
 
-All IPC examples below include the optional `assistantId` field in assistant-scoped actions. Omit it in single-assistant setups. For global actions (`set_credentials`, `clear_credentials`), the `assistantId` field is accepted but ignored.
+All HTTP examples below include the optional `assistantId` query parameter in assistant-scoped requests. Omit it in single-assistant setups. For global actions (credentials), the `assistantId` parameter is accepted but ignored.
 
 ## Step 1: Check Current Configuration
 
-First, check whether Twilio is already configured by sending the `twilio_config` IPC message with `action: "get"`:
+First, check whether Twilio is already configured:
 
-```json
-{
-  "type": "twilio_config",
-  "action": "get",
-  "assistantId": "<optional — omit for single-assistant setups>"
-}
+```bash
+TOKEN=$(cat ~/.vellum/http-token)
+curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/config" \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
-The daemon returns a `twilio_config_response` with:
+The response includes:
 - `hasCredentials` — whether Account SID and Auth Token are stored
 - `phoneNumber` — the currently assigned phone number (if any)
 
@@ -71,20 +88,19 @@ If credentials are not yet stored, guide the user through Twilio account setup:
 - Call `credential_store` with `action: "prompt"`, `service: "twilio"`, `field: "account_sid"`, `label: "Twilio Account SID"`, `description: "Enter your Account SID from the Twilio Console dashboard"`, and `placeholder: "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"`.
 - Call `credential_store` with `action: "prompt"`, `service: "twilio"`, `field: "auth_token"`, `label: "Twilio Auth Token"`, `description: "Enter your Auth Token from the Twilio Console dashboard"`, and `placeholder: "your_auth_token"`.
 
-After both credentials are collected, retrieve them from secure storage and pass them to the daemon:
+After both credentials are collected, retrieve them from secure storage and send them to the gateway:
 
-```json
-{
-  "type": "twilio_config",
-  "action": "set_credentials",
-  "accountSid": "<value from credential_store for twilio/account_sid>",
-  "authToken": "<value from credential_store for twilio/auth_token>"
-}
+```bash
+TOKEN=$(cat ~/.vellum/http-token)
+curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/credentials" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"accountSid":"<value from credential_store for twilio/account_sid>","authToken":"<value from credential_store for twilio/auth_token>"}'
 ```
 
-Both `accountSid` and `authToken` are required — the daemon validates the credentials against the Twilio API before storing them. If credentials are invalid, the daemon returns an error. Tell the user and ask them to re-enter via the secure prompt.
+Both `accountSid` and `authToken` are required — the endpoint validates the credentials against the Twilio API before storing them. If credentials are invalid, the response returns an error. Tell the user and ask them to re-enter via the secure prompt.
 
-**Note:** `set_credentials` is a global operation — credentials are stored once and shared across all assistants. The `assistantId` field is accepted but ignored.
+**Note:** Setting credentials is a global operation — credentials are stored once and shared across all assistants. The `assistantId` parameter is accepted but ignored.
 
 ## Step 3: Get a Phone Number
 
@@ -92,24 +108,22 @@ The assistant needs a phone number to make calls and send SMS. There are two pat
 
 ### Option A: Provision a New Number
 
-If the user wants to buy a new number through Twilio, send:
+If the user wants to buy a new number through Twilio:
 
-```json
-{
-  "type": "twilio_config",
-  "action": "provision_number",
-  "areaCode": "415",
-  "country": "US",
-  "assistantId": "<optional — omit for single-assistant setups>"
-}
+```bash
+TOKEN=$(cat ~/.vellum/http-token)
+curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/numbers/provision" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"country":"US","areaCode":"415"}'
 ```
 
 - `areaCode` is optional — ask the user if they have a preferred area code
 - `country` defaults to `"US"` — ask if they want a different country (ISO 3166-1 alpha-2)
 
-The daemon provisions the number via the Twilio API, automatically assigns it to the assistant (persisting to both secure storage and config), and configures Twilio webhooks (voice, status callback, SMS) if a public ingress URL is available. The response includes the new `phoneNumber`. No separate `assign_number` call is needed.
+The endpoint provisions the number via the Twilio API, automatically assigns it to the assistant (persisting to both secure storage and config), and configures Twilio webhooks (voice, status callback, SMS) if a public ingress URL is available. The response includes the new `phoneNumber`. No separate assign call is needed.
 
-**Webhook auto-configuration:** When `ingress.publicBaseUrl` is configured, the daemon automatically sets the following webhooks on the Twilio phone number:
+**Webhook auto-configuration:** When `ingress.publicBaseUrl` is configured, the endpoint automatically sets the following webhooks on the Twilio phone number:
 - Voice webhook: `{publicBaseUrl}/webhooks/twilio/voice`
 - Voice status callback: `{publicBaseUrl}/webhooks/twilio/status`
 - SMS webhook: `{publicBaseUrl}/webhooks/twilio/sms`
@@ -122,28 +136,25 @@ If ingress is not yet configured, webhook setup is skipped gracefully — the nu
 
 If the user already has a Twilio phone number, first list available numbers:
 
-```json
-{
-  "type": "twilio_config",
-  "action": "list_numbers",
-  "assistantId": "<optional — omit for single-assistant setups>"
-}
+```bash
+TOKEN=$(cat ~/.vellum/http-token)
+curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/numbers" \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 The response includes a `numbers` array with each number's `phoneNumber`, `friendlyName`, and `capabilities` (voice, SMS). Present these to the user and let them choose.
 
 Then assign the chosen number:
 
-```json
-{
-  "type": "twilio_config",
-  "action": "assign_number",
-  "phoneNumber": "+14155551234",
-  "assistantId": "<optional — omit for single-assistant setups>"
-}
+```bash
+TOKEN=$(cat ~/.vellum/http-token)
+curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/numbers/assign" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"phoneNumber":"+14155551234"}'
 ```
 
-The phone number must be in E.164 format. Like `provision_number`, `assign_number` also auto-configures Twilio webhooks when a public ingress URL is available.
+The phone number must be in E.164 format. Like provisioning, assigning also auto-configures Twilio webhooks when a public ingress URL is available.
 
 ### Option C: Manual Entry
 
@@ -153,15 +164,14 @@ If the user wants to enter a number directly (e.g., they know it already), store
 credential_store action=store service=twilio field=phone_number value=+14155551234
 ```
 
-Then assign it through the IPC:
+Then assign it through the gateway:
 
-```json
-{
-  "type": "twilio_config",
-  "action": "assign_number",
-  "phoneNumber": "+14155551234",
-  "assistantId": "<optional — omit for single-assistant setups>"
-}
+```bash
+TOKEN=$(cat ~/.vellum/http-token)
+curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/numbers/assign" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"phoneNumber":"+14155551234"}'
 ```
 
 ## Step 4: Set Up Public Ingress
@@ -187,11 +197,17 @@ skill_load skill=public-ingress
 - ConversationRelay WebSocket: `{publicBaseUrl}/webhooks/twilio/relay` (wss://)
 - SMS webhook: `{publicBaseUrl}/webhooks/twilio/sms`
 
-Webhook URLs are automatically configured on the Twilio phone number when `provision_number` or `assign_number` is called with a valid ingress URL. No manual Twilio Console webhook configuration is needed.
+Webhook URLs are automatically configured on the Twilio phone number when provisioning or assigning a number with a valid ingress URL. No manual Twilio Console webhook configuration is needed.
 
 ## Step 5: Verify Setup
 
-After configuration, verify by sending `twilio_config` with `action: "get"` again.
+After configuration, verify by checking the config endpoint again.
+
+```bash
+TOKEN=$(cat ~/.vellum/http-token)
+curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/config" \
+  -H "Authorization: Bearer $TOKEN"
+```
 
 Confirm:
 - `hasCredentials` is `true`
@@ -251,18 +267,17 @@ SMS is available automatically once Twilio is configured — no additional featu
 
 ## Clearing Credentials
 
-If the user wants to disconnect Twilio, send:
+If the user wants to disconnect Twilio:
 
-```json
-{
-  "type": "twilio_config",
-  "action": "clear_credentials"
-}
+```bash
+TOKEN=$(cat ~/.vellum/http-token)
+curl -s -X DELETE "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/credentials" \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 This removes the stored Account SID and Auth Token. Phone number assignments are preserved. Voice calls and SMS will stop working until credentials are reconfigured.
 
-**Note:** `clear_credentials` is a global operation — it removes credentials for all assistants, not just the current one. The `assistantId` field is accepted but ignored. In multi-assistant setups, warn the user that clearing credentials will affect all assistants sharing this Twilio account.
+**Note:** Clearing credentials is a global operation — it removes credentials for all assistants, not just the current one. The `assistantId` parameter is accepted but ignored. In multi-assistant setups, warn the user that clearing credentials will affect all assistants sharing this Twilio account.
 
 ## Troubleshooting
 
@@ -284,5 +299,5 @@ Run Step 3 to provision or assign a phone number.
 
 ### "Number not found" when assigning
 - The number must be owned by the same Twilio account
-- Use `list_numbers` to see available numbers
+- Use the list numbers endpoint to see available numbers
 - Ensure the number is in E.164 format (`+` followed by country code and number)

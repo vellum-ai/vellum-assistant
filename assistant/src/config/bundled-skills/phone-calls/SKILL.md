@@ -17,7 +17,15 @@ Twilio credentials and phone number configuration are shared between voice calls
 
 The twilio-setup skill handles credential storage, phone number provisioning/assignment, and public ingress setup. Once complete, return here to enable the calls feature and start making calls.
 
-If Twilio is already configured (check `twilio_config` with `action: "get"`), skip directly to **Step 5: Enable Calls** below.
+Check if Twilio is already configured:
+
+```bash
+TOKEN=$(cat ~/.vellum/http-token)
+curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/config" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+If `hasCredentials` is `true` and `phoneNumber` is set, skip directly to **Step 5: Enable Calls** below.
 
 ## Overview
 
@@ -58,65 +66,48 @@ The user's assistant gets its own personal phone number through Twilio. All impl
 First, check whether Twilio is already configured:
 
 ```bash
+TOKEN=$(cat ~/.vellum/http-token)
+curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/config" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Also check calls feature status:
+
+```bash
 vellum config get calls.enabled
 ```
 
-Also check for existing credentials:
-
-```bash
-credential_store action=list
-```
-
-Look for entries with service `twilio` and fields `account_sid`, `auth_token`, and `phone_number`.
-
-If all three credentials exist and `calls.enabled` is `true`, skip to the **Making Calls** section. If credentials are partially configured, skip to whichever step is still needed.
+If the config response shows `hasCredentials: true` and `phoneNumber` is set, and `calls.enabled` is `true`, skip to the **Making Calls** section. If credentials are partially configured, skip to whichever step is still needed.
 
 ## Step 2: Create a Twilio Account
 
 If the user doesn't have a Twilio account yet, guide them through setup:
 
 1. Tell the user: **"You'll need a Twilio account to make phone calls. Sign up at https://www.twilio.com/try-twilio — it's free to start and includes trial credit."**
-2. Once they have an account, they need three pieces of information:
+2. Once they have an account, they need two pieces of information:
    - **Account SID** — found on the Twilio Console dashboard at https://console.twilio.com
    - **Auth Token** — found on the same dashboard (click "Show" to reveal it)
-   - **Phone Number** — a Twilio phone number capable of making voice calls
 
-### Getting a Twilio Phone Number
-
-If the user doesn't have a Twilio phone number yet:
-
-1. Direct them to https://console.twilio.com/us1/develop/phone-numbers/manage/incoming
-2. Click **"Buy a Number"**
-3. Select a number with **Voice** capability enabled
-4. For trial accounts, Twilio provides one free number automatically — check "Active Numbers" first
-
-Tell the user: **"This will be your assistant's personal phone number — the number that shows up on caller ID when calls are placed."**
+Tell the user: **"The assistant will get its own personal phone number through Twilio — the number that shows up on caller ID when calls are placed."**
 
 ## Step 3: Store Twilio Credentials
 
-Once the user provides their credentials, store them securely using the `credential_store` tool. Ask the user to paste each value, then store them one at a time:
+**IMPORTANT — Secure credential collection only:** Never use credentials pasted in plaintext chat. Always collect credentials through the secure credential prompt flow:
 
-**Account SID:**
-```
-credential_store action=store service=twilio field=account_sid value=<their_account_sid>
-```
+- Call `credential_store` with `action: "prompt"`, `service: "twilio"`, `field: "account_sid"`, `label: "Twilio Account SID"`, `description: "Enter your Account SID from the Twilio Console dashboard"`, and `placeholder: "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"`.
+- Call `credential_store` with `action: "prompt"`, `service: "twilio"`, `field: "auth_token"`, `label: "Twilio Auth Token"`, `description: "Enter your Auth Token from the Twilio Console dashboard"`, and `placeholder: "your_auth_token"`.
 
-**Auth Token:**
-```
-credential_store action=store service=twilio field=auth_token value=<their_auth_token>
-```
+After both credentials are collected, send them to the gateway:
 
-**Phone Number** (must be in E.164 format, e.g. `+14155551234`):
-```
-credential_store action=store service=twilio field=phone_number value=<their_phone_number>
+```bash
+TOKEN=$(cat ~/.vellum/http-token)
+curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/credentials" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"accountSid":"<value from credential_store for twilio/account_sid>","authToken":"<value from credential_store for twilio/auth_token>"}'
 ```
 
-After storing, verify each credential was saved:
-```
-credential_store action=list
-```
-
-Confirm that entries for service `twilio` with fields `account_sid`, `auth_token`, and `phone_number` appear in the output.
+The endpoint validates the credentials against the Twilio API before storing them. If credentials are invalid, ask the user to re-enter via the secure prompt.
 
 **Important:** Credentials are stored in the OS keychain (macOS Keychain / Linux secret-service) or encrypted at rest. They are never logged or exposed in plaintext.
 
@@ -163,7 +154,7 @@ vellum config get calls.enabled
 
 Before making real calls, offer a quick verification:
 
-1. Confirm credentials are stored: all three Twilio credentials (`account_sid`, `auth_token`, `phone_number`) must be present
+1. Confirm credentials are stored: check the Twilio config endpoint for `hasCredentials: true` and `phoneNumber`
 2. Confirm ingress is running: `ingress.publicBaseUrl` must be set and the tunnel active
 3. Confirm calls are enabled: `calls.enabled` must be `true`
 
@@ -605,7 +596,7 @@ The following behavioral changes were introduced with the cross-channel guardian
 ## Troubleshooting
 
 ### "Twilio credentials not configured"
-Run Step 3 to store your Account SID, Auth Token, and Phone Number via `credential_store`.
+Run Step 3 to store your Account SID and Auth Token via the secure credential prompt flow, or load the `twilio-setup` skill.
 
 ### "Calls feature is disabled"
 Run `vellum config set calls.enabled true`.

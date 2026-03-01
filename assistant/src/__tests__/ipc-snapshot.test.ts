@@ -422,16 +422,6 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'telegram_config',
     action: 'get',
   },
-  twilio_config: {
-    type: 'twilio_config',
-    action: 'get',
-  },
-  channel_readiness: {
-    type: 'channel_readiness',
-    action: 'get',
-    channel: 'sms',
-    includeRemote: true,
-  },
   guardian_verification: {
     type: 'guardian_verification',
     action: 'create_challenge',
@@ -1463,47 +1453,6 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     botUsername: 'my_test_bot',
     connected: true,
     hasWebhookSecret: true,
-  },
-  twilio_config_response: {
-    type: 'twilio_config_response',
-    success: true,
-    hasCredentials: true,
-    phoneNumber: '+15551234567',
-    compliance: {
-      numberType: 'toll_free',
-      verificationSid: 'TF_VER_001',
-      verificationStatus: 'TWILIO_APPROVED',
-    },
-    testResult: {
-      messageSid: 'SM-test-001',
-      to: '+15559876543',
-      initialStatus: 'queued',
-      finalStatus: 'delivered',
-    },
-    diagnostics: {
-      readiness: { ready: true, issues: [] },
-      compliance: { status: 'TWILIO_APPROVED', detail: 'Toll-free verification: TWILIO_APPROVED' },
-      overallStatus: 'healthy',
-      actionItems: [],
-    },
-  },
-  channel_readiness_response: {
-    type: 'channel_readiness_response',
-    success: true,
-    snapshots: [
-      {
-        channel: 'sms',
-        ready: false,
-        checkedAt: 1700000000000,
-        stale: false,
-        reasons: [{ code: 'twilio_credentials', text: 'Twilio credentials are not configured' }],
-        localChecks: [
-          { name: 'twilio_credentials', passed: false, message: 'Twilio credentials are not configured' },
-          { name: 'phone_number', passed: true, message: 'Phone number is assigned' },
-          { name: 'ingress', passed: true, message: 'Public ingress URL is configured' },
-        ],
-      },
-    ],
   },
   guardian_verification_response: {
     type: 'guardian_verification_response',

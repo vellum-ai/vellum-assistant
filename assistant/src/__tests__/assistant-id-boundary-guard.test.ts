@@ -297,15 +297,13 @@ describe('assistant ID boundary', () => {
   // surfaces invites callers to pass external IDs into daemon scoping.
   // -------------------------------------------------------------------------
 
-  test('IPC contract types do not contain assistantId for Twilio/readiness/guardian requests', () => {
+  test('IPC contract types do not contain assistantId for guardian requests', () => {
     const ipcContractPath = join(import.meta.dir, '..', 'daemon', 'ipc-contract', 'integrations.ts');
     const content = readFileSync(ipcContractPath, 'utf-8');
 
-    // Extract the interface blocks for the three request types and verify
+    // Extract the interface blocks for the request types and verify
     // none of them declare an assistantId property.
     const requestTypeNames = [
-      'TwilioConfigRequest',
-      'ChannelReadinessRequest',
       'GuardianVerificationRequest',
     ];
 
