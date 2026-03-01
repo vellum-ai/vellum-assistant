@@ -1884,46 +1884,48 @@ function ChatApp({
         healthStatus={healthStatus}
       />
 
-      {visibleWindow.hiddenAbove > 0 ? (
-        <Text dimColor>
-          {"\u2191"} {visibleWindow.hiddenAbove} more above (Shift+\u2191/Cmd+\u2191)
-        </Text>
-      ) : null}
+      <Box flexDirection="column" flexGrow={1} overflow="hidden">
+        {visibleWindow.hiddenAbove > 0 ? (
+          <Text dimColor>
+            {"\u2191"} {visibleWindow.hiddenAbove} more above (Shift+\u2191/Cmd+\u2191)
+          </Text>
+        ) : null}
 
-      {visibleWindow.items.map((item, i) => {
-        const feedIndex = visibleWindow.startIndex + i;
-        if (isRuntimeMessage(item)) {
-          return (
-            <Box key={feedIndex} flexDirection="column" marginBottom={1}>
-              <MessageDisplay msg={item} />
-            </Box>
-          );
-        }
-        if (item.type === "status") {
-          return (
-            <Text key={feedIndex} color={item.color as "green" | "yellow" | "red" | undefined}>
-              {item.text}
-            </Text>
-          );
-        }
-        if (item.type === "help") {
-          return <HelpDisplay key={feedIndex} />;
-        }
-        if (item.type === "error") {
-          return (
-            <Text key={feedIndex} color="red">
-              {item.text}
-            </Text>
-          );
-        }
-        return null;
-      })}
+        {visibleWindow.items.map((item, i) => {
+          const feedIndex = visibleWindow.startIndex + i;
+          if (isRuntimeMessage(item)) {
+            return (
+              <Box key={feedIndex} flexDirection="column" marginBottom={1}>
+                <MessageDisplay msg={item} />
+              </Box>
+            );
+          }
+          if (item.type === "status") {
+            return (
+              <Text key={feedIndex} color={item.color as "green" | "yellow" | "red" | undefined}>
+                {item.text}
+              </Text>
+            );
+          }
+          if (item.type === "help") {
+            return <HelpDisplay key={feedIndex} />;
+          }
+          if (item.type === "error") {
+            return (
+              <Text key={feedIndex} color="red">
+                {item.text}
+              </Text>
+            );
+          }
+          return null;
+        })}
 
-      {visibleWindow.hiddenBelow > 0 ? (
-        <Text dimColor>
-          {"\u2193"} {visibleWindow.hiddenBelow} more below (Shift+\u2193/Cmd+\u2193)
-        </Text>
-      ) : null}
+        {visibleWindow.hiddenBelow > 0 ? (
+          <Text dimColor>
+            {"\u2193"} {visibleWindow.hiddenBelow} more below (Shift+\u2193/Cmd+\u2193)
+          </Text>
+        ) : null}
+      </Box>
 
       {spinnerText ? <SpinnerDisplay text={spinnerText} /> : null}
 
