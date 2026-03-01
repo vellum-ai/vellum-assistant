@@ -379,11 +379,6 @@ export async function runDaemon(): Promise<void> {
         const prevAllowedTools = session.allowedToolNames;
         session.allowedToolNames = new Set<string>();
 
-        // Snapshot in-memory history length before adding the instruction
-        // so we can truncate back on failure, keeping persisted DB and
-        // in-memory session history in sync.
-        const historyLenBefore = session.getMessages().length;
-
         const messageId = await session.persistUserMessage(
           instruction,
           [],
@@ -392,15 +387,16 @@ export async function runDaemon(): Promise<void> {
           '[Call status event]',
         );
 
-        // Helper: roll back in-memory history and persisted messages on
-        // failure so subsequent turns aren't influenced by a phantom
-        // [CALL_STATUS_EVENT] turn that users can't see.
-        const rollback = (extraMessageIds?: string[]) => {
-          session.getMessages().splice(historyLenBefore);
+        // Helper: roll back persisted messages on failure, then reload
+        // in-memory history from the (now cleaned) DB. Reloading avoids
+        // stale-index issues when context compaction reassigns the
+        // messages array during runAgentLoop.
+        const rollback = async (extraMessageIds?: string[]) => {
           try { conversationStore.deleteMessageById(messageId); } catch { /* best effort */ }
           for (const id of extraMessageIds ?? []) {
             try { conversationStore.deleteMessageById(id); } catch { /* best effort */ }
           }
+          try { await session.loadFromDb(); } catch { /* best effort */ }
         };
 
         let agentLoopError: string | undefined;
@@ -422,13 +418,14 @@ export async function runDaemon(): Promise<void> {
         if (agentLoopError) {
           // Remove any assistant messages persisted during the failed run
           // (e.g. session_error text) so the deterministic fallback is the
-          // only visible pointer output for this event.
+          // only visible pointer output for this event. Scope to the
+          // assistant message immediately following the instruction to
+          // avoid deleting messages from other concurrent turns.
           const allMsgs = conversationStore.getMessages(conversationId);
           const instrIdx = allMsgs.findIndex((m) => m.id === messageId);
-          const staleIds = instrIdx >= 0
-            ? allMsgs.slice(instrIdx + 1).map((m) => m.id)
-            : [];
-          rollback(staleIds);
+          const nextMsg = instrIdx >= 0 ? allMsgs[instrIdx + 1] : undefined;
+          const extraIds = nextMsg && nextMsg.role === 'assistant' ? [nextMsg.id] : [];
+          await rollback(extraIds);
           throw new Error(agentLoopError);
         }
 
@@ -457,7 +454,7 @@ export async function runDaemon(): Promise<void> {
                 { conversationId, missingFacts },
                 'Generated pointer text failed fact validation — falling back to deterministic',
               );
-              rollback([latest.id]);
+              await rollback([latest.id]);
               throw new Error('Generated pointer text failed fact validation');
             }
           }
