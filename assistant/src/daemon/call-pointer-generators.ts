@@ -1,13 +1,13 @@
-import { loadConfig } from '../config/loader.js';
-import { getFailoverProvider } from '../providers/registry.js';
 import {
-  POINTER_COPY_MAX_TOKENS,
-  POINTER_COPY_SYSTEM_PROMPT,
-  POINTER_COPY_TIMEOUT_MS,
   buildPointerGenerationPrompt,
   getPointerFallbackMessage,
   includesRequiredFacts,
+  POINTER_COPY_MAX_TOKENS,
+  POINTER_COPY_SYSTEM_PROMPT,
+  POINTER_COPY_TIMEOUT_MS,
 } from '../calls/call-pointer-message-composer.js';
+import { loadConfig } from '../config/loader.js';
+import { getFailoverProvider } from '../providers/registry.js';
 import type { PointerCopyGenerator } from '../runtime/http-types.js';
 
 /**

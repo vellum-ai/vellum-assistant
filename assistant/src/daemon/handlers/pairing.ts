@@ -1,5 +1,6 @@
 import * as net from 'node:net';
 
+import { cleanupPairingState } from '../../runtime/routes/pairing-routes.js';
 import {
   approveDevice,
   clearAllDevices,
@@ -11,7 +12,6 @@ import type {
   PairingApprovalResponse,
 } from '../ipc-protocol.js';
 import type { PairingStore } from '../pairing-store.js';
-import { cleanupPairingState } from '../../runtime/routes/pairing-routes.js';
 import { defineHandlers, type HandlerContext,log } from './shared.js';
 
 /** Module-level reference set by the daemon server at startup. */

@@ -1,15 +1,15 @@
 /**
  * Shared types for the runtime HTTP server and its route handlers.
  */
+import type {
+  CallPointerMessageContext,
+  ComposeCallPointerMessageOptions,
+} from '../calls/call-pointer-message-composer.js';
 import type { ChannelId, InterfaceId } from '../channels/types.js';
 import type { Session } from '../daemon/session.js';
 import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
 import type { ApprovalMessageContext, ComposeApprovalMessageGenerativeOptions } from './approval-message-composer.js';
 import type { AssistantEventHub } from './assistant-event-hub.js';
-import type {
-  CallPointerMessageContext,
-  ComposeCallPointerMessageOptions,
-} from '../calls/call-pointer-message-composer.js';
 import type {
   ComposeGuardianActionMessageOptions,
   GuardianActionMessageContext,
