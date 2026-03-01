@@ -4,6 +4,7 @@ import { join } from 'node:path';
 
 import { config as dotenvConfig } from 'dotenv';
 
+import { setPointerMessageProcessor } from '../calls/call-pointer-messages.js';
 import { reconcileCallsOnStartup } from '../calls/call-recovery.js';
 import { setRelayBroadcast } from '../calls/relay-server.js';
 import { TwilioConversationRelayProvider } from '../calls/twilio-provider.js';
@@ -37,9 +38,9 @@ import { migrateToWorkspaceLayout } from '../migrations/workspace-layout.js';
 import { emitNotificationSignal, registerBroadcastFn } from '../notifications/emit-signal.js';
 import { initSigningKey, loadOrCreateSigningKey } from '../runtime/actor-token-service.js';
 import { assistantEventHub } from '../runtime/assistant-event-hub.js';
+import { ensureVellumGuardianBinding } from '../runtime/guardian-vellum-migration.js';
 import { RuntimeHttpServer } from '../runtime/http-server.js';
 import { startScheduler } from '../schedule/scheduler.js';
-import { ensureVellumGuardianBinding } from '../runtime/guardian-vellum-migration.js';
 import { getLogger, initLogger } from '../util/logger.js';
 import {
   ensureDataDir,
@@ -370,6 +371,79 @@ export async function runDaemon(): Promise<void> {
     try {
       await runtimeHttp.start();
       setRelayBroadcast((msg) => server.broadcast(msg));
+      setPointerMessageProcessor(async (conversationId, instruction, requiredFacts) => {
+        const session = await server.getSessionForMessages(conversationId);
+
+        // Constrain pointer generation to a tool-disabled path so call-
+        // status events cannot trigger unintended side-effect tools.
+        const prevAllowedTools = session.allowedToolNames;
+        session.allowedToolNames = new Set<string>();
+
+        const messageId = await session.persistUserMessage(
+          instruction,
+          [],
+          undefined,
+          { pointerInstruction: true },
+          '[Call status event]',
+        );
+        let agentLoopError: string | undefined;
+        try {
+          await session.runAgentLoop(instruction, messageId, (msg) => {
+            if ('type' in msg && (msg.type === 'error' || msg.type === 'session_error')) {
+              agentLoopError = 'message' in msg
+                ? (msg as { message: string }).message
+                : 'userMessage' in msg
+                  ? (msg as { userMessage: string }).userMessage
+                  : 'Agent loop failed';
+            }
+          });
+        } finally {
+          // Restore previous tool allowlist so subsequent turns aren't
+          // affected by the pointer generation constraint.
+          session.allowedToolNames = prevAllowedTools;
+        }
+        if (agentLoopError) {
+          // Clean up the orphaned instruction message so the fallback
+          // path doesn't leave a phantom user message in the conversation.
+          try { conversationStore.deleteMessageById(messageId); } catch { /* best effort */ }
+          throw new Error(agentLoopError);
+        }
+
+        // Post-generation fact check: verify the assistant's response
+        // includes all required factual details (phone number, duration,
+        // outcome keyword, etc.). If the model omitted or rewrote them,
+        // remove both the instruction and generated messages and throw so
+        // the deterministic fallback fires.
+        if (requiredFacts && requiredFacts.length > 0) {
+          const allMessages = conversationStore.getMessages(conversationId);
+          const assistantMessages = allMessages.filter((m) => m.role === 'assistant');
+          const latest = assistantMessages[assistantMessages.length - 1];
+          if (latest) {
+            let generatedText = '';
+            try {
+              const blocks = JSON.parse(latest.content) as Array<{ type: string; text?: string }>;
+              generatedText = blocks
+                .filter((b) => b.type === 'text')
+                .map((b) => b.text ?? '')
+                .join('');
+            } catch { /* non-JSON content — treat as empty */ }
+
+            const missingFacts = requiredFacts.filter((fact) => !generatedText.includes(fact));
+            if (missingFacts.length > 0) {
+              log.warn(
+                { conversationId, missingFacts },
+                'Generated pointer text failed fact validation — falling back to deterministic',
+              );
+              // Remove both the instruction user message and the generated
+              // assistant message so the conversation is clean for the
+              // deterministic fallback.
+              try { conversationStore.deleteMessageById(latest.id); } catch { /* best effort */ }
+              try { conversationStore.deleteMessageById(messageId); } catch { /* best effort */ }
+              throw new Error('Generated pointer text failed fact validation');
+            }
+          }
+        }
+      });
       runtimeHttp.setPairingBroadcast((msg) => server.broadcast(msg as ServerMessage));
       initPairingHandlers(runtimeHttp.getPairingStore(), bearerToken);
       initSlashPairingContext(runtimeHttp.getPairingStore());

@@ -73,10 +73,10 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
 const payload: RuntimeInboundPayload = {
   sourceChannel: "telegram",
   interface: "telegram",
-  externalChatId: "99001",
+  conversationExternalId: "99001",
   externalMessageId: "123",
   content: "Hello",
-  senderName: "Test User",
+  actorDisplayName: "Test User",
 };
 
 const testAttachment: RuntimeAttachmentMeta = {

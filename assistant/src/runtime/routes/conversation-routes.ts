@@ -12,7 +12,6 @@ import * as attachmentsStore from '../../memory/attachments-store.js';
 import {
   createCanonicalGuardianRequest,
   generateCanonicalRequestCode,
-  getCanonicalGuardianRequest,
   listCanonicalGuardianRequests,
   listPendingCanonicalGuardianRequestsByDestinationConversation,
 } from '../../memory/canonical-guardian-store.js';
@@ -29,8 +28,6 @@ import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
 import { bridgeConfirmationRequestToGuardian } from '../confirmation-request-guardian-bridge.js';
 import { routeGuardianReply } from '../guardian-reply-router.js';
 import { httpError } from '../http-errors.js';
-import { resolveLocalIpcGuardianContext } from '../local-actor-identity.js';
-import { type ServerWithRequestIP, verifyHttpActorTokenWithLocalFallback } from '../middleware/actor-token.js';
 import type {
   ApprovalConversationGenerator,
   MessageProcessor,
@@ -39,6 +36,8 @@ import type {
   RuntimeMessagePayload,
   SendMessageDeps,
 } from '../http-types.js';
+import { resolveLocalIpcGuardianContext } from '../local-actor-identity.js';
+import { type ServerWithRequestIP, verifyHttpActorTokenWithLocalFallback } from '../middleware/actor-token.js';
 import * as pendingInteractions from '../pending-interactions.js';
 
 const log = getLogger('conversation-routes');
@@ -122,37 +121,28 @@ async function tryConsumeCanonicalGuardianReply(params: {
     conversationId,
     pendingRequestIds,
     approvalConversationGenerator,
+    emissionContext: {
+      source: 'inline_nl',
+      decisionText: trimmedContent,
+    },
   });
 
   if (!routerResult.consumed || routerResult.type === 'nl_keep_pending') {
     return { consumed: false };
   }
 
-  // Emit authoritative confirmation state for the resolved request.
-  // The onStateSignal listener routes these to the SSE hub automatically.
-  if (routerResult.requestId) {
-    let resolvedState: 'approved' | 'denied' | 'resolved_stale';
-    if (!routerResult.decisionApplied) {
-      resolvedState = 'resolved_stale';
-    } else {
-      // Determine actual decision from the canonical request's resolved status.
-      // The router result type is 'canonical_decision_applied' for both approve
-      // and reject, so we query the request to get the actual resolved status.
-      const resolvedRequest = getCanonicalGuardianRequest(routerResult.requestId);
-      resolvedState = resolvedRequest?.status === 'denied' ? 'denied' : 'approved';
-    }
+  // Success-path emissions (approved/denied) are handled centrally
+  // by handleConfirmationResponse (called via the resolver chain).
+  // However, stale/failed paths never reach handleConfirmationResponse,
+  // so we emit resolved_stale here for those cases.
+  if (routerResult.requestId && !routerResult.decisionApplied) {
     session.emitConfirmationStateChanged({
       sessionId: conversationId,
       requestId: routerResult.requestId,
-      state: resolvedState,
-      source: 'inline_nl' as const,
+      state: 'resolved_stale',
+      source: 'inline_nl',
       decisionText: trimmedContent,
     });
-    // The agent loop continues after both approval and denial, so
-    // always emit a thinking transition when the decision was applied.
-    if (routerResult.decisionApplied) {
-      session.emitActivityState('thinking', 'confirmation_resolved', 'assistant_turn');
-    }
   }
 
   // Decision has been applied — transcript persistence is best-effort.

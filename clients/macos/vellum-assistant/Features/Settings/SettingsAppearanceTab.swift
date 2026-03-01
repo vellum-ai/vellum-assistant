@@ -141,6 +141,25 @@ struct SettingsAppearanceTab: View {
                 Divider().background(VColor.surfaceBorder)
 
                 ShortcutRow(label: "Start voice input", shortcut: "Hold Fn")
+
+                Divider().background(VColor.surfaceBorder)
+
+                HStack(alignment: .center, spacing: VSpacing.sm) {
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        Text("Send with ⌘Enter")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textSecondary)
+                        Text("When enabled, Enter inserts a new line and ⌘Enter sends.")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                    }
+                    Spacer()
+                    VToggle(isOn: Binding(
+                        get: { store.cmdEnterToSend },
+                        set: { store.cmdEnterToSend = $0 }
+                    ))
+                }
+                .padding(.vertical, VSpacing.md)
             }
             .padding(VSpacing.lg)
             .vCard(background: VColor.surfaceSubtle)

@@ -13,7 +13,7 @@
 
 import { answerCall } from '../calls/call-domain.js';
 import { getGatewayInternalBaseUrl } from '../config/env.js';
-import { getCanonicalGuardianRequest, type CanonicalGuardianRequest } from '../memory/canonical-guardian-store.js';
+import { type CanonicalGuardianRequest,getCanonicalGuardianRequest } from '../memory/canonical-guardian-store.js';
 import { upsertMember } from '../memory/ingress-member-store.js';
 import { emitNotificationSignal } from '../notifications/emit-signal.js';
 import { addRule } from '../permissions/trust-store.js';
@@ -67,6 +67,13 @@ export interface ChannelDeliveryContext {
   bearerToken?: string;
 }
 
+/** Emission context threaded from callers to handleConfirmationResponse. */
+export interface ResolverEmissionContext {
+  source?: 'button' | 'inline_nl' | 'auto_deny' | 'timeout' | 'system';
+  causedByRequestId?: string;
+  decisionText?: string;
+}
+
 /** Context passed to each resolver after CAS resolution succeeds. */
 export interface ResolverContext {
   /** The canonical request record (already resolved to its terminal status). */
@@ -77,6 +84,8 @@ export interface ResolverContext {
   actor: ActorContext;
   /** Optional channel delivery context — present when the decision arrived via a channel message. */
   channelDeliveryContext?: ChannelDeliveryContext;
+  /** Optional emission context threaded to handleConfirmationResponse for correct source attribution. */
+  emissionContext?: ResolverEmissionContext;
 }
 
 /** Discriminated result from a resolver. */
@@ -154,11 +163,13 @@ const pendingInteractionResolver: GuardianRequestResolver = {
         decision.action === 'approve_always' &&
         details &&
         details.persistentDecisionsAllowed !== false &&
-        details.allowlistOptions?.length &&
-        details.scopeOptions?.length
+        details.allowlistOptions?.length
       ) {
         const pattern = details.allowlistOptions[0].pattern;
-        const scope = details.scopeOptions[0].scope;
+        // Non-scoped tools (web_fetch, network_request, etc.) have empty
+        // scopeOptions — default to 'everywhere' so approve_always still
+        // persists a trust rule instead of silently degrading to one-time.
+        const scope = details.scopeOptions?.length ? details.scopeOptions[0].scope : 'everywhere';
         const tool = getTool(details.toolName);
         const executionTarget = tool?.origin === 'skill' ? details.executionTarget : undefined;
         addRule(details.toolName, pattern, scope, 'allow', 100, { executionTarget });
@@ -181,7 +192,7 @@ const pendingInteractionResolver: GuardianRequestResolver = {
 
     // Map action to the permission system's UserDecision type and notify session.
     const userDecision = decision.action === 'reject' ? 'deny' as const : 'allow' as const;
-    resolved.session.handleConfirmationResponse(request.id, userDecision);
+    resolved.session.handleConfirmationResponse(request.id, userDecision, undefined, undefined, undefined, ctx.emissionContext);
 
     log.info(
       {

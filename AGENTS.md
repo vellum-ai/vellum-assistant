@@ -177,6 +177,19 @@ The daemon uses a single fixed internal scope constant — `DAEMON_INTERNAL_ASSI
 - The daemon HTTP server uses flat `/v1/<endpoint>` paths. Do not add assistant-scoped routes (`/v1/assistants/:assistantId/...`) to the daemon.
 - Guard tests in `assistant/src/__tests__/assistant-id-boundary-guard.test.ts` enforce these rules.
 
+### Channel Identity Vocabulary
+
+Gateway inbound events use a channel-discriminated union model (`GatewayInboundEvent`) with explicit identity fields:
+
+- **`conversationExternalId`**: Delivery/thread address (e.g., Telegram chat ID, SMS phone number). Used for conversation binding and message routing. **Not** used for trust classification.
+- **`actorExternalId`**: Sender identity (e.g., Telegram user ID, WhatsApp phone number). Used for trust classification, guardian binding, and ACL enforcement. **Required** for all public channel ingress.
+- **"conversation"** is canonical vocabulary for delivery addresses. "thread" is reserved for provider-specific fields (Slack `thread_ts`, email thread IDs).
+- **"actor"** is canonical vocabulary for sender identity.
+
+Trust/guardian decisions must be keyed on `actorExternalId` only — never fall back to `conversationExternalId` for actor identity.
+
+Physical DB column names (`externalUserId`, `externalChatId`) are unchanged; the rename is at the API/type layer only.
+
 ## Assistant Feature Flags
 
 Assistant feature flags are the canonical assistant-scoped flagging mechanism for enabling/disabling assistant behavior across the system. They are declaration-driven and not limited to skills.

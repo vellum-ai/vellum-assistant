@@ -34,6 +34,9 @@ struct ChatView: View {
     var onModelPickerSelect: ((UUID, String) -> Void)?
     var selectedModel: String = ""
     var configuredProviders: Set<String> = []
+    let assistantActivityPhase: String
+    let assistantActivityAnchor: String
+    let assistantActivityReason: String?
     let onConfirmationAllow: (String) -> Void
     let onConfirmationDeny: (String) -> Void
     let onAlwaysAllow: (String, String, String, String) -> Void
@@ -175,6 +178,9 @@ struct ChatView: View {
                             messages: messages,
                             isSending: isSending,
                             isThinking: isThinking,
+                            assistantActivityPhase: assistantActivityPhase,
+                            assistantActivityAnchor: assistantActivityAnchor,
+                            assistantActivityReason: assistantActivityReason,
                             selectedModel: selectedModel,
                             configuredProviders: configuredProviders,
                             activeSubagents: activeSubagents,
@@ -205,11 +211,22 @@ struct ChatView: View {
                                 .animation(VAnimation.fast, value: editorContentHeight)
                         }
 
+                        let composerMessages: [ChatMessage] = {
+                            let all = messages.filter { !$0.isSubagentNotification }
+                            guard displayedMessageCount < all.count else { return all }
+                            return Array(all.suffix(displayedMessageCount))
+                        }()
+
                         ComposerSection(
                             inputText: $inputText,
                             hasAPIKey: hasAPIKey,
                             isSending: isSending,
-                            hasPendingConfirmation: messages.contains(where: { $0.confirmation?.state == .pending }),
+                            hasPendingConfirmation: PendingConfirmationFocusSelector.activeRequestId(from: composerMessages) != nil,
+                            onAllowPendingConfirmation: {
+                                if let requestId = PendingConfirmationFocusSelector.activeRequestId(from: composerMessages) {
+                                    onConfirmationAllow(requestId)
+                                }
+                            },
                             isRecording: isRecording,
                             suggestion: suggestion,
                             pendingAttachments: pendingAttachments,
@@ -605,6 +622,9 @@ private struct ChatViewPreviewWrapper: View {
                 onDropImageData: { _, _ in },
                 onPaste: {},
                 onMicrophoneToggle: {},
+                assistantActivityPhase: "idle",
+                assistantActivityAnchor: "global",
+                assistantActivityReason: nil,
                 onConfirmationAllow: { _ in },
                 onConfirmationDeny: { _ in },
                 onAlwaysAllow: { _, _, _, _ in },

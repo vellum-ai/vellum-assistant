@@ -99,7 +99,7 @@ export function loadAllAssistants(): AssistantEntry[] {
 }
 
 export function saveAssistantEntry(entry: AssistantEntry): void {
-  const entries = readAssistants();
+  const entries = readAssistants().filter((e) => e.assistantId !== entry.assistantId);
   entries.unshift(entry);
   writeAssistants(entries);
 }

@@ -5,9 +5,9 @@ const routeGuardianReplyMock = mock(async () => ({
   decisionApplied: false,
   type: 'not_consumed' as const,
 })) as any;
-const listPendingByDestinationMock = mock(() => [] as Array<{ id: string }>);
-const listCanonicalMock = mock(() => [] as Array<{ id: string }>);
-const addMessageMock = mock(async (_conversationId: string, role: string) => ({
+const listPendingByDestinationMock = mock((_conversationId: string, _sourceChannel?: string) => [] as Array<{ id: string; kind?: string }>);
+const listCanonicalMock = mock((_filters?: Record<string, unknown>) => [] as Array<{ id: string }>);
+const addMessageMock = mock(async (_conversationId: string, role: string, _content?: string, _metadata?: Record<string, unknown>) => ({
   id: role === 'user' ? 'persisted-user-id' : 'persisted-assistant-id',
 }));
 
@@ -52,6 +52,10 @@ mock.module('../memory/conversation-store.js', () => ({
     content: string,
     metadata?: Record<string, unknown>,
   ) => addMessageMock(conversationId, role, content, metadata),
+}));
+
+mock.module('../runtime/local-actor-identity.js', () => ({
+  resolveLocalIpcGuardianContext: () => ({ trustClass: 'guardian', sourceChannel: 'vellum' }),
 }));
 
 import { handleSendMessage } from '../runtime/routes/conversation-routes.js';

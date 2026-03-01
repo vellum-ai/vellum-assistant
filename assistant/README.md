@@ -180,7 +180,7 @@ Guardian actor-role *classification* (determining whether a sender is guardian, 
 |-----------------|-------------|
 | `forceStrictSideEffects` | Automatically set on runs triggered by non-guardian or unverified-channel senders so all side-effect tools require approval. |
 | **Fail-closed no-binding** | When no guardian binding exists for a channel, the sender is classified as `unverified_channel`. Any sensitive action is auto-denied with a notice that no guardian has been configured. |
-| **Fail-closed no-identity** | When `senderExternalUserId` is absent, the actor is classified as `unverified_channel` (even if no guardian binding exists yet). |
+| **Fail-closed no-identity** | When `actorExternalId` is absent, the actor is classified as `unverified_channel` (even if no guardian binding exists yet). |
 | **Guardian-only approval** | Non-guardian senders cannot approve their own pending actions. Only the verified guardian can approve or deny. |
 | **Expired approval auto-deny** | A proactive sweep runs every 60 seconds to find expired guardian approval requests (30-minute TTL). Expired approvals are auto-denied, and both the requester and guardian are notified. If a non-guardian interacts before the sweep runs, the expiry is also detected reactively. |
 
@@ -201,29 +201,29 @@ The `/channels/inbound` endpoint requires a valid `X-Gateway-Origin` header to p
 
 ## Twilio Setup Primitive
 
-Twilio is the shared telephony provider for both voice calls and SMS messaging. Configuration is managed through the `twilio_config` IPC contract and the `twilio-setup` skill. For SMS-specific onboarding (including compliance verification and test sending), the `sms-setup` skill provides a guided conversational flow that layers on top of `twilio-setup`.
+Twilio is the shared telephony provider for both voice calls and SMS messaging. Configuration is managed through HTTP control-plane endpoints exposed by the runtime and proxied by the gateway. For SMS-specific onboarding (including compliance verification and test sending), the `sms-setup` skill provides a guided conversational flow that layers on top of `twilio-setup`.
 
-### `twilio_config` IPC Contract
+### Twilio HTTP Control-Plane Endpoints
 
-The daemon handles `twilio_config` messages with the following actions:
+The runtime exposes a RESTful HTTP API for Twilio configuration, credential management, phone number operations, and SMS compliance:
 
-| Action | Description |
-|--------|-------------|
-| `get` | Returns current state: `hasCredentials` (boolean) and `phoneNumber` (if assigned) |
-| `set_credentials` | Validates and stores Account SID and Auth Token in secure storage (Keychain / encrypted file). Credentials are retrieved from the credential store internally. |
-| `clear_credentials` | Removes stored Account SID and Auth Token from secure storage. Preserves the phone number in both config (`sms.phoneNumber`) and secure key (`credential:twilio:phone_number`) so that re-entering credentials resumes working without needing to reassign the number. |
-| `provision_number` | Purchases a new phone number via the Twilio API. Accepts optional `areaCode` and `country` (ISO 3166-1 alpha-2, default `US`). Auto-assigns the number to the assistant (persists to config and secure storage) and configures Twilio webhooks (voice, status callback, SMS) when a public ingress URL is available. |
-| `assign_number` | Assigns an existing Twilio phone number (E.164 format) to the assistant and auto-configures webhooks when ingress is available |
-| `list_numbers` | Lists all incoming phone numbers on the Twilio account with their capabilities (voice, SMS) |
-| `sms_compliance_status` | Returns the SMS compliance posture for the assigned phone number. Determines number type (toll-free vs local 10DLC) and retrieves toll-free verification status from Twilio. |
-| `sms_submit_tollfree_verification` | Submits a new toll-free verification request to Twilio. Validates required fields and enum values. Defaults `businessType` to `SOLE_PROPRIETOR`. |
-| `sms_update_tollfree_verification` | Updates an existing toll-free verification by SID. Requires `verificationSid`. |
-| `sms_delete_tollfree_verification` | Deletes a toll-free verification by SID. Includes warning about queue priority reset. |
-| `release_number` | Releases (deletes) a phone number from the Twilio account. Clears the number from config and secure storage. Includes warning about toll-free verification context loss. |
-| `sms_send_test` | Sends a test SMS to the specified `phoneNumber` with the given `text`, polls Twilio for delivery status (up to 3 retries at 2-second intervals), and returns the result in `testResult`. Stores the last result in memory for use by `sms_doctor`. |
-| `sms_doctor` | Runs a comprehensive SMS health diagnostic. Checks channel readiness, compliance/toll-free verification status, and the last `sms_send_test` result. Returns structured diagnostics in `diagnostics` with an overall `status` ("healthy", "degraded", or "unhealthy") and actionable `items`. |
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/v1/integrations/twilio/config` | Returns current state: `hasCredentials` (boolean) and `phoneNumber` (if assigned) |
+| POST | `/v1/integrations/twilio/credentials` | Validates and stores Account SID and Auth Token in secure storage (Keychain / encrypted file) |
+| DELETE | `/v1/integrations/twilio/credentials` | Removes stored credentials. Preserves the phone number in both config and secure key so re-entering credentials resumes working without reassigning the number. |
+| GET | `/v1/integrations/twilio/numbers` | Lists all incoming phone numbers on the Twilio account with their capabilities (voice, SMS) |
+| POST | `/v1/integrations/twilio/numbers/provision` | Purchases a new phone number. Accepts optional `areaCode` and `country`. Auto-assigns and configures webhooks when ingress is available. |
+| POST | `/v1/integrations/twilio/numbers/assign` | Assigns an existing Twilio phone number (E.164) and auto-configures webhooks when ingress is available |
+| POST | `/v1/integrations/twilio/numbers/release` | Releases a phone number from the Twilio account and clears local references |
+| GET | `/v1/integrations/twilio/sms/compliance` | Returns SMS compliance posture: number type (toll-free vs 10DLC) and toll-free verification status |
+| POST | `/v1/integrations/twilio/sms/compliance/tollfree` | Submits a new toll-free verification request |
+| PATCH | `/v1/integrations/twilio/sms/compliance/tollfree/:sid` | Updates an existing toll-free verification by SID |
+| DELETE | `/v1/integrations/twilio/sms/compliance/tollfree/:sid` | Deletes a toll-free verification by SID |
+| POST | `/v1/integrations/twilio/sms/test` | Sends a test SMS and polls for delivery status |
+| POST | `/v1/integrations/twilio/sms/doctor` | Runs comprehensive SMS health diagnostics |
 
-Response type: `twilio_config_response` with `success`, `hasCredentials`, optional `phoneNumber`, optional `numbers` array, optional `error`, optional `warning` (for non-fatal webhook sync failures), optional `compliance` object (for compliance status actions, containing `numberType`, `verificationSid`, `verificationStatus`, `rejectionReason`, `rejectionReasons`, `errorCode`, `editAllowed`, `editExpiration`), optional `testResult` (for `sms_send_test`), and optional `diagnostics` (for `sms_doctor`).
+All endpoints are bearer-authenticated via the runtime HTTP token. Skills and clients should call the gateway URL (default `http://localhost:7830`) rather than the runtime port directly, as the gateway proxies all `/v1/integrations/twilio/*` routes.
 
 ### Ingress Webhook Reconciliation
 
@@ -241,9 +241,9 @@ Each assistant is assigned a single Twilio phone number that is shared between v
 
 #### Assistant-Scoped Phone Numbers
 
-When `assistantId` is provided in the `twilio_config` request, the `provision_number` and `assign_number` actions persist the phone number into a per-assistant mapping at `sms.assistantPhoneNumbers` (a `Record<string, string>` keyed by assistant ID). The legacy `sms.phoneNumber` field is always updated for backward compatibility.
+When `assistantId` is provided in the Twilio control-plane request, the provision and assign endpoints persist the phone number into a per-assistant mapping at `sms.assistantPhoneNumbers` (a `Record<string, string>` keyed by assistant ID). The legacy `sms.phoneNumber` field is always updated for backward compatibility.
 
-The `get` action, when called with `assistantId`, resolves the phone number by checking `sms.assistantPhoneNumbers[assistantId]` first, falling back to `sms.phoneNumber`. This allows multiple assistants to have distinct phone numbers while preserving existing behavior for single-assistant setups.
+The config endpoint (`GET /v1/integrations/twilio/config`), when called with `assistantId`, resolves the phone number by checking `sms.assistantPhoneNumbers[assistantId]` first, falling back to `sms.phoneNumber`. This allows multiple assistants to have distinct phone numbers while preserving existing behavior for single-assistant setups.
 
 The per-assistant mapping is propagated to the gateway via the config file watcher, enabling phone-number-based routing at the gateway boundary (see Gateway README).
 
@@ -273,7 +273,7 @@ The channel guardian service generates verification challenge instructions with 
 
 ### Vellum Guardian Identity (Actor Tokens)
 
-The vellum channel (macOS, iOS, CLI) uses HMAC-SHA256 signed actor tokens to bind guardian identity to HTTP requests. This enables identity-based authentication for the local desktop/mobile channel, paralleling how external channels (Telegram, SMS) use `externalUserId` for guardian identity.
+The vellum channel (macOS, iOS, CLI) uses HMAC-SHA256 signed actor tokens to bind guardian identity to HTTP requests. This enables identity-based authentication for the local desktop/mobile channel, paralleling how external channels (Telegram, SMS) use `actorExternalId` for guardian identity.
 
 - **Bootstrap**: After hatch, the macOS client calls `POST /v1/integrations/guardian/vellum/bootstrap` with `{ platform, deviceId }`. Returns `{ guardianPrincipalId, actorToken, isNew }`. The endpoint is idempotent -- repeated calls with the same device return the same principal but mint a fresh token (revoking the previous one).
 - **iOS pairing**: The pairing response includes an `actorToken` automatically when a vellum guardian binding exists.
@@ -292,15 +292,15 @@ Guardian verification establishes a cryptographic trust binding between a human 
 1. **Challenge creation** — The owner initiates verification from the desktop UI, which sends a guardian-verification IPC message (`create_challenge` action) to the daemon. The daemon generates a random secret (32-byte hex for unbound inbound/bootstrap sessions, 6-digit numeric for identity-bound sessions), hashes it with SHA-256, stores the hash with a 10-minute TTL, and returns the raw secret to the desktop.
 2. **Code sharing** — The desktop displays the code and instructs the owner to reply with that code in the target channel conversation (e.g., Telegram or SMS).
 3. **Verification** — When the message arrives at `/channels/inbound`, the handler intercepts valid verification-code replies before normal message processing. It hashes the provided code, looks up a matching pending challenge, validates expiry, and consumes the challenge (preventing replay).
-4. **Binding** — On success, any existing active binding for the `(assistantId, channel)` pair is revoked, and a new guardian binding is created with the verifier's `externalUserId` and `chatId`. The verifier receives a confirmation message.
+4. **Binding** — On success, any existing active binding for the `(assistantId, channel)` pair is revoked, and a new guardian binding is created with the verifier's `actorExternalId` and `chatId` (DB columns: `externalUserId`, `chatId`). The verifier receives a confirmation message.
 
 Rate limiting protects against brute-force attempts: 5 invalid attempts within 15 minutes trigger a 30-minute lockout per `(assistantId, channel, actor)` tuple. The same generic failure message is returned for both invalid codes and rate-limited attempts to avoid leaking state.
 
 ### Ingress ACL Enforcement
 
-The ingress ACL runs at the top of the channel inbound handler, before guardian role resolution and message processing. When `senderExternalUserId` is present, the handler enforces this decision chain:
+The ingress ACL runs at the top of the channel inbound handler, before guardian role resolution and message processing. When `actorExternalId` is present, the handler enforces this decision chain:
 
-1. **Member lookup** — Look up the sender in `assistant_ingress_members` by `(sourceChannel, externalUserId)` or `(sourceChannel, externalChatId)`.
+1. **Member lookup** — Look up the sender in `assistant_ingress_members` by `(sourceChannel, actorExternalId)` or `(sourceChannel, conversationExternalId)`. The DB uses `externalUserId` and `externalChatId` column names internally.
 2. **Non-member denial** — If no member record exists, the message is denied with `not_a_member`.
 3. **Status check** — If the member exists but is not `active` (e.g., `revoked` or `blocked`), the message is denied.
 4. **Policy check** — The member's `policy` field determines routing:
@@ -362,18 +362,16 @@ These endpoints share the same business logic as the IPC-based verification flow
 
 ## Channel Readiness
 
-The `channel_readiness` IPC contract provides a unified way to check whether a channel (SMS, Telegram, etc.) is fully configured and operational. It runs local checks (credential presence, phone number assignment, ingress config) synchronously and optional remote checks (API reachability) asynchronously with a 5-minute TTL cache.
+Channel readiness is exposed via HTTP control-plane endpoints that provide a unified way to check whether a channel (SMS, Telegram, etc.) is fully configured and operational. Local checks (credential presence, phone number assignment, ingress config) run synchronously; optional remote checks (API reachability) run asynchronously with a 5-minute TTL cache.
 
-### `channel_readiness` IPC Contract
+### Channel Readiness HTTP Endpoints
 
-| Action | Description |
-|--------|-------------|
-| `get` | Returns readiness snapshots for the specified channel (or all channels if omitted). Local checks always run; remote checks run only when `includeRemote=true` and cache is stale. |
-| `refresh` | Invalidates the cache for the specified channel (or all channels), then returns fresh snapshots. |
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/v1/channels/readiness` | Returns readiness snapshots for the specified channel (query param `channel`, optional) or all channels. Local checks always run; remote checks run only when `includeRemote=true` and cache is stale. |
+| POST | `/v1/channels/readiness/refresh` | Invalidates the cache for the specified channel (or all channels), then returns fresh snapshots. Body: `{ channel?: ChannelId, includeRemote?: boolean }` |
 
-Request fields: `action` (required), `channel` (optional filter), `assistantId` (optional), `includeRemote` (optional boolean).
-
-Response type: `channel_readiness_response` with `success`, optional `snapshots` array (each with `channel`, `ready`, `checkedAt`, `stale`, `reasons`, `localChecks`, optional `remoteChecks`), and optional `error`.
+All endpoints are bearer-authenticated. Skills and clients should call the gateway URL (default `http://localhost:7830`) rather than the runtime port directly, as the gateway proxies all `/v1/channels/readiness*` routes.
 
 ### Built-in Channel Probes
 
@@ -386,7 +384,7 @@ Response type: `channel_readiness_response` with `success`, optional `snapshots`
 |------|---------|
 | `src/runtime/channel-readiness-types.ts` | Shared types: `ChannelId`, `ReadinessCheckResult`, `ChannelReadinessSnapshot`, `ChannelProbe` |
 | `src/runtime/channel-readiness-service.ts` | Service class with probe registration, cached readiness evaluation, and built-in SMS/Telegram probes |
-| `src/daemon/handlers/config.ts` | `handleChannelReadiness` — IPC handler for `channel_readiness` messages |
+| `src/runtime/routes/channel-readiness-routes.ts` | HTTP route handlers for `/v1/channels/readiness` and `/v1/channels/readiness/refresh` |
 
 ## Ingress Membership + Escalation
 
@@ -500,7 +498,7 @@ The image runs as non-root user `assistant` (uid 1001) and exposes port `3001`.
 | 403 `GATEWAY_ORIGIN_REQUIRED` on `/channels/inbound` | Missing or invalid `X-Gateway-Origin` header | Ensure `RUNTIME_GATEWAY_ORIGIN_SECRET` is set to the same value on both gateway and runtime. If not using a dedicated secret, ensure the bearer token (`RUNTIME_BEARER_TOKEN` or `~/.vellum/http-token`) is shared. |
 | Non-guardian actions silently denied | No guardian binding for the channel. The system is fail-closed for unverified channels. | Run the guardian verification flow from the desktop UI to bind a guardian. |
 | Guardian approval expired | The 30-minute TTL elapsed. The proactive sweep auto-denied the approval and notified both parties. | The requester must re-trigger the action. |
-| `forceStrictSideEffects` unexpectedly active | The sender is classified as `non-guardian` or `unverified_channel` | Verify the sender's `externalUserId` matches the guardian binding, or set up a guardian binding for the channel. |
+| `forceStrictSideEffects` unexpectedly active | The sender is classified as `non-guardian` or `unverified_channel` | Verify the sender's `actorExternalId` matches the guardian binding, or set up a guardian binding for the channel. |
 
 ### Invalid RRULE set expressions
 

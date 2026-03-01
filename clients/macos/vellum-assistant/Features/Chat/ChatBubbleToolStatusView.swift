@@ -16,7 +16,6 @@ extension ChatBubble {
 
     @ViewBuilder
     var trailingStatus: some View {
-        let hasCompletedTools = allToolCallsComplete && !hideToolCalls && !message.toolCalls.isEmpty
         /// True when there is at least one tool call that hasn't finished yet.
         let hasActuallyRunningTool = !hideToolCalls && message.toolCalls.contains(where: { !$0.isComplete })
         /// All individual tool calls done but message still streaming (model generating next tool call).

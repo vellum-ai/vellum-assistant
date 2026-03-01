@@ -203,7 +203,7 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
     tlog.info(
       {
         source: "telegram",
-        chatId: normalized.message.externalChatId,
+        chatId: normalized.message.conversationExternalId,
         messageId: normalized.message.externalMessageId,
         updateId,
       },
@@ -215,22 +215,22 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
     if (startCmd !== null) {
       const startRouting = resolveAssistant(
         config,
-        normalized.message.externalChatId,
-        normalized.sender.externalUserId,
+        normalized.message.conversationExternalId,
+        normalized.actor.actorExternalId,
       );
 
       if (isRejection(startRouting)) {
         tlog.warn(
-          { chatId: normalized.message.externalChatId, reason: startRouting.reason },
+          { chatId: normalized.message.conversationExternalId, reason: startRouting.reason },
           "Routing rejected /start command",
         );
-        if (rejectionLimiter.shouldSend(normalized.message.externalChatId)) {
+        if (rejectionLimiter.shouldSend(normalized.message.conversationExternalId)) {
           sendTelegramReply(
             config,
-            normalized.message.externalChatId,
+            normalized.message.conversationExternalId,
             "\u26a0\ufe0f This bot is not fully set up yet. Please check the gateway configuration.",
           ).catch((err) => {
-            tlog.error({ err, chatId: normalized.message.externalChatId }, "Failed to send /start routing rejection notice");
+            tlog.error({ err, chatId: normalized.message.conversationExternalId }, "Failed to send /start routing rejection notice");
           });
         }
         acknowledgeCallbackQuery(normalized.message.callbackQueryId, "start_command_routing_rejected");
@@ -242,10 +242,10 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
       if (!normalized.message.callbackQueryId) {
         sendTelegramReply(
           config,
-          normalized.message.externalChatId,
+          normalized.message.conversationExternalId,
           START_COMMAND_ACK_TEXT,
         ).catch((err) => {
-          tlog.error({ err, chatId: normalized.message.externalChatId }, "Failed to send /start acknowledgement");
+          tlog.error({ err, chatId: normalized.message.conversationExternalId }, "Failed to send /start acknowledgement");
         });
       }
 
@@ -259,29 +259,29 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
               type: "start",
               ...(startCmd.payload ? { payload: startCmd.payload } : {}),
             },
-            languageCode: normalized.sender.languageCode,
+            languageCode: normalized.actor.languageCode,
           },
         });
 
         if (result.rejected) {
           tlog.warn(
-            { chatId: normalized.message.externalChatId, reason: result.rejectionReason },
+            { chatId: normalized.message.conversationExternalId, reason: result.rejectionReason },
             "Routing rejected /start forward",
           );
-          if (rejectionLimiter.shouldSend(normalized.message.externalChatId)) {
+          if (rejectionLimiter.shouldSend(normalized.message.conversationExternalId)) {
             sendTelegramReply(
               config,
-              normalized.message.externalChatId,
+              normalized.message.conversationExternalId,
               "\u26a0\ufe0f This bot is not fully set up yet. Please check the gateway configuration.",
             ).catch((err) => {
-              tlog.error({ err, chatId: normalized.message.externalChatId }, "Failed to send /start rejection notice");
+              tlog.error({ err, chatId: normalized.message.conversationExternalId }, "Failed to send /start rejection notice");
             });
           }
         } else if (!result.forwarded) {
           tlog.error({ updateId: payload.update_id }, "Failed to forward /start to runtime");
           sendTelegramReply(
             config,
-            normalized.message.externalChatId,
+            normalized.message.conversationExternalId,
             "Welcome! I'm having a brief setup hiccup. Please try again in a moment.",
           ).catch((err) => {
             tlog.error({ err }, "Failed to send /start fallback reply");
@@ -301,7 +301,7 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
         tlog.error({ err, updateId: payload.update_id }, "Failed to process /start command");
         sendTelegramReply(
           config,
-          normalized.message.externalChatId,
+          normalized.message.conversationExternalId,
           "Welcome! I'm having a brief setup hiccup. Please try again in a moment.",
         ).catch((replyErr) => {
           tlog.error({ err: replyErr }, "Failed to send /start error fallback");
@@ -316,22 +316,22 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
     if (normalized.message.content.trim() === "/new") {
       const routing = resolveAssistant(
         config,
-        normalized.message.externalChatId,
-        normalized.sender.externalUserId,
+        normalized.message.conversationExternalId,
+        normalized.actor.actorExternalId,
       );
 
       if (isRejection(routing)) {
         tlog.warn(
-          { chatId: normalized.message.externalChatId, reason: routing.reason },
+          { chatId: normalized.message.conversationExternalId, reason: routing.reason },
           "Routing rejected /new command",
         );
-        if (rejectionLimiter.shouldSend(normalized.message.externalChatId)) {
+        if (rejectionLimiter.shouldSend(normalized.message.conversationExternalId)) {
           sendTelegramReply(
             config,
-            normalized.message.externalChatId,
+            normalized.message.conversationExternalId,
             "\u26a0\ufe0f This message could not be routed to an assistant. Please check your gateway routing configuration.",
           ).catch((err) => {
-            tlog.error({ err, chatId: normalized.message.externalChatId }, "Failed to send /new routing rejection notice");
+            tlog.error({ err, chatId: normalized.message.conversationExternalId }, "Failed to send /new routing rejection notice");
           });
         }
       } else {
@@ -339,14 +339,14 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
           await resetConversation(
             config,
             normalized.sourceChannel,
-            normalized.message.externalChatId,
+            normalized.message.conversationExternalId,
           );
-          sendTelegramReply(config, normalized.message.externalChatId, "Starting a new conversation!").catch((err) => {
+          sendTelegramReply(config, normalized.message.conversationExternalId, "Starting a new conversation!").catch((err) => {
             tlog.error({ err }, "Failed to send /new confirmation");
           });
         } catch (err) {
           tlog.error({ err }, "Failed to reset conversation");
-          sendTelegramReply(config, normalized.message.externalChatId, "Failed to reset conversation. Please try again.").catch((replyErr) => {
+          sendTelegramReply(config, normalized.message.conversationExternalId, "Failed to reset conversation. Please try again.").catch((replyErr) => {
             tlog.error({ err: replyErr }, "Failed to send /new error reply");
           });
         }
@@ -362,11 +362,11 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
     const isCallback = !!normalized.message.callbackQueryId;
 
     // Check routing early so we can gate attachments
-    const chatId = normalized.message.externalChatId;
+    const chatId = normalized.message.conversationExternalId;
     const routing = resolveAssistant(
       config,
       chatId,
-      normalized.sender.externalUserId,
+      normalized.actor.actorExternalId,
     );
     const routable = !isRejection(routing);
 
@@ -481,7 +481,7 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
       const shouldClearInlineButtons = consumedApprovalDecision || fallbackApprovalCallback;
       if (isCallback && shouldClearInlineButtons) {
         clearInlineApprovalButtons(
-          normalized.message.externalChatId,
+          normalized.message.conversationExternalId,
           normalized.source.messageId,
           approval ?? "callback_data_fallback",
         );

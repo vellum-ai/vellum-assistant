@@ -33,6 +33,8 @@ import { createGuardianControlPlaneProxyHandler } from "./http/routes/guardian-c
 import { createTelegramControlPlaneProxyHandler } from "./http/routes/telegram-control-plane-proxy.js";
 import { createIngressControlPlaneProxyHandler } from "./http/routes/ingress-control-plane-proxy.js";
 import { matchIngressControlPlaneRoute } from "./http/routes/ingress-control-plane-route-match.js";
+import { createTwilioControlPlaneProxyHandler } from "./http/routes/twilio-control-plane-proxy.js";
+import { createChannelReadinessProxyHandler } from "./http/routes/channel-readiness-proxy.js";
 import { createRuntimeHealthProxyHandler } from "./http/routes/runtime-health-proxy.js";
 import { createBrainGraphProxyHandler } from "./http/routes/brain-graph-proxy.js";
 import { validateBearerToken } from "./http/auth/bearer.js";
@@ -205,6 +207,8 @@ function main() {
   const guardianControlPlaneProxy = createGuardianControlPlaneProxyHandler(config);
   const telegramControlPlaneProxy = createTelegramControlPlaneProxyHandler(config);
   const ingressControlPlaneProxy = createIngressControlPlaneProxyHandler(config);
+  const twilioControlPlaneProxy = createTwilioControlPlaneProxyHandler(config);
+  const channelReadinessProxy = createChannelReadinessProxyHandler(config);
   const runtimeHealthProxy = createRuntimeHealthProxyHandler(config);
   const brainGraphProxy = createBrainGraphProxyHandler(config);
   const handleFeatureFlagsGet = createFeatureFlagsGetHandler();
@@ -542,6 +546,85 @@ function main() {
           return guardianControlPlaneProxy.handleResendGuardianOutbound(tracedReq);
         }
         return guardianControlPlaneProxy.handleCancelGuardianOutbound(tracedReq);
+      }
+
+      // ── Twilio integration control-plane proxy ──
+      if (
+        (url.pathname === "/v1/integrations/twilio/config" && req.method === "GET")
+        || (url.pathname === "/v1/integrations/twilio/credentials" && req.method === "POST")
+        || (url.pathname === "/v1/integrations/twilio/credentials" && req.method === "DELETE")
+        || (url.pathname === "/v1/integrations/twilio/numbers" && req.method === "GET")
+        || (url.pathname === "/v1/integrations/twilio/numbers/provision" && req.method === "POST")
+        || (url.pathname === "/v1/integrations/twilio/numbers/assign" && req.method === "POST")
+        || (url.pathname === "/v1/integrations/twilio/numbers/release" && req.method === "POST")
+        || (url.pathname === "/v1/integrations/twilio/sms/compliance" && req.method === "GET")
+        || (url.pathname === "/v1/integrations/twilio/sms/compliance/tollfree" && req.method === "POST")
+        || (url.pathname === "/v1/integrations/twilio/sms/test" && req.method === "POST")
+        || (url.pathname === "/v1/integrations/twilio/sms/doctor" && req.method === "POST")
+      ) {
+        const authError = requireRuntimeBearerAuth();
+        if (authError) return authError;
+
+        if (url.pathname === "/v1/integrations/twilio/config" && req.method === "GET") {
+          return twilioControlPlaneProxy.handleGetTwilioConfig(tracedReq);
+        }
+        if (url.pathname === "/v1/integrations/twilio/credentials" && req.method === "POST") {
+          return twilioControlPlaneProxy.handleSetTwilioCredentials(tracedReq);
+        }
+        if (url.pathname === "/v1/integrations/twilio/credentials" && req.method === "DELETE") {
+          return twilioControlPlaneProxy.handleClearTwilioCredentials(tracedReq);
+        }
+        if (url.pathname === "/v1/integrations/twilio/numbers" && req.method === "GET") {
+          return twilioControlPlaneProxy.handleListTwilioNumbers(tracedReq);
+        }
+        if (url.pathname === "/v1/integrations/twilio/numbers/provision") {
+          return twilioControlPlaneProxy.handleProvisionTwilioNumber(tracedReq);
+        }
+        if (url.pathname === "/v1/integrations/twilio/numbers/assign") {
+          return twilioControlPlaneProxy.handleAssignTwilioNumber(tracedReq);
+        }
+        if (url.pathname === "/v1/integrations/twilio/numbers/release") {
+          return twilioControlPlaneProxy.handleReleaseTwilioNumber(tracedReq);
+        }
+        if (url.pathname === "/v1/integrations/twilio/sms/compliance" && req.method === "GET") {
+          return twilioControlPlaneProxy.handleGetSmsCompliance(tracedReq);
+        }
+        if (url.pathname === "/v1/integrations/twilio/sms/compliance/tollfree") {
+          return twilioControlPlaneProxy.handleSubmitTollfreeVerification(tracedReq);
+        }
+        if (url.pathname === "/v1/integrations/twilio/sms/test") {
+          return twilioControlPlaneProxy.handleSmsSendTest(tracedReq);
+        }
+        return twilioControlPlaneProxy.handleSmsDoctor(tracedReq);
+      }
+
+      // ── Twilio tollfree verification dynamic path routes ──
+      const tollfreeVerificationMatch = url.pathname.match(
+        /^\/v1\/integrations\/twilio\/sms\/compliance\/tollfree\/([^/]+)$/,
+      );
+      if (tollfreeVerificationMatch && (req.method === "PATCH" || req.method === "DELETE")) {
+        const authError = requireRuntimeBearerAuth();
+        if (authError) return authError;
+
+        const verificationSid = decodeURIComponent(tollfreeVerificationMatch[1]);
+        if (req.method === "PATCH") {
+          return twilioControlPlaneProxy.handleUpdateTollfreeVerification(tracedReq, verificationSid);
+        }
+        return twilioControlPlaneProxy.handleDeleteTollfreeVerification(tracedReq, verificationSid);
+      }
+
+      // ── Channel readiness proxy ──
+      if (
+        (url.pathname === "/v1/channels/readiness" && req.method === "GET")
+        || (url.pathname === "/v1/channels/readiness/refresh" && req.method === "POST")
+      ) {
+        const authError = requireRuntimeBearerAuth();
+        if (authError) return authError;
+
+        if (url.pathname === "/v1/channels/readiness" && req.method === "GET") {
+          return channelReadinessProxy.handleGetChannelReadiness(tracedReq);
+        }
+        return channelReadinessProxy.handleRefreshChannelReadiness(tracedReq);
       }
 
       if (url.pathname === "/integrations/status" && req.method === "GET") {

@@ -11,13 +11,12 @@
  *   config-platform.ts    — Platform base URL configuration
  *   config-integrations.ts — Vercel API & Twitter integration
  *   config-telegram.ts    — Telegram bot configuration
- *   config-twilio.ts      — Twilio SMS/voice configuration
- *   config-channels.ts    — Channel guardian & readiness
+ *   config-channels.ts    — Channel guardian verification
  *   config-tools.ts       — Env vars, tool permission simulation, tool names
  */
 
 // Re-export individual handlers for direct import by tests and other modules
-export { getReadinessService,handleChannelReadiness, handleGuardianVerification } from './config-channels.js';
+export { getReadinessService, handleGuardianVerification } from './config-channels.js';
 export { handleHeartbeatChecklistRead, handleHeartbeatChecklistWrite,handleHeartbeatConfig, handleHeartbeatRunNow, handleHeartbeatRunsList } from './config-heartbeat.js';
 export { computeGatewayTarget, handleIngressConfig, syncTwilioWebhooks,triggerGatewayReconcile } from './config-ingress.js';
 export { handleTwitterIntegrationConfig,handleVercelApiConfig } from './config-integrations.js';
@@ -28,7 +27,6 @@ export { handleShareToSlack, handleSlackWebhookConfig } from './config-slack.js'
 export { handleTelegramConfig, summarizeTelegramError } from './config-telegram.js';
 export { handleEnvVarsRequest, handleToolNamesList,handleToolPermissionSimulate } from './config-tools.js';
 export { handleAcceptStarterBundle,handleAddTrustRule, handleRemoveTrustRule, handleTrustRulesList, handleUpdateTrustRule } from './config-trust.js';
-export { handleTwilioConfig } from './config-twilio.js';
 export { broadcastClientSettingsUpdate, handleVoiceConfigUpdate, normalizeActivationKey } from './config-voice.js';
 
 // Assemble the combined dispatch map from domain-specific handler groups
@@ -43,7 +41,6 @@ import { slackHandlers } from './config-slack.js';
 import { telegramHandlers } from './config-telegram.js';
 import { toolHandlers } from './config-tools.js';
 import { trustHandlers } from './config-trust.js';
-import { twilioHandlers } from './config-twilio.js';
 import { voiceHandlers } from './config-voice.js';
 
 export const configHandlers = {
@@ -55,7 +52,6 @@ export const configHandlers = {
   ...platformHandlers,
   ...integrationHandlers,
   ...telegramHandlers,
-  ...twilioHandlers,
   ...channelHandlers,
   ...toolHandlers,
   ...heartbeatHandlers,

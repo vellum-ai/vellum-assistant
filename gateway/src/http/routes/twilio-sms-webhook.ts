@@ -9,7 +9,7 @@ import type { RouteResult } from "../../routing/types.js";
 import { CircuitBreakerOpenError, resetConversation } from "../../runtime/client.js";
 import { sendSmsReply } from "../../twilio/send-sms.js";
 import { validateTwilioWebhookRequest } from "../../twilio/validate-webhook.js";
-import type { GatewayInboundEventV1 } from "../../types.js";
+import type { GatewayInboundEvent } from "../../types.js";
 
 const log = getLogger("twilio-sms-webhook");
 
@@ -17,7 +17,7 @@ const rejectionLimiter = new RejectionRateLimiter();
 
 function normalizeSmsPayload(
   params: Record<string, string>,
-): Omit<GatewayInboundEventV1, "routing"> {
+): GatewayInboundEvent {
   const body = params.Body || "";
   const from = params.From || "";
   const to = params.To || "";
@@ -30,11 +30,11 @@ function normalizeSmsPayload(
     message: {
       content: body,
       // Use From number as the chat identifier so per-phone-number conversations work
-      externalChatId: from,
+      conversationExternalId: from,
       externalMessageId: messageSid,
     },
-    sender: {
-      externalUserId: from,
+    actor: {
+      actorExternalId: from,
       displayName: from,
     },
     source: {
@@ -142,7 +142,7 @@ export function createTwilioSmsWebhookHandler(config: GatewayConfig) {
           await resetConversation(
             config,
             normalized.sourceChannel,
-            normalized.message.externalChatId,
+            normalized.message.conversationExternalId,
           );
           sendSmsReply(config, params.From, "Starting a new conversation!", routing.assistantId).catch((err) => {
             tlog.error({ err }, "Failed to send /new confirmation");

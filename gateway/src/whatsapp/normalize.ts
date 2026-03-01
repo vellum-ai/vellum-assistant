@@ -1,4 +1,4 @@
-import type { GatewayInboundEventV1 } from "../types.js";
+import type { GatewayInboundEvent } from "../types.js";
 
 // WhatsApp Cloud API webhook payload shapes
 // https://developers.facebook.com/docs/whatsapp/cloud-api/webhooks/payload-examples
@@ -70,7 +70,7 @@ interface WhatsAppWebhookPayload {
 }
 
 export interface NormalizedWhatsAppMessage {
-  event: Omit<GatewayInboundEventV1, "routing">;
+  event: GatewayInboundEvent;
   /** Original WhatsApp message ID — used for marking as read. */
   whatsappMessageId: string;
   /** The media type when the message contained an attachment (image, video, etc.). */
@@ -78,7 +78,7 @@ export interface NormalizedWhatsAppMessage {
 }
 
 /**
- * Normalize a WhatsApp Cloud API webhook payload into an array of GatewayInboundEventV1 events.
+ * Normalize a WhatsApp Cloud API webhook payload into an array of GatewayInboundEvent events.
  *
  * Returns an empty array if:
  * - The payload is not a WhatsApp messages webhook
@@ -155,12 +155,12 @@ export function normalizeWhatsAppWebhook(
           message: {
             content: body,
             // Use sender phone number as the chat identifier for 1:1 conversations
-            externalChatId: from,
+            conversationExternalId: from,
             externalMessageId: msg.id,
             ...(callbackData ? { callbackData } : {}),
           },
-          sender: {
-            externalUserId: from,
+          actor: {
+            actorExternalId: from,
             displayName,
           },
           source: {

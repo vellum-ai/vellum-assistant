@@ -233,7 +233,7 @@ export async function startCli(): Promise<void> {
     process.stdout.write(`\u2502\n`);
     process.stdout.write(`\u2502 [a] Allow once\n`);
     process.stdout.write(`\u2502 [d] Deny once\n`);
-    if (req.allowlistOptions.length > 0) {
+    if (req.allowlistOptions.length > 0 && req.scopeOptions.length > 0) {
       process.stdout.write(`\u2502 [A] Allowlist...\n`);
       process.stdout.write(`\u2502 [H] Allowlist (high-risk)...\n`);
       process.stdout.write(`\u2502 [D] Denylist...\n`);
@@ -246,21 +246,22 @@ export async function startCli(): Promise<void> {
       const choice = trimmed.toLowerCase();
 
       // Uppercase 'A' → allowlist pattern selection (check before lowercase 'a')
-      if (trimmed === 'A' || choice === 'allowlist') {
+      // Only process when scope options exist, matching the display guard above
+      if ((trimmed === 'A' || choice === 'allowlist') && req.allowlistOptions.length > 0 && req.scopeOptions.length > 0) {
         // pendingConfirmation stays true through sub-prompts
         renderPatternSelection(req, 'always_allow');
         return;
       }
 
       // Uppercase 'H' → high-risk allowlist pattern selection
-      if (trimmed === 'H') {
+      if (trimmed === 'H' && req.allowlistOptions.length > 0 && req.scopeOptions.length > 0) {
         // pendingConfirmation stays true through sub-prompts
         renderPatternSelection(req, 'always_allow_high_risk');
         return;
       }
 
       // Uppercase 'D' → denylist pattern selection (check before lowercase 'd')
-      if (trimmed === 'D' || choice === 'denylist') {
+      if ((trimmed === 'D' || choice === 'denylist') && req.allowlistOptions.length > 0 && req.scopeOptions.length > 0) {
         // pendingConfirmation stays true through sub-prompts
         renderPatternSelection(req, 'always_deny');
         return;

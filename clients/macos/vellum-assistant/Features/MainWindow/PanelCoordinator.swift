@@ -713,6 +713,9 @@ struct ActiveChatViewWrapper: View {
             },
             selectedModel: settingsStore.selectedModel,
             configuredProviders: settingsStore.configuredProviders,
+            assistantActivityPhase: viewModel.assistantActivityPhase,
+            assistantActivityAnchor: viewModel.assistantActivityAnchor,
+            assistantActivityReason: viewModel.assistantActivityReason,
             onConfirmationAllow: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "allow") },
             onConfirmationDeny: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "deny") },
             onAlwaysAllow: { requestId, selectedPattern, selectedScope, decision in viewModel.respondToAlwaysAllow(requestId: requestId, selectedPattern: selectedPattern, selectedScope: selectedScope, decision: decision) },
@@ -770,6 +773,7 @@ struct ActiveChatViewWrapper: View {
             loadPreviousMessagePage: { await viewModel.loadPreviousMessagePage() },
             isBootstrapping: isBootstrapping
         )
+        .environment(\.cmdEnterToSend, settingsStore.cmdEnterToSend)
     }
 }
 

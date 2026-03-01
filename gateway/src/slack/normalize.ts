@@ -1,7 +1,7 @@
 import type { GatewayConfig } from "../config.js";
 import { resolveAssistant, isRejection } from "../routing/resolve-assistant.js";
 import type { RouteResult } from "../routing/types.js";
-import type { GatewayInboundEventV1 } from "../types.js";
+import type { GatewayInboundEvent } from "../types.js";
 
 /**
  * Slack `app_mention` event shape (subset relevant to normalization).
@@ -29,7 +29,7 @@ export function stripBotMention(text: string): string {
 }
 
 export type NormalizedSlackEvent = {
-  event: Omit<GatewayInboundEventV1, "routing">;
+  event: GatewayInboundEvent;
   routing: RouteResult;
   /** Thread timestamp for reply threading. */
   threadTs: string;
@@ -64,11 +64,11 @@ export function normalizeSlackAppMention(
       receivedAt: new Date().toISOString(),
       message: {
         content,
-        externalChatId: event.channel,
+        conversationExternalId: event.channel,
         externalMessageId,
       },
-      sender: {
-        externalUserId: event.user,
+      actor: {
+        actorExternalId: event.user,
       },
       source: {
         updateId: eventId,

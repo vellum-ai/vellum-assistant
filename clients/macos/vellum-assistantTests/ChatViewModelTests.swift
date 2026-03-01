@@ -2501,6 +2501,58 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertTrue(viewModel.isThinking, "isThinking should remain true while agent is active")
     }
 
+    // MARK: - Assistant Activity State
+
+    func testAssistantActivityStateTracksConfirmationResolvedAnchor() {
+        viewModel.sessionId = "sess-1"
+        let activity = AssistantActivityStateMessage(
+            type: "assistant_activity_state",
+            sessionId: "sess-1",
+            activityVersion: 1,
+            phase: "thinking",
+            anchor: "assistant_turn",
+            requestId: nil,
+            reason: "confirmation_resolved"
+        )
+
+        viewModel.handleServerMessage(.assistantActivityState(activity))
+
+        XCTAssertEqual(viewModel.assistantActivityPhase, "thinking")
+        XCTAssertEqual(viewModel.assistantActivityAnchor, "assistant_turn")
+        XCTAssertEqual(viewModel.assistantActivityReason, "confirmation_resolved")
+        XCTAssertTrue(viewModel.isSending)
+        XCTAssertTrue(viewModel.isThinking)
+    }
+
+    func testAssistantActivityStateIgnoresStaleVersions() {
+        viewModel.sessionId = "sess-1"
+        let newer = AssistantActivityStateMessage(
+            type: "assistant_activity_state",
+            sessionId: "sess-1",
+            activityVersion: 2,
+            phase: "thinking",
+            anchor: "assistant_turn",
+            requestId: nil,
+            reason: "confirmation_resolved"
+        )
+        let stale = AssistantActivityStateMessage(
+            type: "assistant_activity_state",
+            sessionId: "sess-1",
+            activityVersion: 1,
+            phase: "idle",
+            anchor: "global",
+            requestId: nil,
+            reason: "message_complete"
+        )
+
+        viewModel.handleServerMessage(.assistantActivityState(newer))
+        viewModel.handleServerMessage(.assistantActivityState(stale))
+
+        XCTAssertEqual(viewModel.assistantActivityPhase, "thinking")
+        XCTAssertEqual(viewModel.assistantActivityAnchor, "assistant_turn")
+        XCTAssertEqual(viewModel.assistantActivityReason, "confirmation_resolved")
+    }
+
     // MARK: - Send Direct Queued Message
 
     func testSendDirectQueuedMessageSavesContentAndStops() {

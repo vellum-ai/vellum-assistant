@@ -24,33 +24,39 @@ struct AppsGridView: View {
     private let maxContentWidth: CGFloat = 1400
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: VSpacing.xxl) {
-                searchBar
-                    .padding(.top, VSpacing.xxl)
+        Group {
+            if appListManager.apps.isEmpty {
+                noAppsEmptyState
+            } else {
+                ScrollView {
+                    VStack(spacing: VSpacing.xxl) {
+                        searchBar
+                            .padding(.top, VSpacing.xxl)
 
-                if !filteredPinnedApps.isEmpty {
-                    pinnedSectionView
-                }
+                        if !filteredPinnedApps.isEmpty {
+                            pinnedSectionView
+                        }
 
-                if !filteredRecentApps.isEmpty {
-                    recentSectionView
-                }
+                        if !filteredRecentApps.isEmpty {
+                            recentSectionView
+                        }
 
-                if filteredPinnedApps.isEmpty && filteredRecentApps.isEmpty && !searchText.isEmpty {
-                    VEmptyState(
-                        title: "No apps matched",
-                        subtitle: "No apps matched \"\(searchText)\"",
-                        icon: "magnifyingglass"
-                    )
+                        if filteredPinnedApps.isEmpty && filteredRecentApps.isEmpty && !searchText.isEmpty {
+                            VEmptyState(
+                                title: "No apps matched",
+                                subtitle: "No apps matched \"\(searchText)\"",
+                                icon: "magnifyingglass"
+                            )
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, VSpacing.xxxl)
+                        }
+                    }
+                    .frame(maxWidth: maxContentWidth)
                     .frame(maxWidth: .infinity)
-                    .padding(.top, VSpacing.xxxl)
+                    .padding(.horizontal, VSpacing.xxxl)
+                    .padding(.bottom, VSpacing.xxl)
                 }
             }
-            .frame(maxWidth: maxContentWidth)
-            .frame(maxWidth: .infinity)
-            .padding(.horizontal, VSpacing.xxxl)
-            .padding(.bottom, VSpacing.xxl)
         }
         .background(VColor.backgroundSubtle)
         .onDisappear {
@@ -68,6 +74,27 @@ struct AppsGridView: View {
                 }
             )
         }
+    }
+
+    // MARK: - Empty State
+
+    private var noAppsEmptyState: some View {
+        VStack(spacing: VSpacing.xl) {
+            Image(systemName: "square.grid.2x2")
+                .font(.system(size: 40, weight: .thin))
+                .foregroundColor(VColor.textMuted)
+
+            VStack(spacing: VSpacing.sm) {
+                Text("No things yet")
+                    .font(VFont.bodyBold)
+                    .foregroundColor(VColor.textSecondary)
+
+                Text("Ask the assistant to build something")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textMuted)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Search Bar

@@ -18,9 +18,50 @@ class TitleBarZoomableWindow: NSWindow {
     /// Weak reference to the composer text view so we can redirect typing to it.
     weak var composerTextView: NSTextView?
 
+    /// Weak reference to the outermost NSView that contains the entire composer
+    /// UI (text field + action buttons). Used for hit-testing blur dismissal so
+    /// clicks on sibling controls (Attach, Mic, Send) aren't treated as outside.
+    weak var composerContainerView: NSView?
+
+    /// When true, `keyDown` will not auto-redirect keystrokes to the composer.
+    /// Set when the user clicks outside the composer to dismiss focus; cleared
+    /// when the composer regains focus (e.g. user clicks back into it).
+    private(set) var composerDismissed = false
+
+    func clearComposerDismissed() {
+        composerDismissed = false
+    }
+
+    override func sendEvent(_ event: NSEvent) {
+        super.sendEvent(event)
+
+        // After dispatching a left-click, check whether the composer should
+        // lose focus. If the click landed outside the composer container
+        // and the composer is still first responder (i.e. nothing else claimed
+        // focus), explicitly resign so the user can "click away" to blur.
+        if event.type == .leftMouseDown,
+           let composer = composerTextView,
+           firstResponder === composer {
+            let container = composerContainerView
+                ?? composer.enclosingScrollView
+                ?? composer
+            let point = container.convert(event.locationInWindow, from: nil)
+            if !container.bounds.contains(point) {
+                composerDismissed = true
+                makeFirstResponder(nil)
+            }
+        }
+    }
+
     override func keyDown(with event: NSEvent) {
         // If a text view is already focused, let it handle the event normally.
         if firstResponder is NSTextView {
+            super.keyDown(with: event)
+            return
+        }
+
+        // Don't auto-redirect if the user explicitly dismissed the composer.
+        if composerDismissed {
             super.keyDown(with: event)
             return
         }

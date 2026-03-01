@@ -119,14 +119,14 @@ export async function handleChannelInbound(
   const body = await req.json() as {
     sourceChannel?: string;
     interface?: string;
-    externalChatId?: string;
+    conversationExternalId?: string;
     externalMessageId?: string;
     content?: string;
     isEdit?: boolean;
-    senderName?: string;
+    actorDisplayName?: string;
     attachmentIds?: string[];
-    senderExternalUserId?: string;
-    senderUsername?: string;
+    actorExternalId?: string;
+    actorUsername?: string;
     sourceMetadata?: Record<string, unknown>;
     replyCallbackUrl?: string;
     callbackQueryId?: string;
@@ -134,7 +134,7 @@ export async function handleChannelInbound(
   };
 
   const {
-    externalChatId,
+    conversationExternalId,
     externalMessageId,
     content,
     isEdit,
@@ -161,8 +161,11 @@ export async function handleChannelInbound(
     return httpError('BAD_REQUEST', `Invalid interface: ${body.interface}. Valid values: ${INTERFACE_IDS.join(', ')}`, 400);
   }
 
-  if (!externalChatId || typeof externalChatId !== 'string') {
-    return httpError('BAD_REQUEST', 'externalChatId is required', 400);
+  if (!conversationExternalId || typeof conversationExternalId !== 'string') {
+    return httpError('BAD_REQUEST', 'conversationExternalId is required', 400);
+  }
+  if (!body.actorExternalId || typeof body.actorExternalId !== 'string' || !body.actorExternalId.trim()) {
+    return httpError('BAD_REQUEST', 'actorExternalId is required', 400);
   }
   if (!externalMessageId || typeof externalMessageId !== 'string') {
     return httpError('BAD_REQUEST', 'externalMessageId is required', 400);
@@ -189,12 +192,12 @@ export async function handleChannelInbound(
     log.debug({ raw: assistantId, canonical: canonicalAssistantId }, 'Canonicalized channel assistant ID');
   }
 
-  // Coerce senderExternalUserId to a string at the boundary — the field
+  // Coerce actorExternalId to a string at the boundary — the field
   // comes from unvalidated JSON and may be a number, object, or other
   // non-string type. Non-string truthy values would throw inside
   // canonicalizeInboundIdentity when it calls .trim().
-  const rawSenderId = body.senderExternalUserId != null
-    ? String(body.senderExternalUserId)
+  const rawSenderId = body.actorExternalId != null
+    ? String(body.actorExternalId)
     : undefined;
 
   // Canonicalize the sender identity so all trust lookups, member matching,
@@ -206,7 +209,7 @@ export async function handleChannelInbound(
     : null;
 
   // Track whether the original payload included a sender identity. A
-  // whitespace-only senderExternalUserId canonicalizes to null but still
+  // whitespace-only actorExternalId canonicalizes to null but still
   // represents an explicit (malformed) identity claim that must enter the
   // ACL deny path rather than bypassing it.
   const hasSenderIdentityClaim = rawSenderId !== undefined;
@@ -253,7 +256,7 @@ export async function handleChannelInbound(
         assistantId: canonicalAssistantId,
         sourceChannel,
         externalUserId: canonicalSenderId,
-        externalChatId,
+        externalChatId: conversationExternalId,
       });
     }
 
@@ -300,11 +303,11 @@ export async function handleChannelInbound(
         const inviteResult = await handleInviteTokenIntercept({
           rawToken: inviteToken,
           sourceChannel,
-          externalChatId,
+          externalChatId: conversationExternalId,
           externalMessageId,
           senderExternalUserId: canonicalSenderId ?? rawSenderId,
-          senderName: body.senderName,
-          senderUsername: body.senderUsername,
+          senderName: body.actorDisplayName,
+          senderUsername: body.actorUsername,
           replyCallbackUrl: body.replyCallbackUrl,
           bearerToken,
           assistantId,
@@ -324,14 +327,14 @@ export async function handleChannelInbound(
           const accessResult = notifyGuardianOfAccessRequest({
             canonicalAssistantId,
             sourceChannel,
-            externalChatId,
-            senderExternalUserId: canonicalSenderId ?? rawSenderId,
-            senderName: body.senderName,
-            senderUsername: body.senderUsername,
+            conversationExternalId,
+            actorExternalId: canonicalSenderId ?? rawSenderId,
+            actorDisplayName: body.actorDisplayName,
+            actorUsername: body.actorUsername,
           });
           guardianNotified = accessResult.notified;
         } catch (err) {
-          log.error({ err, sourceChannel, externalChatId }, 'Failed to notify guardian of access request');
+          log.error({ err, sourceChannel, conversationExternalId }, 'Failed to notify guardian of access request');
         }
 
         if (body.replyCallbackUrl) {
@@ -340,12 +343,12 @@ export async function handleChannelInbound(
             : "Sorry, you haven't been approved to message this assistant.";
           try {
             await deliverChannelReply(body.replyCallbackUrl, {
-              chatId: externalChatId,
+              chatId: conversationExternalId,
               text: replyText,
               assistantId,
             }, bearerToken);
           } catch (err) {
-            log.error({ err, externalChatId }, 'Failed to deliver ACL rejection reply');
+            log.error({ err, conversationExternalId }, 'Failed to deliver ACL rejection reply');
           }
         }
 
@@ -386,11 +389,11 @@ export async function handleChannelInbound(
           const inviteResult = await handleInviteTokenIntercept({
             rawToken: inviteToken,
             sourceChannel,
-            externalChatId,
+            externalChatId: conversationExternalId,
             externalMessageId,
             senderExternalUserId: canonicalSenderId ?? rawSenderId,
-            senderName: body.senderName,
-            senderUsername: body.senderUsername,
+            senderName: body.actorDisplayName,
+            senderUsername: body.actorUsername,
             replyCallbackUrl: body.replyCallbackUrl,
             bearerToken,
             assistantId,
@@ -411,15 +414,15 @@ export async function handleChannelInbound(
               const accessResult = notifyGuardianOfAccessRequest({
                 canonicalAssistantId,
                 sourceChannel,
-                externalChatId,
-                senderExternalUserId: canonicalSenderId ?? rawSenderId,
-                senderName: body.senderName,
-                senderUsername: body.senderUsername,
+                conversationExternalId,
+                actorExternalId: canonicalSenderId ?? rawSenderId,
+                actorDisplayName: body.actorDisplayName,
+                actorUsername: body.actorUsername,
                 previousMemberStatus: resolvedMember.status,
               });
               guardianNotified = accessResult.notified;
             } catch (err) {
-              log.error({ err, sourceChannel, externalChatId }, 'Failed to notify guardian of access request');
+              log.error({ err, sourceChannel, conversationExternalId }, 'Failed to notify guardian of access request');
             }
           }
 
@@ -429,12 +432,12 @@ export async function handleChannelInbound(
               : "Sorry, you haven't been approved to message this assistant.";
             try {
               await deliverChannelReply(body.replyCallbackUrl, {
-                chatId: externalChatId,
+                chatId: conversationExternalId,
                 text: replyText,
                 assistantId,
               }, bearerToken);
             } catch (err) {
-              log.error({ err, externalChatId }, 'Failed to deliver ACL rejection reply');
+              log.error({ err, conversationExternalId }, 'Failed to deliver ACL rejection reply');
             }
           }
           return Response.json({ accepted: true, denied: true, reason: `member_${resolvedMember.status}` });
@@ -446,12 +449,12 @@ export async function handleChannelInbound(
         if (body.replyCallbackUrl) {
           try {
             await deliverChannelReply(body.replyCallbackUrl, {
-              chatId: externalChatId,
+              chatId: conversationExternalId,
               text: "Sorry, you haven't been approved to message this assistant.",
               assistantId,
             }, bearerToken);
           } catch (err) {
-            log.error({ err, externalChatId }, 'Failed to deliver ACL rejection reply');
+            log.error({ err, conversationExternalId }, 'Failed to deliver ACL rejection reply');
           }
         }
         return Response.json({ accepted: true, denied: true, reason: 'policy_deny' });
@@ -487,7 +490,7 @@ export async function handleChannelInbound(
     // Dedup the edit event itself (retried edited_message webhooks)
     const editResult = channelDeliveryStore.recordInbound(
       sourceChannel,
-      externalChatId,
+      conversationExternalId,
       externalMessageId,
       { sourceMessageId, assistantId: canonicalAssistantId },
     );
@@ -510,7 +513,7 @@ export async function handleChannelInbound(
     for (let attempt = 0; attempt <= EDIT_LOOKUP_RETRIES; attempt++) {
       original = channelDeliveryStore.findMessageBySourceId(
         sourceChannel,
-        externalChatId,
+        conversationExternalId,
         sourceMessageId,
       );
       if (original) break;
@@ -531,7 +534,7 @@ export async function handleChannelInbound(
       );
     } else {
       log.warn(
-        { assistantId, sourceChannel, externalChatId, sourceMessageId },
+        { assistantId, sourceChannel, conversationExternalId, sourceMessageId },
         'Could not find original message for edit after retries, ignoring',
       );
     }
@@ -546,7 +549,7 @@ export async function handleChannelInbound(
   // ── New message path ──
   const result = channelDeliveryStore.recordInbound(
     sourceChannel,
-    externalChatId,
+    conversationExternalId,
     externalMessageId,
     { sourceMessageId, assistantId: canonicalAssistantId },
   );
@@ -586,10 +589,10 @@ export async function handleChannelInbound(
     externalConversationStore.upsertBinding({
       conversationId: result.conversationId,
       sourceChannel,
-      externalChatId,
+      externalChatId: conversationExternalId,
       externalUserId: canonicalSenderId ?? rawSenderId ?? null,
-      displayName: body.senderName ?? null,
-      username: body.senderUsername ?? null,
+      displayName: body.actorDisplayName ?? null,
+      username: body.actorUsername ?? null,
     });
   }
 
@@ -608,11 +611,11 @@ export async function handleChannelInbound(
     // Persist the raw payload so the decide handler can recover the original
     // message content when the escalation is approved.
     channelDeliveryStore.storePayload(result.eventId, {
-      sourceChannel, interface: sourceInterface, externalChatId, externalMessageId, content,
+      sourceChannel, interface: sourceInterface, externalChatId: conversationExternalId, externalMessageId, content,
       attachmentIds, sourceMetadata: body.sourceMetadata,
-      senderName: body.senderName,
-      senderExternalUserId: body.senderExternalUserId,
-      senderUsername: body.senderUsername,
+      senderName: body.actorDisplayName,
+      senderExternalUserId: body.actorExternalId,
+      senderUsername: body.actorUsername,
       replyCallbackUrl: body.replyCallbackUrl,
       assistantId: canonicalAssistantId,
     });
@@ -654,8 +657,8 @@ export async function handleChannelInbound(
       contextPayload: {
         conversationId: result.conversationId,
         sourceChannel,
-        externalChatId,
-        senderIdentifier: body.senderName || body.senderUsername || rawSenderId || 'Unknown sender',
+        conversationExternalId,
+        senderIdentifier: body.actorDisplayName || body.actorUsername || rawSenderId || 'Unknown sender',
         eventId: result.eventId,
       },
       dedupeKey: `escalation:${result.eventId}`,
@@ -708,7 +711,7 @@ export async function handleChannelInbound(
 
     if (bootstrapSession && bootstrapSession.status === 'pending_bootstrap') {
       // Bind the pending_bootstrap session to the sender's identity
-      bindSessionIdentity(bootstrapSession.id, rawSenderId!, externalChatId);
+      bindSessionIdentity(bootstrapSession.id, rawSenderId!, conversationExternalId);
 
       // Transition bootstrap session to awaiting_response
       updateSessionStatus(bootstrapSession.id, 'awaiting_response');
@@ -719,9 +722,9 @@ export async function handleChannelInbound(
         assistantId: canonicalAssistantId,
         channel: sourceChannel,
         expectedExternalUserId: rawSenderId!,
-        expectedChatId: externalChatId,
+        expectedChatId: conversationExternalId,
         identityBindingStatus: 'bound',
-        destinationAddress: externalChatId,
+        destinationAddress: conversationExternalId,
       });
 
       // Compose and send the verification prompt via Telegram
@@ -734,7 +737,7 @@ export async function handleChannelInbound(
       );
 
       // Deliver verification Telegram message via the gateway (fire-and-forget)
-      deliverBootstrapVerificationTelegram(externalChatId, telegramBody, canonicalAssistantId);
+      deliverBootstrapVerificationTelegram(conversationExternalId, telegramBody, canonicalAssistantId);
 
       // Update delivery tracking
       const now = Date.now();
@@ -777,9 +780,9 @@ export async function handleChannelInbound(
       sourceChannel,
       guardianVerifyCode,
       canonicalSenderId ?? rawSenderId!,
-      externalChatId,
-      body.senderUsername,
-      body.senderName,
+      conversationExternalId,
+      body.actorUsername,
+      body.actorDisplayName,
     );
 
     const guardianVerifyOutcome: 'verified' | 'failed' = verifyResult.success ? 'verified' : 'failed';
@@ -790,7 +793,7 @@ export async function handleChannelInbound(
           assistantId: canonicalAssistantId,
           sourceChannel,
           externalUserId: canonicalSenderId ?? rawSenderId!,
-          externalChatId,
+          externalChatId: conversationExternalId,
         })
         : null;
       const memberMatchesSender = existingMember?.externalUserId
@@ -798,18 +801,18 @@ export async function handleChannelInbound(
         : false;
       const preservedDisplayName = memberMatchesSender && existingMember?.displayName?.trim().length
         ? existingMember.displayName
-        : body.senderName;
+        : body.actorDisplayName;
 
       upsertMember({
         assistantId: canonicalAssistantId,
         sourceChannel,
         externalUserId: canonicalSenderId ?? rawSenderId!,
-        externalChatId,
+        externalChatId: conversationExternalId,
         status: 'active',
         policy: 'allow',
         // Keep guardian-curated member name stable across re-verification.
         displayName: preservedDisplayName,
-        username: body.senderUsername,
+        username: body.actorUsername,
       });
 
       const verifyLogLabel = verifyResult.verificationType === 'trusted_contact'
@@ -834,10 +837,10 @@ export async function handleChannelInbound(
           },
           contextPayload: {
             sourceChannel,
-            externalUserId: canonicalSenderId ?? rawSenderId!,
-            externalChatId,
-            senderName: body.senderName ?? null,
-            senderUsername: body.senderUsername ?? null,
+            actorExternalId: canonicalSenderId ?? rawSenderId!,
+            conversationExternalId,
+            actorDisplayName: body.actorDisplayName ?? null,
+            actorUsername: body.actorUsername ?? null,
           },
           dedupeKey: `trusted-contact:activated:${canonicalAssistantId}:${sourceChannel}:${canonicalSenderId ?? rawSenderId!}`,
         });
@@ -859,7 +862,7 @@ export async function handleChannelInbound(
       }
       try {
         await deliverChannelReply(replyCallbackUrl, {
-          chatId: externalChatId,
+          chatId: conversationExternalId,
           text: replyText,
           assistantId,
         }, bearerToken);
@@ -868,9 +871,9 @@ export async function handleChannelInbound(
         // we cannot simply re-throw and let the gateway retry the full
         // flow. Instead, persist the reply so that gateway retries
         // (which arrive as duplicates) can re-attempt delivery.
-        log.error({ err, externalChatId }, 'Failed to deliver deterministic verification reply; persisting for retry');
+        log.error({ err, conversationExternalId }, 'Failed to deliver deterministic verification reply; persisting for retry');
         channelDeliveryStore.storePendingVerificationReply(result.eventId, {
-          chatId: externalChatId,
+          chatId: conversationExternalId,
           text: replyText,
           assistantId,
         });
@@ -882,7 +885,7 @@ export async function handleChannelInbound(
         setTimeout(async () => {
           try {
             await deliverChannelReply(replyCallbackUrl, {
-              chatId: externalChatId,
+              chatId: conversationExternalId,
               text: replyText,
               assistantId,
             }, bearerToken);
@@ -922,10 +925,10 @@ export async function handleChannelInbound(
   const guardianCtx: GuardianContext = resolveGuardianContext({
     assistantId: canonicalAssistantId,
     sourceChannel,
-    externalChatId,
-    senderExternalUserId: rawSenderId,
-    senderUsername: body.senderUsername,
-    senderDisplayName: body.senderName,
+    conversationExternalId,
+    actorExternalId: rawSenderId,
+    actorUsername: body.actorUsername,
+    actorDisplayName: body.actorDisplayName,
   });
 
   // Hoisted flag: set by the canonical guardian reply router when the invite
@@ -957,7 +960,7 @@ export async function handleChannelInbound(
     // router's own identity-based fallback stays active.
     const deliveryScopedPendingRequests = listPendingCanonicalGuardianRequestsByDestinationChat(
       sourceChannel,
-      externalChatId,
+      conversationExternalId,
     );
     let pendingRequestIds: string[] | undefined;
     if (deliveryScopedPendingRequests.length > 0) {
@@ -988,7 +991,7 @@ export async function handleChannelInbound(
       approvalConversationGenerator,
       channelDeliveryContext: {
         replyCallbackUrl,
-        guardianChatId: externalChatId,
+        guardianChatId: conversationExternalId,
         assistantId: canonicalAssistantId,
         bearerToken,
       },
@@ -999,12 +1002,12 @@ export async function handleChannelInbound(
       if (routerResult.replyText) {
         try {
           await deliverChannelReply(replyCallbackUrl, {
-            chatId: externalChatId,
+            chatId: conversationExternalId,
             text: routerResult.replyText,
             assistantId: canonicalAssistantId,
           }, bearerToken);
         } catch (err) {
-          log.error({ err, externalChatId }, 'Failed to deliver canonical router reply');
+          log.error({ err, conversationExternalId }, 'Failed to deliver canonical router reply');
         }
       }
 
@@ -1036,9 +1039,9 @@ export async function handleChannelInbound(
       conversationId: result.conversationId,
       callbackData: body.callbackData,
       content: trimmedContent,
-      externalChatId,
+      conversationExternalId,
       sourceChannel,
-      senderExternalUserId: canonicalSenderId ?? rawSenderId,
+      actorExternalId: canonicalSenderId ?? rawSenderId,
       replyCallbackUrl,
       bearerToken,
       guardianCtx,
@@ -1133,11 +1136,11 @@ export async function handleChannelInbound(
     // replayed. If the ingress check later detects secrets we clear it
     // before throwing, so secret-bearing content is never left on disk.
     channelDeliveryStore.storePayload(result.eventId, {
-      sourceChannel, externalChatId, externalMessageId, content,
+      sourceChannel, externalChatId: conversationExternalId, externalMessageId, content,
       attachmentIds, sourceMetadata: body.sourceMetadata,
-      senderName: body.senderName,
-      senderExternalUserId: body.senderExternalUserId,
-      senderUsername: body.senderUsername,
+      senderName: body.actorDisplayName,
+      senderExternalUserId: body.actorExternalId,
+      senderUsername: body.actorUsername,
       guardianCtx: toGuardianRuntimeContext(sourceChannel, guardianCtx),
       replyCallbackUrl,
       assistantId: canonicalAssistantId,
@@ -1191,7 +1194,7 @@ export async function handleChannelInbound(
       attachmentIds: hasAttachments ? attachmentIds : undefined,
       sourceChannel,
       sourceInterface,
-      externalChatId,
+      externalChatId: conversationExternalId,
       guardianCtx,
       metadataHints,
       metadataUxBrief,
@@ -1280,7 +1283,7 @@ async function handleInviteTokenIntercept(params: {
   });
 
   log.info(
-    { sourceChannel, externalChatId, ok: outcome.ok, type: outcome.ok ? outcome.type : undefined, reason: !outcome.ok ? outcome.reason : undefined },
+    { sourceChannel, externalChatId: params.externalChatId, ok: outcome.ok, type: outcome.ok ? outcome.type : undefined, reason: !outcome.ok ? outcome.reason : undefined },
     'Invite token intercept: redemption result',
   );
 

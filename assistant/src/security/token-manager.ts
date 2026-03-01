@@ -13,6 +13,16 @@ import { getSecureKey, setSecureKey } from './secure-keys.js';
 
 const log = getLogger('token-manager');
 
+const MESSAGING_SERVICES = new Set(['integration:gmail', 'integration:slack']);
+
+function recoveryHint(service: string): string {
+  const shortName = service.startsWith('integration:') ? service.slice('integration:'.length) : service;
+  if (MESSAGING_SERVICES.has(service)) {
+    return ` Reconnect ${shortName} — follow the Error Recovery steps in the messaging skill. Do not present options or explain the error to the user.`;
+  }
+  return ` Re-authorization required for ${shortName}. Do not present options or explain the error to the user.`;
+}
+
 /** Buffer before expiry to trigger proactive refresh (5 minutes). */
 const EXPIRY_BUFFER_MS = 5 * 60 * 1000;
 
@@ -113,7 +123,7 @@ function isTokenExpired(service: string): boolean {
 async function doRefresh(service: string): Promise<string> {
   const refreshToken = getSecureKey(`credential:${service}:refresh_token`);
   if (!refreshToken) {
-    throw new TokenExpiredError(service, `No refresh token available for "${service}". Re-authorization required.`);
+    throw new TokenExpiredError(service, `No refresh token available for "${service}". Re-authorization required.${recoveryHint(service)}`);
   }
 
   const meta = getCredentialMetadata(service, 'access_token');
@@ -131,7 +141,7 @@ async function doRefresh(service: string): Promise<string> {
       : '';
     throw new TokenExpiredError(
       service,
-      `Missing OAuth2 refresh config for "${service}".${hint} Please reconnect via chat to re-authorize.`,
+      `Missing OAuth2 refresh config for "${service}".${hint}${recoveryHint(service)}`,
     );
   }
 
@@ -145,7 +155,7 @@ async function doRefresh(service: string): Promise<string> {
     throw new TokenExpiredError(
       service,
       `Token refresh for "${service}" is temporarily suspended after ${state.consecutiveFailures} consecutive failures. ` +
-      `Retrying in ${Math.ceil(remainingMs / 1000)}s. Please try again later or re-authorize.`,
+      `Retrying in ${Math.ceil(remainingMs / 1000)}s.${recoveryHint(service)}`,
     );
   }
 
@@ -156,16 +166,23 @@ async function doRefresh(service: string): Promise<string> {
     result = await refreshOAuth2Token(resolvedTokenUrl, clientId, refreshToken, clientSecret, authMethod);
   } catch (err) {
     recordRefreshFailure(service);
+    if (isCredentialError(err)) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new TokenExpiredError(service, `Token refresh failed for "${service}": ${msg}.${recoveryHint(service)}`);
+    }
+    // Transient errors (network failures, 5xx) are re-thrown as-is so
+    // upstream retry/backoff logic can handle them without triggering
+    // unnecessary reauthorization flows.
     throw err;
   }
 
   if (!setSecureKey(`credential:${service}:access_token`, result.accessToken)) {
-    throw new Error(`Failed to store refreshed access token for "${service}"`);
+    throw new TokenExpiredError(service, `Failed to store refreshed access token for "${service}".`);
   }
 
   if (result.refreshToken) {
     if (!setSecureKey(`credential:${service}:refresh_token`, result.refreshToken)) {
-      throw new Error(`Failed to store refreshed refresh token for "${service}"`);
+      throw new TokenExpiredError(service, `Failed to store refreshed refresh token for "${service}".`);
     }
   }
 
@@ -197,11 +214,7 @@ export async function withValidToken<T>(
 ): Promise<T> {
   let token = getSecureKey(`credential:${service}:access_token`);
   if (!token) {
-    const isGoogle = service === 'integration:gmail';
-    const googleHint = isGoogle
-      ? ' Try reconnecting by calling credential_store with action "oauth2_connect" and service "gmail".'
-      : '';
-    throw new TokenExpiredError(service, `No access token found for "${service}". Authorization required.${googleHint}`);
+    throw new TokenExpiredError(service, `No access token found for "${service}". Authorization required.${recoveryHint(service)}`);
   }
 
   // Proactively refresh if expired or about to expire.
@@ -225,5 +238,28 @@ function is401Error(err: unknown): boolean {
     if ('status' in err && (err as { status: number }).status === 401) return true;
     if ('statusCode' in err && (err as { statusCode: number }).statusCode === 401) return true;
   }
+  return false;
+}
+
+/**
+ * Distinguish credential-specific refresh failures (which need reauthorization)
+ * from transient errors (network timeouts, 5xx) that can be retried.
+ *
+ * refreshOAuth2Token() throws Error with messages like:
+ *   "OAuth2 token refresh failed (HTTP 401: invalid_client)"
+ *   "OAuth2 token refresh failed (HTTP 400: invalid_grant)"
+ *   "OAuth2 token refresh failed (HTTP 500)"
+ *
+ * Credential errors: 400 with invalid_grant or invalid_client, 401, 403.
+ * Everything else (5xx, network errors, non-credential 400s) is transient.
+ */
+function isCredentialError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const msg = err.message;
+  // 401/403 are always credential errors
+  if (/HTTP\s+40[13]\b/.test(msg)) return true;
+  // 400 with invalid_grant means the refresh token is revoked/expired;
+  // invalid_client means client credentials are bad/rotated
+  if (/HTTP\s+400\b/.test(msg) && /invalid_grant|invalid_client/.test(msg)) return true;
   return false;
 }

@@ -401,9 +401,14 @@ struct QRPairingSheet: View {
                 phase = .error
                 return
             }
+            guard let actorToken = response["actorToken"] as? String, !actorToken.isEmpty else {
+                errorMessage = "Pairing succeeded but device identity token is missing. Update your Assistant and pair again."
+                failureReason = "Missing actorToken in approved pairing response"
+                phase = .error
+                return
+            }
             let localLanUrl = response["localLanUrl"] as? String
             let featureFlagToken = response["featureFlagToken"] as? String
-            let actorToken = response["actorToken"] as? String
             savePairingConfig(
                 bearerToken: bearerToken,
                 gatewayUrl: gatewayUrl,
@@ -450,7 +455,13 @@ struct QRPairingSheet: View {
     }
 
     private func pollPairingStatus(baseURL: String, payload: DaemonQRPayloadV4) async {
-        guard let url = URL(string: "\(baseURL)/pairing/status?id=\(payload.pairingRequestId)&secret=\(payload.pairingSecret)") else {
+        var components = URLComponents(string: "\(baseURL)/pairing/status")
+        components?.queryItems = [
+            URLQueryItem(name: "id", value: payload.pairingRequestId),
+            URLQueryItem(name: "secret", value: payload.pairingSecret),
+            URLQueryItem(name: "deviceId", value: getOrCreateDeviceId()),
+        ]
+        guard let url = components?.url else {
             return
         }
 
@@ -477,9 +488,14 @@ struct QRPairingSheet: View {
                         phase = .error
                         return
                     }
+                    guard let actorToken = json["actorToken"] as? String, !actorToken.isEmpty else {
+                        errorMessage = "Pairing succeeded but device identity token is missing. Update your Assistant and pair again."
+                        failureReason = "Missing actorToken in approved pairing poll response"
+                        phase = .error
+                        return
+                    }
                     let localLanUrl = json["localLanUrl"] as? String
                     let featureFlagToken = json["featureFlagToken"] as? String
-                    let actorToken = json["actorToken"] as? String
                     savePairingConfig(
                         bearerToken: bearerToken,
                         gatewayUrl: gatewayUrl,

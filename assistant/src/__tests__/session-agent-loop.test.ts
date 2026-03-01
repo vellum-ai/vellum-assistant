@@ -311,6 +311,7 @@ function makeCtx(overrides?: Partial<AgentLoopSessionContext> & { agentLoopRun?:
 
     refreshWorkspaceTopLevelContextIfNeeded: () => {},
     markWorkspaceTopLevelDirty: () => {},
+    emitActivityState: () => {},
     getQueueDepth: () => 0,
     hasQueuedMessages: () => false,
     canHandoffAtCheckpoint: () => false,

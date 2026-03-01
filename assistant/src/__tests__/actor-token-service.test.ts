@@ -31,7 +31,7 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
-import { initializeDb, getSqlite, resetDb } from '../memory/db.js';
+import { getSqlite, initializeDb, resetDb } from '../memory/db.js';
 import {
   createBinding,
   getActiveBinding,
@@ -50,6 +50,7 @@ import {
   revokeByTokenHash,
 } from '../runtime/actor-token-store.js';
 import { ensureVellumGuardianBinding } from '../runtime/guardian-vellum-migration.js';
+import { resolveLocalIpcGuardianContext } from '../runtime/local-actor-identity.js';
 import {
   isActorBoundGuardian,
   isLocalFallbackBoundGuardian,
@@ -57,7 +58,6 @@ import {
   verifyHttpActorToken,
   verifyHttpActorTokenWithLocalFallback,
 } from '../runtime/middleware/actor-token.js';
-import { resolveLocalIpcGuardianContext } from '../runtime/local-actor-identity.js';
 
 // ---------------------------------------------------------------------------
 // Mock server helpers for loopback IP checks
@@ -783,6 +783,71 @@ describe('pairing actor-token flow', () => {
     const secondRes = handlePairingStatus(statusUrl, ctx);
     const secondBody = await secondRes.json() as Record<string, unknown>;
     expect(secondBody.actorToken).toBe(firstToken);
+
+    store.stop();
+  });
+
+  test('approved status can recover token mint using deviceId query when transient pairing state is missing', async () => {
+    ensureVellumGuardianBinding('self');
+
+    const { PairingStore } = await import('../daemon/pairing-store.js');
+    const {
+      cleanupPairingState,
+      handlePairingRequest,
+      handlePairingStatus,
+    } = await import('../runtime/routes/pairing-routes.js');
+
+    const store = new PairingStore();
+    store.start();
+
+    const pairingRequestId = 'test-recover-' + Date.now();
+    const pairingSecret = 'test-secret-recover';
+    const bearerToken = 'test-bearer-recover';
+    const deviceId = 'ios-device-recover';
+
+    store.register({
+      pairingRequestId,
+      pairingSecret,
+      gatewayUrl: 'https://gw.test',
+    });
+
+    const ctx = {
+      pairingStore: store,
+      bearerToken,
+      featureFlagToken: undefined,
+      pairingBroadcast: () => {},
+    };
+
+    // iOS initiates pairing so the request is device-bound
+    const pairReq = new Request('http://localhost/v1/pairing/request', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        pairingRequestId,
+        pairingSecret,
+        deviceId,
+        deviceName: 'Recovery iPhone',
+      }),
+    });
+
+    const pairRes = await handlePairingRequest(pairReq, ctx);
+    expect(pairRes.status).toBe(200);
+
+    // macOS approves, then transient in-memory pairing state is lost (e.g. restart)
+    store.approve(pairingRequestId, bearerToken);
+    cleanupPairingState(pairingRequestId);
+
+    // Poll includes deviceId so token mint can recover from persisted hashedDeviceId
+    const statusUrl = new URL(
+      `http://localhost/v1/pairing/status?id=${pairingRequestId}&secret=${pairingSecret}&deviceId=${encodeURIComponent(deviceId)}`,
+    );
+    const statusRes = handlePairingStatus(statusUrl, ctx);
+    expect(statusRes.status).toBe(200);
+    const statusBody = await statusRes.json() as Record<string, unknown>;
+
+    expect(statusBody.status).toBe('approved');
+    expect(statusBody.actorToken).toBeTruthy();
+    expect(statusBody.bearerToken).toBe(bearerToken);
 
     store.stop();
   });

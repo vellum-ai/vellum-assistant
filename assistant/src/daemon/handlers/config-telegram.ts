@@ -1,6 +1,7 @@
 import * as net from 'node:net';
 
 import { getIngressPublicBaseUrl } from '../../config/env.js';
+import { registerCallbackRoute, shouldUsePlatformCallbacks } from '../../inbound/platform-callback-registration.js';
 import { deleteSecureKey,getSecureKey, setSecureKey } from '../../security/secure-keys.js';
 import { deleteCredentialMetadata, getCredentialMetadata,upsertCredentialMetadata } from '../../tools/credentials/metadata-store.js';
 import type { TelegramConfigRequest, TelegramConfigResponse } from '../ipc-protocol.js';
@@ -160,6 +161,17 @@ export async function setTelegramConfig(botToken?: string): Promise<TelegramConf
     connected: true,
     hasWebhookSecret,
   };
+
+  // When containerized with a platform, register the Telegram callback
+  // route so the platform knows how to forward Telegram webhooks.
+  // This must happen independently of effectiveUrl — in containerized
+  // deployments without ingress.publicBaseUrl, platform callbacks are the
+  // only way to receive Telegram webhooks.
+  if (shouldUsePlatformCallbacks()) {
+    registerCallbackRoute('webhooks/telegram', 'telegram').catch((err) => {
+      log.warn({ err }, 'Failed to register Telegram platform callback route');
+    });
+  }
 
   // Trigger gateway reconcile so the webhook registration updates immediately
   const effectiveUrl = getIngressPublicBaseUrl();

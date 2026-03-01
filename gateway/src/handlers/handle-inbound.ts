@@ -4,7 +4,7 @@ import { resolveAssistant, isRejection } from "../routing/resolve-assistant.js";
 import type { RouteResult } from "../routing/types.js";
 import { forwardToRuntime, CircuitBreakerOpenError } from "../runtime/client.js";
 import type { RuntimeInboundResponse } from "../runtime/client.js";
-import type { GatewayInboundEventV1 } from "../types.js";
+import type { GatewayInboundEvent } from "../types.js";
 
 const log = getLogger("handle-inbound");
 
@@ -46,24 +46,24 @@ function normalizeTransportHints(hints: string[] | undefined): string[] {
 
 export async function handleInbound(
   config: GatewayConfig,
-  event: Omit<GatewayInboundEventV1, "routing">,
+  event: GatewayInboundEvent,
   options?: HandleInboundOptions,
 ): Promise<InboundResult> {
   const routing = options?.routingOverride ?? resolveAssistant(
     config,
-    event.message.externalChatId,
-    event.sender.externalUserId,
+    event.message.conversationExternalId,
+    event.actor.actorExternalId,
   );
 
   if (isRejection(routing)) {
     log.info(
-      { externalChatId: event.message.externalChatId, reason: routing.reason },
+      { conversationExternalId: event.message.conversationExternalId, reason: routing.reason },
       "Inbound event rejected by routing",
     );
     return { forwarded: false, rejected: true, rejectionReason: routing.reason };
   }
 
-  const displayName = event.sender.displayName || event.sender.username;
+  const displayName = event.actor.displayName || event.actor.username;
   const transportHints = normalizeTransportHints(options?.transportMetadata?.hints);
   const transportUxBrief = options?.transportMetadata?.uxBrief?.trim();
 
@@ -73,21 +73,21 @@ export async function handleInbound(
       {
         sourceChannel: event.sourceChannel,
         interface: event.sourceChannel,
-        externalChatId: event.message.externalChatId,
+        conversationExternalId: event.message.conversationExternalId,
         externalMessageId: event.message.externalMessageId,
         content: event.message.content,
         ...(event.message.isEdit ? { isEdit: true } : {}),
         ...(event.message.callbackQueryId ? { callbackQueryId: event.message.callbackQueryId } : {}),
         ...(event.message.callbackData ? { callbackData: event.message.callbackData } : {}),
-        senderName: displayName,
-        senderExternalUserId: event.sender.externalUserId,
-        senderUsername: event.sender.username,
+        actorDisplayName: displayName,
+        actorExternalId: event.actor.actorExternalId,
+        actorUsername: event.actor.username,
         sourceMetadata: {
           updateId: event.source.updateId,
           messageId: event.source.messageId,
           chatType: event.source.chatType,
-          languageCode: event.sender.languageCode,
-          isBot: event.sender.isBot,
+          languageCode: event.actor.languageCode,
+          isBot: event.actor.isBot,
           ...(transportHints.length > 0 ? { hints: transportHints } : {}),
           ...(transportUxBrief ? { uxBrief: transportUxBrief } : {}),
           ...(options?.sourceMetadata ?? {}),

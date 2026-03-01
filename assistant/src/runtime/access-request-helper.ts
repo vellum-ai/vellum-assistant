@@ -45,10 +45,10 @@ function applyDeliveryStatus(deliveryId: string, result: NotificationDeliveryRes
 export interface AccessRequestParams {
   canonicalAssistantId: string;
   sourceChannel: ChannelId;
-  externalChatId: string;
-  senderExternalUserId?: string;
-  senderName?: string;
-  senderUsername?: string;
+  conversationExternalId: string;
+  actorExternalId?: string;
+  actorDisplayName?: string;
+  actorUsername?: string;
   previousMemberStatus?: MemberStatus;
 }
 
@@ -80,14 +80,14 @@ export function notifyGuardianOfAccessRequest(
   const {
     canonicalAssistantId,
     sourceChannel,
-    externalChatId,
-    senderExternalUserId,
-    senderName,
-    senderUsername,
+    conversationExternalId,
+    actorExternalId,
+    actorDisplayName,
+    actorUsername,
     previousMemberStatus,
   } = params;
 
-  if (!senderExternalUserId) {
+  if (!actorExternalId) {
     return { notified: false, reason: 'no_sender_id' };
   }
 
@@ -126,7 +126,7 @@ export function notifyGuardianOfAccessRequest(
   // matches requests for the same assistant. Without this, a pending request
   // from assistant A could be returned for assistant B, allowing the caller
   // to piggyback on A's guardian approval.
-  const conversationId = `access-req-${canonicalAssistantId}-${sourceChannel}-${senderExternalUserId}`;
+  const conversationId = `access-req-${canonicalAssistantId}-${sourceChannel}-${actorExternalId}`;
 
   // Deduplicate: skip creation if there is already a pending canonical request
   // for the same requester on this channel *and* assistant. Still return
@@ -134,21 +134,21 @@ export function notifyGuardianOfAccessRequest(
   // was already notified.
   const existingCanonical = listCanonicalGuardianRequests({
     status: 'pending',
-    requesterExternalUserId: senderExternalUserId,
+    requesterExternalUserId: actorExternalId,
     sourceChannel,
     kind: 'access_request',
     conversationId,
   });
   if (existingCanonical.length > 0) {
     log.debug(
-      { sourceChannel, senderExternalUserId, existingId: existingCanonical[0].id },
+      { sourceChannel, actorExternalId, existingId: existingCanonical[0].id },
       'Skipping duplicate access request notification',
     );
     return { notified: true, created: false, requestId: existingCanonical[0].id };
   }
 
-  const senderIdentifier = senderName || senderUsername || senderExternalUserId;
-  const requestId = `access-req-${canonicalAssistantId}-${sourceChannel}-${senderExternalUserId}-${Date.now()}`;
+  const senderIdentifier = actorDisplayName || actorUsername || actorExternalId;
+  const requestId = `access-req-${canonicalAssistantId}-${sourceChannel}-${actorExternalId}-${Date.now()}`;
 
   const canonicalRequest = createCanonicalGuardianRequest({
     id: requestId,
@@ -156,8 +156,8 @@ export function notifyGuardianOfAccessRequest(
     sourceType: 'channel',
     sourceChannel,
     conversationId,
-    requesterExternalUserId: senderExternalUserId,
-    requesterChatId: externalChatId,
+    requesterExternalUserId: actorExternalId,
+    requesterChatId: conversationExternalId,
     guardianExternalUserId: guardianExternalUserId ?? undefined,
     guardianPrincipalId: guardianPrincipalId ?? undefined,
     toolName: 'ingress_access_request',
@@ -169,7 +169,7 @@ export function notifyGuardianOfAccessRequest(
   void emitNotificationSignal({
     sourceEventName: 'ingress.access_request',
     sourceChannel,
-    sourceSessionId: `access-req-${sourceChannel}-${senderExternalUserId}`,
+    sourceSessionId: `access-req-${sourceChannel}-${actorExternalId}`,
     assistantId: canonicalAssistantId,
     attentionHints: {
       requiresAction: true,
@@ -181,10 +181,10 @@ export function notifyGuardianOfAccessRequest(
       requestId,
       requestCode: canonicalRequest.requestCode,
       sourceChannel,
-      externalChatId,
-      senderExternalUserId,
-      senderName: senderName ?? null,
-      senderUsername: senderUsername ?? null,
+      conversationExternalId,
+      actorExternalId,
+      actorDisplayName: actorDisplayName ?? null,
+      actorUsername: actorUsername ?? null,
       senderIdentifier,
       guardianBindingChannel,
       previousMemberStatus: previousMemberStatus ?? null,
@@ -241,13 +241,13 @@ export function notifyGuardianOfAccessRequest(
     })
     .catch((err) => {
       log.error(
-        { err, requestId: canonicalRequest.id, sourceChannel, senderExternalUserId },
+        { err, requestId: canonicalRequest.id, sourceChannel, actorExternalId },
         'Failed to persist access request delivery rows from notification pipeline',
       );
     });
 
   log.info(
-    { sourceChannel, senderExternalUserId, senderIdentifier, guardianBindingChannel },
+    { sourceChannel, actorExternalId, senderIdentifier, guardianBindingChannel },
     'Guardian notified of access request',
   );
 

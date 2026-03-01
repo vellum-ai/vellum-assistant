@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterAll, beforeEach, describe, expect, mock,test } from 'bun:test';
+import { afterAll, afterEach, beforeEach, describe, expect, mock,test } from 'bun:test';
 
 const testDir = mkdtempSync(join(tmpdir(), 'call-pointer-messages-test-'));
 
@@ -25,14 +25,14 @@ mock.module('../util/logger.js', () => ({
     }),
 }));
 
-import { addPointerMessage, formatDuration } from '../calls/call-pointer-messages.js';
+import { addPointerMessage, formatDuration, resetPointerMessageProcessor, setPointerMessageProcessor } from '../calls/call-pointer-messages.js';
 import { getMessages } from '../memory/conversation-store.js';
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import { conversations } from '../memory/schema.js';
 
 initializeDb();
 
-function ensureConversation(id: string): void {
+function ensureConversation(id: string, options?: { threadType?: string; originChannel?: string }): void {
   const db = getDb();
   const now = Date.now();
   db.insert(conversations).values({
@@ -40,6 +40,8 @@ function ensureConversation(id: string): void {
     title: `Conversation ${id}`,
     createdAt: now,
     updatedAt: now,
+    ...(options?.threadType ? { threadType: options.threadType } : {}),
+    ...(options?.originChannel ? { originChannel: options.originChannel } : {}),
   }).run();
 }
 
@@ -90,6 +92,10 @@ describe('formatDuration', () => {
 describe('addPointerMessage', () => {
   beforeEach(() => {
     resetTables();
+  });
+
+  afterEach(() => {
+    resetPointerMessageProcessor();
   });
 
   afterAll(() => {
@@ -184,5 +190,103 @@ describe('addPointerMessage', () => {
     addPointerMessage(convId, 'guardian_verification_failed', '+15559876543', { reason: 'Max attempts exceeded' });
     const text = getLatestAssistantText(convId);
     expect(text).toContain('failed: Max attempts exceeded');
+  });
+
+  // Trust-aware tests
+
+  test('untrusted audience uses deterministic fallback even with processor set', () => {
+    const convId = 'conv-ptr-untrusted';
+    ensureConversation(convId, { threadType: 'standard' });
+
+    const processorCalled = { value: false };
+    setPointerMessageProcessor(async () => {
+      processorCalled.value = true;
+    });
+
+    addPointerMessage(convId, 'started', '+15551234567');
+    const text = getLatestAssistantText(convId);
+    expect(text).toContain('Call to +15551234567 started');
+    // processor not called because standard threadType + no origin = untrusted
+    expect(processorCalled.value).toBe(false);
+  });
+
+  test('explicit untrusted audience mode skips processor', () => {
+    const convId = 'conv-ptr-explicit-untrusted';
+    ensureConversation(convId, { threadType: 'private' });
+
+    const processorCalled = { value: false };
+    setPointerMessageProcessor(async () => {
+      processorCalled.value = true;
+    });
+
+    addPointerMessage(convId, 'started', '+15551234567', undefined, 'untrusted');
+    const text = getLatestAssistantText(convId);
+    expect(text).toContain('Call to +15551234567 started');
+    expect(processorCalled.value).toBe(false);
+  });
+
+  test('trusted audience routes through daemon processor with required facts', async () => {
+    const convId = 'conv-ptr-trusted';
+    ensureConversation(convId, { threadType: 'private' });
+
+    let capturedInstruction = '';
+    let capturedFacts: string[] = [];
+    setPointerMessageProcessor(async (_convId, instruction, requiredFacts) => {
+      capturedInstruction = instruction;
+      capturedFacts = requiredFacts ?? [];
+    });
+
+    await addPointerMessage(convId, 'completed', '+15559876543', { duration: '1m' });
+    // Processor was called with a structured instruction
+    expect(capturedInstruction).toContain('[CALL_STATUS_EVENT]');
+    expect(capturedInstruction).toContain('+15559876543');
+    expect(capturedInstruction).toContain('completed');
+    expect(capturedInstruction).toContain('1m');
+    // Required facts include phone number, duration, and outcome keyword
+    expect(capturedFacts).toContain('+15559876543');
+    expect(capturedFacts).toContain('1m');
+    expect(capturedFacts).toContain('completed');
+  });
+
+  test('trusted audience falls back to deterministic on processor failure', async () => {
+    const convId = 'conv-ptr-processor-fail';
+    ensureConversation(convId, { threadType: 'private' });
+
+    setPointerMessageProcessor(async () => {
+      throw new Error('Daemon unavailable');
+    });
+
+    await addPointerMessage(convId, 'failed', '+15559876543', { reason: 'busy' });
+    // Falls back to deterministic — written directly to conversation store
+    const text = getLatestAssistantText(convId);
+    expect(text).toContain('failed: busy');
+  });
+
+  test('vellum origin channel is detected as trusted audience', async () => {
+    const convId = 'conv-ptr-vellum';
+    ensureConversation(convId, { originChannel: 'vellum' });
+
+    let processorCalled = false;
+    setPointerMessageProcessor(async () => {
+      processorCalled = true;
+    });
+
+    await addPointerMessage(convId, 'failed', '+15559876543', { reason: 'busy' });
+    expect(processorCalled).toBe(true);
+  });
+
+  test('missing conversation defaults to untrusted', () => {
+    const convId = 'conv-ptr-no-signals';
+    ensureConversation(convId);
+
+    const processorCalled = { value: false };
+    setPointerMessageProcessor(async () => {
+      processorCalled.value = true;
+    });
+
+    addPointerMessage(convId, 'started', '+15551234567');
+    const text = getLatestAssistantText(convId);
+    expect(text).toContain('Call to +15551234567 started');
+    expect(processorCalled.value).toBe(false);
   });
 });

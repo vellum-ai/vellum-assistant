@@ -66,6 +66,10 @@ final class AssistantCli {
         vellumDir.appendingPathComponent("vellum.sock")
     }
 
+    private var gatewayPidFileURL: URL {
+        vellumDir.appendingPathComponent("gateway.pid")
+    }
+
     // MARK: - Health Monitor State
 
     /// Called after the daemon is restarted by the health monitor so the
@@ -109,7 +113,7 @@ final class AssistantCli {
     /// waits for the socket, and registers the assistant entry.
     ///
     /// - Parameter name: Optional assistant name to reuse (for health monitor restarts).
-    func hatch(name: String? = nil, daemonOnly: Bool = false) async throws {
+    func hatch(name: String? = nil, daemonOnly: Bool = false, restart: Bool = false) async throws {
         guard let binaryURL = cliBinaryURL else {
             log.info("No bundled CLI binary found — skipping hatch (dev mode)")
             return
@@ -120,6 +124,9 @@ final class AssistantCli {
         var arguments = ["hatch", "-d"]
         if daemonOnly {
             arguments.append("--daemon-only")
+        }
+        if restart {
+            arguments.append("--restart")
         }
         if let name {
             arguments += ["--name", name]
@@ -264,6 +271,7 @@ final class AssistantCli {
             log.info("No bundled CLI binary found — skipping stop (dev mode)")
             // Still try to clean up via PID file in dev mode
             killViaPIDFile()
+            killGatewayViaPIDFile()
             return
         }
 
@@ -291,6 +299,7 @@ final class AssistantCli {
             log.error("CLI stop failed: \(error.localizedDescription)")
             // Fallback: kill via PID file directly
             killViaPIDFile()
+            killGatewayViaPIDFile()
         }
     }
 
@@ -319,6 +328,9 @@ final class AssistantCli {
                 if !self.isDaemonAlive() {
                     log.warning("Daemon process not running — attempting restart")
                     await self.restartDaemon()
+                } else if !self.isGatewayAlive() {
+                    log.warning("Gateway process not running (daemon alive) — attempting restart")
+                    await self.restartDaemon(daemonOnly: false, restart: true)
                 }
             }
         }
@@ -582,6 +594,26 @@ final class AssistantCli {
         return assistants.contains { ($0["assistantId"] as? String) == assistantId }
     }
 
+    /// Returns `true` if the gateway process is alive based on the PID file.
+    /// Returns `true` when the PID file doesn't exist — the gateway may not
+    /// have been started yet (e.g. dev mode) and absence != crash.
+    private func isGatewayAlive() -> Bool {
+        guard FileManager.default.fileExists(atPath: gatewayPidFileURL.path) else {
+            return true
+        }
+        let pidData: Data
+        do {
+            pidData = try Data(contentsOf: gatewayPidFileURL)
+        } catch {
+            return true
+        }
+        guard let pidString = String(data: pidData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let pid = pid_t(pidString) else {
+            return true
+        }
+        return kill(pid, 0) == 0
+    }
+
     /// Returns `true` if the daemon process is alive based on the PID file.
     private func isDaemonAlive() -> Bool {
         let pidData: Data
@@ -598,7 +630,7 @@ final class AssistantCli {
         return kill(pid, 0) == 0
     }
 
-    private func restartDaemon() async {
+    private func restartDaemon(daemonOnly: Bool = true, restart: Bool = false) async {
         guard cliBinaryURL != nil else { return }
         guard !isRestarting else { return }
         isRestarting = true
@@ -637,11 +669,45 @@ final class AssistantCli {
         }
 
         do {
-            try await hatch(name: assistantId, daemonOnly: true)
+            try await hatch(name: assistantId, daemonOnly: daemonOnly, restart: restart)
             log.info("Daemon restarted successfully via CLI")
             onDaemonRestarted?()
         } catch {
             log.error("Failed to restart daemon: \(error.localizedDescription)")
+        }
+    }
+
+    /// Kill the gateway directly via PID file — fallback when CLI binary is unavailable.
+    private func killGatewayViaPIDFile() {
+        guard FileManager.default.fileExists(atPath: gatewayPidFileURL.path) else { return }
+        let pidData: Data
+        do {
+            pidData = try Data(contentsOf: gatewayPidFileURL)
+        } catch {
+            return
+        }
+        guard let pidString = String(data: pidData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let pid = pid_t(pidString),
+              kill(pid, 0) == 0 else {
+            return
+        }
+
+        log.info("Killing gateway via PID file (pid \(pid))")
+        kill(pid, SIGTERM)
+
+        let deadline = Date().addingTimeInterval(2.0)
+        while kill(pid, 0) == 0 && Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+
+        if kill(pid, 0) == 0 {
+            kill(pid, SIGKILL)
+        }
+
+        do {
+            try FileManager.default.removeItem(at: gatewayPidFileURL)
+        } catch {
+            log.error("Failed to remove gateway PID file: \(error)")
         }
     }
 

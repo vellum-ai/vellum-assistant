@@ -50,7 +50,7 @@ export function resolveGuardianContext(input: ResolveGuardianContextInput): Guar
   return {
     trustClass: trust.trustClass,
     guardianChatId: trust.guardianBindingMatch?.guardianDeliveryChatId ??
-      (trust.trustClass === 'guardian' ? input.externalChatId : undefined),
+      (trust.trustClass === 'guardian' ? input.conversationExternalId : undefined),
     guardianExternalUserId: canonicalGuardianExternalUserId,
     guardianPrincipalId: trust.guardianPrincipalId,
     requesterIdentifier: trust.actorMetadata.identifier,
@@ -58,7 +58,7 @@ export function resolveGuardianContext(input: ResolveGuardianContextInput): Guar
     requesterSenderDisplayName: trust.actorMetadata.senderDisplayName,
     requesterMemberDisplayName: trust.actorMetadata.memberDisplayName,
     requesterExternalUserId: trust.canonicalSenderId ?? undefined,
-    requesterChatId: input.externalChatId,
+    requesterChatId: input.conversationExternalId,
     memberStatus: trust.memberRecord?.status ?? undefined,
     memberPolicy: trust.memberRecord?.policy ?? undefined,
     denialReason: trust.denialReason,

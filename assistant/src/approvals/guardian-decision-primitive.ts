@@ -54,6 +54,7 @@ import {
   type ActorContext,
   type ChannelDeliveryContext,
   getResolver,
+  type ResolverEmissionContext,
 } from './guardian-request-resolvers.js';
 
 const log = getLogger('guardian-decision-primitive');
@@ -296,6 +297,8 @@ export interface ApplyCanonicalGuardianDecisionParams {
   userText?: string;
   /** Optional channel delivery context — present when the decision arrived via a channel message. */
   channelDeliveryContext?: ChannelDeliveryContext;
+  /** Optional emission context threaded to handleConfirmationResponse for correct source attribution. */
+  emissionContext?: ResolverEmissionContext;
 }
 
 export type CanonicalDecisionResult =
@@ -320,7 +323,7 @@ export type CanonicalDecisionResult =
 export async function applyCanonicalGuardianDecision(
   params: ApplyCanonicalGuardianDecisionParams,
 ): Promise<CanonicalDecisionResult> {
-  const { requestId, action, actorContext, userText, channelDeliveryContext } = params;
+  const { requestId, action, actorContext, userText, channelDeliveryContext, emissionContext } = params;
 
   // 1. Look up the canonical request
   const request = getCanonicalGuardianRequest(requestId);
@@ -439,6 +442,7 @@ export async function applyCanonicalGuardianDecision(
       decision: { action: effectiveAction, userText },
       actor: actorContext,
       channelDeliveryContext,
+      emissionContext,
     });
 
     if (!resolverResult.ok) {

@@ -125,18 +125,25 @@ final class AppListManager: ObservableObject {
 
     /// Sync apps from the daemon's authoritative list into the local sidebar list.
     /// Adds any apps that don't already exist locally, using their daemon createdAt timestamp.
-    /// Also updates descriptions on existing apps when the daemon provides one.
+    /// Removes local apps the daemon no longer reports (e.g. filtered Home Base).
+    /// Always propagates daemon descriptions to existing apps when they differ.
     func syncFromDaemon(_ daemonApps: [AppItem_Daemon]) {
         let existingIds = Set(apps.map(\.id))
-        var didChange = false
+        let daemonIds = Set(daemonApps.map(\.id))
+        var newCount = 0
+        var updatedCount = 0
+
+        // Remove local apps the daemon no longer reports
+        let prunedCount = apps.count
+        apps.removeAll { !daemonIds.contains($0.id) }
+        let removedCount = prunedCount - apps.count
+
         for daemonApp in daemonApps {
             if existingIds.contains(daemonApp.id) {
-                // Update description on existing apps if daemon provides one we don't have
-                if let desc = daemonApp.description,
-                   let index = apps.firstIndex(where: { $0.id == daemonApp.id }),
-                   apps[index].description == nil {
-                    apps[index].description = desc
-                    didChange = true
+                if let index = apps.firstIndex(where: { $0.id == daemonApp.id }),
+                   apps[index].description != daemonApp.description {
+                    apps[index].description = daemonApp.description
+                    updatedCount += 1
                 }
                 continue
             }
@@ -153,11 +160,11 @@ final class AppListManager: ObservableObject {
             item.sfSymbol = generated.sfSymbol
             item.iconBackground = generated.colors
             apps.append(item)
-            didChange = true
+            newCount += 1
         }
-        if didChange {
+        if newCount > 0 || updatedCount > 0 || removedCount > 0 {
             save()
-            log.info("Synced \(self.apps.count - existingIds.count) new apps from daemon")
+            log.info("Synced from daemon: \(newCount) new, \(updatedCount) updated, \(removedCount) pruned")
         }
     }
 

@@ -34,6 +34,7 @@ These are hard prohibitions. Violating any of these produces that unmistakable "
 - **NEVER** make all text the same size and weight — establish clear hierarchy with at least 3 distinct levels
 - **NEVER** use a pure white (`#fff`) or pure dark (`#000`/`#0a0a0a`) background — ALWAYS tint it to match the domain (cream `#FEFCF9` for lifestyle, sage `#F0F5F0` for nature, cool gray `#F5F7FA` for finance, warm blush `#FDF6F3` for wellness)
 - **NEVER** leave clickable elements without hover AND active states
+- **NEVER** hand-code SVG/CSS charts (lines, bars, sparklines, gauges) — ALWAYS use `vellum.widgets.lineChart()`, `.barChart()`, `.sparkline()`, or `.progressRing()`. They handle bounds, clipping, scaling, and dark mode correctly. Hand-coded charts invariably overflow and bleed into adjacent elements.
 - **ALWAYS** use emoji as visual identifiers in stat cards, list items, and navigation — they replace icon libraries and add instant personality (🍎 for food, 🔥 for streaks, 💰 for money, 🌿 for plants)
 - **ALWAYS** apply the accent-word pattern in hero headings — color ONE key word or phrase in the accent color: "Your <span style='color: var(--accent)'>Week</span> in Motion"
 - **ALWAYS** include a contextual/personalized header — a greeting ("Good morning"), date ("Saturday, Feb 15"), or welcome ("Welcome back, Alex") — not just the app title
@@ -92,14 +93,24 @@ These are hard prohibitions. Violating any of these produces that unmistakable "
 Copy-paste-ready CSS techniques. All work in the sandboxed WebView with no external dependencies.
 
 ### Animated Gradient Background
+
+Choose **one** of the following color variants (do not combine both):
+
+**Variant A — Warm pastels (light, airy feel):**
 ```css
-/* Warm pastels */
 body {
   background: linear-gradient(-45deg, #fef3c7, #fce7f3, #e0e7ff, #d1fae5);
   background-size: 400% 400%;
   animation: gradientShift 15s ease infinite;
 }
-/* Dark jewel tones */
+@keyframes gradientShift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+```
+
+**Variant B — Dark jewel tones (deep, rich feel):**
+```css
 body {
   background: linear-gradient(-45deg, #0f172a, #1e1b4b, #172554, #0c4a6e);
   background-size: 400% 400%;
@@ -1168,7 +1179,7 @@ document.addEventListener('DOMContentLoaded', function() {
 - **Use widgets** for standard patterns — tables, metrics, timelines, notifications, presentations
 - **Use custom HTML** for novel or creative UIs — games, art tools, unique dashboards
 - **Mix freely** — widgets compose well together and with custom elements
-- Always prioritize the ideal user experience over using the widget library
+- Always prioritize the ideal user experience over using the widget library — EXCEPT for charts: always use `vellum.widgets.*` chart functions (lineChart, barChart, sparkline, progressRing) instead of hand-coding SVG/CSS charts. They handle overflow clipping, bounds, scaling, and dark mode. Hand-coded charts break layouts.
 
 #### Advanced techniques
 
@@ -1593,6 +1604,7 @@ When to use each of the 8 layout variants:
 - **NEVER** use `.v-slide-label` on every single slide — aim for 40–60% of slides
 - **NEVER** center-align bullet slides — only center quotes and closing slides
 - **NEVER** use the same stat value format everywhere — mix `$2.4M`, `147%`, `3x`, `12k+` for variety
+- **NEVER** hand-code charts on slides — use `vellum.widgets.lineChart()` / `.barChart()` / `.sparkline()` / `.progressRing()` rendered into a `<div>` with a fixed height. Hand-coded chart SVGs bleed into adjacent slide elements.
 
 ### Slide Pre-Ship Checklist
 

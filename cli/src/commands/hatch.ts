@@ -145,6 +145,7 @@ interface HatchArgs {
   name: string | null;
   remote: RemoteHost;
   daemonOnly: boolean;
+  restart: boolean;
 }
 
 function parseArgs(): HatchArgs {
@@ -154,6 +155,7 @@ function parseArgs(): HatchArgs {
   let name: string | null = null;
   let remote: RemoteHost = DEFAULT_REMOTE;
   let daemonOnly = false;
+  let restart = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -171,11 +173,14 @@ function parseArgs(): HatchArgs {
       console.log("  --name <name>             Custom instance name");
       console.log("  --remote <host>           Remote host (local, gcp, aws, custom)");
       console.log("  --daemon-only             Start daemon only, skip gateway");
+      console.log("  --restart                 Restart processes without onboarding side effects");
       process.exit(0);
     } else if (arg === "-d") {
       detached = true;
     } else if (arg === "--daemon-only") {
       daemonOnly = true;
+    } else if (arg === "--restart") {
+      restart = true;
     } else if (arg === "--name") {
       const next = args[i + 1];
       if (!next || next.startsWith("-")) {
@@ -204,13 +209,13 @@ function parseArgs(): HatchArgs {
       species = arg as Species;
     } else {
       console.error(
-        `Error: Unknown argument '${arg}'. Valid options: ${VALID_SPECIES.join(", ")}, -d, --daemon-only, --name <name>, --remote <${VALID_REMOTE_HOSTS.join("|")}>`,
+        `Error: Unknown argument '${arg}'. Valid options: ${VALID_SPECIES.join(", ")}, -d, --daemon-only, --restart, --name <name>, --remote <${VALID_REMOTE_HOSTS.join("|")}>`,
       );
       process.exit(1);
     }
   }
 
-  return { species, detached, name, remote, daemonOnly };
+  return { species, detached, name, remote, daemonOnly, restart };
 }
 
 function formatElapsed(ms: number): string {
@@ -545,7 +550,12 @@ async function displayPairingQRCode(runtimeUrl: string, bearerToken: string | un
   }
 }
 
-async function hatchLocal(species: Species, name: string | null, daemonOnly: boolean = false): Promise<void> {
+async function hatchLocal(species: Species, name: string | null, daemonOnly: boolean = false, restart: boolean = false): Promise<void> {
+  if (restart && !name && !process.env.VELLUM_ASSISTANT_NAME) {
+    console.error("Error: Cannot restart without a known assistant ID. Provide --name or ensure VELLUM_ASSISTANT_NAME is set.");
+    process.exit(1);
+  }
+
   const instanceName =
     name ?? process.env.VELLUM_ASSISTANT_NAME ?? `${species}-${generateRandomSuffix()}`;
 
@@ -627,7 +637,7 @@ async function hatchLocal(species: Species, name: string | null, daemonOnly: boo
     species,
     hatchedAt: new Date().toISOString(),
   };
-  if (!daemonOnly) {
+  if (!daemonOnly && !restart) {
     saveAssistantEntry(localEntry);
     syncConfigToLockfile();
 
@@ -656,10 +666,15 @@ export async function hatch(): Promise<void> {
   const cliVersion = getCliVersion();
   console.log(`@vellumai/cli v${cliVersion}`);
 
-  const { species, detached, name, remote, daemonOnly } = parseArgs();
+  const { species, detached, name, remote, daemonOnly, restart } = parseArgs();
+
+  if (restart && remote !== "local") {
+    console.error("Error: --restart is only supported for local hatch targets.");
+    process.exit(1);
+  }
 
   if (remote === "local") {
-    await hatchLocal(species, name, daemonOnly);
+    await hatchLocal(species, name, daemonOnly, restart);
     return;
   }
 

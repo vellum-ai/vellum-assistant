@@ -365,9 +365,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `telegram_config_response` message.
     public var onTelegramConfigResponse: ((TelegramConfigResponseMessage) -> Void)?
 
-    /// Called when the daemon sends a `twilio_config_response` message.
-    public var onTwilioConfigResponse: ((TwilioConfigResponseMessage) -> Void)?
-
     /// Called when the daemon sends a `heartbeat_config_response` message.
     public var onHeartbeatConfigResponse: ((IPCHeartbeatConfigResponse) -> Void)?
 
@@ -593,7 +590,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// HTTP transport used when connecting to a remote assistant via gateway.
     /// Non-nil when `config.transport` is `.http`.
-    var httpTransport: HTTPTransport?
+    public var httpTransport: HTTPTransport?
 
     let encoder = JSONEncoder()
     let decoder = JSONDecoder()
@@ -1159,25 +1156,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Get, set, or clear Telegram bot token configuration.
     public func sendTelegramConfig(action: String, botToken: String? = nil, commands: [IPCTelegramConfigRequestCommand]? = nil) throws {
         try send(TelegramConfigRequestMessage(action: action, botToken: botToken, commands: commands))
-    }
-
-    /// Get, set, or clear Twilio credentials and manage phone numbers.
-    public func sendTwilioConfig(
-        action: String,
-        accountSid: String? = nil,
-        authToken: String? = nil,
-        phoneNumber: String? = nil,
-        areaCode: String? = nil,
-        country: String? = nil
-    ) throws {
-        try send(TwilioConfigRequestMessage(
-            action: action,
-            accountSid: accountSid,
-            authToken: authToken,
-            phoneNumber: phoneNumber,
-            areaCode: areaCode,
-            country: country
-        ))
     }
 
     /// Publish a static page to Vercel.

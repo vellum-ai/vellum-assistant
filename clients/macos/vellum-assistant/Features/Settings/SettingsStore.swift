@@ -67,6 +67,7 @@ public final class SettingsStore: ObservableObject {
     @Published var globalHotkeyShortcut: String
     @Published var quickInputHotkeyShortcut: String
     @Published var quickInputHotkeyKeyCode: Int
+    @Published var cmdEnterToSend: Bool
 
     // MARK: - Media Embed Settings
 
@@ -255,8 +256,6 @@ public final class SettingsStore: ObservableObject {
     /// Last model reported by the daemon — used to skip redundant model_set calls
     /// that would otherwise reinitialize providers and evict idle sessions.
     private var lastDaemonModel: String?
-    private var twilioPhoneRefreshPending = false
-    private var twilioNumbersRefreshPending = false
     private var pendingGuardianChallengeChannel: String?
     private var guardianChallengeTimeoutWorkItem: DispatchWorkItem?
     private var guardianStatusPollingWorkItems: [String: DispatchWorkItem] = [:]
@@ -320,6 +319,8 @@ public final class SettingsStore: ObservableObject {
         // Default to enabled for notifications
         self.activityNotificationsEnabled = UserDefaults.standard.object(forKey: "activityNotificationsEnabled") as? Bool ?? true
 
+        self.cmdEnterToSend = UserDefaults.standard.object(forKey: "cmdEnterToSend") as? Bool ?? false
+
         self.globalHotkeyShortcut = UserDefaults.standard.string(forKey: "globalHotkeyShortcut") ?? "cmd+shift+g"
         self.quickInputHotkeyShortcut = UserDefaults.standard.string(forKey: "quickInputHotkeyShortcut") ?? "cmd+shift+/"
         let storedQIKeyCode = UserDefaults.standard.object(forKey: "quickInputHotkeyKeyCode") as? Int
@@ -367,6 +368,12 @@ public final class SettingsStore: ObservableObject {
             .dropFirst()
             .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
             .sink { value in UserDefaults.standard.set(value, forKey: "activityNotificationsEnabled") }
+            .store(in: &cancellables)
+
+        $cmdEnterToSend
+            .dropFirst()
+            .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
+            .sink { value in UserDefaults.standard.set(value, forKey: "cmdEnterToSend") }
             .store(in: &cancellables)
 
         // Persist shortcut changes immediately so the hotkey re-registers without delay
@@ -501,36 +508,7 @@ public final class SettingsStore: ObservableObject {
             }
         }
 
-        // Wire up Twilio config IPC response
-        daemonClient?.onTwilioConfigResponse = { [weak self] response in
-            guard let self else { return }
-            self.twilioSaveInProgress = false
-            self.twilioListInProgress = false
-            if response.success {
-                self.twilioHasCredentials = response.hasCredentials
-                if !response.hasCredentials {
-                    // Credentials were confirmed removed — clear derived state
-                    self.twilioPhoneNumber = nil
-                    self.twilioNumbers = []
-                } else if self.twilioPhoneRefreshPending || response.phoneNumber != nil {
-                    self.twilioPhoneNumber = response.phoneNumber
-                }
-                if response.hasCredentials {
-                    if self.twilioNumbersRefreshPending {
-                        self.twilioNumbers = response.numbers ?? []
-                    } else if let numbers = response.numbers {
-                        self.twilioNumbers = numbers
-                    }
-                }
-                self.twilioWarning = response.warning
-                self.twilioError = nil
-            } else {
-                self.twilioWarning = response.warning
-                self.twilioError = response.error
-            }
-            self.twilioPhoneRefreshPending = false
-            self.twilioNumbersRefreshPending = false
-        }
+        // Twilio config is now handled via HTTP — no IPC callback wiring needed.
 
         // Wire up guardian verification IPC response
         daemonClient?.onGuardianVerificationResponse = { [weak self] response in
@@ -1034,23 +1012,125 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    // MARK: - Twilio SMS Actions
+    // MARK: - Twilio SMS Actions (HTTP)
+
+    /// Resolve the gateway base URL and bearer token for Twilio HTTP calls.
+    /// Uses httpTransport for remote connections, otherwise defaults to local gateway.
+    private func resolveTwilioHTTPEndpoint() -> (baseURL: String, bearerToken: String?)? {
+        if let httpTransport = daemonClient?.httpTransport {
+            return (httpTransport.baseURL, httpTransport.bearerToken)
+        }
+        // Local mode: call the gateway directly.
+        let gatewayPort = ProcessInfo.processInfo.environment["GATEWAY_PORT"]
+            .flatMap(Int.init) ?? 7830
+        let baseURL = "http://127.0.0.1:\(gatewayPort)"
+        let bearerToken = readHttpToken()
+        return (baseURL, bearerToken)
+    }
+
+    /// Shared helper: perform a Twilio HTTP request, decode the JSON response,
+    /// and apply the result to @Published properties on the main actor.
+    private func performTwilioHTTPRequest(
+        method: String,
+        path: String,
+        body: [String: Any]? = nil,
+        applyPhoneNumber: Bool = false,
+        applyNumbers: Bool = false
+    ) async {
+        guard let endpoint = resolveTwilioHTTPEndpoint(),
+              let url = URL(string: "\(endpoint.baseURL)\(path)") else {
+            twilioError = "No HTTP endpoint available"
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.timeoutInterval = 30
+        if let token = endpoint.bearerToken, !token.isEmpty {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        if let actorToken = ActorTokenManager.getToken() {
+            request.setValue(actorToken, forHTTPHeaderField: "X-Actor-Token")
+        }
+        if let body {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        }
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                twilioError = "Invalid response"
+                return
+            }
+            guard (200..<300).contains(http.statusCode) else {
+                let errorBody = String(data: data, encoding: .utf8) ?? "HTTP \(http.statusCode)"
+                twilioError = "Request failed: \(errorBody)"
+                return
+            }
+
+            // Decode the response JSON
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                twilioError = "Invalid JSON response"
+                return
+            }
+
+            let success = json["success"] as? Bool ?? false
+            let hasCredentials = json["hasCredentials"] as? Bool ?? false
+
+            if success {
+                twilioHasCredentials = hasCredentials
+                if !hasCredentials {
+                    twilioPhoneNumber = nil
+                    twilioNumbers = []
+                } else {
+                    if applyPhoneNumber || json["phoneNumber"] != nil {
+                        twilioPhoneNumber = json["phoneNumber"] as? String
+                    }
+                    if applyNumbers {
+                        twilioNumbers = Self.decodeTwilioNumbers(from: json["numbers"])
+                    } else if let rawNumbers = json["numbers"] {
+                        twilioNumbers = Self.decodeTwilioNumbers(from: rawNumbers)
+                    }
+                }
+                twilioWarning = json["warning"] as? String
+                twilioError = nil
+            } else {
+                twilioWarning = json["warning"] as? String
+                twilioError = json["error"] as? String ?? "Unknown error"
+            }
+        } catch {
+            twilioError = error.localizedDescription
+        }
+    }
+
+    /// Decode the `numbers` array from the Twilio HTTP response JSON into typed objects.
+    private static func decodeTwilioNumbers(from raw: Any?) -> [TwilioNumberInfo] {
+        guard let array = raw as? [[String: Any]] else { return [] }
+        return array.compactMap { dict -> TwilioNumberInfo? in
+            guard let phoneNumber = dict["phoneNumber"] as? String,
+                  let friendlyName = dict["friendlyName"] as? String,
+                  let caps = dict["capabilities"] as? [String: Any] else { return nil }
+            let voice = caps["voice"] as? Bool ?? false
+            let sms = caps["sms"] as? Bool ?? false
+            return TwilioNumberInfo(
+                phoneNumber: phoneNumber,
+                friendlyName: friendlyName,
+                capabilities: TwilioNumberCapabilities(voice: voice, sms: sms)
+            )
+        }
+    }
 
     func refreshTwilioStatus() {
         twilioSaveInProgress = true
-        twilioPhoneRefreshPending = true
         twilioError = nil
-        do {
-            guard let daemonClient else {
-                twilioSaveInProgress = false
-                twilioPhoneRefreshPending = false
-                return
-            }
-            try daemonClient.sendTwilioConfig(action: "get")
-        } catch {
+        Task {
+            await performTwilioHTTPRequest(
+                method: "GET",
+                path: "/v1/integrations/twilio/config",
+                applyPhoneNumber: true
+            )
             twilioSaveInProgress = false
-            twilioPhoneRefreshPending = false
-            twilioError = "Failed to load Twilio config: \(error.localizedDescription)"
         }
     }
 
@@ -1061,19 +1141,13 @@ public final class SettingsStore: ObservableObject {
         twilioSaveInProgress = true
         twilioError = nil
         twilioWarning = nil
-        do {
-            guard let daemonClient else {
-                twilioSaveInProgress = false
-                return
-            }
-            try daemonClient.sendTwilioConfig(
-                action: "set_credentials",
-                accountSid: trimmedSid,
-                authToken: trimmedToken
+        Task {
+            await performTwilioHTTPRequest(
+                method: "POST",
+                path: "/v1/integrations/twilio/credentials",
+                body: ["accountSid": trimmedSid, "authToken": trimmedToken]
             )
-        } catch {
             twilioSaveInProgress = false
-            twilioError = "Failed to save Twilio credentials: \(error.localizedDescription)"
         }
     }
 
@@ -1081,15 +1155,12 @@ public final class SettingsStore: ObservableObject {
         twilioSaveInProgress = true
         twilioError = nil
         twilioWarning = nil
-        do {
-            guard let daemonClient else {
-                twilioSaveInProgress = false
-                return
-            }
-            try daemonClient.sendTwilioConfig(action: "clear_credentials")
-        } catch {
+        Task {
+            await performTwilioHTTPRequest(
+                method: "DELETE",
+                path: "/v1/integrations/twilio/credentials"
+            )
             twilioSaveInProgress = false
-            twilioError = "Failed to clear Twilio credentials: \(error.localizedDescription)"
         }
     }
 
@@ -1097,23 +1168,16 @@ public final class SettingsStore: ObservableObject {
         let trimmed = phoneNumber.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         twilioSaveInProgress = true
-        twilioPhoneRefreshPending = true
         twilioError = nil
         twilioWarning = nil
-        do {
-            guard let daemonClient else {
-                twilioSaveInProgress = false
-                twilioPhoneRefreshPending = false
-                return
-            }
-            try daemonClient.sendTwilioConfig(
-                action: "assign_number",
-                phoneNumber: trimmed
+        Task {
+            await performTwilioHTTPRequest(
+                method: "POST",
+                path: "/v1/integrations/twilio/numbers/assign",
+                body: ["phoneNumber": trimmed],
+                applyPhoneNumber: true
             )
-        } catch {
             twilioSaveInProgress = false
-            twilioPhoneRefreshPending = false
-            twilioError = "Failed to assign Twilio number: \(error.localizedDescription)"
         }
     }
 
@@ -1121,42 +1185,32 @@ public final class SettingsStore: ObservableObject {
         let trimmedAreaCode = areaCode?.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedCountry = country?.trimmingCharacters(in: .whitespacesAndNewlines)
         twilioSaveInProgress = true
-        twilioPhoneRefreshPending = true
         twilioError = nil
         twilioWarning = nil
-        do {
-            guard let daemonClient else {
-                twilioSaveInProgress = false
-                twilioPhoneRefreshPending = false
-                return
-            }
-            try daemonClient.sendTwilioConfig(
-                action: "provision_number",
-                areaCode: (trimmedAreaCode?.isEmpty == false) ? trimmedAreaCode : nil,
-                country: (trimmedCountry?.isEmpty == false) ? trimmedCountry?.uppercased() : nil
+        Task {
+            var body: [String: Any] = [:]
+            if let ac = trimmedAreaCode, !ac.isEmpty { body["areaCode"] = ac }
+            if let c = trimmedCountry, !c.isEmpty { body["country"] = c.uppercased() }
+            await performTwilioHTTPRequest(
+                method: "POST",
+                path: "/v1/integrations/twilio/numbers/provision",
+                body: body.isEmpty ? nil : body,
+                applyPhoneNumber: true
             )
-        } catch {
             twilioSaveInProgress = false
-            twilioPhoneRefreshPending = false
-            twilioError = "Failed to provision Twilio number: \(error.localizedDescription)"
         }
     }
 
     func refreshTwilioNumbers() {
         twilioListInProgress = true
-        twilioNumbersRefreshPending = true
         twilioError = nil
-        do {
-            guard let daemonClient else {
-                twilioListInProgress = false
-                twilioNumbersRefreshPending = false
-                return
-            }
-            try daemonClient.sendTwilioConfig(action: "list_numbers")
-        } catch {
+        Task {
+            await performTwilioHTTPRequest(
+                method: "GET",
+                path: "/v1/integrations/twilio/numbers",
+                applyNumbers: true
+            )
             twilioListInProgress = false
-            twilioNumbersRefreshPending = false
-            twilioError = "Failed to load Twilio numbers: \(error.localizedDescription)"
         }
     }
 

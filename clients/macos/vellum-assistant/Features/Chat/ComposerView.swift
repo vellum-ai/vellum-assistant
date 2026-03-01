@@ -4,6 +4,17 @@ import VellumAssistantShared
 import AppKit
 #endif
 
+private struct CmdEnterToSendKey: EnvironmentKey {
+    static let defaultValue: Bool = false
+}
+
+extension EnvironmentValues {
+    var cmdEnterToSend: Bool {
+        get { self[CmdEnterToSendKey.self] }
+        set { self[CmdEnterToSendKey.self] = newValue }
+    }
+}
+
 struct SlashCommand {
     let name: String
     let description: String
@@ -38,6 +49,7 @@ struct ComposerView: View {
     let hasAPIKey: Bool
     let isSending: Bool
     let hasPendingConfirmation: Bool
+    var onAllowPendingConfirmation: (() -> Void)? = nil
     let isRecording: Bool
     let suggestion: String?
     let pendingAttachments: [ChatAttachment]
@@ -212,7 +224,12 @@ struct ComposerView: View {
                 inputText = inputText.replacingOccurrences(
                     of: "\\n$", with: "", options: .regularExpression
                 )
-                if canSend { onSend() }
+                if canSend {
+                    onSend()
+                } else if hasPendingConfirmation
+                            && inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    onAllowPendingConfirmation?()
+                }
             },
             onAcceptSuggestion: onAcceptSuggestion,
             onPaste: onPaste,
@@ -556,6 +573,7 @@ struct ComposerView: View {
 private struct ComposerTextView: NSViewRepresentable {
     @Binding var text: String
     let placeholder: String?
+    @Environment(\.cmdEnterToSend) private var cmdEnterToSend
     let hasGhostSuffix: Bool
     let isEnabled: Bool
     let minHeight: CGFloat
@@ -629,6 +647,7 @@ private struct ComposerTextView: NSViewRepresentable {
 
         scrollView.documentView = textView
         context.coordinator.textView = textView
+        textView.cmdEnterToSend = cmdEnterToSend
         context.coordinator.configureCallbacks()
         context.coordinator.syncHeight()
 
@@ -637,6 +656,9 @@ private struct ComposerTextView: NSViewRepresentable {
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         context.coordinator.parent = self
+        if let textView = context.coordinator.textView {
+            textView.cmdEnterToSend = cmdEnterToSend
+        }
         context.coordinator.configureCallbacks()
 
         guard let textView = context.coordinator.textView else { return }
@@ -673,6 +695,24 @@ private struct ComposerTextView: NSViewRepresentable {
         // Register the composer with the window so typing auto-focuses it.
         if let zoomableWindow = textView.window as? TitleBarZoomableWindow {
             zoomableWindow.composerTextView = textView
+
+            // Walk up from the scroll view to find the composer container —
+            // the first ancestor whose frame is wider, encompassing the
+            // sibling action buttons (Attach, Mic, Send). Re-evaluated on
+            // each update because layout can change (compact vs expanded).
+            if let scrollView = textView.enclosingScrollView {
+                var container: NSView = scrollView
+                var candidate = scrollView.superview
+                while let view = candidate,
+                      view !== zoomableWindow.contentView {
+                    if view.frame.width > scrollView.frame.width {
+                        container = view
+                        break
+                    }
+                    candidate = view.superview
+                }
+                zoomableWindow.composerContainerView = container
+            }
         }
 
         if context.coordinator.lastFocusRequestID != focusRequestID {
@@ -765,6 +805,7 @@ private final class ComposerNativeTextView: NSTextView {
     var onFocusChange: ((Bool) -> Void)?
     var onSlashNavigate: ((SlashNavigation) -> Void)?
     var isSlashMenuOpen = false
+    var cmdEnterToSend = false
     var placeholderText: String?
     var placeholderColor: NSColor = .placeholderTextColor
     var hasGhostSuffix = false
@@ -863,14 +904,18 @@ private final class ComposerNativeTextView: NSTextView {
             }
         }
 
-        // Enter sends; Shift+Enter inserts newline.
-        // If ghost suggestion is visible, accept it first then send.
+        // Enter / Cmd+Enter send behavior depends on cmdEnterToSend setting.
+        // Shift+Enter always inserts a newline regardless of mode.
         if event.keyCode == 36 || event.keyCode == 76 {
             if modifiers == [.shift] {
                 insertNewline(nil)
                 return
             }
-            if modifiers.isEmpty {
+
+            let shouldSend = cmdEnterToSend ? modifiers == [.command] : modifiers.isEmpty
+            let shouldInsertNewline = cmdEnterToSend && modifiers.isEmpty
+
+            if shouldSend {
                 if hasGhostSuffix {
                     onAcceptSuggestion?()
                     onSubmit?()
@@ -879,6 +924,10 @@ private final class ComposerNativeTextView: NSTextView {
                 } else {
                     onSubmit?()
                 }
+                return
+            }
+            if shouldInsertNewline {
+                insertNewline(nil)
                 return
             }
             return
@@ -910,6 +959,18 @@ private final class ComposerNativeTextView: NSTextView {
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        // macOS routes Cmd+key events through performKeyEquivalent before
+        // keyDown, so Cmd+Enter must be intercepted here and forwarded to
+        // keyDown where the send/accept/slash-menu logic lives.
+        // Match exact .command only — Cmd+Opt+Enter, Cmd+Ctrl+Enter, etc.
+        // must propagate normally, matching the keyDown equality check.
+        if cmdEnterToSend,
+           event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+           (event.keyCode == 36 || event.keyCode == 76) {
+            self.keyDown(with: event)
+            return true
+        }
+
         if event.modifierFlags.contains(.command),
            event.charactersIgnoringModifiers?.lowercased() == "v" {
             if pasteboardHasImageContent {
@@ -933,7 +994,10 @@ private final class ComposerNativeTextView: NSTextView {
 
     override func becomeFirstResponder() -> Bool {
         let focused = super.becomeFirstResponder()
-        if focused { onFocusChange?(true) }
+        if focused {
+            onFocusChange?(true)
+            (window as? TitleBarZoomableWindow)?.clearComposerDismissed()
+        }
         return focused
     }
 

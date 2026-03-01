@@ -64,7 +64,7 @@ const TEMPLATES: Record<string, CopyTemplate> = {
     const requester = str(payload.senderIdentifier, 'Someone');
     const requestCode = nonEmpty(typeof payload.requestCode === 'string' ? payload.requestCode : undefined);
     const sourceChannel = typeof payload.sourceChannel === 'string' ? payload.sourceChannel : undefined;
-    const callerName = nonEmpty(typeof payload.senderName === 'string' ? payload.senderName : undefined);
+    const callerName = nonEmpty(typeof payload.actorDisplayName === 'string' ? payload.actorDisplayName : undefined);
     const previousMemberStatus = typeof payload.previousMemberStatus === 'string'
       ? payload.previousMemberStatus
       : undefined;
@@ -72,7 +72,7 @@ const TEMPLATES: Record<string, CopyTemplate> = {
 
     // Voice-originated access requests include caller name context
     if (sourceChannel === 'voice' && callerName) {
-      lines.push(`${callerName} (${str(payload.senderExternalUserId, requester)}) is calling and requesting access to the assistant.`);
+      lines.push(`${callerName} (${str(payload.actorExternalId, requester)}) is calling and requesting access to the assistant.`);
     } else {
       lines.push(`${requester} is requesting access to the assistant.`);
     }

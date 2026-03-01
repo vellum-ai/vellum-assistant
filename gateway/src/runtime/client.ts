@@ -132,15 +132,15 @@ export type RuntimeInboundPayload = {
   sourceChannel: ChannelId;
   /** Explicit interface identifier forwarded to the assistant. */
   interface: InterfaceId;
-  externalChatId: string;
+  conversationExternalId: string;
   externalMessageId: string;
   content: string;
   isEdit?: boolean;
   callbackQueryId?: string;
   callbackData?: string;
-  senderName?: string;
-  senderExternalUserId?: string;
-  senderUsername?: string;
+  actorDisplayName?: string;
+  actorExternalId: string;
+  actorUsername?: string;
   sourceMetadata?: Record<string, unknown>;
   attachmentIds?: string[];
   replyCallbackUrl?: string;
@@ -261,7 +261,7 @@ export async function forwardToRuntime(
 export async function resetConversation(
   config: GatewayConfig,
   sourceChannel: ChannelId,
-  externalChatId: string,
+  conversationExternalId: string,
 ): Promise<void> {
   cbBeforeRequest();
 
@@ -272,7 +272,7 @@ export async function resetConversation(
     response = await fetchImpl(url, {
       method: "DELETE",
       headers: runtimeHeaders(config, { "Content-Type": "application/json" }),
-      body: JSON.stringify({ sourceChannel, externalChatId }),
+      body: JSON.stringify({ sourceChannel, conversationExternalId }),
       signal: AbortSignal.timeout(config.runtimeTimeoutMs),
     });
   } catch (err) {

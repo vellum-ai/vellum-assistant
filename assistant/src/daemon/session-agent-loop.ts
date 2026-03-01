@@ -222,7 +222,7 @@ export async function runAgentLoopImpl(
       }
       // Replace loading placeholder so the thread isn't stuck as "Generating title..."
       const currentConv = conversationStore.getConversation(ctx.conversationId);
-      if (isReplaceableTitle(currentConv?.title ?? null)) {
+      if (isReplaceableTitle(currentConv?.title ?? null) && currentConv?.title !== UNTITLED_FALLBACK) {
         conversationStore.updateConversationTitle(ctx.conversationId, UNTITLED_FALLBACK);
         onEvent({ type: 'session_title_updated', sessionId: ctx.conversationId, title: UNTITLED_FALLBACK });
       }
@@ -405,9 +405,9 @@ export async function runAgentLoopImpl(
         const actorTrust = resolveActorTrust({
           assistantId: ctx.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
           sourceChannel: gc.sourceChannel,
-          externalChatId: gc.requesterChatId,
-          senderExternalUserId: gc.requesterExternalUserId,
-          senderDisplayName: gc.requesterSenderDisplayName,
+          conversationExternalId: gc.requesterChatId,
+          actorExternalId: gc.requesterExternalUserId,
+          actorDisplayName: gc.requesterSenderDisplayName,
         });
         resolvedInboundActorContext = inboundActorContextFromTrust(actorTrust);
       } else {

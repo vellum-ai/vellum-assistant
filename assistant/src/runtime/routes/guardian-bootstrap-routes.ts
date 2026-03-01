@@ -10,6 +10,7 @@
  */
 
 import { createHash } from 'node:crypto';
+
 import { v4 as uuid } from 'uuid';
 
 import {
@@ -18,11 +19,11 @@ import {
 } from '../../memory/guardian-bindings.js';
 import { getLogger } from '../../util/logger.js';
 import { mintActorToken } from '../actor-token-service.js';
-import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
 import {
   createActorTokenRecord,
   revokeByDeviceBinding,
 } from '../actor-token-store.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
 import { httpError } from '../http-errors.js';
 import type { ServerWithRequestIP } from '../middleware/actor-token.js';
 
