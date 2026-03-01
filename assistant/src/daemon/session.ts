@@ -36,6 +36,7 @@ import type { Message } from '../providers/types.js';
 import type { Provider } from '../providers/types.js';
 import { ToolExecutor } from '../tools/executor.js';
 import type { AssistantAttachmentDraft } from './assistant-attachments.js';
+import type { AssistantActivityState, ConfirmationStateChanged } from './ipc-contract/messages.js';
 import type { ServerMessage, SurfaceData,SurfaceType, UsageStats, UserMessageAttachment } from './ipc-protocol.js';
 import {
   classifyResponseTierAsync,
@@ -161,6 +162,7 @@ export class Session {
   public lastAttachmentWarnings: string[] = [];
   /** @internal */ currentTurnChannelContext: TurnChannelContext | null = null;
   /** @internal */ currentTurnInterfaceContext: TurnInterfaceContext | null = null;
+  /** @internal */ activityVersion = 0;
 
   constructor(
     conversationId: string,
@@ -180,6 +182,21 @@ export class Session {
     this.memoryPolicy = memoryPolicy ? { ...memoryPolicy } : { ...DEFAULT_MEMORY_POLICY };
     this.traceEmitter = new TraceEmitter(conversationId, sendToClient);
     this.prompter = new PermissionPrompter(sendToClient);
+    this.prompter.setOnStateChanged((requestId, state, source) => {
+      this.sendToClient({
+        type: 'confirmation_state_changed',
+        sessionId: this.conversationId,
+        requestId,
+        state,
+        source,
+      });
+      // Emit activity state transitions for confirmation lifecycle
+      if (state === 'pending') {
+        this.emitActivityState('awaiting_confirmation', 'confirmation_requested', 'assistant_turn');
+      } else if (state === 'timed_out') {
+        this.emitActivityState('idle', 'confirmation_resolved', 'assistant_turn');
+      }
+    });
     this.secretPrompter = new SecretPrompter(sendToClient);
 
     // Register watch/call notifiers (reads ctx properties lazily)
@@ -465,6 +482,30 @@ export class Session {
 
   handleSecretResponse(requestId: string, value?: string, delivery?: 'store' | 'transient_send'): void {
     this.secretPrompter.resolveSecret(requestId, value, delivery);
+  }
+
+  // ── Server-authoritative state signals ─────────────────────────────
+
+  emitConfirmationStateChanged(params: Omit<ConfirmationStateChanged, 'type'>): void {
+    this.sendToClient({ type: 'confirmation_state_changed', ...params });
+  }
+
+  emitActivityState(
+    phase: AssistantActivityState['phase'],
+    reason: AssistantActivityState['reason'],
+    anchor: AssistantActivityState['anchor'] = 'assistant_turn',
+    requestId?: string,
+  ): void {
+    this.activityVersion++;
+    this.sendToClient({
+      type: 'assistant_activity_state',
+      sessionId: this.conversationId,
+      activityVersion: this.activityVersion,
+      phase,
+      anchor,
+      requestId,
+      reason,
+    });
   }
 
   setChannelCapabilities(caps: ChannelCapabilities | null): void {

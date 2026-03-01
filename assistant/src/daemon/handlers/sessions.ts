@@ -268,6 +268,7 @@ export async function handleUserMessage(
       }
 
       rlog.info({ source }, 'Processing user message');
+      session.emitActivityState('thinking', 'message_dequeued', 'assistant_turn', dispatchRequestId);
       session.setTurnChannelContext({
         userMessageChannel: ipcChannel,
         assistantMessageChannel: ipcChannel,
@@ -607,6 +608,25 @@ export async function handleUserMessage(
           });
 
           if (routerResult.consumed && routerResult.type !== 'nl_keep_pending') {
+            // Emit authoritative confirmation state for resolved request
+            if (routerResult.requestId) {
+              const resolvedState = routerResult.decisionApplied
+                ? (routerResult.type === 'nl_deny' || routerResult.type === 'nl_deny_all' ? 'denied' : 'approved') as const
+                : 'resolved_stale' as const;
+              session.emitConfirmationStateChanged({
+                sessionId: msg.sessionId,
+                requestId: routerResult.requestId,
+                state: resolvedState,
+                source: 'inline_nl',
+                causedByRequestId: requestId,
+                decisionText: messageText.trim(),
+              });
+              // Emit activity transition: approval resumes the run, denial ends it
+              if (resolvedState === 'approved') {
+                session.emitActivityState('thinking', 'confirmation_resolved', 'assistant_turn');
+              }
+            }
+
             const consumedChannelMeta = {
               userMessageChannel: ipcChannel,
               assistantMessageChannel: ipcChannel,
@@ -690,6 +710,19 @@ export async function handleUserMessage(
     // will see the denial and can re-request the tool if still needed.
     if (session.hasAnyPendingConfirmation()) {
       rlog.info('Auto-denying pending confirmation(s) due to new user message');
+      // Emit authoritative confirmation state for each auto-denied request
+      // before the prompter clears them.
+      for (const interaction of pendingInteractions.getByConversation(msg.sessionId)) {
+        if (interaction.session === session && interaction.kind === 'confirmation') {
+          session.emitConfirmationStateChanged({
+            sessionId: msg.sessionId,
+            requestId: interaction.requestId,
+            state: 'denied',
+            source: 'auto_deny',
+            causedByRequestId: requestId,
+          });
+        }
+      }
       session.denyAllPendingConfirmations();
       // Keep the pending-interaction tracker aligned with the prompter so
       // stale request IDs are not reused as routing candidates.
@@ -730,6 +763,19 @@ export function handleConfirmationResponse(
   for (const [sessionId, session] of ctx.sessions) {
     if (session.hasPendingConfirmation(msg.requestId)) {
       ctx.touchSession(sessionId);
+      const resolvedState = (msg.decision === 'deny' || msg.decision === 'always_deny') ? 'denied' as const : 'approved' as const;
+      session.emitConfirmationStateChanged({
+        sessionId,
+        requestId: msg.requestId,
+        state: resolvedState,
+        source: 'button',
+      });
+      // When the run will resume after approval, transition to thinking
+      if (resolvedState === 'approved') {
+        session.emitActivityState('thinking', 'confirmation_resolved', 'assistant_turn');
+      } else {
+        session.emitActivityState('idle', 'confirmation_resolved', 'global');
+      }
       session.handleConfirmationResponse(
         msg.requestId,
         msg.decision,
