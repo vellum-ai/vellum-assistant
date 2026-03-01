@@ -29,6 +29,162 @@ export function nonEmpty(value: string | undefined): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+// ── Access-request copy contract ─────────────────────────────────────────────
+//
+// Deterministic helpers for building guardian-facing access-request copy.
+// These are used both by the fallback template and the decision-engine
+// post-generation enforcement to ensure required directives always appear.
+
+const IDENTITY_FIELD_MAX_LENGTH = 120;
+
+/**
+ * Sanitize an untrusted identity field for inclusion in notification copy.
+ *
+ * - Strips control characters (U+0000–U+001F, U+007F–U+009F) and newlines.
+ * - Clamps to IDENTITY_FIELD_MAX_LENGTH characters.
+ * - Wraps in quotes to neutralize instruction-like payload text.
+ */
+export function sanitizeIdentityField(value: string): string {
+  const stripped = value.replace(/[\x00-\x1f\x7f-\x9f\r\n]+/g, ' ').trim();
+  const clamped = stripped.length > IDENTITY_FIELD_MAX_LENGTH
+    ? stripped.slice(0, IDENTITY_FIELD_MAX_LENGTH) + '…'
+    : stripped;
+  return clamped;
+}
+
+export function buildAccessRequestIdentityLine(payload: Record<string, unknown>): string {
+  const requester = sanitizeIdentityField(str(payload.senderIdentifier, 'Someone'));
+  const sourceChannel = typeof payload.sourceChannel === 'string' ? payload.sourceChannel : undefined;
+  const callerName = nonEmpty(typeof payload.actorDisplayName === 'string' ? payload.actorDisplayName : undefined);
+  const actorUsername = nonEmpty(typeof payload.actorUsername === 'string' ? payload.actorUsername : undefined);
+  const actorExternalId = nonEmpty(typeof payload.actorExternalId === 'string' ? payload.actorExternalId : undefined);
+
+  if (sourceChannel === 'voice' && callerName) {
+    const safeName = sanitizeIdentityField(callerName);
+    const safeId = sanitizeIdentityField(str(payload.actorExternalId, requester));
+    return `${safeName} (${safeId}) is calling and requesting access to the assistant.`;
+  }
+
+  // For non-voice, include extra context when available.
+  // Sanitize before comparing to avoid deduplication failures when identity
+  // fields contain control characters that are stripped from `requester`.
+  const sanitizedUsername = actorUsername ? sanitizeIdentityField(actorUsername) : undefined;
+  const sanitizedExternalId = actorExternalId ? sanitizeIdentityField(actorExternalId) : undefined;
+  const parts = [requester];
+  if (sanitizedUsername && sanitizedUsername !== requester) {
+    parts.push(`@${sanitizedUsername}`);
+  }
+  if (sanitizedExternalId && sanitizedExternalId !== requester && sanitizedExternalId !== sanitizedUsername) {
+    parts.push(`[${sanitizedExternalId}]`);
+  }
+  if (sourceChannel) {
+    parts.push(`via ${sourceChannel}`);
+  }
+
+  return `${parts.join(' ')} is requesting access to the assistant.`;
+}
+
+export function buildAccessRequestDecisionDirective(requestCode: string): string {
+  const code = requestCode.toUpperCase();
+  return `Reply "${code} approve" to grant access or "${code} reject" to deny.`;
+}
+
+export function buildAccessRequestInviteDirective(): string {
+  return 'Reply "open invite flow" to start Trusted Contacts invite flow.';
+}
+
+export function buildAccessRequestRevokedNote(): string {
+  return 'Note: this user was previously revoked.';
+}
+
+/**
+ * Normalize text before running directive-matching regexes.
+ *
+ * - Replaces smart/curly apostrophes (\u2018, \u2019, \u201B) with ASCII `'`
+ *   so contractions like "Don\u2019t" are matched by the `n't` lookbehind.
+ * - Collapses runs of whitespace into a single space so "Do not   reply"
+ *   is matched by the single-space negative lookbehind.
+ * - Trims leading/trailing whitespace.
+ */
+export function normalizeForDirectiveMatching(text: string): string {
+  return text
+    .replace(/[\u2018\u2019\u201B]/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Check whether a text contains the required access-request instruction elements:
+ * 1. Approve directive: Reply "CODE approve"
+ * 2. Reject directive: Reply "CODE reject"
+ * 3. Invite directive: Reply "open invite flow"
+ *
+ * Each directive is matched independently using negative lookbehind to reject
+ * matches preceded by negation words ("not", "n't", "never"). This prevents
+ * contradictory copy like `Do not reply "CODE reject"` from satisfying the
+ * check even when a positive approve directive exists nearby.
+ *
+ * The text is normalized before matching to handle smart apostrophes and
+ * multiple whitespace characters that would otherwise bypass negation detection.
+ */
+export function hasAccessRequestInstructions(
+  text: string | undefined,
+  requestCode: string,
+): boolean {
+  if (typeof text !== 'string') return false;
+  const normalized = normalizeForDirectiveMatching(text);
+  const escapedCode = requestCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // Each directive must follow "reply" without a preceding negation word.
+  // Negative lookbehinds reject "do not reply", "don't reply", "never reply".
+  const approveRe = new RegExp(
+    `(?<!not\\s)(?<!n't\\s)(?<!never\\s)reply\\b[^.!?\\n]*?"${escapedCode}\\s+approve"`,
+    'i',
+  );
+  const rejectRe = new RegExp(
+    `(?<!not\\s)(?<!n't\\s)(?<!never\\s)reply\\b[^.!?\\n]*?"${escapedCode}\\s+reject"`,
+    'i',
+  );
+  const inviteRe = /(?<!not\s)(?<!n't\s)(?<!never\s)reply\b[^.!?\n]*?"open invite flow"/i;
+
+  return approveRe.test(normalized) && rejectRe.test(normalized) && inviteRe.test(normalized);
+}
+
+/**
+ * Check whether text contains the invite-flow directive ("open invite flow")
+ * using the same normalized negative-lookbehind pattern as the full check.
+ * This is used for enforcement when requestCode is absent but the invite
+ * directive should still be present.
+ */
+export function hasInviteFlowDirective(text: string | undefined): boolean {
+  if (typeof text !== 'string') return false;
+  const normalized = normalizeForDirectiveMatching(text);
+  const inviteRe = /(?<!not\s)(?<!n't\s)(?<!never\s)reply\b[^.!?\n]*?"open invite flow"/i;
+  return inviteRe.test(normalized);
+}
+
+/**
+ * Build the deterministic access-request contract text from payload fields.
+ * This is the canonical baseline that enforcement can append when generated
+ * copy is missing required elements.
+ */
+export function buildAccessRequestContractText(payload: Record<string, unknown>): string {
+  const requestCode = nonEmpty(typeof payload.requestCode === 'string' ? payload.requestCode : undefined);
+  const previousMemberStatus = typeof payload.previousMemberStatus === 'string'
+    ? payload.previousMemberStatus
+    : undefined;
+
+  const lines: string[] = [];
+  lines.push(buildAccessRequestIdentityLine(payload));
+  if (previousMemberStatus === 'revoked') {
+    lines.push(buildAccessRequestRevokedNote());
+  }
+  if (requestCode) {
+    lines.push(buildAccessRequestDecisionDirective(requestCode));
+  }
+  lines.push(buildAccessRequestInviteDirective());
+  return lines.join('\n');
+}
+
 // Templates keyed by dot-separated sourceEventName strings matching producers.
 const TEMPLATES: Record<string, CopyTemplate> = {
   'reminder.fired': (payload) => ({
@@ -60,36 +216,10 @@ const TEMPLATES: Record<string, CopyTemplate> = {
     };
   },
 
-  'ingress.access_request': (payload) => {
-    const requester = str(payload.senderIdentifier, 'Someone');
-    const requestCode = nonEmpty(typeof payload.requestCode === 'string' ? payload.requestCode : undefined);
-    const sourceChannel = typeof payload.sourceChannel === 'string' ? payload.sourceChannel : undefined;
-    const callerName = nonEmpty(typeof payload.actorDisplayName === 'string' ? payload.actorDisplayName : undefined);
-    const previousMemberStatus = typeof payload.previousMemberStatus === 'string'
-      ? payload.previousMemberStatus
-      : undefined;
-    const lines: string[] = [];
-
-    // Voice-originated access requests include caller name context
-    if (sourceChannel === 'voice' && callerName) {
-      lines.push(`${callerName} (${str(payload.actorExternalId, requester)}) is calling and requesting access to the assistant.`);
-    } else {
-      lines.push(`${requester} is requesting access to the assistant.`);
-    }
-    if (previousMemberStatus === 'revoked') {
-      lines.push('Note: this user was previously revoked.');
-    }
-
-    if (requestCode) {
-      const code = requestCode.toUpperCase();
-      lines.push(`Reply "${code} approve" to grant access or "${code} reject" to deny.`);
-    }
-    lines.push('Reply "open invite flow" to start Trusted Contacts invite flow.');
-    return {
-      title: 'Access Request',
-      body: lines.join('\n'),
-    };
-  },
+  'ingress.access_request': (payload) => ({
+    title: 'Access Request',
+    body: buildAccessRequestContractText(payload),
+  }),
 
   'ingress.access_request.callback_handoff': (payload) => {
     const callerName = nonEmpty(typeof payload.callerName === 'string' ? payload.callerName : undefined);
