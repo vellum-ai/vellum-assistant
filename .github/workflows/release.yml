@@ -832,8 +832,11 @@ jobs:
   build-ios:
     needs: bump-and-tag
     runs-on: macos-14
-    timeout-minutes: 15
+    timeout-minutes: 30
     continue-on-error: true
+    env:
+      KEYCHAIN_NAME: ios-build.keychain
+      KEYCHAIN_PASSWORD: temporary-ci-password
     outputs:
       actual_result: ${{ steps.report.outputs.status }}
     steps:
@@ -850,18 +853,88 @@ jobs:
       - name: Clear stale SPM artifact cache
         run: rm -rf ~/Library/Caches/org.swift.swiftpm/artifacts
 
-      - name: Build for simulator
-        working-directory: clients/ios
-        run: ./build.sh
+      - name: Import code-signing certificate
+        run: |
+          KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
 
-      - name: Run iOS tests
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          echo "${{ secrets.IOS_DISTRIBUTION_CERTIFICATE_P12 }}" | base64 -D > /tmp/ios-certificate.p12
+          security import /tmp/ios-certificate.p12 \
+            -k "$KEYCHAIN_PATH" \
+            -P "${{ secrets.IOS_DISTRIBUTION_CERTIFICATE_PASSWORD }}" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security
+          rm /tmp/ios-certificate.p12
+
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
+          security default-keychain -s "$KEYCHAIN_PATH"
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+
+      - name: Install provisioning profile
+        run: |
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          echo "${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}" | base64 -D \
+            > ~/Library/MobileDevice/Provisioning\ Profiles/ios-dist.mobileprovision
+
+      - name: Set version
+        id: version
+        run: |
+          DISPLAY_VERSION="${{ needs.bump-and-tag.outputs.version }}"
+          BUILD_VERSION=$(date -u +%Y%m%d%H%M)
+          echo "display_version=$DISPLAY_VERSION" >> "$GITHUB_OUTPUT"
+          echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Display version: $DISPLAY_VERSION / Build version: $BUILD_VERSION"
+
+      - name: Build release .ipa
         working-directory: clients/ios
-        run: ./build.sh test
+        run: |
+          DEVELOPMENT_TEAM="${{ secrets.APPLE_TEAM_ID }}" \
+          DISPLAY_VERSION="${{ steps.version.outputs.display_version }}" \
+          BUILD_VERSION="${{ steps.version.outputs.build_version }}" \
+          ./build.sh release
+
+          IPA_FILE=$(find dist/export -name "*.ipa" -maxdepth 1 | head -1)
+          echo "IPA: $IPA_FILE"
+          ls -lh "$IPA_FILE"
+
+      - name: Upload to TestFlight
+        working-directory: clients/ios
+        run: |
+          # Write App Store Connect API key to expected location
+          mkdir -p ~/.private_keys
+          echo "${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}" | base64 -D \
+            > ~/.private_keys/AuthKey_${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}.p8
+
+          IPA_FILE=$(find dist/export -name "*.ipa" -maxdepth 1 | head -1)
+          if [ -z "$IPA_FILE" ]; then
+            echo "ERROR: No .ipa found in dist/export/"
+            exit 1
+          fi
+
+          echo "Uploading $IPA_FILE to TestFlight..."
+          xcrun altool --upload-app \
+            -f "$IPA_FILE" \
+            -t ios \
+            --apiKey "${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}" \
+            --apiIssuer "${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}"
+
+          echo "Upload complete! The build will appear in TestFlight after Apple's processing."
 
       - name: Report actual result
         id: report
         if: always()
         run: echo "status=${{ job.status }}" >> "$GITHUB_OUTPUT"
+
+      - name: Cleanup keychain
+        if: always()
+        run: |
+          KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
+          security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
+          rm -rf ~/.private_keys
 
   ci-playwright:
     needs: [bump-and-tag, build-macos]
