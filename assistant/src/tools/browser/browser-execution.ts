@@ -248,8 +248,9 @@ export async function executeBrowserNavigate(
       routeHandler = null;
     }
 
-    // In CDP mode, position the browser on the side unless a handoff is active.
-    if (browserManager.browserMode === 'cdp' && !browserManager.isInteractive(context.sessionId)) {
+    // Reposition the browser window after navigation so the user can watch.
+    // positionWindowSidebar() is a no-op when browserCdpSession is unavailable.
+    if (!browserManager.isInteractive(context.sessionId)) {
       await browserManager.positionWindowSidebar();
     }
 
