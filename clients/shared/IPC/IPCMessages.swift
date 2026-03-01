@@ -1999,42 +1999,31 @@ extension IPCTelegramConfigRequest {
 /// Backed by generated `IPCTelegramConfigResponse`.
 public typealias TelegramConfigResponseMessage = IPCTelegramConfigResponse
 
-// MARK: - Twilio Config Messages
+// MARK: - Twilio Number Models (standalone, no IPC dependency)
 
-/// Sent to get/set/clear Twilio credentials and manage phone numbers.
-/// Backed by generated `IPCTwilioConfigRequest`.
-public typealias TwilioConfigRequestMessage = IPCTwilioConfigRequest
+/// Capabilities of a Twilio phone number.
+public struct TwilioNumberCapabilities: Codable, Sendable {
+    public let voice: Bool
+    public let sms: Bool
 
-extension IPCTwilioConfigRequest {
-    public init(
-        action: String,
-        accountSid: String? = nil,
-        authToken: String? = nil,
-        phoneNumber: String? = nil,
-        areaCode: String? = nil,
-        country: String? = nil
-    ) {
-        self.init(
-            type: "twilio_config",
-            action: action,
-            accountSid: accountSid,
-            authToken: authToken,
-            phoneNumber: phoneNumber,
-            areaCode: areaCode,
-            country: country
-        )
+    public init(voice: Bool, sms: Bool) {
+        self.voice = voice
+        self.sms = sms
     }
 }
 
-/// Number entry returned in `twilio_config_response` `numbers` array.
-public typealias TwilioNumberInfo = IPCTwilioConfigResponseNumber
+/// Number entry used by Twilio settings views.
+public struct TwilioNumberInfo: Codable, Sendable {
+    public let phoneNumber: String
+    public let friendlyName: String
+    public let capabilities: TwilioNumberCapabilities
 
-/// Capabilities of a Twilio phone number.
-public typealias TwilioNumberCapabilities = IPCTwilioConfigResponseNumberCapabilities
-
-/// Response from Twilio config operations.
-/// Backed by generated `IPCTwilioConfigResponse`.
-public typealias TwilioConfigResponseMessage = IPCTwilioConfigResponse
+    public init(phoneNumber: String, friendlyName: String, capabilities: TwilioNumberCapabilities) {
+        self.phoneNumber = phoneNumber
+        self.friendlyName = friendlyName
+        self.capabilities = capabilities
+    }
+}
 
 // MARK: - Guardian Verification Messages
 
@@ -2309,7 +2298,6 @@ public enum ServerMessage: Decodable, Sendable {
     case vercelApiConfigResponse(VercelApiConfigResponseMessage)
     case guardianVerificationResponse(GuardianVerificationResponseMessage)
     case telegramConfigResponse(TelegramConfigResponseMessage)
-    case twilioConfigResponse(TwilioConfigResponseMessage)
     case twitterIntegrationConfigResponse(TwitterIntegrationConfigResponseMessage)
     case twitterAuthResult(TwitterAuthResultMessage)
     case twitterAuthStatusResponse(TwitterAuthStatusResponseMessage)
@@ -2354,7 +2342,6 @@ public enum ServerMessage: Decodable, Sendable {
     case workspaceFilesListResponse(WorkspaceFilesListResponseMessage)
     case workspaceFileReadResponse(WorkspaceFileReadResponseMessage)
     case identityGetResponse(IdentityGetResponseMessage)
-    case channelReadinessResponse(IPCChannelReadinessResponse)
     case conversationSearchResponse(ConversationSearchResponseMessage)
     case pairingApprovalRequest(PairingApprovalRequestMessage)
     case approvedDevicesListResponse(ApprovedDevicesListResponseMessage)
@@ -2637,9 +2624,6 @@ public enum ServerMessage: Decodable, Sendable {
         case "telegram_config_response":
             let message = try TelegramConfigResponseMessage(from: decoder)
             self = .telegramConfigResponse(message)
-        case "twilio_config_response":
-            let message = try TwilioConfigResponseMessage(from: decoder)
-            self = .twilioConfigResponse(message)
         case "twitter_integration_config_response":
             let message = try TwitterIntegrationConfigResponseMessage(from: decoder)
             self = .twitterIntegrationConfigResponse(message)
@@ -2760,9 +2744,6 @@ public enum ServerMessage: Decodable, Sendable {
         case "identity_get_response":
             let message = try IdentityGetResponseMessage(from: decoder)
             self = .identityGetResponse(message)
-        case "channel_readiness_response":
-            let message = try IPCChannelReadinessResponse(from: decoder)
-            self = .channelReadinessResponse(message)
         case "conversation_search_response":
             let message = try ConversationSearchResponseMessage(from: decoder)
             self = .conversationSearchResponse(message)

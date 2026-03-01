@@ -1,4 +1,4 @@
-// External service integrations: Slack, Telegram, Twilio, Twitter, Vercel, ingress, channel readiness, guardian.
+// External service integrations: Slack, Telegram, Twitter, Vercel, ingress, guardian.
 
 import type { ChannelId } from '../../channels/types.js';
 
@@ -43,41 +43,6 @@ export interface TelegramConfigRequest {
   action: 'get' | 'set' | 'clear' | 'set_commands' | 'setup';
   botToken?: string;  // Only for action: 'set' or 'setup'
   commands?: Array<{ command: string; description: string }>;  // Only for action: 'set_commands' or 'setup'
-}
-
-export interface TwilioConfigRequest {
-  type: 'twilio_config';
-  action: 'get' | 'set_credentials' | 'clear_credentials' | 'provision_number' | 'assign_number' | 'list_numbers'
-    | 'sms_compliance_status' | 'sms_submit_tollfree_verification' | 'sms_update_tollfree_verification'
-    | 'sms_delete_tollfree_verification' | 'release_number' | 'sms_send_test' | 'sms_doctor';
-  accountSid?: string;        // Only for action: 'set_credentials'
-  authToken?: string;         // Only for action: 'set_credentials'
-  phoneNumber?: string;       // Only for action: 'assign_number' or 'sms_send_test'
-  areaCode?: string;          // Only for action: 'provision_number'
-  country?: string;           // Only for action: 'provision_number' (ISO 3166-1 alpha-2, default 'US')
-  verificationSid?: string;   // Only for update/delete verification actions
-  verificationParams?: {
-    tollfreePhoneNumberSid?: string;
-    businessName?: string;
-    businessWebsite?: string;
-    notificationEmail?: string;
-    useCaseCategories?: string[];
-    useCaseSummary?: string;
-    productionMessageSample?: string;
-    optInImageUrls?: string[];
-    optInType?: string;
-    messageVolume?: string;
-    businessType?: string;
-    customerProfileSid?: string;
-  };
-  text?: string;              // Only for action: 'sms_send_test' (default: "Test SMS from your Vellum assistant")
-}
-
-export interface ChannelReadinessRequest {
-  type: 'channel_readiness';
-  action: 'get' | 'refresh';
-  channel?: ChannelId;
-  includeRemote?: boolean;
 }
 
 export interface GuardianVerificationRequest {
@@ -188,60 +153,6 @@ export interface TelegramConfigResponse {
   warning?: string;
 }
 
-export interface TwilioConfigResponse {
-  type: 'twilio_config_response';
-  success: boolean;
-  hasCredentials: boolean;
-  phoneNumber?: string;
-  numbers?: Array<{ phoneNumber: string; friendlyName: string; capabilities: { voice: boolean; sms: boolean } }>;
-  error?: string;
-  /** Non-fatal warning message (e.g. webhook sync failure that did not prevent the primary operation). */
-  warning?: string;
-  compliance?: {
-    numberType?: string;
-    tollfreePhoneNumberSid?: string;
-    verificationSid?: string;
-    verificationStatus?: string;
-    rejectionReason?: string;
-    rejectionReasons?: string[];
-    errorCode?: string;
-    editAllowed?: boolean;
-    editExpiration?: string;
-  };
-  /** Present when action is 'sms_send_test'. */
-  testResult?: {
-    messageSid: string;
-    to: string;
-    initialStatus: string;
-    finalStatus: string;
-    errorCode?: string;
-    errorMessage?: string;
-  };
-  /** Present when action is 'sms_doctor'. */
-  diagnostics?: {
-    readiness: { ready: boolean; issues: string[] };
-    compliance: { status: string; detail?: string; remediation?: string };
-    lastSend?: { status: string; errorCode?: string; remediation?: string };
-    overallStatus: 'healthy' | 'degraded' | 'broken';
-    actionItems: string[];
-  };
-}
-
-export interface ChannelReadinessResponse {
-  type: 'channel_readiness_response';
-  success: boolean;
-  snapshots?: Array<{
-    channel: ChannelId;
-    ready: boolean;
-    checkedAt: number;
-    stale: boolean;
-    reasons: Array<{ code: string; text: string }>;
-    localChecks: Array<{ name: string; passed: boolean; message: string }>;
-    remoteChecks?: Array<{ name: string; passed: boolean; message: string }>;
-  }>;
-  error?: string;
-}
-
 export interface GuardianVerificationResponse {
   type: 'guardian_verification_response';
   success: boolean;
@@ -345,8 +256,6 @@ export type _IntegrationsClientMessages =
   | VercelApiConfigRequest
   | TwitterIntegrationConfigRequest
   | TelegramConfigRequest
-  | TwilioConfigRequest
-  | ChannelReadinessRequest
   | GuardianVerificationRequest
   | TwitterAuthStartRequest
   | TwitterAuthStatusRequest
@@ -363,8 +272,6 @@ export type _IntegrationsServerMessages =
   | VercelApiConfigResponse
   | TwitterIntegrationConfigResponse
   | TelegramConfigResponse
-  | TwilioConfigResponse
-  | ChannelReadinessResponse
   | GuardianVerificationResponse
   | TwitterAuthResult
   | TwitterAuthStatusResponse

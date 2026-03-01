@@ -1189,6 +1189,339 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/integrations/twilio/config": {
+        get: {
+          summary: "Get Twilio integration config",
+          description:
+            "Authenticated gateway endpoint that returns current Twilio integration configuration from the assistant runtime.",
+          operationId: "twilioConfigGet",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": { description: "Twilio config returned" },
+            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/integrations/twilio/credentials": {
+        post: {
+          summary: "Set Twilio credentials",
+          description:
+            "Authenticated gateway endpoint that stores Twilio account credentials via the assistant runtime.",
+          operationId: "twilioCredentialsPost",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Twilio credentials stored" },
+            "400": { description: "Invalid request payload" },
+            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+        delete: {
+          summary: "Clear Twilio credentials",
+          description:
+            "Authenticated gateway endpoint that clears stored Twilio credentials via the assistant runtime.",
+          operationId: "twilioCredentialsDelete",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": { description: "Twilio credentials cleared" },
+            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/integrations/twilio/numbers": {
+        get: {
+          summary: "List Twilio phone numbers",
+          description:
+            "Authenticated gateway endpoint that lists available Twilio phone numbers via the assistant runtime.",
+          operationId: "twilioNumbersGet",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": { description: "Twilio phone numbers returned" },
+            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/integrations/twilio/numbers/provision": {
+        post: {
+          summary: "Provision a Twilio phone number",
+          description:
+            "Authenticated gateway endpoint that provisions a new Twilio phone number via the assistant runtime.",
+          operationId: "twilioNumbersProvisionPost",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Phone number provisioned" },
+            "400": { description: "Invalid request payload" },
+            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/integrations/twilio/numbers/assign": {
+        post: {
+          summary: "Assign a Twilio phone number",
+          description:
+            "Authenticated gateway endpoint that assigns an existing Twilio phone number to the assistant via the runtime.",
+          operationId: "twilioNumbersAssignPost",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Phone number assigned" },
+            "400": { description: "Invalid request payload" },
+            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/integrations/twilio/numbers/release": {
+        post: {
+          summary: "Release a Twilio phone number",
+          description:
+            "Authenticated gateway endpoint that releases an assigned Twilio phone number via the assistant runtime.",
+          operationId: "twilioNumbersReleasePost",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Phone number released" },
+            "400": { description: "Invalid request payload" },
+            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/integrations/twilio/sms/compliance": {
+        get: {
+          summary: "Get SMS compliance status",
+          description:
+            "Authenticated gateway endpoint that returns SMS compliance/registration status from the assistant runtime.",
+          operationId: "twilioSmsComplianceGet",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": { description: "SMS compliance status returned" },
+            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/integrations/twilio/sms/compliance/tollfree": {
+        post: {
+          summary: "Submit toll-free verification",
+          description:
+            "Authenticated gateway endpoint that submits a toll-free number verification request via the assistant runtime.",
+          operationId: "twilioSmsTollfreePost",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Toll-free verification submitted" },
+            "400": { description: "Invalid request payload" },
+            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/integrations/twilio/sms/compliance/tollfree/{verificationSid}": {
+        patch: {
+          summary: "Update toll-free verification",
+          description:
+            "Authenticated gateway endpoint that updates an existing toll-free verification via the assistant runtime.",
+          operationId: "twilioSmsTollfreePatch",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "verificationSid",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Toll-free verification updated" },
+            "400": { description: "Invalid request payload" },
+            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+        delete: {
+          summary: "Delete toll-free verification",
+          description:
+            "Authenticated gateway endpoint that deletes a toll-free verification via the assistant runtime.",
+          operationId: "twilioSmsTollfreeDelete",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "verificationSid",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          responses: {
+            "200": { description: "Toll-free verification deleted" },
+            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "404": { description: "Verification not found" },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/integrations/twilio/sms/test": {
+        post: {
+          summary: "Send a test SMS",
+          description:
+            "Authenticated gateway endpoint that sends a test SMS message via the assistant runtime.",
+          operationId: "twilioSmsTestPost",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Test SMS sent" },
+            "400": { description: "Invalid request payload" },
+            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/integrations/twilio/sms/doctor": {
+        post: {
+          summary: "Run SMS doctor diagnostics",
+          description:
+            "Authenticated gateway endpoint that runs SMS integration diagnostics via the assistant runtime.",
+          operationId: "twilioSmsDoctorPost",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "SMS doctor diagnostics returned" },
+            "400": { description: "Invalid request payload" },
+            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/channels/readiness": {
+        get: {
+          summary: "Get channel readiness",
+          description:
+            "Authenticated gateway endpoint that returns the readiness status of all configured channels from the assistant runtime.",
+          operationId: "channelReadinessGet",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": { description: "Channel readiness status returned" },
+            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/channels/readiness/refresh": {
+        post: {
+          summary: "Refresh channel readiness",
+          description:
+            "Authenticated gateway endpoint that triggers a fresh readiness check for all channels via the assistant runtime.",
+          operationId: "channelReadinessRefreshPost",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: false,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Channel readiness refreshed" },
+            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
       "/integrations/status": {
         get: {
           summary: "Integration status",

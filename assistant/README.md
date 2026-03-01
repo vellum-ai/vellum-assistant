@@ -201,29 +201,29 @@ The `/channels/inbound` endpoint requires a valid `X-Gateway-Origin` header to p
 
 ## Twilio Setup Primitive
 
-Twilio is the shared telephony provider for both voice calls and SMS messaging. Configuration is managed through the `twilio_config` IPC contract and the `twilio-setup` skill. For SMS-specific onboarding (including compliance verification and test sending), the `sms-setup` skill provides a guided conversational flow that layers on top of `twilio-setup`.
+Twilio is the shared telephony provider for both voice calls and SMS messaging. Configuration is managed through HTTP control-plane endpoints exposed by the runtime and proxied by the gateway. For SMS-specific onboarding (including compliance verification and test sending), the `sms-setup` skill provides a guided conversational flow that layers on top of `twilio-setup`.
 
-### `twilio_config` IPC Contract
+### Twilio HTTP Control-Plane Endpoints
 
-The daemon handles `twilio_config` messages with the following actions:
+The runtime exposes a RESTful HTTP API for Twilio configuration, credential management, phone number operations, and SMS compliance:
 
-| Action | Description |
-|--------|-------------|
-| `get` | Returns current state: `hasCredentials` (boolean) and `phoneNumber` (if assigned) |
-| `set_credentials` | Validates and stores Account SID and Auth Token in secure storage (Keychain / encrypted file). Credentials are retrieved from the credential store internally. |
-| `clear_credentials` | Removes stored Account SID and Auth Token from secure storage. Preserves the phone number in both config (`sms.phoneNumber`) and secure key (`credential:twilio:phone_number`) so that re-entering credentials resumes working without needing to reassign the number. |
-| `provision_number` | Purchases a new phone number via the Twilio API. Accepts optional `areaCode` and `country` (ISO 3166-1 alpha-2, default `US`). Auto-assigns the number to the assistant (persists to config and secure storage) and configures Twilio webhooks (voice, status callback, SMS) when a public ingress URL is available. |
-| `assign_number` | Assigns an existing Twilio phone number (E.164 format) to the assistant and auto-configures webhooks when ingress is available |
-| `list_numbers` | Lists all incoming phone numbers on the Twilio account with their capabilities (voice, SMS) |
-| `sms_compliance_status` | Returns the SMS compliance posture for the assigned phone number. Determines number type (toll-free vs local 10DLC) and retrieves toll-free verification status from Twilio. |
-| `sms_submit_tollfree_verification` | Submits a new toll-free verification request to Twilio. Validates required fields and enum values. Defaults `businessType` to `SOLE_PROPRIETOR`. |
-| `sms_update_tollfree_verification` | Updates an existing toll-free verification by SID. Requires `verificationSid`. |
-| `sms_delete_tollfree_verification` | Deletes a toll-free verification by SID. Includes warning about queue priority reset. |
-| `release_number` | Releases (deletes) a phone number from the Twilio account. Clears the number from config and secure storage. Includes warning about toll-free verification context loss. |
-| `sms_send_test` | Sends a test SMS to the specified `phoneNumber` with the given `text`, polls Twilio for delivery status (up to 3 retries at 2-second intervals), and returns the result in `testResult`. Stores the last result in memory for use by `sms_doctor`. |
-| `sms_doctor` | Runs a comprehensive SMS health diagnostic. Checks channel readiness, compliance/toll-free verification status, and the last `sms_send_test` result. Returns structured diagnostics in `diagnostics` with an overall `status` ("healthy", "degraded", or "unhealthy") and actionable `items`. |
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/v1/integrations/twilio/config` | Returns current state: `hasCredentials` (boolean) and `phoneNumber` (if assigned) |
+| POST | `/v1/integrations/twilio/credentials` | Validates and stores Account SID and Auth Token in secure storage (Keychain / encrypted file) |
+| DELETE | `/v1/integrations/twilio/credentials` | Removes stored credentials. Preserves the phone number in both config and secure key so re-entering credentials resumes working without reassigning the number. |
+| GET | `/v1/integrations/twilio/numbers` | Lists all incoming phone numbers on the Twilio account with their capabilities (voice, SMS) |
+| POST | `/v1/integrations/twilio/numbers/provision` | Purchases a new phone number. Accepts optional `areaCode` and `country`. Auto-assigns and configures webhooks when ingress is available. |
+| POST | `/v1/integrations/twilio/numbers/assign` | Assigns an existing Twilio phone number (E.164) and auto-configures webhooks when ingress is available |
+| POST | `/v1/integrations/twilio/numbers/release` | Releases a phone number from the Twilio account and clears local references |
+| GET | `/v1/integrations/twilio/sms/compliance` | Returns SMS compliance posture: number type (toll-free vs 10DLC) and toll-free verification status |
+| POST | `/v1/integrations/twilio/sms/compliance/tollfree` | Submits a new toll-free verification request |
+| PATCH | `/v1/integrations/twilio/sms/compliance/tollfree/:sid` | Updates an existing toll-free verification by SID |
+| DELETE | `/v1/integrations/twilio/sms/compliance/tollfree/:sid` | Deletes a toll-free verification by SID |
+| POST | `/v1/integrations/twilio/sms/test` | Sends a test SMS and polls for delivery status |
+| POST | `/v1/integrations/twilio/sms/doctor` | Runs comprehensive SMS health diagnostics |
 
-Response type: `twilio_config_response` with `success`, `hasCredentials`, optional `phoneNumber`, optional `numbers` array, optional `error`, optional `warning` (for non-fatal webhook sync failures), optional `compliance` object (for compliance status actions, containing `numberType`, `verificationSid`, `verificationStatus`, `rejectionReason`, `rejectionReasons`, `errorCode`, `editAllowed`, `editExpiration`), optional `testResult` (for `sms_send_test`), and optional `diagnostics` (for `sms_doctor`).
+All endpoints are bearer-authenticated via the runtime HTTP token. Skills and clients should call the gateway URL (default `http://localhost:7830`) rather than the runtime port directly, as the gateway proxies all `/v1/integrations/twilio/*` routes.
 
 ### Ingress Webhook Reconciliation
 
@@ -241,9 +241,9 @@ Each assistant is assigned a single Twilio phone number that is shared between v
 
 #### Assistant-Scoped Phone Numbers
 
-When `assistantId` is provided in the `twilio_config` request, the `provision_number` and `assign_number` actions persist the phone number into a per-assistant mapping at `sms.assistantPhoneNumbers` (a `Record<string, string>` keyed by assistant ID). The legacy `sms.phoneNumber` field is always updated for backward compatibility.
+When `assistantId` is provided in the Twilio control-plane request, the provision and assign endpoints persist the phone number into a per-assistant mapping at `sms.assistantPhoneNumbers` (a `Record<string, string>` keyed by assistant ID). The legacy `sms.phoneNumber` field is always updated for backward compatibility.
 
-The `get` action, when called with `assistantId`, resolves the phone number by checking `sms.assistantPhoneNumbers[assistantId]` first, falling back to `sms.phoneNumber`. This allows multiple assistants to have distinct phone numbers while preserving existing behavior for single-assistant setups.
+The config endpoint (`GET /v1/integrations/twilio/config`), when called with `assistantId`, resolves the phone number by checking `sms.assistantPhoneNumbers[assistantId]` first, falling back to `sms.phoneNumber`. This allows multiple assistants to have distinct phone numbers while preserving existing behavior for single-assistant setups.
 
 The per-assistant mapping is propagated to the gateway via the config file watcher, enabling phone-number-based routing at the gateway boundary (see Gateway README).
 
@@ -362,18 +362,16 @@ These endpoints share the same business logic as the IPC-based verification flow
 
 ## Channel Readiness
 
-The `channel_readiness` IPC contract provides a unified way to check whether a channel (SMS, Telegram, etc.) is fully configured and operational. It runs local checks (credential presence, phone number assignment, ingress config) synchronously and optional remote checks (API reachability) asynchronously with a 5-minute TTL cache.
+Channel readiness is exposed via HTTP control-plane endpoints that provide a unified way to check whether a channel (SMS, Telegram, etc.) is fully configured and operational. Local checks (credential presence, phone number assignment, ingress config) run synchronously; optional remote checks (API reachability) run asynchronously with a 5-minute TTL cache.
 
-### `channel_readiness` IPC Contract
+### Channel Readiness HTTP Endpoints
 
-| Action | Description |
-|--------|-------------|
-| `get` | Returns readiness snapshots for the specified channel (or all channels if omitted). Local checks always run; remote checks run only when `includeRemote=true` and cache is stale. |
-| `refresh` | Invalidates the cache for the specified channel (or all channels), then returns fresh snapshots. |
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/v1/channels/readiness` | Returns readiness snapshots for the specified channel (query param `channel`, optional) or all channels. Local checks always run; remote checks run only when `includeRemote=true` and cache is stale. |
+| POST | `/v1/channels/readiness/refresh` | Invalidates the cache for the specified channel (or all channels), then returns fresh snapshots. Body: `{ channel?: ChannelId, includeRemote?: boolean }` |
 
-Request fields: `action` (required), `channel` (optional filter), `assistantId` (optional), `includeRemote` (optional boolean).
-
-Response type: `channel_readiness_response` with `success`, optional `snapshots` array (each with `channel`, `ready`, `checkedAt`, `stale`, `reasons`, `localChecks`, optional `remoteChecks`), and optional `error`.
+All endpoints are bearer-authenticated. Skills and clients should call the gateway URL (default `http://localhost:7830`) rather than the runtime port directly, as the gateway proxies all `/v1/channels/readiness*` routes.
 
 ### Built-in Channel Probes
 
@@ -386,7 +384,7 @@ Response type: `channel_readiness_response` with `success`, optional `snapshots`
 |------|---------|
 | `src/runtime/channel-readiness-types.ts` | Shared types: `ChannelId`, `ReadinessCheckResult`, `ChannelReadinessSnapshot`, `ChannelProbe` |
 | `src/runtime/channel-readiness-service.ts` | Service class with probe registration, cached readiness evaluation, and built-in SMS/Telegram probes |
-| `src/daemon/handlers/config.ts` | `handleChannelReadiness` — IPC handler for `channel_readiness` messages |
+| `src/runtime/routes/channel-readiness-routes.ts` | HTTP route handlers for `/v1/channels/readiness` and `/v1/channels/readiness/refresh` |
 
 ## Ingress Membership + Escalation
 

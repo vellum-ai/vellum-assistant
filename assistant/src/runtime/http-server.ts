@@ -161,7 +161,26 @@ import {
   handlePairingRequest,
   handlePairingStatus,
 } from './routes/pairing-routes.js';
+import {
+  handleGetChannelReadiness,
+  handleRefreshChannelReadiness,
+} from './routes/channel-readiness-routes.js';
 import { handleAddSecret } from './routes/secret-routes.js';
+import {
+  handleAssignTwilioNumber,
+  handleClearTwilioCredentials,
+  handleDeleteTollfreeVerification,
+  handleGetSmsCompliance,
+  handleGetTwilioConfig,
+  handleListTwilioNumbers,
+  handleProvisionTwilioNumber,
+  handleReleaseTwilioNumber,
+  handleSetTwilioCredentials,
+  handleSmsDoctor,
+  handleSmsSendTest,
+  handleSubmitTollfreeVerification,
+  handleUpdateTollfreeVerification,
+} from './routes/twilio-routes.js';
 
 // Re-export for consumers
 export { isPrivateAddress } from './middleware/auth.js';
@@ -764,6 +783,31 @@ export class RuntimeHttpServer {
 
       // Guardian vellum channel bootstrap
       if (endpoint === 'integrations/guardian/vellum/bootstrap' && req.method === 'POST') return await handleGuardianBootstrap(req, server);
+
+      // Integrations — Twilio config
+      if (endpoint === 'integrations/twilio/config' && req.method === 'GET') return handleGetTwilioConfig();
+      if (endpoint === 'integrations/twilio/credentials' && req.method === 'POST') return await handleSetTwilioCredentials(req);
+      if (endpoint === 'integrations/twilio/credentials' && req.method === 'DELETE') return handleClearTwilioCredentials();
+      if (endpoint === 'integrations/twilio/numbers' && req.method === 'GET') return await handleListTwilioNumbers();
+      if (endpoint === 'integrations/twilio/numbers/provision' && req.method === 'POST') return await handleProvisionTwilioNumber(req);
+      if (endpoint === 'integrations/twilio/numbers/assign' && req.method === 'POST') return await handleAssignTwilioNumber(req);
+      if (endpoint === 'integrations/twilio/numbers/release' && req.method === 'POST') return await handleReleaseTwilioNumber(req);
+      if (endpoint === 'integrations/twilio/sms/compliance' && req.method === 'GET') return await handleGetSmsCompliance();
+      if (endpoint === 'integrations/twilio/sms/compliance/tollfree' && req.method === 'POST') return await handleSubmitTollfreeVerification(req);
+      if (endpoint === 'integrations/twilio/sms/test' && req.method === 'POST') return await handleSmsSendTest(req);
+      if (endpoint === 'integrations/twilio/sms/doctor' && req.method === 'POST') return await handleSmsDoctor();
+
+      // Twilio toll-free verification PATCH/DELETE with :verificationSid
+      const tollfreeVerificationMatch = endpoint.match(/^integrations\/twilio\/sms\/compliance\/tollfree\/([^/]+)$/);
+      if (tollfreeVerificationMatch) {
+        const verificationSid = tollfreeVerificationMatch[1];
+        if (req.method === 'PATCH') return await handleUpdateTollfreeVerification(req, verificationSid);
+        if (req.method === 'DELETE') return await handleDeleteTollfreeVerification(verificationSid);
+      }
+
+      // Channel readiness
+      if (endpoint === 'channels/readiness' && req.method === 'GET') return await handleGetChannelReadiness(url);
+      if (endpoint === 'channels/readiness/refresh' && req.method === 'POST') return await handleRefreshChannelReadiness(req);
 
       if (endpoint === 'attachments' && req.method === 'POST') return await handleUploadAttachment(req);
       if (endpoint === 'attachments' && req.method === 'DELETE') return await handleDeleteAttachment(req);
