@@ -10,6 +10,15 @@ import { checkBrowserRuntime } from './runtime-check.js';
 
 const log = getLogger('browser-manager');
 
+/**
+ * Returns true when the host has a GUI capable of displaying a browser window.
+ * macOS and Windows always have a display; Linux requires DISPLAY or WAYLAND_DISPLAY.
+ */
+function canDisplayGui(): boolean {
+  if (process.platform === 'darwin' || process.platform === 'win32') return true;
+  return !!(process.env.DISPLAY || process.env.WAYLAND_DISPLAY);
+}
+
 // Screencast capture dimensions — used by coordinate math across the browser module
 // to map between page coordinates and screencast-frame coordinates.
 export const SCREENCAST_WIDTH = 1280;
@@ -260,9 +269,12 @@ class BrowserManager {
         }
 
         if (invokingSessionId && this.sessionSenders.get(invokingSessionId) && this._browserMode === 'headless') {
+          const willBeHeaded = canDisplayGui();
           log.info(
-            { sessionId: invokingSessionId },
-            'CDP unavailable/declined; staying in headless mode (no visible browser window will be auto-launched)',
+            { sessionId: invokingSessionId, willBeHeaded },
+            willBeHeaded
+              ? 'CDP unavailable/declined; launching visible browser (display available)'
+              : 'CDP unavailable/declined; staying in headless mode (no display available)',
           );
         }
       }
@@ -304,9 +316,10 @@ class BrowserManager {
       }
 
       const launch = launchPersistentContext ?? await getDefaultLaunchFn();
-      const ctx = await launch(profileDir, { headless: false });
+      const headless = !canDisplayGui();
+      const ctx = await launch(profileDir, { headless });
       this._browserLaunched = true;
-      log.info({ profileDir }, 'Browser context created (visible)');
+      log.info({ profileDir, headless }, headless ? 'Browser context created (headless)' : 'Browser context created (visible)');
       return ctx;
     })();
 
