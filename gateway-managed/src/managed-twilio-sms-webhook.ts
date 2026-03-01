@@ -1,4 +1,5 @@
 import type { ManagedGatewayConfig } from "./config.js";
+import { normalizeManagedTwilioSmsPayload } from "./twilio-normalize.js";
 import { validateManagedTwilioSignature } from "./twilio-signature.js";
 
 export const MANAGED_TWILIO_SMS_WEBHOOK_PATH = "/webhooks/twilio/sms";
@@ -74,6 +75,11 @@ export async function handleManagedTwilioSmsWebhook(
       { status: 403 },
     );
   }
+
+  // Build normalized shared event shape now so follow-up PRs can attach
+  // route resolution and dispatch without changing this endpoint contract.
+  const _normalizedEvent = normalizeManagedTwilioSmsPayload(toRecord(params));
+  void _normalizedEvent;
 
   return Response.json(
     {
