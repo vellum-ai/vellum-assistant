@@ -14,6 +14,7 @@ interface ToolContext {
   workingDir: string;
   sessionId: string;
   conversationId: string;
+  memoryScopeId?: string;
   [key: string]: unknown;
 }
 
@@ -46,7 +47,21 @@ const memoryItems = sqliteTable('memory_items', {
   index('idx_memory_items_fingerprint').on(table.fingerprint),
 ]);
 
-const schema = { memoryItems };
+const memoryJobs = sqliteTable('memory_jobs', {
+  id: text('id').primaryKey(),
+  type: text('type').notNull(),
+  payload: text('payload').notNull(),
+  status: text('status').notNull(),
+  attempts: integer('attempts').notNull().default(0),
+  deferrals: integer('deferrals').notNull().default(0),
+  runAfter: integer('run_after').notNull(),
+  lastError: text('last_error'),
+  startedAt: integer('started_at'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
+const schema = { memoryItems, memoryJobs };
 
 function getDbPath(): string {
   const baseDir = process.env.BASE_DATA_DIR?.trim() || homedir();
@@ -72,6 +87,30 @@ function getDb() {
 function computeFingerprint(scopeId: string, kind: string, subject: string, statement: string): string {
   const normalized = `${scopeId}|${kind}|${subject.toLowerCase()}|${statement.toLowerCase()}`;
   return createHash('sha256').update(normalized).digest('hex');
+}
+
+// -- Memory job enqueue (mirrors assistant's enqueueMemoryJob) --
+
+function enqueueEmbedJob(itemId: string): void {
+  // Directly insert an embed_item job into the shared memory_jobs table so the
+  // daemon's jobs worker will embed this item and make it discoverable via
+  // semantic search. This mirrors the pattern used by all other memory writers
+  // in the codebase (e.g. assistant/src/tools/memory/handlers.ts).
+  const db = getDb();
+  const now = Date.now();
+  db.insert(memoryJobs).values({
+    id: uuid(),
+    type: 'embed_item',
+    payload: JSON.stringify({ itemId }),
+    status: 'pending',
+    attempts: 0,
+    deferrals: 0,
+    runAfter: now,
+    lastError: null,
+    startedAt: null,
+    createdAt: now,
+    updatedAt: now,
+  }).run();
 }
 
 // -- Reddit API types --
@@ -153,16 +192,23 @@ async function fetchUserContent(username: string, type: 'submitted' | 'comments'
   return data.data.children;
 }
 
-// -- Personality analysis via Claude API --
+// -- Personality analysis via daemon provider abstraction --
 
 interface AnalysisResult {
   items: ExtractedMemoryItem[];
 }
 
-async function analyzeWithClaude(username: string, about: RedditAbout['data'], sampleText: string): Promise<ExtractedMemoryItem[]> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    // Fall back to pattern-based extraction if no API key
+// LLM-based personality extraction routes through the daemon's configured
+// provider via the internal gateway, rather than calling any LLM provider
+// directly. This ensures multi-provider deployments work correctly and respects
+// the codebase's provider abstraction layer (see AGENTS.md).
+//
+// The internal gateway URL is injected into host tools as INTERNAL_GATEWAY_BASE_URL.
+// The daemon exposes a /v1/llm/generate endpoint that the gateway proxies,
+// routing the request through getConfiguredProvider() inside the daemon process.
+async function analyzeViaProvider(username: string, about: RedditAbout['data'], sampleText: string): Promise<ExtractedMemoryItem[]> {
+  const gatewayBase = process.env.INTERNAL_GATEWAY_BASE_URL?.replace(/\/+$/, '');
+  if (!gatewayBase) {
     return extractPatternBased(username, about, sampleText);
   }
 
@@ -199,48 +245,49 @@ ${sampleText}
 
 Extract memory items about this Reddit user's personality, interests, preferences, and communication style.`;
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 4096,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: userPrompt }],
-      tools: [{
-        name: 'store_personality_items',
-        description: 'Store extracted personality and interest items about the Reddit user',
-        input_schema: {
-          type: 'object',
-          properties: {
-            items: {
-              type: 'array',
+  let response: Response;
+  try {
+    response = await fetch(`${gatewayBase}/v1/llm/generate`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        modelIntent: 'latency-optimized',
+        max_tokens: 4096,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: userPrompt }],
+        tools: [{
+          name: 'store_personality_items',
+          description: 'Store extracted personality and interest items about the Reddit user',
+          input_schema: {
+            type: 'object',
+            properties: {
               items: {
-                type: 'object',
-                properties: {
-                  kind: { type: 'string', enum: ['preference', 'profile', 'fact', 'opinion', 'style', 'interest'] },
-                  subject: { type: 'string' },
-                  statement: { type: 'string' },
-                  confidence: { type: 'number' },
-                  importance: { type: 'number' },
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    kind: { type: 'string', enum: ['preference', 'profile', 'fact', 'opinion', 'style', 'interest'] },
+                    subject: { type: 'string' },
+                    statement: { type: 'string' },
+                    confidence: { type: 'number' },
+                    importance: { type: 'number' },
+                  },
+                  required: ['kind', 'subject', 'statement', 'confidence', 'importance'],
                 },
-                required: ['kind', 'subject', 'statement', 'confidence', 'importance'],
               },
             },
+            required: ['items'],
           },
-          required: ['items'],
-        },
-      }],
-      tool_choice: { type: 'tool', name: 'store_personality_items' },
-    }),
-  });
+        }],
+        tool_choice: { type: 'tool', name: 'store_personality_items' },
+      }),
+    });
+  } catch {
+    return extractPatternBased(username, about, sampleText);
+  }
 
   if (!response.ok) {
-    // Gracefully fall back to pattern-based if Claude call fails
+    // Gracefully fall back to pattern-based if the LLM call fails
     return extractPatternBased(username, about, sampleText);
   }
 
@@ -332,10 +379,13 @@ function upsertMemoryItems(items: ExtractedMemoryItem[], scopeId: string): { ins
         })
         .where(eq(memoryItems.id, existing.id))
         .run();
+      // Enqueue re-embedding so the updated item stays discoverable via semantic search.
+      enqueueEmbedJob(existing.id);
       updated++;
     } else {
+      const newId = uuid();
       db.insert(memoryItems).values({
-        id: uuid(),
+        id: newId,
         kind,
         subject: item.subject,
         statement: item.statement,
@@ -351,6 +401,8 @@ function upsertMemoryItems(items: ExtractedMemoryItem[], scopeId: string): { ins
         validFrom: null,
         invalidAt: null,
       }).run();
+      // Enqueue embedding so the item is discoverable via semantic search.
+      enqueueEmbedJob(newId);
       inserted++;
     }
   }
@@ -390,7 +442,7 @@ function buildSampleText(
 
 export async function run(
   input: Record<string, unknown>,
-  _context: ToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const username = (input.username as string | undefined)?.trim().replace(/^u\//, '');
   if (!username) {
@@ -411,26 +463,31 @@ export async function run(
     return { content: `Error fetching Reddit profile: ${msg}`, isError: true };
   }
 
-  // Fetch posts and comments in parallel
+  // Fetch posts and comments in parallel. Promise.allSettled lets one endpoint
+  // fail without discarding the other's data — e.g. a 403 on /comments still
+  // lets us analyze /submitted posts and vice-versa.
   let posts: Array<{ kind: string; data: RedditPost }> = [];
   let comments: Array<{ kind: string; data: RedditComment }> = [];
 
-  try {
-    const [postsRaw, commentsRaw] = await Promise.all([
-      fetchUserContent(username, 'submitted', limit),
-      fetchUserContent(username, 'comments', limit),
-    ]);
-    posts = postsRaw as Array<{ kind: string; data: RedditPost }>;
-    comments = commentsRaw as Array<{ kind: string; data: RedditComment }>;
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    // Partial failure is ok — we can still analyze with what we have
-    if (posts.length === 0 && comments.length === 0) {
+  const [postsResult, commentsResult] = await Promise.allSettled([
+    fetchUserContent(username, 'submitted', limit),
+    fetchUserContent(username, 'comments', limit),
+  ]);
+  if (postsResult.status === 'fulfilled') {
+    posts = postsResult.value as Array<{ kind: string; data: RedditPost }>;
+  }
+  if (commentsResult.status === 'fulfilled') {
+    comments = commentsResult.value as Array<{ kind: string; data: RedditComment }>;
+  }
+  if (posts.length === 0 && comments.length === 0) {
+    // If both fetches rejected, report the error; if they succeeded but returned
+    // no content, report that the account appears to have no public activity.
+    const anyRejected = postsResult.status === 'rejected' || commentsResult.status === 'rejected';
+    if (anyRejected) {
+      const reason = postsResult.status === 'rejected' ? postsResult.reason : (commentsResult as PromiseRejectedResult).reason;
+      const msg = reason instanceof Error ? reason.message : String(reason ?? 'unknown error');
       return { content: `Error fetching Reddit content for u/${username}: ${msg}`, isError: true };
     }
-  }
-
-  if (posts.length === 0 && comments.length === 0) {
     return {
       content: `No public posts or comments found for u/${username}. The account may be private, shadowbanned, or have no activity.`,
       isError: false,
@@ -452,10 +509,10 @@ export async function run(
     importance: 0.75,
   };
 
-  // Analyze with Claude (falls back to pattern-based automatically)
+  // Analyze via the daemon provider abstraction (falls back to pattern-based automatically)
   let extracted: ExtractedMemoryItem[] = [];
   try {
-    extracted = await analyzeWithClaude(username, about, sampleText);
+    extracted = await analyzeViaProvider(username, about, sampleText);
   } catch (err) {
     extracted = extractPatternBased(username, about, sampleText);
   }
@@ -468,8 +525,9 @@ export async function run(
     extracted = [baselineItem, ...extracted];
   }
 
-  // Write to memory
-  const scopeId = 'default';
+  // Write to memory under the session scope so imports run in scoped sessions
+  // (e.g. task/subagent scopes) don't leak into the global default scope.
+  const scopeId = context.memoryScopeId ?? 'default';
   const { inserted, updated } = upsertMemoryItems(extracted, scopeId);
 
   // Build summary
