@@ -244,7 +244,9 @@ export async function routeGuardianReply(
 ): Promise<GuardianReplyResult> {
   const { messageText, actor, conversationId, callbackData, approvalConversationGenerator, channelDeliveryContext } = ctx;
   const pendingRequests = findPendingCanonicalRequests(actor, ctx.pendingRequestIds, conversationId);
-  const scopedPendingRequestIds = ctx.pendingRequestIds ? new Set(ctx.pendingRequestIds) : null;
+  const scopedPendingRequestIds = ctx.pendingRequestIds && ctx.pendingRequestIds.length > 0
+    ? new Set(ctx.pendingRequestIds)
+    : null;
 
   // ── 1. Deterministic callback parsing (button presses) ──
   // No conversationId scoping here — the guardian's reply comes from a
@@ -556,6 +558,7 @@ async function applyDecision(
       decisionApplied: true,
       consumed: true,
       type: 'canonical_decision_applied',
+      ...(canonicalResult.resolverReplyText ? { replyText: canonicalResult.resolverReplyText } : {}),
       requestId,
       canonicalResult,
     };

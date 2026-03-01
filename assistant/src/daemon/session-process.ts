@@ -355,7 +355,7 @@ export async function processMessage(
   session.currentActiveSurfaceId = activeSurfaceId;
   session.currentPage = currentPage;
   const trimmedContent = content.trim();
-  const canonicalPendingRequestIdsForConversation = trimmedContent.length > 0
+  const canonicalPendingRequestHintIdsForConversation = trimmedContent.length > 0
     ? Array.from(new Set([
         ...listPendingCanonicalGuardianRequestsByDestinationConversation(session.conversationId, 'vellum').map((request) => request.id),
         ...listCanonicalGuardianRequests({
@@ -364,6 +364,9 @@ export async function processMessage(
         }).map((request) => request.id),
       ]))
     : [];
+  const canonicalPendingRequestIdsForConversation = canonicalPendingRequestHintIdsForConversation.length > 0
+    ? canonicalPendingRequestHintIdsForConversation
+    : undefined;
 
   // ── Canonical guardian reply router (desktop/session path) ──
   // Desktop/session guardian replies are canonical-only. Messages consumed

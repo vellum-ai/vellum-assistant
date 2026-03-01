@@ -242,6 +242,20 @@ describe('notification decision strategy', () => {
       expect(copy.vellum!.body).toContain('open invite flow');
     });
 
+    test('ingress.access_request template includes revoked-member context when provided', () => {
+      const signal = makeSignal({
+        sourceEventName: 'ingress.access_request',
+        contextPayload: {
+          senderIdentifier: 'Charlie',
+          previousMemberStatus: 'revoked',
+        },
+      });
+
+      const copy = composeFallbackCopy(signal, channels);
+      expect(copy.vellum).toBeDefined();
+      expect(copy.vellum!.body).toContain('previously revoked');
+    });
+
     test('ingress.access_request template includes caller name for voice-originated requests', () => {
       // In production, senderIdentifier resolves to senderName for voice
       // calls (senderName || senderUsername || senderExternalUserId), so

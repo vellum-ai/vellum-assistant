@@ -298,7 +298,7 @@ export interface ApplyCanonicalGuardianDecisionParams {
 }
 
 export type CanonicalDecisionResult =
-  | { applied: true; requestId: string; grantMinted: boolean; resolverFailed?: boolean; resolverFailureReason?: string }
+  | { applied: true; requestId: string; grantMinted: boolean; resolverFailed?: boolean; resolverFailureReason?: string; resolverReplyText?: string }
   | { applied: false; reason: 'not_found' | 'already_resolved' | 'identity_mismatch' | 'invalid_action' | 'expired'; detail?: string };
 
 /**
@@ -427,6 +427,7 @@ export async function applyCanonicalGuardianDecision(
   // 5. Dispatch to kind-specific resolver
   let resolverFailed = false;
   let resolverFailureReason: string | undefined;
+  let resolverReplyText: string | undefined;
   const resolver = getResolver(request.kind);
   if (resolver) {
     const resolverResult = await resolver.resolve({
@@ -452,6 +453,8 @@ export async function applyCanonicalGuardianDecision(
       // still being informed that the resolver had an issue.
       resolverFailed = true;
       resolverFailureReason = resolverResult.reason;
+    } else {
+      resolverReplyText = resolverResult.guardianReplyText;
     }
   } else {
     log.info(
@@ -494,5 +497,6 @@ export async function applyCanonicalGuardianDecision(
     requestId,
     grantMinted,
     ...(resolverFailed ? { resolverFailed, resolverFailureReason } : {}),
+    ...(resolverReplyText ? { resolverReplyText } : {}),
   };
 }

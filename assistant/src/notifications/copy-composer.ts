@@ -65,6 +65,9 @@ const TEMPLATES: Record<string, CopyTemplate> = {
     const requestCode = nonEmpty(typeof payload.requestCode === 'string' ? payload.requestCode : undefined);
     const sourceChannel = typeof payload.sourceChannel === 'string' ? payload.sourceChannel : undefined;
     const callerName = nonEmpty(typeof payload.senderName === 'string' ? payload.senderName : undefined);
+    const previousMemberStatus = typeof payload.previousMemberStatus === 'string'
+      ? payload.previousMemberStatus
+      : undefined;
     const lines: string[] = [];
 
     // Voice-originated access requests include caller name context
@@ -72,6 +75,9 @@ const TEMPLATES: Record<string, CopyTemplate> = {
       lines.push(`${callerName} (${str(payload.senderExternalUserId, requester)}) is calling and requesting access to the assistant.`);
     } else {
       lines.push(`${requester} is requesting access to the assistant.`);
+    }
+    if (previousMemberStatus === 'revoked') {
+      lines.push('Note: this user was previously revoked.');
     }
 
     if (requestCode) {

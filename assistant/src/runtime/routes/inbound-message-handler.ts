@@ -415,6 +415,7 @@ export async function handleChannelInbound(
                 senderExternalUserId: canonicalSenderId ?? rawSenderId,
                 senderName: body.senderName,
                 senderUsername: body.senderUsername,
+                previousMemberStatus: resolvedMember.status,
               });
               guardianNotified = accessResult.notified;
             } catch (err) {

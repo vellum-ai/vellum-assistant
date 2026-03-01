@@ -503,6 +503,23 @@ describe('access-request-helper unit tests', () => {
     expect((payload.requestCode as string).length).toBe(6);
   });
 
+  test('notifyGuardianOfAccessRequest includes previousMemberStatus in contextPayload', () => {
+    const result = notifyGuardianOfAccessRequest({
+      canonicalAssistantId: 'self',
+      sourceChannel: 'telegram',
+      externalChatId: 'chat-123',
+      senderExternalUserId: 'revoked-user',
+      senderName: 'Revoked User',
+      previousMemberStatus: 'revoked',
+    });
+
+    expect(result.notified).toBe(true);
+    expect(emitSignalCalls.length).toBe(1);
+
+    const payload = emitSignalCalls[0].contextPayload as Record<string, unknown>;
+    expect(payload.previousMemberStatus).toBe('revoked');
+  });
+
   test('notifyGuardianOfAccessRequest persists canonical delivery rows from notification results', async () => {
     mockEmitResult = {
       signalId: 'sig-deliveries',
