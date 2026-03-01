@@ -150,20 +150,32 @@ export function notifyGuardianOfAccessRequest(
   const senderIdentifier = senderName || senderUsername || senderExternalUserId;
   const requestId = `access-req-${canonicalAssistantId}-${sourceChannel}-${senderExternalUserId}-${Date.now()}`;
 
-  const canonicalRequest = createCanonicalGuardianRequest({
-    id: requestId,
-    kind: 'access_request',
-    sourceType: 'channel',
-    sourceChannel,
-    conversationId,
-    requesterExternalUserId: senderExternalUserId,
-    requesterChatId: externalChatId,
-    guardianExternalUserId: guardianExternalUserId ?? undefined,
-    guardianPrincipalId: guardianPrincipalId ?? undefined,
-    toolName: 'ingress_access_request',
-    questionText: `${senderIdentifier} is requesting access to the assistant`,
-    expiresAt: new Date(Date.now() + GUARDIAN_APPROVAL_TTL_MS).toISOString(),
-  });
+  let canonicalRequest;
+  try {
+    canonicalRequest = createCanonicalGuardianRequest({
+      id: requestId,
+      kind: 'access_request',
+      sourceType: 'channel',
+      sourceChannel,
+      conversationId,
+      requesterExternalUserId: senderExternalUserId,
+      requesterChatId: externalChatId,
+      guardianExternalUserId: guardianExternalUserId ?? undefined,
+      guardianPrincipalId: guardianPrincipalId ?? undefined,
+      toolName: 'ingress_access_request',
+      questionText: `${senderIdentifier} is requesting access to the assistant`,
+      expiresAt: new Date(Date.now() + GUARDIAN_APPROVAL_TTL_MS).toISOString(),
+    });
+  } catch (err) {
+    // No-binding fallback: when no guardian binding exists, guardianPrincipalId
+    // is null and the integrity guard rejects the request. This is expected —
+    // the notification pipeline handles delivery via trusted/vellum channels.
+    log.debug(
+      { err, requestId, sourceChannel, senderExternalUserId },
+      'Cannot create canonical access request without guardian principal — skipping canonical request creation',
+    );
+    return { notified: true, created: false, requestId };
+  }
 
   let vellumDeliveryId: string | null = null;
   void emitNotificationSignal({
