@@ -409,6 +409,17 @@ export async function runDaemon(): Promise<void> {
           // Snapshot message IDs before the agent loop so we can diff
           // afterwards to find exactly which messages this run created,
           // avoiding positional heuristics that break under concurrency.
+          //
+          // Caveat: the diff captures *all* new messages in the
+          // conversation during the loop window, not just those from
+          // this specific agent loop.  If a concurrent pointer event
+          // falls back to a deterministic addMessage() while our loop
+          // is in flight, that message lands in our diff.  The race
+          // requires two pointer events for the same conversation
+          // within the agent loop window *and* this run must fail or
+          // fail fact-check — narrow enough to accept.  A future
+          // improvement could tag messages with a per-run correlation
+          // ID so rollback only targets its own output.
           const preRunMessageIds = new Set(
             conversationStore.getMessages(conversationId).map((m) => m.id),
           );
@@ -429,9 +440,9 @@ export async function runDaemon(): Promise<void> {
           });
 
           // Identify messages created during this run by diffing against
-          // the pre-run snapshot. This is race-safe: only messages that
-          // appeared in this conversation during *our* agent loop are
-          // considered, regardless of concurrent pointer events.
+          // the pre-run snapshot. This captures all messages added to the
+          // conversation during the loop window, which may include messages
+          // from concurrent pointer events (see over-capture caveat above).
           const postRunMessages = conversationStore.getMessages(conversationId);
           const createdMessageIds = postRunMessages
             .filter((m) => !preRunMessageIds.has(m.id) && m.id !== messageId)
