@@ -16,6 +16,11 @@ on:
         description: 'Run a single test case by name (e.g. "hello-world"). If empty, runs all tests.'
         required: false
         type: string
+      use_xcode:
+        description: 'Use the agent-xcode (AXUIElement) runner instead of the Playwright runner.'
+        required: false
+        type: boolean
+        default: false
   pull_request:
     types: [labeled]
 
@@ -173,12 +178,19 @@ jobs:
           echo "TWILIO_ACCOUNT_SID=${{ vars.TWILIO_ACCOUNT_SID }}" >> "$GITHUB_ENV"
 
       - name: Install Playwright dependencies
+        if: ${{ !inputs.use_xcode }}
         working-directory: playwright
         run: bun install
 
       - name: Install Chromium
+        if: ${{ !inputs.use_xcode }}
         working-directory: playwright
         run: bunx playwright install --with-deps chromium
+
+      - name: Build agent-xcode runner
+        if: ${{ inputs.use_xcode }}
+        working-directory: playwright/agent-xcode
+        run: swift build -c release
 
       - name: Run Playwright tests
         id: tests
@@ -187,7 +199,17 @@ jobs:
         env:
           RUN_EXPERIMENTAL: ${{ inputs.run_experimental && '1' || '' }}
         run: |
-          if [ -n "${{ inputs.test_case }}" ]; then
+          if [ "${{ inputs.use_xcode }}" = "true" ]; then
+            unset RUN_EXPERIMENTAL
+            XCODE_ARGS=""
+            if [ -n "${{ inputs.test_case }}" ]; then
+              XCODE_ARGS="${{ inputs.test_case }}"
+            fi
+            if [ "${{ inputs.run_experimental }}" = "true" ]; then
+              XCODE_ARGS="$XCODE_ARGS --experimental"
+            fi
+            cd agent-xcode && ./.build/release/agent-xcode $XCODE_ARGS
+          elif [ -n "${{ inputs.test_case }}" ]; then
             bun run test -g "${{ inputs.test_case }}"
           else
             bun run test

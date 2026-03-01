@@ -8,6 +8,7 @@
  *   bun run scripts/agent-ci.ts -v 1.2.3           # test against released version 1.2.3
  *   bun run scripts/agent-ci.ts --version 1.2.3 -d # test release + detach
  *   bun run scripts/agent-ci.ts --experimental     # include experimental tests
+ *   bun run scripts/agent-ci.ts --xcode             # use agent-xcode runner instead of Playwright
  *   bun run scripts/agent-ci.ts -t hello-world      # run a single test case by name
  */
 
@@ -29,6 +30,7 @@ function parseFlagValue(short: string, long: string): string | undefined {
 const releaseVersion = parseFlagValue("-v", "--version");
 const branch = parseFlagValue("-b", "--branch");
 const experimental = process.argv.includes("--experimental");
+const useXcode = process.argv.includes("--xcode");
 const testCase = parseFlagValue("-t", "--test");
 
 function gh(args: string[]): { stdout: string; status: number } {
@@ -175,6 +177,9 @@ if (releaseVersion) {
 if (experimental) {
   triggerArgs.push("-f", "run_experimental=true");
 }
+if (useXcode) {
+  triggerArgs.push("-f", "use_xcode=true");
+}
 if (testCase) {
   triggerArgs.push("-f", `test_case=${testCase}`);
 }
@@ -183,6 +188,7 @@ const details = [
   branch ? `branch=${branch}` : null,
   releaseVersion ? `release_version=${releaseVersion}` : null,
   experimental ? "run_experimental=true" : null,
+  useXcode ? "use_xcode=true" : null,
   testCase ? `test_case=${testCase}` : null,
 ].filter(Boolean);
 console.log(`Triggering ${WORKFLOW}${details.length ? ` with ${details.join(", ")}` : ""}...`);
