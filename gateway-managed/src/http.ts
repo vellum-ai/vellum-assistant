@@ -1,5 +1,9 @@
 import type { ManagedGatewayConfig } from "./config.js";
 import {
+  handleManagedTwilioSmsWebhook,
+  MANAGED_TWILIO_SMS_WEBHOOK_PATH,
+} from "./managed-twilio-sms-webhook.js";
+import {
   createRouteResolveHandler,
   MANAGED_GATEWAY_ROUTE_RESOLVE_PATH,
   type ManagedGatewayUpstreamFetch,
@@ -86,6 +90,10 @@ export function createManagedGatewayAppFetch(
       }
 
       return routeResolveHandler(request);
+    }
+
+    if (pathname === MANAGED_TWILIO_SMS_WEBHOOK_PATH) {
+      return handleManagedTwilioSmsWebhook(request, config);
     }
 
     return Response.json({ error: "Not found" }, { status: 404 });
