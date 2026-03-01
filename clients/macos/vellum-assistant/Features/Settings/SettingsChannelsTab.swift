@@ -291,7 +291,7 @@ struct SettingsChannelsTab: View {
             } else if telegramSetupExpanded {
                 telegramCredentialEntry
             } else {
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                VStack(alignment: .leading, spacing: VSpacing.lg) {
                     HStack(spacing: VSpacing.sm) {
                         Image(systemName: "exclamationmark.triangle")
                             .foregroundColor(VColor.warning)
@@ -325,6 +325,7 @@ struct SettingsChannelsTab: View {
             }
         }
         .padding(VSpacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
     }
 
@@ -464,7 +465,7 @@ struct SettingsChannelsTab: View {
             } else if slackChannelSetupExpanded {
                 slackChannelCredentialEntry
             } else {
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                VStack(alignment: .leading, spacing: VSpacing.lg) {
                     HStack(spacing: VSpacing.sm) {
                         Image(systemName: "exclamationmark.triangle")
                             .foregroundColor(VColor.warning)
@@ -488,6 +489,7 @@ struct SettingsChannelsTab: View {
 
         }
         .padding(VSpacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
     }
 
@@ -574,7 +576,7 @@ struct SettingsChannelsTab: View {
             } else if twilioSetupExpanded {
                 twilioCredentialEntry
             } else {
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                VStack(alignment: .leading, spacing: VSpacing.lg) {
                     HStack(spacing: VSpacing.sm) {
                         Image(systemName: "exclamationmark.triangle")
                             .foregroundColor(VColor.warning)
@@ -632,6 +634,7 @@ struct SettingsChannelsTab: View {
             }
         }
         .padding(VSpacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
     }
 
@@ -662,7 +665,7 @@ struct SettingsChannelsTab: View {
             } else if voiceSetupExpanded {
                 voiceCredentialEntry
             } else {
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                VStack(alignment: .leading, spacing: VSpacing.lg) {
                     HStack(spacing: VSpacing.sm) {
                         Image(systemName: "exclamationmark.triangle")
                             .foregroundColor(VColor.warning)
@@ -721,6 +724,7 @@ struct SettingsChannelsTab: View {
             }
         }
         .padding(VSpacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
     }
 
