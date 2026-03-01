@@ -31,6 +31,12 @@ The managed gateway is a dedicated service lane for Vellum-owned shared channel 
 - Adds manifest smoke checks and optional live readiness probes for staging endpoints.
 - Documents rollout and rollback procedures with explicit health/readiness checkpoints.
 
+## P07 PR-1 scope
+
+- Adds managed Twilio signature verification module with fail-closed behavior.
+- Supports lifecycle-aware token validation (rotation overlap, revocation, and expiry).
+- Extends managed-gateway config with Twilio token catalog validation at startup.
+
 ## Endpoints
 
 - `GET /healthz`

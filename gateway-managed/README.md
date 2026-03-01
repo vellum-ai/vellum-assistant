@@ -9,6 +9,7 @@ Managed gateway service skeleton for Vellum-owned shared channel identities.
 - internal auth middleware abstraction for bearer and mTLS service auth
 - Django internal route resolve endpoint wiring for managed route lookup
 - staging deployment manifests, smoke checks, and rollout/rollback runbook
+- Twilio signature verifier primitives with rotation/revocation/expiry support
 - health and readiness endpoints:
   - `/healthz`
   - `/readyz`
@@ -27,6 +28,8 @@ Managed gateway service skeleton for Vellum-owned shared channel identities.
 - `MANAGED_GATEWAY_INTERNAL_BEARER_TOKENS` (JSON token catalog)
 - `MANAGED_GATEWAY_INTERNAL_REVOKED_TOKEN_IDS` (comma-separated token IDs)
 - `MANAGED_GATEWAY_INTERNAL_MTLS_PRINCIPALS` (comma-separated principal IDs)
+- `MANAGED_GATEWAY_TWILIO_AUTH_TOKENS` (JSON Twilio signature token catalog)
+- `MANAGED_GATEWAY_TWILIO_REVOKED_TOKEN_IDS` (comma-separated Twilio token IDs)
 
 ## Run locally
 
@@ -49,6 +52,13 @@ bun run test
 - Rotation: keep old and new bearer entries active during rollout overlap.
 - Revocation: set `revoked: true` on a token entry or add its `token_id` to `MANAGED_GATEWAY_INTERNAL_REVOKED_TOKEN_IDS`.
 - Expiry: set `expires_at` as ISO-8601 UTC; expired bearer tokens are rejected.
+
+## Twilio Signature Token Lifecycle
+
+- Issuance: add a new entry to `MANAGED_GATEWAY_TWILIO_AUTH_TOKENS` with `token_id`, `auth_token`, and optional `expires_at`.
+- Rotation: keep old and new Twilio auth token entries active during overlap.
+- Revocation: set `revoked: true` on a token entry or add its `token_id` to `MANAGED_GATEWAY_TWILIO_REVOKED_TOKEN_IDS`.
+- Expiry: set `expires_at` as ISO-8601 UTC; expired Twilio tokens are ignored by signature validation.
 
 ## Route Resolve Contract
 

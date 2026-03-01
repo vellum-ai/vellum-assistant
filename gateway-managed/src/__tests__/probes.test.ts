@@ -16,6 +16,13 @@ const BASE_ENV: NodeJS.ProcessEnv = {
       scopes: ["managed-gateway:internal", "routes:resolve"],
     },
   }),
+  MANAGED_GATEWAY_TWILIO_AUTH_TOKENS: JSON.stringify({
+    "twilio-current": {
+      token_id: "twilio-2026-01",
+      auth_token: "twilio-current-secret",
+      expires_at: "2099-01-01T00:00:00.000Z",
+    },
+  }),
 };
 
 async function handleRequest(

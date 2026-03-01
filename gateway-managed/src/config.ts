@@ -20,6 +20,18 @@ export type ManagedGatewayInternalAuthConfig = {
   mtlsScopesHeader: string;
 };
 
+export type ManagedGatewayTwilioAuthTokenMetadata = {
+  tokenId: string;
+  authToken: string;
+  expiresAt: string | null;
+  revoked: boolean;
+};
+
+export type ManagedGatewayTwilioConfig = {
+  authTokens: Record<string, ManagedGatewayTwilioAuthTokenMetadata>;
+  revokedTokenIds: Set<string>;
+};
+
 export type ManagedGatewayConfig = {
   port: number;
   enabled: boolean;
@@ -28,6 +40,7 @@ export type ManagedGatewayConfig = {
   strictStartupValidation: boolean;
   djangoInternalBaseUrl: string | null;
   internalAuth: ManagedGatewayInternalAuthConfig;
+  twilio: ManagedGatewayTwilioConfig;
 };
 
 function parseBoolean(raw: string | undefined, defaultValue: boolean): boolean {
@@ -64,18 +77,18 @@ function parseScopes(raw: unknown): string[] {
   throw new Error("Bearer token scopes must be a string or string array.");
 }
 
-function parseExpiry(raw: unknown): string | null {
+function parseExpiry(raw: unknown, subject: string): string | null {
   if (raw === undefined || raw === null || raw === "") {
     return null;
   }
 
   if (typeof raw !== "string") {
-    throw new Error("Bearer token expires_at must be a string.");
+    throw new Error(`${subject} expires_at must be a string.`);
   }
 
   const parsedEpoch = Date.parse(raw);
   if (Number.isNaN(parsedEpoch)) {
-    throw new Error("Bearer token expires_at must be an ISO-8601 datetime.");
+    throw new Error(`${subject} expires_at must be an ISO-8601 datetime.`);
   }
 
   return raw;
@@ -140,12 +153,87 @@ function parseBearerTokens(
       principal: principalRaw.trim(),
       audience: audienceRaw.trim(),
       scopes,
-      expiresAt: parseExpiry(metadata.expires_at ?? metadata.expiresAt),
+      expiresAt: parseExpiry(metadata.expires_at ?? metadata.expiresAt, "Bearer token"),
       revoked: revokedRaw === true,
     };
   }
 
   return result;
+}
+
+function parseTwilioAuthTokens(
+  rawValue: string | undefined,
+): Record<string, ManagedGatewayTwilioAuthTokenMetadata> {
+  const source = rawValue?.trim() || "{}";
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(source);
+  } catch {
+    throw new Error("MANAGED_GATEWAY_TWILIO_AUTH_TOKENS must be valid JSON.");
+  }
+
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error(
+      "MANAGED_GATEWAY_TWILIO_AUTH_TOKENS must be a JSON object keyed by token label.",
+    );
+  }
+
+  const result: Record<string, ManagedGatewayTwilioAuthTokenMetadata> = {};
+
+  for (const [tokenLabel, rawMetadata] of Object.entries(parsed)) {
+    if (typeof rawMetadata !== "object" || rawMetadata === null || Array.isArray(rawMetadata)) {
+      throw new Error("Each managed-gateway Twilio token entry must be an object.");
+    }
+
+    const metadata = rawMetadata as Record<string, unknown>;
+
+    const tokenIdRaw = metadata.token_id ?? metadata.tokenId ?? tokenLabel;
+    if (typeof tokenIdRaw !== "string" || tokenIdRaw.trim().length === 0) {
+      throw new Error("Each managed-gateway Twilio token must define token_id.");
+    }
+
+    const authTokenRaw = metadata.auth_token ?? metadata.authToken;
+    if (typeof authTokenRaw !== "string" || authTokenRaw.trim().length === 0) {
+      throw new Error("Each managed-gateway Twilio token must define auth_token.");
+    }
+
+    const revokedRaw = metadata.revoked;
+    if (revokedRaw !== undefined && typeof revokedRaw !== "boolean") {
+      throw new Error("Each managed-gateway Twilio token revoked value must be boolean.");
+    }
+
+    result[tokenLabel] = {
+      tokenId: tokenIdRaw.trim(),
+      authToken: authTokenRaw.trim(),
+      expiresAt: parseExpiry(metadata.expires_at ?? metadata.expiresAt, "Twilio token"),
+      revoked: revokedRaw === true,
+    };
+  }
+
+  return result;
+}
+
+function hasActiveTwilioAuthToken(
+  twilioConfig: ManagedGatewayTwilioConfig,
+  nowMs: number = Date.now(),
+): boolean {
+  for (const token of Object.values(twilioConfig.authTokens)) {
+    if (token.revoked || twilioConfig.revokedTokenIds.has(token.tokenId)) {
+      continue;
+    }
+
+    if (token.expiresAt) {
+      const expiresAt = Date.parse(token.expiresAt);
+      if (Number.isNaN(expiresAt) || expiresAt <= nowMs) {
+        continue;
+      }
+    }
+
+    return true;
+  }
+
+  return false;
 }
 
 function parseInternalAuthMode(raw: string | undefined): ManagedGatewayInternalAuthMode {
@@ -195,6 +283,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ManagedGateway
     mtlsScopesHeader:
       env.MANAGED_GATEWAY_MTLS_SCOPES_HEADER || "x-managed-gateway-scopes",
   };
+  const twilio: ManagedGatewayTwilioConfig = {
+    authTokens: parseTwilioAuthTokens(env.MANAGED_GATEWAY_TWILIO_AUTH_TOKENS),
+    revokedTokenIds: parseCsv(env.MANAGED_GATEWAY_TWILIO_REVOKED_TOKEN_IDS),
+  };
 
   if (strictStartupValidation && enabled) {
     if (!djangoInternalBaseUrl) {
@@ -232,6 +324,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ManagedGateway
         "MANAGED_GATEWAY_INTERNAL_MTLS_PRINCIPALS must define at least one principal when mTLS mode is enabled.",
       );
     }
+
+    if (!hasActiveTwilioAuthToken(twilio)) {
+      throw new Error(
+        "MANAGED_GATEWAY_TWILIO_AUTH_TOKENS must define at least one active token when managed gateway is enabled.",
+      );
+    }
   }
 
   return {
@@ -242,5 +340,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ManagedGateway
     strictStartupValidation,
     djangoInternalBaseUrl,
     internalAuth,
+    twilio,
   };
 }

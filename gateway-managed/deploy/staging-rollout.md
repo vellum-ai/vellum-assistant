@@ -6,6 +6,7 @@
    - `gateway-managed/deploy/scripts/smoke-check-staging.sh`
 2. Confirm deployment env values match Django internal routing and auth expectations:
    - `gateway-managed/deploy/k8s/deployment.staging.yaml`
+   - ensure `MANAGED_GATEWAY_TWILIO_AUTH_TOKENS` is set via secret-backed env before rollout
 
 ## Rollout
 
