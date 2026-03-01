@@ -269,20 +269,6 @@ struct SettingsAppearanceTab: View {
         }
     }
 
-    private func shortcutKeyPill(_ text: String) -> some View {
-        Text(text)
-            .font(VFont.mono)
-            .foregroundColor(VColor.textSecondary)
-            .padding(.horizontal, VSpacing.sm)
-            .padding(.vertical, VSpacing.xs)
-            .background(VColor.surface)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
-            .overlay(
-                RoundedRectangle(cornerRadius: VRadius.xl)
-                    .stroke(VColor.surfaceBorder, lineWidth: 1)
-            )
-    }
-
     private func stopRecording() {
         isRecordingGlobalHotkey = false
         isRecordingQuickInputHotkey = false
@@ -290,6 +276,23 @@ struct SettingsAppearanceTab: View {
             NSEvent.removeMonitor(monitor)
             shortcutMonitor = nil
         }
+    }
+
+    // MARK: - Pill helper
+
+    @ViewBuilder
+    private func shortcutKeyPill(_ text: String) -> some View {
+        HStack(spacing: VSpacing.sm) {
+            ForEach(text.components(separatedBy: " "), id: \.self) { token in
+                Text(token)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textSecondary)
+            }
+        }
+        .padding(.horizontal, VSpacing.lg)
+        .padding(.vertical, VSpacing.xs)
+        .background(VColor.surfaceSubtle)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
     }
 }
 
@@ -304,17 +307,17 @@ private struct ShortcutRow: View {
                 .font(VFont.body)
                 .foregroundColor(VColor.textSecondary)
             Spacer()
-            Text(shortcut)
-                .font(VFont.mono)
-                .foregroundColor(VColor.textSecondary)
-                .padding(.horizontal, VSpacing.sm)
-                .padding(.vertical, VSpacing.xs)
-                .background(VColor.surface)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.xl)
-                        .stroke(VColor.surfaceBorder, lineWidth: 1)
-                )
+            HStack(spacing: VSpacing.sm) {
+                ForEach(shortcut.components(separatedBy: " "), id: \.self) { token in
+                    Text(token)
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textSecondary)
+                }
+            }
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.vertical, VSpacing.xs)
+            .background(VColor.surfaceSubtle)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
         }
         .padding(.vertical, VSpacing.md)
     }
