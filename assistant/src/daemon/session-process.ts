@@ -7,6 +7,7 @@
  */
 
 import { createAssistantMessage,createUserMessage } from '../agent/message-types.js';
+import { buildTrustedActorContext } from '../approvals/actor-context.js';
 import type { TurnChannelContext, TurnInterfaceContext } from '../channels/types.js';
 import { parseChannelId, parseInterfaceId } from '../channels/types.js';
 import { getConfig } from '../config/loader.js';
@@ -372,11 +373,7 @@ export async function processMessage(
     const routerResult = await routeGuardianReply({
       messageText: trimmedContent,
       channel: 'vellum',
-      actor: {
-        externalUserId: undefined,
-        channel: 'vellum',
-        isTrusted: true,
-      },
+      actor: buildTrustedActorContext('vellum'),
       conversationId: session.conversationId,
       pendingRequestIds: canonicalPendingRequestIdsForConversation,
       // Desktop path: disable NL classification to avoid consuming non-decision

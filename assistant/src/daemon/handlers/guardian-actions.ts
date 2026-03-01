@@ -1,6 +1,7 @@
 import {
   applyCanonicalGuardianDecision,
 } from '../../approvals/guardian-decision-primitive.js';
+import { buildTrustedActorContext } from '../../approvals/actor-context.js';
 import { getCanonicalGuardianRequest } from '../../memory/canonical-guardian-store.js';
 import type { ApprovalAction } from '../../runtime/channel-approval-types.js';
 import { listGuardianDecisionPrompts } from '../../runtime/routes/guardian-action-routes.js';
@@ -48,11 +49,7 @@ export const guardianActionsHandlers = defineHandlers({
     const canonicalResult = await applyCanonicalGuardianDecision({
       requestId: msg.requestId,
       action: msg.action as ApprovalAction,
-      actorContext: {
-        externalUserId: undefined,
-        channel: 'vellum',
-        isTrusted: true,
-      },
+      actorContext: buildTrustedActorContext('vellum'),
       userText: undefined,
     });
 

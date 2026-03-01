@@ -3,6 +3,7 @@ import * as net from 'node:net';
 import { v4 as uuid } from 'uuid';
 
 import { createAssistantMessage, createUserMessage } from '../../agent/message-types.js';
+import { buildTrustedActorContext } from '../../approvals/actor-context.js';
 import { type InterfaceId,isChannelId, parseChannelId, parseInterfaceId } from '../../channels/types.js';
 import { getConfig } from '../../config/loader.js';
 import { getAttachmentsForMessage, getFilePathForAttachment, setAttachmentThumbnail } from '../../memory/attachments-store.js';
@@ -596,11 +597,7 @@ export async function handleUserMessage(
           const routerResult = await routeGuardianReply({
             messageText: messageText.trim(),
             channel: ipcChannel,
-            actor: {
-              externalUserId: undefined,
-              channel: ipcChannel,
-              isTrusted: true,
-            },
+            actor: buildTrustedActorContext(ipcChannel),
             conversationId: msg.sessionId,
             pendingRequestIds: pendingRequestIdsForConversation,
             approvalConversationGenerator: desktopApprovalConversationGenerator,

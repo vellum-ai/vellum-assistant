@@ -24,6 +24,7 @@ import * as pendingInteractions from '../runtime/pending-interactions.js';
 import { getTool } from '../tools/registry.js';
 import { TC_GRANT_WAIT_MAX_MS } from '../tools/tool-approval-handler.js';
 import { getLogger } from '../util/logger.js';
+import type { ActorContext } from './actor-context.js';
 
 const log = getLogger('guardian-request-resolvers');
 
@@ -35,15 +36,7 @@ const log = getLogger('guardian-request-resolvers');
 // Types
 // ---------------------------------------------------------------------------
 
-/** Actor context for the entity making the decision. */
-export interface ActorContext {
-  /** External user ID of the deciding actor (undefined for desktop/trusted). */
-  externalUserId: string | undefined;
-  /** Channel the decision arrived on. */
-  channel: string;
-  /** Whether the actor is a trusted/desktop context. */
-  isTrusted: boolean;
-}
+export type { ActorContext } from './actor-context.js';
 
 /** The decision being applied. */
 export interface ResolverDecision {

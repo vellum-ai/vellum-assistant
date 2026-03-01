@@ -10,6 +10,7 @@ import type { ChannelId, InterfaceId } from '../../channels/types.js';
 import { CHANNEL_IDS, INTERFACE_IDS, isChannelId, parseInterfaceId } from '../../channels/types.js';
 import { getGatewayInternalBaseUrl } from '../../config/env.js';
 import { RESEND_COOLDOWN_MS } from '../../daemon/handlers/config-channels.js';
+import { buildActorContext } from '../../approvals/actor-context.js';
 import * as attachmentsStore from '../../memory/attachments-store.js';
 import {
   createCanonicalGuardianRequest,
@@ -968,11 +969,11 @@ export async function handleChannelInbound(
     const routerResult = await routeGuardianReply({
       messageText: trimmedContent,
       channel: sourceChannel,
-      actor: {
-        externalUserId: canonicalSenderId ?? rawSenderId!,
+      actor: buildActorContext({
         channel: sourceChannel,
+        externalUserId: guardianCtx.requesterExternalUserId,
         isTrusted: false,
-      },
+      }),
       conversationId: result.conversationId,
       callbackData: body.callbackData,
       pendingRequestIds,
@@ -1029,7 +1030,7 @@ export async function handleChannelInbound(
       content: trimmedContent,
       externalChatId,
       sourceChannel,
-      senderExternalUserId: canonicalSenderId ?? rawSenderId,
+      senderExternalUserId: guardianCtx.requesterExternalUserId ?? canonicalSenderId ?? rawSenderId,
       replyCallbackUrl,
       bearerToken,
       guardianCtx,

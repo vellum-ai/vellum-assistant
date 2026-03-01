@@ -7,6 +7,7 @@
 import {
   applyCanonicalGuardianDecision,
 } from '../../approvals/guardian-decision-primitive.js';
+import { buildTrustedActorContext } from '../../approvals/actor-context.js';
 import {
   type CanonicalGuardianRequest,
   getCanonicalGuardianRequest,
@@ -85,11 +86,7 @@ export async function handleGuardianActionDecision(req: Request): Promise<Respon
   const canonicalResult = await applyCanonicalGuardianDecision({
     requestId,
     action: action as ApprovalAction,
-    actorContext: {
-      externalUserId: undefined,
-      channel: 'vellum',
-      isTrusted: true,
-    },
+    actorContext: buildTrustedActorContext('vellum'),
     userText: undefined,
   });
 

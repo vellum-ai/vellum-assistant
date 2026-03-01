@@ -16,6 +16,7 @@ import {
   listPendingCanonicalGuardianRequestsByDestinationConversation,
 } from '../../memory/canonical-guardian-store.js';
 import { bridgeConfirmationRequestToGuardian } from '../confirmation-request-guardian-bridge.js';
+import { buildTrustedActorContext } from '../../approvals/actor-context.js';
 import {
   getConversationByKey,
   getOrCreateConversation,
@@ -123,11 +124,7 @@ async function tryConsumeInlineApprovalReply(params: {
   const routerResult = await routeGuardianReply({
     messageText: trimmedContent,
     channel: sourceChannel,
-    actor: {
-      externalUserId: undefined,
-      channel: sourceChannel,
-      isTrusted: true,
-    },
+    actor: buildTrustedActorContext(sourceChannel),
     conversationId,
     pendingRequestIds,
     approvalConversationGenerator,
