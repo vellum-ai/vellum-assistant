@@ -70,6 +70,20 @@ export async function resolveManagedRoute(
     config.djangoInternalBaseUrl,
   ).toString();
 
+  let normalizedIdentityKey: string;
+  try {
+    normalizedIdentityKey = normalizeIdentityKey(args.identityKey);
+  } catch {
+    return {
+      ok: false,
+      status: 400,
+      error: {
+        code: "validation_error",
+        detail: "Invalid identity key.",
+      },
+    };
+  }
+
   let response: Response;
   try {
     response = await fetchFn(upstreamUrl, {
@@ -78,7 +92,7 @@ export async function resolveManagedRoute(
       body: JSON.stringify({
         provider: "twilio",
         route_type: args.routeType,
-        identity_key: normalizeIdentityKey(args.identityKey),
+        identity_key: normalizedIdentityKey,
       }),
     });
   } catch {
