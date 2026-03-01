@@ -617,9 +617,9 @@ class BrowserManager {
     try {
       await this.browserCdpSession.send('Browser.setWindowBounds', {
         windowId,
-        bounds: { left: 740, top: 60, width: 680, height: 520, windowState: 'normal' },
+        bounds: { left: 480, top: 40, width: 940, height: 700, windowState: 'normal' },
       });
-      log.debug('positionWindowSidebar: placed browser window on right side');
+      log.debug('positionWindowSidebar: placed browser window in top-right');
     } catch (err) {
       log.warn({ err }, 'positionWindowSidebar: failed to position window');
     }
@@ -635,7 +635,7 @@ class BrowserManager {
     try {
       await this.browserCdpSession.send('Browser.setWindowBounds', {
         windowId,
-        bounds: { left: 100, top: 100, width: 1280, height: 960, windowState: 'normal' },
+        bounds: { left: 200, top: 40, width: 1100, height: 820, windowState: 'normal' },
       });
       log.debug('moveWindowOnscreen: moved window onscreen via CDP');
     } catch (err) {
@@ -669,9 +669,16 @@ class BrowserManager {
       existing();
     }
 
+    // Capture the initial URL so we can auto-detect page changes
+    const page = this.pages.get(sessionId);
+    const initialUrl = page && !page.isClosed() ? page.url() : null;
+
     return new Promise<void>((resolve) => {
+      let pollTimer: ReturnType<typeof setInterval> | null = null;
+
       const resolver = () => {
         clearTimeout(timer);
+        if (pollTimer) clearInterval(pollTimer);
         if (this.handoffResolvers.get(sessionId) === resolver) {
           this.handoffResolvers.delete(sessionId);
         }
@@ -679,6 +686,7 @@ class BrowserManager {
       };
 
       const timer = setTimeout(() => {
+        if (pollTimer) clearInterval(pollTimer);
         if (this.handoffResolvers.get(sessionId) === resolver) {
           this.handoffResolvers.delete(sessionId);
         }
@@ -687,6 +695,28 @@ class BrowserManager {
       }, timeoutMs);
 
       this.handoffResolvers.set(sessionId, resolver);
+
+      // Poll for URL changes — auto-resolve when the page navigates
+      // (e.g., CAPTCHA solved, login redirect)
+      if (initialUrl && page) {
+        pollTimer = setInterval(() => {
+          try {
+            if (page.isClosed()) {
+              resolver();
+              return;
+            }
+            const currentUrl = page.url();
+            if (currentUrl !== initialUrl) {
+              log.info({ sessionId, from: initialUrl, to: currentUrl }, 'Handoff auto-resolved: URL changed');
+              this.interactiveModeSessions.delete(sessionId);
+              resolver();
+            }
+          } catch {
+            // Page may have been closed — resolve gracefully
+            resolver();
+          }
+        }, 2000);
+      }
     });
   }
 
