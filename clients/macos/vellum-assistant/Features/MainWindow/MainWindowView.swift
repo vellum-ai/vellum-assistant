@@ -163,6 +163,20 @@ struct MainWindowView: View {
                 } else if response.errorCode == "credentials_missing" {
                     // Save pending publish for auto-retry after credential setup
                     sharing.pendingPublish = (html: html, title: title, appId: appId)
+                    // Open the chat dock so the user can see the credential setup flow
+                    if case .app(let currentAppId) = windowState.selection {
+                        isAppChatOpen = true
+                        let threadId = threadManager.activeThreadId ?? threadManager.visibleThreads.first?.id
+                        if let threadId {
+                            threadManager.selectThread(id: threadId)
+                            windowState.setAppEditing(appId: currentAppId, threadId: threadId)
+                        } else {
+                            threadManager.createThread()
+                            if let newThreadId = threadManager.activeThreadId {
+                                windowState.setAppEditing(appId: currentAppId, threadId: newThreadId)
+                            }
+                        }
+                    }
                     // Inject message into active session to trigger assistant-driven setup
                     if let viewModel = threadManager.activeViewModel {
                         viewModel.inputText = "I want to publish my app but I don't have a Vercel API token set up yet. Can you help me create one and then publish my app?"
@@ -1435,17 +1449,11 @@ struct MainWindowView: View {
                         dotColor: interactionDotColor(for: activeThread)
                     )
 
-                    // Count badge overlay (bottom-right) — only when multiple threads
-                    if regularThreads.count > 1 {
-                        Text("\(regularThreads.count)")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundColor(.white)
-                            .frame(minWidth: 14, minHeight: 14)
-                            .padding(.horizontal, 2)
-                            .background(
-                                Capsule()
-                                    .fill(Forest._700)
-                            )
+                    // Unseen dot overlay (bottom-right) — shows when any thread has unseen messages
+                    if regularThreads.contains(where: { $0.hasUnseenLatestAssistantMessage }) {
+                        Circle()
+                            .fill(Color(hex: 0xE86B40))
+                            .frame(width: 8, height: 8)
                             .offset(x: 4, y: 4)
                             .onDisappear {
                                 threadSwitcherHoverTimer?.cancel()
