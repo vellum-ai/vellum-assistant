@@ -68,39 +68,40 @@ afterEach(() => {
 });
 
 describe("runtime proxy handler", () => {
-  test("rejects legacy /v1/assistants/:assistantId/... paths with 400", async () => {
-    const fetchCalls: string[] = [];
+  test("rewrites legacy /v1/assistants/:assistantId/... to flat /v1/... for upstream", async () => {
+    const captured: { url: string }[] = [];
     fetchMock = mock(async (input: string | URL | Request) => {
-      fetchCalls.push(String(input));
+      captured.push({ url: String(input) });
       return new Response(JSON.stringify({ ok: true }), { status: 200 });
     });
 
     const handler = createRuntimeProxyHandler(makeConfig());
     const req = new Request("http://localhost:7830/v1/assistants/test-assistant/channels/inbound");
-    const res = await handler(req);
+    await handler(req);
 
-    expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body.source).toBe("gateway");
-    // Request was rejected before proxying
-    expect(fetchCalls.length).toBe(0);
+    expect(captured[0].url).toBe("http://localhost:7821/v1/channels/inbound");
   });
 
-  test("rejects legacy assistant-scoped path with query string", async () => {
-    const fetchCalls: string[] = [];
-    fetchMock = mock(async (input: string | URL | Request) => {
-      fetchCalls.push(String(input));
-      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+  test("forwards request to upstream with correct path and query (legacy assistant-scoped rewrite)", async () => {
+    const captured: { url: string; method: string }[] = [];
+    fetchMock = mock(async (input: string | URL | Request, init?: RequestInit) => {
+      captured.push({ url: String(input), method: init?.method ?? "GET" });
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
     });
 
     const handler = createRuntimeProxyHandler(makeConfig());
     const req = new Request("http://localhost:7830/v1/assistants/test/health?foo=bar");
     const res = await handler(req);
 
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(200);
+    // Legacy /v1/assistants/test/health is rewritten to /v1/health
+    expect(captured[0].url).toBe("http://localhost:7821/v1/health?foo=bar");
+    expect(captured[0].method).toBe("GET");
     const body = await res.json();
-    expect(body.source).toBe("gateway");
-    expect(fetchCalls.length).toBe(0);
+    expect(body).toEqual({ ok: true });
   });
 
   test("forwards POST body to upstream", async () => {

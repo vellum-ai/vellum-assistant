@@ -932,14 +932,15 @@ export async function handleChannelInbound(
   });
 
   // Hoisted flag: set by the canonical guardian reply router when the invite
-  // handoff bypass fires. Prevents approval interception from swallowing the
-  // message when other approvals are pending in the same chat.
+  // handoff bypass fires. Prevents legacy approval interception from swallowing
+  // the message when other approvals are pending in the same chat.
   let skipApprovalInterception = false;
 
   // ── Canonical guardian reply router ──
-  // Routes inbound guardian messages through the canonical decision pipeline.
-  // Handles deterministic callbacks (button presses), request code prefixes,
-  // and NL classification via the conversational approval engine.
+  // Attempts to route inbound messages through the canonical decision pipeline
+  // before falling through to the legacy approval interception. Handles
+  // deterministic callbacks (button presses), request code prefixes, and
+  // NL classification via the conversational approval engine.
   if (
     !result.duplicate &&
     replyCallbackUrl &&
@@ -1027,8 +1028,8 @@ export async function handleChannelInbound(
   // ── Approval interception ──
   // Keep this active whenever callback context is available.
   // Skipped when the canonical router flagged skipApprovalInterception (e.g.
-  // invite handoff bypass) to prevent the interceptor from swallowing messages
-  // that should reach the assistant.
+  // invite handoff bypass) to prevent the legacy interceptor from swallowing
+  // messages that should reach the assistant.
   if (
     replyCallbackUrl &&
     !result.duplicate &&
