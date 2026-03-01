@@ -1558,22 +1558,23 @@ The general app design checklist does NOT apply to slide decks. Specifically ski
 
 When to use each of the 8 layout variants:
 
-| Slide | Type | When to Use |
-|---|---|---|
-| 1 | **Title** | Bold title with accent word, subtitle, optional badge — always first |
-| 2 | **Stats** | Early for credibility; 2–4 stat cards with big numbers |
-| 3–4 | **Bullets / Content** | Core message; 3–5 bullets max, or 2–3 sentence body |
-| 5 | **Quote** | Emotional punctuation; center-aligned, breaks visual pattern |
-| 6 | **Comparison** | Two-column before/after, entity comparison, or pros/cons |
-| 7 | **Visual / Immersive** | Gradient background with glass overlay, minimal text |
-| 8 | **Closing / CTA** | Bold title, short takeaway, optional stat reinforcement |
+| Type | When to Use |
+|---|---|
+| **Title** | Bold title with accent word, subtitle, optional badge — always first |
+| **Stats** | Early for credibility; 2–4 stat cards with big numbers |
+| **Bullets / Content** | Core message; 3–5 bullets max, or 2–3 sentence body |
+| **Quote** | Emotional punctuation; center-aligned, breaks visual pattern |
+| **Comparison** | Two-column before/after, entity comparison, or pros/cons |
+| **Timeline** | Chronological progression; milestones, history, roadmap, or process steps using `.v-timeline` entries |
+| **Visual / Immersive** | Gradient background with glass overlay, minimal text |
+| **Closing / CTA** | Bold title, short takeaway, optional stat reinforcement |
 
 **Layout rhythm rules:**
 
 - **NEVER** two slides of the same type back-to-back
-- **5–8 slides:** title → stats → bullets → quote → comparison or visual → closing
+- **5–8 slides:** title → stats → bullets → quote → comparison or timeline or visual → closing
 - **3–4 slides:** title → stats or bullets → closing
-- **10+ slides:** repeat content/stats but always separate with a quote or visual slide
+- **10+ slides:** repeat content/stats but always separate with a quote, timeline, or visual slide
 - **Every deck needs at least 3 different layout types** — variety creates visual interest
 
 ### Slide Anti-Slop Rules
