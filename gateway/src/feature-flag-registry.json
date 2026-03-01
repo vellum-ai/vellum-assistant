@@ -42,6 +42,14 @@
       "defaultEnabled": true
     },
     {
+      "id": "messaging",
+      "scope": "assistant",
+      "key": "feature_flags.messaging.enabled",
+      "label": "Messaging",
+      "description": "Enable messaging skill section in the system prompt",
+      "defaultEnabled": true
+    },
+    {
       "id": "collect-usage-data",
       "scope": "assistant",
       "key": "feature_flags.collect-usage-data.enabled",
