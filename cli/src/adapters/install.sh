@@ -34,10 +34,15 @@ ensure_git() {
             # confirmation.
             touch /tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress
             local clt_package
+            # softwareupdate -l output has two relevant lines per update:
+            #   * Label: Command Line Tools for Xcode-16.0       <-- label (what -i expects)
+            #       Title: Command Line Tools for Xcode, ...      <-- description
+            # We need the label, which is on lines starting with "* ".
+            # Use the same parsing approach as Homebrew's installer.
             clt_package=$(softwareupdate -l 2>/dev/null \
-                | grep -o '.*Command Line Tools.*' \
-                | grep -v "^\*" \
-                | sed 's/^ *//' \
+                | grep -B 1 -E 'Command Line Tools' \
+                | awk -F'*' '/^\*/{print $2}' \
+                | sed -e 's/^ Label: //' -e 's/^ *//' \
                 | sort -V \
                 | tail -1)
 
