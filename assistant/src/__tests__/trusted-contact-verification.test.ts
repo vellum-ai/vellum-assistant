@@ -158,8 +158,8 @@ describe('trusted contact verification → member activation', () => {
     const trust = resolveActorTrust({
       assistantId: 'self',
       sourceChannel: 'telegram',
-      externalChatId: 'requester-chat-jeff',
-      senderExternalUserId: 'requester-user-jeff',
+      conversationExternalId: 'requester-chat-jeff',
+      actorExternalId: 'requester-user-jeff',
     });
 
     expect(trust.trustClass).toBe('trusted_contact');
@@ -184,10 +184,10 @@ describe('trusted contact verification → member activation', () => {
     const trust = resolveActorTrust({
       assistantId: 'self',
       sourceChannel: 'telegram',
-      externalChatId: 'requester-chat-jeff-priority',
-      senderExternalUserId: 'requester-user-jeff-priority',
-      senderUsername: 'jeffrey_telegram',
-      senderDisplayName: 'Jeffrey',
+      conversationExternalId: 'requester-chat-jeff-priority',
+      actorExternalId: 'requester-user-jeff-priority',
+      actorUsername: 'jeffrey_telegram',
+      actorDisplayName: 'Jeffrey',
     });
 
     expect(trust.trustClass).toBe('trusted_contact');
@@ -216,10 +216,10 @@ describe('trusted contact verification → member activation', () => {
     const trust = resolveActorTrust({
       assistantId: 'self',
       sourceChannel: 'telegram',
-      externalChatId: 'shared-group-chat',
-      senderExternalUserId: 'actual-sender-in-group',
-      senderUsername: 'actual_sender_handle',
-      senderDisplayName: 'Actual Sender',
+      conversationExternalId: 'shared-group-chat',
+      actorExternalId: 'actual-sender-in-group',
+      actorUsername: 'actual_sender_handle',
+      actorDisplayName: 'Actual Sender',
     });
 
     // The member record returned by findMember matched on chatId but belongs
