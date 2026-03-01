@@ -695,6 +695,24 @@ private struct ComposerTextView: NSViewRepresentable {
         // Register the composer with the window so typing auto-focuses it.
         if let zoomableWindow = textView.window as? TitleBarZoomableWindow {
             zoomableWindow.composerTextView = textView
+
+            // Walk up from the scroll view to find the composer container —
+            // the first ancestor whose frame is wider, encompassing the
+            // sibling action buttons (Attach, Mic, Send). Re-evaluated on
+            // each update because layout can change (compact vs expanded).
+            if let scrollView = textView.enclosingScrollView {
+                var container: NSView = scrollView
+                var candidate = scrollView.superview
+                while let view = candidate,
+                      view !== zoomableWindow.contentView {
+                    if view.frame.width > scrollView.frame.width {
+                        container = view
+                        break
+                    }
+                    candidate = view.superview
+                }
+                zoomableWindow.composerContainerView = container
+            }
         }
 
         if context.coordinator.lastFocusRequestID != focusRequestID {
