@@ -468,7 +468,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                 self?.bootstrapInterstitialRetry()
             }
         )
-        window.contentViewController = NSHostingController(rootView: updatedView)
+        let hostingController = NSHostingController(rootView: updatedView)
+        hostingController.sizingOptions = []  // Prevent auto-resizing from SwiftUI
+        window.contentViewController = hostingController
     }
 
     /// Dismisses the bootstrap interstitial window and cancels any retry tasks.
