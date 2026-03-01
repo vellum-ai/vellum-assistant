@@ -1285,12 +1285,12 @@ async function handleInviteTokenIntercept(params: {
     if (replyCallbackUrl) {
       try {
         await deliverChannelReply(replyCallbackUrl, {
-          chatId: conversationExternalId,
+          chatId: externalChatId,
           text: replyText,
           assistantId,
         }, bearerToken);
       } catch (err) {
-        log.error({ err, conversationExternalId }, 'Failed to deliver invite already-member reply');
+        log.error({ err, externalChatId }, 'Failed to deliver invite already-member reply');
       }
     }
     channelDeliveryStore.markProcessed(dedupResult.eventId);
@@ -1302,12 +1302,12 @@ async function handleInviteTokenIntercept(params: {
   if (replyCallbackUrl) {
     try {
       await deliverChannelReply(replyCallbackUrl, {
-        chatId: conversationExternalId,
+        chatId: externalChatId,
         text: replyText,
         assistantId,
       }, bearerToken);
     } catch (err) {
-      log.error({ err, conversationExternalId }, 'Failed to deliver invite redemption reply');
+      log.error({ err, externalChatId }, 'Failed to deliver invite redemption reply');
     }
   }
 
@@ -1454,7 +1454,7 @@ function startPendingApprovalPromptWatcher(params: {
           deliveredRequestIds.add(info.requestId);
           const delivered = await deliverGeneratedApprovalPrompt({
             replyCallbackUrl,
-            chatId: conversationExternalId,
+            chatId: externalChatId,
             sourceChannel,
             assistantId: assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
             bearerToken,
@@ -1575,7 +1575,7 @@ function startTrustedContactApprovalNotifier(params: {
             : 'Waiting for your guardian\'s approval...';
           try {
             await deliverChannelReply(replyCallbackUrl, {
-              chatId: conversationExternalId,
+              chatId: externalChatId,
               text: waitingText,
               assistantId: assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
             }, bearerToken);
