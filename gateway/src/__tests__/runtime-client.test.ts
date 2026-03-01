@@ -77,6 +77,7 @@ const payload: RuntimeInboundPayload = {
   externalMessageId: "123",
   content: "Hello",
   actorDisplayName: "Test User",
+  actorExternalId: "55001",
 };
 
 const testAttachment: RuntimeAttachmentMeta = {
