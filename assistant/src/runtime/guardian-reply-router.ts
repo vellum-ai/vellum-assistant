@@ -95,9 +95,9 @@ export interface GuardianReplyResult {
   /** Detailed result from the canonical decision primitive (when a decision was attempted). */
   canonicalResult?: CanonicalDecisionResult;
   /**
-   * When true, the caller should skip approval interception for this
+   * When true, the caller should skip legacy approval interception for this
    * message. Set by the invite handoff bypass so that "open invite flow"
-   * reaches the assistant even when other guardian approvals are pending.
+   * reaches the assistant even when other legacy guardian approvals are pending.
    */
   skipApprovalInterception?: boolean;
 }
@@ -390,7 +390,7 @@ export async function routeGuardianReply(
   // Desktop sessions intentionally do not enable NL classification; when the
   // caller has exactly one known pending request and sends an explicit
   // approve/reject phrase ("approve", "yes", "reject", "no"), apply the
-  // decision directly instead of returning not_consumed.
+  // decision directly instead of falling through to legacy handlers.
   if (messageText.length > 0 && pendingRequests.length > 0) {
     const inferredAction = inferDecisionActionFromFreeText(messageText);
     if (inferredAction) {
@@ -597,17 +597,10 @@ async function applyDecision(
     `Guardian reply router: canonical decision not applied (${canonicalResult.reason})`,
   );
 
-  // When the canonical request doesn't exist, treat it as stale — the
-  // canonical decision path handles all guardian decisions deterministically.
+  // When the canonical request doesn't exist, allow the message to fall
+  // through so the legacy handleApprovalInterception handler can process it.
   if (canonicalResult.reason === 'not_found') {
-    return {
-      decisionApplied: false,
-      consumed: true,
-      type: 'canonical_decision_stale',
-      requestId,
-      canonicalResult,
-      replyText: 'This request was not found.',
-    };
+    return notConsumed();
   }
 
   const request = getCanonicalGuardianRequest(requestId);
