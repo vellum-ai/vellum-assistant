@@ -2,6 +2,7 @@
 name: "Vercel Token Setup"
 description: "Set up a Vercel API token for publishing apps using browser automation"
 includes: ["browser"]
+credential-setup-for: "vercel:api_token"
 metadata: {"vellum": {"emoji": "▲"}}
 ---
 
