@@ -174,7 +174,7 @@ export function notifyGuardianOfAccessRequest(
       { err, requestId, sourceChannel, senderExternalUserId },
       'Cannot create canonical access request without guardian principal — skipping canonical request creation',
     );
-    return { notified: true, created: false, requestId };
+    return { notified: false, created: false, requestId };
   }
 
   let vellumDeliveryId: string | null = null;
