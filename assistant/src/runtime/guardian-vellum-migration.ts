@@ -15,11 +15,11 @@
 import { eq } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
+import { getDb } from '../memory/db.js';
 import {
   createBinding,
   getActiveBinding,
 } from '../memory/guardian-bindings.js';
-import { getDb } from '../memory/db.js';
 import { channelGuardianBindings } from '../memory/schema.js';
 import { getLogger } from '../util/logger.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from './assistant-scope.js';

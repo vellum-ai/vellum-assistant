@@ -31,11 +31,11 @@ import {
   resolveCanonicalGuardianRequest,
   updateCanonicalGuardianRequest,
 } from '../memory/canonical-guardian-store.js';
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import {
   createBinding,
   getActiveBinding,
 } from '../memory/guardian-bindings.js';
-import { getDb, initializeDb, resetDb } from '../memory/db.js';
 
 initializeDb();
 

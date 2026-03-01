@@ -10,8 +10,8 @@
 
 import { describe, expect, mock, test } from 'bun:test';
 
-import type { Message, ToolDefinition } from '../providers/types.js';
 import type { SkillProjectionCache } from '../daemon/session-skill-tools.js';
+import type { Message, ToolDefinition } from '../providers/types.js';
 
 // ---------------------------------------------------------------------------
 // Mocks — must be set up before importing the module under test
