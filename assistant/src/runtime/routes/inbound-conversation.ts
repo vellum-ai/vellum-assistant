@@ -9,23 +9,23 @@ import { httpError } from '../http-errors.js';
 export async function handleDeleteConversation(req: Request, assistantId: string = DAEMON_INTERNAL_ASSISTANT_ID): Promise<Response> {
   const body = await req.json() as {
     sourceChannel?: string;
-    externalChatId?: string;
+    conversationExternalId?: string;
   };
 
-  const { sourceChannel, externalChatId } = body;
+  const { sourceChannel, conversationExternalId } = body;
 
   if (!sourceChannel || typeof sourceChannel !== 'string') {
     return httpError('BAD_REQUEST', 'sourceChannel is required', 400);
   }
-  if (!externalChatId || typeof externalChatId !== 'string') {
-    return httpError('BAD_REQUEST', 'externalChatId is required', 400);
+  if (!conversationExternalId || typeof conversationExternalId !== 'string') {
+    return httpError('BAD_REQUEST', 'conversationExternalId is required', 400);
   }
 
   // Delete the assistant-scoped key unconditionally. The legacy key is
   // canonical for the self assistant and must not be deleted from non-self
   // routes, otherwise a non-self reset can accidentally reset self state.
-  const legacyKey = `${sourceChannel}:${externalChatId}`;
-  const scopedKey = `asst:${assistantId}:${sourceChannel}:${externalChatId}`;
+  const legacyKey = `${sourceChannel}:${conversationExternalId}`;
+  const scopedKey = `asst:${assistantId}:${sourceChannel}:${conversationExternalId}`;
   deleteConversationKey(scopedKey);
   if (assistantId === DAEMON_INTERNAL_ASSISTANT_ID) {
     deleteConversationKey(legacyKey);
@@ -35,7 +35,7 @@ export async function handleDeleteConversation(req: Request, assistantId: string
   // canonical self-assistant route so multi-assistant legacy routes do not
   // clobber each other's bindings.
   if (assistantId === DAEMON_INTERNAL_ASSISTANT_ID) {
-    externalConversationStore.deleteBindingByChannelChat(sourceChannel, externalChatId);
+    externalConversationStore.deleteBindingByChannelChat(sourceChannel, conversationExternalId);
   }
 
   return Response.json({ ok: true });

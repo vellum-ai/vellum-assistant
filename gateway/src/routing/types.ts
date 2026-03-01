@@ -1,6 +1,6 @@
 export type RouteResult = {
   assistantId: string;
-  routeSource: "chat_id" | "user_id" | "default" | "phone_number";
+  routeSource: "conversation_id" | "actor_id" | "default" | "phone_number";
 };
 
 export type RouteRejection = {

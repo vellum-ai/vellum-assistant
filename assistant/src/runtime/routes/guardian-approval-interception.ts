@@ -51,9 +51,9 @@ export interface ApprovalInterceptionParams {
   conversationId: string;
   callbackData?: string;
   content: string;
-  externalChatId: string;
+  conversationExternalId: string;
   sourceChannel: ChannelId;
-  senderExternalUserId?: string;
+  actorExternalId?: string;
   replyCallbackUrl: string;
   bearerToken?: string;
   guardianCtx: GuardianContext;
@@ -84,9 +84,9 @@ export async function handleApprovalInterception(
     conversationId,
     callbackData,
     content,
-    externalChatId,
+    conversationExternalId,
     sourceChannel,
-    senderExternalUserId,
+    actorExternalId,
     replyCallbackUrl,
     bearerToken,
     guardianCtx,
@@ -101,7 +101,7 @@ export async function handleApprovalInterception(
   // of a non-guardian requester.
   if (
     guardianCtx.trustClass === 'guardian' &&
-    senderExternalUserId
+    actorExternalId
   ) {
     // Callback/button path: deterministic and takes priority.
     let callbackDecision: ApprovalDecisionResult | null = null;
@@ -113,14 +113,14 @@ export async function handleApprovalInterception(
     // the decision resolves to exactly the right approval even when
     // multiple approvals target the same guardian chat.
     let guardianApproval = callbackDecision?.requestId
-      ? getPendingApprovalByRequestAndGuardianChat(callbackDecision.requestId, sourceChannel, externalChatId, assistantId)
+      ? getPendingApprovalByRequestAndGuardianChat(callbackDecision.requestId, sourceChannel, conversationExternalId, assistantId)
       : null;
 
     // When the scoped lookup didn't resolve an approval (either because
     // there was no callback or the requestId pointed to a stale/expired request),
     // fall back to checking all pending approvals for this guardian chat.
     if (!guardianApproval && callbackDecision) {
-      const allPending = getAllPendingApprovalsByGuardianChat(sourceChannel, externalChatId, assistantId);
+      const allPending = getAllPendingApprovalsByGuardianChat(sourceChannel, conversationExternalId, assistantId);
       if (allPending.length === 1) {
         guardianApproval = allPending[0];
       } else if (allPending.length > 1) {
@@ -133,12 +133,12 @@ export async function handleApprovalInterception(
             channel: sourceChannel,
           }, {}, approvalCopyGenerator);
           await deliverChannelReply(replyCallbackUrl, {
-            chatId: externalChatId,
+            chatId: conversationExternalId,
             text: staleText,
             assistantId,
           }, bearerToken);
         } catch (err) {
-          log.error({ err, externalChatId }, 'Failed to deliver stale callback disambiguation notice');
+          log.error({ err, conversationExternalId }, 'Failed to deliver stale callback disambiguation notice');
         }
         return { handled: true, type: 'stale_ignored' };
       }
@@ -147,14 +147,14 @@ export async function handleApprovalInterception(
     // For plain-text messages (no callback), check if there are any pending
     // approvals for this guardian chat to route through the conversation engine.
     if (!guardianApproval && !callbackDecision) {
-      const allPending = getAllPendingApprovalsByGuardianChat(sourceChannel, externalChatId, assistantId);
+      const allPending = getAllPendingApprovalsByGuardianChat(sourceChannel, conversationExternalId, assistantId);
       if (allPending.length === 1) {
         guardianApproval = allPending[0];
       } else if (allPending.length > 1) {
         // Multiple pending — pick the first approval matching this sender as
         // primary context. The conversation engine sees all matching approvals
         // via pendingApprovals and can disambiguate.
-        guardianApproval = allPending.find(a => a.guardianExternalUserId === senderExternalUserId) ?? allPending[0];
+        guardianApproval = allPending.find(a => a.guardianExternalUserId === actorExternalId) ?? allPending[0];
       }
     }
 
@@ -164,9 +164,9 @@ export async function handleApprovalInterception(
       // trustClass check above already verifies the sender is a guardian,
       // but this catches edge cases like binding rotation between request
       // creation and decision.
-      if (senderExternalUserId !== guardianApproval.guardianExternalUserId) {
+      if (actorExternalId !== guardianApproval.guardianExternalUserId) {
         log.warn(
-          { externalChatId, senderExternalUserId, expectedGuardian: guardianApproval.guardianExternalUserId },
+          { conversationExternalId, actorExternalId, expectedGuardian: guardianApproval.guardianExternalUserId },
           'Non-guardian sender attempted to act on guardian approval request',
         );
         try {
@@ -175,12 +175,12 @@ export async function handleApprovalInterception(
             channel: sourceChannel,
           }, {}, approvalCopyGenerator);
           await deliverChannelReply(replyCallbackUrl, {
-            chatId: externalChatId,
+            chatId: conversationExternalId,
             text: mismatchText,
             assistantId,
           }, bearerToken);
         } catch (err) {
-          log.error({ err, externalChatId }, 'Failed to deliver guardian identity rejection notice');
+          log.error({ err, conversationExternalId }, 'Failed to deliver guardian identity rejection notice');
         }
         return { handled: true, type: 'guardian_decision_applied' };
       }
@@ -193,7 +193,7 @@ export async function handleApprovalInterception(
           const accessResult = await handleAccessRequestApproval(
             guardianApproval,
             callbackDecision.action === 'reject' ? 'deny' : 'approve',
-            senderExternalUserId,
+            actorExternalId,
             replyCallbackUrl,
             assistantId,
             bearerToken,
@@ -207,7 +207,7 @@ export async function handleApprovalInterception(
         const result = applyGuardianDecision({
           approval: guardianApproval,
           decision: callbackDecision,
-          actorExternalUserId: senderExternalUserId,
+          actorExternalUserId: actorExternalId,
           actorChannel: sourceChannel,
         });
 
@@ -242,11 +242,11 @@ export async function handleApprovalInterception(
       // ── Conversational engine for guardian plain-text messages ──
       // Gather all pending guardian approvals for this chat so the engine
       // can handle disambiguation when multiple are pending.
-      const allGuardianPending = getAllPendingApprovalsByGuardianChat(sourceChannel, externalChatId, assistantId);
+      const allGuardianPending = getAllPendingApprovalsByGuardianChat(sourceChannel, conversationExternalId, assistantId);
       // Only present approvals that belong to this sender so the engine
       // does not offer disambiguation for requests assigned to a rotated
       // guardian the sender cannot act on.
-      const senderPending = allGuardianPending.filter(a => a.guardianExternalUserId === senderExternalUserId);
+      const senderPending = allGuardianPending.filter(a => a.guardianExternalUserId === actorExternalId);
       const effectivePending = senderPending.length > 0 ? senderPending : allGuardianPending;
       if (effectivePending.length > 0 && approvalConversationGenerator && content) {
         const guardianAllowedActions = ['approve_once', 'reject'];
@@ -264,7 +264,7 @@ export async function handleApprovalInterception(
           // Non-decision follow-up (clarification, disambiguation, etc.)
           try {
             await deliverChannelReply(replyCallbackUrl, {
-              chatId: externalChatId,
+              chatId: conversationExternalId,
               text: engineResult.replyText,
               assistantId,
             }, bearerToken);
@@ -295,9 +295,9 @@ export async function handleApprovalInterception(
         // that was assigned to a different guardian. Without this check a
         // currently bound guardian could act on a request assigned to a
         // previous guardian after a binding rotation.
-        if (senderExternalUserId !== targetApproval.guardianExternalUserId) {
+        if (actorExternalId !== targetApproval.guardianExternalUserId) {
           log.warn(
-            { externalChatId, senderExternalUserId, expectedGuardian: targetApproval.guardianExternalUserId, targetRequestId: engineResult.targetRequestId },
+            { conversationExternalId, actorExternalId, expectedGuardian: targetApproval.guardianExternalUserId, targetRequestId: engineResult.targetRequestId },
             'Guardian identity mismatch on engine-selected target approval',
           );
           try {
@@ -306,12 +306,12 @@ export async function handleApprovalInterception(
               channel: sourceChannel,
             }, {}, approvalCopyGenerator);
             await deliverChannelReply(replyCallbackUrl, {
-              chatId: externalChatId,
+              chatId: conversationExternalId,
               text: mismatchText,
               assistantId,
             }, bearerToken);
           } catch (err) {
-            log.error({ err, externalChatId }, 'Failed to deliver guardian identity mismatch notice for engine target');
+            log.error({ err, conversationExternalId }, 'Failed to deliver guardian identity mismatch notice for engine target');
           }
           return { handled: true, type: 'guardian_decision_applied' };
         }
@@ -321,7 +321,7 @@ export async function handleApprovalInterception(
           const accessResult = await handleAccessRequestApproval(
             targetApproval,
             decisionAction === 'reject' ? 'deny' : 'approve',
-            senderExternalUserId,
+            actorExternalId,
             replyCallbackUrl,
             assistantId,
             bearerToken,
@@ -339,7 +339,7 @@ export async function handleApprovalInterception(
         const result = applyGuardianDecision({
           approval: targetApproval,
           decision: engineDecision,
-          actorExternalUserId: senderExternalUserId,
+          actorExternalUserId: actorExternalId,
           actorChannel: sourceChannel,
         });
 
@@ -364,7 +364,7 @@ export async function handleApprovalInterception(
           // Deliver the engine's reply to the guardian
           try {
             await deliverChannelReply(replyCallbackUrl, {
-              chatId: externalChatId,
+              chatId: conversationExternalId,
               text: engineResult.replyText,
               assistantId,
             }, bearerToken);
@@ -383,7 +383,7 @@ export async function handleApprovalInterception(
             channel: sourceChannel,
           }, {}, approvalCopyGenerator);
           await deliverChannelReply(replyCallbackUrl, {
-            chatId: externalChatId,
+            chatId: conversationExternalId,
             text: staleText,
             assistantId,
           }, bearerToken);
@@ -414,7 +414,7 @@ export async function handleApprovalInterception(
             const resolvedByRequest = getPendingApprovalByRequestAndGuardianChat(
               legacyGuardianDecision.requestId,
               sourceChannel,
-              externalChatId,
+              conversationExternalId,
               assistantId,
             );
             if (!resolvedByRequest) {
@@ -426,12 +426,12 @@ export async function handleApprovalInterception(
                   channel: sourceChannel,
                 }, {}, approvalCopyGenerator);
                 await deliverChannelReply(replyCallbackUrl, {
-                  chatId: externalChatId,
+                  chatId: conversationExternalId,
                   text: staleText,
                   assistantId,
                 }, bearerToken);
               } catch (err) {
-                log.error({ err, externalChatId }, 'Failed to deliver stale approval notice (legacy path)');
+                log.error({ err, conversationExternalId }, 'Failed to deliver stale approval notice (legacy path)');
               }
               return { handled: true, type: 'stale_ignored' };
             }
@@ -441,9 +441,9 @@ export async function handleApprovalInterception(
           // Re-validate guardian identity against the resolved target.
           // The default guardianApproval was already checked, but a
           // requestId-resolved approval may belong to a different guardian.
-          if (senderExternalUserId !== targetLegacyApproval.guardianExternalUserId) {
+          if (actorExternalId !== targetLegacyApproval.guardianExternalUserId) {
             log.warn(
-              { externalChatId, senderExternalUserId, expectedGuardian: targetLegacyApproval.guardianExternalUserId, requestId: legacyGuardianDecision.requestId },
+              { conversationExternalId, actorExternalId, expectedGuardian: targetLegacyApproval.guardianExternalUserId, requestId: legacyGuardianDecision.requestId },
               'Guardian identity mismatch on legacy ref-resolved target approval',
             );
             try {
@@ -452,12 +452,12 @@ export async function handleApprovalInterception(
                 channel: sourceChannel,
               }, {}, approvalCopyGenerator);
               await deliverChannelReply(replyCallbackUrl, {
-                chatId: externalChatId,
+                chatId: conversationExternalId,
                 text: mismatchText,
                 assistantId,
               }, bearerToken);
             } catch (err) {
-              log.error({ err, externalChatId }, 'Failed to deliver guardian identity mismatch notice (legacy path)');
+              log.error({ err, conversationExternalId }, 'Failed to deliver guardian identity mismatch notice (legacy path)');
             }
             return { handled: true, type: 'guardian_decision_applied' };
           }
@@ -467,7 +467,7 @@ export async function handleApprovalInterception(
             const accessResult = await handleAccessRequestApproval(
               targetLegacyApproval,
               legacyGuardianDecision.action === 'reject' ? 'deny' : 'approve',
-              senderExternalUserId,
+              actorExternalId,
               replyCallbackUrl,
               assistantId,
               bearerToken,
@@ -479,7 +479,7 @@ export async function handleApprovalInterception(
           const result = applyGuardianDecision({
             approval: targetLegacyApproval,
             decision: legacyGuardianDecision,
-            actorExternalUserId: senderExternalUserId,
+            actorExternalUserId: actorExternalId,
             actorChannel: sourceChannel,
           });
 
@@ -511,7 +511,7 @@ export async function handleApprovalInterception(
               channel: sourceChannel,
             }, {}, approvalCopyGenerator);
             await deliverChannelReply(replyCallbackUrl, {
-              chatId: externalChatId,
+              chatId: conversationExternalId,
               text: staleText,
               assistantId,
             }, bearerToken);
@@ -529,7 +529,7 @@ export async function handleApprovalInterception(
             channel: sourceChannel,
           }, {}, approvalCopyGenerator);
           await deliverChannelReply(replyCallbackUrl, {
-            chatId: externalChatId,
+            chatId: conversationExternalId,
             text: reminderText,
             assistantId,
           }, bearerToken);
@@ -622,7 +622,7 @@ export async function handleApprovalInterception(
             const cancelApplyResult = applyGuardianDecision({
               approval: guardianApprovalForRequest,
               decision: rejectDecision,
-              actorExternalUserId: senderExternalUserId,
+              actorExternalUserId: actorExternalId,
               actorChannel: sourceChannel,
             });
             if (cancelApplyResult.applied) {
@@ -634,7 +634,7 @@ export async function handleApprovalInterception(
               }, {}, approvalCopyGenerator);
               try {
                 await deliverChannelReply(replyCallbackUrl, {
-                  chatId: externalChatId,
+                  chatId: conversationExternalId,
                   text: replyText,
                   assistantId,
                 }, bearerToken);
@@ -669,7 +669,7 @@ export async function handleApprovalInterception(
                 channel: sourceChannel,
               }, {}, approvalCopyGenerator);
               await deliverChannelReply(replyCallbackUrl, {
-                chatId: externalChatId,
+                chatId: conversationExternalId,
                 text: staleText,
                 assistantId,
               }, bearerToken);
@@ -682,7 +682,7 @@ export async function handleApprovalInterception(
           if (requesterFollowupReplyText) {
             try {
               await deliverChannelReply(replyCallbackUrl, {
-                chatId: externalChatId,
+                chatId: conversationExternalId,
                 text: requesterFollowupReplyText,
                 assistantId,
               }, bearerToken);
@@ -700,7 +700,7 @@ export async function handleApprovalInterception(
             channel: sourceChannel,
           }, {}, approvalCopyGenerator);
           await deliverChannelReply(replyCallbackUrl, {
-            chatId: externalChatId,
+            chatId: conversationExternalId,
             text: pendingText,
             assistantId,
           }, bearerToken);
@@ -732,7 +732,7 @@ export async function handleApprovalInterception(
             channel: sourceChannel,
           }, {}, approvalCopyGenerator);
           await deliverChannelReply(replyCallbackUrl, {
-            chatId: externalChatId,
+            chatId: conversationExternalId,
             text: expiredText,
             assistantId,
           }, bearerToken);
@@ -752,7 +752,7 @@ export async function handleApprovalInterception(
       // pending request via handleChannelDecision.
       if (guardianCtx.trustClass !== 'guardian' && guardianCtx.guardianExternalUserId) {
         log.info(
-          { conversationId, externalChatId, guardianExternalUserId: guardianCtx.guardianExternalUserId },
+          { conversationId, conversationExternalId, guardianExternalUserId: guardianCtx.guardianExternalUserId },
           'Blocking non-guardian self-approval: pending confirmation exists but guardian approval row not yet created',
         );
         try {
@@ -761,7 +761,7 @@ export async function handleApprovalInterception(
             channel: sourceChannel,
           }, {}, approvalCopyGenerator);
           await deliverChannelReply(replyCallbackUrl, {
-            chatId: externalChatId,
+            chatId: conversationExternalId,
             text: pendingText,
             assistantId,
           }, bearerToken);
@@ -827,7 +827,7 @@ export async function handleApprovalInterception(
       // Non-decision follow-up — deliver the engine's reply and keep the request pending
       try {
         await deliverChannelReply(replyCallbackUrl, {
-          chatId: externalChatId,
+          chatId: conversationExternalId,
           text: engineResult.replyText,
           assistantId,
         }, bearerToken);
@@ -851,7 +851,7 @@ export async function handleApprovalInterception(
       // Deliver the engine's reply text to the user
       try {
         await deliverChannelReply(replyCallbackUrl, {
-          chatId: externalChatId,
+          chatId: conversationExternalId,
           text: engineResult.replyText,
           assistantId,
         }, bearerToken);
@@ -871,7 +871,7 @@ export async function handleApprovalInterception(
         channel: sourceChannel,
       }, {}, approvalCopyGenerator);
       await deliverChannelReply(replyCallbackUrl, {
-        chatId: externalChatId,
+        chatId: conversationExternalId,
         text: staleText,
         assistantId,
       }, bearerToken);
@@ -905,7 +905,7 @@ export async function handleApprovalInterception(
           channel: sourceChannel,
         }, {}, approvalCopyGenerator);
         await deliverChannelReply(replyCallbackUrl, {
-          chatId: externalChatId,
+          chatId: conversationExternalId,
           text: staleText,
           assistantId,
         }, bearerToken);
@@ -925,7 +925,7 @@ export async function handleApprovalInterception(
       toolName: pending.length > 0 ? pending[0].toolName : undefined,
     }, {}, approvalCopyGenerator);
     await deliverChannelReply(replyCallbackUrl, {
-      chatId: externalChatId,
+      chatId: conversationExternalId,
       text: statusText,
       assistantId,
     }, bearerToken);

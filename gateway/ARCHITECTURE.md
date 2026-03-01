@@ -340,7 +340,7 @@ Runtime detects needs_confirmation
 | `assistant/src/memory/channel-guardian-store.ts` | CRUD for guardian approval requests: `createApprovalRequest()`, `getPendingApprovalByGuardianChat()`, `updateApprovalDecision()` |
 | `assistant/src/runtime/gateway-client.ts` | `deliverApprovalPrompt()` — sends approval payload to gateway |
 | `gateway/src/telegram/send.ts` | `buildInlineKeyboard()` — renders approval actions as Telegram inline buttons |
-| `gateway/src/telegram/normalize.ts` | `callback_query` normalization into `GatewayInboundEventV1` (DM-only, drops callbacks without data) |
+| `gateway/src/telegram/normalize.ts` | `callback_query` normalization into `GatewayInboundEvent` (DM-only, drops callbacks without data) |
 
 ### Approval Message Composer
 
@@ -412,7 +412,7 @@ The channel inbound handler (`inbound-message-handler.ts`) evaluates incoming me
 flowchart TD
     MSG["Inbound message arrives<br/>POST /channels/inbound"] --> GW_CHECK{"Gateway-origin<br/>proof valid?"}
     GW_CHECK -- No --> REJECT_403["403 GATEWAY_ORIGIN_REQUIRED"]
-    GW_CHECK -- Yes --> HAS_SENDER{"senderExternalUserId<br/>present?"}
+    GW_CHECK -- Yes --> HAS_SENDER{"actorExternalId<br/>present?"}
 
     HAS_SENDER -- Yes --> ACL_LOOKUP["Look up ingress member<br/>by (channel, userId/chatId)"]
     HAS_SENDER -- No --> RECORD["Record inbound event"]
@@ -444,9 +444,9 @@ This ordering ensures that ingress ACL decisions are finalized before any agent 
 
 When a message arrives on a channel, the runtime resolves the sender's role. Role *classification* runs unconditionally. Guardian enforcement (`forceStrictSideEffects`, fail-closed denial, guardian approval routing) applies to non-guardian/unverified actors whenever orchestrator + callback context are available:
 
-- **Guardian**: `externalUserId` matches the binding's `guardianExternalUserId` for the `(assistantId, channel)` pair. Self-approval is handled through the same approval-aware channel flow.
+- **Guardian**: `actorExternalId` matches the binding's `guardianExternalUserId` (DB column) for the `(assistantId, channel)` pair. Self-approval is handled through the same approval-aware channel flow.
 - **Non-guardian**: A known sender who is not the guardian. Side-effect tools are forced through the confirmation flow (`forceStrictSideEffects`), and approval prompts are routed to the guardian's chat instead of the requester's chat.
-- **Unverified channel**: No guardian binding exists for the channel, or `senderExternalUserId` is absent. Sensitive actions are auto-denied immediately (fail-closed). This prevents unverified senders from self-approving actions or bypassing guardian enforcement by omitting identity data.
+- **Unverified channel**: No guardian binding exists for the channel, or `actorExternalId` is absent. Sensitive actions are auto-denied immediately (fail-closed). This prevents unverified senders from self-approving actions or bypassing guardian enforcement by omitting identity data.
 
 #### Sensitive Action Gating (Non-Guardian Approval)
 
@@ -503,7 +503,7 @@ The ingress membership system extends the guardian security model to support con
 
 The channel inbound handler (`inbound-message-handler.ts`) enforces an access control layer between message receipt and agent processing. The ACL runs at the top of the handler, before guardian role resolution or verification-code interception (see [Inbound Message Decision Chain](#inbound-message-decision-chain) for the full ordering):
 
-1. When `senderExternalUserId` is present, the handler looks up the sender in `assistant_ingress_members` by `(sourceChannel, externalUserId)` or `(sourceChannel, externalChatId)`.
+1. When `actorExternalId` is present, the handler looks up the sender in `assistant_ingress_members` by `(sourceChannel, externalUserId)` or `(sourceChannel, externalChatId)` (DB column names).
 2. If no member record exists, the message is denied (`not_a_member`).
 3. If a member exists but is not `active` (e.g., `revoked`, `blocked`), the message is denied.
 4. If the member's `policy` is `deny`, the message is rejected. If `allow`, the message proceeds to normal processing. If `escalate`, the message is held for guardian approval.
@@ -637,8 +637,8 @@ The Slack channel enables inbound and outbound messaging via Slack's Socket Mode
 1. Every Socket Mode envelope is ACKed immediately by echoing `{ envelope_id }` back on the WebSocket — this is required by Slack regardless of whether the event is processed.
 2. Only `events_api` envelopes with `app_mention` events are processed in MVP. Other envelope types (slash commands, interactive payloads) are ACKed but ignored.
 3. Events are deduplicated by `event_id` using an in-memory `Map<string, number>` with a 24-hour TTL. A periodic cleanup sweep runs every hour to evict expired entries.
-4. The `normalizeSlackAppMention()` function strips leading bot-mention tokens (`<@U...>`) from the message text and produces a `GatewayInboundEventV1` with `sourceChannel: "slack"`, using the Slack channel ID as `externalChatId` and the sender's user ID as `externalUserId`.
-5. Routing uses the standard `resolveAssistant()` chain (chat_id -> user_id -> default/reject). Events that cannot be routed are dropped.
+4. The `normalizeSlackAppMention()` function strips leading bot-mention tokens (`<@U...>`) from the message text and produces a `GatewayInboundEvent` with `sourceChannel: "slack"`, using the Slack channel ID as `conversationExternalId` and the sender's user ID as `actorExternalId`.
+5. Routing uses the standard `resolveAssistant()` chain (conversation_id -> actor_id -> default/reject). Events that cannot be routed are dropped.
 6. The normalized event is forwarded to the runtime via `POST /v1/channels/inbound` with Slack-specific transport hints and a `replyCallbackUrl` pointing to `/deliver/slack`.
 
 **Egress** (`POST /deliver/slack`):
@@ -963,7 +963,7 @@ Internet-facing Twilio callbacks terminate at the gateway, which validates signa
 | `POST /webhooks/twilio/status` | HMAC-SHA1 signature, payload size | `POST /v1/internal/twilio/status` (JSON: `{ params }`) |
 | `POST /webhooks/twilio/connect-action` | HMAC-SHA1 signature, payload size | `POST /v1/internal/twilio/connect-action` (JSON: `{ params }`) |
 | `WS /webhooks/twilio/relay` | WebSocket upgrade | `WS /v1/calls/relay` (bidirectional proxy) |
-| `POST /webhooks/twilio/sms` | HMAC-SHA1 signature, payload size, MessageSid dedup | `POST /v1/channels/inbound` (normalized `GatewayInboundEventV1` with `sourceChannel: "sms"`) |
+| `POST /webhooks/twilio/sms` | HMAC-SHA1 signature, payload size, MessageSid dedup | `POST /v1/channels/inbound` (normalized `GatewayInboundEvent` with `sourceChannel: "sms"`) |
 
 In gateway-fronted deployments, the TwiML WebSocket URL (returned by the voice webhook) should point to the gateway's `/webhooks/twilio/relay` endpoint rather than directly to the runtime. The gateway proxies ConversationRelay frames bidirectionally between Twilio and the runtime, preserving close and error semantics for proper cleanup.
 

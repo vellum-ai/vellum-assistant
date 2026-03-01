@@ -200,10 +200,10 @@ describe("twilio-sms-webhook", () => {
     // Verify handleInbound was called with correct parameters
     expect(handleInboundMock).toHaveBeenCalledTimes(1);
     const [, event, options] = handleInboundMock.mock.calls[0] as unknown[];
-    const typedEvent = event as { sourceChannel: string; message: { externalChatId: string; content: string; externalMessageId: string } };
+    const typedEvent = event as { sourceChannel: string; message: { conversationExternalId: string; content: string; externalMessageId: string } };
     expect(typedEvent.sourceChannel).toBe("sms");
     expect(typedEvent.message.content).toBe("Hello from SMS");
-    expect(typedEvent.message.externalChatId).toBe("+15551234567");
+    expect(typedEvent.message.conversationExternalId).toBe("+15551234567");
     expect(typedEvent.message.externalMessageId).toBe("SM-test-123");
     const typedOptions = options as { replyCallbackUrl: string };
     expect(typedOptions.replyCallbackUrl).toBe("http://127.0.0.1:7830/deliver/sms");
@@ -371,10 +371,10 @@ describe("twilio-sms-webhook", () => {
 
     // resetConversation should have been called
     expect(resetConversationMock).toHaveBeenCalledTimes(1);
-    const [, sourceChannel, externalChatId] =
+    const [, sourceChannel, conversationExternalId] =
       resetConversationMock.mock.calls[0] as unknown[];
     expect(sourceChannel).toBe("sms");
-    expect(externalChatId).toBe("+15551234567");
+    expect(conversationExternalId).toBe("+15551234567");
 
     // Confirmation SMS should have been sent
     expect(sendSmsReplyMock).toHaveBeenCalledTimes(1);

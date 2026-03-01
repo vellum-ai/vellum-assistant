@@ -238,8 +238,8 @@ The SMS channel provides text-only messaging via Twilio, sharing the same teleph
 3. `MessageSid` deduplication prevents reprocessing retried webhooks.
 4. **MMS detection**: The gateway treats a message as MMS when any of: `NumMedia > 0`, any `MediaUrl<N>` key has a non-empty value, or any `MediaContentType<N>` key has a non-empty value. This catches media attachments even when Twilio omits `NumMedia`. The gateway replies with an unsupported notice and does not forward the payload. MMS payloads are explicitly rejected rather than silently dropped.
 5. **`/new` command**: When the message body is exactly `/new` (case-insensitive, trimmed), the gateway resolves routing first. If routing is rejected, a rejection notice SMS is sent to the sender (matching Telegram `/new` rejection semantics — "This message could not be routed to an assistant"). If routing succeeds, the gateway calls `resetConversation(...)` on the runtime and sends a confirmation SMS. The message is never forwarded to the runtime.
-6. The payload is normalized into a `GatewayInboundEventV1` with `sourceChannel: "sms"` and `externalChatId` set to the sender's phone number (E.164).
-7. **Routing** — Phone-number-based routing is checked first: the inbound `To` number is reverse-looked-up in `assistantPhoneNumbers` (a `Record<string, string>` mapping assistant IDs to E.164 numbers, propagated from the assistant config file). If a match is found, that assistant handles the message. Otherwise, the standard routing chain (chat_id -> user_id -> default/reject) is used. This allows multiple assistants to have dedicated phone numbers. The resolved route is passed as a `routingOverride` to `handleInbound()` so the already-resolved routing is used directly instead of re-running `resolveAssistant()` inside the handler.
+6. The payload is normalized into a `GatewayInboundEvent` with `sourceChannel: "sms"` and `conversationExternalId` set to the sender's phone number (E.164).
+7. **Routing** — Phone-number-based routing is checked first: the inbound `To` number is reverse-looked-up in `assistantPhoneNumbers` (a `Record<string, string>` mapping assistant IDs to E.164 numbers, propagated from the assistant config file). If a match is found, that assistant handles the message. Otherwise, the standard routing chain (conversation_id -> actor_id -> default/reject) is used. This allows multiple assistants to have dedicated phone numbers. The resolved route is passed as a `routingOverride` to `handleInbound()` so the already-resolved routing is used directly instead of re-running `resolveAssistant()` inside the handler.
 8. The event is forwarded to the runtime via `POST /channels/inbound`, including SMS-specific transport hints (`chat-first-medium`, `sms-character-limits`, etc.) and a `replyCallbackUrl` pointing to `/deliver/sms`.
 
 **Egress** (`POST /deliver/sms`):
@@ -272,7 +272,7 @@ The WhatsApp channel enables inbound and outbound messaging via the Meta WhatsAp
 2. On `POST`, the gateway verifies the `X-Hub-Signature-256` header (HMAC-SHA256 of the raw request body using `WHATSAPP_APP_SECRET`) when the app secret is configured. Fail-closed: requests are rejected when the secret is set but the signature fails.
 3. **Normalization**: Only `type=text` messages from `messages` change fields are forwarded. Delivery receipts, read receipts, and non-text message types (image, audio, video, document, sticker) are silently acknowledged with `{ ok: true }`.
 4. **`/new` command**: When the message body is `/new` (case-insensitive), the gateway resolves routing, resets the conversation, and sends a confirmation message without forwarding to the runtime.
-5. The payload is normalized into a `GatewayInboundEventV1` with `sourceChannel: "whatsapp"` and `externalChatId` set to the sender's WhatsApp phone number (E.164).
+5. The payload is normalized into a `GatewayInboundEvent` with `sourceChannel: "whatsapp"` and `conversationExternalId` set to the sender's WhatsApp phone number (E.164).
 6. WhatsApp message IDs are deduplicated via `StringDedupCache` (24-hour TTL).
 7. The gateway marks each inbound message as read (best-effort, fire-and-forget).
 8. The event is forwarded to the runtime via `POST /channels/inbound` with WhatsApp-specific transport hints and a `replyCallbackUrl` pointing to `/deliver/whatsapp`.
@@ -354,7 +354,7 @@ External users who are not the guardian can gain access to the assistant through
 6. Requester enters the code; identity binding is verified, the challenge is consumed, and an active member record is created in `assistant_ingress_members`.
 7. All subsequent messages are accepted through the ingress ACL.
 
-**Channel-agnostic design:** The entire flow operates on abstract `ChannelId` and `externalUserId`/`externalChatId` fields. Identity binding adapts per channel: Telegram uses chat IDs, SMS/voice use E.164 phone numbers, HTTP API uses caller-provided identity. No channel-specific branching exists in the trusted contact code paths.
+**Channel-agnostic design:** The entire flow operates on abstract `ChannelId` and `actorExternalId`/`conversationExternalId` fields (DB column names `externalUserId`/`externalChatId` are unchanged). Identity binding adapts per channel: Telegram uses chat IDs, SMS/voice use E.164 phone numbers, HTTP API uses caller-provided identity. No channel-specific branching exists in the trusted contact code paths.
 
 **Lifecycle states:** `requested → pending_guardian → verification_pending → active | denied | expired`
 

@@ -6,35 +6,35 @@ const log = getLogger("routing");
 
 export function resolveAssistant(
   config: GatewayConfig,
-  chatId: string,
-  userId: string,
+  conversationId: string,
+  actorId: string,
 ): RoutingOutcome {
-  // Priority 1: explicit chat_id route
+  // Priority 1: explicit conversation_id route
   for (const entry of config.routingEntries) {
-    if (entry.type === "chat_id" && entry.key === chatId) {
-      log.debug({ chatId, assistantId: entry.assistantId }, "Resolved by chat_id");
-      return { assistantId: entry.assistantId, routeSource: "chat_id" };
+    if (entry.type === "conversation_id" && entry.key === conversationId) {
+      log.debug({ conversationId, assistantId: entry.assistantId }, "Resolved by conversation_id");
+      return { assistantId: entry.assistantId, routeSource: "conversation_id" };
     }
   }
 
-  // Priority 2: explicit user_id route
+  // Priority 2: explicit actor_id route
   for (const entry of config.routingEntries) {
-    if (entry.type === "user_id" && entry.key === userId) {
-      log.debug({ userId, assistantId: entry.assistantId }, "Resolved by user_id");
-      return { assistantId: entry.assistantId, routeSource: "user_id" };
+    if (entry.type === "actor_id" && entry.key === actorId) {
+      log.debug({ actorId, assistantId: entry.assistantId }, "Resolved by actor_id");
+      return { assistantId: entry.assistantId, routeSource: "actor_id" };
     }
   }
 
   // Priority 3: apply unmapped policy
   if (config.unmappedPolicy === "default" && config.defaultAssistantId) {
     log.debug(
-      { chatId, userId, assistantId: config.defaultAssistantId },
+      { conversationId, actorId, assistantId: config.defaultAssistantId },
       "Resolved by default policy",
     );
     return { assistantId: config.defaultAssistantId, routeSource: "default" };
   }
 
-  log.info({ chatId, userId }, "No route matched, rejecting");
+  log.info({ conversationId, actorId }, "No route matched, rejecting");
   return { rejected: true, reason: "No route configured for this chat" };
 }
 

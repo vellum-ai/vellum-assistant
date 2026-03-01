@@ -204,7 +204,7 @@ graph TB
         GW_WEBHOOK["Telegram Webhook<br/>/webhooks/telegram"]
         GW_VERIFY["Verify Secret<br/>x-telegram-bot-api-secret-token"]
         GW_NORMALIZE["Normalize Message<br/>DM text only (v1)"]
-        GW_ROUTE["Route Resolver<br/>chat_id → user_id → default"]
+        GW_ROUTE["Route Resolver<br/>conversation_id → actor_id → default"]
         GW_FORWARD["Runtime Client<br/>POST /channels/inbound"]
         GW_REPLY["Send Reply<br/>Telegram sendMessage"]
         GW_ATTACH["Send Attachments<br/>sendPhoto / sendDocument"]

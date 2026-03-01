@@ -103,13 +103,13 @@ describe("normalizeSlackAppMention", () => {
     expect(result!.event.version).toBe("v1");
   });
 
-  test("sets externalChatId to event.channel", () => {
+  test("sets conversationExternalId to event.channel", () => {
     const config = makeConfig();
     const event = makeEvent({ channel: "C_MY_CHANNEL" });
     const result = normalizeSlackAppMention(event, "evt-002", config);
 
     expect(result).not.toBeNull();
-    expect(result!.event.message.externalChatId).toBe("C_MY_CHANNEL");
+    expect(result!.event.message.conversationExternalId).toBe("C_MY_CHANNEL");
   });
 
   test("externalMessageId uses client_msg_id when present", () => {
@@ -166,13 +166,13 @@ describe("normalizeSlackAppMention", () => {
     expect(result!.threadTs).toBe("1700000000.000100");
   });
 
-  test("sender.externalUserId is set to event.user", () => {
+  test("actor.actorExternalId is set to event.user", () => {
     const config = makeConfig();
     const event = makeEvent({ user: "U_SENDER_42" });
     const result = normalizeSlackAppMention(event, "evt-009", config);
 
     expect(result).not.toBeNull();
-    expect(result!.event.sender.externalUserId).toBe("U_SENDER_42");
+    expect(result!.event.actor.actorExternalId).toBe("U_SENDER_42");
   });
 
   test("channel field is set in return value", () => {
