@@ -959,6 +959,17 @@ private final class ComposerNativeTextView: NSTextView {
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        // macOS routes Cmd+key events through performKeyEquivalent before
+        // keyDown, so Cmd+Enter must be intercepted here and forwarded to
+        // keyDown where the send/accept/slash-menu logic lives.
+        if cmdEnterToSend,
+           event.modifierFlags.contains(.command),
+           !event.modifierFlags.contains(.shift),
+           (event.keyCode == 36 || event.keyCode == 76) {
+            self.keyDown(with: event)
+            return true
+        }
+
         if event.modifierFlags.contains(.command),
            event.charactersIgnoringModifiers?.lowercased() == "v" {
             if pasteboardHasImageContent {
