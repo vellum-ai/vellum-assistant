@@ -590,7 +590,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// HTTP transport used when connecting to a remote assistant via gateway.
     /// Non-nil when `config.transport` is `.http`.
-    var httpTransport: HTTPTransport?
+    public var httpTransport: HTTPTransport?
 
     let encoder = JSONEncoder()
     let decoder = JSONDecoder()
