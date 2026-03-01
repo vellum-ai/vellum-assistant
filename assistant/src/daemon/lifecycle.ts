@@ -420,7 +420,15 @@ export async function runDaemon(): Promise<void> {
           session.allowedToolNames = prevAllowedTools;
         }
         if (agentLoopError) {
-          rollback();
+          // Remove any assistant messages persisted during the failed run
+          // (e.g. session_error text) so the deterministic fallback is the
+          // only visible pointer output for this event.
+          const allMsgs = conversationStore.getMessages(conversationId);
+          const instrIdx = allMsgs.findIndex((m) => m.id === messageId);
+          const staleIds = instrIdx >= 0
+            ? allMsgs.slice(instrIdx + 1).map((m) => m.id)
+            : [];
+          rollback(staleIds);
           throw new Error(agentLoopError);
         }
 
