@@ -211,13 +211,19 @@ struct ChatView: View {
                                 .animation(VAnimation.fast, value: editorContentHeight)
                         }
 
+                        let composerMessages: [ChatMessage] = {
+                            let all = messages.filter { !$0.isSubagentNotification }
+                            guard displayedMessageCount < all.count else { return all }
+                            return Array(all.suffix(displayedMessageCount))
+                        }()
+
                         ComposerSection(
                             inputText: $inputText,
                             hasAPIKey: hasAPIKey,
                             isSending: isSending,
-                            hasPendingConfirmation: messages.contains(where: { $0.confirmation?.state == .pending }),
+                            hasPendingConfirmation: PendingConfirmationFocusSelector.activeRequestId(from: composerMessages) != nil,
                             onAllowPendingConfirmation: {
-                                if let requestId = PendingConfirmationFocusSelector.activeRequestId(from: messages) {
+                                if let requestId = PendingConfirmationFocusSelector.activeRequestId(from: composerMessages) {
                                     onConfirmationAllow(requestId)
                                 }
                             },
