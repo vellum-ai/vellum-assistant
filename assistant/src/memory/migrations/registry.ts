@@ -95,6 +95,11 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     version: 14,
     description: 'Normalize phone-like identity fields to E.164 format across guardian bindings, verification challenges, canonical requests, ingress members, and rate limits',
   },
+  {
+    key: 'migration_backfill_guardian_principal_id_v1',
+    version: 15,
+    description: 'Backfill guardianPrincipalId for existing channel_guardian_bindings and canonical_guardian_requests rows, expire unresolvable pending requests',
+  },
 ];
 
 export interface MigrationValidationResult {
