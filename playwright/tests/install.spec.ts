@@ -1,15 +1,12 @@
 /**
  * Smoke test for the recommended install.sh script.
  *
- * Runs the install script (with the final `vellum hatch` stripped out) and
- * then validates that `vellum ps` executes successfully. This is a
- * lightweight, non-agent test that exercises the CLI install path rather
- * than the desktop application.
+ * Runs the install script (including `vellum hatch`) and then validates
+ * that `vellum ps` reports the hatched assistant. Retires the assistant
+ * at the end to clean up.
  */
 
 import { execSync } from "child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "fs";
-import { tmpdir } from "os";
 import path from "path";
 
 import { test, expect } from "@playwright/test";
@@ -20,40 +17,51 @@ const INSTALL_SCRIPT = path.resolve(
 );
 
 test("install.sh installs vellum CLI and vellum ps works", async () => {
-  // GIVEN the recommended install.sh script with the `vellum hatch` step
-  // stripped out so we only test the install portion
-  const original = readFileSync(INSTALL_SCRIPT, "utf-8");
-  const modified = original.replace(
-    /    info "Running vellum hatch\.\.\."[\s\S]*?\n}/m,
-    "}",
-  );
-
-  const tmpDir = mkdtempSync(path.join(tmpdir(), "vellum-install-test-"));
-  const modifiedScript = path.join(tmpDir, "install.sh");
-  writeFileSync(modifiedScript, modified, { mode: 0o755 });
-
-  // WHEN we run the install script
-  execSync(`bash "${modifiedScript}"`, {
-    stdio: "inherit",
-    timeout: 120_000,
-    env: {
-      ...process.env,
-      HOME: process.env.HOME ?? "/root",
-    },
-  });
-
-  const bunBin = path.join(process.env.HOME ?? "/root", ".bun", "bin");
-  const envWithBun = {
+  const shellEnv = {
     ...process.env,
-    PATH: `${bunBin}:${process.env.PATH}`,
+    HOME: process.env.HOME ?? "/root",
   };
 
-  // THEN `vellum ps` should run successfully and report no assistants
-  const psOutput = execSync("vellum ps", {
-    encoding: "utf-8",
-    timeout: 30_000,
-    env: envWithBun,
-  });
+  // GIVEN the recommended install.sh script
+  // WHEN we run the install script (which includes vellum hatch)
+  execSync(
+    `bash "${INSTALL_SCRIPT}" && . ~/.config/vellum/env`,
+    {
+      stdio: "inherit",
+      timeout: 300_000,
+      shell: "/bin/bash",
+      env: shellEnv,
+    },
+  );
 
-  expect(psOutput).toContain("No assistants found");
+  // THEN `vellum ps` should run successfully and report one assistant
+  const psOutput = execSync(
+    `. ~/.config/vellum/env && vellum ps`,
+    {
+      encoding: "utf-8",
+      timeout: 30_000,
+      shell: "/bin/bash",
+      env: shellEnv,
+    },
+  );
+
+  expect(psOutput).toMatch(/NAME\s+STATUS\s+INFO/);
+
+  // AND we retire the assistant to clean up
+  const lines = psOutput
+    .split("\n")
+    .filter((l) => l.trim() && !l.includes("NAME") && !l.startsWith("  -"));
+  const assistantName = lines[0]?.trim().split(/\s{2,}/)[0];
+
+  if (assistantName) {
+    execSync(
+      `. ~/.config/vellum/env && vellum retire ${assistantName}`,
+      {
+        stdio: "inherit",
+        timeout: 30_000,
+        shell: "/bin/bash",
+        env: shellEnv,
+      },
+    );
+  }
 });
