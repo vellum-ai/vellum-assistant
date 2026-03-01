@@ -244,7 +244,9 @@ export async function routeGuardianReply(
 ): Promise<GuardianReplyResult> {
   const { messageText, actor, conversationId, callbackData, approvalConversationGenerator, channelDeliveryContext } = ctx;
   const pendingRequests = findPendingCanonicalRequests(actor, ctx.pendingRequestIds, conversationId);
-  const scopedPendingRequestIds = ctx.pendingRequestIds ? new Set(ctx.pendingRequestIds) : null;
+  const scopedPendingRequestIds = ctx.pendingRequestIds && ctx.pendingRequestIds.length > 0
+    ? new Set(ctx.pendingRequestIds)
+    : null;
 
   // ── 1. Deterministic callback parsing (button presses) ──
   // No conversationId scoping here — the guardian's reply comes from a
@@ -485,9 +487,10 @@ export async function routeGuardianReply(
     const result = await applyDecision(targetId, decisionAction, actor, messageText, channelDeliveryContext);
 
     // Attach the engine's reply text for stale/expired/identity-mismatch cases,
-    // but preserve the explicit failure text when the resolver failed — the engine
-    // reply is typically an affirmative confirmation that would be misleading.
-    if (engineResult.replyText && result.type !== 'canonical_resolver_failed') {
+    // but preserve resolver-authored replies (for example verification codes)
+    // and explicit resolver-failure text.
+    const hasResolverReplyText = Boolean(result.canonicalResult?.resolverReplyText);
+    if (engineResult.replyText && result.type !== 'canonical_resolver_failed' && !hasResolverReplyText) {
       result.replyText = engineResult.replyText;
     }
 
@@ -556,6 +559,7 @@ async function applyDecision(
       decisionApplied: true,
       consumed: true,
       type: 'canonical_decision_applied',
+      ...(canonicalResult.resolverReplyText ? { replyText: canonicalResult.resolverReplyText } : {}),
       requestId,
       canonicalResult,
     };

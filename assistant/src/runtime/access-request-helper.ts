@@ -21,6 +21,7 @@ import {
   updateCanonicalGuardianDelivery,
 } from '../memory/canonical-guardian-store.js';
 import { listActiveBindingsByAssistant } from '../memory/channel-guardian-store.js';
+import type { MemberStatus } from '../memory/ingress-member-store.js';
 import { emitNotificationSignal } from '../notifications/emit-signal.js';
 import type { NotificationDeliveryResult } from '../notifications/types.js';
 import { getLogger } from '../util/logger.js';
@@ -48,6 +49,7 @@ export interface AccessRequestParams {
   senderExternalUserId?: string;
   senderName?: string;
   senderUsername?: string;
+  previousMemberStatus?: MemberStatus;
 }
 
 export type AccessRequestResult =
@@ -82,6 +84,7 @@ export function notifyGuardianOfAccessRequest(
     senderExternalUserId,
     senderName,
     senderUsername,
+    previousMemberStatus,
   } = params;
 
   if (!senderExternalUserId) {
@@ -180,6 +183,7 @@ export function notifyGuardianOfAccessRequest(
       senderUsername: senderUsername ?? null,
       senderIdentifier,
       guardianBindingChannel,
+      previousMemberStatus: previousMemberStatus ?? null,
     },
     dedupeKey: `access-request:${canonicalRequest.id}`,
     onThreadCreated: (info) => {

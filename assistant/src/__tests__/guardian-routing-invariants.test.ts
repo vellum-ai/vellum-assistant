@@ -1238,4 +1238,74 @@ describe('routing invariant: invite handoff bypass for access requests', () => {
     const resolved = getCanonicalGuardianRequest(req.id);
     expect(resolved!.status).toBe('approved');
   });
+
+  test('trusted desktop access-request approval returns a verification code reply', async () => {
+    const req = createCanonicalGuardianRequest({
+      kind: 'access_request',
+      sourceType: 'channel',
+      sourceChannel: 'telegram',
+      conversationId: 'conv-access-desktop',
+      guardianExternalUserId: 'guardian-1',
+      requestCode: 'C0D3A5',
+      toolName: 'ingress_access_request',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+
+    const result = await routeGuardianReply({
+      messageText: 'C0D3A5 approve',
+      channel: 'vellum',
+      actor: trustedActor({ channel: 'vellum' }),
+      conversationId: 'conv-guardian-thread',
+      pendingRequestIds: [req.id],
+      approvalConversationGenerator: undefined,
+    });
+
+    expect(result.consumed).toBe(true);
+    expect(result.decisionApplied).toBe(true);
+    expect(result.replyText).toContain('verification code');
+    expect(result.replyText).toMatch(/\b\d{6}\b/);
+
+    const resolved = getCanonicalGuardianRequest(req.id);
+    expect(resolved!.status).toBe('approved');
+  });
+
+  test('NL decision path preserves resolver verification code reply text', async () => {
+    const req = createCanonicalGuardianRequest({
+      kind: 'access_request',
+      sourceType: 'channel',
+      sourceChannel: 'telegram',
+      conversationId: 'conv-access-desktop-nl',
+      guardianExternalUserId: 'guardian-1',
+      requesterExternalUserId: 'requester-1',
+      requesterChatId: 'chat-1',
+      requestCode: 'A1B2C3',
+      toolName: 'ingress_access_request',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+
+    const approvalConversationGenerator = async () => ({
+      disposition: 'approve_once' as const,
+      replyText: 'Access approved.',
+      targetRequestId: req.id,
+    });
+
+    const result = await routeGuardianReply({
+      messageText: 'please approve this request',
+      channel: 'vellum',
+      actor: trustedActor({ channel: 'vellum' }),
+      conversationId: 'conv-guardian-thread',
+      pendingRequestIds: [req.id],
+      approvalConversationGenerator: approvalConversationGenerator as any,
+    });
+
+    expect(result.consumed).toBe(true);
+    expect(result.decisionApplied).toBe(true);
+    expect(result.type).toBe('canonical_decision_applied');
+    expect(result.replyText).toContain('verification code');
+    expect(result.replyText).toMatch(/\b\d{6}\b/);
+    expect(result.replyText).not.toBe('Access approved.');
+
+    const resolved = getCanonicalGuardianRequest(req.id);
+    expect(resolved!.status).toBe('approved');
+  });
 });

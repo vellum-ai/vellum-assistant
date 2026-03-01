@@ -45,42 +45,33 @@ const log = getLogger('conversation-routes');
 
 const SUGGESTION_CACHE_MAX = 100;
 
-function collectLivePendingConfirmationRequestIds(
+function collectCanonicalGuardianRequestHintIds(
   conversationId: string,
   sourceChannel: string,
   session: import('../../daemon/session.js').Session,
 ): string[] {
-  const pendingInteractionRequestIds = pendingInteractions
-    .getByConversation(conversationId)
-    .filter(
-      (interaction) =>
-        interaction.kind === 'confirmation'
-        && interaction.session === session
-        && session.hasPendingConfirmation(interaction.requestId),
-    )
-    .map((interaction) => interaction.requestId);
-
-  // Query both by destination conversation (via deliveries table) and by
-  // source conversation (direct field). For desktop/HTTP sessions these
-  // often overlap, but the Set dedup below handles that.
-  const pendingCanonicalRequestIds = [
+  const requests = [
     ...listPendingCanonicalGuardianRequestsByDestinationConversation(conversationId, sourceChannel)
-      .filter((request) => request.kind === 'tool_approval')
-      .map((request) => request.id),
+      .map((request) => ({ id: request.id, kind: request.kind })),
     ...listCanonicalGuardianRequests({
       status: 'pending',
       conversationId,
-      kind: 'tool_approval',
-    }).map((request) => request.id),
-  ].filter((requestId) => session.hasPendingConfirmation(requestId));
+    }).map((request) => ({ id: request.id, kind: request.kind })),
+  ];
 
-  return Array.from(new Set([
-    ...pendingInteractionRequestIds,
-    ...pendingCanonicalRequestIds,
-  ]));
+  const deduped = new Map<string, string>();
+  for (const request of requests) {
+    if (!deduped.has(request.id)) {
+      deduped.set(request.id, request.kind ?? '');
+    }
+  }
+
+  return Array.from(deduped.entries())
+    .filter(([requestId, kind]) => kind !== 'tool_approval' || session.hasPendingConfirmation(requestId))
+    .map(([requestId]) => requestId);
 }
 
-async function tryConsumeInlineApprovalReply(params: {
+async function tryConsumeCanonicalGuardianReply(params: {
   conversationId: string;
   sourceChannel: string;
   sourceInterface: string;
@@ -110,21 +101,12 @@ async function tryConsumeInlineApprovalReply(params: {
   } = params;
   const trimmedContent = content.trim();
 
-  // Try inline approval interception whenever a pending confirmation exists.
-  // We intentionally do not block on queue depth: after an auto-deny, users
-  // often retry with "approve"/"yes" while the queue is still draining, and
-  // requiring an empty queue can create a deny/retry cascade.
-  if (
-    !session.hasAnyPendingConfirmation()
-    || trimmedContent.length === 0
-  ) {
+  if (trimmedContent.length === 0) {
     return { consumed: false };
   }
 
-  const pendingRequestIds = collectLivePendingConfirmationRequestIds(conversationId, sourceChannel, session);
-  if (pendingRequestIds.length === 0) {
-    return { consumed: false };
-  }
+  const pendingRequestHintIds = collectCanonicalGuardianRequestHintIds(conversationId, sourceChannel, session);
+  const pendingRequestIds = pendingRequestHintIds.length > 0 ? pendingRequestHintIds : undefined;
 
   const routerResult = await routeGuardianReply({
     messageText: trimmedContent,
@@ -540,21 +522,21 @@ export async function handleSendMessage(
       ? actorVerification.guardianContext.guardianExternalUserId
       : undefined;
 
-    // Try to consume the message as an inline approval/rejection reply.
+    // Try to consume the message as a canonical guardian approval/rejection reply.
     // On failure, degrade to the existing queue/auto-deny path rather than
     // surfacing a 500 — mirrors the IPC handler's catch-and-fallback.
     try {
-      const inlineReplyResult = await tryConsumeInlineApprovalReply({
+      const inlineReplyResult = await tryConsumeCanonicalGuardianReply({
         conversationId: mapping.conversationId,
         sourceChannel,
         sourceInterface,
         content: content ?? '',
-      attachments,
-      session,
-      onEvent,
-      approvalConversationGenerator: deps.approvalConversationGenerator,
-      verifiedActorExternalUserId,
-    });
+        attachments,
+        session,
+        onEvent,
+        approvalConversationGenerator: deps.approvalConversationGenerator,
+        verifiedActorExternalUserId,
+      });
       if (inlineReplyResult.consumed) {
         return Response.json(
           { accepted: true, ...(inlineReplyResult.messageId ? { messageId: inlineReplyResult.messageId } : {}) },

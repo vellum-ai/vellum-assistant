@@ -53,9 +53,9 @@ describe('handleSendMessage', () => {
     expect(body.accepted).toBe(true);
     expect(body.messageId).toBe('msg-legacy-fallback');
     expect(capturedSourceChannel).toBe('telegram');
-    expect(capturedOptions?.guardianContext).toEqual({
+    expect(capturedOptions?.guardianContext).toEqual(expect.objectContaining({
       trustClass: 'guardian',
       sourceChannel: 'telegram',
-    });
+    }));
   });
 });

@@ -12,7 +12,8 @@
  */
 
 import { answerCall } from '../calls/call-domain.js';
-import { type CanonicalGuardianRequest,getCanonicalGuardianRequest } from '../memory/canonical-guardian-store.js';
+import { getGatewayInternalBaseUrl } from '../config/env.js';
+import { getCanonicalGuardianRequest, type CanonicalGuardianRequest } from '../memory/canonical-guardian-store.js';
 import { upsertMember } from '../memory/ingress-member-store.js';
 import { emitNotificationSignal } from '../notifications/emit-signal.js';
 import { addRule } from '../permissions/trust-store.js';
@@ -24,6 +25,7 @@ import * as pendingInteractions from '../runtime/pending-interactions.js';
 import { getTool } from '../tools/registry.js';
 import { TC_GRANT_WAIT_MAX_MS } from '../tools/tool-approval-handler.js';
 import { getLogger } from '../util/logger.js';
+import { readHttpToken } from '../util/platform.js';
 
 const log = getLogger('guardian-request-resolvers');
 
@@ -79,8 +81,20 @@ export interface ResolverContext {
 
 /** Discriminated result from a resolver. */
 export type ResolverResult =
-  | { ok: true; applied: true; grantMinted?: boolean }
+  | { ok: true; applied: true; grantMinted?: boolean; guardianReplyText?: string }
   | { ok: false; reason: string };
+
+function resolveDeliverCallbackUrlForChannel(channel: string): string | null {
+  switch (channel) {
+    case 'telegram':
+    case 'sms':
+    case 'whatsapp':
+    case 'slack':
+      return `${getGatewayInternalBaseUrl()}/deliver/${channel}`;
+    default:
+      return null;
+  }
+}
 
 /** Interface that kind-specific resolvers implement. */
 export interface GuardianRequestResolver {
@@ -284,8 +298,11 @@ const accessRequestResolver: GuardianRequestResolver = {
     const channel = request.sourceChannel ?? 'unknown';
     const requesterExternalUserId = request.requesterExternalUserId ?? '';
     const requesterChatId = request.requesterChatId ?? request.requesterExternalUserId ?? '';
+    const requesterLabel = requesterExternalUserId || requesterChatId || 'the requester';
     const decidedByExternalUserId = ctx.actor.externalUserId ?? '';
     const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
+    const desktopDeliverUrl = resolveDeliverCallbackUrlForChannel(channel);
+    const desktopBearerToken = readHttpToken() ?? undefined;
 
     if (decision.action === 'reject') {
       log.info(
@@ -342,9 +359,23 @@ const accessRequestResolver: GuardianRequestResolver = {
           contextPayload: deniedPayload,
           dedupeKey: `trusted-contact:denied:${request.id}`,
         });
+      } else if (desktopDeliverUrl && requesterChatId) {
+        try {
+          await deliverChannelReply(desktopDeliverUrl, {
+            chatId: requesterChatId,
+            text: 'Your access request has been denied by the guardian.',
+            assistantId,
+          }, desktopBearerToken);
+        } catch (err) {
+          log.error({ err, requesterChatId }, 'Failed to notify requester of access request denial (desktop decision path)');
+        }
       }
 
-      return { ok: true, applied: true };
+      return {
+        ok: true,
+        applied: true,
+        ...(ctx.actor.isTrusted ? { guardianReplyText: `Access denied for ${requesterLabel}.` } : {}),
+      };
     }
 
     // Voice approvals: directly activate the trusted contact without minting
@@ -405,6 +436,7 @@ const accessRequestResolver: GuardianRequestResolver = {
 
     // Deliver the verification code to the guardian and notify the requester
     // when channel delivery context is available (channel message path).
+    let requesterNotified = false;
     if (channelDeliveryContext) {
       let codeDelivered = true;
 
@@ -435,6 +467,7 @@ const accessRequestResolver: GuardianRequestResolver = {
               + 'Please enter the 6-digit verification code you receive from the guardian.',
             assistantId,
           }, channelDeliveryContext.bearerToken);
+          requesterNotified = true;
         } catch (err) {
           log.error({ err, requesterChatId }, 'Failed to notify requester of access request approval');
         }
@@ -474,9 +507,29 @@ const accessRequestResolver: GuardianRequestResolver = {
           dedupeKey: `trusted-contact:verification-sent:${session.sessionId}`,
         });
       }
+    } else if (desktopDeliverUrl && requesterChatId) {
+      try {
+        await deliverChannelReply(desktopDeliverUrl, {
+          chatId: requesterChatId,
+          text: 'Your access request has been approved! '
+            + 'Please enter the 6-digit verification code you receive from the guardian.',
+          assistantId,
+        }, desktopBearerToken);
+        requesterNotified = true;
+      } catch (err) {
+        log.error({ err, requesterChatId }, 'Failed to notify requester of access request approval (desktop decision path)');
+      }
     }
 
-    return { ok: true, applied: true };
+    const verificationReplyText = requesterNotified
+      ? `Access approved for ${requesterLabel}. Give them this verification code: ${session.secret}. The code expires in 10 minutes.`
+      : `Access approved for ${requesterLabel}. Give them this verification code: ${session.secret}. The code expires in 10 minutes. I could not notify them automatically, so please tell them to send the code manually.`;
+
+    return {
+      ok: true,
+      applied: true,
+      ...(ctx.actor.isTrusted ? { guardianReplyText: verificationReplyText } : {}),
+    };
   },
 };
 
