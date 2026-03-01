@@ -45,19 +45,27 @@ const SUGGESTION_CACHE_MAX = 100;
 function collectCanonicalGuardianRequestHintIds(
   conversationId: string,
   sourceChannel: string,
+  session: import('../../daemon/session.js').Session,
 ): string[] {
-  const hintIds = [
+  const requests = [
     ...listPendingCanonicalGuardianRequestsByDestinationConversation(conversationId, sourceChannel)
-      .map((request) => request.id),
+      .map((request) => ({ id: request.id, kind: request.kind })),
     ...listCanonicalGuardianRequests({
       status: 'pending',
       conversationId,
-    }).map((request) => request.id),
+    }).map((request) => ({ id: request.id, kind: request.kind })),
   ];
 
-  return Array.from(new Set([
-    ...hintIds,
-  ]));
+  const deduped = new Map<string, string>();
+  for (const request of requests) {
+    if (!deduped.has(request.id)) {
+      deduped.set(request.id, request.kind ?? '');
+    }
+  }
+
+  return Array.from(deduped.entries())
+    .filter(([requestId, kind]) => kind !== 'tool_approval' || session.hasPendingConfirmation(requestId))
+    .map(([requestId]) => requestId);
 }
 
 async function tryConsumeCanonicalGuardianReply(params: {
@@ -91,7 +99,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
     return { consumed: false };
   }
 
-  const pendingRequestHintIds = collectCanonicalGuardianRequestHintIds(conversationId, sourceChannel);
+  const pendingRequestHintIds = collectCanonicalGuardianRequestHintIds(conversationId, sourceChannel, session);
   const pendingRequestIds = pendingRequestHintIds.length > 0 ? pendingRequestHintIds : undefined;
 
   const routerResult = await routeGuardianReply({

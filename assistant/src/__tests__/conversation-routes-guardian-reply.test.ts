@@ -179,4 +179,61 @@ describe('handleSendMessage canonical guardian reply interception', () => {
     expect(persistUserMessage).toHaveBeenCalledTimes(1);
     expect(runAgentLoop).toHaveBeenCalledTimes(1);
   });
+
+  test('excludes stale tool_approval hints without a live pending confirmation', async () => {
+    listPendingByDestinationMock.mockReturnValue([
+      { id: 'tool-approval-live', kind: 'tool_approval' },
+      { id: 'tool-approval-stale', kind: 'tool_approval' },
+      { id: 'access-req-1', kind: 'access_request' },
+    ]);
+    listCanonicalMock.mockReturnValue([]);
+    routeGuardianReplyMock.mockResolvedValue({
+      consumed: false,
+      decisionApplied: false,
+      type: 'not_consumed',
+    });
+
+    const persistUserMessage = mock(async () => 'persisted-user-id');
+    const runAgentLoop = mock(async () => undefined);
+    const session = {
+      setGuardianContext: () => {},
+      setTurnChannelContext: () => {},
+      setTurnInterfaceContext: () => {},
+      isProcessing: () => false,
+      hasAnyPendingConfirmation: () => true,
+      denyAllPendingConfirmations: () => {},
+      enqueueMessage: () => ({ queued: true, requestId: 'queued-id' }),
+      persistUserMessage,
+      runAgentLoop,
+      getMessages: () => [] as unknown[],
+      assistantId: 'self',
+      guardianContext: undefined,
+      hasPendingConfirmation: (requestId: string) => requestId === 'tool-approval-live',
+    } as unknown as import('../daemon/session.js').Session;
+
+    const req = new Request('http://localhost/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        conversationKey: 'guardian-thread-key',
+        content: 'approve',
+        sourceChannel: 'vellum',
+        interface: 'macos',
+      }),
+    });
+
+    const res = await handleSendMessage(req, {
+      sendMessageDeps: {
+        getOrCreateSession: async () => session,
+        assistantEventHub: { publish: async () => {} } as any,
+        resolveAttachments: () => [],
+      },
+    });
+
+    expect(res.status).toBe(202);
+    expect(routeGuardianReplyMock).toHaveBeenCalledTimes(1);
+    const routerCall = (routeGuardianReplyMock as any).mock.calls[0][0] as Record<string, unknown>;
+    expect(routerCall.pendingRequestIds).toEqual(['tool-approval-live', 'access-req-1']);
+    expect((routerCall.pendingRequestIds as string[]).includes('tool-approval-stale')).toBe(false);
+  });
 });
