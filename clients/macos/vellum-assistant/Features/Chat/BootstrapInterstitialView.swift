@@ -27,6 +27,7 @@ struct BootstrapInterstitialView: View {
                     .font(VFont.body)
                     .foregroundColor(VColor.textSecondary)
                     .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 VButton(
                     label: "Try Again",
@@ -47,7 +48,7 @@ struct BootstrapInterstitialView: View {
                             .stroke(VColor.surfaceBorder, lineWidth: 1)
                     )
             )
-            .frame(maxWidth: 320)
+            .frame(maxWidth: 380)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
