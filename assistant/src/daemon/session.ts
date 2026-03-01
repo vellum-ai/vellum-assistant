@@ -194,7 +194,7 @@ export class Session {
       if (state === 'pending') {
         this.emitActivityState('awaiting_confirmation', 'confirmation_requested', 'assistant_turn');
       } else if (state === 'timed_out') {
-        this.emitActivityState('idle', 'confirmation_resolved', 'assistant_turn');
+        this.emitActivityState('thinking', 'confirmation_resolved', 'assistant_turn');
       }
     });
     this.secretPrompter = new SecretPrompter(sendToClient);
