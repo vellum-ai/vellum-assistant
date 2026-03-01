@@ -494,10 +494,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
     /// Starts a background task that polls daemon readiness every 2 seconds.
     /// When the daemon connects, dismisses the interstitial and proceeds
-    /// with the mandatory wake-up send.
+    /// with the mandatory wake-up send. Shows escalating diagnostic messages
+    /// if the daemon takes too long to connect.
     private func startBootstrapRetryCoordinator() {
         bootstrapRetryTask?.cancel()
         updateBootstrapInterstitial(isRetrying: true)
+
+        let retryStart = CFAbsoluteTimeGetCurrent()
 
         bootstrapRetryTask = Task {
             while !Task.isCancelled {
@@ -511,6 +514,16 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                         bootstrapRetryTask = nil
                     }
                     return
+                }
+
+                // Surface escalating diagnostics so the user isn't staring
+                // at a spinner with no context.
+                let elapsed = CFAbsoluteTimeGetCurrent() - retryStart
+                if elapsed > 30 {
+                    updateBootstrapInterstitial(
+                        errorMessage: bootstrapDiagnosticMessage(elapsed: elapsed),
+                        isRetrying: true
+                    )
                 }
 
                 // If the daemon socket doesn't exist, the daemon process
@@ -545,6 +558,22 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
             }
+        }
+    }
+
+    /// Returns a user-facing diagnostic message based on how long the bootstrap
+    /// retry has been running. Messages escalate in specificity over time.
+    private func bootstrapDiagnosticMessage(elapsed: CFAbsoluteTime) -> String {
+        if elapsed > 120 {
+            return "Your assistant is taking unusually long to start. "
+                + "Try quitting the app (\u{2318}Q) and reopening it. "
+                + "If the issue persists, retire and re-hatch your assistant."
+        } else if elapsed > 60 {
+            return "This is taking longer than expected. "
+                + "A background process may have crashed. "
+                + "The app will keep retrying automatically."
+        } else {
+            return "Still working on it \u{2014} this can take a minute on first launch."
         }
     }
 
