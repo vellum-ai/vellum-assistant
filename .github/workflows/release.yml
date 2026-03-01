@@ -887,14 +887,21 @@ jobs:
 
       - name: Remove all source files except playwright
         run: |
-          # Move playwright directory to a safe location
+          # Move playwright directory and install.sh to safe locations
           mv playwright /tmp/playwright-tests
+          if [ -f cli/src/adapters/install.sh ]; then
+            cp cli/src/adapters/install.sh /tmp/install.sh
+          fi
 
           # Remove everything in the repo except .git
           find . -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
 
-          # Restore only the playwright directory
+          # Restore playwright directory and install.sh
           mv /tmp/playwright-tests playwright
+          if [ -f /tmp/install.sh ]; then
+            mkdir -p cli/src/adapters
+            mv /tmp/install.sh cli/src/adapters/install.sh
+          fi
 
       - name: Install app from DMG
         run: |
@@ -917,8 +924,8 @@ jobs:
           echo "=== Repository contents ==="
           ls -la
           echo ""
-          echo "Only playwright/ and clients/macos/dist/ (from DMG) should exist:"
-          find . -mindepth 1 -maxdepth 2 ! -path './.git*' ! -path './playwright*' ! -path './clients*' | head -20 || true
+          echo "Only playwright/, clients/macos/dist/, and cli/src/adapters/install.sh should exist:"
+          find . -mindepth 1 -maxdepth 2 ! -path './.git*' ! -path './playwright*' ! -path './clients*' ! -path './cli*' | head -20 || true
 
       - name: Authenticate to GCP
         uses: google-github-actions/auth@v2
