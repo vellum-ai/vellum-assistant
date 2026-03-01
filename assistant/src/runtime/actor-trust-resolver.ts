@@ -35,6 +35,8 @@ export interface ActorTrustContext {
     guardianExternalUserId: string;
     guardianDeliveryChatId: string | null;
   } | null;
+  /** Canonical principal ID from the guardian binding. Nullable for backward compatibility — M5 will make this required. */
+  guardianPrincipalId?: string | null;
   /** Ingress member record, if any, for this sender. */
   memberRecord: IngressMember | null;
   /** Trust classification. */
@@ -102,6 +104,7 @@ export function resolveActorTrust(input: ResolveActorTrustInput): ActorTrustCont
     return {
       canonicalSenderId: null,
       guardianBindingMatch: null,
+      guardianPrincipalId: undefined,
       memberRecord: null,
       trustClass: 'unknown',
       actorMetadata: {
@@ -181,6 +184,7 @@ export function resolveActorTrust(input: ResolveActorTrustInput): ActorTrustCont
   return {
     canonicalSenderId,
     guardianBindingMatch,
+    guardianPrincipalId: binding?.guardianPrincipalId ?? undefined,
     memberRecord,
     trustClass,
     actorMetadata: {
@@ -210,6 +214,7 @@ export function toGuardianRuntimeContextFromTrust(
     guardianChatId: ctx.guardianBindingMatch?.guardianDeliveryChatId ??
       (ctx.trustClass === 'guardian' ? externalChatId : undefined),
     guardianExternalUserId: ctx.guardianBindingMatch?.guardianExternalUserId,
+    guardianPrincipalId: ctx.guardianPrincipalId,
     requesterIdentifier: ctx.actorMetadata.identifier,
     requesterDisplayName: ctx.actorMetadata.displayName,
     requesterSenderDisplayName: ctx.actorMetadata.senderDisplayName,

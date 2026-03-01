@@ -52,6 +52,7 @@ export function resolveLocalIpcGuardianContext(
     return {
       sourceChannel,
       trustClass: 'guardian',
+      guardianPrincipalId: undefined,
     };
   }
 
