@@ -61,6 +61,12 @@ The managed gateway is a dedicated service lane for Vellum-owned shared channel 
 - Wires SMS and voice webhook handlers to resolve managed routes before returning accepted stubs.
 - Surfaces explicit 404/4xx route-resolution envelopes without dispatching to runtime yet.
 
+## P07 PR-6 scope
+
+- Adds managed inbound dispatch client to call Django internal dispatch endpoint after route resolution.
+- Wires SMS and voice webhook handlers to forward normalized events through Django -> vembda -> runtime.
+- Surfaces explicit dispatch upstream error envelopes while preserving fail-closed route ownership checks.
+
 ## Endpoints
 
 - `GET /healthz`
@@ -68,5 +74,6 @@ The managed gateway is a dedicated service lane for Vellum-owned shared channel 
 - `GET /v1/internal/managed-gateway/healthz/`
 - `GET /v1/internal/managed-gateway/readyz/`
 - `POST /v1/internal/managed-gateway/routes/resolve/`
+- `POST /v1/internal/managed-gateway/inbound/dispatch/`
 - `POST /webhooks/twilio/sms`
 - `POST /webhooks/twilio/voice`

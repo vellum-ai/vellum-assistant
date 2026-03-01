@@ -1,24 +1,24 @@
 import type { ManagedGatewayConfig } from "./config.js";
+import type { ManagedGatewayInboundEvent } from "./managed-inbound-event.js";
 import { buildManagedInternalAuthHeaders } from "./managed-internal-auth-headers.js";
-import {
-  MANAGED_GATEWAY_ROUTE_RESOLVE_PATH,
-  type ManagedGatewayUpstreamFetch,
-} from "./route-resolve.js";
+import type { ManagedRouteResolution } from "./managed-route-resolution-client.js";
+import type { ManagedGatewayUpstreamFetch } from "./route-resolve.js";
 
-const ROUTE_RESOLVE_SCOPE = "routes:resolve";
+export const MANAGED_GATEWAY_INBOUND_DISPATCH_PATH = "/v1/internal/managed-gateway/inbound/dispatch/";
+const INBOUND_DISPATCH_SCOPE = "events:dispatch";
 
-export type ManagedRouteResolution = {
+export type ManagedInboundDispatchReceipt = {
+  status: string;
   routeId: string;
   assistantId: string;
-  provider: string;
-  routeType: string;
-  identityKey: string;
+  eventId?: string;
+  duplicate?: boolean;
 };
 
-export type ManagedRouteResolutionResult =
+export type ManagedInboundDispatchResult =
   | {
     ok: true;
-    route: ManagedRouteResolution;
+    dispatch: ManagedInboundDispatchReceipt;
   }
   | {
     ok: false;
@@ -29,14 +29,14 @@ export type ManagedRouteResolutionResult =
     };
   };
 
-export async function resolveManagedRoute(
+export async function dispatchManagedInboundEvent(
   config: ManagedGatewayConfig,
   args: {
-    routeType: "sms" | "voice";
-    identityKey: string;
+    route: ManagedRouteResolution;
+    normalizedEvent: ManagedGatewayInboundEvent;
     fetchImpl?: ManagedGatewayUpstreamFetch;
   },
-): Promise<ManagedRouteResolutionResult> {
+): Promise<ManagedInboundDispatchResult> {
   if (!config.djangoInternalBaseUrl) {
     return {
       ok: false,
@@ -48,7 +48,7 @@ export async function resolveManagedRoute(
     };
   }
 
-  const authHeaders = buildManagedInternalAuthHeaders(config, ROUTE_RESOLVE_SCOPE);
+  const authHeaders = buildManagedInternalAuthHeaders(config, INBOUND_DISPATCH_SCOPE);
   if (!authHeaders) {
     return {
       ok: false,
@@ -65,7 +65,7 @@ export async function resolveManagedRoute(
   headers.set("content-type", "application/json");
 
   const upstreamUrl = new URL(
-    MANAGED_GATEWAY_ROUTE_RESOLVE_PATH,
+    MANAGED_GATEWAY_INBOUND_DISPATCH_PATH,
     config.djangoInternalBaseUrl,
   ).toString();
 
@@ -75,9 +75,9 @@ export async function resolveManagedRoute(
       method: "POST",
       headers,
       body: JSON.stringify({
-        provider: "twilio",
-        route_type: args.routeType,
-        identity_key: args.identityKey,
+        route_id: args.route.routeId,
+        assistant_id: args.route.assistantId,
+        normalized_event: args.normalizedEvent,
       }),
     });
   } catch {
@@ -86,12 +86,12 @@ export async function resolveManagedRoute(
       status: 502,
       error: {
         code: "upstream_unavailable",
-        detail: "Managed route resolver upstream is unavailable.",
+        detail: "Managed inbound dispatch upstream is unavailable.",
       },
     };
   }
 
-  if (response.status === 200) {
+  if (response.status === 202) {
     const payload = await safeJson(response);
     if (!payload || typeof payload !== "object") {
       return {
@@ -99,37 +99,41 @@ export async function resolveManagedRoute(
         status: 502,
         error: {
           code: "upstream_invalid_response",
-          detail: "Managed route resolver upstream returned an invalid response payload.",
+          detail: "Managed inbound dispatch upstream returned an invalid response payload.",
         },
       };
     }
 
+    const statusValue = asNonEmptyString(payload.status);
     const routeId = asNonEmptyString(payload.route_id);
     const assistantId = asNonEmptyString(payload.assistant_id);
-    const provider = asNonEmptyString(payload.provider);
-    const routeType = asNonEmptyString(payload.route_type);
-    const identityKey = asNonEmptyString(payload.identity_key);
-
-    if (!routeId || !assistantId || !provider || !routeType || !identityKey) {
+    if (!statusValue || !routeId || !assistantId) {
       return {
         ok: false,
         status: 502,
         error: {
           code: "upstream_invalid_response",
-          detail: "Managed route resolver upstream returned an invalid response payload.",
+          detail: "Managed inbound dispatch upstream returned an invalid response payload.",
         },
       };
     }
 
+    const receipt: ManagedInboundDispatchReceipt = {
+      status: statusValue,
+      routeId,
+      assistantId,
+    };
+    const eventId = asNonEmptyString(payload.event_id);
+    if (eventId) {
+      receipt.eventId = eventId;
+    }
+    if (typeof payload.duplicate === "boolean") {
+      receipt.duplicate = payload.duplicate;
+    }
+
     return {
       ok: true,
-      route: {
-        routeId,
-        assistantId,
-        provider,
-        routeType,
-        identityKey,
-      },
+      dispatch: receipt,
     };
   }
 
@@ -137,7 +141,7 @@ export async function resolveManagedRoute(
   const errorPayload = asRecord(payload?.error);
   const detail = asNonEmptyString(errorPayload?.detail)
     || asNonEmptyString(payload?.detail)
-    || `Managed route resolver upstream returned status ${response.status}.`;
+    || `Managed inbound dispatch upstream returned status ${response.status}.`;
   const code = asNonEmptyString(errorPayload?.code)
     || (response.status === 404 ? "managed_route_not_found" : "upstream_error");
 

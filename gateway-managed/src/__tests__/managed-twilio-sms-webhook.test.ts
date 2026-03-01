@@ -24,7 +24,7 @@ function makeConfig(overrides: EnvOverrides = {}): ReturnType<typeof loadConfig>
         token_id: "mgw-2026-01",
         principal: "managed-gateway-staging",
         audience: "managed-gateway-internal",
-        scopes: ["managed-gateway:internal", "routes:resolve"],
+        scopes: ["managed-gateway:internal", "routes:resolve", "events:dispatch"],
         expires_at: FAR_FUTURE,
       },
     }),
@@ -57,20 +57,42 @@ function makeRequest(
 describe("managed Twilio SMS webhook skeleton", () => {
   test("returns 202 for valid signed Twilio SMS payload", async () => {
     const config = makeConfig();
+    let callCount = 0;
     const fetchMock: MockedFetch = mock(async () => {
-      return new Response(
-        JSON.stringify({
-          route_id: "87c8dd8f-1f92-45c4-a524-126cf59fd760",
-          assistant_id: "8aa67431-9f28-40c0-98a5-e49d83bd15ab",
-          provider: "twilio",
-          route_type: "sms",
-          identity_key: "+15559999999",
-        }),
-        {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        },
-      );
+      callCount += 1;
+      if (callCount === 1) {
+        return new Response(
+          JSON.stringify({
+            route_id: "87c8dd8f-1f92-45c4-a524-126cf59fd760",
+            assistant_id: "8aa67431-9f28-40c0-98a5-e49d83bd15ab",
+            provider: "twilio",
+            route_type: "sms",
+            identity_key: "+15559999999",
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      }
+
+      if (callCount === 2) {
+        return new Response(
+          JSON.stringify({
+            status: "accepted",
+            route_id: "87c8dd8f-1f92-45c4-a524-126cf59fd760",
+            assistant_id: "8aa67431-9f28-40c0-98a5-e49d83bd15ab",
+            event_id: "evt_123",
+            duplicate: false,
+          }),
+          {
+            status: 202,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      }
+
+      throw new Error(`unexpected upstream call #${callCount}`);
     });
     const handler = createManagedGatewayAppFetch(config, {
       fetchImpl: (...args) => fetchMock(...args),
@@ -94,7 +116,7 @@ describe("managed Twilio SMS webhook skeleton", () => {
     expect(response.status).toBe(202);
     expect(await response.json()).toEqual({
       status: "accepted",
-      code: "managed_sms_webhook_stub",
+      code: "managed_sms_webhook_dispatched",
       provider: "twilio",
       route_type: "sms",
       message_sid: "SM123",
@@ -129,7 +151,13 @@ describe("managed Twilio SMS webhook skeleton", () => {
           _to: "+15559999999",
         },
       },
+      dispatch: {
+        status: "accepted",
+        event_id: "evt_123",
+        duplicate: false,
+      },
     });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   test("returns 400 for invalid webhook payload", async () => {
@@ -280,5 +308,68 @@ describe("managed Twilio SMS webhook skeleton", () => {
         detail: "Managed route not found.",
       },
     });
+  });
+
+  test("returns 502 when dispatch upstream fails", async () => {
+    const config = makeConfig();
+    let callCount = 0;
+    const fetchMock: MockedFetch = mock(async () => {
+      callCount += 1;
+      if (callCount === 1) {
+        return new Response(
+          JSON.stringify({
+            route_id: "87c8dd8f-1f92-45c4-a524-126cf59fd760",
+            assistant_id: "8aa67431-9f28-40c0-98a5-e49d83bd15ab",
+            provider: "twilio",
+            route_type: "sms",
+            identity_key: "+15559999999",
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      }
+
+      return new Response(
+        JSON.stringify({
+          error: {
+            code: "upstream_error",
+            detail: "runtime unavailable",
+          },
+        }),
+        {
+          status: 503,
+          headers: { "content-type": "application/json" },
+        },
+      );
+    });
+    const handler = createManagedGatewayAppFetch(config, {
+      fetchImpl: (...args) => fetchMock(...args),
+    });
+    const payload = new URLSearchParams({
+      From: "+15550000000",
+      To: "+15559999999",
+      Body: "hello",
+      MessageSid: "SM127",
+    });
+    const signature = computeTwilioSignature(
+      `http://managed-gateway.test${MANAGED_TWILIO_SMS_WEBHOOK_PATH}`,
+      Object.fromEntries(payload),
+      "twilio-current-secret",
+    );
+
+    const response = await handler(makeRequest(payload, {
+      "x-twilio-signature": signature,
+    }));
+
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "upstream_error",
+        detail: "runtime unavailable",
+      },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
