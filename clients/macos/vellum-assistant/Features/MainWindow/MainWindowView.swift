@@ -1474,6 +1474,8 @@ struct MainWindowView: View {
                 .onDisappear {
                     threadSwitcherHoverTimer?.cancel()
                     threadSwitcherHoverTimer = nil
+                    threadSwitcherDismissTimer?.cancel()
+                    threadSwitcherDismissTimer = nil
                     showThreadSwitcher = false
                 }
                 .contentShape(Rectangle())
