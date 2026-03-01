@@ -147,6 +147,11 @@ export function handleAppsList(socket: net.Socket, ctx: HandlerContext): void {
     const apps = allApps.filter((a) => {
       if (homeBaseId && a.id === homeBaseId) return false;
       if (isPrebuiltHomeBaseApp(a)) return false;
+      // listApps() returns metadata-only (no htmlDefinition), so the HTML marker
+      // check inside isPrebuiltHomeBaseApp is inert above. Load the full app to
+      // let the HTML fallback fire when the description prefix has been removed.
+      const fullApp = getApp(a.id);
+      if (fullApp && isPrebuiltHomeBaseApp(fullApp)) return false;
       return true;
     });
     ctx.send(socket, {
