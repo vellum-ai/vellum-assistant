@@ -109,7 +109,7 @@ export type CallerIdentityResult =
 export async function resolveCallerIdentity(
   config: AssistantConfig,
   requestedMode?: 'assistant_number' | 'user_number',
-  assistantId?: string,
+  _assistantId?: string,
 ): Promise<CallerIdentityResult> {
   const identityConfig = config.calls.callerIdentity;
   let mode: 'assistant_number' | 'user_number';

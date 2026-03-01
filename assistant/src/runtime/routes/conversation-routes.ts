@@ -15,7 +15,6 @@ import {
   listCanonicalGuardianRequests,
   listPendingCanonicalGuardianRequestsByDestinationConversation,
 } from '../../memory/canonical-guardian-store.js';
-import { bridgeConfirmationRequestToGuardian } from '../confirmation-request-guardian-bridge.js';
 import {
   getConversationByKey,
   getOrCreateConversation,
@@ -26,6 +25,7 @@ import type { Provider } from '../../providers/types.js';
 import { getLogger } from '../../util/logger.js';
 import { buildAssistantEvent } from '../assistant-event.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
+import { bridgeConfirmationRequestToGuardian } from '../confirmation-request-guardian-bridge.js';
 import { routeGuardianReply } from '../guardian-reply-router.js';
 import { httpError } from '../http-errors.js';
 import type {

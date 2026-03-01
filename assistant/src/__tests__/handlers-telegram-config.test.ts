@@ -908,8 +908,6 @@ describe('Telegram config handler', () => {
 
 import { handleGuardianVerification } from '../daemon/handlers/config.js';
 import type { GuardianVerificationRequest } from '../daemon/ipc-contract.js';
-import { createBinding } from '../memory/channel-guardian-store.js';
-
 describe('Guardian verification IPC actions', () => {
   beforeEach(() => {
     secureKeyStore = {};

@@ -14,8 +14,8 @@
 
 import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
 import {
-  createCanonicalGuardianDelivery,
   type CanonicalGuardianRequest,
+  createCanonicalGuardianDelivery,
 } from '../memory/canonical-guardian-store.js';
 import { emitNotificationSignal } from '../notifications/emit-signal.js';
 import { canonicalizeInboundIdentity } from '../util/canonicalize-identity.js';
