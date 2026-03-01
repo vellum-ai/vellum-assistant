@@ -128,6 +128,9 @@ final class AppListManager: ObservableObject {
     /// Removes local apps the daemon no longer reports (e.g. filtered Home Base).
     /// Always propagates daemon descriptions to existing apps when they differ.
     func syncFromDaemon(_ daemonApps: [AppItem_Daemon]) {
+        // An empty daemon response likely means a transient error — don't wipe local state.
+        guard !daemonApps.isEmpty else { return }
+
         let existingIds = Set(apps.map(\.id))
         let daemonIds = Set(daemonApps.map(\.id))
         var newCount = 0
