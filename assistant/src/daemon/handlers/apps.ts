@@ -7,6 +7,8 @@ import { v4 as uuid } from 'uuid';
 
 import { packageApp } from '../../bundler/app-bundler.js';
 import { defaultGallery } from '../../gallery/default-gallery.js';
+import { resolveHomeBaseAppId } from '../../home-base/bootstrap.js';
+import { isPrebuiltHomeBaseApp } from '../../home-base/prebuilt-home-base-updater.js';
 import { getAppDiff, getAppFileAtVersion, getAppHistory, restoreAppVersion } from '../../memory/app-git-service.js';
 import { createApp, createAppRecord, deleteAppRecord, getApp, getAppPreview, listApps, queryAppRecords, updateApp,updateAppRecord } from '../../memory/app-store.js';
 import { createSharedAppLink } from '../../memory/shared-app-links-store.js';
@@ -140,7 +142,13 @@ export function handleAppUpdatePreview(msg: AppUpdatePreviewRequest, socket: net
 
 export function handleAppsList(socket: net.Socket, ctx: HandlerContext): void {
   try {
-    const apps = listApps();
+    const allApps = listApps();
+    const homeBaseId = resolveHomeBaseAppId();
+    const apps = allApps.filter((a) => {
+      if (homeBaseId && a.id === homeBaseId) return false;
+      if (isPrebuiltHomeBaseApp(a)) return false;
+      return true;
+    });
     ctx.send(socket, {
       type: 'apps_list_response',
       apps: apps.map((a) => {
