@@ -773,6 +773,7 @@ struct ActiveChatViewWrapper: View {
             loadPreviousMessagePage: { await viewModel.loadPreviousMessagePage() },
             isBootstrapping: isBootstrapping
         )
+        .environment(\.cmdEnterToSend, settingsStore.cmdEnterToSend)
     }
 }
 
