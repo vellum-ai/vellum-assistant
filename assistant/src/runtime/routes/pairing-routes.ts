@@ -10,24 +10,28 @@ import {
 import type { ServerMessage } from '../../daemon/ipc-contract.js';
 import { PairingStore } from '../../daemon/pairing-store.js';
 import { getLogger } from '../../util/logger.js';
-import { mintActorToken } from '../actor-token-service.js';
-import {
-  createActorTokenRecord,
-  revokeByDeviceBinding,
-} from '../actor-token-store.js';
+import { mintCredentialPair } from '../actor-refresh-token-service.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
 import { ensureVellumGuardianBinding } from '../guardian-vellum-migration.js';
 import { httpError } from '../http-errors.js';
 
 const log = getLogger('runtime-http');
 
+interface PairingCredentials {
+  actorToken: string;
+  actorTokenExpiresAt: number;
+  refreshToken: string;
+  refreshTokenExpiresAt: number;
+  refreshAfter: number;
+}
+
 /**
- * Mint an actor token for a paired device if a vellum guardian principal exists.
- * Returns the raw actor token string, or null if no vellum binding exists.
+ * Mint credentials (access token + refresh token) for a paired device.
+ * Returns the full credential set, or null if minting fails.
  *
  * NOTE: This function MUST remain synchronous — the mintingInFlight guard depends on it.
  */
-function mintPairingActorToken(deviceId: string, platform: string): string | null {
+function mintPairingCredentials(deviceId: string, platform: string): PairingCredentials | null {
   try {
     const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
     // Pairing can run before a local client has touched the actor-token
@@ -36,30 +40,24 @@ function mintPairingActorToken(deviceId: string, platform: string): string | nul
     const guardianPrincipalId = ensureVellumGuardianBinding(assistantId);
     const hashedDeviceId = hashDeviceId(deviceId);
 
-    // Revoke previous tokens for this device
-    revokeByDeviceBinding(assistantId, guardianPrincipalId, hashedDeviceId);
-
-    const { token, tokenHash, claims } = mintActorToken({
+    const credentials = mintCredentialPair({
       assistantId,
       platform,
       deviceId,
       guardianPrincipalId,
-    });
-
-    createActorTokenRecord({
-      tokenHash,
-      assistantId,
-      guardianPrincipalId,
       hashedDeviceId,
-      platform,
-      issuedAt: claims.iat,
-      expiresAt: claims.exp,
     });
 
-    log.info({ assistantId, platform }, 'Minted actor token during pairing');
-    return token;
+    log.info({ assistantId, platform }, 'Minted credentials during pairing');
+    return {
+      actorToken: credentials.actorToken,
+      actorTokenExpiresAt: credentials.actorTokenExpiresAt,
+      refreshToken: credentials.refreshToken,
+      refreshTokenExpiresAt: credentials.refreshTokenExpiresAt,
+      refreshAfter: credentials.refreshAfter,
+    };
   } catch (err) {
-    log.warn({ err }, 'Failed to mint actor token during pairing — continuing without it');
+    log.warn({ err }, 'Failed to mint credentials during pairing — continuing without them');
     return null;
   }
 }
@@ -75,24 +73,24 @@ const PENDING_DEVICE_ID_TTL_MS = 10 * 60 * 1000; // 10 minutes
 const pendingDeviceIds = new Map<string, { deviceId: string; createdAt: number }>();
 
 /**
- * Transient in-memory map of pairingRequestId -> { actorToken, approvedAt }.
- * Populated when a pairing is approved and the actor token is minted.
- * Entries are kept for TOKEN_RETRIEVAL_TTL_MS after approval so that
- * subsequent polls can still retrieve the token if the first response
+ * Transient in-memory map of pairingRequestId -> { credentials, approvedAt }.
+ * Populated when a pairing is approved and credentials are minted.
+ * Entries are kept for CREDENTIAL_RETRIEVAL_TTL_MS after approval so that
+ * subsequent polls can still retrieve them if the first response
  * was dropped or timed out.
  */
-const TOKEN_RETRIEVAL_TTL_MS = 5 * 60 * 1000; // 5 minutes
-const approvedActorTokens = new Map<string, { actorToken: string; approvedAt: number }>();
+const CREDENTIAL_RETRIEVAL_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const approvedCredentials = new Map<string, { credentials: PairingCredentials; approvedAt: number }>();
 
 /**
- * Sweep stale entries from the approved actor tokens map.
+ * Sweep stale entries from the approved credentials map.
  * Called lazily on each status poll.
  */
-function sweepApprovedTokens(): void {
+function sweepApprovedCredentials(): void {
   const now = Date.now();
-  for (const [id, entry] of approvedActorTokens) {
-    if (now - entry.approvedAt > TOKEN_RETRIEVAL_TTL_MS) {
-      approvedActorTokens.delete(id);
+  for (const [id, entry] of approvedCredentials) {
+    if (now - entry.approvedAt > CREDENTIAL_RETRIEVAL_TTL_MS) {
+      approvedCredentials.delete(id);
     }
   }
 }
@@ -127,7 +125,7 @@ const mintingInFlight = new Set<string>();
  */
 export function cleanupPairingState(pairingRequestId: string): void {
   pendingDeviceIds.delete(pairingRequestId);
-  approvedActorTokens.delete(pairingRequestId);
+  approvedCredentials.delete(pairingRequestId);
   mintingInFlight.delete(pairingRequestId);
 }
 
@@ -207,14 +205,20 @@ export async function handlePairingRequest(req: Request, ctx: PairingHandlerCont
       refreshDevice(hashedDeviceId, deviceName);
       ctx.pairingStore.approve(pairingRequestId, ctx.bearerToken);
       log.info({ pairingRequestId, hashedDeviceId }, 'Auto-approved allowlisted device');
-      const actorToken = mintPairingActorToken(deviceId, 'ios');
+      const credentials = mintPairingCredentials(deviceId, 'ios');
       return Response.json({
         status: 'approved',
         bearerToken: ctx.bearerToken,
         gatewayUrl: entry.gatewayUrl,
         localLanUrl: entry.localLanUrl,
         ...(ctx.featureFlagToken ? { featureFlagToken: ctx.featureFlagToken } : {}),
-        ...(actorToken ? { actorToken } : {}),
+        ...(credentials ? {
+          actorToken: credentials.actorToken,
+          actorTokenExpiresAt: credentials.actorTokenExpiresAt,
+          refreshToken: credentials.refreshToken,
+          refreshTokenExpiresAt: credentials.refreshTokenExpiresAt,
+          refreshAfter: credentials.refreshAfter,
+        } : {}),
       });
     }
 
@@ -260,7 +264,7 @@ export function handlePairingStatus(url: URL, ctx: PairingHandlerContext): Respo
 
   // Sweep stale transient entries on every poll — not just approved ones —
   // so abandoned pairing attempts don't accumulate indefinitely.
-  sweepApprovedTokens();
+  sweepApprovedCredentials();
   sweepPendingDeviceIds();
 
   const entry = ctx.pairingStore.get(id);
@@ -271,14 +275,14 @@ export function handlePairingStatus(url: URL, ctx: PairingHandlerContext): Respo
   }
 
   if (entry.status === 'approved') {
-    // Mint the actor token on first approved poll if we still have the
-    // raw deviceId from the pairing request. Once minted, the token is
-    // cached in approvedActorTokens with a TTL so subsequent polls can
-    // still retrieve it if the first response was dropped.
+    // Mint credentials on first approved poll if we still have the
+    // raw deviceId from the pairing request. Once minted, credentials are
+    // cached in approvedCredentials with a TTL so subsequent polls can
+    // still retrieve them if the first response was dropped.
     // The pending deviceId is only removed after a successful mint so
     // transient failures allow retries on subsequent polls.
-    let tokenEntry = approvedActorTokens.get(id);
-    if (!tokenEntry && !mintingInFlight.has(id)) {
+    let credentialEntry = approvedCredentials.get(id);
+    if (!credentialEntry && !mintingInFlight.has(id)) {
       const pending = pendingDeviceIds.get(id);
       const deviceIdMatchesEntry = Boolean(
         deviceId
@@ -289,11 +293,11 @@ export function handlePairingStatus(url: URL, ctx: PairingHandlerContext): Respo
       if (mintDeviceId) {
         mintingInFlight.add(id);
         try {
-          const actorToken = mintPairingActorToken(mintDeviceId, 'ios');
-          if (actorToken) {
+          const credentials = mintPairingCredentials(mintDeviceId, 'ios');
+          if (credentials) {
             pendingDeviceIds.delete(id);
-            tokenEntry = { actorToken, approvedAt: Date.now() };
-            approvedActorTokens.set(id, tokenEntry);
+            credentialEntry = { credentials, approvedAt: Date.now() };
+            approvedCredentials.set(id, credentialEntry);
           }
         } finally {
           mintingInFlight.delete(id);
@@ -307,7 +311,13 @@ export function handlePairingStatus(url: URL, ctx: PairingHandlerContext): Respo
       gatewayUrl: entry.gatewayUrl,
       localLanUrl: entry.localLanUrl,
       ...(ctx.featureFlagToken ? { featureFlagToken: ctx.featureFlagToken } : {}),
-      ...(tokenEntry ? { actorToken: tokenEntry.actorToken } : {}),
+      ...(credentialEntry ? {
+        actorToken: credentialEntry.credentials.actorToken,
+        actorTokenExpiresAt: credentialEntry.credentials.actorTokenExpiresAt,
+        refreshToken: credentialEntry.credentials.refreshToken,
+        refreshTokenExpiresAt: credentialEntry.credentials.refreshTokenExpiresAt,
+        refreshAfter: credentialEntry.credentials.refreshAfter,
+      } : {}),
     });
   }
 

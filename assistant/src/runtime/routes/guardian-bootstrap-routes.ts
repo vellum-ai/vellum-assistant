@@ -18,11 +18,7 @@ import {
   getActiveBinding,
 } from '../../memory/guardian-bindings.js';
 import { getLogger } from '../../util/logger.js';
-import { mintActorToken } from '../actor-token-service.js';
-import {
-  createActorTokenRecord,
-  revokeByDeviceBinding,
-} from '../actor-token-store.js';
+import { mintCredentialPair } from '../actor-refresh-token-service.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
 import { httpError } from '../http-errors.js';
 import type { ServerWithRequestIP } from '../middleware/actor-token.js';
@@ -106,27 +102,13 @@ export async function handleGuardianBootstrap(req: Request, server: ServerWithRe
     const { guardianPrincipalId, isNew } = ensureGuardianPrincipal(assistantId);
     const hashedDeviceId = hashDeviceId(deviceId);
 
-    // Revoke any existing active tokens for this device binding
-    // so we maintain one-active-token-per-device
-    revokeByDeviceBinding(assistantId, guardianPrincipalId, hashedDeviceId);
-
-    // Mint a new actor token
-    const { token, tokenHash, claims } = mintActorToken({
+    // Mint credential pair (access token + refresh token)
+    const credentials = mintCredentialPair({
       assistantId,
       platform,
       deviceId,
       guardianPrincipalId,
-    });
-
-    // Store only the hash
-    createActorTokenRecord({
-      tokenHash,
-      assistantId,
-      guardianPrincipalId,
       hashedDeviceId,
-      platform,
-      issuedAt: claims.iat,
-      expiresAt: claims.exp,
     });
 
     log.info(
@@ -136,7 +118,11 @@ export async function handleGuardianBootstrap(req: Request, server: ServerWithRe
 
     return Response.json({
       guardianPrincipalId,
-      actorToken: token,
+      actorToken: credentials.actorToken,
+      actorTokenExpiresAt: credentials.actorTokenExpiresAt,
+      refreshToken: credentials.refreshToken,
+      refreshTokenExpiresAt: credentials.refreshTokenExpiresAt,
+      refreshAfter: credentials.refreshAfter,
       isNew,
     });
   } catch (err) {
