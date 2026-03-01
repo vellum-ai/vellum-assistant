@@ -22,3 +22,23 @@ export function resolveUserReference(): string {
 
   return DEFAULT_USER_REFERENCE;
 }
+
+/**
+ * Resolve the user's pronouns from the Onboarding Snapshot section of
+ * USER.md.  Returns `null` when the file is missing, the field is empty,
+ * or the value is a sentinel like `declined_by_user`.
+ */
+export function resolveUserPronouns(): string | null {
+  const content = readTextFileSync(getWorkspacePromptPath('USER.md'));
+  if (content != null) {
+    const match = content.match(/Pronouns:[ \t]*(.*)/);
+    if (match && match[1].trim()) {
+      const raw = match[1].trim();
+      if (raw === 'declined_by_user') return null;
+      // Strip "inferred: " prefix for clean output
+      return raw.replace(/^inferred:\s*/i, '');
+    }
+  }
+
+  return null;
+}
