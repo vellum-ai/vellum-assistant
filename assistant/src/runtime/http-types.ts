@@ -7,6 +7,10 @@ import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.
 import type { ApprovalMessageContext, ComposeApprovalMessageGenerativeOptions } from './approval-message-composer.js';
 import type { AssistantEventHub } from './assistant-event-hub.js';
 import type {
+  CallPointerMessageContext,
+  ComposeCallPointerMessageOptions,
+} from '../calls/call-pointer-message-composer.js';
+import type {
   ComposeGuardianActionMessageOptions,
   GuardianActionMessageContext,
 } from './guardian-action-message-composer.js';
@@ -54,6 +58,15 @@ export interface ApprovalConversationContext {
 export type ApprovalConversationGenerator = (
   context: ApprovalConversationContext,
 ) => Promise<ApprovalConversationResult>;
+
+/**
+ * Daemon-injected function that generates call pointer copy using a provider.
+ * Returns generated text or `null` on failure (caller falls back to deterministic text).
+ */
+export type PointerCopyGenerator = (
+  context: CallPointerMessageContext,
+  options?: ComposeCallPointerMessageOptions,
+) => Promise<string | null>;
 
 /**
  * Daemon-injected function that generates guardian action copy using a provider.
