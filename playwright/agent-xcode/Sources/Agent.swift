@@ -45,7 +45,7 @@ struct AgentOptions {
 
 func runAgent(options: AgentOptions) async throws -> TestResult {
     guard let apiKey = ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"] else {
-        return TestResult(passed: false, message: "ANTHROPIC_API_KEY environment variable is not set")
+        return TestResult(passed: false, message: "ANTHROPIC_API_KEY environment variable is not set", reasoning: "")
     }
 
     let client = AnthropicClient(apiKey: apiKey)

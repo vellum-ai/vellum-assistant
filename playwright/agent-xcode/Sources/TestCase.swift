@@ -19,7 +19,7 @@ struct ParsedFrontmatter {
 func parseFrontmatter(_ content: String) -> ParsedFrontmatter {
     // Match YAML frontmatter between --- delimiters
     guard let range = content.range(of: "^---\n([\\s\\S]*?)\n---\n([\\s\\S]*)$", options: .regularExpression) else {
-        return ParsedFrontmatter(fixture: nil, body: content)
+        return ParsedFrontmatter(fixture: nil, requiredEnv: nil, experimental: false, body: content)
     }
 
     let matched = String(content[range])
