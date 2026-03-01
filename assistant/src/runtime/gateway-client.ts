@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import { getLogger } from '../util/logger.js';
 import type { ApprovalUIMetadata } from './channel-approval-types.js';
 import type { RuntimeAttachmentMetadata } from './http-types.js';
@@ -7,6 +9,9 @@ const log = getLogger('gateway-client');
 const DELIVERY_TIMEOUT_MS = 30_000;
 const MANAGED_OUTBOUND_SEND_PATH = '/v1/internal/managed-gateway/outbound-send/';
 const MANAGED_CALLBACK_TOKEN_HEADER = 'X-Managed-Gateway-Callback-Token';
+const MANAGED_IDEMPOTENCY_HEADER = 'X-Idempotency-Key';
+const MANAGED_OUTBOUND_MAX_ATTEMPTS = 3;
+const MANAGED_OUTBOUND_RETRY_BASE_MS = 150;
 const SMS_ATTACHMENTS_FALLBACK_TEXT =
   'I have a media attachment to share, but SMS currently supports text only.';
 
@@ -141,62 +146,112 @@ async function deliverManagedOutboundReply(
   }
 
   const requestId = buildManagedOutboundRequestId(callback, payload, normalizedText);
-  const response = await fetch(callback.requestUrl, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      route_id: callback.routeId,
-      assistant_id: callback.assistantId,
-      normalized_send: {
-        version: 'v1',
-        sourceChannel: callback.sourceChannel,
-        message: {
-          to: payload.chatId,
-          content: normalizedText,
-          externalMessageId: requestId,
-        },
-        source: {
-          requestId: requestId,
-        },
-        raw: {
-          chatId: payload.chatId,
-          text: payload.text ?? null,
-          assistantId: payload.assistantId ?? null,
-          chatAction: payload.chatAction ?? null,
-          hasAttachments,
-          sourceUpdateId: callback.sourceUpdateId ?? null,
-        },
+  headers[MANAGED_IDEMPOTENCY_HEADER] = requestId;
+
+  const requestBody = JSON.stringify({
+    route_id: callback.routeId,
+    assistant_id: callback.assistantId,
+    normalized_send: {
+      version: 'v1',
+      sourceChannel: callback.sourceChannel,
+      message: {
+        to: payload.chatId,
+        content: normalizedText,
+        externalMessageId: requestId,
       },
-    }),
-    signal: AbortSignal.timeout(DELIVERY_TIMEOUT_MS),
+      source: {
+        requestId: requestId,
+      },
+      raw: {
+        chatId: payload.chatId,
+        text: payload.text ?? null,
+        assistantId: payload.assistantId ?? null,
+        chatAction: payload.chatAction ?? null,
+        hasAttachments,
+        sourceUpdateId: callback.sourceUpdateId ?? null,
+      },
+    },
   });
 
-  if (!response.ok) {
-    const body = await response.text().catch(() => '<unreadable>');
+  for (let attempt = 1; attempt <= MANAGED_OUTBOUND_MAX_ATTEMPTS; attempt++) {
+    let response: Response;
+    try {
+      response = await fetch(callback.requestUrl, {
+        method: 'POST',
+        headers,
+        body: requestBody,
+        signal: AbortSignal.timeout(DELIVERY_TIMEOUT_MS),
+      });
+    } catch (error) {
+      if (attempt < MANAGED_OUTBOUND_MAX_ATTEMPTS) {
+        const retryDelayMs = MANAGED_OUTBOUND_RETRY_BASE_MS * attempt;
+        log.warn(
+          {
+            callbackUrl: callback.requestUrl,
+            routeId: callback.routeId,
+            requestId,
+            chatId: payload.chatId,
+            attempt,
+            retryDelayMs,
+            error,
+          },
+          'Managed outbound delivery attempt failed before response; retrying',
+        );
+        await sleep(retryDelayMs);
+        continue;
+      }
+      throw error;
+    }
+
+    if (response.ok) {
+      log.info(
+        {
+          routeId: callback.routeId,
+          assistantId: callback.assistantId,
+          sourceChannel: callback.sourceChannel,
+          requestId,
+          chatId: payload.chatId,
+          attempt,
+        },
+        'Managed outbound delivery accepted',
+      );
+      return;
+    }
+
+    const responseBody = await response.text().catch(() => '<unreadable>');
+    if (response.status >= 500 && response.status < 600 && attempt < MANAGED_OUTBOUND_MAX_ATTEMPTS) {
+      const retryDelayMs = MANAGED_OUTBOUND_RETRY_BASE_MS * attempt;
+      log.warn(
+        {
+          callbackUrl: callback.requestUrl,
+          routeId: callback.routeId,
+          requestId,
+          chatId: payload.chatId,
+          attempt,
+          status: response.status,
+          responseBody,
+          retryDelayMs,
+        },
+        'Managed outbound delivery got retriable upstream response; retrying',
+      );
+      await sleep(retryDelayMs);
+      continue;
+    }
+
     log.error(
       {
         status: response.status,
-        body,
+        body: responseBody,
         callbackUrl: callback.requestUrl,
         routeId: callback.routeId,
         requestId,
         chatId: payload.chatId,
+        attempt,
       },
       'Managed outbound delivery failed',
     );
-    throw new Error(`Managed outbound delivery failed (${response.status}): ${body}`);
+    throw new Error(`Managed outbound delivery failed (${response.status}): ${responseBody}`);
   }
-
-  log.info(
-    {
-      routeId: callback.routeId,
-      assistantId: callback.assistantId,
-      sourceChannel: callback.sourceChannel,
-      requestId,
-      chatId: payload.chatId,
-    },
-    'Managed outbound delivery accepted',
-  );
 }
 
 function buildManagedOutboundRequestId(
@@ -222,10 +277,17 @@ function buildManagedOutboundRequestId(
     },
   });
 
-  const digest = Bun.hash(bodyMaterial)
-    .toString(16)
-    .padStart(16, '0');
+  const digest = createHash('sha256')
+    .update(bodyMaterial)
+    .digest('hex')
+    .slice(0, 40);
   return `mgw-send-${digest}`;
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise(resolve => {
+    setTimeout(resolve, ms);
+  });
 }
 
 /**
