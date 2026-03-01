@@ -94,8 +94,8 @@ export async function handleGuardianBootstrap(req: Request, server: ServerWithRe
       return httpError('BAD_REQUEST', 'Missing required fields: platform, deviceId', 400);
     }
 
-    if (platform !== 'macos') {
-      return httpError('BAD_REQUEST', 'Invalid platform. Bootstrap is macOS-only; iOS uses QR pairing.', 400);
+    if (platform !== 'macos' && platform !== 'cli') {
+      return httpError('BAD_REQUEST', 'Invalid platform. Bootstrap is macOS/CLI-only; iOS uses QR pairing.', 400);
     }
 
     const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
