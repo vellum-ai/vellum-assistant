@@ -7,7 +7,7 @@
  */
 
 import { execSync } from "child_process";
-import { existsSync } from "fs";
+import { existsSync, mkdirSync, writeFileSync } from "fs";
 import path from "path";
 
 // ── Types ───────────────────────────────────────────────────────────
@@ -35,6 +35,24 @@ async function createDesktopAppFixture(): Promise<FixtureContext> {
   // Verify the built macOS app exists
   if (!existsSync(appPath)) {
     throw new Error(`Built macOS app not found at: ${appPath}`);
+  }
+
+  // Log `vellum ps` output for debugging
+  try {
+    const psOutput = execSync("vellum ps", {
+      encoding: "utf-8",
+      timeout: 30_000,
+      shell: "/bin/bash",
+    });
+    const logsDir = path.resolve(__dirname, "../test-results/agent-logs");
+    mkdirSync(logsDir, { recursive: true });
+    writeFileSync(path.join(logsDir, "vellum-ps.log"), psOutput);
+  } catch (err) {
+    // Log the error but don't fail the fixture setup
+    const logsDir = path.resolve(__dirname, "../test-results/agent-logs");
+    mkdirSync(logsDir, { recursive: true });
+    const message = err instanceof Error ? err.message : String(err);
+    writeFileSync(path.join(logsDir, "vellum-ps.log"), `vellum ps failed: ${message}\n`);
   }
 
   // Clear any previous onboarding state
