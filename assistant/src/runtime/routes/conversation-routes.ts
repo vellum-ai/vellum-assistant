@@ -137,18 +137,22 @@ async function tryConsumeInlineApprovalReply(params: {
     return { consumed: false };
   }
 
-  // Emit authoritative confirmation state for the resolved request
+  // Emit authoritative confirmation state for the resolved request.
+  // Publish through both session.sendToClient (for IPC) and onEvent
+  // (for HTTP/SSE hub consumers).
   if (routerResult.requestId) {
     const resolvedState = routerResult.decisionApplied
       ? (routerResult.type === 'nl_deny' || routerResult.type === 'nl_deny_all' ? 'denied' : 'approved') as const
       : 'resolved_stale' as const;
-    session.emitConfirmationStateChanged({
+    const stateMsg = {
       sessionId: conversationId,
       requestId: routerResult.requestId,
       state: resolvedState,
-      source: 'inline_nl',
+      source: 'inline_nl' as const,
       decisionText: trimmedContent,
-    });
+    };
+    session.emitConfirmationStateChanged(stateMsg);
+    onEvent({ type: 'confirmation_state_changed', ...stateMsg });
   }
 
   // Decision has been applied — transcript persistence is best-effort.
@@ -507,15 +511,19 @@ export async function handleSendMessage(
       // If a tool confirmation is pending, auto-deny it so the agent
       // can finish the current turn and process this queued message.
       if (session.hasAnyPendingConfirmation()) {
-        // Emit authoritative denial state for each pending request
+        // Emit authoritative denial state for each pending request.
+        // Publish through both session.sendToClient (for IPC) and onEvent
+        // (for HTTP/SSE hub consumers).
         for (const interaction of pendingInteractions.getByConversation(mapping.conversationId)) {
           if (interaction.session === session && interaction.kind === 'confirmation') {
-            session.emitConfirmationStateChanged({
+            const stateMsg = {
               sessionId: mapping.conversationId,
               requestId: interaction.requestId,
-              state: 'denied',
-              source: 'auto_deny',
-            });
+              state: 'denied' as const,
+              source: 'auto_deny' as const,
+            };
+            session.emitConfirmationStateChanged(stateMsg);
+            onEvent({ type: 'confirmation_state_changed', ...stateMsg });
           }
         }
         session.denyAllPendingConfirmations();

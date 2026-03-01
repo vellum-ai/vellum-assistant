@@ -774,7 +774,7 @@ export function handleConfirmationResponse(
       if (resolvedState === 'approved') {
         session.emitActivityState('thinking', 'confirmation_resolved', 'assistant_turn');
       } else {
-        session.emitActivityState('idle', 'confirmation_resolved', 'global');
+        session.emitActivityState('thinking', 'confirmation_resolved', 'assistant_turn');
       }
       session.handleConfirmationResponse(
         msg.requestId,

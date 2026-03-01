@@ -273,6 +273,11 @@ export function handleToolResult(
       }
     }
   }
+
+  // Reset so that the next LLM exchange (think → stream) after this tool
+  // call re-emits the activity state transitions.
+  state.firstTextDeltaEmitted = false;
+  state.firstThinkingDeltaEmitted = false;
 }
 
 export function handleError(
