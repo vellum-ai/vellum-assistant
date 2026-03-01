@@ -962,9 +962,10 @@ private final class ComposerNativeTextView: NSTextView {
         // macOS routes Cmd+key events through performKeyEquivalent before
         // keyDown, so Cmd+Enter must be intercepted here and forwarded to
         // keyDown where the send/accept/slash-menu logic lives.
+        // Match exact .command only — Cmd+Opt+Enter, Cmd+Ctrl+Enter, etc.
+        // must propagate normally, matching the keyDown equality check.
         if cmdEnterToSend,
-           event.modifierFlags.contains(.command),
-           !event.modifierFlags.contains(.shift),
+           event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
            (event.keyCode == 36 || event.keyCode == 76) {
             self.keyDown(with: event)
             return true
