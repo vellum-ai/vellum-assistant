@@ -166,6 +166,7 @@ import {
   handlePairingStatus,
 } from './routes/pairing-routes.js';
 import { handleAddSecret } from './routes/secret-routes.js';
+import { handleLlmGenerate } from './routes/llm-routes.js';
 import {
   handleAssignTwilioNumber,
   handleClearTwilioCredentials,
@@ -874,6 +875,8 @@ export class RuntimeHttpServer {
         const fakeReq = new Request(req.url, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: formBody });
         return await handleConnectAction(fakeReq);
       }
+
+      if (endpoint === 'llm/generate' && req.method === 'POST') return await handleLlmGenerate(req);
 
       if (endpoint === 'identity' && req.method === 'GET') return handleGetIdentity();
       if (endpoint === 'brain-graph' && req.method === 'GET') return handleGetBrainGraph();

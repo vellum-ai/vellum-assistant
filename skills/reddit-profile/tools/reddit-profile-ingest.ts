@@ -312,12 +312,13 @@ Extract memory items about this Reddit user's personality, interests, preference
 function extractPatternBased(username: string, about: RedditAbout['data'], sampleText: string): ExtractedMemoryItem[] {
   const items: ExtractedMemoryItem[] = [];
 
-  // Always add the username as a profile item
-  const accountAgeYears = ((Date.now() / 1000 - about.created_utc) / (365.25 * 24 * 3600)).toFixed(1);
+  // Use only stable, immutable fields in the statement so the fingerprint
+  // stays consistent across re-runs (see baselineItem comment in run()).
+  const createdDate = new Date(about.created_utc * 1000).toISOString().split('T')[0];
   items.push({
     kind: 'profile',
     subject: 'Reddit username',
-    statement: `The user's Reddit username is u/${username}, with an account ${accountAgeYears} years old and ${about.link_karma + about.comment_karma} total karma.`,
+    statement: `The user's Reddit username is u/${username}. Their account was created on ${createdDate}.`,
     confidence: 1.0,
     importance: 0.7,
   });
@@ -500,11 +501,14 @@ export async function run(
     comments as Array<{ data: RedditComment }>,
   );
 
-  // Always include a baseline profile item for the username regardless of LLM result
+  // Always include a baseline profile item for the username regardless of LLM result.
+  // Only include stable, immutable fields (username, creation date) so the fingerprint
+  // doesn't change on re-runs due to karma growth. Mutable stats like karma counts are
+  // intentionally omitted to prevent duplicate memory items from accumulating over time.
   const baselineItem: ExtractedMemoryItem = {
     kind: 'profile',
     subject: 'Reddit username',
-    statement: `The user's Reddit username is u/${username}. Their account was created on ${new Date(about.created_utc * 1000).toISOString().split('T')[0]} and has ${about.link_karma} link karma and ${about.comment_karma} comment karma.`,
+    statement: `The user's Reddit username is u/${username}. Their account was created on ${new Date(about.created_utc * 1000).toISOString().split('T')[0]}.`,
     confidence: 1.0,
     importance: 0.75,
   };
