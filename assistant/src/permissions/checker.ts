@@ -776,7 +776,19 @@ export async function generateAllowlistOptions(toolName: string, input: Record<s
   return [{ label: '*', description: 'Everything', pattern: '*' }];
 }
 
-export function generateScopeOptions(workingDir: string, _toolName?: string): ScopeOption[] {
+// Directory-based scope only applies to filesystem and shell tools.
+// All other tools auto-use "everywhere" (the client handles this).
+export const SCOPE_AWARE_TOOLS = new Set([
+  'bash', 'host_bash',
+  'file_read', 'file_write', 'file_edit',
+  'host_file_read', 'host_file_write', 'host_file_edit',
+]);
+
+export function generateScopeOptions(workingDir: string, toolName?: string): ScopeOption[] {
+  if (toolName && !SCOPE_AWARE_TOOLS.has(toolName)) {
+    return [];
+  }
+
   const home = homedir();
   const options: ScopeOption[] = [];
 
