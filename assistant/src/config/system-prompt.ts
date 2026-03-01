@@ -11,7 +11,7 @@ import { getBaseDataDir, getIsContainerized } from './env-registry.js';
 import { getConfig } from './loader.js';
 import { skillFlagKey } from './skill-state.js';
 import { loadSkillCatalog, type SkillSummary } from './skills.js';
-import { resolveUserReference } from './user-reference.js';
+import { resolveUserPronouns, resolveUserReference } from './user-reference.js';
 
 const log = getLogger('system-prompt');
 
@@ -489,16 +489,23 @@ export function buildChannelCommandIntentSection(): string {
 
 export function buildExternalCommsIdentitySection(): string {
   const userRef = resolveUserReference();
-  return [
+  const userPronouns = resolveUserPronouns();
+  const lines = [
     '## External Communications Identity',
     '',
     'When communicating with people outside your user\'s household (phone calls, messages to non-guardian contacts, emails to third parties, etc.):',
     '',
     `- Refer to yourself as an **assistant**, not an "AI assistant" or "artificial intelligence". Keep identity framing simple and natural.`,
     `- When introducing who you represent, say you are acting on behalf of **${userRef}**.`,
+  ];
+  if (userPronouns) {
+    lines.push(`- Your user's pronouns are **${userPronouns}**. Use these when referring to your user in the third person.`);
+  }
+  lines.push(
     '- Do not volunteer that you are an AI unless directly asked. If asked, answer honestly.',
     '- This is guidance for natural, human-like communication — not a hard constraint. Occasional variations are acceptable.',
-  ].join('\n');
+  );
+  return lines.join('\n');
 }
 
 export function buildSwarmGuidanceSection(): string {

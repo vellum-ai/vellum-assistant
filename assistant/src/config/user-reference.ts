@@ -22,3 +22,47 @@ export function resolveUserReference(): string {
 
   return DEFAULT_USER_REFERENCE;
 }
+
+/**
+ * Resolve the user's pronouns from USER.md.  Returns `null` when the
+ * file is missing, the field is empty, or the value is a sentinel like
+ * `declined_by_user`.
+ *
+ * Priority order:
+ *   1. Any `Pronouns:` line outside the Onboarding Snapshot section
+ *      (explicit user update post-onboarding takes precedence).
+ *   2. The structured `- Pronouns:` field inside the Onboarding Snapshot.
+ */
+export function resolveUserPronouns(): string | null {
+  const content = readTextFileSync(getWorkspacePromptPath('USER.md'));
+  if (content == null) return null;
+
+  const snapshotIdx = content.indexOf('## Onboarding Snapshot');
+
+  // 1. Check for a Pronouns line outside the Onboarding Snapshot section.
+  //    This represents an explicit post-onboarding update and takes priority.
+  if (snapshotIdx >= 0) {
+    const beforeSnapshot = content.slice(0, snapshotIdx);
+    const outsideMatch = beforeSnapshot.match(/Pronouns:[ \t]*(.*)/);
+    if (outsideMatch && outsideMatch[1].trim()) {
+      return cleanPronounValue(outsideMatch[1].trim());
+    }
+  }
+
+  // 2. Fall back to the structured field in the Onboarding Snapshot.
+  if (snapshotIdx >= 0) {
+    const section = content.slice(snapshotIdx);
+    const match = section.match(/^- Pronouns:[ \t]*(.*)/m);
+    if (match && match[1].trim()) {
+      return cleanPronounValue(match[1].trim());
+    }
+  }
+
+  return null;
+}
+
+function cleanPronounValue(raw: string): string | null {
+  if (raw === 'declined_by_user') return null;
+  // Strip "inferred: " prefix for clean output
+  return raw.replace(/^inferred:\s*/i, '');
+}

@@ -57,6 +57,7 @@ mock.module('../config/loader.js', () => ({
 
 mock.module('../config/user-reference.js', () => ({
   resolveUserReference: () => 'John',
+  resolveUserPronouns: () => null,
 }));
 
 // Import after mock

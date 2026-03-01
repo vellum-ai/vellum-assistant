@@ -66,6 +66,7 @@ mock.module('../config/loader.js', () => ({
 
 mock.module('../config/user-reference.js', () => ({
   resolveUserReference: () => 'TestUser',
+  resolveUserPronouns: () => null,
 }));
 
 mock.module('../tools/credentials/metadata-store.js', () => ({
