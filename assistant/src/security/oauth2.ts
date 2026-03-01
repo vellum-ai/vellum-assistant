@@ -187,9 +187,8 @@ async function runGatewayFlow(
   const { registerPendingCallback } = await import('./oauth-callback-registry.js');
 
   const appConfig = loadConfig();
-  const directRedirectUri = getOAuthCallbackUrl(appConfig);
   const redirectUri = await resolveCallbackUrl(
-    directRedirectUri,
+    () => getOAuthCallbackUrl(appConfig),
     'webhooks/oauth/callback',
     'oauth',
   );
@@ -401,9 +400,8 @@ export async function prepareOAuth2Flow(
   const { registerPendingCallback } = await import('./oauth-callback-registry.js');
 
   const appConfig = loadConfig();
-  const directRedirectUri = getOAuthCallbackUrl(appConfig);
   const redirectUri = await resolveCallbackUrl(
-    directRedirectUri,
+    () => getOAuthCallbackUrl(appConfig),
     'webhooks/oauth/callback',
     'oauth',
   );

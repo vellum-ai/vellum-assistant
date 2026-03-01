@@ -106,22 +106,29 @@ export async function registerCallbackRoute(
  *
  * When platform callbacks are enabled, registers the route and returns the
  * platform's stable callback URL (optionally with query parameters appended).
- * Otherwise returns the provided direct URL unchanged.
+ * Otherwise evaluates the lazy direct URL supplier and returns that value.
  *
- * @param directUrl - The direct callback URL (from public-ingress-urls).
+ * The `directUrl` parameter is a **lazy supplier** (a function returning a
+ * string) rather than an eagerly-evaluated string. This is critical because
+ * the direct URL builders (e.g. `getTwilioVoiceWebhookUrl`) call
+ * `getPublicBaseUrl()` which throws when no public ingress URL is configured.
+ * In containerized environments that rely solely on platform callbacks, the
+ * direct URL is never needed — deferring evaluation avoids the throw.
+ *
+ * @param directUrl - Lazy supplier for the direct callback URL.
  * @param callbackPath - The path to register (e.g. "webhooks/twilio/voice").
  * @param type - The route type identifier.
  * @param queryParams - Optional query parameters to append to the resolved URL.
  * @returns The resolved callback URL.
  */
 export async function resolveCallbackUrl(
-  directUrl: string,
+  directUrl: () => string,
   callbackPath: string,
   type: string,
   queryParams?: Record<string, string>,
 ): Promise<string> {
   if (!shouldUsePlatformCallbacks()) {
-    return directUrl;
+    return directUrl();
   }
 
   try {
@@ -137,6 +144,6 @@ export async function resolveCallbackUrl(
       { err, callbackPath, type },
       'Failed to register platform callback route, falling back to direct URL',
     );
-    return directUrl;
+    return directUrl();
   }
 }

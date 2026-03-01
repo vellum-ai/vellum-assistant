@@ -94,17 +94,17 @@ export async function syncTwilioWebhooks(
 ): Promise<{ success: boolean; warning?: string }> {
   try {
     const voiceUrl = await resolveCallbackUrl(
-      getTwilioVoiceWebhookUrl(ingressConfig),
+      () => getTwilioVoiceWebhookUrl(ingressConfig),
       'webhooks/twilio/voice',
       'twilio_voice',
     );
     const statusCallbackUrl = await resolveCallbackUrl(
-      getTwilioStatusCallbackUrl(ingressConfig),
+      () => getTwilioStatusCallbackUrl(ingressConfig),
       'webhooks/twilio/status',
       'twilio_status',
     );
     const smsUrl = await resolveCallbackUrl(
-      getTwilioSmsWebhookUrl(ingressConfig),
+      () => getTwilioSmsWebhookUrl(ingressConfig),
       'webhooks/twilio/sms',
       'twilio_sms',
     );

@@ -359,13 +359,13 @@ export async function startCall(input: StartCallInput): Promise<StartCallResult 
     log.info({ callSessionId: session.id, voiceConversationId, initiatedFrom: conversationId, to: phoneNumber, from: fromNumber, task }, 'Initiating outbound call');
 
     const webhookUrl = await resolveCallbackUrl(
-      getTwilioVoiceWebhookUrl(ingressConfig, session.id),
+      () => getTwilioVoiceWebhookUrl(ingressConfig, session.id),
       'webhooks/twilio/voice',
       'twilio_voice',
       { callSessionId: session.id },
     );
     const statusCallbackUrl = await resolveCallbackUrl(
-      getTwilioStatusCallbackUrl(ingressConfig),
+      () => getTwilioStatusCallbackUrl(ingressConfig),
       'webhooks/twilio/status',
       'twilio_status',
     );
@@ -700,13 +700,13 @@ export async function startGuardianVerificationCall(
     sessionId = session.id;
 
     const webhookUrl = await resolveCallbackUrl(
-      getTwilioVoiceWebhookUrl(config, session.id),
+      () => getTwilioVoiceWebhookUrl(config, session.id),
       'webhooks/twilio/voice',
       'twilio_voice',
       { callSessionId: session.id },
     );
     const statusCallbackUrl = await resolveCallbackUrl(
-      getTwilioStatusCallbackUrl(config),
+      () => getTwilioStatusCallbackUrl(config),
       'webhooks/twilio/status',
       'twilio_status',
     );
