@@ -10,6 +10,7 @@ final class AppListManager: ObservableObject {
     struct AppItem: Identifiable, Codable, Hashable {
         let id: String
         var name: String
+        var description: String? = nil
         var icon: String?
         var previewBase64: String?
         var appType: String?
@@ -56,7 +57,7 @@ final class AppListManager: ObservableObject {
         load()
     }
 
-    func recordAppOpen(id: String, name: String, icon: String? = nil, previewBase64: String? = nil, appType: String? = nil) {
+    func recordAppOpen(id: String, name: String, icon: String? = nil, previewBase64: String? = nil, appType: String? = nil, description: String? = nil) {
         // Clear tombstone so an explicitly re-opened app reappears in the sidebar
         removedAppIds.remove(id)
 
@@ -70,6 +71,7 @@ final class AppListManager: ObservableObject {
             if let icon { apps[index].icon = icon }
             if let previewBase64 { apps[index].previewBase64 = previewBase64 }
             if let appType { apps[index].appType = appType }
+            if let description { apps[index].description = description }
             // Auto-assign icon if this app doesn't have one yet
             if apps[index].sfSymbol == nil {
                 let generated = VAppIconGenerator.generate(from: name, type: appType ?? apps[index].appType)
@@ -81,6 +83,7 @@ final class AppListManager: ObservableObject {
             var item = AppItem(
                 id: id,
                 name: name,
+                description: description,
                 icon: icon,
                 previewBase64: previewBase64,
                 appType: appType,
@@ -122,16 +125,27 @@ final class AppListManager: ObservableObject {
 
     /// Sync apps from the daemon's authoritative list into the local sidebar list.
     /// Adds any apps that don't already exist locally, using their daemon createdAt timestamp.
+    /// Also updates descriptions on existing apps when the daemon provides one.
     func syncFromDaemon(_ daemonApps: [AppItem_Daemon]) {
         let existingIds = Set(apps.map(\.id))
-        var didAdd = false
+        var didChange = false
         for daemonApp in daemonApps {
-            guard !existingIds.contains(daemonApp.id),
-                  !removedAppIds.contains(daemonApp.id) else { continue }
+            if existingIds.contains(daemonApp.id) {
+                // Update description on existing apps if daemon provides one we don't have
+                if let desc = daemonApp.description,
+                   let index = apps.firstIndex(where: { $0.id == daemonApp.id }),
+                   apps[index].description == nil {
+                    apps[index].description = desc
+                    didChange = true
+                }
+                continue
+            }
+            guard !removedAppIds.contains(daemonApp.id) else { continue }
             let generated = VAppIconGenerator.generate(from: daemonApp.name, type: daemonApp.appType)
             var item = AppItem(
                 id: daemonApp.id,
                 name: daemonApp.name,
+                description: daemonApp.description,
                 icon: daemonApp.icon,
                 appType: daemonApp.appType,
                 lastOpenedAt: Date(timeIntervalSince1970: TimeInterval(daemonApp.createdAt) / 1000.0)
@@ -139,9 +153,9 @@ final class AppListManager: ObservableObject {
             item.sfSymbol = generated.sfSymbol
             item.iconBackground = generated.colors
             apps.append(item)
-            didAdd = true
+            didChange = true
         }
-        if didAdd {
+        if didChange {
             save()
             log.info("Synced \(self.apps.count - existingIds.count) new apps from daemon")
         }
@@ -151,6 +165,7 @@ final class AppListManager: ObservableObject {
     struct AppItem_Daemon {
         let id: String
         let name: String
+        let description: String?
         let icon: String?
         let appType: String?
         let createdAt: Int
