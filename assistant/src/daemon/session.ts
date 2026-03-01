@@ -192,8 +192,9 @@ export class Session {
     this.traceEmitter = new TraceEmitter(conversationId, sendToClient);
     this.prompter = new PermissionPrompter(sendToClient);
     this.prompter.setOnStateChanged((requestId, state, source) => {
-      this.sendToClient({
-        type: 'confirmation_state_changed',
+      // Route through emitConfirmationStateChanged so the onStateSignal
+      // listener publishes to the SSE hub for HTTP/SSE consumers.
+      this.emitConfirmationStateChanged({
         sessionId: this.conversationId,
         requestId,
         state,

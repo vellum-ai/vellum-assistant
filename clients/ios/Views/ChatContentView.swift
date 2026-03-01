@@ -154,7 +154,9 @@ struct ChatContentView: View {
                         }
 
                         // Typing / step indicator shown while generating
-                        if viewModel.isSending {
+                        // Suppress the indicator while awaiting a confirmation prompt —
+                        // the user should see the confirmation UI, not a spinner.
+                        if viewModel.isSending && !viewModel.hasPendingConfirmation {
                             let lastMessage = viewModel.messages.last
                             let allToolCalls = lastMessage?.toolCalls ?? []
                             let isStreaming = lastMessage?.isStreaming == true

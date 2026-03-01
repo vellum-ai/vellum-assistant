@@ -9,6 +9,7 @@ import { getAttachmentsForMessage, getFilePathForAttachment, setAttachmentThumbn
 import {
   createCanonicalGuardianRequest,
   generateCanonicalRequestCode,
+  getCanonicalGuardianRequest,
   listCanonicalGuardianRequests,
   listPendingCanonicalGuardianRequestsByDestinationConversation,
   resolveCanonicalGuardianRequest,
@@ -610,9 +611,16 @@ export async function handleUserMessage(
           if (routerResult.consumed && routerResult.type !== 'nl_keep_pending') {
             // Emit authoritative confirmation state for resolved request
             if (routerResult.requestId) {
-              const resolvedState = routerResult.decisionApplied
-                ? (routerResult.type === 'nl_deny' || routerResult.type === 'nl_deny_all' ? 'denied' : 'approved') as const
-                : 'resolved_stale' as const;
+              let resolvedState: 'approved' | 'denied' | 'resolved_stale';
+              if (!routerResult.decisionApplied) {
+                resolvedState = 'resolved_stale';
+              } else {
+                // Determine actual decision from the canonical request's resolved status.
+                // The router result type is 'canonical_decision_applied' for both approve
+                // and reject, so we query the request to get the actual resolved status.
+                const resolvedRequest = getCanonicalGuardianRequest(routerResult.requestId);
+                resolvedState = resolvedRequest?.status === 'denied' ? 'denied' : 'approved';
+              }
               session.emitConfirmationStateChanged({
                 sessionId: msg.sessionId,
                 requestId: routerResult.requestId,
@@ -621,8 +629,9 @@ export async function handleUserMessage(
                 causedByRequestId: requestId,
                 decisionText: messageText.trim(),
               });
-              // Emit activity transition: approval resumes the run, denial ends it
-              if (resolvedState === 'approved') {
+              // The agent loop continues after both approval and denial, so
+              // always emit a thinking transition when the decision was applied.
+              if (routerResult.decisionApplied) {
                 session.emitActivityState('thinking', 'confirmation_resolved', 'assistant_turn');
               }
             }
