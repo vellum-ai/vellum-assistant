@@ -9,14 +9,14 @@ import {
 } from '../../daemon/approved-devices-store.js';
 import type { ServerMessage } from '../../daemon/ipc-contract.js';
 import { PairingStore } from '../../daemon/pairing-store.js';
-import { getActiveBinding } from '../../memory/guardian-bindings.js';
 import { getLogger } from '../../util/logger.js';
-import { normalizeAssistantId } from '../../util/platform.js';
 import { mintActorToken } from '../actor-token-service.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
 import {
   createActorTokenRecord,
   revokeByDeviceBinding,
 } from '../actor-token-store.js';
+import { ensureVellumGuardianBinding } from '../guardian-vellum-migration.js';
 import { httpError } from '../http-errors.js';
 
 const log = getLogger('runtime-http');
@@ -29,11 +29,11 @@ const log = getLogger('runtime-http');
  */
 function mintPairingActorToken(deviceId: string, platform: string): string | null {
   try {
-    const assistantId = normalizeAssistantId('self');
-    const binding = getActiveBinding(assistantId, 'vellum');
-    if (!binding) return null;
-
-    const guardianPrincipalId = binding.guardianExternalUserId;
+    const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
+    // Pairing can run before a local client has touched the actor-token
+    // bootstrap path. Ensure the vellum guardian principal exists so iOS
+    // pairings always have a mint target.
+    const guardianPrincipalId = ensureVellumGuardianBinding(assistantId);
     const hashedDeviceId = hashDeviceId(deviceId);
 
     // Revoke previous tokens for this device
@@ -248,6 +248,7 @@ export function handlePairingStatus(url: URL, ctx: PairingHandlerContext): Respo
   const id = url.searchParams.get('id') ?? '';
   // Note: secret is redacted from logs
   const secret = url.searchParams.get('secret') ?? '';
+  const deviceId = (url.searchParams.get('deviceId') ?? '').trim();
 
   if (!id || !secret) {
     return httpError('BAD_REQUEST', 'Missing required params: id, secret', 400);
@@ -279,10 +280,16 @@ export function handlePairingStatus(url: URL, ctx: PairingHandlerContext): Respo
     let tokenEntry = approvedActorTokens.get(id);
     if (!tokenEntry && !mintingInFlight.has(id)) {
       const pending = pendingDeviceIds.get(id);
-      if (pending) {
+      const deviceIdMatchesEntry = Boolean(
+        deviceId
+        && entry.hashedDeviceId
+        && hashDeviceId(deviceId) === entry.hashedDeviceId,
+      );
+      const mintDeviceId = pending?.deviceId ?? (deviceIdMatchesEntry ? deviceId : undefined);
+      if (mintDeviceId) {
         mintingInFlight.add(id);
         try {
-          const actorToken = mintPairingActorToken(pending.deviceId, 'ios');
+          const actorToken = mintPairingActorToken(mintDeviceId, 'ios');
           if (actorToken) {
             pendingDeviceIds.delete(id);
             tokenEntry = { actorToken, approvedAt: Date.now() };
