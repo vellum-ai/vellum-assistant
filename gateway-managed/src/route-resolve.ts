@@ -121,7 +121,7 @@ function normalizeLookupValue(raw: unknown): string {
   return normalized;
 }
 
-function normalizeIdentityKey(raw: unknown): string {
+export function normalizeIdentityKey(raw: unknown): string {
   if (typeof raw !== "string") {
     throw new Error("identity_key must be a string");
   }

@@ -3,6 +3,7 @@ import { buildManagedInternalAuthHeaders } from "./managed-internal-auth-headers
 import {
   MANAGED_GATEWAY_ROUTE_RESOLVE_PATH,
   type ManagedGatewayUpstreamFetch,
+  normalizeIdentityKey,
 } from "./route-resolve.js";
 
 const ROUTE_RESOLVE_SCOPE = "routes:resolve";
@@ -77,7 +78,7 @@ export async function resolveManagedRoute(
       body: JSON.stringify({
         provider: "twilio",
         route_type: args.routeType,
-        identity_key: args.identityKey,
+        identity_key: normalizeIdentityKey(args.identityKey),
       }),
     });
   } catch {
