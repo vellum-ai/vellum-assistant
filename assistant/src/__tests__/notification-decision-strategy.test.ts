@@ -670,9 +670,19 @@ describe('notification decision strategy', () => {
     });
 
     test('rejects text with valid approve but negated reject directive', () => {
-      // The reject directive appears as a loose substring (negated with "Do not reply"),
-      // not in the same Reply-anchored sentence as approve. This must fail.
+      // "Do not reply" preceding the reject directive triggers the negative
+      // lookbehind and must not satisfy the check.
       const text = 'Reply "A1B2C3 approve" to grant access. Do not reply "A1B2C3 reject" to deny.\nReply "open invite flow" to start.';
+      expect(hasAccessRequestInstructions(text, 'A1B2C3')).toBe(false);
+    });
+
+    test('rejects negated approve directive using "don\'t"', () => {
+      const text = 'Don\'t reply "A1B2C3 approve" to grant access.\nReply "A1B2C3 reject" to deny.\nReply "open invite flow" to start.';
+      expect(hasAccessRequestInstructions(text, 'A1B2C3')).toBe(false);
+    });
+
+    test('rejects negated invite flow directive using "never"', () => {
+      const text = 'Reply "A1B2C3 approve" to grant or "A1B2C3 reject" to deny.\nNever reply "open invite flow".';
       expect(hasAccessRequestInstructions(text, 'A1B2C3')).toBe(false);
     });
 

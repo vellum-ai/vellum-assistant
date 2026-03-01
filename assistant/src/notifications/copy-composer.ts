@@ -99,12 +99,14 @@ export function buildAccessRequestRevokedNote(): string {
 
 /**
  * Check whether a text contains the required access-request instruction elements:
- * 1. Full decision directive: Reply "CODE approve" ... "CODE reject"
- * 2. Full invite directive: Reply "open invite flow"
+ * 1. Approve directive: Reply "CODE approve"
+ * 2. Reject directive: Reply "CODE reject"
+ * 3. Invite directive: Reply "open invite flow"
  *
- * Uses regex anchored to line/sentence boundaries so that contradictory copy
- * like `Do not reply "open invite flow"` is not treated as compliant.
- * The patterns match the exact directives produced by the builder functions.
+ * Each directive is matched independently using negative lookbehind to reject
+ * matches preceded by negation words ("not", "n't", "never"). This prevents
+ * contradictory copy like `Do not reply "CODE reject"` from satisfying the
+ * check even when a positive approve directive exists nearby.
  */
 export function hasAccessRequestInstructions(
   text: string | undefined,
@@ -112,19 +114,19 @@ export function hasAccessRequestInstructions(
 ): boolean {
   if (typeof text !== 'string') return false;
   const escapedCode = requestCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  // Match the full decision directive: Reply "CODE approve" ... "CODE reject"
-  // anchored so it begins a line or follows sentence-ending punctuation + space.
-  // Both approve and reject must appear in the same Reply-anchored sentence to
-  // prevent negated reject directives (e.g. `Do not reply "CODE reject"`) from
-  // passing validation as a loose substring match.
-  const decisionRe = new RegExp(
-    `(?:^|[.!?]\\s+|\\n)\\s*reply\\s+"${escapedCode}\\s+approve"[^"]*"${escapedCode}\\s+reject"`,
-    'im',
+  // Each directive must follow "reply" without a preceding negation word.
+  // Negative lookbehinds reject "do not reply", "don't reply", "never reply".
+  const approveRe = new RegExp(
+    `(?<!not\\s)(?<!n't\\s)(?<!never\\s)reply\\b[^.!?\\n]*?"${escapedCode}\\s+approve"`,
+    'i',
   );
-  // Match the invite directive: Reply "open invite flow" at a line/sentence start
-  const inviteRe = /(?:^|[.!?]\s+|\n)\s*reply\s+"open invite flow"/im;
+  const rejectRe = new RegExp(
+    `(?<!not\\s)(?<!n't\\s)(?<!never\\s)reply\\b[^.!?\\n]*?"${escapedCode}\\s+reject"`,
+    'i',
+  );
+  const inviteRe = /(?<!not\s)(?<!n't\s)(?<!never\s)reply\b[^.!?\n]*?"open invite flow"/i;
 
-  return decisionRe.test(text) && inviteRe.test(text);
+  return approveRe.test(text) && rejectRe.test(text) && inviteRe.test(text);
 }
 
 /**
