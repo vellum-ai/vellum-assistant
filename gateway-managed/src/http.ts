@@ -39,14 +39,12 @@ export function readinessResponse(config: ManagedGatewayConfig): Response {
     );
   }
 
-  const payload: Record<string, string> = {
+  const payload: Record<string, string | boolean> = {
     status: "ready",
     service: config.serviceName,
     mode: config.mode,
+    upstreamConfigured: !!config.djangoInternalBaseUrl,
   };
-  if (config.djangoInternalBaseUrl) {
-    payload.upstreamBaseUrl = config.djangoInternalBaseUrl;
-  }
 
   return Response.json(payload);
 }

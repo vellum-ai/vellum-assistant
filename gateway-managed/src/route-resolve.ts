@@ -49,9 +49,11 @@ export function createRouteResolveHandler(
         );
       }
 
+      const base = new URL(config.djangoInternalBaseUrl);
+      const basePath = base.pathname.replace(/\/+$/, "");
       const upstreamUrl = new URL(
-        MANAGED_GATEWAY_ROUTE_RESOLVE_PATH,
-        config.djangoInternalBaseUrl,
+        basePath + MANAGED_GATEWAY_ROUTE_RESOLVE_PATH,
+        base,
       ).toString();
 
       const upstreamHeaders = buildUpstreamHeaders(request, config);
