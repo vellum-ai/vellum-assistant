@@ -10,6 +10,7 @@
 import { and, desc, eq } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
+import { IntegrityError } from '../util/errors.js';
 import { getDb, rawChanges } from './db.js';
 import {
   canonicalGuardianDeliveries,
@@ -179,7 +180,30 @@ export interface CreateCanonicalGuardianRequestParams {
   expiresAt?: string;
 }
 
+/**
+ * Request kinds that require a guardian decision (approve/deny). These kinds
+ * MUST have a `guardianPrincipalId` bound at creation time so the decision
+ * can be attributed to a specific principal. Informational kinds (e.g. status
+ * updates) are exempt from this requirement.
+ */
+const DECISIONABLE_KINDS = new Set([
+  'tool_approval',
+  'tool_grant_request',
+  'pending_question',
+  'access_request',
+]);
+
 export function createCanonicalGuardianRequest(params: CreateCanonicalGuardianRequestParams): CanonicalGuardianRequest {
+  // Guard: decisionable request kinds must have a principal bound at creation
+  // time. This ensures every request that will eventually require a guardian
+  // decision is attributable to a specific identity. Informational kinds are
+  // exempt — they don't participate in the approval flow.
+  if (DECISIONABLE_KINDS.has(params.kind) && !params.guardianPrincipalId) {
+    throw new IntegrityError(
+      `Cannot create decisionable canonical request of kind '${params.kind}' without guardianPrincipalId`,
+    );
+  }
+
   const db = getDb();
   const now = new Date().toISOString();
   const id = params.id ?? uuid();

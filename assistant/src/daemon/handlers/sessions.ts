@@ -124,12 +124,14 @@ function makeIpcEventSender(params: {
       });
 
       try {
+        const guardianContext = session.guardianContext;
         createCanonicalGuardianRequest({
           id: event.requestId,
           kind: 'tool_approval',
           sourceType: 'desktop',
           sourceChannel,
           conversationId,
+          guardianPrincipalId: guardianContext?.guardianPrincipalId ?? undefined,
           toolName: event.toolName,
           status: 'pending',
           requestCode: generateCanonicalRequestCode(),

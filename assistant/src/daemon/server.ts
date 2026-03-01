@@ -144,6 +144,7 @@ function makePendingInteractionRegistrar(
         requesterExternalUserId: guardianContext?.requesterExternalUserId,
         requesterChatId: guardianContext?.requesterChatId,
         guardianExternalUserId: guardianContext?.guardianExternalUserId,
+        guardianPrincipalId: guardianContext?.guardianPrincipalId ?? undefined,
         toolName: msg.toolName,
         status: 'pending',
         requestCode: generateCanonicalRequestCode(),

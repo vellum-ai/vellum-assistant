@@ -624,6 +624,7 @@ export async function handleChannelInbound(
       conversationId: result.conversationId,
       requesterExternalUserId: canonicalSenderId ?? rawSenderId ?? undefined,
       guardianExternalUserId: binding.guardianExternalUserId,
+      guardianPrincipalId: binding.guardianPrincipalId ?? undefined,
       toolName: 'ingress_message',
       questionText: 'Ingress policy requires guardian approval',
       expiresAt: new Date(Date.now() + GUARDIAN_APPROVAL_TTL_MS).toISOString(),
