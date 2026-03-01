@@ -17,6 +17,7 @@ import {
   getActiveBinding,
 } from '../memory/guardian-bindings.js';
 import { getLogger } from '../util/logger.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from './assistant-scope.js';
 
 const log = getLogger('guardian-vellum-migration');
 
@@ -26,7 +27,7 @@ const log = getLogger('guardian-vellum-migration');
  *
  * Returns the guardianPrincipalId (existing or newly created).
  */
-export function ensureVellumGuardianBinding(assistantId: string = 'self'): string {
+export function ensureVellumGuardianBinding(assistantId: string = DAEMON_INTERNAL_ASSISTANT_ID): string {
   const existing = getActiveBinding(assistantId, 'vellum');
   if (existing) {
     log.debug(

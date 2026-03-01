@@ -17,6 +17,10 @@ mock.module('../memory/attachments-store.js', () => ({
   getAttachmentsByIds: () => [],
 }));
 
+mock.module('../runtime/local-actor-identity.js', () => ({
+  resolveLocalIpcGuardianContext: (sourceChannel: string) => ({ trustClass: 'guardian', sourceChannel }),
+}));
+
 import type { ServerWithRequestIP } from '../runtime/middleware/actor-token.js';
 import { handleSendMessage } from '../runtime/routes/conversation-routes.js';
 

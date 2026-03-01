@@ -54,6 +54,10 @@ mock.module('../memory/conversation-store.js', () => ({
   ) => addMessageMock(conversationId, role, content, metadata),
 }));
 
+mock.module('../runtime/local-actor-identity.js', () => ({
+  resolveLocalIpcGuardianContext: () => ({ trustClass: 'guardian', sourceChannel: 'vellum' }),
+}));
+
 import { handleSendMessage } from '../runtime/routes/conversation-routes.js';
 
 const testServer = {
