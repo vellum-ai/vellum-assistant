@@ -49,6 +49,22 @@ export function getAccessRequestPollIntervalMs(): number {
   return getConfig().calls.accessRequestPollIntervalMs;
 }
 
+export function getGuardianWaitUpdateInitialIntervalMs(): number {
+  return getConfig().calls.guardianWaitUpdateInitialIntervalMs;
+}
+
+export function getGuardianWaitUpdateInitialWindowMs(): number {
+  return getConfig().calls.guardianWaitUpdateInitialWindowMs;
+}
+
+export function getGuardianWaitUpdateSteadyMinIntervalMs(): number {
+  return getConfig().calls.guardianWaitUpdateSteadyMinIntervalMs;
+}
+
+export function getGuardianWaitUpdateSteadyMaxIntervalMs(): number {
+  return getConfig().calls.guardianWaitUpdateSteadyMaxIntervalMs;
+}
+
 export const SILENCE_TIMEOUT_MS = 30 * 1000; // 30 seconds
 
 // Legacy named exports for backward compatibility (use functions above for config-backed values)
