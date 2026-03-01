@@ -1347,8 +1347,8 @@ function ChatApp({
           const pairingSecret = randomBytes(32).toString("hex");
           const gatewayUrl = runtimeUrl;
 
-          // Call /v1/pairing/register directly (not under /v1/assistants/:id/)
-          const registerUrl = `${runtimeUrl}/v1/pairing/register`;
+          // Call /pairing/register on the gateway (dedicated pairing proxy route)
+          const registerUrl = `${runtimeUrl}/pairing/register`;
           const registerRes = await fetch(registerUrl, {
             method: "POST",
             headers: {
