@@ -16,7 +16,11 @@ import { getConfig } from '../config/loader.js';
 import { createTimeout, extractToolUse, getConfiguredProvider, userMessage } from '../providers/provider-send-message.js';
 import type { ModelIntent } from '../providers/types.js';
 import { getLogger } from '../util/logger.js';
-import { composeFallbackCopy } from './copy-composer.js';
+import {
+  buildAccessRequestContractText,
+  composeFallbackCopy,
+  hasAccessRequestInstructions,
+} from './copy-composer.js';
 import { createDecision } from './decisions-store.js';
 import {
   buildGuardianRequestCodeInstruction,
@@ -474,6 +478,61 @@ function enforceGuardianRequestCode(
   };
 }
 
+/**
+ * Access-request notifications require deterministic instruction elements:
+ * - Request-code approve/reject directive
+ * - Exact "open invite flow" phrase
+ *
+ * When LLM-generated copy is missing any of these, append the full
+ * deterministic contract text. This mirrors the guardian.question
+ * enforcement pattern but is scoped to `ingress.access_request` signals.
+ */
+function enforceAccessRequestInstructions(
+  decision: NotificationDecision,
+  signal: NotificationSignal,
+): NotificationDecision {
+  if (signal.sourceEventName !== 'ingress.access_request') return decision;
+  const rawCode = signal.contextPayload.requestCode;
+  if (typeof rawCode !== 'string' || rawCode.trim().length === 0) return decision;
+
+  const requestCode = rawCode.trim().toUpperCase();
+  const contractText = buildAccessRequestContractText(signal.contextPayload);
+
+  const nextCopy: Partial<Record<NotificationChannel, RenderedChannelCopy>> = {
+    ...decision.renderedCopy,
+  };
+
+  for (const channel of Object.keys(nextCopy) as NotificationChannel[]) {
+    const copy = nextCopy[channel];
+    if (!copy) continue;
+    nextCopy[channel] = ensureAccessRequestInstructionsInCopy(copy, requestCode, contractText);
+  }
+
+  return {
+    ...decision,
+    renderedCopy: nextCopy,
+  };
+}
+
+function ensureAccessRequestInstructionsInCopy(
+  copy: RenderedChannelCopy,
+  requestCode: string,
+  contractText: string,
+): RenderedChannelCopy {
+  const ensureText = (text: string | undefined): string => {
+    const base = typeof text === 'string' ? text.trim() : '';
+    if (hasAccessRequestInstructions(base, requestCode)) return base;
+    return base.length > 0 ? `${base}\n\n${contractText}` : contractText;
+  };
+
+  return {
+    ...copy,
+    body: ensureText(copy.body),
+    deliveryText: copy.deliveryText ? ensureText(copy.deliveryText) : copy.deliveryText,
+    threadSeedMessage: copy.threadSeedMessage ? ensureText(copy.threadSeedMessage) : copy.threadSeedMessage,
+  };
+}
+
 // ── Core evaluation function ───────────────────────────────────────────
 
 export async function evaluateSignal(
@@ -513,6 +572,7 @@ export async function evaluateSignal(
     log.warn('Configured provider unavailable for notification decision, using fallback');
     let decision = buildFallbackDecision(signal, availableChannels);
     decision = enforceGuardianRequestCode(decision, signal);
+    decision = enforceAccessRequestInstructions(decision, signal);
     decision = enforceConversationAffinity(decision, signal.conversationAffinityHint);
     decision.persistedDecisionId = persistDecision(signal, decision);
     return decision;
@@ -528,6 +588,7 @@ export async function evaluateSignal(
   }
 
   decision = enforceGuardianRequestCode(decision, signal);
+  decision = enforceAccessRequestInstructions(decision, signal);
   decision = enforceConversationAffinity(decision, signal.conversationAffinityHint);
   decision.persistedDecisionId = persistDecision(signal, decision);
 

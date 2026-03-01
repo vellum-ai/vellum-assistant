@@ -16,6 +16,14 @@ Design doc defining how unknown users gain access to a Vellum assistant via chan
 2. **Assistant rejects the message** via the ingress ACL in `inbound-message-handler.ts`. The user has no `assistant_ingress_members` record, so the handler replies: *"Hmm looks like you don't have access to talk to me. I'll let them know you tried talking to me and get back to you."* and returns `{ denied: true, reason: 'not_a_member' }`.
 3. **Notification pipeline alerts the guardian.** The rejection triggers `notifyGuardianOfAccessRequest()` which creates a canonical access request and calls `emitNotificationSignal()` with `sourceEventName: 'ingress.access_request'`. The notification routes through the decision engine to all connected channels (vellum macOS app, Telegram, etc.). The guardian sees who is requesting access, including a request code for approve/reject and an `open invite flow` option to start the Trusted Contacts invite flow.
 
+   **Access-request copy contract:** Every guardian-facing access-request notification must contain:
+   1. **Requester context** — best-available identity (display name, username, external ID, source channel), sanitized to prevent control-character injection.
+   2. **Request-code decision directive** — e.g., `Reply "A1B2C3 approve" to grant access or "A1B2C3 reject" to deny.`
+   3. **Invite directive** — the exact phrase `Reply "open invite flow" to start Trusted Contacts invite flow.`
+   4. **Revoked-member warning** (when applicable) — `Note: this user was previously revoked.`
+
+   Model-generated phrasing is permitted for the surrounding copy, but a post-generation enforcement step in the decision engine validates that all required directive elements are present. If any are missing, the full deterministic contract text is appended. This ensures the guardian can always parse and act on the notification regardless of LLM output quality.
+
    **Guardian binding resolution for access requests** uses a fallback strategy:
    1. Source-channel active binding first (e.g., Telegram binding for a Telegram access request).
    2. Any active binding for the assistant on another channel (deterministic: most recently verified first, then alphabetical by channel).

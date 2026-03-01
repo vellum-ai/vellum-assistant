@@ -29,6 +29,110 @@ export function nonEmpty(value: string | undefined): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+// ── Access-request copy contract ─────────────────────────────────────────────
+//
+// Deterministic helpers for building guardian-facing access-request copy.
+// These are used both by the fallback template and the decision-engine
+// post-generation enforcement to ensure required directives always appear.
+
+const IDENTITY_FIELD_MAX_LENGTH = 120;
+
+/**
+ * Sanitize an untrusted identity field for inclusion in notification copy.
+ *
+ * - Strips control characters (U+0000–U+001F, U+007F–U+009F) and newlines.
+ * - Clamps to IDENTITY_FIELD_MAX_LENGTH characters.
+ * - Wraps in quotes to neutralize instruction-like payload text.
+ */
+export function sanitizeIdentityField(value: string): string {
+  const stripped = value.replace(/[\x00-\x1f\x7f-\x9f\r\n]+/g, ' ').trim();
+  const clamped = stripped.length > IDENTITY_FIELD_MAX_LENGTH
+    ? stripped.slice(0, IDENTITY_FIELD_MAX_LENGTH) + '…'
+    : stripped;
+  return clamped;
+}
+
+export function buildAccessRequestIdentityLine(payload: Record<string, unknown>): string {
+  const requester = sanitizeIdentityField(str(payload.senderIdentifier, 'Someone'));
+  const sourceChannel = typeof payload.sourceChannel === 'string' ? payload.sourceChannel : undefined;
+  const callerName = nonEmpty(typeof payload.actorDisplayName === 'string' ? payload.actorDisplayName : undefined);
+  const actorUsername = nonEmpty(typeof payload.actorUsername === 'string' ? payload.actorUsername : undefined);
+  const actorExternalId = nonEmpty(typeof payload.actorExternalId === 'string' ? payload.actorExternalId : undefined);
+
+  if (sourceChannel === 'voice' && callerName) {
+    const safeName = sanitizeIdentityField(callerName);
+    const safeId = sanitizeIdentityField(str(payload.actorExternalId, requester));
+    return `${safeName} (${safeId}) is calling and requesting access to the assistant.`;
+  }
+
+  // For non-voice, include extra context when available
+  const parts = [requester];
+  if (actorUsername && actorUsername !== requester) {
+    parts.push(`@${sanitizeIdentityField(actorUsername)}`);
+  }
+  if (actorExternalId && actorExternalId !== requester && actorExternalId !== actorUsername) {
+    parts.push(`[${sanitizeIdentityField(actorExternalId)}]`);
+  }
+  if (sourceChannel) {
+    parts.push(`via ${sourceChannel}`);
+  }
+
+  return `${parts.join(' ')} is requesting access to the assistant.`;
+}
+
+export function buildAccessRequestDecisionDirective(requestCode: string): string {
+  const code = requestCode.toUpperCase();
+  return `Reply "${code} approve" to grant access or "${code} reject" to deny.`;
+}
+
+export function buildAccessRequestInviteDirective(): string {
+  return 'Reply "open invite flow" to start Trusted Contacts invite flow.';
+}
+
+export function buildAccessRequestRevokedNote(): string {
+  return 'Note: this user was previously revoked.';
+}
+
+/**
+ * Check whether a text contains the required access-request instruction elements:
+ * 1. Request-code decision directive (approve AND reject with the code)
+ * 2. Exact "open invite flow" phrase
+ */
+export function hasAccessRequestInstructions(
+  text: string | undefined,
+  requestCode: string,
+): boolean {
+  if (typeof text !== 'string') return false;
+  const upper = text.toUpperCase();
+  const normalizedCode = requestCode.toUpperCase();
+  const hasApproveReject = upper.includes(`${normalizedCode} APPROVE`) && upper.includes(`${normalizedCode} REJECT`);
+  const hasInviteFlow = text.toLowerCase().includes('open invite flow');
+  return hasApproveReject && hasInviteFlow;
+}
+
+/**
+ * Build the deterministic access-request contract text from payload fields.
+ * This is the canonical baseline that enforcement can append when generated
+ * copy is missing required elements.
+ */
+export function buildAccessRequestContractText(payload: Record<string, unknown>): string {
+  const requestCode = nonEmpty(typeof payload.requestCode === 'string' ? payload.requestCode : undefined);
+  const previousMemberStatus = typeof payload.previousMemberStatus === 'string'
+    ? payload.previousMemberStatus
+    : undefined;
+
+  const lines: string[] = [];
+  lines.push(buildAccessRequestIdentityLine(payload));
+  if (previousMemberStatus === 'revoked') {
+    lines.push(buildAccessRequestRevokedNote());
+  }
+  if (requestCode) {
+    lines.push(buildAccessRequestDecisionDirective(requestCode));
+  }
+  lines.push(buildAccessRequestInviteDirective());
+  return lines.join('\n');
+}
+
 // Templates keyed by dot-separated sourceEventName strings matching producers.
 const TEMPLATES: Record<string, CopyTemplate> = {
   'reminder.fired': (payload) => ({
@@ -60,36 +164,10 @@ const TEMPLATES: Record<string, CopyTemplate> = {
     };
   },
 
-  'ingress.access_request': (payload) => {
-    const requester = str(payload.senderIdentifier, 'Someone');
-    const requestCode = nonEmpty(typeof payload.requestCode === 'string' ? payload.requestCode : undefined);
-    const sourceChannel = typeof payload.sourceChannel === 'string' ? payload.sourceChannel : undefined;
-    const callerName = nonEmpty(typeof payload.actorDisplayName === 'string' ? payload.actorDisplayName : undefined);
-    const previousMemberStatus = typeof payload.previousMemberStatus === 'string'
-      ? payload.previousMemberStatus
-      : undefined;
-    const lines: string[] = [];
-
-    // Voice-originated access requests include caller name context
-    if (sourceChannel === 'voice' && callerName) {
-      lines.push(`${callerName} (${str(payload.actorExternalId, requester)}) is calling and requesting access to the assistant.`);
-    } else {
-      lines.push(`${requester} is requesting access to the assistant.`);
-    }
-    if (previousMemberStatus === 'revoked') {
-      lines.push('Note: this user was previously revoked.');
-    }
-
-    if (requestCode) {
-      const code = requestCode.toUpperCase();
-      lines.push(`Reply "${code} approve" to grant access or "${code} reject" to deny.`);
-    }
-    lines.push('Reply "open invite flow" to start Trusted Contacts invite flow.');
-    return {
-      title: 'Access Request',
-      body: lines.join('\n'),
-    };
-  },
+  'ingress.access_request': (payload) => ({
+    title: 'Access Request',
+    body: buildAccessRequestContractText(payload),
+  }),
 
   'ingress.access_request.callback_handoff': (payload) => {
     const callerName = nonEmpty(typeof payload.callerName === 'string' ? payload.callerName : undefined);

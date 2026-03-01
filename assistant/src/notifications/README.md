@@ -51,7 +51,14 @@ When the LLM is unavailable or returns invalid output, a deterministic fallback 
 
 ### 4. Deterministic Checks
 
-Hard invariants that the LLM cannot override (`deterministic-checks.ts`):
+Hard invariants that the LLM cannot override:
+
+**Post-generation enforcement** (`decision-engine.ts`):
+
+- **Guardian question request-code enforcement** — `enforceGuardianRequestCode()` ensures request-code instructions (approve/reject or free-text answer) appear in all `guardian.question` notification copy, even when the LLM omits them.
+- **Access-request instruction enforcement** — `enforceAccessRequestInstructions()` validates that `ingress.access_request` copy contains: (1) the request-code approve/reject directive, (2) the exact "open invite flow" phrase. If any required element is missing, the full deterministic contract text is appended. This prevents model-generated copy from dropping security-critical action directives.
+
+**Pre-send gate checks** (`deterministic-checks.ts`):
 
 - **Schema validity** -- fail-closed if the decision is malformed
 - **Source-active suppression** -- if the user is already viewing the source context, suppress
