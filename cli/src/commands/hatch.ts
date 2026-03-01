@@ -509,18 +509,35 @@ async function displayPairingQRCode(runtimeUrl: string, bearerToken: string | un
     const pairingRequestId = randomUUID();
     const pairingSecret = randomBytes(32).toString("hex");
 
-    const registerRes = await fetch(`${runtimeUrl}/pairing/register`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
-      },
-      body: JSON.stringify({ pairingRequestId, pairingSecret, gatewayUrl: runtimeUrl }),
-    });
+    // The daemon's HTTP server may not be fully ready even though the gateway
+    // health check passed (the gateway is up, but the upstream daemon HTTP
+    // endpoint it proxies to may still be initializing). Retry transient 502/503
+    // errors a few times with backoff before giving up.
+    const MAX_RETRIES = 5;
+    const RETRY_DELAY_MS = 2000;
+    let registerRes: Response | undefined;
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      registerRes = await fetch(`${runtimeUrl}/pairing/register`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
+        },
+        body: JSON.stringify({ pairingRequestId, pairingSecret, gatewayUrl: runtimeUrl }),
+      });
 
-    if (!registerRes.ok) {
-      const body = await registerRes.text().catch(() => "");
-      console.warn(`⚠ Could not register pairing request: ${registerRes.status} ${registerRes.statusText}${body ? ` — ${body}` : ""}. Run \`vellum pair\` to try again.\n`);
+      if (registerRes.ok || (registerRes.status !== 502 && registerRes.status !== 503)) {
+        break;
+      }
+
+      if (attempt < MAX_RETRIES) {
+        await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+      }
+    }
+
+    if (!registerRes!.ok) {
+      const body = await registerRes!.text().catch(() => "");
+      console.warn(`⚠ Could not register pairing request: ${registerRes!.status} ${registerRes!.statusText}${body ? ` — ${body}` : ""}. Run \`vellum pair\` to try again.\n`);
       return;
     }
 
