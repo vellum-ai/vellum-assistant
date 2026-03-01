@@ -94,6 +94,20 @@ export async function addPointerMessage(
   const requiredFacts: string[] = [phoneNumber];
   if (extra?.duration) requiredFacts.push(extra.duration);
   if (extra?.verificationCode) requiredFacts.push(extra.verificationCode);
+  if (extra?.reason) requiredFacts.push(extra.reason);
+
+  // Enforce lifecycle outcome keywords so the LLM cannot rewrite e.g. a
+  // "failed" event as a success — the generated text must contain the
+  // outcome word verbatim.
+  const eventOutcomeKeywords: Record<PointerEvent, string | undefined> = {
+    started: 'started',
+    completed: 'completed',
+    failed: 'failed',
+    guardian_verification_succeeded: 'succeeded',
+    guardian_verification_failed: 'failed',
+  };
+  const outcomeKeyword = eventOutcomeKeywords[event];
+  if (outcomeKeyword) requiredFacts.push(outcomeKeyword);
 
   let text: string;
 
