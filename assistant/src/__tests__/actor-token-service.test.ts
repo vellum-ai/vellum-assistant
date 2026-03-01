@@ -100,7 +100,7 @@ afterAll(() => {
 // ---------------------------------------------------------------------------
 
 describe('actor-token mint/verify', () => {
-  test('mint returns token, hash, and claims with default 90-day TTL', () => {
+  test('mint returns token, hash, and claims with default 30-day TTL', () => {
     const result = mintActorToken({
       assistantId: 'self',
       platform: 'macos',
@@ -115,10 +115,10 @@ describe('actor-token mint/verify', () => {
     expect(result.claims.deviceId).toBe('device-123');
     expect(result.claims.guardianPrincipalId).toBe('principal-abc');
     expect(result.claims.iat).toBeGreaterThan(0);
-    // Default TTL is 90 days
+    // Default TTL is 30 days
     expect(result.claims.exp).not.toBeNull();
-    const ninetyDaysMs = 90 * 24 * 60 * 60 * 1000;
-    expect(result.claims.exp! - result.claims.iat).toBe(ninetyDaysMs);
+    const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
+    expect(result.claims.exp! - result.claims.iat).toBe(thirtyDaysMs);
     expect(result.claims.jti).toBeTruthy();
   });
 

@@ -88,6 +88,9 @@ Guardian verification endpoints are exposed directly by the gateway and forwarde
 | POST | `/v1/integrations/guardian/outbound/start` |
 | POST | `/v1/integrations/guardian/outbound/resend` |
 | POST | `/v1/integrations/guardian/outbound/cancel` |
+| POST | `/v1/integrations/guardian/vellum/refresh` |
+
+The `/vellum/refresh` endpoint is the only public ingress for rotating actor + refresh token credentials. Clients must call this through the gateway; the runtime endpoint is not directly exposed. The gateway validates the caller's bearer token and forwards to the runtime, which handles refresh token validation, rotation, and replay detection (see [`assistant/ARCHITECTURE.md`](../assistant/ARCHITECTURE.md) for refresh token lifecycle details).
 
 **Authentication boundary:**
 

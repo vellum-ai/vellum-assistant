@@ -548,6 +548,13 @@ function main() {
         return guardianControlPlaneProxy.handleCancelGuardianOutbound(tracedReq);
       }
 
+      // ── Guardian vellum refresh proxy ──
+      if (url.pathname === "/v1/integrations/guardian/vellum/refresh" && req.method === "POST") {
+        const authError = requireRuntimeBearerAuth();
+        if (authError) return authError;
+        return guardianControlPlaneProxy.handleGuardianRefresh(tracedReq);
+      }
+
       // ── Twilio integration control-plane proxy ──
       if (
         (url.pathname === "/v1/integrations/twilio/config" && req.method === "GET")
