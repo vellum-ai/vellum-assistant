@@ -1,5 +1,6 @@
 import type { ManagedGatewayConfig } from "./config.js";
 import { withInternalAuth } from "./internal-auth.js";
+import { buildUpstreamUrl } from "./upstream-url.js";
 
 export const MANAGED_GATEWAY_ROUTE_RESOLVE_PATH = "/v1/internal/managed-gateway/routes/resolve/";
 const MANAGED_GATEWAY_ROUTE_RESOLVE_SCOPE = "routes:resolve";
@@ -49,12 +50,10 @@ export function createRouteResolveHandler(
         );
       }
 
-      const base = new URL(config.djangoInternalBaseUrl);
-      const basePath = base.pathname.replace(/\/+$/, "");
-      const upstreamUrl = new URL(
-        basePath + MANAGED_GATEWAY_ROUTE_RESOLVE_PATH,
-        base,
-      ).toString();
+      const upstreamUrl = buildUpstreamUrl(
+        config.djangoInternalBaseUrl,
+        MANAGED_GATEWAY_ROUTE_RESOLVE_PATH,
+      );
 
       const upstreamHeaders = buildUpstreamHeaders(request, config);
 
