@@ -2789,6 +2789,7 @@ describe('NL approval routing via destination-scoped canonical requests', () => 
       sourceChannel: 'twilio',
       conversationId: 'conv-voice-nl-1',
       toolName: 'shell',
+      guardianPrincipalId: 'test-principal-id',
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
       // guardianExternalUserId intentionally omitted
     });
@@ -2842,6 +2843,7 @@ describe('NL approval routing via destination-scoped canonical requests', () => 
       sourceType: 'voice',
       sourceChannel: 'twilio',
       toolName: 'shell',
+      guardianPrincipalId: 'test-principal-id',
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     });
 

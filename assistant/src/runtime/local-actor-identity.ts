@@ -55,8 +55,8 @@ export function resolveLocalIpcGuardianContext(
     const guardianCtx = resolveGuardianContext({
       assistantId,
       sourceChannel: 'vellum',
-      externalChatId: 'local',
-      senderExternalUserId: principalId,
+      conversationExternalId: 'local',
+      actorExternalId: principalId,
     });
     return toGuardianRuntimeContext(sourceChannel, guardianCtx);
   }

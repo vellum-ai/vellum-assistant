@@ -26,6 +26,7 @@ import { emitNotificationSignal } from '../notifications/emit-signal.js';
 import type { NotificationDeliveryResult } from '../notifications/types.js';
 import { getLogger } from '../util/logger.js';
 import { getGuardianBinding } from './channel-guardian-service.js';
+import { ensureVellumGuardianBinding } from './guardian-vellum-migration.js';
 import { GUARDIAN_APPROVAL_TTL_MS } from './routes/channel-route-shared.js';
 
 const log = getLogger('access-request-helper');
@@ -114,12 +115,22 @@ export function notifyGuardianOfAccessRequest(
         { sourceChannel, fallbackChannel: guardianBindingChannel, canonicalAssistantId },
         'Using cross-channel guardian binding fallback for access request',
       );
-    } else {
-      log.debug(
-        { sourceChannel, canonicalAssistantId },
-        'No guardian binding for access request — proceeding without guardian identity',
-      );
     }
+  }
+
+  // Self-heal: access_request is now decisionable and requires a principal.
+  // If no binding was found (or the binding lacks a principal), bootstrap the
+  // vellum binding so the request can be properly attributed.
+  if (!guardianPrincipalId) {
+    log.info(
+      { sourceChannel, canonicalAssistantId },
+      'No guardian principal for access request — self-healing vellum binding',
+    );
+    const healedPrincipalId = ensureVellumGuardianBinding(canonicalAssistantId);
+    const vellumBinding = getGuardianBinding(canonicalAssistantId, 'vellum');
+    guardianExternalUserId = vellumBinding?.guardianExternalUserId ?? guardianExternalUserId;
+    guardianPrincipalId = vellumBinding?.guardianPrincipalId ?? healedPrincipalId;
+    guardianBindingChannel = guardianBindingChannel ?? 'vellum';
   }
 
   // The conversationId is assistant-scoped so the dedupe query below only

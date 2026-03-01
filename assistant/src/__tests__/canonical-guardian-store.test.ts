@@ -41,6 +41,10 @@ import { getDb, initializeDb, resetDb } from '../memory/db.js';
 
 initializeDb();
 
+// All decisionable kinds (tool_approval, pending_question, access_request)
+// require a guardianPrincipalId. Use a constant for test fixtures.
+const TEST_PRINCIPAL = 'test-principal-id';
+
 function resetTables(): void {
   const db = getDb();
   db.run('DELETE FROM canonical_guardian_deliveries');
@@ -71,6 +75,7 @@ describe('canonical-guardian-store', () => {
       conversationId: 'conv-1',
       requesterExternalUserId: 'user-1',
       guardianExternalUserId: 'guardian-1',
+      guardianPrincipalId: TEST_PRINCIPAL,
       callSessionId: 'session-1',
       pendingQuestionId: 'pq-1',
       questionText: 'Can I run this tool?',
@@ -94,6 +99,7 @@ describe('canonical-guardian-store', () => {
     const req = createCanonicalGuardianRequest({
       kind: 'access_request',
       sourceType: 'channel',
+      guardianPrincipalId: TEST_PRINCIPAL,
     });
 
     expect(req.id).toBeTruthy();
@@ -111,6 +117,7 @@ describe('canonical-guardian-store', () => {
     const created = createCanonicalGuardianRequest({
       kind: 'tool_approval',
       sourceType: 'voice',
+      guardianPrincipalId: TEST_PRINCIPAL,
     });
 
     const fetched = getCanonicalGuardianRequest(created.id);
@@ -127,16 +134,16 @@ describe('canonical-guardian-store', () => {
   // ── listCanonicalGuardianRequests ─────────────────────────────────
 
   test('lists all requests with no filters', () => {
-    createCanonicalGuardianRequest({ kind: 'tool_approval', sourceType: 'voice' });
-    createCanonicalGuardianRequest({ kind: 'access_request', sourceType: 'channel' });
+    createCanonicalGuardianRequest({ kind: 'tool_approval', sourceType: 'voice', guardianPrincipalId: TEST_PRINCIPAL });
+    createCanonicalGuardianRequest({ kind: 'access_request', sourceType: 'channel', guardianPrincipalId: TEST_PRINCIPAL });
 
     const all = listCanonicalGuardianRequests();
     expect(all).toHaveLength(2);
   });
 
   test('filters by status', () => {
-    createCanonicalGuardianRequest({ kind: 'tool_approval', sourceType: 'voice' });
-    const req2 = createCanonicalGuardianRequest({ kind: 'access_request', sourceType: 'channel' });
+    createCanonicalGuardianRequest({ kind: 'tool_approval', sourceType: 'voice', guardianPrincipalId: TEST_PRINCIPAL });
+    const req2 = createCanonicalGuardianRequest({ kind: 'access_request', sourceType: 'channel', guardianPrincipalId: TEST_PRINCIPAL });
     updateCanonicalGuardianRequest(req2.id, { status: 'approved' });
 
     const pending = listCanonicalGuardianRequests({ status: 'pending' });
@@ -153,11 +160,13 @@ describe('canonical-guardian-store', () => {
       kind: 'tool_approval',
       sourceType: 'voice',
       guardianExternalUserId: 'guardian-A',
+      guardianPrincipalId: TEST_PRINCIPAL,
     });
     createCanonicalGuardianRequest({
       kind: 'tool_approval',
       sourceType: 'voice',
       guardianExternalUserId: 'guardian-B',
+      guardianPrincipalId: TEST_PRINCIPAL,
     });
 
     const filtered = listCanonicalGuardianRequests({ guardianExternalUserId: 'guardian-A' });
@@ -170,11 +179,13 @@ describe('canonical-guardian-store', () => {
       kind: 'tool_approval',
       sourceType: 'voice',
       conversationId: 'conv-X',
+      guardianPrincipalId: TEST_PRINCIPAL,
     });
     createCanonicalGuardianRequest({
       kind: 'tool_approval',
       sourceType: 'voice',
       conversationId: 'conv-Y',
+      guardianPrincipalId: TEST_PRINCIPAL,
     });
 
     const filtered = listCanonicalGuardianRequests({ conversationId: 'conv-X' });
@@ -182,18 +193,18 @@ describe('canonical-guardian-store', () => {
   });
 
   test('filters by sourceType', () => {
-    createCanonicalGuardianRequest({ kind: 'tool_approval', sourceType: 'voice' });
-    createCanonicalGuardianRequest({ kind: 'tool_approval', sourceType: 'channel' });
-    createCanonicalGuardianRequest({ kind: 'tool_approval', sourceType: 'desktop' });
+    createCanonicalGuardianRequest({ kind: 'tool_approval', sourceType: 'voice', guardianPrincipalId: TEST_PRINCIPAL });
+    createCanonicalGuardianRequest({ kind: 'tool_approval', sourceType: 'channel', guardianPrincipalId: TEST_PRINCIPAL });
+    createCanonicalGuardianRequest({ kind: 'tool_approval', sourceType: 'desktop', guardianPrincipalId: TEST_PRINCIPAL });
 
     const voiceOnly = listCanonicalGuardianRequests({ sourceType: 'voice' });
     expect(voiceOnly).toHaveLength(1);
   });
 
   test('filters by kind', () => {
-    createCanonicalGuardianRequest({ kind: 'tool_approval', sourceType: 'voice' });
-    createCanonicalGuardianRequest({ kind: 'pending_question', sourceType: 'voice' });
-    createCanonicalGuardianRequest({ kind: 'access_request', sourceType: 'channel' });
+    createCanonicalGuardianRequest({ kind: 'tool_approval', sourceType: 'voice', guardianPrincipalId: TEST_PRINCIPAL });
+    createCanonicalGuardianRequest({ kind: 'pending_question', sourceType: 'voice', guardianPrincipalId: TEST_PRINCIPAL });
+    createCanonicalGuardianRequest({ kind: 'access_request', sourceType: 'channel', guardianPrincipalId: TEST_PRINCIPAL });
 
     const toolOnly = listCanonicalGuardianRequests({ kind: 'tool_approval' });
     expect(toolOnly).toHaveLength(1);
@@ -204,16 +215,19 @@ describe('canonical-guardian-store', () => {
       kind: 'tool_approval',
       sourceType: 'voice',
       guardianExternalUserId: 'guardian-A',
+      guardianPrincipalId: TEST_PRINCIPAL,
     });
     createCanonicalGuardianRequest({
       kind: 'tool_approval',
       sourceType: 'channel',
       guardianExternalUserId: 'guardian-A',
+      guardianPrincipalId: TEST_PRINCIPAL,
     });
     createCanonicalGuardianRequest({
       kind: 'access_request',
       sourceType: 'voice',
       guardianExternalUserId: 'guardian-A',
+      guardianPrincipalId: TEST_PRINCIPAL,
     });
 
     const filtered = listCanonicalGuardianRequests({
@@ -230,6 +244,7 @@ describe('canonical-guardian-store', () => {
     const req = createCanonicalGuardianRequest({
       kind: 'tool_approval',
       sourceType: 'voice',
+      guardianPrincipalId: TEST_PRINCIPAL,
     });
 
     const updated = updateCanonicalGuardianRequest(req.id, {
@@ -260,6 +275,7 @@ describe('canonical-guardian-store', () => {
     const req = createCanonicalGuardianRequest({
       kind: 'tool_approval',
       sourceType: 'voice',
+      guardianPrincipalId: TEST_PRINCIPAL,
     });
 
     const resolved = resolveCanonicalGuardianRequest(req.id, 'pending', {
@@ -278,6 +294,7 @@ describe('canonical-guardian-store', () => {
     const req = createCanonicalGuardianRequest({
       kind: 'tool_approval',
       sourceType: 'channel',
+      guardianPrincipalId: TEST_PRINCIPAL,
     });
 
     const resolved = resolveCanonicalGuardianRequest(req.id, 'pending', {
@@ -293,6 +310,7 @@ describe('canonical-guardian-store', () => {
     const req = createCanonicalGuardianRequest({
       kind: 'tool_approval',
       sourceType: 'voice',
+      guardianPrincipalId: TEST_PRINCIPAL,
     });
 
     // Try to resolve with wrong expected status
@@ -311,6 +329,7 @@ describe('canonical-guardian-store', () => {
     const req = createCanonicalGuardianRequest({
       kind: 'tool_approval',
       sourceType: 'voice',
+      guardianPrincipalId: TEST_PRINCIPAL,
     });
 
     // First resolve succeeds
@@ -353,6 +372,7 @@ describe('canonical-guardian-store', () => {
       sourceChannel: 'twilio',
       conversationId: 'conv-voice-1',
       guardianExternalUserId: 'guardian-phone',
+      guardianPrincipalId: TEST_PRINCIPAL,
       callSessionId: 'call-123',
       pendingQuestionId: 'pq-456',
       questionText: 'What is the gate code?',
@@ -374,6 +394,7 @@ describe('canonical-guardian-store', () => {
       conversationId: 'conv-tg-1',
       requesterExternalUserId: 'requester-tg-user',
       guardianExternalUserId: 'guardian-tg-user',
+      guardianPrincipalId: TEST_PRINCIPAL,
       toolName: 'execute_code',
       inputDigest: 'sha256:abcdef',
       expiresAt: new Date(Date.now() + 120_000).toISOString(),
@@ -394,6 +415,7 @@ describe('canonical-guardian-store', () => {
       sourceType: 'desktop',
       conversationId: 'conv-desktop-1',
       guardianExternalUserId: 'guardian-desktop',
+      guardianPrincipalId: TEST_PRINCIPAL,
       questionText: 'User wants to access settings',
     });
 
@@ -408,6 +430,7 @@ describe('canonical-guardian-store', () => {
     const req = createCanonicalGuardianRequest({
       kind: 'tool_approval',
       sourceType: 'voice',
+      guardianPrincipalId: TEST_PRINCIPAL,
     });
 
     const d1 = createCanonicalGuardianDelivery({
@@ -436,6 +459,7 @@ describe('canonical-guardian-store', () => {
     const req = createCanonicalGuardianRequest({
       kind: 'tool_approval',
       sourceType: 'voice',
+      guardianPrincipalId: TEST_PRINCIPAL,
     });
 
     const deliveries = listCanonicalGuardianDeliveries(req.id);
@@ -446,10 +470,12 @@ describe('canonical-guardian-store', () => {
     const pendingReq = createCanonicalGuardianRequest({
       kind: 'pending_question',
       sourceType: 'voice',
+      guardianPrincipalId: TEST_PRINCIPAL,
     });
     const resolvedReq = createCanonicalGuardianRequest({
       kind: 'pending_question',
       sourceType: 'voice',
+      guardianPrincipalId: TEST_PRINCIPAL,
     });
     updateCanonicalGuardianRequest(resolvedReq.id, { status: 'approved' });
 
@@ -476,6 +502,7 @@ describe('canonical-guardian-store', () => {
     const req = createCanonicalGuardianRequest({
       kind: 'pending_question',
       sourceType: 'voice',
+      guardianPrincipalId: TEST_PRINCIPAL,
     });
 
     createCanonicalGuardianDelivery({
@@ -498,6 +525,7 @@ describe('canonical-guardian-store', () => {
     const req = createCanonicalGuardianRequest({
       kind: 'tool_approval',
       sourceType: 'voice',
+      guardianPrincipalId: TEST_PRINCIPAL,
     });
     const delivery = createCanonicalGuardianDelivery({
       requestId: req.id,
@@ -525,6 +553,7 @@ describe('canonical-guardian-store', () => {
     const req = createCanonicalGuardianRequest({
       kind: 'pending_question',
       sourceType: 'voice',
+      guardianPrincipalId: TEST_PRINCIPAL,
     });
     createCanonicalGuardianDelivery({
       requestId: req.id,
@@ -544,10 +573,12 @@ describe('canonical-guardian-store', () => {
     const pendingReq = createCanonicalGuardianRequest({
       kind: 'pending_question',
       sourceType: 'voice',
+      guardianPrincipalId: TEST_PRINCIPAL,
     });
     const resolvedReq = createCanonicalGuardianRequest({
       kind: 'pending_question',
       sourceType: 'voice',
+      guardianPrincipalId: TEST_PRINCIPAL,
     });
     updateCanonicalGuardianRequest(resolvedReq.id, { status: 'approved' });
 
@@ -574,6 +605,7 @@ describe('canonical-guardian-store', () => {
     const req = createCanonicalGuardianRequest({
       kind: 'pending_question',
       sourceType: 'voice',
+      guardianPrincipalId: TEST_PRINCIPAL,
     });
 
     // Two delivery rows targeting the same chat for the same request
@@ -602,6 +634,7 @@ describe('canonical-guardian-store', () => {
     const req = createCanonicalGuardianRequest({
       kind: 'pending_question',
       sourceType: 'voice',
+      guardianPrincipalId: TEST_PRINCIPAL,
     });
     createCanonicalGuardianDelivery({
       requestId: req.id,
@@ -620,6 +653,7 @@ describe('canonical-guardian-store', () => {
     const req = createCanonicalGuardianRequest({
       kind: 'pending_question',
       sourceType: 'voice',
+      guardianPrincipalId: TEST_PRINCIPAL,
     });
     createCanonicalGuardianDelivery({
       requestId: req.id,

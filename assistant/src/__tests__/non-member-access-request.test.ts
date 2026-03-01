@@ -138,12 +138,12 @@ function buildInboundRequest(overrides: Record<string, unknown> = {}): Request {
   const body: Record<string, unknown> = {
     sourceChannel: 'telegram',
     interface: 'telegram',
-    externalChatId: 'chat-123',
+    conversationExternalId: 'chat-123',
     externalMessageId: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     content: 'Hello, can I use this assistant?',
-    senderExternalUserId: 'user-unknown-456',
-    senderName: 'Alice Unknown',
-    senderUsername: 'alice_unknown',
+    actorExternalId: 'user-unknown-456',
+    actorDisplayName: 'Alice Unknown',
+    actorUsername: 'alice_unknown',
     replyCallbackUrl: 'http://localhost:7830/deliver/telegram',
     ...overrides,
   };
@@ -206,8 +206,8 @@ describe('non-member access request notification', () => {
     expect(emitSignalCalls[0].sourceEventName).toBe('ingress.access_request');
     expect(emitSignalCalls[0].sourceChannel).toBe('telegram');
     const payload = emitSignalCalls[0].contextPayload as Record<string, unknown>;
-    expect(payload.senderExternalUserId).toBe('user-unknown-456');
-    expect(payload.senderName).toBe('Alice Unknown');
+    expect(payload.actorExternalId).toBe('user-unknown-456');
+    expect(payload.actorDisplayName).toBe('Alice Unknown');
 
     // A canonical access request was created
     const pending = listCanonicalGuardianRequests({
@@ -258,9 +258,9 @@ describe('non-member access request notification', () => {
     expect(pending.length).toBe(1);
   });
 
-  test('access request is created and signal emitted even without same-channel guardian binding', async () => {
-    // No guardian binding on any channel — access request should still be
-    // created and notification signal emitted (null guardianExternalUserId).
+  test('access request is created with self-healed principal even without same-channel guardian binding', async () => {
+    // No guardian binding on any channel — self-heal creates a vellum binding
+    // so the access_request (now decisionable) has a guardianPrincipalId.
     const req = buildInboundRequest();
     const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
     const json = await resp.json() as Record<string, unknown>;
@@ -276,7 +276,7 @@ describe('non-member access request notification', () => {
     expect(emitSignalCalls.length).toBe(1);
     expect(emitSignalCalls[0].sourceEventName).toBe('ingress.access_request');
 
-    // Canonical request was created with null guardianExternalUserId
+    // Canonical request was created with a self-healed principal
     const pending = listCanonicalGuardianRequests({
       status: 'pending',
       requesterExternalUserId: 'user-unknown-456',
@@ -284,7 +284,9 @@ describe('non-member access request notification', () => {
       kind: 'access_request',
     });
     expect(pending.length).toBe(1);
-    expect(pending[0].guardianExternalUserId).toBeNull();
+    // Self-heal bootstraps a vellum binding — guardianExternalUserId is now set
+    expect(pending[0].guardianExternalUserId).toBeDefined();
+    expect(pending[0].guardianPrincipalId).toBeDefined();
   });
 
   test('cross-channel fallback: SMS guardian binding resolves for Telegram access request', async () => {
@@ -319,7 +321,7 @@ describe('non-member access request notification', () => {
     expect(pending[0].guardianExternalUserId).toBe('guardian-sms-user');
   });
 
-  test('no notification when senderExternalUserId is absent', async () => {
+  test('no notification when actorExternalId is absent', async () => {
     createBinding({
       assistantId: 'self',
       channel: 'telegram',
@@ -327,13 +329,12 @@ describe('non-member access request notification', () => {
       guardianDeliveryChatId: 'guardian-chat-789',
     });
 
-    // Message without senderExternalUserId — can't identify the requester.
-    // The ACL check requires senderExternalUserId to look up members,
-    // so without it the non-member gate is bypassed entirely.
+    // Message without actorExternalId — the handler returns BAD_REQUEST.
     const req = buildInboundRequest({
-      senderExternalUserId: undefined,
+      actorExternalId: undefined,
     });
-    await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
+    const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
+    expect(resp.status).toBe(400);
 
     // No access request notification should fire (no identity to notify about)
     expect(emitSignalCalls.length).toBe(0);
@@ -345,12 +346,12 @@ describe('access-request-helper unit tests', () => {
     resetState();
   });
 
-  test('notifyGuardianOfAccessRequest returns no_sender_id when senderExternalUserId is absent', () => {
+  test('notifyGuardianOfAccessRequest returns no_sender_id when actorExternalId is absent', () => {
     const result = notifyGuardianOfAccessRequest({
       canonicalAssistantId: 'self',
       sourceChannel: 'telegram',
-      externalChatId: 'chat-123',
-      senderExternalUserId: undefined,
+      conversationExternalId: 'chat-123',
+      actorExternalId: undefined,
     });
 
     expect(result.notified).toBe(false);
@@ -363,13 +364,13 @@ describe('access-request-helper unit tests', () => {
     expect(pending.length).toBe(0);
   });
 
-  test('notifyGuardianOfAccessRequest creates request with null guardianExternalUserId when no binding exists', () => {
+  test('notifyGuardianOfAccessRequest creates request with self-healed principal when no binding exists', () => {
     const result = notifyGuardianOfAccessRequest({
       canonicalAssistantId: 'self',
       sourceChannel: 'telegram',
-      externalChatId: 'chat-123',
-      senderExternalUserId: 'unknown-user',
-      senderName: 'Bob',
+      conversationExternalId: 'chat-123',
+      actorExternalId: 'unknown-user',
+      actorDisplayName: 'Bob',
     });
 
     expect(result.notified).toBe(true);
@@ -383,7 +384,9 @@ describe('access-request-helper unit tests', () => {
       kind: 'access_request',
     });
     expect(pending.length).toBe(1);
-    expect(pending[0].guardianExternalUserId).toBeNull();
+    // Self-heal bootstraps a vellum binding
+    expect(pending[0].guardianExternalUserId).toBeDefined();
+    expect(pending[0].guardianPrincipalId).toBeDefined();
 
     // Signal was emitted
     expect(emitSignalCalls.length).toBe(1);
@@ -401,8 +404,8 @@ describe('access-request-helper unit tests', () => {
     const result = notifyGuardianOfAccessRequest({
       canonicalAssistantId: 'self',
       sourceChannel: 'telegram',
-      externalChatId: 'tg-chat',
-      senderExternalUserId: 'unknown-tg-user',
+      conversationExternalId: 'tg-chat',
+      actorExternalId: 'unknown-tg-user',
     });
 
     expect(result.notified).toBe(true);
@@ -438,8 +441,8 @@ describe('access-request-helper unit tests', () => {
     const result = notifyGuardianOfAccessRequest({
       canonicalAssistantId: 'self',
       sourceChannel: 'telegram',
-      externalChatId: 'chat-123',
-      senderExternalUserId: 'unknown-user',
+      conversationExternalId: 'chat-123',
+      actorExternalId: 'unknown-user',
     });
 
     expect(result.notified).toBe(true);
@@ -457,13 +460,13 @@ describe('access-request-helper unit tests', () => {
     expect(payload.guardianBindingChannel).toBe('telegram');
   });
 
-  test('notifyGuardianOfAccessRequest for voice channel includes senderName in contextPayload', () => {
+  test('notifyGuardianOfAccessRequest for voice channel includes actorDisplayName in contextPayload', () => {
     const result = notifyGuardianOfAccessRequest({
       canonicalAssistantId: 'self',
       sourceChannel: 'voice',
-      externalChatId: '+15559998888',
-      senderExternalUserId: '+15559998888',
-      senderName: 'Alice Caller',
+      conversationExternalId: '+15559998888',
+      actorExternalId: '+15559998888',
+      actorDisplayName: 'Alice Caller',
     });
 
     expect(result.notified).toBe(true);
@@ -471,8 +474,8 @@ describe('access-request-helper unit tests', () => {
 
     const payload = emitSignalCalls[0].contextPayload as Record<string, unknown>;
     expect(payload.sourceChannel).toBe('voice');
-    expect(payload.senderName).toBe('Alice Caller');
-    expect(payload.senderExternalUserId).toBe('+15559998888');
+    expect(payload.actorDisplayName).toBe('Alice Caller');
+    expect(payload.actorExternalId).toBe('+15559998888');
     expect(payload.senderIdentifier).toBe('Alice Caller');
 
     // Canonical request should exist
@@ -489,9 +492,9 @@ describe('access-request-helper unit tests', () => {
     const result = notifyGuardianOfAccessRequest({
       canonicalAssistantId: 'self',
       sourceChannel: 'telegram',
-      externalChatId: 'chat-123',
-      senderExternalUserId: 'unknown-user',
-      senderName: 'Test User',
+      conversationExternalId: 'chat-123',
+      actorExternalId: 'unknown-user',
+      actorDisplayName: 'Test User',
     });
 
     expect(result.notified).toBe(true);
@@ -507,9 +510,9 @@ describe('access-request-helper unit tests', () => {
     const result = notifyGuardianOfAccessRequest({
       canonicalAssistantId: 'self',
       sourceChannel: 'telegram',
-      externalChatId: 'chat-123',
-      senderExternalUserId: 'revoked-user',
-      senderName: 'Revoked User',
+      conversationExternalId: 'chat-123',
+      actorExternalId: 'revoked-user',
+      actorDisplayName: 'Revoked User',
       previousMemberStatus: 'revoked',
     });
 
@@ -544,9 +547,9 @@ describe('access-request-helper unit tests', () => {
     const result = notifyGuardianOfAccessRequest({
       canonicalAssistantId: 'self',
       sourceChannel: 'voice',
-      externalChatId: '+15556667777',
-      senderExternalUserId: '+15556667777',
-      senderName: 'Noah',
+      conversationExternalId: '+15556667777',
+      actorExternalId: '+15556667777',
+      actorDisplayName: 'Noah',
     });
 
     expect(result.notified).toBe(true);
@@ -584,9 +587,9 @@ describe('access-request-helper unit tests', () => {
     const result = notifyGuardianOfAccessRequest({
       canonicalAssistantId: 'self',
       sourceChannel: 'telegram',
-      externalChatId: 'chat-123',
-      senderExternalUserId: 'unknown-user',
-      senderName: 'Alice',
+      conversationExternalId: 'chat-123',
+      actorExternalId: 'unknown-user',
+      actorDisplayName: 'Alice',
     });
 
     expect(result.notified).toBe(true);
