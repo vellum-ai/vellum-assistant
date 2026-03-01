@@ -40,7 +40,7 @@
     "drizzle-orm": "^0.38.4",
     "ink": "^6.7.0",
     "jszip": "^3.10.1",
-    "minimatch": "^10.1.2",
+    "minimatch": "^10.2.4",
     "openai": "^6.18.0",
     "pino": "^9.6.0",
     "pino-pretty": "^13.1.3",
