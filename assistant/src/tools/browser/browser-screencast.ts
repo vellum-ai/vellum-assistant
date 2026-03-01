@@ -1,7 +1,7 @@
 import { v4 as uuid } from 'uuid';
 
-import type { BrowserFrame, BrowserViewSurfaceData, ServerMessage } from '../../daemon/ipc-contract.js';
-import { browserManager, SCREENCAST_HEIGHT,SCREENCAST_WIDTH } from './browser-manager.js';
+import type { ServerMessage } from '../../daemon/ipc-contract.js';
+import { browserManager, SCREENCAST_HEIGHT, SCREENCAST_WIDTH } from './browser-manager.js';
 
 // Track active screencast sessions
 const activeScreencasts = new Map<string, { surfaceId: string }>();
@@ -40,44 +40,12 @@ export async function ensureScreencast(
   activeScreencasts.set(sessionId, { surfaceId });
 
   try {
-    // Get current page info
-    const page = await browserManager.getOrCreateSessionPage(sessionId);
-    const currentUrl = page.url();
-    const title = await page.title();
+    // Ensure the page exists (may trigger browser launch/connect)
+    await browserManager.getOrCreateSessionPage(sessionId);
 
-    // Send surface show
-    sendToClient({
-      type: 'ui_surface_show',
-      sessionId,
-      surfaceId,
-      surfaceType: 'browser_view',
-      title: 'Browser',
-      data: {
-        sessionId,
-        currentUrl: currentUrl || 'about:blank',
-        status: 'idle',
-        pages: [{ id: sessionId, title: title || 'New Tab', url: currentUrl || 'about:blank', active: true }],
-      } satisfies BrowserViewSurfaceData,
-      display: 'panel',
-    });
-
-    // Start CDP screencast
-    await browserManager.startScreencast(sessionId, (frame) => {
-      sendToClient({
-        type: 'browser_frame',
-        sessionId,
-        surfaceId,
-        frame: frame.data,
-        metadata: frame.metadata,
-      } satisfies BrowserFrame);
-    });
+    // Skip PiP surface and CDP screencast — the user watches the actual
+    // browser window directly (positioned in top-right via positionWindowSidebar).
   } catch (err) {
-    // Dismiss the surface we already showed so the client doesn't have an orphaned panel
-    sendToClient({
-      type: 'ui_surface_dismiss',
-      sessionId,
-      surfaceId,
-    });
     // Roll back so future calls can retry
     activeScreencasts.delete(sessionId);
     throw err;
@@ -130,19 +98,15 @@ export async function updatePagesList(
 
 export async function stopBrowserScreencast(
   sessionId: string,
-  sendToClient: (msg: ServerMessage) => void,
+  _sendToClient: (msg: ServerMessage) => void,
 ): Promise<void> {
   const state = activeScreencasts.get(sessionId);
   if (!state) return;
 
+  // Safe no-op if CDP screencast was never started
   await browserManager.stopScreencast(sessionId);
 
-  sendToClient({
-    type: 'ui_surface_dismiss',
-    sessionId,
-    surfaceId: state.surfaceId,
-  });
-
+  // Skip ui_surface_dismiss — no PiP surface was shown
   activeScreencasts.delete(sessionId);
 }
 
@@ -190,18 +154,11 @@ export function updateHighlights(
 
 export async function stopAllScreencasts(): Promise<void> {
   const entries = Array.from(activeScreencasts.entries());
-  for (const [sessionId, state] of entries) {
+  for (const [sessionId] of entries) {
     try {
       await browserManager.stopScreencast(sessionId);
     } catch { /* best-effort */ }
-    const sender = sessionSenders.get(sessionId);
-    if (sender) {
-      sender({
-        type: 'ui_surface_dismiss',
-        sessionId,
-        surfaceId: state.surfaceId,
-      });
-    }
+    // Skip ui_surface_dismiss — no PiP surfaces were shown
   }
   activeScreencasts.clear();
 }
