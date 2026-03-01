@@ -11,6 +11,8 @@ This OSS repo intentionally keeps only contracts and fixtures so integrators and
   - [`route-resolve-contract.md`](./route-resolve-contract.md)
 - Inbound dispatch contract:
   - [`inbound-dispatch-contract.md`](./inbound-dispatch-contract.md)
+- Outbound send contract:
+  - [`outbound-send-contract.md`](./outbound-send-contract.md)
 - Managed Twilio webhook contracts:
   - [`managed-twilio-sms-webhook-contract.md`](./managed-twilio-sms-webhook-contract.md)
   - [`managed-twilio-voice-webhook-contract.md`](./managed-twilio-voice-webhook-contract.md)
@@ -19,6 +21,8 @@ This OSS repo intentionally keeps only contracts and fixtures so integrators and
   - [`fixtures/route-resolve-response.json`](./fixtures/route-resolve-response.json)
   - [`fixtures/inbound-dispatch-request.json`](./fixtures/inbound-dispatch-request.json)
   - [`fixtures/inbound-dispatch-response.json`](./fixtures/inbound-dispatch-response.json)
+  - [`fixtures/outbound-send-request.json`](./fixtures/outbound-send-request.json)
+  - [`fixtures/outbound-send-response.json`](./fixtures/outbound-send-response.json)
 
 ## Ownership Boundary
 
