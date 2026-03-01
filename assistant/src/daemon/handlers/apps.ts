@@ -148,8 +148,7 @@ export function handleAppsList(socket: net.Socket, ctx: HandlerContext): void {
     // When no home base was found by ID, do a single targeted search for an app
     // matching the HTML marker. listApps() returns metadata-only (no htmlDefinition),
     // so the HTML marker check requires loading the full app from disk. We limit
-    // this expensive operation to the case where homeBaseId is null and stop after
-    // finding the first match.
+    // this expensive operation to the case where homeBaseId is null.
     const excludeIds = new Set<string>();
     if (homeBaseId) {
       excludeIds.add(homeBaseId);
@@ -162,7 +161,7 @@ export function handleAppsList(socket: net.Socket, ctx: HandlerContext): void {
         const fullApp = getApp(a.id);
         if (fullApp && isPrebuiltHomeBaseApp(fullApp)) {
           excludeIds.add(a.id);
-          break;
+          continue;
         }
       }
     }
