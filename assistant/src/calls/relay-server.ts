@@ -11,6 +11,7 @@ import { randomInt } from 'node:crypto';
 import type { ServerWebSocket } from 'bun';
 
 import { getConfig } from '../config/loader.js';
+import { getAssistantName } from '../daemon/identity-helpers.js';
 import { getCanonicalGuardianRequest } from '../memory/canonical-guardian-store.js';
 import { listActiveBindingsByAssistant } from '../memory/channel-guardian-store.js';
 import * as conversationStore from '../memory/conversation-store.js';
@@ -1104,10 +1105,14 @@ export class RelayConnection {
     this.accessRequestFromNumber = fromNumber;
     this.connectionState = 'awaiting_name';
 
-    this.sendTextToken(
-      "Sorry, I don't recognize this number. I'll let my guardian know you called and see if I have permission to speak with you. Can I get your name?",
-      true,
-    );
+    const guardianLabel = this.resolveGuardianLabel();
+    const assistantName = this.resolveAssistantLabel();
+
+    const greeting = assistantName
+      ? `Hi, this is ${assistantName}, ${guardianLabel}'s assistant. Sorry, I don't recognize this number. I'll let ${guardianLabel} know you called and see if I have permission to speak with you. Can I get your name?`
+      : `Hi, this is ${guardianLabel}'s assistant. Sorry, I don't recognize this number. I'll let ${guardianLabel} know you called and see if I have permission to speak with you. Can I get your name?`;
+
+    this.sendTextToken(greeting, true);
 
     // Start a timeout so silent callers don't keep the call open indefinitely.
     // Uses a 30-second window — enough time to speak a name but short enough
@@ -1325,15 +1330,23 @@ export class RelayConnection {
       'Access request approved — caller activated and continuing call',
     );
 
-    // Use handleUserInstruction to deliver the approval-aware greeting
-    // through the normal session pipeline.
+    // Deliver deterministic transition copy directly via TTS instead of
+    // routing through handleUserInstruction, which would start a fresh
+    // model turn and risk reintroduction/disclosure reset.
     const guardianLabel = this.resolveGuardianLabel();
+    this.sendTextToken(
+      `Great! ${guardianLabel} said I can speak with you. How can I help?`,
+      true,
+    );
+
+    recordCallEvent(this.callSessionId, 'inbound_acl_post_approval_handoff_spoken', {
+      from: fromNumber,
+    });
+
+    // Mark the next caller utterance as an opening acknowledgment so the
+    // LLM continues naturally without emitting a fresh introduction.
     if (this.controller) {
-      this.controller.handleUserInstruction(
-        `Great, ${guardianLabel} approved! Now how can I help you?`,
-      ).catch((err) => {
-        log.error({ err, callSessionId: this.callSessionId }, 'Failed to deliver approval greeting');
-      });
+      this.controller.markNextCallerTurnAsOpeningAck();
     }
   }
 
@@ -1670,6 +1683,19 @@ export class RelayConnection {
       }
     }
     return 'my guardian';
+  }
+
+  /**
+   * Resolve the assistant's display name from identity configuration.
+   * Returns the trimmed name or null if unavailable.
+   */
+  private resolveAssistantLabel(): string | null {
+    try {
+      const name = getAssistantName();
+      return name?.trim() || null;
+    } catch {
+      return null;
+    }
   }
 
   /**
