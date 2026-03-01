@@ -461,6 +461,57 @@ describe('AgentLoop', () => {
     expect(warningBlock).toBeDefined();
   });
 
+  test('runs without limit when maxToolUseTurns is 0', async () => {
+    // Use 20 turns (beyond old default of 8 used in other tests) to verify no cap
+    const turnCount = 20;
+    const responses: ProviderResponse[] = [];
+    for (let i = 0; i < turnCount; i++) {
+      responses.push(toolUseResponse(`t${i}`, 'read_file', { path: `/${i}.txt` }));
+    }
+    responses.push(textResponse('done'));
+    const { provider, calls } = createMockProvider(responses);
+    const toolExecutor = async () => ({ content: 'data', isError: false });
+    const loop = new AgentLoop(
+      provider,
+      'system',
+      { maxToolUseTurns: 0, minTurnIntervalMs: 0 },
+      dummyTools,
+      toolExecutor,
+    );
+
+    const events: AgentEvent[] = [];
+    await loop.run([userMessage], collectEvents(events));
+
+    // All 20 tool turns + 1 final text response = 21 provider calls
+    expect(calls).toHaveLength(turnCount + 1);
+
+    // No hard-limit error events should have been emitted
+    const errorEvents = events.filter(
+      (e): e is Extract<AgentEvent, { type: 'error' }> => e.type === 'error',
+    );
+    expect(errorEvents).toHaveLength(0);
+
+    // Progress check reminders should still fire every 5 turns
+    const progressChecks = calls.filter((call) => {
+      const lastMsg = call.messages[call.messages.length - 1];
+      return lastMsg.content.some(
+        (b): b is Extract<ContentBlock, { type: 'text' }> =>
+          b.type === 'text' && b.text.includes('making meaningful progress'),
+      );
+    });
+    expect(progressChecks.length).toBeGreaterThanOrEqual(3);
+
+    // No approaching-limit warnings should appear
+    const limitWarnings = calls.filter((call) => {
+      const lastMsg = call.messages[call.messages.length - 1];
+      return lastMsg.content.some(
+        (b): b is Extract<ContentBlock, { type: 'text' }> =>
+          b.type === 'text' && b.text.includes('approaching the tool-use turn limit'),
+      );
+    });
+    expect(limitWarnings).toHaveLength(0);
+  });
+
   // 9. Tool executor error results are forwarded correctly
   test('forwards tool error results to provider', async () => {
     const { provider, calls } = createMockProvider([
