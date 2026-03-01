@@ -472,7 +472,8 @@ export async function run(
     return { content: 'Error: username is required', isError: true };
   }
 
-  const limit = Math.min(100, Math.max(1, Number(input.limit ?? 100)));
+  const parsedLimit = parseInt(String(input.limit ?? '100'), 10);
+  const limit = Math.min(100, Math.max(1, Number.isFinite(parsedLimit) ? parsedLimit : 100));
 
   // Fetch public profile data
   let about: RedditAbout['data'];
