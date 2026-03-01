@@ -301,13 +301,18 @@ struct TwilioSettingsSection: View {
             let success = json["success"] as? Bool ?? false
             if success {
                 hasCredentials = json["hasCredentials"] as? Bool ?? false
-                if applyPhoneNumber || json["phoneNumber"] != nil {
-                    phoneNumber = json["phoneNumber"] as? String
-                }
-                if applyNumbers {
-                    availableNumbers = Self.decodeTwilioNumbers(from: json["numbers"])
-                } else if json["numbers"] != nil {
-                    availableNumbers = Self.decodeTwilioNumbers(from: json["numbers"])
+                if !hasCredentials {
+                    phoneNumber = nil
+                    availableNumbers = []
+                } else {
+                    if applyPhoneNumber || json["phoneNumber"] != nil {
+                        phoneNumber = json["phoneNumber"] as? String
+                    }
+                    if applyNumbers {
+                        availableNumbers = Self.decodeTwilioNumbers(from: json["numbers"])
+                    } else if json["numbers"] != nil {
+                        availableNumbers = Self.decodeTwilioNumbers(from: json["numbers"])
+                    }
                 }
                 errorMessage = nil
                 return true
