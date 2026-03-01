@@ -50,7 +50,7 @@ struct BootstrapInterstitialView: View {
             )
             .frame(maxWidth: 380)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(width: 380, height: 300)
     }
 }
 
@@ -59,7 +59,7 @@ struct BootstrapInterstitialView: View {
         VColor.background.ignoresSafeArea()
         BootstrapInterstitialView(isRetrying: true)
     }
-    .frame(width: 500, height: 400)
+    .frame(width: 380, height: 300)
 }
 
 #Preview("BootstrapInterstitialView - Error") {
@@ -70,5 +70,5 @@ struct BootstrapInterstitialView: View {
             isRetrying: false
         )
     }
-    .frame(width: 500, height: 400)
+    .frame(width: 380, height: 300)
 }
