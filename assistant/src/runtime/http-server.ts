@@ -87,6 +87,7 @@ import {
   handleGetAttachmentContent,
   handleUploadAttachment,
 } from './routes/attachment-routes.js';
+import { handleGetBrainGraph, handleServeBrainGraphUI, handleServeHomeBaseUI } from './routes/brain-graph-routes.js';
 import {
   handleAnswerCall,
   handleCancelCall,
@@ -126,7 +127,6 @@ import {
   handleGuardianActionDecision,
   handleGuardianActionsPending,
 } from './routes/guardian-action-routes.js';
-import { handleGetBrainGraph, handleServeBrainGraphUI, handleServeHomeBaseUI } from './routes/brain-graph-routes.js';
 import { handleGetIdentity,handleHealth } from './routes/identity-routes.js';
 import {
   handleBlockMember,
