@@ -207,9 +207,14 @@ export class PermissionChecker {
         }
 
         if (response.decision === 'always_deny') {
-          const ruleSaved = !!(persistentDecisionsAllowed && response.selectedPattern && response.selectedScope);
+          // For non-scoped tools (empty scopeOptions), default to 'everywhere' since
+          // the client has no scope picker and will send undefined.
+          const effectiveDenyScope = scopeOptions.length === 0
+            ? (response.selectedScope ?? 'everywhere')
+            : response.selectedScope;
+          const ruleSaved = !!(persistentDecisionsAllowed && response.selectedPattern && effectiveDenyScope);
           if (ruleSaved) {
-            addRule(name, response.selectedPattern!, response.selectedScope!, 'deny');
+            addRule(name, response.selectedPattern!, effectiveDenyScope!, 'deny');
           }
           const denialReason = ruleSaved ? 'Permission denied by user (rule saved)' : 'Permission denied by user';
           const denialMessage = ruleSaved
@@ -252,8 +257,14 @@ export class PermissionChecker {
           }
 
           const hasOptions = Object.keys(ruleOptions).length > 0;
-          const effectiveScope = response.selectedScope ?? 'everywhere';
-          addRule(name, response.selectedPattern, effectiveScope, 'allow', 100, hasOptions ? ruleOptions : undefined);
+          // Only default to 'everywhere' for non-scoped tools (empty scopeOptions).
+          // For scoped tools, require an explicit scope to prevent silent permission widening.
+          const effectiveScope = scopeOptions.length === 0
+            ? (response.selectedScope ?? 'everywhere')
+            : response.selectedScope;
+          if (effectiveScope) {
+            addRule(name, response.selectedPattern, effectiveScope, 'allow', 100, hasOptions ? ruleOptions : undefined);
+          }
         }
 
         return { allowed: true, decision, riskLevel };
