@@ -151,9 +151,18 @@ async function tryConsumeInlineApprovalReply(params: {
     return { consumed: false };
   }
 
-  // Confirmation state and activity emissions are handled centrally by
-  // handleConfirmationResponse (called via the resolver chain), so no
-  // manual emission is needed here.
+  // Success-path emissions (approved/denied) are handled centrally
+  // by handleConfirmationResponse (called via the resolver chain).
+  // However, stale/failed paths never reach handleConfirmationResponse,
+  // so we emit resolved_stale here for those cases.
+  if (routerResult.requestId && !routerResult.decisionApplied) {
+    session.emitConfirmationStateChanged({
+      requestId: routerResult.requestId,
+      state: 'resolved_stale',
+      source: 'inline_nl',
+      decisionText: trimmedContent,
+    });
+  }
 
   // Decision has been applied — transcript persistence is best-effort.
   // If DB writes fail, we still return consumed: true so the approval text

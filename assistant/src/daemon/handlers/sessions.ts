@@ -616,9 +616,19 @@ export async function handleUserMessage(
           });
 
           if (routerResult.consumed && routerResult.type !== 'nl_keep_pending') {
-            // Confirmation state and activity emissions are handled centrally
-            // by handleConfirmationResponse (called via the resolver chain),
-            // so no manual emission is needed here.
+            // Success-path emissions (approved/denied) are handled centrally
+            // by handleConfirmationResponse (called via the resolver chain).
+            // However, stale/failed paths never reach handleConfirmationResponse,
+            // so we emit resolved_stale here for those cases.
+            if (routerResult.requestId && !routerResult.decisionApplied) {
+              session.emitConfirmationStateChanged({
+                requestId: routerResult.requestId,
+                state: 'resolved_stale',
+                source: 'inline_nl',
+                causedByRequestId: requestId,
+                decisionText: messageText.trim(),
+              });
+            }
 
             const consumedChannelMeta = {
               userMessageChannel: ipcChannel,
