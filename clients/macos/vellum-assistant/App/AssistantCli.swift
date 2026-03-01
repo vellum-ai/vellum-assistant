@@ -113,7 +113,7 @@ final class AssistantCli {
     /// waits for the socket, and registers the assistant entry.
     ///
     /// - Parameter name: Optional assistant name to reuse (for health monitor restarts).
-    func hatch(name: String? = nil, daemonOnly: Bool = false) async throws {
+    func hatch(name: String? = nil, daemonOnly: Bool = false, restart: Bool = false) async throws {
         guard let binaryURL = cliBinaryURL else {
             log.info("No bundled CLI binary found — skipping hatch (dev mode)")
             return
@@ -124,6 +124,9 @@ final class AssistantCli {
         var arguments = ["hatch", "-d"]
         if daemonOnly {
             arguments.append("--daemon-only")
+        }
+        if restart {
+            arguments.append("--restart")
         }
         if let name {
             arguments += ["--name", name]
@@ -326,8 +329,8 @@ final class AssistantCli {
                     log.warning("Daemon process not running — attempting restart")
                     await self.restartDaemon()
                 } else if !self.isGatewayAlive() {
-                    log.warning("Gateway process not running (daemon alive) — attempting restart via hatch")
-                    await self.restartDaemon(daemonOnly: false)
+                    log.warning("Gateway process not running (daemon alive) — attempting restart")
+                    await self.restartDaemon(daemonOnly: false, restart: true)
                 }
             }
         }
@@ -627,7 +630,7 @@ final class AssistantCli {
         return kill(pid, 0) == 0
     }
 
-    private func restartDaemon(daemonOnly: Bool = true) async {
+    private func restartDaemon(daemonOnly: Bool = true, restart: Bool = false) async {
         guard cliBinaryURL != nil else { return }
         guard !isRestarting else { return }
         isRestarting = true
@@ -666,7 +669,7 @@ final class AssistantCli {
         }
 
         do {
-            try await hatch(name: assistantId, daemonOnly: daemonOnly)
+            try await hatch(name: assistantId, daemonOnly: daemonOnly, restart: restart)
             log.info("Daemon restarted successfully via CLI")
             onDaemonRestarted?()
         } catch {
