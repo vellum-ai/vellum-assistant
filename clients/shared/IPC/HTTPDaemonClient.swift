@@ -376,6 +376,13 @@ public final class HTTPTransport {
                 let refreshed = await handleAuthenticationFailureAsync()
                 if refreshed {
                     await sendMessage(content: content, sessionId: sessionId, isRetry: true)
+                } else {
+                    onMessage?(.sessionError(SessionErrorMessage(
+                        sessionId: sessionId,
+                        code: .providerApi,
+                        userMessage: "Failed to send message — authentication error. Please try again.",
+                        retryable: true
+                    )))
                 }
             } else {
                 let errorBody = String(data: data, encoding: .utf8) ?? "unknown"
@@ -420,6 +427,8 @@ public final class HTTPTransport {
                     let refreshed = await handleAuthenticationFailureAsync()
                     if refreshed {
                         await sendDecision(requestId: requestId, decision: decision, isRetry: true)
+                    } else {
+                        log.error("Decision response failed: authentication error after 401 refresh")
                     }
                 } else if http.statusCode != 200 {
                     log.error("Decision response failed (\(http.statusCode))")
@@ -452,6 +461,8 @@ public final class HTTPTransport {
                     let refreshed = await handleAuthenticationFailureAsync()
                     if refreshed {
                         await sendSecret(requestId: requestId, value: value, isRetry: true)
+                    } else {
+                        log.error("Secret response failed: authentication error after 401 refresh")
                     }
                 } else if http.statusCode != 200 {
                     log.error("Secret response failed (\(http.statusCode))")
@@ -477,6 +488,8 @@ public final class HTTPTransport {
                     let refreshed = await handleAuthenticationFailureAsync()
                     if refreshed {
                         await fetchGuardianActionsPending(conversationId: conversationId, isRetry: true)
+                    } else {
+                        log.error("Fetch guardian actions pending failed: authentication error after 401 refresh")
                     }
                     return
                 }
