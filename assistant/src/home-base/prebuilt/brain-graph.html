@@ -1183,6 +1183,9 @@
       resizeHandler = null;
     }
     if (renderer) {
+      if (renderer.domElement && renderer.domElement.parentNode) {
+        renderer.domElement.parentNode.removeChild(renderer.domElement);
+      }
       renderer.dispose();
       renderer = null;
     }
@@ -1220,7 +1223,16 @@
     initialized = true;
 
     // ── Renderer ─────────────────────────────────────────────────
-    renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    // canvas may be null if destroyThreeD removed it from the DOM; in that
+    // case omit the canvas option so Three.js creates a fresh canvas element.
+    const rendererOpts = canvas
+      ? { canvas, antialias: true, alpha: true }
+      : { antialias: true, alpha: true };
+    renderer = new THREE.WebGLRenderer(rendererOpts);
+    if (!canvas) {
+      renderer.domElement.id = 'brain-canvas-3d';
+      panel.appendChild(renderer.domElement);
+    }
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.setClearColor(0x000000, 0);
 
