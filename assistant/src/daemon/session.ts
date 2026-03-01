@@ -121,7 +121,7 @@ export class Session {
   /** @internal */ workingDir: string;
   /** @internal */ sandboxOverride?: boolean;
   /** @internal */ allowedToolNames?: Set<string>;
-  /** @internal */ toolsDisabled?: boolean;
+  /** @internal */ toolsDisabledDepth = 0;
   /** @internal */ preactivatedSkillIds?: string[];
   /** @internal */ coreToolNames: Set<string>;
   /** @internal */ readonly skillProjectionState = new Map<string, string>();

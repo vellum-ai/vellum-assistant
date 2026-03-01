@@ -376,14 +376,15 @@ export async function runDaemon(): Promise<void> {
 
         // Constrain pointer generation to a tool-disabled path so call-
         // status events cannot trigger unintended side-effect tools.
-        // Setting toolsDisabled causes the resolveTools callback to return
-        // an empty tool list, preventing the LLM from seeing or invoking
-        // any tools during the pointer agent loop.
+        // Incrementing toolsDisabledDepth causes the resolveTools callback
+        // to return an empty tool list, preventing the LLM from seeing or
+        // invoking any tools during the pointer agent loop.
         //
-        // The outer try/finally ensures toolsDisabled is always reset even
-        // if persistUserMessage or any other step throws before the agent
-        // loop's own try/finally would run.
-        session.toolsDisabled = true;
+        // A depth counter (rather than a boolean) ensures that overlapping
+        // pointer requests on the same session don't clear each other's
+        // constraint — each caller increments on entry and decrements in
+        // its own finally block.
+        session.toolsDisabledDepth++;
         try {
           const messageId = await session.persistUserMessage(
             instruction,
@@ -468,7 +469,7 @@ export async function runDaemon(): Promise<void> {
           }
         } finally {
           // Restore tool availability so subsequent turns aren't affected.
-          session.toolsDisabled = false;
+          session.toolsDisabledDepth--;
         }
       });
       runtimeHttp.setPairingBroadcast((msg) => server.broadcast(msg as ServerMessage));

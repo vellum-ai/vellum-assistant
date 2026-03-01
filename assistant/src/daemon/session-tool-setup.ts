@@ -307,8 +307,8 @@ export interface SkillProjectionContext {
   readonly skillProjectionCache: SkillProjectionCache;
   readonly coreToolNames: Set<string>;
   allowedToolNames?: Set<string>;
-  /** When true, the resolveTools callback returns no tools at all. */
-  toolsDisabled?: boolean;
+  /** When > 0, the resolveTools callback returns no tools at all. */
+  toolsDisabledDepth: number;
 }
 
 /**
@@ -327,7 +327,7 @@ export function createResolveToolsCallback(
     // When tools are explicitly disabled (e.g. during pointer generation),
     // return an empty tool list so the LLM never sees tool definitions and
     // keep the allowlist empty so no tool execution can slip through.
-    if (ctx.toolsDisabled) {
+    if (ctx.toolsDisabledDepth > 0) {
       ctx.allowedToolNames = new Set<string>();
       return [];
     }
