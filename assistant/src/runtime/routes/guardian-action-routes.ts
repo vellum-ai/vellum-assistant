@@ -23,6 +23,7 @@ import { httpError } from '../http-errors.js';
 import {
   isActorBoundGuardian,
   isLocalFallbackBoundGuardian,
+  type ServerWithRequestIP,
   verifyHttpActorTokenWithLocalFallback,
 } from '../middleware/actor-token.js';
 
@@ -38,8 +39,8 @@ import {
  * are still pending, mapped to the GuardianDecisionPrompt shape so clients
  * can render structured button UIs.
  */
-export function handleGuardianActionsPending(req: Request): Response {
-  const tokenResult = verifyHttpActorTokenWithLocalFallback(req);
+export function handleGuardianActionsPending(req: Request, server?: ServerWithRequestIP): Response {
+  const tokenResult = verifyHttpActorTokenWithLocalFallback(req, server);
   if (!tokenResult.ok) {
     return httpError(
       tokenResult.status === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN',
@@ -71,8 +72,8 @@ export function handleGuardianActionsPending(req: Request): Response {
  * primitive which handles CAS resolution, resolver dispatch, and grant
  * minting.
  */
-export async function handleGuardianActionDecision(req: Request): Promise<Response> {
-  const tokenResult = verifyHttpActorTokenWithLocalFallback(req);
+export async function handleGuardianActionDecision(req: Request, server?: ServerWithRequestIP): Promise<Response> {
+  const tokenResult = verifyHttpActorTokenWithLocalFallback(req, server);
   if (!tokenResult.ok) {
     return httpError(
       tokenResult.status === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN',

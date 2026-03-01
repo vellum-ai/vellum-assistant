@@ -29,7 +29,7 @@ import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
 import { routeGuardianReply } from '../guardian-reply-router.js';
 import { httpError } from '../http-errors.js';
 import { resolveLocalIpcGuardianContext } from '../local-actor-identity.js';
-import { verifyHttpActorTokenWithLocalFallback } from '../middleware/actor-token.js';
+import { type ServerWithRequestIP, verifyHttpActorTokenWithLocalFallback } from '../middleware/actor-token.js';
 import type {
   ApprovalConversationGenerator,
   MessageProcessor,
@@ -131,7 +131,12 @@ async function tryConsumeInlineApprovalReply(params: {
     actor: {
       externalUserId: verifiedActorExternalUserId,
       channel: sourceChannel,
-      isTrusted: true,
+      // When a verified identity is available, disable the trusted bypass so
+      // that the identity-match checks in applyCanonicalGuardianDecision
+      // actually run. Only fall back to isTrusted when no verified identity
+      // was resolved (defensive — shouldn't happen for vellum since
+      // verification runs upstream).
+      isTrusted: !verifiedActorExternalUserId,
     },
     conversationId,
     pendingRequestIds,
@@ -402,6 +407,7 @@ export async function handleSendMessage(
     sendMessageDeps?: SendMessageDeps;
     approvalConversationGenerator?: ApprovalConversationGenerator;
   },
+  server?: ServerWithRequestIP,
 ): Promise<Response> {
   const body = await req.json() as {
     conversationKey?: string;
@@ -462,7 +468,7 @@ export async function handleSendMessage(
     // Vellum HTTP requests prefer actor-token identity. When absent (e.g. CLI
     // bearer-auth only), fall back to local IPC identity resolution so
     // bearer-authenticated local clients are not rejected.
-    const actorVerification = sourceChannel === 'vellum' ? verifyHttpActorTokenWithLocalFallback(req) : null;
+    const actorVerification = sourceChannel === 'vellum' ? verifyHttpActorTokenWithLocalFallback(req, server) : null;
     if (actorVerification && !actorVerification.ok) {
       return httpError(
         actorVerification.status === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN',
@@ -586,7 +592,7 @@ export async function handleSendMessage(
 
   // Require actor token for vellum channel requests on the legacy path too,
   // with local IPC fallback for bearer-authenticated CLI clients.
-  const legacyActorVerification = sourceChannel === 'vellum' ? verifyHttpActorTokenWithLocalFallback(req) : null;
+  const legacyActorVerification = sourceChannel === 'vellum' ? verifyHttpActorTokenWithLocalFallback(req, server) : null;
   if (legacyActorVerification && !legacyActorVerification.ok) {
     return httpError(
       legacyActorVerification.status === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN',

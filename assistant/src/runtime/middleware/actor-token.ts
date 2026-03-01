@@ -151,7 +151,7 @@ export function isActorBoundGuardian(claims: ActorTokenClaims): boolean {
 const LOOPBACK_ADDRESSES = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 
 /** Bun server shape needed for requestIP — avoids importing the full Bun type. */
-type ServerWithRequestIP = {
+export type ServerWithRequestIP = {
   requestIP(req: Request): { address: string; family: string; port: number } | null;
 };
 

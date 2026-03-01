@@ -142,8 +142,9 @@ export function bridgeConfirmationRequestToGuardian(
       visibleInSourceNow: false,
     },
     contextPayload: {
+      requestKind: 'tool_approval' as const,
       requestId: canonicalRequest.id,
-      requestCode: canonicalRequest.requestCode,
+      requestCode: canonicalRequest.requestCode ?? '',
       sourceChannel,
       requesterExternalUserId: guardianContext.requesterExternalUserId,
       requesterChatId: guardianContext.requesterChatId ?? null,

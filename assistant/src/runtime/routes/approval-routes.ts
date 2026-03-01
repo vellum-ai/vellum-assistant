@@ -16,6 +16,7 @@ import { httpError } from '../http-errors.js';
 import {
   isActorBoundGuardian,
   isLocalFallbackBoundGuardian,
+  type ServerWithRequestIP,
   verifyHttpActorTokenWithLocalFallback,
 } from '../middleware/actor-token.js';
 import * as pendingInteractions from '../pending-interactions.js';
@@ -27,8 +28,8 @@ const log = getLogger('approval-routes');
  * Returns an error Response if verification fails, or null if
  * the actor is authenticated (via actor token or local identity).
  */
-function requireActorToken(req: Request): Response | null {
-  const result = verifyHttpActorTokenWithLocalFallback(req);
+function requireActorToken(req: Request, server?: ServerWithRequestIP): Response | null {
+  const result = verifyHttpActorTokenWithLocalFallback(req, server);
   if (!result.ok) {
     return httpError(
       result.status === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN',
@@ -45,8 +46,8 @@ function requireActorToken(req: Request): Response | null {
  * falls back to local IPC identity resolution and checks the local
  * identity is the bound guardian.
  */
-function requireBoundGuardian(req: Request): Response | null {
-  const result = verifyHttpActorTokenWithLocalFallback(req);
+function requireBoundGuardian(req: Request, server?: ServerWithRequestIP): Response | null {
+  const result = verifyHttpActorTokenWithLocalFallback(req, server);
   if (!result.ok) {
     return httpError(
       result.status === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN',
@@ -69,8 +70,8 @@ function requireBoundGuardian(req: Request): Response | null {
  * POST /v1/confirm — resolve a pending confirmation by requestId.
  * Requires a valid actor token (guardian-bound).
  */
-export async function handleConfirm(req: Request): Promise<Response> {
-  const authError = requireBoundGuardian(req);
+export async function handleConfirm(req: Request, server?: ServerWithRequestIP): Promise<Response> {
+  const authError = requireBoundGuardian(req, server);
   if (authError) return authError;
 
   const body = await req.json() as {
@@ -101,8 +102,8 @@ export async function handleConfirm(req: Request): Promise<Response> {
  * POST /v1/secret — resolve a pending secret request by requestId.
  * Requires a valid actor token (guardian-bound).
  */
-export async function handleSecret(req: Request): Promise<Response> {
-  const authError = requireBoundGuardian(req);
+export async function handleSecret(req: Request, server?: ServerWithRequestIP): Promise<Response> {
+  const authError = requireBoundGuardian(req, server);
   if (authError) return authError;
 
   const body = await req.json() as {
@@ -143,8 +144,8 @@ export async function handleSecret(req: Request): Promise<Response> {
  * against the server-provided allowlist options from the original
  * confirmation_request.
  */
-export async function handleTrustRule(req: Request): Promise<Response> {
-  const authError = requireBoundGuardian(req);
+export async function handleTrustRule(req: Request, server?: ServerWithRequestIP): Promise<Response> {
+  const authError = requireBoundGuardian(req, server);
   if (authError) return authError;
 
   const body = await req.json() as {
@@ -225,8 +226,8 @@ export async function handleTrustRule(req: Request): Promise<Response> {
  * polling-based clients (like the CLI) to discover approval requests
  * without SSE.
  */
-export function handleListPendingInteractions(url: URL, req: Request): Response {
-  const authError = requireActorToken(req);
+export function handleListPendingInteractions(url: URL, req: Request, server?: ServerWithRequestIP): Response {
+  const authError = requireActorToken(req, server);
   if (authError) return authError;
   const conversationKey = url.searchParams.get('conversationKey');
   const conversationId = url.searchParams.get('conversationId');

@@ -15,7 +15,7 @@ import type { AssistantEventSubscription } from '../assistant-event-hub.js';
 import { AssistantEventHub,assistantEventHub } from '../assistant-event-hub.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
 import { httpError } from '../http-errors.js';
-import { verifyHttpActorTokenWithLocalFallback } from '../middleware/actor-token.js';
+import { type ServerWithRequestIP, verifyHttpActorTokenWithLocalFallback } from '../middleware/actor-token.js';
 
 /** Keep-alive comment sent to idle clients every 30 s by default. */
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 30_000;
@@ -37,12 +37,13 @@ export function handleSubscribeAssistantEvents(
     hub?: AssistantEventHub;
     heartbeatIntervalMs?: number;
     skipActorVerification?: boolean;
+    server?: ServerWithRequestIP;
   },
 ): Response {
   // Verify actor-token identity for vellum channel requests, with local
   // CLI fallback for bearer-authenticated clients without X-Actor-Token.
   if (!options?.skipActorVerification) {
-    const actorVerification = verifyHttpActorTokenWithLocalFallback(req);
+    const actorVerification = verifyHttpActorTokenWithLocalFallback(req, options?.server);
     if (!actorVerification.ok) {
       return httpError(
         actorVerification.status === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN',
