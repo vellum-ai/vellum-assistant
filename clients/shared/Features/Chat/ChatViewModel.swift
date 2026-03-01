@@ -798,6 +798,7 @@ public final class ChatViewModel: ObservableObject {
                 self?.requestIdToMessageId.removeAll()
                 self?.activeRequestIdToMessageId.removeAll()
                 self?.pendingLocalDeletions.removeAll()
+                self?.lastActivityVersion = 0
                 // If a run was in progress when the connection dropped, the
                 // client may have missed the messageComplete (or the full
                 // assistant response). Reset the spinner and re-fetch history
