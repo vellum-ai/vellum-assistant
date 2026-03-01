@@ -27,11 +27,17 @@ export function resolveUserReference(): string {
  * Resolve the user's pronouns from the Onboarding Snapshot section of
  * USER.md.  Returns `null` when the file is missing, the field is empty,
  * or the value is a sentinel like `declined_by_user`.
+ *
+ * The match is scoped to lines after "## Onboarding Snapshot" to avoid
+ * false matches against free-form notes earlier in the file.
  */
 export function resolveUserPronouns(): string | null {
   const content = readTextFileSync(getWorkspacePromptPath('USER.md'));
   if (content != null) {
-    const match = content.match(/Pronouns:[ \t]*(.*)/);
+    // Only search within the Onboarding Snapshot section
+    const snapshotIdx = content.indexOf('## Onboarding Snapshot');
+    const section = snapshotIdx >= 0 ? content.slice(snapshotIdx) : content;
+    const match = section.match(/^- Pronouns:[ \t]*(.*)/m);
     if (match && match[1].trim()) {
       const raw = match[1].trim();
       if (raw === 'declined_by_user') return null;
