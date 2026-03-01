@@ -17,6 +17,7 @@ import {
 import { getActiveBinding } from '../memory/guardian-bindings.js';
 import { emitNotificationSignal } from '../notifications/emit-signal.js';
 import type { NotificationDeliveryResult } from '../notifications/types.js';
+import { ensureVellumGuardianBinding } from '../runtime/guardian-vellum-migration.js';
 import { getLogger } from '../util/logger.js';
 import { getUserConsultationTimeoutMs } from './call-constants.js';
 import type { CallPendingQuestion } from './types.js';
@@ -93,8 +94,28 @@ async function dispatchGuardianQuestionInner(params: GuardianDispatchParams): Pr
     // level guardian identity. Resolve the principal from the vellum binding
     // (the canonical assistant-level binding) so the request is attributed to
     // the assistant's guardian principal.
-    const vellumBinding = getActiveBinding(assistantId, 'vellum');
-    const guardianPrincipalId = vellumBinding?.guardianPrincipalId ?? undefined;
+    let vellumBinding = getActiveBinding(assistantId, 'vellum');
+    let guardianPrincipalId = vellumBinding?.guardianPrincipalId ?? undefined;
+
+    // Self-heal: if the vellum binding is missing or lacks a principal,
+    // bootstrap it so the pending_question request can be attributed.
+    if (!guardianPrincipalId) {
+      log.info(
+        { callSessionId, assistantId, hadBinding: !!vellumBinding },
+        'Vellum binding missing or lacks principal — self-healing for voice dispatch',
+      );
+      const healedPrincipalId = ensureVellumGuardianBinding(assistantId);
+      vellumBinding = getActiveBinding(assistantId, 'vellum');
+      guardianPrincipalId = vellumBinding?.guardianPrincipalId ?? healedPrincipalId;
+    }
+
+    if (!guardianPrincipalId) {
+      log.error(
+        { callSessionId, assistantId },
+        'Voice guardian dispatch: no guardianPrincipalId after self-heal — cannot create pending_question',
+      );
+      return;
+    }
 
     // Create the canonical guardian request as the primary record.
     const request = createCanonicalGuardianRequest({

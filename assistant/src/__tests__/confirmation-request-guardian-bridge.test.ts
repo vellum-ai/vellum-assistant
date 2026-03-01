@@ -118,6 +118,7 @@ function makeCanonicalRequest(overrides: Record<string, unknown> = {}) {
     conversationId: 'conv-1',
     requesterExternalUserId: 'requester-1',
     guardianExternalUserId: 'guardian-1',
+    guardianPrincipalId: 'test-principal-id',
     toolName: 'bash',
     status: 'pending',
     requestCode: generateCanonicalRequestCode(),

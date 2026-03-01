@@ -652,11 +652,14 @@ describe('resolveLocalIpcGuardianContext', () => {
     expect(ctx.sourceChannel).toBe('vellum');
   });
 
-  test('returns fallback guardian context when no vellum binding exists', () => {
-    // No binding created — fresh DB state
+  test('returns guardian context with principal when no vellum binding exists (pre-bootstrap self-heal)', () => {
+    // No binding created — fresh DB state. Pre-bootstrap path self-heals
+    // by creating a vellum binding, then resolves through the shared pipeline
+    // with correct field names (conversationExternalId, actorExternalId).
     const ctx = resolveLocalIpcGuardianContext();
     expect(ctx.trustClass).toBe('guardian');
     expect(ctx.sourceChannel).toBe('vellum');
+    expect(ctx.guardianPrincipalId).toBeDefined();
   });
 
   test('respects custom sourceChannel parameter', () => {

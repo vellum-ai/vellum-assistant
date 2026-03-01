@@ -333,6 +333,7 @@ describe('POST /v1/messages — queue-if-busy and hub publishing', () => {
       sourceChannel: 'vellum',
       conversationId,
       toolName: 'call_start',
+      guardianPrincipalId: 'test-principal-id',
       status: 'pending',
       requestCode: 'ABC123',
       expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
@@ -389,6 +390,7 @@ describe('POST /v1/messages — queue-if-busy and hub publishing', () => {
       conversationId,
       toolName: 'call_start',
       status: 'pending',
+      guardianPrincipalId: 'test-principal-id',
       requestCode: 'C0FFEE',
       expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
     });
@@ -450,6 +452,7 @@ describe('POST /v1/messages — queue-if-busy and hub publishing', () => {
       conversationId,
       toolName: 'call_start',
       status: 'pending',
+      guardianPrincipalId: 'test-principal-id',
       requestCode: 'DEF456',
       expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
     });
@@ -505,6 +508,7 @@ describe('POST /v1/messages — queue-if-busy and hub publishing', () => {
       conversationId,
       toolName: 'call_start',
       status: 'pending',
+      guardianPrincipalId: 'test-principal-id',
       requestCode: 'Q2D456',
       expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
     });
@@ -560,6 +564,7 @@ describe('POST /v1/messages — queue-if-busy and hub publishing', () => {
       conversationId,
       toolName: 'call_start',
       status: 'pending',
+      guardianPrincipalId: 'test-principal-id',
       requestCode: 'GHI789',
       expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
     });
@@ -613,6 +618,7 @@ describe('POST /v1/messages — queue-if-busy and hub publishing', () => {
       conversationId,
       toolName: 'call_start',
       status: 'pending',
+      guardianPrincipalId: 'test-principal-id',
       requestCode: 'JKL012',
       expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
     });

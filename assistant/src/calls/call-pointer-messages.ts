@@ -133,11 +133,11 @@ export async function addPointerMessage(
   const outcomeKeyword = eventOutcomeKeywords[event];
   if (outcomeKeyword) requiredFacts.push(outcomeKeyword);
 
-  const isTrusted =
+  const trustedAudience =
     audienceMode === 'trusted' ||
     (audienceMode === 'auto' && resolvePointerAudienceTrust(conversationId));
 
-  if (isTrusted && pointerMessageProcessor) {
+  if (trustedAudience && pointerMessageProcessor) {
     // Route through the daemon session — the assistant generates the
     // pointer text as a natural conversation turn, shaped by context,
     // identity, and preferences.
@@ -148,7 +148,7 @@ export async function addPointerMessage(
     } catch (err) {
       log.warn({ err, event, conversationId }, 'Daemon pointer processing failed, falling back to deterministic');
     }
-  } else if (!isTrusted && pointerMessageProcessor) {
+  } else if (!trustedAudience && pointerMessageProcessor) {
     log.debug({ event, conversationId }, 'Untrusted audience — using deterministic pointer copy');
   }
 

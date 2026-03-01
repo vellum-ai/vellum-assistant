@@ -116,13 +116,21 @@ describe('guardianPrincipalId roundtrip', () => {
       expect(fetched!.decidedByPrincipalId).toBeNull();
     });
 
-    test('creates request without guardianPrincipalId (defaults to null)', () => {
+    test('access_request requires guardianPrincipalId (decisionable kind)', () => {
+      // access_request is now decisionable — creating one without a principal
+      // should throw IntegrityError.
+      expect(() => createCanonicalGuardianRequest({
+        kind: 'access_request',
+        sourceType: 'desktop',
+      })).toThrow('guardianPrincipalId');
+
+      // With a principal, creation succeeds
       const req = createCanonicalGuardianRequest({
         kind: 'access_request',
         sourceType: 'desktop',
+        guardianPrincipalId: 'access-req-principal',
       });
-
-      expect(req.guardianPrincipalId).toBeNull();
+      expect(req.guardianPrincipalId).toBe('access-req-principal');
       expect(req.decidedByPrincipalId).toBeNull();
     });
 
