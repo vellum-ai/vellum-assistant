@@ -22,6 +22,27 @@ mock.module('../util/logger.js', () => ({
     new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
 }));
 
+// Mock config loader and feature flags to avoid filesystem reads on CI.
+// getConfig returns a minimal config; all feature flags default to enabled.
+mock.module('../config/loader.js', () => ({
+  getConfig: () => ({}),
+  loadConfig: () => ({}),
+  applyNestedDefaults: (c: unknown) => c,
+  saveConfig: () => {},
+  invalidateConfigCache: () => {},
+  loadRawConfig: () => ({}),
+  saveRawConfig: () => {},
+  getNestedValue: () => undefined,
+  setNestedValue: () => {},
+  API_KEY_PROVIDERS: [],
+}));
+
+mock.module('../config/assistant-feature-flags.js', () => ({
+  isAssistantFeatureFlagEnabled: () => true,
+  loadDefaultsRegistry: () => ({}),
+  getFeatureFlagDefault: () => true,
+}));
+
 // Skill catalog: returns a configurable list of fake skills
 let catalogSkillIds: string[] = [];
 mock.module('../config/skills.js', () => ({
@@ -111,7 +132,7 @@ mock.module('../tools/skills/skill-tool-factory.js', () => ({
 // Bun's module resolver throws "Export named '…' not found".
 const statStub = () => ({ isSymbolicLink: () => false, isDirectory: () => false, isFile: () => true });
 mock.module('node:fs', () => ({
-  existsSync: () => true,
+  existsSync: (p: string) => typeof p === 'string' && p.endsWith('TOOLS.json'),
   readFileSync: () => '',
   lstatSync: statStub,
   readdirSync: () => [],
