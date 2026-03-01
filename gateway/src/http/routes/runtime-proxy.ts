@@ -45,20 +45,15 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
       }
     }
 
-    // Reject legacy assistant-scoped paths — the daemon only accepts
-    // flat /v1/... paths and we no longer rewrite on the caller's behalf.
-    if (/^\/v1\/assistants\/[^/]+\//.test(url.pathname)) {
-      log.warn(
-        { method: req.method, path: url.pathname },
-        "Rejected legacy assistant-scoped path — use canonical /v1/... paths",
-      );
-      return Response.json(
-        { error: "Legacy assistant-scoped paths are no longer supported. Use /v1/... instead.", source: "gateway" },
-        { status: 400 },
-      );
+    // The daemon uses flat /v1/... paths. Rewrite any legacy
+    // /v1/assistants/:assistantId/... requests from clients to flat paths.
+    let upstreamPath = url.pathname;
+    const assistantScopedMatch = url.pathname.match(/^\/v1\/assistants\/[^/]+\/(.+)$/);
+    if (assistantScopedMatch) {
+      upstreamPath = `/v1/${assistantScopedMatch[1]}`;
     }
 
-    const upstream = `${config.assistantRuntimeBaseUrl}${url.pathname}${url.search}`;
+    const upstream = `${config.assistantRuntimeBaseUrl}${upstreamPath}${url.search}`;
 
     const reqHeaders = stripHopByHop(new Headers(req.headers));
     reqHeaders.delete("host");
