@@ -109,7 +109,7 @@ export type CallerIdentityResult =
 export async function resolveCallerIdentity(
   config: AssistantConfig,
   requestedMode?: 'assistant_number' | 'user_number',
-  _assistantId?: string,
+  assistantId?: string,
 ): Promise<CallerIdentityResult> {
   const identityConfig = config.calls.callerIdentity;
   let mode: 'assistant_number' | 'user_number';
@@ -132,7 +132,7 @@ export async function resolveCallerIdentity(
   }
 
   if (mode === 'assistant_number') {
-    const twilioConfig = getTwilioConfig();
+    const twilioConfig = getTwilioConfig(assistantId);
     log.info({ mode, source, fromNumber: twilioConfig.phoneNumber }, 'Resolved caller identity');
     return { ok: true, mode, fromNumber: twilioConfig.phoneNumber, source };
   }

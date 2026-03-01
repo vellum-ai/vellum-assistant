@@ -15,15 +15,19 @@ export interface TwilioConfig {
   wssBaseUrl: string;
 }
 
-function resolveTwilioPhoneNumber(config: ReturnType<typeof loadConfig>): string {
+function resolveTwilioPhoneNumber(config: ReturnType<typeof loadConfig>, assistantId?: string): string {
+  if (assistantId) {
+    const scoped = (config.sms?.assistantPhoneNumbers as Record<string, string> | undefined)?.[assistantId];
+    if (scoped) return scoped;
+  }
   return getTwilioPhoneNumberEnv() || config.sms?.phoneNumber || getSecureKey('credential:twilio:phone_number') || '';
 }
 
-export function getTwilioConfig(): TwilioConfig {
+export function getTwilioConfig(assistantId?: string): TwilioConfig {
   const accountSid = getSecureKey('credential:twilio:account_sid');
   const authToken = getSecureKey('credential:twilio:auth_token');
   const config = loadConfig();
-  const phoneNumber = resolveTwilioPhoneNumber(config);
+  const phoneNumber = resolveTwilioPhoneNumber(config, assistantId);
   const webhookBaseUrl = getPublicBaseUrl(config);
 
   // Always use the centralized relay URL derived from the public ingress base URL.

@@ -391,6 +391,7 @@ function createCtx(overrides?: Partial<HandlerContext>): {
     setChannelCapabilities: noop,
     setGuardianContext: noop,
     setCommandIntent: noop,
+    updateClient: noop,
     processMessage: async () => {},
     getQueueDepth: () => 0,
     setPreactivatedSkillIds: noop,
