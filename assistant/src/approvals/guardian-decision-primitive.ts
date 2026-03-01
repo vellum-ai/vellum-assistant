@@ -276,6 +276,39 @@ export function mintCanonicalRequestGrant(params: {
 }
 
 // ---------------------------------------------------------------------------
+// Cross-channel principal authorization helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Check whether an actor's guardian principal is authorized to act on a
+ * request that was bound to a (possibly different) guardian principal.
+ *
+ * Authorization passes when:
+ *   1. The actor's principal directly matches the request's principal, OR
+ *   2. The actor's principal matches the assistant's canonical (vellum)
+ *      principal — this covers the cross-channel case where a request was
+ *      created with a channel binding's principal (e.g. Telegram) but the
+ *      guardian responds from vellum/desktop.
+ *
+ * Returns `true` when the actor is authorized, `false` otherwise.
+ */
+export function isAuthorizedGuardianPrincipal(
+  actorPrincipalId: string,
+  requestPrincipalId: string,
+): boolean {
+  if (actorPrincipalId === requestPrincipalId) {
+    return true;
+  }
+
+  // Cross-channel fallback: check if the actor matches the assistant's
+  // canonical (vellum) principal.
+  const vellumBinding = getActiveBinding(DAEMON_INTERNAL_ASSISTANT_ID, 'vellum');
+  const canonicalPrincipal = vellumBinding?.guardianPrincipalId;
+
+  return !!canonicalPrincipal && actorPrincipalId === canonicalPrincipal;
+}
+
+// ---------------------------------------------------------------------------
 // Canonical guardian decision primitive
 // ---------------------------------------------------------------------------
 
@@ -380,38 +413,26 @@ export async function applyCanonicalGuardianDecision(
     return { applied: false, reason: 'identity_mismatch', detail: 'actor missing guardianPrincipalId' };
   }
 
+  if (!isAuthorizedGuardianPrincipal(actorContext.guardianPrincipalId, request.guardianPrincipalId)) {
+    log.warn(
+      {
+        event: 'canonical_decision_principal_mismatch',
+        requestId,
+        expectedPrincipal: request.guardianPrincipalId,
+        actualPrincipal: actorContext.guardianPrincipalId,
+      },
+      'Actor principal does not match request principal or canonical principal',
+    );
+    return { applied: false, reason: 'identity_mismatch', detail: 'principal mismatch' };
+  }
+
   if (actorContext.guardianPrincipalId !== request.guardianPrincipalId) {
-    // Cross-channel fallback: when a request was created with a channel
-    // binding's principal (e.g. Telegram) but the guardian responds from
-    // vellum/desktop, the actor's principal is the vellum binding's
-    // canonical principal. Allow the decision if the actor matches the
-    // assistant's canonical (vellum) principal — this is the single
-    // assistant-scoped guardian identity used for decision authorization
-    // across all channels and surfaces.
-    const vellumBinding = getActiveBinding(DAEMON_INTERNAL_ASSISTANT_ID, 'vellum');
-    const canonicalPrincipal = vellumBinding?.guardianPrincipalId;
-
-    if (!canonicalPrincipal || actorContext.guardianPrincipalId !== canonicalPrincipal) {
-      log.warn(
-        {
-          event: 'canonical_decision_principal_mismatch',
-          requestId,
-          expectedPrincipal: request.guardianPrincipalId,
-          actualPrincipal: actorContext.guardianPrincipalId,
-          canonicalPrincipal: canonicalPrincipal ?? null,
-        },
-        'Actor principal does not match request principal or canonical principal',
-      );
-      return { applied: false, reason: 'identity_mismatch', detail: 'principal mismatch' };
-    }
-
     log.info(
       {
         event: 'canonical_decision_cross_channel_principal_match',
         requestId,
         requestPrincipal: request.guardianPrincipalId,
         actorPrincipal: actorContext.guardianPrincipalId,
-        canonicalPrincipal,
       },
       'Actor principal matches canonical vellum principal (cross-channel authorization)',
     );
