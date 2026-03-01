@@ -3179,6 +3179,7 @@ public struct IPCNotificationIntent: Codable, Sendable {
     public let deepLinkMetadata: [String: AnyCodable]?
     /// When set, this notification is guardian-sensitive and should only be
     /// displayed by clients whose guardian identity matches this principal ID.
+    /// Clients not bound to this guardian should ignore the notification.
     public let targetGuardianPrincipalId: String?
 
     public init(type: String, deliveryId: String? = nil, sourceEventName: String, title: String, body: String, deepLinkMetadata: [String: AnyCodable]? = nil, targetGuardianPrincipalId: String? = nil) {
