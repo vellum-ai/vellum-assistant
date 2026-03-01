@@ -522,6 +522,13 @@ function main() {
         }
       }
 
+      // ── Guardian vellum bootstrap (actor token) ──
+      if (url.pathname === "/v1/integrations/guardian/vellum/bootstrap" && req.method === "POST") {
+        const authError = requireRuntimeBearerAuth();
+        if (authError) return authError;
+        return guardianControlPlaneProxy.handleGuardianVellumBootstrap(tracedReq);
+      }
+
       // ── Guardian verification control-plane proxy ──
       if (
         (url.pathname === "/v1/integrations/guardian/challenge" && req.method === "POST")

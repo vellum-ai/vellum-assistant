@@ -107,5 +107,9 @@ export function createGuardianControlPlaneProxyHandler(config: GatewayConfig) {
     async handleCancelGuardianOutbound(req: Request): Promise<Response> {
       return proxyToRuntime(req, "/v1/integrations/guardian/outbound/cancel", "");
     },
+
+    async handleGuardianVellumBootstrap(req: Request): Promise<Response> {
+      return proxyToRuntime(req, "/v1/integrations/guardian/vellum/bootstrap", "");
+    },
   };
 }

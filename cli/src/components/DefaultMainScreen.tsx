@@ -1,6 +1,6 @@
 import { spawn } from "child_process";
 import { createHash, randomBytes, randomUUID } from "crypto";
-import { hostname, userInfo } from "os";
+import { hostname, platform, userInfo } from "os";
 import { basename } from "path";
 import qrcode from "qrcode-terminal";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
@@ -135,6 +135,7 @@ async function runtimeRequest<T>(
   path: string,
   init?: RequestInit,
   bearerToken?: string,
+  actorToken?: string,
 ): Promise<T> {
   const url = `${baseUrl}/v1/assistants/${assistantId}${path}`;
   const response = await fetch(url, {
@@ -142,6 +143,7 @@ async function runtimeRequest<T>(
     headers: {
       "Content-Type": "application/json",
       ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
+      ...(actorToken ? { "X-Actor-Token": actorToken } : {}),
       ...(init?.headers as Record<string, string> | undefined),
     },
   });
@@ -177,10 +179,47 @@ async function checkHealthRuntime(baseUrl: string): Promise<HealthResponse> {
   return response.json() as Promise<HealthResponse>;
 }
 
+async function bootstrapActorToken(baseUrl: string, bearerToken?: string): Promise<string> {
+  if (!bearerToken) {
+    throw new Error("Missing bearer token; cannot bootstrap actor identity");
+  }
+
+  const deviceId = `vellum-cli:${platform()}:${hostname()}:${userInfo().username}`;
+  const url = `${baseUrl}/v1/integrations/guardian/vellum/bootstrap`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${bearerToken}`,
+    },
+    body: JSON.stringify({ platform: "cli", deviceId }),
+  });
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new Error(`HTTP ${response.status}: ${body || response.statusText}`);
+  }
+
+  const json: unknown = await response.json();
+
+  if (typeof json !== "object" || json === null) {
+    throw new Error("Invalid bootstrap response from gateway/runtime");
+  }
+
+  const actorToken = (json as Record<string, unknown>).actorToken;
+  if (typeof actorToken !== "string" || actorToken.length === 0) {
+    throw new Error("Invalid bootstrap response from gateway/runtime");
+  }
+
+  return actorToken;
+}
+
 async function pollMessages(
   baseUrl: string,
   assistantId: string,
   bearerToken?: string,
+  actorToken?: string,
 ): Promise<ListMessagesResponse> {
   const params = new URLSearchParams({ conversationKey: assistantId });
   return runtimeRequest<ListMessagesResponse>(
@@ -189,6 +228,7 @@ async function pollMessages(
     `/messages?${params.toString()}`,
     undefined,
     bearerToken,
+    actorToken,
   );
 }
 
@@ -198,6 +238,7 @@ async function sendMessage(
   content: string,
   signal?: AbortSignal,
   bearerToken?: string,
+  actorToken?: string,
 ): Promise<SendMessageResponse> {
   return runtimeRequest<SendMessageResponse>(
     baseUrl,
@@ -209,6 +250,7 @@ async function sendMessage(
       signal,
     },
     bearerToken,
+    actorToken,
   );
 }
 
@@ -218,6 +260,7 @@ async function submitDecision(
   requestId: string,
   decision: "allow" | "deny",
   bearerToken?: string,
+  actorToken?: string,
 ): Promise<SubmitDecisionResponse> {
   return runtimeRequest<SubmitDecisionResponse>(
     baseUrl,
@@ -228,6 +271,7 @@ async function submitDecision(
       body: JSON.stringify({ requestId, decision }),
     },
     bearerToken,
+    actorToken,
   );
 }
 
@@ -239,6 +283,7 @@ async function addTrustRule(
   scope: string,
   decision: "allow" | "deny",
   bearerToken?: string,
+  actorToken?: string,
 ): Promise<AddTrustRuleResponse> {
   return runtimeRequest<AddTrustRuleResponse>(
     baseUrl,
@@ -249,6 +294,7 @@ async function addTrustRule(
       body: JSON.stringify({ requestId, pattern, scope, decision }),
     },
     bearerToken,
+    actorToken,
   );
 }
 
@@ -256,6 +302,7 @@ async function pollPendingInteractions(
   baseUrl: string,
   assistantId: string,
   bearerToken?: string,
+  actorToken?: string,
 ): Promise<PendingInteractionsResponse> {
   const params = new URLSearchParams({ conversationKey: assistantId });
   return runtimeRequest<PendingInteractionsResponse>(
@@ -264,6 +311,7 @@ async function pollPendingInteractions(
     `/pending-interactions?${params.toString()}`,
     undefined,
     bearerToken,
+    actorToken,
   );
 }
 
@@ -301,6 +349,7 @@ async function handleConfirmationPrompt(
   confirmation: PendingConfirmation,
   chatApp: ChatAppHandle,
   bearerToken?: string,
+  actorToken?: string,
 ): Promise<void> {
   const preview = formatConfirmationPreview(confirmation.toolName, confirmation.input);
   const allowlistOptions = confirmation.allowlistOptions ?? [];
@@ -320,7 +369,7 @@ async function handleConfirmationPrompt(
   const index = await chatApp.showSelection("Tool Approval", options);
 
   if (index === 0) {
-    await submitDecision(baseUrl, assistantId, requestId, "allow", bearerToken);
+    await submitDecision(baseUrl, assistantId, requestId, "allow", bearerToken, actorToken);
     chatApp.addStatus("\u2714 Allowed", "green");
     return;
   }
@@ -333,6 +382,7 @@ async function handleConfirmationPrompt(
       chatApp,
       "always_allow",
       bearerToken,
+      actorToken,
     );
     return;
   }
@@ -345,11 +395,12 @@ async function handleConfirmationPrompt(
       chatApp,
       "always_deny",
       bearerToken,
+      actorToken,
     );
     return;
   }
 
-  await submitDecision(baseUrl, assistantId, requestId, "deny", bearerToken);
+  await submitDecision(baseUrl, assistantId, requestId, "deny", bearerToken, actorToken);
   chatApp.addStatus("\u2718 Denied", "yellow");
 }
 
@@ -361,6 +412,7 @@ async function handlePatternSelection(
   chatApp: ChatAppHandle,
   trustDecision: TrustDecision,
   bearerToken?: string,
+  actorToken?: string,
 ): Promise<void> {
   const allowlistOptions = confirmation.allowlistOptions ?? [];
   const label = trustDecision === "always_deny" ? "Denylist" : "Allowlist";
@@ -379,11 +431,12 @@ async function handlePatternSelection(
       selectedPattern,
       trustDecision,
       bearerToken,
+      actorToken,
     );
     return;
   }
 
-  await submitDecision(baseUrl, assistantId, requestId, "deny", bearerToken);
+  await submitDecision(baseUrl, assistantId, requestId, "deny", bearerToken, actorToken);
   chatApp.addStatus("\u2718 Denied", "yellow");
 }
 
@@ -396,6 +449,7 @@ async function handleScopeSelection(
   selectedPattern: string,
   trustDecision: TrustDecision,
   bearerToken?: string,
+  actorToken?: string,
 ): Promise<void> {
   const scopeOptions = confirmation.scopeOptions ?? [];
   const label = trustDecision === "always_deny" ? "Denylist" : "Allowlist";
@@ -413,6 +467,7 @@ async function handleScopeSelection(
       scopeOptions[index].scope,
       ruleDecision,
       bearerToken,
+      actorToken,
     );
     await submitDecision(
       baseUrl,
@@ -420,6 +475,7 @@ async function handleScopeSelection(
       requestId,
       ruleDecision === "deny" ? "deny" : "allow",
       bearerToken,
+      actorToken,
     );
     const ruleLabel = trustDecision === "always_deny" ? "Denylisted" : "Allowlisted";
     const ruleColor = trustDecision === "always_deny" ? "yellow" : "green";
@@ -430,7 +486,7 @@ async function handleScopeSelection(
     return;
   }
 
-  await submitDecision(baseUrl, assistantId, requestId, "deny", bearerToken);
+  await submitDecision(baseUrl, assistantId, requestId, "deny", bearerToken, actorToken);
   chatApp.addStatus("\u2718 Denied", "yellow");
 }
 
@@ -1025,6 +1081,7 @@ function ChatApp({
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const doctorSessionIdRef = useRef(randomUUID());
   const handleRef_ = useRef<ChatAppHandle | null>(null);
+  const actorTokenRef = useRef<string | undefined>(undefined);
 
   const { stdout } = useStdout();
   const terminalRows = stdout.rows || DEFAULT_TERMINAL_ROWS;
@@ -1250,6 +1307,9 @@ function ChatApp({
 
     try {
       const health = await checkHealthRuntime(runtimeUrl);
+      if (!actorTokenRef.current) {
+        actorTokenRef.current = await bootstrapActorToken(runtimeUrl, bearerToken);
+      }
       h.hideSpinner();
       h.updateHealthStatus(health.status);
       if (health.status === "healthy" || health.status === "ok") {
@@ -1265,7 +1325,12 @@ function ChatApp({
       h.showSpinner("Loading conversation history...");
 
       try {
-        const historyResponse = await pollMessages(runtimeUrl, assistantId, bearerToken);
+        const historyResponse = await pollMessages(
+          runtimeUrl,
+          assistantId,
+          bearerToken,
+          actorTokenRef.current,
+        );
         h.hideSpinner();
         if (historyResponse.messages.length > 0) {
           for (const msg of historyResponse.messages) {
@@ -1279,7 +1344,12 @@ function ChatApp({
 
       pollTimerRef.current = setInterval(async () => {
         try {
-          const response = await pollMessages(runtimeUrl, assistantId, bearerToken);
+          const response = await pollMessages(
+            runtimeUrl,
+            assistantId,
+            bearerToken,
+            actorTokenRef.current,
+          );
           for (const msg of response.messages) {
             if (!seenMessageIdsRef.current.has(msg.id)) {
               seenMessageIdsRef.current.add(msg.id);
@@ -1296,11 +1366,12 @@ function ChatApp({
       connectedRef.current = true;
       connectingRef.current = false;
       return true;
-    } catch {
+    } catch (err) {
       h.hideSpinner();
       connectingRef.current = false;
       h.updateHealthStatus("unreachable");
-      h.addStatus(`${statusEmoji("unreachable")} Failed to connect: Timeout`, "red");
+      const msg = err instanceof Error ? err.message : String(err);
+      h.addStatus(`${statusEmoji("unreachable")} Failed to connect: ${msg}`, "red");
       return false;
     }
   }, [runtimeUrl, assistantId, bearerToken]);
@@ -1561,6 +1632,7 @@ function ChatApp({
             trimmed,
             controller.signal,
             bearerToken,
+            actorTokenRef.current,
           );
           clearTimeout(timeoutId);
           if (!sendResult.accepted) {
@@ -1586,7 +1658,12 @@ function ChatApp({
 
           // Check for pending confirmations/secrets
           try {
-            const pending = await pollPendingInteractions(runtimeUrl, assistantId, bearerToken);
+            const pending = await pollPendingInteractions(
+              runtimeUrl,
+              assistantId,
+              bearerToken,
+              actorTokenRef.current,
+            );
 
             if (pending.pendingConfirmation) {
               h.hideSpinner();
@@ -1597,6 +1674,7 @@ function ChatApp({
                 pending.pendingConfirmation,
                 h,
                 bearerToken,
+                actorTokenRef.current,
               );
               h.showSpinner("Working...");
               continue;
@@ -1615,6 +1693,7 @@ function ChatApp({
                     body: JSON.stringify({ requestId: secretRequestId, value, delivery }),
                   },
                   bearerToken,
+                  actorTokenRef.current,
                 );
               });
               h.showSpinner("Working...");
@@ -1626,7 +1705,12 @@ function ChatApp({
 
           // Poll for new messages to detect completion
           try {
-            const pollResult = await pollMessages(runtimeUrl, assistantId, bearerToken);
+            const pollResult = await pollMessages(
+              runtimeUrl,
+              assistantId,
+              bearerToken,
+              actorTokenRef.current,
+            );
             for (const msg of pollResult.messages) {
               if (!seenMessageIdsRef.current.has(msg.id)) {
                 seenMessageIdsRef.current.add(msg.id);
