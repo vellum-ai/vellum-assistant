@@ -24,7 +24,7 @@ function makeConfig(overrides: EnvOverrides = {}): ReturnType<typeof loadConfig>
         token_id: "mgw-2026-01",
         principal: "managed-gateway-staging",
         audience: "managed-gateway-internal",
-        scopes: ["managed-gateway:internal", "routes:resolve"],
+        scopes: ["managed-gateway:internal", "routes:resolve", "events:dispatch"],
         expires_at: FAR_FUTURE,
       },
     }),
@@ -57,20 +57,42 @@ function makeRequest(
 describe("managed Twilio voice webhook skeleton", () => {
   test("returns 202 for valid signed Twilio voice payload", async () => {
     const config = makeConfig();
+    let callCount = 0;
     const fetchMock: MockedFetch = mock(async () => {
-      return new Response(
-        JSON.stringify({
-          route_id: "17b5e8c3-f07f-42e4-8099-a10af4c3d056",
-          assistant_id: "4a6b3a7f-1f1f-4f5d-b18f-9c0f64baea77",
-          provider: "twilio",
-          route_type: "voice",
-          identity_key: "+15559999999",
-        }),
-        {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        },
-      );
+      callCount += 1;
+      if (callCount === 1) {
+        return new Response(
+          JSON.stringify({
+            route_id: "17b5e8c3-f07f-42e4-8099-a10af4c3d056",
+            assistant_id: "4a6b3a7f-1f1f-4f5d-b18f-9c0f64baea77",
+            provider: "twilio",
+            route_type: "voice",
+            identity_key: "+15559999999",
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      }
+
+      if (callCount === 2) {
+        return new Response(
+          JSON.stringify({
+            status: "accepted",
+            route_id: "17b5e8c3-f07f-42e4-8099-a10af4c3d056",
+            assistant_id: "4a6b3a7f-1f1f-4f5d-b18f-9c0f64baea77",
+            event_id: "evt_456",
+            duplicate: true,
+          }),
+          {
+            status: 202,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      }
+
+      throw new Error(`unexpected upstream call #${callCount}`);
     });
     const handler = createManagedGatewayAppFetch(config, {
       fetchImpl: (...args) => fetchMock(...args),
@@ -94,7 +116,7 @@ describe("managed Twilio voice webhook skeleton", () => {
     expect(response.status).toBe(202);
     expect(await response.json()).toEqual({
       status: "accepted",
-      code: "managed_voice_webhook_stub",
+      code: "managed_voice_webhook_dispatched",
       provider: "twilio",
       route_type: "voice",
       call_sid: "CA123",
@@ -131,7 +153,13 @@ describe("managed Twilio voice webhook skeleton", () => {
           _call_status: "ringing",
         },
       },
+      dispatch: {
+        status: "accepted",
+        event_id: "evt_456",
+        duplicate: true,
+      },
     });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   test("returns 400 for invalid webhook payload", async () => {
@@ -282,5 +310,68 @@ describe("managed Twilio voice webhook skeleton", () => {
         detail: "Managed route not found.",
       },
     });
+  });
+
+  test("returns 502 when dispatch upstream fails", async () => {
+    const config = makeConfig();
+    let callCount = 0;
+    const fetchMock: MockedFetch = mock(async () => {
+      callCount += 1;
+      if (callCount === 1) {
+        return new Response(
+          JSON.stringify({
+            route_id: "17b5e8c3-f07f-42e4-8099-a10af4c3d056",
+            assistant_id: "4a6b3a7f-1f1f-4f5d-b18f-9c0f64baea77",
+            provider: "twilio",
+            route_type: "voice",
+            identity_key: "+15559999999",
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      }
+
+      return new Response(
+        JSON.stringify({
+          error: {
+            code: "upstream_error",
+            detail: "runtime unavailable",
+          },
+        }),
+        {
+          status: 503,
+          headers: { "content-type": "application/json" },
+        },
+      );
+    });
+    const handler = createManagedGatewayAppFetch(config, {
+      fetchImpl: (...args) => fetchMock(...args),
+    });
+    const payload = new URLSearchParams({
+      From: "+15550000000",
+      To: "+15559999999",
+      CallSid: "CA128",
+      CallStatus: "completed",
+    });
+    const signature = computeTwilioSignature(
+      `http://managed-gateway.test${MANAGED_TWILIO_VOICE_WEBHOOK_PATH}`,
+      Object.fromEntries(payload),
+      "twilio-current-secret",
+    );
+
+    const response = await handler(makeRequest(payload, {
+      "x-twilio-signature": signature,
+    }));
+
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "upstream_error",
+        detail: "runtime unavailable",
+      },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

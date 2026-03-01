@@ -13,8 +13,9 @@ Authz boundary:
 - revoked or expired Twilio tokens are rejected
 
 Response contract:
-- `202`: accepted stub envelope for managed voice webhook path, including resolved `assistant_id` and `route_id`
+- `202`: accepted dispatch envelope for managed voice webhook path, including resolved route metadata and dispatch receipt
 - `400`: validation error envelope (`validation_error`) for malformed payloads
 - `403`: auth failure envelope for missing/invalid signatures
 - `404`: route resolution error envelope when managed route mapping is missing
+- `502`: dispatch upstream error envelope when Django/vembda/runtime forwarding fails
 - `405`: method-not-allowed envelope for non-POST methods

@@ -14,6 +14,7 @@ Managed gateway service skeleton for Vellum-owned shared channel identities.
 - managed Twilio voice webhook endpoint skeleton with explicit auth/validation envelopes
 - shared inbound event normalization for managed Twilio SMS and voice payloads
 - managed route-resolution call (`phone -> assistant_id`) to Django before webhook acceptance
+- managed inbound dispatch call (`route -> Django -> vembda -> runtime`) after route resolution
 - health and readiness endpoints:
   - `/healthz`
   - `/readyz`
@@ -21,6 +22,8 @@ Managed gateway service skeleton for Vellum-owned shared channel identities.
   - `/v1/internal/managed-gateway/readyz/`
 - route resolve endpoint:
   - `POST /v1/internal/managed-gateway/routes/resolve/`
+- inbound dispatch endpoint:
+  - `POST /v1/internal/managed-gateway/inbound/dispatch/`
 - Twilio inbound endpoint:
   - `POST /webhooks/twilio/sms`
   - `POST /webhooks/twilio/voice`
@@ -71,6 +74,10 @@ bun run test
 
 Managed gateway route resolution contract lives in [`route-resolve-contract.md`](./route-resolve-contract.md).
 
+## Inbound Dispatch Contract
+
+Managed gateway inbound dispatch contract lives in [`inbound-dispatch-contract.md`](./inbound-dispatch-contract.md).
+
 ## Managed Twilio SMS Webhook Contract
 
 Managed Twilio SMS webhook contract lives in [`managed-twilio-sms-webhook-contract.md`](./managed-twilio-sms-webhook-contract.md).
@@ -81,7 +88,7 @@ Managed Twilio voice webhook contract lives in [`managed-twilio-voice-webhook-co
 
 ## Managed Inbound Event Shape
 
-Managed Twilio payloads normalize into a shared internal event shape before route-resolution/dispatch wiring. Current normalizers live in `src/twilio-normalize.ts`.
+Managed Twilio payloads normalize into a shared internal event shape before route-resolution and managed dispatch forwarding. Current normalizers live in `src/twilio-normalize.ts`.
 
 ## Staging Deployment Artifacts
 
