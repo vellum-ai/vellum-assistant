@@ -185,6 +185,235 @@ esac
 ENVEOF
 }
 
+install_completions() {
+    info "Installing shell completions for vellum"
+
+    local COMP_DIR="${HOME}/.config/vellum/completions"
+    mkdir -p "${COMP_DIR}"
+
+    local LOCKFILE_PATH="${HOME}/.vellum.lock.json"
+    local LOCKFILE_GREP="grep -o '\"assistantId\"[[:space:]]*:[[:space:]]*\"[^\"]*\"' ${LOCKFILE_PATH} 2>/dev/null | awk -F'\"' '{print \$(NF-1)}'"
+
+    # — Bash completions —
+    cat > "${COMP_DIR}/completions.bash" << 'BASH_COMP'
+_vellum_completions() {
+  local cur prev commands
+  COMPREPLY=()
+  cur="${COMP_WORDS[COMP_CWORD]}"
+  prev="${COMP_WORDS[COMP_CWORD-1]}"
+  commands="audit autonomy client config contacts daemon dev doctor email hatch hooks keys login logout memory pair ps recover retire sessions skills sleep ssh trust wake whoami"
+
+  if [[ ${COMP_CWORD} -eq 1 ]]; then
+    COMPREPLY=( $(compgen -W "${commands} --help --version" -- "${cur}") )
+    return 0
+  fi
+
+  case "${COMP_WORDS[1]}" in
+    autonomy)
+      COMPREPLY=( $(compgen -W "get set" -- "${cur}") )
+      ;;
+    config)
+      COMPREPLY=( $(compgen -W "set get list validate-allowlist" -- "${cur}") )
+      ;;
+    contacts)
+      COMPREPLY=( $(compgen -W "list get merge" -- "${cur}") )
+      ;;
+    daemon)
+      COMPREPLY=( $(compgen -W "start stop restart status" -- "${cur}") )
+      ;;
+    hatch)
+      COMPREPLY=( $(compgen -W "--name --daemon-only -d" -- "${cur}") )
+      ;;
+    hooks)
+      COMPREPLY=( $(compgen -W "list enable disable install remove" -- "${cur}") )
+      ;;
+    keys)
+      COMPREPLY=( $(compgen -W "list set delete" -- "${cur}") )
+      ;;
+    memory)
+      COMPREPLY=( $(compgen -W "status backfill cleanup query rebuild-index" -- "${cur}") )
+      ;;
+    sessions)
+      COMPREPLY=( $(compgen -W "list new export clear" -- "${cur}") )
+      ;;
+    trust)
+      COMPREPLY=( $(compgen -W "list remove clear" -- "${cur}") )
+      ;;
+    client|retire)
+      local instances
+BASH_COMP
+
+    # Append the dynamic lockfile lookup (needs variable expansion)
+    cat >> "${COMP_DIR}/completions.bash" << BASH_COMP_DYN
+      instances="\$(${LOCKFILE_GREP} | tr '\n' ' ')"
+BASH_COMP_DYN
+
+    cat >> "${COMP_DIR}/completions.bash" << 'BASH_COMP_END'
+      COMPREPLY=( $(compgen -W "${instances}" -- "${cur}") )
+      ;;
+  esac
+
+  return 0
+}
+
+complete -F _vellum_completions vellum
+BASH_COMP_END
+
+    # — Zsh completions —
+    cat > "${COMP_DIR}/completions.zsh" << 'ZSH_COMP'
+_vellum() {
+  local -a commands
+  commands=(
+    'audit:Show recent tool invocations'
+    'autonomy:View and configure autonomy tiers'
+    'client:Connect to a hatched assistant'
+    'config:Manage configuration'
+    'contacts:Manage the contact graph'
+    'daemon:Manage the daemon process'
+    'dev:Run daemon in dev mode with auto-restart'
+    'doctor:Run diagnostic checks'
+    'email:Email operations'
+    'hatch:Create a new assistant instance'
+    'hooks:Manage hooks'
+    'keys:Manage API keys in secure storage'
+    'login:Log in to the Vellum platform'
+    'logout:Log out of the Vellum platform'
+    'memory:Manage long-term memory'
+    'pair:Pair with a remote assistant via QR code'
+    'ps:List assistants'
+    'recover:Restore a previously retired assistant'
+    'retire:Delete an assistant instance'
+    'sessions:Manage sessions'
+    'skills:Browse and install skills'
+    'sleep:Stop the daemon process'
+    'ssh:SSH into a remote assistant instance'
+    'trust:Manage trust rules'
+    'wake:Start the daemon and gateway'
+    'whoami:Show current logged-in user'
+  )
+
+  _arguments -C \
+    '1:command:->command' \
+    '*::arg:->args'
+
+  case $state in
+    command)
+      _describe 'command' commands
+      ;;
+    args)
+      case $words[1] in
+        autonomy)
+          _arguments '*:subcommand:(get set)'
+          ;;
+        config)
+          _arguments '*:subcommand:(set get list validate-allowlist)'
+          ;;
+        contacts)
+          _arguments '*:subcommand:(list get merge)'
+          ;;
+        daemon)
+          _arguments '*:subcommand:(start stop restart status)'
+          ;;
+        hatch)
+          _arguments '*:option:(--name --daemon-only -d)'
+          ;;
+        hooks)
+          _arguments '*:subcommand:(list enable disable install remove)'
+          ;;
+        keys)
+          _arguments '*:subcommand:(list set delete)'
+          ;;
+        memory)
+          _arguments '*:subcommand:(status backfill cleanup query rebuild-index)'
+          ;;
+        sessions)
+          _arguments '*:subcommand:(list new export clear)'
+          ;;
+        trust)
+          _arguments '*:subcommand:(list remove clear)'
+          ;;
+        client|retire)
+          local -a instances
+ZSH_COMP
+
+    # Append the dynamic lockfile lookup (needs variable expansion)
+    cat >> "${COMP_DIR}/completions.zsh" << ZSH_COMP_DYN
+          instances=(\${(f)"\$(${LOCKFILE_GREP})"})
+ZSH_COMP_DYN
+
+    cat >> "${COMP_DIR}/completions.zsh" << 'ZSH_COMP_END'
+          _describe 'instance' instances
+          ;;
+      esac
+      ;;
+  esac
+}
+
+compdef _vellum vellum
+ZSH_COMP_END
+
+    # — Fish completions —
+    local FISH_COMP_DIR="${HOME}/.config/fish/completions"
+    mkdir -p "${FISH_COMP_DIR}"
+
+    cat > "${FISH_COMP_DIR}/vellum.fish" << 'FISH_COMP'
+# vellum fish completion
+complete -c vellum -f
+complete -c vellum -n '__fish_use_subcommand' -a 'audit' -d 'Show recent tool invocations'
+complete -c vellum -n '__fish_use_subcommand' -a 'autonomy' -d 'View and configure autonomy tiers'
+complete -c vellum -n '__fish_use_subcommand' -a 'client' -d 'Connect to a hatched assistant'
+complete -c vellum -n '__fish_use_subcommand' -a 'config' -d 'Manage configuration'
+complete -c vellum -n '__fish_use_subcommand' -a 'contacts' -d 'Manage the contact graph'
+complete -c vellum -n '__fish_use_subcommand' -a 'daemon' -d 'Manage the daemon process'
+complete -c vellum -n '__fish_use_subcommand' -a 'dev' -d 'Run daemon in dev mode with auto-restart'
+complete -c vellum -n '__fish_use_subcommand' -a 'doctor' -d 'Run diagnostic checks'
+complete -c vellum -n '__fish_use_subcommand' -a 'email' -d 'Email operations'
+complete -c vellum -n '__fish_use_subcommand' -a 'hatch' -d 'Create a new assistant instance'
+complete -c vellum -n '__fish_use_subcommand' -a 'hooks' -d 'Manage hooks'
+complete -c vellum -n '__fish_use_subcommand' -a 'keys' -d 'Manage API keys in secure storage'
+complete -c vellum -n '__fish_use_subcommand' -a 'login' -d 'Log in to the Vellum platform'
+complete -c vellum -n '__fish_use_subcommand' -a 'logout' -d 'Log out of the Vellum platform'
+complete -c vellum -n '__fish_use_subcommand' -a 'memory' -d 'Manage long-term memory'
+complete -c vellum -n '__fish_use_subcommand' -a 'pair' -d 'Pair with a remote assistant via QR code'
+complete -c vellum -n '__fish_use_subcommand' -a 'ps' -d 'List assistants'
+complete -c vellum -n '__fish_use_subcommand' -a 'recover' -d 'Restore a previously retired assistant'
+complete -c vellum -n '__fish_use_subcommand' -a 'retire' -d 'Delete an assistant instance'
+complete -c vellum -n '__fish_use_subcommand' -a 'sessions' -d 'Manage sessions'
+complete -c vellum -n '__fish_use_subcommand' -a 'skills' -d 'Browse and install skills'
+complete -c vellum -n '__fish_use_subcommand' -a 'sleep' -d 'Stop the daemon process'
+complete -c vellum -n '__fish_use_subcommand' -a 'ssh' -d 'SSH into a remote assistant instance'
+complete -c vellum -n '__fish_use_subcommand' -a 'trust' -d 'Manage trust rules'
+complete -c vellum -n '__fish_use_subcommand' -a 'wake' -d 'Start the daemon and gateway'
+complete -c vellum -n '__fish_use_subcommand' -a 'whoami' -d 'Show current logged-in user'
+complete -c vellum -n '__fish_use_subcommand' -l help -d 'Show help'
+complete -c vellum -n '__fish_use_subcommand' -l version -d 'Show version'
+complete -c vellum -n '__fish_seen_subcommand_from autonomy' -a 'get set'
+complete -c vellum -n '__fish_seen_subcommand_from config' -a 'set get list validate-allowlist'
+complete -c vellum -n '__fish_seen_subcommand_from contacts' -a 'list get merge'
+complete -c vellum -n '__fish_seen_subcommand_from daemon' -a 'start stop restart status'
+complete -c vellum -n '__fish_seen_subcommand_from hooks' -a 'list enable disable install remove'
+complete -c vellum -n '__fish_seen_subcommand_from keys' -a 'list set delete'
+complete -c vellum -n '__fish_seen_subcommand_from memory' -a 'status backfill cleanup query rebuild-index'
+complete -c vellum -n '__fish_seen_subcommand_from sessions' -a 'list new export clear'
+complete -c vellum -n '__fish_seen_subcommand_from trust' -a 'list remove clear'
+FISH_COMP
+
+    # — Source completions from shell rc files —
+    if [ -f "${HOME}/.bashrc" ]; then
+        if ! grep -q '.config/vellum/completions/completions.bash' "${HOME}/.bashrc"; then
+            printf '\n# vellum completions\nsource ~/.config/vellum/completions/completions.bash\n' >> "${HOME}/.bashrc"
+        fi
+    fi
+
+    if [ -f "${HOME}/.zshrc" ]; then
+        if ! grep -q '.config/vellum/completions/completions.zsh' "${HOME}/.zshrc"; then
+            printf '\n# vellum completions\nsource ~/.config/vellum/completions/completions.zsh\n' >> "${HOME}/.zshrc"
+        fi
+    fi
+
+    success "Shell completions installed"
+}
+
 install_vellum() {
     if command -v vellum >/dev/null 2>&1; then
         info "Updating vellum to latest..."
@@ -212,6 +441,7 @@ main() {
     configure_shell_profile
     install_vellum
     symlink_vellum
+    install_completions
 
     # Write a sourceable env file so the quickstart one-liner can pick up
     # PATH changes in the caller's shell:

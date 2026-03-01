@@ -16,7 +16,6 @@ import {
 } from './cli/config-commands.js';
 import {
   registerAuditCommand,
-  registerCompletionsCommand,
   registerDaemonCommand,
   registerDefaultAction,
   registerDevCommand,
@@ -52,7 +51,6 @@ registerHooksCommand(program);
 registerMcpCommand(program);
 registerEmailCommand(program);
 registerAmazonCommand(program);
-registerCompletionsCommand(program);
 
 registerTwitterCommand(program);
 registerMapCommand(program);
