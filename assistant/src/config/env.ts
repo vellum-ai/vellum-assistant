@@ -168,6 +168,22 @@ export function getPlatformBaseUrl(): string {
   return str('PLATFORM_BASE_URL') ?? '';
 }
 
+/**
+ * PLATFORM_ASSISTANT_ID — UUID of this assistant on the platform.
+ * Required for registering callback routes when containerized.
+ */
+export function getPlatformAssistantId(): string {
+  return str('PLATFORM_ASSISTANT_ID') ?? '';
+}
+
+/**
+ * PLATFORM_INTERNAL_API_KEY — static internal gateway key for authenticating
+ * with the platform's internal gateway callback route registration endpoint.
+ */
+export function getPlatformInternalApiKey(): string {
+  return str('PLATFORM_INTERNAL_API_KEY') ?? '';
+}
+
 // ── Startup validation ──────────────────────────────────────────────────────
 
 /**
