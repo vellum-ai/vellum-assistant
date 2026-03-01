@@ -406,8 +406,19 @@ export async function runDaemon(): Promise<void> {
             try { await session.loadFromDb(); } catch { /* best effort */ }
           };
 
+          // Snapshot message IDs before the agent loop so we can diff
+          // afterwards to find exactly which messages this run created,
+          // avoiding positional heuristics that break under concurrency.
+          const preRunMessageIds = new Set(
+            conversationStore.getMessages(conversationId).map((m) => m.id),
+          );
+
           let agentLoopError: string | undefined;
+          let generatedText = '';
           await session.runAgentLoop(instruction, messageId, (msg) => {
+            if ('type' in msg && msg.type === 'assistant_text_delta' && 'text' in msg) {
+              generatedText += (msg as { text: string }).text;
+            }
             if ('type' in msg && (msg.type === 'error' || msg.type === 'session_error')) {
               agentLoopError = 'message' in msg
                 ? (msg as { message: string }).message
@@ -416,17 +427,18 @@ export async function runDaemon(): Promise<void> {
                   : 'Agent loop failed';
             }
           });
+
+          // Identify messages created during this run by diffing against
+          // the pre-run snapshot. This is race-safe: only messages that
+          // appeared in this conversation during *our* agent loop are
+          // considered, regardless of concurrent pointer events.
+          const postRunMessages = conversationStore.getMessages(conversationId);
+          const createdMessageIds = postRunMessages
+            .filter((m) => !preRunMessageIds.has(m.id) && m.id !== messageId)
+            .map((m) => m.id);
+
           if (agentLoopError) {
-            // Remove any assistant messages persisted during the failed run
-            // (e.g. session_error text) so the deterministic fallback is the
-            // only visible pointer output for this event. Scope to the
-            // assistant message immediately following the instruction to
-            // avoid deleting messages from other concurrent turns.
-            const allMsgs = conversationStore.getMessages(conversationId);
-            const instrIdx = allMsgs.findIndex((m) => m.id === messageId);
-            const nextMsg = instrIdx >= 0 ? allMsgs[instrIdx + 1] : undefined;
-            const extraIds = nextMsg && nextMsg.role === 'assistant' ? [nextMsg.id] : [];
-            await rollback(extraIds);
+            await rollback(createdMessageIds);
             throw new Error(agentLoopError);
           }
 
@@ -436,35 +448,19 @@ export async function runDaemon(): Promise<void> {
           // remove both the instruction and generated messages and throw so
           // the deterministic fallback fires.
           //
-          // Find the assistant message generated *after* the pointer
-          // instruction (messageId) rather than the conversation-wide latest,
-          // because runAgentLoop's finally block may drain queued work that
-          // appends unrelated assistant messages.
+          // Validation uses text accumulated from assistant_text_delta
+          // events during the agent loop rather than a DB lookup, avoiding
+          // any positional ambiguity when concurrent pointer events
+          // interleave messages in the conversation.
           if (requiredFacts && requiredFacts.length > 0) {
-            const allMessages = conversationStore.getMessages(conversationId);
-            const instructionIdx = allMessages.findIndex((m) => m.id === messageId);
-            const pointerReply = instructionIdx >= 0
-              ? allMessages.find((m, i) => i > instructionIdx && m.role === 'assistant')
-              : undefined;
-            if (pointerReply) {
-              let generatedText = '';
-              try {
-                const blocks = JSON.parse(pointerReply.content) as Array<{ type: string; text?: string }>;
-                generatedText = blocks
-                  .filter((b) => b.type === 'text')
-                  .map((b) => b.text ?? '')
-                  .join('');
-              } catch { /* non-JSON content — treat as empty */ }
-
-              const missingFacts = requiredFacts.filter((fact) => !generatedText.includes(fact));
-              if (missingFacts.length > 0) {
-                log.warn(
-                  { conversationId, missingFacts },
-                  'Generated pointer text failed fact validation — falling back to deterministic',
-                );
-                await rollback([pointerReply.id]);
-                throw new Error('Generated pointer text failed fact validation');
-              }
+            const missingFacts = requiredFacts.filter((fact) => !generatedText.includes(fact));
+            if (missingFacts.length > 0) {
+              log.warn(
+                { conversationId, missingFacts },
+                'Generated pointer text failed fact validation — falling back to deterministic',
+              );
+              await rollback(createdMessageIds);
+              throw new Error('Generated pointer text failed fact validation');
             }
           }
         } finally {
