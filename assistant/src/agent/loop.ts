@@ -41,7 +41,7 @@ export type AgentEvent =
 
 const DEFAULT_CONFIG: AgentLoopConfig = {
   maxTokens: 16000,
-  maxToolUseTurns: 60,
+  maxToolUseTurns: 0,
   minTurnIntervalMs: 150,
 };
 
