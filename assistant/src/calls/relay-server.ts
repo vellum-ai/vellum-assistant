@@ -1449,7 +1449,7 @@ export class RelayConnection {
           externalUserId: fromNumber,
           externalChatId: fromNumber,
         });
-        if (member) {
+        if (member && member.status === 'active' && member.policy === 'allow') {
           requesterMemberId = member.id;
         }
       } catch (err) {
