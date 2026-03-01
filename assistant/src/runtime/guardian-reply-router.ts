@@ -487,9 +487,10 @@ export async function routeGuardianReply(
     const result = await applyDecision(targetId, decisionAction, actor, messageText, channelDeliveryContext);
 
     // Attach the engine's reply text for stale/expired/identity-mismatch cases,
-    // but preserve the explicit failure text when the resolver failed — the engine
-    // reply is typically an affirmative confirmation that would be misleading.
-    if (engineResult.replyText && result.type !== 'canonical_resolver_failed') {
+    // but preserve resolver-authored replies (for example verification codes)
+    // and explicit resolver-failure text.
+    const hasResolverReplyText = Boolean(result.canonicalResult?.resolverReplyText);
+    if (engineResult.replyText && result.type !== 'canonical_resolver_failed' && !hasResolverReplyText) {
       result.replyText = engineResult.replyText;
     }
 
