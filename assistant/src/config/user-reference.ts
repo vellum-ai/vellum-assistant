@@ -28,16 +28,28 @@ export function resolveUserReference(): string {
  * file is missing, the field is empty, or the value is a sentinel like
  * `declined_by_user`.
  *
- * Checks the Onboarding Snapshot section first (structured `- Pronouns:`
- * field), then falls back to a file-wide `Pronouns:` match so that
- * pronouns set or updated outside of onboarding are still picked up.
+ * Priority order:
+ *   1. Any `Pronouns:` line outside the Onboarding Snapshot section
+ *      (explicit user update post-onboarding takes precedence).
+ *   2. The structured `- Pronouns:` field inside the Onboarding Snapshot.
  */
 export function resolveUserPronouns(): string | null {
   const content = readTextFileSync(getWorkspacePromptPath('USER.md'));
   if (content == null) return null;
 
-  // Prefer the structured field in the Onboarding Snapshot section.
   const snapshotIdx = content.indexOf('## Onboarding Snapshot');
+
+  // 1. Check for a Pronouns line outside the Onboarding Snapshot section.
+  //    This represents an explicit post-onboarding update and takes priority.
+  if (snapshotIdx >= 0) {
+    const beforeSnapshot = content.slice(0, snapshotIdx);
+    const outsideMatch = beforeSnapshot.match(/Pronouns:[ \t]*(.*)/);
+    if (outsideMatch && outsideMatch[1].trim()) {
+      return cleanPronounValue(outsideMatch[1].trim());
+    }
+  }
+
+  // 2. Fall back to the structured field in the Onboarding Snapshot.
   if (snapshotIdx >= 0) {
     const section = content.slice(snapshotIdx);
     const match = section.match(/^- Pronouns:[ \t]*(.*)/m);
@@ -46,11 +58,12 @@ export function resolveUserPronouns(): string | null {
     }
   }
 
-  // Fallback: match anywhere in the file (e.g. set in the Details section
-  // after onboarding).
-  const fallback = content.match(/Pronouns:[ \t]*(.*)/);
-  if (fallback && fallback[1].trim()) {
-    return cleanPronounValue(fallback[1].trim());
+  // 3. No Onboarding Snapshot header at all — match anywhere.
+  if (snapshotIdx < 0) {
+    const fallback = content.match(/Pronouns:[ \t]*(.*)/);
+    if (fallback && fallback[1].trim()) {
+      return cleanPronounValue(fallback[1].trim());
+    }
   }
 
   return null;
