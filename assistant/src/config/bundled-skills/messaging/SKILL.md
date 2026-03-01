@@ -242,19 +242,21 @@ Help users identify and clean up high-volume senders like newsletters, marketing
 
 1. **Scan**: Call `gmail_sender_digest` (or `messaging_sender_digest` for non-Gmail). Default query targets promotions from the last 90 days.
 2. **Present**: Show results as a `ui_show` table with `selectionMode: "multiple"`:
-   - **Columns (exactly 3)**: Sender, Emails Found, Unsub?
+   - **Gmail columns (exactly 3)**: Sender, Emails Found, Unsub?
+   - **Non-Gmail columns (exactly 2)**: Sender, Emails Found (omit the Unsub? column — unsubscribe is not available)
    - **Pre-select all rows** (`selected: true`) — users deselect what they want to keep
    - **Caption**: "Showing emails from last 90 days in Promotions" (or adjusted to match the query used)
-   - **Action buttons (exactly 2)**: "Archive & Unsubscribe" (primary), "Archive Only" (secondary). **NEVER offer Delete, Trash, or any destructive action.**
+   - **Gmail action buttons (exactly 2)**: "Archive & Unsubscribe" (primary), "Archive Only" (secondary). **NEVER offer Delete, Trash, or any destructive action.**
+   - **Non-Gmail action button (exactly 1)**: "Archive Selected" (primary). Do not offer an unsubscribe button — it is Gmail-specific. **NEVER offer Delete, Trash, or any destructive action.**
 3. **Live progress**: After the user clicks an action button:
    - **Dismiss the table immediately** with `ui_dismiss` — it collapses to a completion chip
    - **Show a `task_progress` card** with one step per selected sender (e.g., "Archiving TechCrunch (247 emails)"). Update each step from `in_progress` → `completed` as each sender finishes.
    - When all senders are processed, set the progress card's `status: "completed"`.
 4. **Act on selection**: For each selected sender:
    - Use `gmail_archive_by_query` (or `messaging_archive_by_sender` for non-Gmail) with the sender's `search_query` — this archives all matching messages in one call, regardless of volume
-   - If the action is "Archive & Unsubscribe" and `has_unsubscribe` is true, call `gmail_unsubscribe` with the sender's `newest_message_id` (Gmail only)
-5. **Accurate summary**: Use the **actual counts returned by `gmail_archive_by_query`**, not the scan counts from `gmail_sender_digest`. The scan is a sample; the archive is comprehensive. Format: "Cleaned up [total_archived] emails from [sender_count] senders. Unsubscribed from [unsub_count]."
-6. **Ongoing protection offer**: After reporting results, offer auto-archive filters:
+   - If Gmail and the action is "Archive & Unsubscribe" and `has_unsubscribe` is true, call `gmail_unsubscribe` with the sender's `newest_message_id`
+5. **Accurate summary**: Use the **actual counts returned by the archive tool**, not the scan counts from the digest. The scan is a sample; the archive is comprehensive. Format: "Cleaned up [total_archived] emails from [sender_count] senders." For Gmail, append: "Unsubscribed from [unsub_count]."
+6. **Ongoing protection offer (Gmail only)**: After reporting results, offer auto-archive filters:
    - "Want me to set up auto-archive filters so future emails from these senders skip your inbox?"
    - If yes, call `gmail_filters` with `action: "create"` for each sender with `from` set to the sender's email and `remove_label_ids: ["INBOX"]`.
    - Then offer a recurring declutter schedule: "Want me to scan for new clutter monthly?" If yes, use `schedule_create` to set up a monthly declutter check.
