@@ -37,6 +37,8 @@ spec:
               value: "bearer"
             - name: MANAGED_GATEWAY_INTERNAL_AUTH_AUDIENCE
               value: "managed-gateway-internal"
+            - name: MANAGED_GATEWAY_TWILIO_AUTH_TOKENS
+              value: '{"twilio-current":{"token_id":"twilio-2026-01","auth_token":"replace-me","expires_at":"2099-01-01T00:00:00.000Z"}}'
           readinessProbe:
             httpGet:
               path: /v1/internal/managed-gateway/readyz/
