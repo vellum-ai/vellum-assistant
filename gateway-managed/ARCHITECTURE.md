@@ -19,9 +19,16 @@ The managed gateway is a dedicated service lane for Vellum-owned shared channel 
 - Enforces deny-by-default verification for audience and required scopes.
 - Defines token lifecycle checks for expiry and revocation to support safe rotation.
 
+## PR-4 scope
+
+- Adds managed route-resolution endpoint wiring at `/v1/internal/managed-gateway/routes/resolve/`.
+- Enforces internal auth (`bearer` or `mtls`) with required `routes:resolve` scope.
+- Normalizes request routing keys and proxies to Django internal route resolver with explicit error envelopes.
+
 ## Endpoints
 
 - `GET /healthz`
 - `GET /readyz`
 - `GET /v1/internal/managed-gateway/healthz/`
 - `GET /v1/internal/managed-gateway/readyz/`
+- `POST /v1/internal/managed-gateway/routes/resolve/`
