@@ -28,10 +28,9 @@ Gmail, Slack, and Telegram setup all require a publicly reachable URL for OAuth 
 
 When the user asks to "connect my email", "set up email", "manage my email", or similar — and has not named a specific provider:
 
-1. **Discover what's connected.** Call `messaging_auth_test` for `gmail` (and any other email-capable platforms). If one succeeds, tell the user it's already connected and proceed.
-2. **If nothing is connected and the user wants to DO something** (declutter, read, search, send, check email, etc.): Start Gmail setup immediately — say something like "Let me get your email connected first" and follow the Gmail setup flow below. Gmail is the most common provider; if the user doesn't use Gmail, they'll say so.
-3. **If nothing is connected and the user only asked to "connect email" or "set up email"**: Ask which provider they use.
-4. **Once the provider is known**, follow the corresponding setup section below (e.g., "Gmail" for Gmail).
+1. **Discover what's connected.** Call `messaging_auth_test` for `gmail` (and any other email-capable platforms). If one succeeds, tell the user it's already connected and proceed with their request.
+2. **If nothing is connected**, ask which provider they use — but keep it brief and conversational (e.g., "Which email do you use — Gmail, Outlook, etc.?"), not a numbered list of options with descriptions.
+3. **Once the provider is known, act immediately.** Don't present setup options or explain OAuth. Just start the connection flow for that provider (e.g., follow the Gmail section below). If credentials aren't configured, go straight into the setup skill.
 
 ### Gmail
 1. **Try connecting directly first.** Call `credential_store` with `action: "oauth2_connect"` and `service: "gmail"`. The tool auto-fills Google's OAuth endpoints and looks up any previously stored client credentials — so this single call may be all that's needed.
@@ -102,7 +101,7 @@ When a messaging tool fails with a token or authorization error:
 - If the user specifies a platform (e.g., "check my Slack"), pass it as the `platform` parameter.
 - If only one platform is connected, it is auto-selected.
 - If multiple platforms are connected and the user doesn't specify, ask which platform they mean — or search across all of them.
-- **Default to Gmail for action-oriented requests.** When the user says "email" and wants to *do* something (declutter, check, search, send), check what's connected. If nothing is, start Gmail setup immediately — don't ask which provider. Only ask which provider when the user's explicit intent is to "connect" or "set up" email without specifying a provider.
+- **Be action-oriented with email.** When the user says "email" and wants to *do* something (declutter, check, search, send), check what's connected first. If nothing is connected, ask which provider briefly and then go straight into setup — don't present menus, options lists, or explain the setup process. Just do it.
 
 ## Capabilities
 
@@ -252,7 +251,7 @@ When a user asks to declutter, clean up, or organize their email — start actin
 
 - **Gmail connected**: Use the Gmail-specific tools (`gmail_sender_digest`, `gmail_archive_by_query`, `gmail_unsubscribe`, `gmail_filters`) — they have richer features like unsubscribe support and filter creation.
 - **Non-Gmail email connected**: Use the generic tools (`messaging_sender_digest`, `messaging_archive_by_sender`) — they work with any provider that supports these operations. Skip unsubscribe and filter offers since they are Gmail-specific.
-- **Nothing connected**: Start Gmail setup immediately — say something like "Let me get your email connected so I can help with that" and follow the Gmail connection flow. Don't ask which provider, don't present options, don't explain OAuth. The user asked to declutter, not to troubleshoot — get them connected as fast as possible and then start the declutter.
+- **Nothing connected**: Ask which email provider they use, then go straight into the connection flow for that provider. Don't present a menu of options or explain what OAuth is — just ask the one question you need ("Which email do you use?"), and once they answer, start setup immediately.
 
 ### Workflow
 
