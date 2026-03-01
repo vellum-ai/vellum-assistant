@@ -75,6 +75,7 @@ const mockConfig = {
     },
   },
   memory: { enabled: false },
+  notifications: { decisionModelIntent: 'latency-optimized' },
 };
 
 mock.module('../config/loader.js', () => ({
@@ -129,6 +130,28 @@ mock.module('../providers/registry.js', () => {
     },
   };
 });
+
+// ── Notification emit-signal mock ──────────────────────────────────────
+// The real emitNotificationSignal pipeline requires LLM calls, channel
+// adapters, and broadcaster wiring that are not available in this test.
+// Provide a lightweight stub that resolves immediately so the `.then()`
+// callback in relay-server records the expected call event.
+
+const emitSignalCalls: Record<string, unknown>[] = [];
+
+mock.module('../notifications/emit-signal.js', () => ({
+  emitNotificationSignal: async (params: Record<string, unknown>) => {
+    emitSignalCalls.push(params);
+    return {
+      signalId: 'mock-signal-id',
+      deduplicated: false,
+      dispatched: true,
+      reason: 'Mock dispatched',
+      deliveryResults: [],
+    };
+  },
+  registerBroadcastFn: () => {},
+}));
 
 // ── Import source modules after all mocks ────────────────────────────
 
@@ -2840,10 +2863,7 @@ describe('relay-server', () => {
       last: true,
     }));
 
-    // Wait for cooldown
-    await new Promise((resolve) => setTimeout(resolve, 3100));
-
-    // Accept callback offer
+    // Accept callback offer (callback_opt_in bypasses cooldown)
     await relay.handleMessage(JSON.stringify({
       type: 'prompt',
       voicePrompt: 'Yes, please call me back',
@@ -2855,7 +2875,7 @@ describe('relay-server', () => {
     const eventsBeforeTimeout = getCallEvents(session.id);
     expect(eventsBeforeTimeout.some((e) => e.eventType === 'voice_guardian_wait_callback_opt_in_set')).toBe(true);
 
-    // Wait for timeout
+    // Wait for the access request timeout to fire
     await new Promise((resolve) => setTimeout(resolve, 2500));
 
     expect(relay.getConnectionState()).toBe('disconnecting');
@@ -2960,7 +2980,7 @@ describe('relay-server', () => {
 
     expect(relay.getConnectionState()).toBe('awaiting_guardian_decision');
 
-    // Trigger callback offer and opt-in
+    // Trigger callback offer and opt-in (callback_opt_in bypasses cooldown)
     await relay.handleMessage(JSON.stringify({
       type: 'prompt',
       voicePrompt: 'Hurry up please',
@@ -2968,11 +2988,9 @@ describe('relay-server', () => {
       last: true,
     }));
 
-    await new Promise((resolve) => setTimeout(resolve, 3100));
-
     await relay.handleMessage(JSON.stringify({
       type: 'prompt',
-      voicePrompt: 'Yes please',
+      voicePrompt: 'Yes, please call me back',
       lang: 'en-US',
       last: true,
     }));
@@ -3019,15 +3037,13 @@ describe('relay-server', () => {
       last: true,
     }));
 
-    // Opt into callback
+    // Opt into callback (callback_opt_in bypasses cooldown)
     await relay.handleMessage(JSON.stringify({
       type: 'prompt',
       voicePrompt: 'Hurry up please',
       lang: 'en-US',
       last: true,
     }));
-
-    await new Promise((resolve) => setTimeout(resolve, 3100));
 
     await relay.handleMessage(JSON.stringify({
       type: 'prompt',
@@ -3067,9 +3083,6 @@ describe('relay-server', () => {
       assistantId: 'self',
     });
 
-    // Add the caller as a trusted contact so findMember resolves
-    addTrustedVoiceContact('+15557770024');
-
     const { relay } = createMockWs(session.id);
 
     await relay.handleMessage(JSON.stringify({
@@ -3088,15 +3101,17 @@ describe('relay-server', () => {
 
     expect(relay.getConnectionState()).toBe('awaiting_guardian_decision');
 
-    // Opt into callback
+    // Add the caller as a trusted contact AFTER entering guardian wait
+    // so that findMember resolves during callback handoff emission
+    addTrustedVoiceContact('+15557770024');
+
+    // Opt into callback (callback_opt_in bypasses cooldown)
     await relay.handleMessage(JSON.stringify({
       type: 'prompt',
       voicePrompt: 'Hurry up',
       lang: 'en-US',
       last: true,
     }));
-
-    await new Promise((resolve) => setTimeout(resolve, 3100));
 
     await relay.handleMessage(JSON.stringify({
       type: 'prompt',
@@ -3105,9 +3120,8 @@ describe('relay-server', () => {
       last: true,
     }));
 
-    // Wait for timeout
+    // Wait for timeout + async notification emission
     await new Promise((resolve) => setTimeout(resolve, 2500));
-
     await new Promise((resolve) => setTimeout(resolve, 200));
 
     const events = getCallEvents(session.id);
@@ -3159,15 +3173,13 @@ describe('relay-server', () => {
 
     expect(relay.getConnectionState()).toBe('awaiting_guardian_decision');
 
-    // Opt into callback
+    // Opt into callback (callback_opt_in bypasses cooldown)
     await relay.handleMessage(JSON.stringify({
       type: 'prompt',
       voicePrompt: 'Come on hurry up',
       lang: 'en-US',
       last: true,
     }));
-
-    await new Promise((resolve) => setTimeout(resolve, 3100));
 
     await relay.handleMessage(JSON.stringify({
       type: 'prompt',
@@ -3176,9 +3188,8 @@ describe('relay-server', () => {
       last: true,
     }));
 
-    // Wait for timeout
+    // Wait for timeout + async notification emission
     await new Promise((resolve) => setTimeout(resolve, 2500));
-
     await new Promise((resolve) => setTimeout(resolve, 200));
 
     const events = getCallEvents(session.id);
