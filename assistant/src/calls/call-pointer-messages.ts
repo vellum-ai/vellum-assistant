@@ -27,8 +27,17 @@ export type PointerAudienceMode = 'auto' | 'trusted' | 'untrusted';
  * Daemon-injected function that sends a message through the daemon session
  * pipeline (persistAndProcessMessage), letting the assistant generate the
  * pointer text as a natural conversation turn.
+ *
+ * @param requiredFacts - facts that must appear verbatim in the generated
+ *   text (phone number, duration, outcome keyword, etc.). The processor
+ *   should validate the output and throw if any are missing so the
+ *   deterministic fallback fires.
  */
-export type PointerMessageProcessor = (conversationId: string, instruction: string) => Promise<void>;
+export type PointerMessageProcessor = (
+  conversationId: string,
+  instruction: string,
+  requiredFacts?: string[],
+) => Promise<void>;
 
 // ---------------------------------------------------------------------------
 // Module-level processor injection (set by daemon lifecycle at startup)
@@ -97,6 +106,26 @@ export async function addPointerMessage(
     channel: extra?.channel,
   };
 
+  // Build required-facts list so generated text cannot drop key details.
+  // These are passed to the processor for post-generation validation.
+  const requiredFacts: string[] = [phoneNumber];
+  if (extra?.duration) requiredFacts.push(extra.duration);
+  if (extra?.verificationCode) requiredFacts.push(extra.verificationCode);
+  if (extra?.reason) requiredFacts.push(extra.reason);
+
+  // Enforce lifecycle outcome keywords so the LLM cannot rewrite e.g. a
+  // "failed" event as a success — the generated text must contain the
+  // outcome word verbatim.
+  const eventOutcomeKeywords: Record<PointerEvent, string | undefined> = {
+    started: 'started',
+    completed: 'completed',
+    failed: 'failed',
+    guardian_verification_succeeded: 'succeeded',
+    guardian_verification_failed: 'failed',
+  };
+  const outcomeKeyword = eventOutcomeKeywords[event];
+  if (outcomeKeyword) requiredFacts.push(outcomeKeyword);
+
   const isTrusted =
     audienceMode === 'trusted' ||
     (audienceMode === 'auto' && resolvePointerAudienceTrust(conversationId));
@@ -107,7 +136,7 @@ export async function addPointerMessage(
     // identity, and preferences.
     const instruction = buildPointerInstruction(context);
     try {
-      await pointerMessageProcessor(conversationId, instruction);
+      await pointerMessageProcessor(conversationId, instruction, requiredFacts);
       return;
     } catch (err) {
       log.warn({ err, event, conversationId }, 'Daemon pointer processing failed, falling back to deterministic');

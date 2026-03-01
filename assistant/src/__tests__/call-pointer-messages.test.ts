@@ -225,13 +225,15 @@ describe('addPointerMessage', () => {
     expect(processorCalled.value).toBe(false);
   });
 
-  test('trusted audience routes through daemon processor', async () => {
+  test('trusted audience routes through daemon processor with required facts', async () => {
     const convId = 'conv-ptr-trusted';
     ensureConversation(convId, { threadType: 'private' });
 
     let capturedInstruction = '';
-    setPointerMessageProcessor(async (_convId, instruction) => {
+    let capturedFacts: string[] = [];
+    setPointerMessageProcessor(async (_convId, instruction, requiredFacts) => {
       capturedInstruction = instruction;
+      capturedFacts = requiredFacts ?? [];
     });
 
     await addPointerMessage(convId, 'completed', '+15559876543', { duration: '1m' });
@@ -240,6 +242,10 @@ describe('addPointerMessage', () => {
     expect(capturedInstruction).toContain('+15559876543');
     expect(capturedInstruction).toContain('completed');
     expect(capturedInstruction).toContain('1m');
+    // Required facts include phone number, duration, and outcome keyword
+    expect(capturedFacts).toContain('+15559876543');
+    expect(capturedFacts).toContain('1m');
+    expect(capturedFacts).toContain('completed');
   });
 
   test('trusted audience falls back to deterministic on processor failure', async () => {
