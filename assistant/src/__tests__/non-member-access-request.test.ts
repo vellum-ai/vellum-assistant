@@ -188,6 +188,7 @@ describe('non-member access request notification', () => {
       channel: 'telegram',
       guardianExternalUserId: 'guardian-user-789',
       guardianDeliveryChatId: 'guardian-chat-789',
+      guardianPrincipalId: 'test-principal-id',
     });
 
     const req = buildInboundRequest();
@@ -229,6 +230,7 @@ describe('non-member access request notification', () => {
       channel: 'telegram',
       guardianExternalUserId: 'guardian-user-789',
       guardianDeliveryChatId: 'guardian-chat-789',
+      guardianPrincipalId: 'test-principal-id',
     });
 
     // First message
@@ -296,6 +298,7 @@ describe('non-member access request notification', () => {
       channel: 'sms',
       guardianExternalUserId: 'guardian-sms-user',
       guardianDeliveryChatId: 'guardian-sms-chat',
+      guardianPrincipalId: 'test-principal-id',
     });
 
     const req = buildInboundRequest();
@@ -327,6 +330,7 @@ describe('non-member access request notification', () => {
       channel: 'telegram',
       guardianExternalUserId: 'guardian-user-789',
       guardianDeliveryChatId: 'guardian-chat-789',
+      guardianPrincipalId: 'test-principal-id',
     });
 
     // Message without actorExternalId — the handler returns BAD_REQUEST.
@@ -399,6 +403,7 @@ describe('access-request-helper unit tests', () => {
       channel: 'sms',
       guardianExternalUserId: 'guardian-sms',
       guardianDeliveryChatId: 'sms-chat',
+      guardianPrincipalId: 'test-principal-id',
     });
 
     const result = notifyGuardianOfAccessRequest({
@@ -430,12 +435,14 @@ describe('access-request-helper unit tests', () => {
       channel: 'telegram',
       guardianExternalUserId: 'guardian-tg',
       guardianDeliveryChatId: 'tg-chat',
+      guardianPrincipalId: 'test-principal-tg',
     });
     createBinding({
       assistantId: 'self',
       channel: 'sms',
       guardianExternalUserId: 'guardian-sms',
       guardianDeliveryChatId: 'sms-chat',
+      guardianPrincipalId: 'test-principal-sms',
     });
 
     const result = notifyGuardianOfAccessRequest({

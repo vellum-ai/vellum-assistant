@@ -41,13 +41,30 @@ mock.module('../util/logger.js', () => ({
 mock.module('../config/loader.js', () => ({
   getConfig: () => ({
     ui: {},
-    
+
     model: 'test',
     provider: 'test',
     apiKeys: {},
     memory: { enabled: false },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
     secretDetection: { enabled: false },
+  }),
+}));
+
+// Mock guardian-vellum-migration to use a stable principal matching the one
+// in createCanonicalGuardianRequest calls below ('test-principal-id').
+mock.module('../runtime/guardian-vellum-migration.js', () => ({
+  ensureVellumGuardianBinding: () => 'test-principal-id',
+}));
+
+// Mock local-actor-identity to return a stable guardian context that uses
+// the same principal as the canonical requests created in tests.
+mock.module('../runtime/local-actor-identity.js', () => ({
+  resolveLocalIpcGuardianContext: () => ({
+    sourceChannel: 'vellum',
+    trustClass: 'guardian',
+    guardianPrincipalId: 'test-principal-id',
+    guardianExternalUserId: 'test-principal-id',
   }),
 }));
 
