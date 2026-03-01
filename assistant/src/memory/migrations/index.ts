@@ -66,6 +66,7 @@ export { migrateCanonicalGuardianRequesterChatId } from './122-canonical-guardia
 export { migrateCanonicalGuardianDeliveriesDestinationIndex } from './123-canonical-guardian-deliveries-destination-index.js';
 export { migrateVoiceInviteDisplayMetadata } from './124-voice-invite-display-metadata.js';
 export { migrateGuardianPrincipalIdColumns } from './125-guardian-principal-id-columns.js';
+export { migrateBackfillGuardianPrincipalId } from './126-backfill-guardian-principal-id.js';
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

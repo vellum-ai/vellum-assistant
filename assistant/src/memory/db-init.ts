@@ -37,6 +37,7 @@ import {
   migrateNotificationDeliveryThreadDecision,
   migrateReminderRoutingIntent,
   migrateSchemaIndexesAndColumns,
+  migrateBackfillGuardianPrincipalId,
   migrateGuardianPrincipalIdColumns,
   migrateVoiceInviteColumns,
   migrateVoiceInviteDisplayMetadata,
@@ -176,6 +177,9 @@ export function initializeDb(): void {
 
   // 29. Guardian principal ID columns on channel_guardian_bindings and canonical_guardian_requests
   migrateGuardianPrincipalIdColumns(database);
+
+  // 30. Backfill guardianPrincipalId for existing bindings and requests, expire unresolvable pending requests
+  migrateBackfillGuardianPrincipalId(database);
 
   validateMigrationState(database);
 }
