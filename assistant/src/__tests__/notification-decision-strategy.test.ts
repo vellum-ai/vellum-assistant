@@ -618,7 +618,7 @@ describe('notification decision strategy', () => {
   });
 
   describe('access-request instruction detection', () => {
-    test('detects complete access-request instructions', () => {
+    test('detects complete access-request instructions with full directive patterns', () => {
       const text = 'Alice wants access.\nReply "A1B2C3 approve" to grant access or "A1B2C3 reject" to deny.\nReply "open invite flow" to start.';
       expect(hasAccessRequestInstructions(text, 'A1B2C3')).toBe(true);
     });
@@ -628,23 +628,50 @@ describe('notification decision strategy', () => {
       expect(hasAccessRequestInstructions(text, 'A1B2C3')).toBe(false);
     });
 
-    test('fails when approve is missing', () => {
+    test('fails when approve directive is missing', () => {
       const text = 'Reply "A1B2C3 reject" to deny.\nReply "open invite flow" to start.';
       expect(hasAccessRequestInstructions(text, 'A1B2C3')).toBe(false);
     });
 
-    test('fails when invite flow phrase is missing', () => {
-      const text = 'Reply "A1B2C3 approve" or "A1B2C3 reject".';
+    test('fails when invite flow directive is missing', () => {
+      const text = 'Reply "A1B2C3 approve" to grant access or "A1B2C3 reject" to deny.';
       expect(hasAccessRequestInstructions(text, 'A1B2C3')).toBe(false);
     });
 
     test('is case-insensitive for request code matching', () => {
-      const text = 'Reply "a1b2c3 approve" or "a1b2c3 reject".\nReply "open invite flow".';
+      const text = 'Reply "a1b2c3 approve" to grant access or "a1b2c3 reject" to deny.\nReply "open invite flow" to start.';
       expect(hasAccessRequestInstructions(text, 'A1B2C3')).toBe(true);
     });
 
     test('returns false for undefined text', () => {
       expect(hasAccessRequestInstructions(undefined, 'A1B2C3')).toBe(false);
+    });
+
+    test('rejects loose substring matches without Reply framing', () => {
+      // Contains the keywords as loose substrings but not as proper directives
+      const text = 'Do not A1B2C3 approve or A1B2C3 reject anything.\nDo not reply "open invite flow".';
+      expect(hasAccessRequestInstructions(text, 'A1B2C3')).toBe(false);
+    });
+
+    test('rejects contradictory copy with negated Reply for invite flow', () => {
+      // "Do not reply" should not satisfy the directive anchor
+      const text = 'Reply "A1B2C3 approve" to grant access or "A1B2C3 reject" to deny.\nDo not reply "open invite flow".';
+      expect(hasAccessRequestInstructions(text, 'A1B2C3')).toBe(false);
+    });
+
+    test('rejects text with invite flow keyword but no Reply framing', () => {
+      const text = 'Reply "A1B2C3 approve" to grant access or "A1B2C3 reject" to deny.\nThe open invite flow is disabled.';
+      expect(hasAccessRequestInstructions(text, 'A1B2C3')).toBe(false);
+    });
+
+    test('rejects contradictory copy with negated Reply for approve directive', () => {
+      const text = 'Do not reply "A1B2C3 approve" or "A1B2C3 reject".\nReply "open invite flow" to start.';
+      expect(hasAccessRequestInstructions(text, 'A1B2C3')).toBe(false);
+    });
+
+    test('accepts directives at the start of text (no preceding newline needed)', () => {
+      const text = 'Reply "A1B2C3 approve" to grant or "A1B2C3 reject" to deny. Reply "open invite flow" to start.';
+      expect(hasAccessRequestInstructions(text, 'A1B2C3')).toBe(true);
     });
   });
 

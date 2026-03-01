@@ -95,19 +95,30 @@ export function buildAccessRequestRevokedNote(): string {
 
 /**
  * Check whether a text contains the required access-request instruction elements:
- * 1. Request-code decision directive (approve AND reject with the code)
- * 2. Exact "open invite flow" phrase
+ * 1. Full decision directive: Reply "CODE approve" ... "CODE reject"
+ * 2. Full invite directive: Reply "open invite flow"
+ *
+ * Uses regex anchored to line/sentence boundaries so that contradictory copy
+ * like `Do not reply "open invite flow"` is not treated as compliant.
+ * The patterns match the exact directives produced by the builder functions.
  */
 export function hasAccessRequestInstructions(
   text: string | undefined,
   requestCode: string,
 ): boolean {
   if (typeof text !== 'string') return false;
-  const upper = text.toUpperCase();
-  const normalizedCode = requestCode.toUpperCase();
-  const hasApproveReject = upper.includes(`${normalizedCode} APPROVE`) && upper.includes(`${normalizedCode} REJECT`);
-  const hasInviteFlow = text.toLowerCase().includes('open invite flow');
-  return hasApproveReject && hasInviteFlow;
+  const escapedCode = requestCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // Match the decision directive: Reply "CODE approve" ... "CODE reject"
+  // anchored so it begins a line or follows sentence-ending punctuation + space
+  const decisionRe = new RegExp(
+    `(?:^|[.!?]\\s+|\\n)\\s*reply\\s+"${escapedCode}\\s+approve"`,
+    'im',
+  );
+  const rejectRe = new RegExp(`"${escapedCode}\\s+reject"`, 'i');
+  // Match the invite directive: Reply "open invite flow" at a line/sentence start
+  const inviteRe = /(?:^|[.!?]\s+|\n)\s*reply\s+"open invite flow"/im;
+
+  return decisionRe.test(text) && rejectRe.test(text) && inviteRe.test(text);
 }
 
 /**
