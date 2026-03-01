@@ -56,6 +56,10 @@ mock.module('../memory/conversation-store.js', () => ({
 
 import { handleSendMessage } from '../runtime/routes/conversation-routes.js';
 
+const testServer = {
+  requestIP: () => ({ address: '127.0.0.1' }),
+} as unknown as import('../runtime/middleware/actor-token.js').ServerWithRequestIP;
+
 describe('handleSendMessage canonical guardian reply interception', () => {
   beforeEach(() => {
     routeGuardianReplyMock.mockClear();
@@ -79,6 +83,9 @@ describe('handleSendMessage canonical guardian reply interception', () => {
     const runAgentLoop = mock(async () => undefined);
     const session = {
       setGuardianContext: () => {},
+      setStateSignalListener: () => {},
+      emitConfirmationStateChanged: () => {},
+      emitActivityState: () => {},
       setTurnChannelContext: () => {},
       setTurnInterfaceContext: () => {},
       isProcessing: () => false,
@@ -110,7 +117,7 @@ describe('handleSendMessage canonical guardian reply interception', () => {
         assistantEventHub: { publish: async () => {} } as any,
         resolveAttachments: () => [],
       },
-    });
+    }, testServer);
 
     expect(res.status).toBe(202);
     const body = await res.json() as { accepted: boolean; messageId?: string };
@@ -139,6 +146,9 @@ describe('handleSendMessage canonical guardian reply interception', () => {
     const runAgentLoop = mock(async () => undefined);
     const session = {
       setGuardianContext: () => {},
+      setStateSignalListener: () => {},
+      emitConfirmationStateChanged: () => {},
+      emitActivityState: () => {},
       setTurnChannelContext: () => {},
       setTurnInterfaceContext: () => {},
       isProcessing: () => false,
@@ -170,7 +180,7 @@ describe('handleSendMessage canonical guardian reply interception', () => {
         assistantEventHub: { publish: async () => {} } as any,
         resolveAttachments: () => [],
       },
-    });
+    }, testServer);
 
     expect(res.status).toBe(202);
     expect(routeGuardianReplyMock).toHaveBeenCalledTimes(1);
@@ -197,6 +207,9 @@ describe('handleSendMessage canonical guardian reply interception', () => {
     const runAgentLoop = mock(async () => undefined);
     const session = {
       setGuardianContext: () => {},
+      setStateSignalListener: () => {},
+      emitConfirmationStateChanged: () => {},
+      emitActivityState: () => {},
       setTurnChannelContext: () => {},
       setTurnInterfaceContext: () => {},
       isProcessing: () => false,
@@ -228,7 +241,7 @@ describe('handleSendMessage canonical guardian reply interception', () => {
         assistantEventHub: { publish: async () => {} } as any,
         resolveAttachments: () => [],
       },
-    });
+    }, testServer);
 
     expect(res.status).toBe(202);
     expect(routeGuardianReplyMock).toHaveBeenCalledTimes(1);
