@@ -14,6 +14,7 @@ import {
   listCanonicalGuardianRequests,
   updateCanonicalGuardianDelivery,
 } from '../memory/canonical-guardian-store.js';
+import { getActiveBinding } from '../memory/guardian-bindings.js';
 import { emitNotificationSignal } from '../notifications/emit-signal.js';
 import type { NotificationDeliveryResult } from '../notifications/types.js';
 import { getLogger } from '../util/logger.js';
@@ -88,6 +89,13 @@ async function dispatchGuardianQuestionInner(params: GuardianDispatchParams): Pr
   try {
     const expiresAt = Date.now() + getUserConsultationTimeoutMs();
 
+    // Voice decisions are handled in guardian threads tied to the assistant-
+    // level guardian identity. Resolve the principal from the vellum binding
+    // (the canonical assistant-level binding) so the request is attributed to
+    // the assistant's guardian principal.
+    const vellumBinding = getActiveBinding(assistantId, 'vellum');
+    const guardianPrincipalId = vellumBinding?.guardianPrincipalId ?? undefined;
+
     // Create the canonical guardian request as the primary record.
     const request = createCanonicalGuardianRequest({
       kind: 'pending_question',
@@ -97,6 +105,7 @@ async function dispatchGuardianQuestionInner(params: GuardianDispatchParams): Pr
       callSessionId,
       pendingQuestionId: pendingQuestion.id,
       questionText: pendingQuestion.questionText,
+      guardianPrincipalId,
       toolName,
       inputDigest,
       expiresAt: new Date(expiresAt).toISOString(),

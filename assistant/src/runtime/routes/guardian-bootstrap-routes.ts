@@ -56,6 +56,7 @@ function ensureGuardianPrincipal(assistantId: string): {
     channel: 'vellum',
     guardianExternalUserId: guardianPrincipalId,
     guardianDeliveryChatId: 'local',
+    guardianPrincipalId,
     verifiedVia: 'bootstrap',
     metadataJson: JSON.stringify({ bootstrappedAt: Date.now() }),
   });

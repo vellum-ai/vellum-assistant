@@ -10,6 +10,7 @@
 import { and, desc, eq } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
+import { IntegrityError } from '../util/errors.js';
 import { getDb, rawChanges } from './db.js';
 import {
   canonicalGuardianDeliveries,
@@ -31,6 +32,7 @@ export interface CanonicalGuardianRequest {
   requesterExternalUserId: string | null;
   requesterChatId: string | null;
   guardianExternalUserId: string | null;
+  guardianPrincipalId: string | null;
   callSessionId: string | null;
   pendingQuestionId: string | null;
   questionText: string | null;
@@ -40,6 +42,7 @@ export interface CanonicalGuardianRequest {
   status: CanonicalRequestStatus;
   answerText: string | null;
   decidedByExternalUserId: string | null;
+  decidedByPrincipalId: string | null;
   followupState: string | null;
   expiresAt: string | null;
   createdAt: string;
@@ -117,6 +120,7 @@ function rowToRequest(row: typeof canonicalGuardianRequests.$inferSelect): Canon
     requesterExternalUserId: row.requesterExternalUserId,
     requesterChatId: row.requesterChatId,
     guardianExternalUserId: row.guardianExternalUserId,
+    guardianPrincipalId: row.guardianPrincipalId,
     callSessionId: row.callSessionId,
     pendingQuestionId: row.pendingQuestionId,
     questionText: row.questionText,
@@ -126,6 +130,7 @@ function rowToRequest(row: typeof canonicalGuardianRequests.$inferSelect): Canon
     status: row.status as CanonicalRequestStatus,
     answerText: row.answerText,
     decidedByExternalUserId: row.decidedByExternalUserId,
+    decidedByPrincipalId: row.decidedByPrincipalId,
     followupState: row.followupState,
     expiresAt: row.expiresAt,
     createdAt: row.createdAt,
@@ -160,6 +165,7 @@ export interface CreateCanonicalGuardianRequestParams {
   requesterExternalUserId?: string;
   requesterChatId?: string;
   guardianExternalUserId?: string;
+  guardianPrincipalId?: string;
   callSessionId?: string;
   pendingQuestionId?: string;
   questionText?: string;
@@ -169,11 +175,34 @@ export interface CreateCanonicalGuardianRequestParams {
   status?: CanonicalRequestStatus;
   answerText?: string;
   decidedByExternalUserId?: string;
+  decidedByPrincipalId?: string;
   followupState?: string;
   expiresAt?: string;
 }
 
+/**
+ * Request kinds that require a guardian decision (approve/deny). These kinds
+ * MUST have a `guardianPrincipalId` bound at creation time so the decision
+ * can be attributed to a specific principal. Informational kinds (e.g. status
+ * updates) are exempt from this requirement.
+ */
+const DECISIONABLE_KINDS = new Set([
+  'tool_approval',
+  'tool_grant_request',
+  'pending_question',
+]);
+
 export function createCanonicalGuardianRequest(params: CreateCanonicalGuardianRequestParams): CanonicalGuardianRequest {
+  // Guard: decisionable request kinds must have a principal bound at creation
+  // time. This ensures every request that will eventually require a guardian
+  // decision is attributable to a specific identity. Informational kinds are
+  // exempt — they don't participate in the approval flow.
+  if (DECISIONABLE_KINDS.has(params.kind) && !params.guardianPrincipalId) {
+    throw new IntegrityError(
+      `Cannot create decisionable canonical request of kind '${params.kind}' without guardianPrincipalId`,
+    );
+  }
+
   const db = getDb();
   const now = new Date().toISOString();
   const id = params.id ?? uuid();
@@ -187,6 +216,7 @@ export function createCanonicalGuardianRequest(params: CreateCanonicalGuardianRe
     requesterExternalUserId: params.requesterExternalUserId ?? null,
     requesterChatId: params.requesterChatId ?? null,
     guardianExternalUserId: params.guardianExternalUserId ?? null,
+    guardianPrincipalId: params.guardianPrincipalId ?? null,
     callSessionId: params.callSessionId ?? null,
     pendingQuestionId: params.pendingQuestionId ?? null,
     questionText: params.questionText ?? null,
@@ -196,6 +226,7 @@ export function createCanonicalGuardianRequest(params: CreateCanonicalGuardianRe
     status: params.status ?? ('pending' as const),
     answerText: params.answerText ?? null,
     decidedByExternalUserId: params.decidedByExternalUserId ?? null,
+    decidedByPrincipalId: params.decidedByPrincipalId ?? null,
     followupState: params.followupState ?? null,
     expiresAt: params.expiresAt ?? null,
     createdAt: now,
@@ -239,6 +270,7 @@ export function getCanonicalGuardianRequestByCode(code: string): CanonicalGuardi
 export interface ListCanonicalGuardianRequestsFilters {
   status?: CanonicalRequestStatus;
   guardianExternalUserId?: string;
+  guardianPrincipalId?: string;
   requesterExternalUserId?: string;
   conversationId?: string;
   sourceType?: string;
@@ -256,6 +288,9 @@ export function listCanonicalGuardianRequests(filters?: ListCanonicalGuardianReq
   }
   if (filters?.guardianExternalUserId) {
     conditions.push(eq(canonicalGuardianRequests.guardianExternalUserId, filters.guardianExternalUserId));
+  }
+  if (filters?.guardianPrincipalId) {
+    conditions.push(eq(canonicalGuardianRequests.guardianPrincipalId, filters.guardianPrincipalId));
   }
   if (filters?.conversationId) {
     conditions.push(eq(canonicalGuardianRequests.conversationId, filters.conversationId));
@@ -292,6 +327,7 @@ export interface UpdateCanonicalGuardianRequestParams {
   status?: CanonicalRequestStatus;
   answerText?: string;
   decidedByExternalUserId?: string;
+  decidedByPrincipalId?: string;
   followupState?: string | null;
   expiresAt?: string;
 }
@@ -307,6 +343,7 @@ export function updateCanonicalGuardianRequest(
   if (updates.status !== undefined) setValues.status = updates.status;
   if (updates.answerText !== undefined) setValues.answerText = updates.answerText;
   if (updates.decidedByExternalUserId !== undefined) setValues.decidedByExternalUserId = updates.decidedByExternalUserId;
+  if (updates.decidedByPrincipalId !== undefined) setValues.decidedByPrincipalId = updates.decidedByPrincipalId;
   if (updates.followupState !== undefined) setValues.followupState = updates.followupState;
   if (updates.expiresAt !== undefined) setValues.expiresAt = updates.expiresAt;
 
@@ -322,6 +359,7 @@ export interface ResolveDecision {
   status: CanonicalRequestStatus;
   answerText?: string;
   decidedByExternalUserId?: string;
+  decidedByPrincipalId?: string;
 }
 
 /**
@@ -343,6 +381,7 @@ export function resolveCanonicalGuardianRequest(
   };
   if (decision.answerText !== undefined) setValues.answerText = decision.answerText;
   if (decision.decidedByExternalUserId !== undefined) setValues.decidedByExternalUserId = decision.decidedByExternalUserId;
+  if (decision.decidedByPrincipalId !== undefined) setValues.decidedByPrincipalId = decision.decidedByPrincipalId;
 
   db.update(canonicalGuardianRequests)
     .set(setValues)

@@ -197,19 +197,26 @@ function findPendingCanonicalRequests(
     });
   }
 
-  // For desktop/trusted actors without an externalUserId, query by
-  // conversationId so the NL path can discover pending requests.
+  // Actors without an externalUserId: scope by conversationId so the NL
+  // path can discover pending requests bound to this conversation.
+  // Include guardianPrincipalId filter when available so the guardian only
+  // sees requests they are authorized to act on.
   if (conversationId) {
     return listCanonicalGuardianRequests({
       status: 'pending',
       conversationId,
+      ...(actor.guardianPrincipalId ? { guardianPrincipalId: actor.guardianPrincipalId } : {}),
     });
   }
 
-  // Trusted actors without a conversationId: return all pending requests
-  // so desktop sessions can always discover pending guardian work.
-  if (actor.isTrusted) {
-    return listCanonicalGuardianRequests({ status: 'pending' });
+  // Actors with a guardianPrincipalId but no externalUserId or
+  // conversationId: query by principal so desktop sessions can still
+  // discover pending guardian work via their bound principal.
+  if (actor.guardianPrincipalId) {
+    return listCanonicalGuardianRequests({
+      status: 'pending',
+      guardianPrincipalId: actor.guardianPrincipalId,
+    });
   }
 
   return [];
@@ -301,22 +308,30 @@ export async function routeGuardianReply(
       // silently defaulting to approve_once.
       if (!codeResult.remainingText || codeResult.remainingText.trim().length === 0) {
         // Identity check: only expose request details to the assigned guardian
-        // or trusted (desktop) actors. Mirrors the identity check in
-        // applyCanonicalGuardianDecision to prevent leaking request details
+        // principal. Strict principal equality prevents leaking request details
         // (toolName, questionText) to unauthorized senders.
+        if (!actor.guardianPrincipalId) {
+          return {
+            decisionApplied: false,
+            consumed: true,
+            type: 'code_only_clarification',
+            requestId: request.id,
+            replyText: 'Request not found.',
+          };
+        }
+
         if (
-          request.guardianExternalUserId &&
-          !actor.isTrusted &&
-          actor.externalUserId !== request.guardianExternalUserId
+          request.guardianPrincipalId &&
+          actor.guardianPrincipalId !== request.guardianPrincipalId
         ) {
           log.warn(
             {
-              event: 'router_code_only_identity_mismatch',
+              event: 'router_code_only_principal_mismatch',
               requestId: request.id,
-              expectedGuardian: request.guardianExternalUserId,
-              actualActor: actor.externalUserId,
+              expectedPrincipal: request.guardianPrincipalId,
+              actualPrincipal: actor.guardianPrincipalId,
             },
-            'Code-only clarification blocked: actor identity does not match expected guardian',
+            'Code-only clarification blocked: actor principal does not match request principal',
           );
           return {
             decisionApplied: false,
@@ -492,7 +507,9 @@ export async function routeGuardianReply(
     // Attach the engine's reply text for stale/expired/identity-mismatch cases,
     // but preserve resolver-authored replies (for example verification codes)
     // and explicit resolver-failure text.
-    const hasResolverReplyText = Boolean(result.canonicalResult?.applied && result.canonicalResult.resolverReplyText);
+    const hasResolverReplyText = Boolean(
+      result.canonicalResult?.applied && result.canonicalResult.resolverReplyText,
+    );
     if (engineResult.replyText && result.type !== 'canonical_resolver_failed' && !hasResolverReplyText) {
       result.replyText = engineResult.replyText;
     }

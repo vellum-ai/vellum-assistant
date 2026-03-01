@@ -286,7 +286,7 @@ describe('ToolApprovalHandler / pre-exec gate grant check', () => {
     expect(result.allowed).toBe(true);
   });
 
-  test('undefined actor role (desktop/trusted) bypasses grant check', async () => {
+  test('undefined actor role (desktop) bypasses grant check', async () => {
     const toolName = 'bash';
     const input = { command: 'deploy' };
 

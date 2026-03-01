@@ -97,15 +97,18 @@ export function notifyGuardianOfAccessRequest(
   // 3. null (no guardian identity — notification pipeline uses trusted channels)
   const sourceBinding = getGuardianBinding(canonicalAssistantId, sourceChannel);
   let guardianExternalUserId: string | null = null;
+  let guardianPrincipalId: string | null = null;
   let guardianBindingChannel: string | null = null;
 
   if (sourceBinding) {
     guardianExternalUserId = sourceBinding.guardianExternalUserId;
+    guardianPrincipalId = sourceBinding.guardianPrincipalId;
     guardianBindingChannel = sourceBinding.channel;
   } else {
     const allBindings = listActiveBindingsByAssistant(canonicalAssistantId);
     if (allBindings.length > 0) {
       guardianExternalUserId = allBindings[0].guardianExternalUserId;
+      guardianPrincipalId = allBindings[0].guardianPrincipalId;
       guardianBindingChannel = allBindings[0].channel;
       log.debug(
         { sourceChannel, fallbackChannel: guardianBindingChannel, canonicalAssistantId },
@@ -156,6 +159,7 @@ export function notifyGuardianOfAccessRequest(
     requesterExternalUserId: actorExternalId,
     requesterChatId: conversationExternalId,
     guardianExternalUserId: guardianExternalUserId ?? undefined,
+    guardianPrincipalId: guardianPrincipalId ?? undefined,
     toolName: 'ingress_access_request',
     questionText: `${senderIdentifier} is requesting access to the assistant`,
     expiresAt: new Date(Date.now() + GUARDIAN_APPROVAL_TTL_MS).toISOString(),

@@ -124,13 +124,19 @@ export async function handleGuardianActionDecision(req: Request, server: ServerW
     ? tokenResult.claims.guardianPrincipalId
     : tokenResult.guardianContext.guardianExternalUserId;
 
+  // Resolve the actor's principal ID: from the token claims if present,
+  // otherwise from the vellum guardian binding (local fallback).
+  const actorPrincipalId = tokenResult.claims
+    ? tokenResult.claims.guardianPrincipalId
+    : tokenResult.guardianContext.guardianPrincipalId ?? undefined;
+
   const canonicalResult = await applyCanonicalGuardianDecision({
     requestId,
     action: action as ApprovalAction,
     actorContext: {
       externalUserId: actorExternalUserId,
       channel: 'vellum',
-      isTrusted: true,
+      guardianPrincipalId: actorPrincipalId,
     },
     userText: undefined,
   });

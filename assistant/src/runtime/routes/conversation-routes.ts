@@ -86,6 +86,8 @@ async function tryConsumeCanonicalGuardianReply(params: {
   approvalConversationGenerator?: ApprovalConversationGenerator;
   /** Verified actor identity from actor-token middleware. */
   verifiedActorExternalUserId?: string;
+  /** Verified actor principal ID for principal-based authorization. */
+  verifiedActorPrincipalId?: string;
 }): Promise<{ consumed: boolean; messageId?: string }> {
   const {
     conversationId,
@@ -97,6 +99,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
     onEvent,
     approvalConversationGenerator,
     verifiedActorExternalUserId,
+    verifiedActorPrincipalId,
   } = params;
   const trimmedContent = content.trim();
 
@@ -113,12 +116,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
     actor: {
       externalUserId: verifiedActorExternalUserId,
       channel: sourceChannel,
-      // When a verified identity is available, disable the trusted bypass so
-      // that the identity-match checks in applyCanonicalGuardianDecision
-      // actually run. Only fall back to isTrusted when no verified identity
-      // was resolved (defensive — shouldn't happen for vellum since
-      // verification runs upstream).
-      isTrusted: !verifiedActorExternalUserId,
+      guardianPrincipalId: verifiedActorPrincipalId,
     },
     conversationId,
     pendingRequestIds,
@@ -345,33 +343,41 @@ function makeHubPublisher(
 
       // Create a canonical guardian request so IPC/HTTP handlers can find it
       // via applyCanonicalGuardianDecision.
-      const guardianContext = session.guardianContext;
-      const sourceChannel = guardianContext?.sourceChannel ?? 'vellum';
-      const canonicalRequest = createCanonicalGuardianRequest({
-        id: msg.requestId,
-        kind: 'tool_approval',
-        sourceType: resolveCanonicalRequestSourceType(sourceChannel),
-        sourceChannel,
-        conversationId,
-        requesterExternalUserId: guardianContext?.requesterExternalUserId,
-        requesterChatId: guardianContext?.requesterChatId,
-        guardianExternalUserId: guardianContext?.guardianExternalUserId,
-        toolName: msg.toolName,
-        status: 'pending',
-        requestCode: generateCanonicalRequestCode(),
-        expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
-      });
-
-      // For trusted-contact sessions, bridge to guardian.question so the
-      // guardian gets notified and can approve via callback/request-code.
-      if (guardianContext) {
-        bridgeConfirmationRequestToGuardian({
-          canonicalRequest,
-          guardianContext,
+      try {
+        const guardianContext = session.guardianContext;
+        const sourceChannel = guardianContext?.sourceChannel ?? 'vellum';
+        const canonicalRequest = createCanonicalGuardianRequest({
+          id: msg.requestId,
+          kind: 'tool_approval',
+          sourceType: resolveCanonicalRequestSourceType(sourceChannel),
+          sourceChannel,
           conversationId,
+          requesterExternalUserId: guardianContext?.requesterExternalUserId,
+          requesterChatId: guardianContext?.requesterChatId,
+          guardianExternalUserId: guardianContext?.guardianExternalUserId,
+          guardianPrincipalId: guardianContext?.guardianPrincipalId ?? undefined,
           toolName: msg.toolName,
-          assistantId: session.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
+          status: 'pending',
+          requestCode: generateCanonicalRequestCode(),
+          expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
         });
+
+        // For trusted-contact sessions, bridge to guardian.question so the
+        // guardian gets notified and can approve via callback/request-code.
+        if (guardianContext) {
+          bridgeConfirmationRequestToGuardian({
+            canonicalRequest,
+            guardianContext,
+            conversationId,
+            toolName: msg.toolName,
+            assistantId: session.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
+          });
+        }
+      } catch (err) {
+        log.debug(
+          { err, requestId: msg.requestId, conversationId },
+          'Failed to create canonical request from hub publisher',
+        );
       }
     } else if (msg.type === 'secret_request') {
       pendingInteractions.register(msg.requestId, {
@@ -505,12 +511,15 @@ export async function handleSendMessage(
       ? smDeps.resolveAttachments(attachmentIds)
       : [];
 
-    // Resolve the verified actor's external user ID for inline approval
-    // routing. Uses the guardianExternalUserId from the verified context
-    // (actor-token or local-fallback) rather than hardcoding undefined.
+    // Resolve the verified actor's external user ID and principal for inline
+    // approval routing. Uses the guardianExternalUserId and guardianPrincipalId
+    // from the verified context (actor-token or local-fallback).
     const verifiedActorExternalUserId = actorVerification?.ok
       ? actorVerification.guardianContext.guardianExternalUserId
-      : undefined;
+      : session.guardianContext?.guardianExternalUserId;
+    const verifiedActorPrincipalId = actorVerification?.ok
+      ? actorVerification.guardianContext.guardianPrincipalId ?? undefined
+      : session.guardianContext?.guardianPrincipalId ?? undefined;
 
     // Try to consume the message as a canonical guardian approval/rejection reply.
     // On failure, degrade to the existing queue/auto-deny path rather than
@@ -526,6 +535,7 @@ export async function handleSendMessage(
         onEvent,
         approvalConversationGenerator: deps.approvalConversationGenerator,
         verifiedActorExternalUserId,
+        verifiedActorPrincipalId,
       });
       if (inlineReplyResult.consumed) {
         return Response.json(

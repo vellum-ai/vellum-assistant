@@ -20,6 +20,7 @@ import {
   resolveGuardianContext,
   toGuardianRuntimeContext,
 } from './guardian-context-resolver.js';
+import { ensureVellumGuardianBinding } from './guardian-vellum-migration.js';
 
 const log = getLogger('local-actor-identity');
 
@@ -42,17 +43,22 @@ export function resolveLocalIpcGuardianContext(
   const binding = getActiveBinding(assistantId, 'vellum');
 
   if (!binding) {
-    // No vellum binding yet (pre-bootstrap). The local user is
-    // inherently the guardian of their own machine, so produce a
-    // guardian context without a binding match. The trust resolver
-    // would classify this as 'unknown' due to no_binding, but for
-    // the local IPC case that is incorrect -- the local macOS user
-    // is always the guardian.
-    log.debug('No vellum guardian binding found; using fallback guardian context for IPC');
-    return {
-      sourceChannel,
-      trustClass: 'guardian',
-    };
+    // No vellum binding yet (pre-bootstrap). Eagerly create one so
+    // downstream code that creates decisionable canonical requests
+    // (tool_approval, pending_question) always has a guardianPrincipalId
+    // available. Without this, createCanonicalGuardianRequest throws
+    // IntegrityError and the request is silently dropped.
+    log.debug('No vellum guardian binding found; bootstrapping binding for IPC');
+    const principalId = ensureVellumGuardianBinding(assistantId);
+
+    // Re-resolve through the shared pipeline now that the binding exists.
+    const guardianCtx = resolveGuardianContext({
+      assistantId,
+      sourceChannel: 'vellum',
+      externalChatId: 'local',
+      senderExternalUserId: principalId,
+    });
+    return toGuardianRuntimeContext(sourceChannel, guardianCtx);
   }
 
   const guardianPrincipalId = binding.guardianExternalUserId;

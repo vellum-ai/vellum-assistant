@@ -64,11 +64,14 @@ afterAll(() => {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/** Consistent test principal used across all test actors and requests. */
+const TEST_PRINCIPAL_ID = 'test-principal-id';
+
 function guardianActor(overrides: Partial<ActorContext> = {}): ActorContext {
   return {
     externalUserId: 'guardian-1',
     channel: 'telegram',
-    isTrusted: false,
+    guardianPrincipalId: TEST_PRINCIPAL_ID,
     ...overrides,
   };
 }
@@ -77,7 +80,7 @@ function trustedActor(overrides: Partial<ActorContext> = {}): ActorContext {
   return {
     externalUserId: undefined,
     channel: 'desktop',
-    isTrusted: true,
+    guardianPrincipalId: TEST_PRINCIPAL_ID,
     ...overrides,
   };
 }
@@ -120,6 +123,7 @@ describe('applyCanonicalGuardianDecision', () => {
       sourceChannel: 'telegram',
       conversationId: 'conv-1',
       guardianExternalUserId: 'guardian-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       toolName: 'shell',
       inputDigest: 'sha256:abc',
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -153,6 +157,7 @@ describe('applyCanonicalGuardianDecision', () => {
       sourceChannel: 'telegram',
       conversationId: 'conv-1',
       guardianExternalUserId: 'guardian-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       toolName: 'shell',
       inputDigest: 'sha256:abc',
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -178,6 +183,7 @@ describe('applyCanonicalGuardianDecision', () => {
       sourceType: 'voice',
       sourceChannel: 'twilio',
       guardianExternalUserId: 'guardian-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       callSessionId: 'call-1',
       pendingQuestionId: 'pq-1',
       questionText: 'What is the gate code?',
@@ -199,21 +205,22 @@ describe('applyCanonicalGuardianDecision', () => {
     expect(resolved!.answerText).toBe('1234');
   });
 
-  // ── Identity mismatch ──────────────────────────────────────────────
+  // ── Principal mismatch ──────────────────────────────────────────────
 
-  test('rejects decision when actor does not match guardian', async () => {
+  test('rejects decision when actor principal does not match request principal', async () => {
     const req = createCanonicalGuardianRequest({
       kind: 'tool_approval',
       sourceType: 'channel',
       conversationId: 'conv-1',
       guardianExternalUserId: 'guardian-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     });
 
     const result = await applyCanonicalGuardianDecision({
       requestId: req.id,
       action: 'approve_once',
-      actorContext: guardianActor({ externalUserId: 'imposter-99' }),
+      actorContext: guardianActor({ guardianPrincipalId: 'wrong-principal' }),
     });
 
     expect(result.applied).toBe(false);
@@ -225,12 +232,13 @@ describe('applyCanonicalGuardianDecision', () => {
     expect(unchanged!.status).toBe('pending');
   });
 
-  test('trusted actor bypasses identity check', async () => {
+  test('matching principal authorizes decision (cross-channel same principal)', async () => {
     const req = createCanonicalGuardianRequest({
       kind: 'tool_approval',
       sourceType: 'desktop',
       conversationId: 'conv-1',
       guardianExternalUserId: 'guardian-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       toolName: 'shell',
       inputDigest: 'sha256:abc',
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -243,24 +251,48 @@ describe('applyCanonicalGuardianDecision', () => {
     });
 
     expect(result.applied).toBe(true);
-    // No grant minted because trusted actor has no externalUserId
     if (!result.applied) return;
+    // No grant minted because trusted actor has no externalUserId
     expect(result.grantMinted).toBe(false);
   });
 
-  test('rejects non-trusted decision when tool approval has no guardian binding', async () => {
+  test('rejects decision when request has no guardianPrincipalId', async () => {
+    // unknown_kind is not in DECISIONABLE_KINDS so it can be created without
+    // guardianPrincipalId, but the decision primitive still rejects because
+    // the request is missing its principal binding.
     const req = createCanonicalGuardianRequest({
-      kind: 'tool_approval',
+      kind: 'unknown_kind',
       sourceType: 'channel',
       conversationId: 'conv-1',
-      // No guardianExternalUserId — open request
+      guardianExternalUserId: 'guardian-1',
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     });
 
     const result = await applyCanonicalGuardianDecision({
       requestId: req.id,
       action: 'approve_once',
-      actorContext: guardianActor({ externalUserId: 'anyone' }),
+      actorContext: guardianActor({ guardianPrincipalId: 'some-principal' }),
+    });
+
+    expect(result.applied).toBe(false);
+    if (result.applied) return;
+    expect(result.reason).toBe('identity_mismatch');
+  });
+
+  test('rejects decision when actor has no guardianPrincipalId', async () => {
+    const req = createCanonicalGuardianRequest({
+      kind: 'tool_approval',
+      sourceType: 'channel',
+      conversationId: 'conv-1',
+      guardianExternalUserId: 'guardian-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+
+    const result = await applyCanonicalGuardianDecision({
+      requestId: req.id,
+      action: 'approve_once',
+      actorContext: guardianActor({ guardianPrincipalId: undefined }),
     });
 
     expect(result.applied).toBe(false);
@@ -276,6 +308,7 @@ describe('applyCanonicalGuardianDecision', () => {
       sourceType: 'channel',
       conversationId: 'conv-1',
       guardianExternalUserId: 'guardian-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     });
 
@@ -324,6 +357,7 @@ describe('applyCanonicalGuardianDecision', () => {
       sourceType: 'channel',
       conversationId: 'conv-1',
       guardianExternalUserId: 'guardian-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     });
 
@@ -351,6 +385,7 @@ describe('applyCanonicalGuardianDecision', () => {
       sourceChannel: 'telegram',
       conversationId: 'conv-1',
       guardianExternalUserId: 'guardian-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       toolName: 'shell',
       inputDigest: 'sha256:abc',
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -385,6 +420,7 @@ describe('applyCanonicalGuardianDecision', () => {
       sourceType: 'channel',
       conversationId: 'conv-1',
       guardianExternalUserId: 'guardian-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       expiresAt: new Date(Date.now() - 10_000).toISOString(), // already expired
     });
 
@@ -405,6 +441,7 @@ describe('applyCanonicalGuardianDecision', () => {
       sourceType: 'channel',
       conversationId: 'conv-1',
       guardianExternalUserId: 'guardian-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       // No expiresAt
     });
 
@@ -426,6 +463,7 @@ describe('applyCanonicalGuardianDecision', () => {
       sourceChannel: 'telegram',
       conversationId: 'conv-1',
       guardianExternalUserId: 'guardian-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       toolName: 'file_read',
       inputDigest: 'sha256:def',
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -446,6 +484,7 @@ describe('applyCanonicalGuardianDecision', () => {
       sourceType: 'voice',
       sourceChannel: 'twilio',
       guardianExternalUserId: 'guardian-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       callSessionId: 'call-99',
       pendingQuestionId: 'pq-99',
       questionText: 'What is the password?',
@@ -464,12 +503,13 @@ describe('applyCanonicalGuardianDecision', () => {
     expect(resolved!.answerText).toBe('secret123');
   });
 
-  test('succeeds even with no resolver for unknown kind', async () => {
+  test('succeeds for non-decisionable kind with matching principal', async () => {
     const req = createCanonicalGuardianRequest({
       kind: 'unknown_kind',
       sourceType: 'channel',
       conversationId: 'conv-1',
       guardianExternalUserId: 'guardian-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     });
 
@@ -485,7 +525,7 @@ describe('applyCanonicalGuardianDecision', () => {
     expect(resolved!.status).toBe('approved');
   });
 
-  test('trusted desktop actor still mints scoped grant for approved canonical request', async () => {
+  test('desktop actor with matching principal mints scoped grant for approved canonical request', async () => {
     const req = createCanonicalGuardianRequest({
       kind: 'unknown_kind',
       sourceType: 'voice',
@@ -494,6 +534,7 @@ describe('applyCanonicalGuardianDecision', () => {
       callSessionId: 'call-voice-1',
       toolName: 'host_bash',
       inputDigest: 'sha256:voice-digest-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     });
 
@@ -530,6 +571,7 @@ describe('mintCanonicalRequestGrant', () => {
       sourceType: 'channel',
       sourceChannel: 'telegram',
       conversationId: 'conv-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       toolName: 'shell',
       inputDigest: 'sha256:abc',
     });
@@ -549,6 +591,7 @@ describe('mintCanonicalRequestGrant', () => {
       sourceType: 'channel',
       sourceChannel: 'telegram',
       conversationId: 'conv-2',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       toolName: 'shell',
       inputDigest: 'sha256:xyz',
     });
@@ -570,6 +613,7 @@ describe('mintCanonicalRequestGrant', () => {
     const req = createCanonicalGuardianRequest({
       kind: 'pending_question',
       sourceType: 'voice',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       // No toolName or inputDigest
     });
 
@@ -586,6 +630,7 @@ describe('mintCanonicalRequestGrant', () => {
     const req = createCanonicalGuardianRequest({
       kind: 'tool_approval',
       sourceType: 'channel',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       toolName: 'shell',
       // No inputDigest
     });
