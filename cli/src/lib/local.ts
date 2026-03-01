@@ -1,5 +1,5 @@
 import { execFileSync, spawn } from "child_process";
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from "fs";
 import { createRequire } from "module";
 import { createConnection } from "net";
 import { homedir } from "os";
@@ -10,6 +10,20 @@ import { GATEWAY_PORT } from "./constants.js";
 import { stopProcessByPidFile } from "./process.js";
 
 const _require = createRequire(import.meta.url);
+
+/** Returns the XDG-compatible log directory for Vellum hatch logs. */
+function getHatchLogDir(): string {
+  const configHome = process.env.XDG_CONFIG_HOME || join(homedir(), ".config");
+  return join(configHome, "vellum", "logs");
+}
+
+/** Open (or create) a log file in append mode, returning the file descriptor.
+ *  Creates the parent directory if it doesn't exist. */
+function openHatchLogFile(name: string): number {
+  const dir = getHatchLogDir();
+  mkdirSync(dir, { recursive: true });
+  return openSync(join(dir, name), "a");
+}
 
 function isAssistantSourceDir(dir: string): boolean {
   const pkgPath = join(dir, "package.json");
@@ -376,10 +390,11 @@ export async function startLocalDaemon(): Promise<void> {
         }
       }
 
+      const daemonLogFd = openHatchLogFile("daemon.log");
       const child = spawn(daemonBinary, [], {
         cwd: dirname(daemonBinary),
         detached: true,
-        stdio: "ignore",
+        stdio: ["ignore", daemonLogFd, daemonLogFd],
         env: daemonEnv,
       });
       child.unref();
@@ -534,18 +549,20 @@ export async function startGateway(assistantId?: string): Promise<string> {
       );
     }
 
+    const gatewayLogFd = openHatchLogFile("gateway.log");
     gateway = spawn(gatewayBinary, [], {
       detached: true,
-      stdio: "ignore",
+      stdio: ["ignore", gatewayLogFd, gatewayLogFd],
       env: gatewayEnv,
     });
   } else {
     // Source tree / bunx: resolve the gateway source directory and run via bun.
     const gatewayDir = resolveGatewayDir();
+    const gwLogFd = openHatchLogFile("gateway.log");
     gateway = spawn("bun", ["run", "src/index.ts"], {
       cwd: gatewayDir,
       detached: true,
-      stdio: "ignore",
+      stdio: ["ignore", gwLogFd, gwLogFd],
       env: gatewayEnv,
     });
   }
