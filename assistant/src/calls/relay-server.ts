@@ -1701,20 +1701,30 @@ export class RelayConnection {
         this.callbackOptIn = true;
         this.lastInWaitReplyAt = now;
         recordCallEvent(this.callSessionId, 'voice_guardian_wait_callback_opt_in_set', {});
+        if (this.accessRequestHeartbeatTimer) {
+          clearTimeout(this.accessRequestHeartbeatTimer);
+          this.accessRequestHeartbeatTimer = null;
+        }
         this.sendTextToken(
           `Noted, I'll make sure ${guardianLabel} knows you'd like a callback. For now, I'll keep trying to reach them.`,
           true,
         );
+        this.scheduleNextHeartbeat();
         return;
       }
       case 'callback_decline': {
         this.callbackOptIn = false;
         this.lastInWaitReplyAt = now;
         recordCallEvent(this.callSessionId, 'voice_guardian_wait_callback_opt_in_declined', {});
+        if (this.accessRequestHeartbeatTimer) {
+          clearTimeout(this.accessRequestHeartbeatTimer);
+          this.accessRequestHeartbeatTimer = null;
+        }
         this.sendTextToken(
           `No problem, I'll keep holding. Still waiting on ${guardianLabel}.`,
           true,
         );
+        this.scheduleNextHeartbeat();
         return;
       }
       default:
@@ -1730,6 +1740,10 @@ export class RelayConnection {
 
     switch (classification) {
       case 'impatient': {
+        if (this.accessRequestHeartbeatTimer) {
+          clearTimeout(this.accessRequestHeartbeatTimer);
+          this.accessRequestHeartbeatTimer = null;
+        }
         if (!this.callbackOfferMade) {
           this.callbackOfferMade = true;
           recordCallEvent(this.callSessionId, 'voice_guardian_wait_callback_offer_sent', {});
@@ -1744,6 +1758,7 @@ export class RelayConnection {
             true,
           );
         }
+        this.scheduleNextHeartbeat();
         break;
       }
       case 'patience_check': {
@@ -1762,10 +1777,15 @@ export class RelayConnection {
       }
       case 'neutral':
       default: {
+        if (this.accessRequestHeartbeatTimer) {
+          clearTimeout(this.accessRequestHeartbeatTimer);
+          this.accessRequestHeartbeatTimer = null;
+        }
         this.sendTextToken(
           `Thanks for that. I'm still waiting on ${guardianLabel}. I'll let you know as soon as I hear back.`,
           true,
         );
+        this.scheduleNextHeartbeat();
         break;
       }
     }
