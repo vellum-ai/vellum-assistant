@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { loadConfig } from "../config.js";
+import { createManagedGatewayAppFetch } from "../http.js";
 
 const BASE_ENV: NodeJS.ProcessEnv = {
   ...process.env,
@@ -17,50 +18,20 @@ const BASE_ENV: NodeJS.ProcessEnv = {
   }),
 };
 
-function handleRequest(url: string, env: NodeJS.ProcessEnv = process.env): Response {
+async function handleRequest(
+  url: string,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<Response> {
   const config = loadConfig({ ...BASE_ENV, ...env });
-  const pathname = new URL(url).pathname;
-
-  if (pathname === "/healthz" || pathname === "/v1/internal/managed-gateway/healthz/") {
-    return Response.json({
-      status: "ok",
-      service: config.serviceName,
-      mode: config.mode,
-      enabled: config.enabled,
-    });
-  }
-
-  if (pathname === "/readyz" || pathname === "/v1/internal/managed-gateway/readyz/") {
-    if (!config.enabled) {
-      return Response.json(
-        {
-          status: "not_ready",
-          service: config.serviceName,
-          mode: config.mode,
-          reason: "managed_gateway_disabled",
-        },
-        { status: 503 },
-      );
-    }
-
-    const payload: Record<string, string> = {
-      status: "ready",
-      service: config.serviceName,
-      mode: config.mode,
-    };
-    if (config.djangoInternalBaseUrl) {
-      payload.upstreamBaseUrl = config.djangoInternalBaseUrl;
-    }
-
-    return Response.json(payload);
-  }
-
-  return Response.json({ error: "Not found" }, { status: 404 });
+  const fetchHandler = createManagedGatewayAppFetch(config);
+  return fetchHandler(new Request(url));
 }
 
 describe("managed-gateway probes", () => {
   test("health endpoints return ok payload", async () => {
-    const res = handleRequest("http://managed-gateway.test/v1/internal/managed-gateway/healthz/");
+    const res = await handleRequest(
+      "http://managed-gateway.test/v1/internal/managed-gateway/healthz/",
+    );
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       status: "ok",
@@ -71,7 +42,9 @@ describe("managed-gateway probes", () => {
   });
 
   test("readiness endpoint returns ready by default", async () => {
-    const res = handleRequest("http://managed-gateway.test/v1/internal/managed-gateway/readyz/");
+    const res = await handleRequest(
+      "http://managed-gateway.test/v1/internal/managed-gateway/readyz/",
+    );
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       status: "ready",
@@ -82,7 +55,7 @@ describe("managed-gateway probes", () => {
   });
 
   test("readiness endpoint returns 503 when disabled", async () => {
-    const res = handleRequest(
+    const res = await handleRequest(
       "http://managed-gateway.test/v1/internal/managed-gateway/readyz/",
       {
         ...process.env,

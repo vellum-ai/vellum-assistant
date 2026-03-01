@@ -7,11 +7,14 @@ Managed gateway service skeleton for Vellum-owned shared channel identities.
 - package scaffold and startup entrypoint
 - strict startup config validation for enabled managed gateway mode
 - internal auth middleware abstraction for bearer and mTLS service auth
+- Django internal route resolve endpoint wiring for managed route lookup
 - health and readiness endpoints:
   - `/healthz`
   - `/readyz`
   - `/v1/internal/managed-gateway/healthz/`
   - `/v1/internal/managed-gateway/readyz/`
+- route resolve endpoint:
+  - `POST /v1/internal/managed-gateway/routes/resolve/`
 
 ## Configuration
 
@@ -45,3 +48,7 @@ bun run test
 - Rotation: keep old and new bearer entries active during rollout overlap.
 - Revocation: set `revoked: true` on a token entry or add its `token_id` to `MANAGED_GATEWAY_INTERNAL_REVOKED_TOKEN_IDS`.
 - Expiry: set `expires_at` as ISO-8601 UTC; expired bearer tokens are rejected.
+
+## Route Resolve Contract
+
+Managed gateway route resolution contract lives in [`route-resolve-contract.md`](./route-resolve-contract.md).
