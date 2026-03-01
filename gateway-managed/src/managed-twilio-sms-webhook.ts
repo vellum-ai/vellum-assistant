@@ -1,5 +1,9 @@
 import type { ManagedGatewayConfig } from "./config.js";
 import {
+  dispatchManagedInboundEvent,
+  type ManagedInboundDispatchResult,
+} from "./managed-inbound-dispatch-client.js";
+import {
   resolveManagedRoute,
   type ManagedRouteResolutionResult,
 } from "./managed-route-resolution-client.js";
@@ -91,11 +95,19 @@ export async function handleManagedTwilioSmsWebhook(
   if (!routeResolution.ok) {
     return routeResolutionErrorResponse(routeResolution);
   }
+  const dispatchResult = await dispatchManagedInboundEvent(config, {
+    route: routeResolution.route,
+    normalizedEvent,
+    fetchImpl,
+  });
+  if (!dispatchResult.ok) {
+    return dispatchErrorResponse(dispatchResult);
+  }
 
   return Response.json(
     {
       status: "accepted",
-      code: "managed_sms_webhook_stub",
+      code: "managed_sms_webhook_dispatched",
       provider: "twilio",
       route_type: "sms",
       message_sid: payload.messageSid,
@@ -105,6 +117,13 @@ export async function handleManagedTwilioSmsWebhook(
       assistant_id: routeResolution.route.assistantId,
       route_id: routeResolution.route.routeId,
       normalized_event: normalizedEvent,
+      dispatch: {
+        status: dispatchResult.dispatch.status,
+        ...(dispatchResult.dispatch.eventId ? { event_id: dispatchResult.dispatch.eventId } : {}),
+        ...(typeof dispatchResult.dispatch.duplicate === "boolean"
+          ? { duplicate: dispatchResult.dispatch.duplicate }
+          : {}),
+      },
     },
     { status: 202 },
   );
@@ -138,6 +157,20 @@ function toRecord(params: URLSearchParams): Record<string, string> {
 
 function routeResolutionErrorResponse(
   result: Extract<ManagedRouteResolutionResult, { ok: false }>,
+): Response {
+  return Response.json(
+    {
+      error: {
+        code: result.error.code,
+        detail: result.error.detail,
+      },
+    },
+    { status: result.status },
+  );
+}
+
+function dispatchErrorResponse(
+  result: Extract<ManagedInboundDispatchResult, { ok: false }>,
 ): Response {
   return Response.json(
     {

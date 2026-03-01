@@ -23,3 +23,6 @@ Response contract:
 - `401`: error envelope for internal auth failure
 - `404`: pass-through error envelope (`managed_route_not_found`) from Django
 - `502`: error envelope for upstream transport or unexpected upstream status failures
+
+Related contract:
+- inbound dispatch: [`inbound-dispatch-contract.md`](./inbound-dispatch-contract.md)
