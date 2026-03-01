@@ -33,16 +33,13 @@ const DEFAULT_HEARTBEAT_INTERVAL_MS = 30_000;
 export function handleSubscribeAssistantEvents(
   req: Request,
   url: URL,
-  options?: {
-    hub?: AssistantEventHub;
-    heartbeatIntervalMs?: number;
-    skipActorVerification?: boolean;
-    server?: ServerWithRequestIP;
-  },
+  options?:
+    | { hub?: AssistantEventHub; heartbeatIntervalMs?: number; skipActorVerification?: false; server: ServerWithRequestIP }
+    | { hub?: AssistantEventHub; heartbeatIntervalMs?: number; skipActorVerification: true },
 ): Response {
   // Verify actor-token identity for vellum channel requests, with local
   // CLI fallback for bearer-authenticated clients without X-Actor-Token.
-  if (!options?.skipActorVerification && options?.server) {
+  if (options && !options.skipActorVerification) {
     const actorVerification = verifyHttpActorTokenWithLocalFallback(req, options.server);
     if (!actorVerification.ok) {
       return httpError(
