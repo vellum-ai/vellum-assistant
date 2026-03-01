@@ -67,6 +67,13 @@ export interface ChannelDeliveryContext {
   bearerToken?: string;
 }
 
+/** Emission context threaded from callers to handleConfirmationResponse. */
+export interface ResolverEmissionContext {
+  source?: 'button' | 'inline_nl' | 'auto_deny' | 'timeout' | 'system';
+  causedByRequestId?: string;
+  decisionText?: string;
+}
+
 /** Context passed to each resolver after CAS resolution succeeds. */
 export interface ResolverContext {
   /** The canonical request record (already resolved to its terminal status). */
@@ -77,6 +84,8 @@ export interface ResolverContext {
   actor: ActorContext;
   /** Optional channel delivery context — present when the decision arrived via a channel message. */
   channelDeliveryContext?: ChannelDeliveryContext;
+  /** Optional emission context threaded to handleConfirmationResponse for correct source attribution. */
+  emissionContext?: ResolverEmissionContext;
 }
 
 /** Discriminated result from a resolver. */
@@ -181,7 +190,7 @@ const pendingInteractionResolver: GuardianRequestResolver = {
 
     // Map action to the permission system's UserDecision type and notify session.
     const userDecision = decision.action === 'reject' ? 'deny' as const : 'allow' as const;
-    resolved.session.handleConfirmationResponse(request.id, userDecision);
+    resolved.session.handleConfirmationResponse(request.id, userDecision, undefined, undefined, undefined, ctx.emissionContext);
 
     log.info(
       {
