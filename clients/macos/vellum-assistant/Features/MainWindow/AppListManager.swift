@@ -143,10 +143,9 @@ final class AppListManager: ObservableObject {
 
         for daemonApp in daemonApps {
             if existingIds.contains(daemonApp.id) {
-                if let desc = daemonApp.description,
-                   let index = apps.firstIndex(where: { $0.id == daemonApp.id }),
-                   apps[index].description != desc {
-                    apps[index].description = desc
+                if let index = apps.firstIndex(where: { $0.id == daemonApp.id }),
+                   apps[index].description != daemonApp.description {
+                    apps[index].description = daemonApp.description
                     updatedCount += 1
                 }
                 continue
