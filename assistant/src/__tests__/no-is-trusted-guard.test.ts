@@ -37,8 +37,7 @@ describe('isTrusted guard', () => {
         // these are local variable names checking trust class, not the legacy
         // ActorContext property.
         'grep -v "isTrustedActor\\|isTrustedContact\\|isTrustedTrustClass"',
-        'true',
-      ].join(' | '),
+      ].join(' | ') + ' || true',
       { encoding: 'utf-8', cwd: repoRoot },
     );
 

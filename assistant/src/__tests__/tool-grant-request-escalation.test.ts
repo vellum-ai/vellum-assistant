@@ -428,7 +428,7 @@ describe('applyCanonicalGuardianDecision / tool_grant_request', () => {
     const result = await applyCanonicalGuardianDecision({
       requestId: req.id,
       action: 'approve_once',
-      actorContext: guardianActor({ externalUserId: 'imposter-99' }),
+      actorContext: guardianActor({ guardianPrincipalId: 'imposter-principal' }),
     });
 
     expect(result.applied).toBe(false);
