@@ -216,6 +216,11 @@ struct ChatView: View {
                             hasAPIKey: hasAPIKey,
                             isSending: isSending,
                             hasPendingConfirmation: messages.contains(where: { $0.confirmation?.state == .pending }),
+                            onAllowPendingConfirmation: {
+                                if let requestId = PendingConfirmationFocusSelector.activeRequestId(from: messages) {
+                                    onConfirmationAllow(requestId)
+                                }
+                            },
                             isRecording: isRecording,
                             suggestion: suggestion,
                             pendingAttachments: pendingAttachments,
