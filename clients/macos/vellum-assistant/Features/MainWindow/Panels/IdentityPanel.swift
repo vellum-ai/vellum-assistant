@@ -11,8 +11,6 @@ struct IdentityPanel: View {
     @State private var remoteIdentity: RemoteIdentityInfo?
     @State private var metadata: AssistantMetadata?
     @State private var lockfileAssistant: LockfileAssistant?
-    @State private var workspaceFiles: [WorkspaceFileNode] = []
-    @State private var skills: [SkillInfo] = []
     @State private var viewingFilePath: String?
     @State private var isFullscreen: Bool = false
     @State private var showAvatarSheet: Bool = false
@@ -78,24 +76,16 @@ struct IdentityPanel: View {
                 .transition(.move(edge: .leading).combined(with: .opacity))
             }
 
-            // Hex grid fills the rest of the space — card when not fullscreen
-            ConstellationView(
-                identity: identity,
-                skills: skills,
-                workspaceFiles: workspaceFiles,
-                onFileSelected: { path in
-                    viewingFilePath = path
-                },
-                isFullscreen: $isFullscreen
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(isFullscreen ? Color.clear : VColor.backgroundSubtle)
-            .clipShape(RoundedRectangle(cornerRadius: isFullscreen ? 0 : VRadius.lg))
-            .overlay(
-                RoundedRectangle(cornerRadius: isFullscreen ? 0 : VRadius.lg)
-                    .stroke(isFullscreen ? Color.clear : VColor.surfaceBorder, lineWidth: 1)
-            )
-            .padding(.trailing, 0)
+            // Brain knowledge graph — 2D (D3) + 3D (Three.js)
+            BrainGraphView(daemonClient: daemonClient)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(VColor.background)
+                .clipShape(RoundedRectangle(cornerRadius: isFullscreen ? 0 : VRadius.lg))
+                .overlay(
+                    RoundedRectangle(cornerRadius: isFullscreen ? 0 : VRadius.lg)
+                        .stroke(isFullscreen ? Color.clear : VColor.surfaceBorder, lineWidth: 1)
+                )
+                .padding(.trailing, 0)
         }
         .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isFullscreen)
         .overlay {
@@ -138,34 +128,11 @@ struct IdentityPanel: View {
             identity = IdentityInfo.load()
             metadata = AssistantMetadata.load()
             lockfileAssistant = LockfileAssistant.loadLatest()
-            workspaceFiles = WorkspaceFileNode.scan()
-            fetchSkills()
 
             // For remote assistants without local IDENTITY.md, fetch from daemon
             if identity == nil, lockfileAssistant?.isRemote == true {
                 Task {
                     remoteIdentity = await daemonClient.fetchRemoteIdentity()
-                }
-            }
-        }
-    }
-
-    // MARK: - Skills
-
-    private func fetchSkills() {
-        Task {
-            let stream = daemonClient.subscribe()
-
-            do {
-                try daemonClient.send(SkillsListRequestMessage())
-            } catch {
-                return
-            }
-
-            for await message in stream {
-                if case .skillsListResponse(let response) = message {
-                    skills = response.skills.filter { $0.state == "enabled" }
-                    return
                 }
             }
         }
