@@ -137,6 +137,7 @@ import {
   createCallSession,
   getCallEvents,
   getCallSession,
+  updateCallSession,
 } from '../calls/call-store.js';
 import type { RelayWebSocketData } from '../calls/relay-server.js';
 import { activeRelayConnections,RelayConnection } from '../calls/relay-server.js';
@@ -3184,6 +3185,76 @@ describe('relay-server', () => {
     expect(payload.requesterMemberId).toBeNull();
 
     mockConfig.calls.userConsultTimeoutSeconds = 120;
+    relay.destroy();
+  });
+
+  // ── Pointer message regression tests for non-guardian paths ───────
+
+  test('normal relay close (1000) writes completed pointer to origin conversation', async () => {
+    ensureConversation('conv-relay-ptr-complete');
+    ensureConversation('conv-relay-ptr-complete-origin');
+    const session = createCallSession({
+      conversationId: 'conv-relay-ptr-complete',
+      provider: 'twilio',
+      fromNumber: '+15551111111',
+      toNumber: '+15559876543',
+      assistantId: 'self',
+      initiatedFromConversationId: 'conv-relay-ptr-complete-origin',
+    });
+    updateCallSession(session.id, { status: 'in_progress', startedAt: Date.now() - 30_000 });
+
+    const { relay } = createMockWs(session.id);
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'setup',
+      callSid: 'CA_relay_ptr_complete',
+      from: '+15551111111',
+      to: '+15559876543',
+      customParameters: {},
+    }));
+
+    relay.handleTransportClosed(1000, 'normal');
+    await new Promise((r) => setTimeout(r, 100));
+
+    const text = getLatestAssistantText('conv-relay-ptr-complete-origin');
+    expect(text).not.toBeNull();
+    expect(text!).toContain('+15559876543');
+    expect(text!).toContain('completed');
+
+    relay.destroy();
+  });
+
+  test('abnormal relay close writes failed pointer to origin conversation', async () => {
+    ensureConversation('conv-relay-ptr-fail');
+    ensureConversation('conv-relay-ptr-fail-origin');
+    const session = createCallSession({
+      conversationId: 'conv-relay-ptr-fail',
+      provider: 'twilio',
+      fromNumber: '+15551111111',
+      toNumber: '+15559876543',
+      assistantId: 'self',
+      initiatedFromConversationId: 'conv-relay-ptr-fail-origin',
+    });
+    updateCallSession(session.id, { status: 'in_progress' });
+
+    const { relay } = createMockWs(session.id);
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'setup',
+      callSid: 'CA_relay_ptr_fail',
+      from: '+15551111111',
+      to: '+15559876543',
+      customParameters: {},
+    }));
+
+    relay.handleTransportClosed(1006, 'abnormal');
+    await new Promise((r) => setTimeout(r, 100));
+
+    const text = getLatestAssistantText('conv-relay-ptr-fail-origin');
+    expect(text).not.toBeNull();
+    expect(text!).toContain('+15559876543');
+    expect(text!).toContain('failed');
+
     relay.destroy();
   });
 });

@@ -1,17 +1,16 @@
 /**
- * Unit tests for caller identity resolution in call-domain.ts.
+ * Unit tests for caller identity resolution and pointer message regression
+ * in call-domain.ts.
  *
- * Validates the strict implicit-default policy:
- * - Implicit calls (no explicit mode) always use assistant_number.
- * - Explicit user_number calls succeed when eligible.
- * - Explicit user_number calls fail clearly when missing/ineligible.
- * - Explicit override rejected when allowPerCallOverride=false.
+ * Validates:
+ * - Strict implicit-default policy for caller identity.
+ * - Pointer messages are written on successful call start and on failure.
  */
-import { mkdtempSync, realpathSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { describe, expect, mock,test } from 'bun:test';
+import { afterAll, beforeEach, describe, expect, mock,test } from 'bun:test';
 
 const testDir = realpathSync(mkdtempSync(join(tmpdir(), 'call-domain-test-')));
 
@@ -34,6 +33,9 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
+// Track whether the Twilio provider's initiateCall should succeed or throw
+let twilioInitiateCallBehavior: 'success' | 'error' = 'success';
+
 mock.module('../calls/twilio-config.js', () => ({
   getTwilioConfig: (assistantId?: string) => ({
     accountSid: 'AC_test',
@@ -47,9 +49,12 @@ mock.module('../calls/twilio-config.js', () => ({
 mock.module('../calls/twilio-provider.js', () => ({
   TwilioConversationRelayProvider: class {
     async checkCallerIdEligibility(number: string) {
-      // Simulate: +15550002222 is eligible, others are not
       if (number === '+15550002222') return { eligible: true };
       return { eligible: false, reason: `${number} is not eligible as a caller ID` };
+    }
+    async initiateCall() {
+      if (twilioInitiateCallBehavior === 'error') throw new Error('Twilio unavailable');
+      return { callSid: 'CA_test_123' };
     }
   },
 }));
@@ -58,8 +63,91 @@ mock.module('../security/secure-keys.js', () => ({
   getSecureKey: () => null,
 }));
 
-import { resolveCallerIdentity } from '../calls/call-domain.js';
+mock.module('../config/loader.js', () => ({
+  loadConfig: () => ({
+    calls: {
+      enabled: true,
+      provider: 'twilio',
+      callerIdentity: { allowPerCallOverride: true },
+    },
+    memory: { enabled: false },
+  }),
+  getConfig: () => ({
+    calls: {
+      enabled: true,
+      provider: 'twilio',
+      callerIdentity: { allowPerCallOverride: true },
+    },
+    memory: { enabled: false },
+  }),
+}));
+
+mock.module('../inbound/platform-callback-registration.js', () => ({
+  resolveCallbackUrl: async (fn: () => string) => fn(),
+}));
+
+mock.module('../inbound/public-ingress-urls.js', () => ({
+  getTwilioVoiceWebhookUrl: () => 'https://test.example.com/webhooks/twilio/voice/test',
+  getTwilioStatusCallbackUrl: () => 'https://test.example.com/webhooks/twilio/status',
+}));
+
+mock.module('../memory/conversation-title-service.js', () => ({
+  queueGenerateConversationTitle: () => {},
+}));
+
+import { resolveCallerIdentity, startCall } from '../calls/call-domain.js';
+import { getMessages } from '../memory/conversation-store.js';
 import type { AssistantConfig } from '../config/types.js';
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
+import { conversations } from '../memory/schema.js';
+
+initializeDb();
+
+let ensuredConvIds = new Set<string>();
+function ensureConversation(id: string): void {
+  if (ensuredConvIds.has(id)) return;
+  const db = getDb();
+  const now = Date.now();
+  db.insert(conversations).values({
+    id,
+    title: `Test conversation ${id}`,
+    createdAt: now,
+    updatedAt: now,
+  }).run();
+  ensuredConvIds.add(id);
+}
+
+function resetTables(): void {
+  const db = getDb();
+  db.run('DELETE FROM external_conversation_bindings');
+  db.run('DELETE FROM call_sessions');
+  db.run('DELETE FROM messages');
+  db.run('DELETE FROM conversations');
+  ensuredConvIds = new Set();
+}
+
+function getLatestAssistantText(conversationId: string): string | null {
+  const msgs = getMessages(conversationId).filter((m) => m.role === 'assistant');
+  if (msgs.length === 0) return null;
+  const latest = msgs[msgs.length - 1];
+  try {
+    const parsed = JSON.parse(latest.content) as unknown;
+    if (Array.isArray(parsed)) {
+      return parsed
+        .filter((b): b is { type: string; text?: string } => typeof b === 'object' && b != null)
+        .filter((b) => b.type === 'text')
+        .map((b) => b.text ?? '')
+        .join('');
+    }
+    if (typeof parsed === 'string') return parsed;
+  } catch { /* fall through */ }
+  return latest.content;
+}
+
+afterAll(() => {
+  resetDb();
+  try { rmSync(testDir, { recursive: true }); } catch { /* best effort */ }
+});
 
 function makeConfig(overrides: {
   allowPerCallOverride?: boolean;
@@ -170,5 +258,55 @@ describe('resolveCallerIdentity — strict implicit-default policy', () => {
     if (!result.ok) {
       expect(result.error).toContain('Invalid callerIdentityMode');
     }
+  });
+});
+
+// ── Pointer message regression tests ──────────────────────────────
+
+describe('startCall — pointer message regression', () => {
+  beforeEach(() => {
+    resetTables();
+    twilioInitiateCallBehavior = 'success';
+  });
+
+  test('successful call writes a started pointer to the initiating conversation', async () => {
+    const convId = 'conv-domain-ptr-start';
+    ensureConversation(convId);
+
+    const result = await startCall({
+      phoneNumber: '+15559876543',
+      task: 'Test call',
+      conversationId: convId,
+    });
+
+    expect(result.ok).toBe(true);
+    // Allow async pointer write to flush
+    await new Promise((r) => setTimeout(r, 50));
+
+    const text = getLatestAssistantText(convId);
+    expect(text).not.toBeNull();
+    expect(text!).toContain('+15559876543');
+    expect(text!).toContain('started');
+  });
+
+  test('failed call writes a failed pointer to the initiating conversation', async () => {
+    const convId = 'conv-domain-ptr-fail';
+    ensureConversation(convId);
+    twilioInitiateCallBehavior = 'error';
+
+    const result = await startCall({
+      phoneNumber: '+15559876543',
+      task: 'Test call',
+      conversationId: convId,
+    });
+
+    expect(result.ok).toBe(false);
+    // Allow async pointer write to flush
+    await new Promise((r) => setTimeout(r, 50));
+
+    const text = getLatestAssistantText(convId);
+    expect(text).not.toBeNull();
+    expect(text!).toContain('+15559876543');
+    expect(text!).toContain('failed');
   });
 });

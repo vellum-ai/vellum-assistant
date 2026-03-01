@@ -67,6 +67,7 @@ export function resetPointerMessageProcessor(): void {
  * Resolve whether the audience for a pointer message is trusted.
  *
  * Trusted when:
+ * - recent message provenance trust class is 'guardian' or 'trusted_contact'
  * - conversation threadType is 'private' (local desktop-origin context)
  * - conversation origin channel is 'vellum' (desktop app)
  *
@@ -74,6 +75,12 @@ export function resetPointerMessageProcessor(): void {
  */
 function resolvePointerAudienceTrust(conversationId: string): boolean {
   try {
+    // Check provenance trust class on recent messages first — this catches
+    // trusted contacts who initiate calls from gateway channels (e.g. WhatsApp)
+    // where the conversation itself isn't a desktop-origin private thread.
+    const provenance = conversationStore.getConversationRecentProvenanceTrustClass(conversationId);
+    if (provenance === 'guardian' || provenance === 'trusted_contact') return true;
+
     const threadType = conversationStore.getConversationThreadType(conversationId);
     if (threadType === 'private') return true;
 

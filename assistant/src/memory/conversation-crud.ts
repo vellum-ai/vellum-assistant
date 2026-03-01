@@ -689,3 +689,29 @@ export function getConversationOriginInterface(conversationId: string): Interfac
     .get();
   return parseInterfaceId(row?.originInterface) ?? null;
 }
+
+/**
+ * Return the most recent non-null provenanceTrustClass from user messages
+ * in the given conversation, or `undefined` if none is found.
+ *
+ * Used by the pointer message trust resolver to detect conversations
+ * whose audience is a guardian or trusted_contact (even if the
+ * conversation itself isn't a desktop-origin private thread).
+ */
+export function getConversationRecentProvenanceTrustClass(
+  conversationId: string,
+): 'guardian' | 'trusted_contact' | 'unknown' | undefined {
+  const row = rawGet<{ metadata: string | null }>(
+    `SELECT metadata FROM messages
+     WHERE conversation_id = ? AND role = 'user' AND metadata IS NOT NULL
+     ORDER BY created_at DESC LIMIT 1`,
+    conversationId,
+  );
+  if (!row?.metadata) return undefined;
+  try {
+    const parsed = messageMetadataSchema.safeParse(JSON.parse(row.metadata));
+    return parsed.success ? parsed.data.provenanceTrustClass : undefined;
+  } catch {
+    return undefined;
+  }
+}

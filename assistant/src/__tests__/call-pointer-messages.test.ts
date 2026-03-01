@@ -26,7 +26,7 @@ mock.module('../util/logger.js', () => ({
 }));
 
 import { addPointerMessage, formatDuration, resetPointerMessageProcessor, setPointerMessageProcessor } from '../calls/call-pointer-messages.js';
-import { getMessages } from '../memory/conversation-store.js';
+import { addMessage, getMessages } from '../memory/conversation-store.js';
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import { conversations } from '../memory/schema.js';
 
@@ -278,6 +278,54 @@ describe('addPointerMessage', () => {
   test('missing conversation defaults to untrusted', () => {
     const convId = 'conv-ptr-no-signals';
     ensureConversation(convId);
+
+    const processorCalled = { value: false };
+    setPointerMessageProcessor(async () => {
+      processorCalled.value = true;
+    });
+
+    addPointerMessage(convId, 'started', '+15551234567');
+    const text = getLatestAssistantText(convId);
+    expect(text).toContain('Call to +15551234567 started');
+    expect(processorCalled.value).toBe(false);
+  });
+
+  // Provenance trust class tests
+
+  test('guardian provenance trust class is detected as trusted audience', async () => {
+    const convId = 'conv-ptr-guardian-provenance';
+    ensureConversation(convId, { threadType: 'standard' });
+    // Add a user message with guardian provenance metadata
+    await addMessage(convId, 'user', 'hello', { provenanceTrustClass: 'guardian' });
+
+    let processorCalled = false;
+    setPointerMessageProcessor(async () => {
+      processorCalled = true;
+    });
+
+    await addPointerMessage(convId, 'completed', '+15559876543');
+    expect(processorCalled).toBe(true);
+  });
+
+  test('trusted_contact provenance trust class is detected as trusted audience', async () => {
+    const convId = 'conv-ptr-tc-provenance';
+    ensureConversation(convId, { threadType: 'standard' });
+    // Add a user message with trusted_contact provenance metadata
+    await addMessage(convId, 'user', 'hello', { provenanceTrustClass: 'trusted_contact' });
+
+    let processorCalled = false;
+    setPointerMessageProcessor(async () => {
+      processorCalled = true;
+    });
+
+    await addPointerMessage(convId, 'completed', '+15559876543');
+    expect(processorCalled).toBe(true);
+  });
+
+  test('unknown provenance trust class does not grant trusted audience', () => {
+    const convId = 'conv-ptr-unknown-provenance';
+    ensureConversation(convId, { threadType: 'standard' });
+    addMessage(convId, 'user', 'hello', { provenanceTrustClass: 'unknown' });
 
     const processorCalled = { value: false };
     setPointerMessageProcessor(async () => {
