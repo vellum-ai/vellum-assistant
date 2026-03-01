@@ -49,6 +49,7 @@ struct ComposerView: View {
     let hasAPIKey: Bool
     let isSending: Bool
     let hasPendingConfirmation: Bool
+    var onAllowPendingConfirmation: (() -> Void)? = nil
     let isRecording: Bool
     let suggestion: String?
     let pendingAttachments: [ChatAttachment]
@@ -223,7 +224,12 @@ struct ComposerView: View {
                 inputText = inputText.replacingOccurrences(
                     of: "\\n$", with: "", options: .regularExpression
                 )
-                if canSend { onSend() }
+                if canSend {
+                    onSend()
+                } else if hasPendingConfirmation
+                            && inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    onAllowPendingConfirmation?()
+                }
             },
             onAcceptSuggestion: onAcceptSuggestion,
             onPaste: onPaste,
