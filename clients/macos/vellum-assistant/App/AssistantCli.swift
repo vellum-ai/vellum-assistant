@@ -327,7 +327,7 @@ final class AssistantCli {
                     await self.restartDaemon()
                 } else if !self.isGatewayAlive() {
                     log.warning("Gateway process not running (daemon alive) — attempting restart via hatch")
-                    await self.restartDaemon()
+                    await self.restartDaemon(daemonOnly: false)
                 }
             }
         }
@@ -627,7 +627,7 @@ final class AssistantCli {
         return kill(pid, 0) == 0
     }
 
-    private func restartDaemon() async {
+    private func restartDaemon(daemonOnly: Bool = true) async {
         guard cliBinaryURL != nil else { return }
         guard !isRestarting else { return }
         isRestarting = true
@@ -666,7 +666,7 @@ final class AssistantCli {
         }
 
         do {
-            try await hatch(name: assistantId, daemonOnly: true)
+            try await hatch(name: assistantId, daemonOnly: daemonOnly)
             log.info("Daemon restarted successfully via CLI")
             onDaemonRestarted?()
         } catch {
