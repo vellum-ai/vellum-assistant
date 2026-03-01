@@ -99,8 +99,10 @@ public final class HTTPTransport {
     /// SSE reconnect task handle.
     private var sseReconnectTask: Task<Void, Never>?
 
-    /// Whether a token refresh is currently in progress (prevents overlapping refreshes).
-    private var isRefreshing = false
+    /// In-flight refresh task. Concurrent 401 handlers await this instead of
+    /// returning false immediately, so user actions aren't dropped while a
+    /// refresh triggered by another codepath is still in progress.
+    private var refreshTask: Task<Bool, Never>?
 
     /// Callback for incoming server messages (called on main actor).
     var onMessage: ((ServerMessage) -> Void)?
@@ -933,10 +935,24 @@ public final class HTTPTransport {
     /// Async variant of handleAuthenticationFailure that returns whether refresh succeeded.
     /// Callers can use this to retry the original request on success.
     private func handleAuthenticationFailureAsync() async -> Bool {
-        guard !isRefreshing else { return false }
-        isRefreshing = true
-        defer { self.isRefreshing = false }
+        // If a refresh is already in flight, wait for its outcome instead of
+        // returning false (which would drop the caller's user action).
+        if let existing = refreshTask {
+            return await existing.value
+        }
 
+        let task = Task<Bool, Never> { @MainActor [weak self] in
+            guard let self else { return false }
+            defer { self.refreshTask = nil }
+            return await self.performRefresh()
+        }
+        refreshTask = task
+        return await task.value
+    }
+
+    /// Performs the actual credential refresh. Split out so handleAuthenticationFailureAsync
+    /// can manage the coalescing task lifecycle separately.
+    private func performRefresh() async -> Bool {
         #if os(macOS)
         let refreshPlatform = "macos"
         // macOS uses SHA-256 of IOPlatformUUID as device ID (matches PairingQRCodeSheet.computeHostId())

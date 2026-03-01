@@ -45,6 +45,15 @@ public enum ActorTokenManager {
         _ = APIKeyManager.shared.deleteAPIKey(provider: refreshTokenProvider)
     }
 
+    /// Clear all refresh-related metadata (token, expiry, refreshAfter).
+    /// Used when a bootstrap response lacks refresh fields so stale values
+    /// from prior pairings don't trigger invalid refresh attempts.
+    public static func clearRefreshMetadata() {
+        _ = APIKeyManager.shared.deleteAPIKey(provider: refreshTokenProvider)
+        _ = APIKeyManager.shared.deleteAPIKey(provider: refreshTokenExpiresAtProvider)
+        _ = APIKeyManager.shared.deleteAPIKey(provider: refreshAfterProvider)
+    }
+
     // MARK: - Expiry Timestamps
 
     public static func getActorTokenExpiresAt() -> Int? {

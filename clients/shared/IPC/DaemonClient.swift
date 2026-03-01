@@ -1825,9 +1825,12 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
                     guardianPrincipalId: decoded.guardianPrincipalId
                 )
             } else {
-                // Legacy fallback for older runtimes that don't return refresh tokens
+                // Legacy fallback for older runtimes that don't return refresh tokens.
+                // Clear any stale refresh metadata from prior pairings so proactive
+                // refresh / 401 recovery don't send an expired token.
                 ActorTokenManager.setToken(decoded.actorToken)
                 ActorTokenManager.setGuardianPrincipalId(decoded.guardianPrincipalId)
+                ActorTokenManager.clearRefreshMetadata()
             }
             log.info("Actor token bootstrap succeeded (isNew=\(decoded.isNew))")
             return true
