@@ -87,6 +87,8 @@ async function tryConsumeCanonicalGuardianReply(params: {
   approvalConversationGenerator?: ApprovalConversationGenerator;
   /** Verified actor identity from actor-token middleware. */
   verifiedActorExternalUserId?: string;
+  /** Verified actor principal ID for principal-based authorization. */
+  verifiedActorPrincipalId?: string;
 }): Promise<{ consumed: boolean; messageId?: string }> {
   const {
     conversationId,
@@ -98,6 +100,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
     onEvent,
     approvalConversationGenerator,
     verifiedActorExternalUserId,
+    verifiedActorPrincipalId,
   } = params;
   const trimmedContent = content.trim();
 
@@ -114,12 +117,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
     actor: {
       externalUserId: verifiedActorExternalUserId,
       channel: sourceChannel,
-      // When a verified identity is available, disable the trusted bypass so
-      // that the identity-match checks in applyCanonicalGuardianDecision
-      // actually run. Only fall back to isTrusted when no verified identity
-      // was resolved (defensive — shouldn't happen for vellum since
-      // verification runs upstream).
-      isTrusted: !verifiedActorExternalUserId,
+      guardianPrincipalId: verifiedActorPrincipalId,
     },
     conversationId,
     pendingRequestIds,
@@ -523,12 +521,15 @@ export async function handleSendMessage(
       ? smDeps.resolveAttachments(attachmentIds)
       : [];
 
-    // Resolve the verified actor's external user ID for inline approval
-    // routing. Uses the guardianExternalUserId from the verified context
-    // (actor-token or local-fallback) rather than hardcoding undefined.
+    // Resolve the verified actor's external user ID and principal for inline
+    // approval routing. Uses the guardianExternalUserId and guardianPrincipalId
+    // from the verified context (actor-token or local-fallback).
     const verifiedActorExternalUserId = actorVerification?.ok
       ? actorVerification.guardianContext.guardianExternalUserId
-      : undefined;
+      : session.guardianContext?.guardianExternalUserId;
+    const verifiedActorPrincipalId = actorVerification?.ok
+      ? actorVerification.guardianContext.guardianPrincipalId ?? undefined
+      : session.guardianContext?.guardianPrincipalId ?? undefined;
 
     // Try to consume the message as a canonical guardian approval/rejection reply.
     // On failure, degrade to the existing queue/auto-deny path rather than
@@ -544,6 +545,7 @@ export async function handleSendMessage(
         onEvent,
         approvalConversationGenerator: deps.approvalConversationGenerator,
         verifiedActorExternalUserId,
+        verifiedActorPrincipalId,
       });
       if (inlineReplyResult.consumed) {
         return Response.json(

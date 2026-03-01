@@ -43,8 +43,8 @@ export interface ActorContext {
   externalUserId: string | undefined;
   /** Channel the decision arrived on. */
   channel: string;
-  /** Whether the actor is a trusted/desktop context. */
-  isTrusted: boolean;
+  /** Principal ID for authorization — must match the request's guardianPrincipalId. */
+  guardianPrincipalId: string | undefined;
 }
 
 /** The decision being applied. */
@@ -374,7 +374,9 @@ const accessRequestResolver: GuardianRequestResolver = {
       return {
         ok: true,
         applied: true,
-        ...(ctx.actor.isTrusted ? { guardianReplyText: `Access denied for ${requesterLabel}.` } : {}),
+        // Desktop actors (vellum channel) receive inline reply text; channel
+        // actors get replies delivered via the channel delivery context.
+        ...(ctx.actor.channel === 'vellum' ? { guardianReplyText: `Access denied for ${requesterLabel}.` } : {}),
       };
     }
 
@@ -528,7 +530,9 @@ const accessRequestResolver: GuardianRequestResolver = {
     return {
       ok: true,
       applied: true,
-      ...(ctx.actor.isTrusted ? { guardianReplyText: verificationReplyText } : {}),
+      // Desktop actors (vellum channel) receive inline reply text; channel
+      // actors get replies delivered via the channel delivery context.
+      ...(ctx.actor.channel === 'vellum' ? { guardianReplyText: verificationReplyText } : {}),
     };
   },
 };

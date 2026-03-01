@@ -271,6 +271,7 @@ export function getCanonicalGuardianRequestByCode(code: string): CanonicalGuardi
 export interface ListCanonicalGuardianRequestsFilters {
   status?: CanonicalRequestStatus;
   guardianExternalUserId?: string;
+  guardianPrincipalId?: string;
   requesterExternalUserId?: string;
   conversationId?: string;
   sourceType?: string;
@@ -288,6 +289,9 @@ export function listCanonicalGuardianRequests(filters?: ListCanonicalGuardianReq
   }
   if (filters?.guardianExternalUserId) {
     conditions.push(eq(canonicalGuardianRequests.guardianExternalUserId, filters.guardianExternalUserId));
+  }
+  if (filters?.guardianPrincipalId) {
+    conditions.push(eq(canonicalGuardianRequests.guardianPrincipalId, filters.guardianPrincipalId));
   }
   if (filters?.conversationId) {
     conditions.push(eq(canonicalGuardianRequests.conversationId, filters.conversationId));

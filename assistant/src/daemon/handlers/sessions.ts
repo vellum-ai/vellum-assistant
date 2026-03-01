@@ -600,13 +600,16 @@ export async function handleUserMessage(
         ]));
 
         if (pendingRequestIdsForConversation.length > 0) {
+          // Resolve the local IPC actor's principal via the vellum guardian binding
+          // for principal-based authorization in the canonical decision primitive.
+          const localCtx = resolveLocalIpcGuardianContext(ipcChannel);
           const routerResult = await routeGuardianReply({
             messageText: messageText.trim(),
             channel: ipcChannel,
             actor: {
-              externalUserId: undefined,
+              externalUserId: localCtx.guardianExternalUserId,
               channel: ipcChannel,
-              isTrusted: true,
+              guardianPrincipalId: localCtx.guardianPrincipalId ?? undefined,
             },
             conversationId: msg.sessionId,
             pendingRequestIds: pendingRequestIdsForConversation,
