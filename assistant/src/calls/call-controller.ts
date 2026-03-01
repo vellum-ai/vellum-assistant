@@ -286,10 +286,14 @@ export class CallController {
    * receives the [CALL_OPENING_ACK] marker. Used after deterministic
    * transitions (e.g. post-approval handoff) to ensure the next LLM
    * turn continues naturally without reintroduction.
+   *
+   * Also resets the silence timer so the "Are you still there?" nudge
+   * fires at the correct interval after the deterministic handoff copy.
    */
   markNextCallerTurnAsOpeningAck(): void {
     this.awaitingOpeningAck = true;
     this.lastSentWasOpener = false;
+    this.resetSilenceTimer();
   }
 
   /**
