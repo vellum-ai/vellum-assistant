@@ -10,7 +10,7 @@ on:
 
 jobs:
   checks:
-    name: Lint & Type Check
+    name: Lint, Type Check & Test
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -36,6 +36,9 @@ jobs:
 
       - name: Compile check
         run: bun build --compile src/index.ts --outfile /dev/null
+
+      - name: Test with coverage
+        run: bun test --coverage
 
       - name: Track consecutive failures
         if: always()
