@@ -111,6 +111,7 @@ export interface AgentLoopSessionContext {
 
   readonly coreToolNames: Set<string>;
   allowedToolNames?: Set<string>;
+  toolsDisabled?: boolean;
   preactivatedSkillIds?: string[];
   readonly skillProjectionState: Map<string, string>;
   readonly skillProjectionCache: SkillProjectionCache;
