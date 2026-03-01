@@ -12,6 +12,10 @@ on:
         required: false
         type: boolean
         default: false
+      test_case:
+        description: 'Run a single test case by name (e.g. "hello-world"). If empty, runs all tests.'
+        required: false
+        type: string
   pull_request:
     types: [labeled]
 
@@ -162,7 +166,12 @@ jobs:
         continue-on-error: true
         env:
           RUN_EXPERIMENTAL: ${{ inputs.run_experimental && '1' || '' }}
-        run: bun run test
+        run: |
+          if [ -n "${{ inputs.test_case }}" ]; then
+            bun run test -g "${{ inputs.test_case }}"
+          else
+            bun run test
+          fi
 
       - name: Upload test artifacts
         id: upload-artifacts
