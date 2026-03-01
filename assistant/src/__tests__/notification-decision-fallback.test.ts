@@ -464,4 +464,42 @@ describe('access-request instruction enforcement', () => {
     expect(decision.renderedCopy.vellum?.body).toContain('A1B2C3 reject');
     expect(decision.renderedCopy.vellum?.body).toContain('open invite flow');
   });
+
+  test('enforcement appends invite directive when requestCode is absent', async () => {
+    configuredProvider = {
+      sendMessage: async () => ({ content: [] }),
+    };
+    extractedToolUse = {
+      name: 'record_notification_decision',
+      input: {
+        shouldNotify: true,
+        selectedChannels: ['vellum'],
+        reasoningSummary: 'LLM decision',
+        renderedCopy: {
+          vellum: {
+            title: 'Access Request',
+            body: 'Someone wants access to your assistant.',
+          },
+        },
+        dedupeKey: 'access-req-no-code-invite',
+        confidence: 0.9,
+      },
+    };
+
+    const signal = makeAccessRequestSignal({
+      contextPayload: {
+        senderIdentifier: 'Alice',
+        sourceChannel: 'telegram',
+        // No requestCode
+      },
+    });
+    const decision = await evaluateSignal(signal, ['vellum'] as NotificationChannel[]);
+
+    expect(decision.fallbackUsed).toBe(false);
+    // Invite directive should still be enforced even without requestCode
+    expect(decision.renderedCopy.vellum?.body).toContain('open invite flow');
+    // Approve/reject should NOT be present since there is no requestCode
+    expect(decision.renderedCopy.vellum?.body).not.toContain('approve');
+    expect(decision.renderedCopy.vellum?.body).not.toContain('reject');
+  });
 });

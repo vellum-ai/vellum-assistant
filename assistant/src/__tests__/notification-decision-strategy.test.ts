@@ -14,6 +14,8 @@ import {
   buildAccessRequestIdentityLine,
   composeFallbackCopy,
   hasAccessRequestInstructions,
+  hasInviteFlowDirective,
+  normalizeForDirectiveMatching,
   sanitizeIdentityField,
 } from '../notifications/copy-composer.js';
 import { validateThreadActions } from '../notifications/decision-engine.js';
@@ -689,6 +691,51 @@ describe('notification decision strategy', () => {
     test('accepts directives at the start of text (no preceding newline needed)', () => {
       const text = 'Reply "A1B2C3 approve" to grant or "A1B2C3 reject" to deny. Reply "open invite flow" to start.';
       expect(hasAccessRequestInstructions(text, 'A1B2C3')).toBe(true);
+    });
+
+    test('rejects negated approve directive with multiple spaces between "not" and "reply"', () => {
+      const text = 'Do not   reply "A1B2C3 approve" to grant access.\nReply "A1B2C3 reject" to deny.\nReply "open invite flow" to start.';
+      expect(hasAccessRequestInstructions(text, 'A1B2C3')).toBe(false);
+    });
+
+    test('rejects negated approve directive using smart apostrophe (\\u2019)', () => {
+      const text = 'Don\u2019t reply "A1B2C3 approve" to grant access.\nReply "A1B2C3 reject" to deny.\nReply "open invite flow" to start.';
+      expect(hasAccessRequestInstructions(text, 'A1B2C3')).toBe(false);
+    });
+  });
+
+  describe('normalizeForDirectiveMatching', () => {
+    test('replaces smart apostrophes with ASCII', () => {
+      expect(normalizeForDirectiveMatching('Don\u2019t')).toBe("Don't");
+      expect(normalizeForDirectiveMatching('Don\u2018t')).toBe("Don't");
+      expect(normalizeForDirectiveMatching('Don\u201Bt')).toBe("Don't");
+    });
+
+    test('collapses multiple whitespace into single spaces', () => {
+      expect(normalizeForDirectiveMatching('Do not   reply')).toBe('Do not reply');
+      expect(normalizeForDirectiveMatching('a  b\t\tc\n\nd')).toBe('a b c d');
+    });
+
+    test('trims leading and trailing whitespace', () => {
+      expect(normalizeForDirectiveMatching('  hello  ')).toBe('hello');
+    });
+  });
+
+  describe('hasInviteFlowDirective', () => {
+    test('detects invite flow directive in text', () => {
+      expect(hasInviteFlowDirective('Reply "open invite flow" to start.')).toBe(true);
+    });
+
+    test('rejects negated invite flow directive', () => {
+      expect(hasInviteFlowDirective('Do not reply "open invite flow".')).toBe(false);
+    });
+
+    test('returns false for undefined text', () => {
+      expect(hasInviteFlowDirective(undefined)).toBe(false);
+    });
+
+    test('returns false when invite flow phrase is absent', () => {
+      expect(hasInviteFlowDirective('Reply "approve" to grant access.')).toBe(false);
     });
   });
 

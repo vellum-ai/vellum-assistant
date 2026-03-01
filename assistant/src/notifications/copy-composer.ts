@@ -98,6 +98,22 @@ export function buildAccessRequestRevokedNote(): string {
 }
 
 /**
+ * Normalize text before running directive-matching regexes.
+ *
+ * - Replaces smart/curly apostrophes (\u2018, \u2019, \u201B) with ASCII `'`
+ *   so contractions like "Don\u2019t" are matched by the `n't` lookbehind.
+ * - Collapses runs of whitespace into a single space so "Do not   reply"
+ *   is matched by the single-space negative lookbehind.
+ * - Trims leading/trailing whitespace.
+ */
+export function normalizeForDirectiveMatching(text: string): string {
+  return text
+    .replace(/[\u2018\u2019\u201B]/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
  * Check whether a text contains the required access-request instruction elements:
  * 1. Approve directive: Reply "CODE approve"
  * 2. Reject directive: Reply "CODE reject"
@@ -107,12 +123,16 @@ export function buildAccessRequestRevokedNote(): string {
  * matches preceded by negation words ("not", "n't", "never"). This prevents
  * contradictory copy like `Do not reply "CODE reject"` from satisfying the
  * check even when a positive approve directive exists nearby.
+ *
+ * The text is normalized before matching to handle smart apostrophes and
+ * multiple whitespace characters that would otherwise bypass negation detection.
  */
 export function hasAccessRequestInstructions(
   text: string | undefined,
   requestCode: string,
 ): boolean {
   if (typeof text !== 'string') return false;
+  const normalized = normalizeForDirectiveMatching(text);
   const escapedCode = requestCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   // Each directive must follow "reply" without a preceding negation word.
   // Negative lookbehinds reject "do not reply", "don't reply", "never reply".
@@ -126,7 +146,20 @@ export function hasAccessRequestInstructions(
   );
   const inviteRe = /(?<!not\s)(?<!n't\s)(?<!never\s)reply\b[^.!?\n]*?"open invite flow"/i;
 
-  return approveRe.test(text) && rejectRe.test(text) && inviteRe.test(text);
+  return approveRe.test(normalized) && rejectRe.test(normalized) && inviteRe.test(normalized);
+}
+
+/**
+ * Check whether text contains the invite-flow directive ("open invite flow")
+ * using the same normalized negative-lookbehind pattern as the full check.
+ * This is used for enforcement when requestCode is absent but the invite
+ * directive should still be present.
+ */
+export function hasInviteFlowDirective(text: string | undefined): boolean {
+  if (typeof text !== 'string') return false;
+  const normalized = normalizeForDirectiveMatching(text);
+  const inviteRe = /(?<!not\s)(?<!n't\s)(?<!never\s)reply\b[^.!?\n]*?"open invite flow"/i;
+  return inviteRe.test(normalized);
 }
 
 /**
