@@ -55,6 +55,12 @@ The managed gateway is a dedicated service lane for Vellum-owned shared channel 
 - Normalizes Twilio webhook payloads into a consistent internal event shape.
 - Keeps endpoint contracts unchanged while preparing PR-5 route-resolution wiring.
 
+## P07 PR-5 scope
+
+- Adds managed route-resolution client to call Django internal resolver for `phone -> assistant_id`.
+- Wires SMS and voice webhook handlers to resolve managed routes before returning accepted stubs.
+- Surfaces explicit 404/4xx route-resolution envelopes without dispatching to runtime yet.
+
 ## Endpoints
 
 - `GET /healthz`

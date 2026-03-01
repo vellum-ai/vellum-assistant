@@ -1,4 +1,9 @@
 import type { ManagedGatewayConfig } from "./config.js";
+import {
+  resolveManagedRoute,
+  type ManagedRouteResolutionResult,
+} from "./managed-route-resolution-client.js";
+import type { ManagedGatewayUpstreamFetch } from "./route-resolve.js";
 import { normalizeManagedTwilioVoicePayload } from "./twilio-normalize.js";
 import { validateManagedTwilioSignature } from "./twilio-signature.js";
 
@@ -14,6 +19,7 @@ type ManagedTwilioVoicePayload = {
 export async function handleManagedTwilioVoiceWebhook(
   request: Request,
   config: ManagedGatewayConfig,
+  fetchImpl?: ManagedGatewayUpstreamFetch,
 ): Promise<Response> {
   if (request.method !== "POST") {
     return Response.json(
@@ -76,10 +82,15 @@ export async function handleManagedTwilioVoiceWebhook(
     );
   }
 
-  // Build normalized shared event shape now so follow-up PRs can attach
-  // route resolution and dispatch without changing this endpoint contract.
-  const _normalizedEvent = normalizeManagedTwilioVoicePayload(toRecord(params));
-  void _normalizedEvent;
+  const normalizedEvent = normalizeManagedTwilioVoicePayload(toRecord(params));
+  const routeResolution = await resolveManagedRoute(config, {
+    routeType: "voice",
+    identityKey: payload.to,
+    fetchImpl,
+  });
+  if (!routeResolution.ok) {
+    return routeResolutionErrorResponse(routeResolution);
+  }
 
   return Response.json(
     {
@@ -91,6 +102,9 @@ export async function handleManagedTwilioVoiceWebhook(
       call_status: payload.callStatus,
       from: payload.from,
       to: payload.to,
+      assistant_id: routeResolution.route.assistantId,
+      route_id: routeResolution.route.routeId,
+      normalized_event: normalizedEvent,
     },
     { status: 202 },
   );
@@ -120,4 +134,18 @@ function toRecord(params: URLSearchParams): Record<string, string> {
     record[key] = value;
   }
   return record;
+}
+
+function routeResolutionErrorResponse(
+  result: Extract<ManagedRouteResolutionResult, { ok: false }>,
+): Response {
+  return Response.json(
+    {
+      error: {
+        code: result.error.code,
+        detail: result.error.detail,
+      },
+    },
+    { status: result.status },
+  );
 }
