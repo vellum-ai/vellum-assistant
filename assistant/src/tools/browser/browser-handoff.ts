@@ -1,7 +1,7 @@
 import type { ServerMessage } from '../../daemon/ipc-contract.js';
 import { getLogger } from '../../util/logger.js';
 import { browserManager } from './browser-manager.js';
-import { getScreencastSurfaceId } from './browser-screencast.js';
+import { isScreencastActive } from './browser-screencast.js';
 
 const log = getLogger('browser-handoff');
 
@@ -39,17 +39,17 @@ export async function startHandoff(
     }
   }
 
-  const surfaceId = getScreencastSurfaceId(sessionId);
-  if (!surfaceId) {
-    log.warn({ sessionId }, 'No active screencast surface for handoff');
+  if (!isScreencastActive(sessionId)) {
+    log.warn({ sessionId }, 'No active browser session for handoff');
     return;
   }
 
-  // Send interactive mode change with reason and message
+  // Send interactive mode change with reason and message.
+  // surfaceId uses sessionId as a stable identifier since PiP surfaces are removed.
   sendToClient({
     type: 'browser_interactive_mode_changed',
     sessionId,
-    surfaceId,
+    surfaceId: sessionId,
     enabled: true,
     reason: options.reason,
     message: options.message,
@@ -63,7 +63,7 @@ export async function startHandoff(
   sendToClient({
     type: 'browser_interactive_mode_changed',
     sessionId,
-    surfaceId,
+    surfaceId: sessionId,
     enabled: false,
   } as ServerMessage);
 
