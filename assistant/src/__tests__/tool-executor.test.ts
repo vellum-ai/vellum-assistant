@@ -30,6 +30,9 @@ let checkResultOverride: { decision: string; reason: string } | undefined;
 /** Function override for check() — when set, takes precedence over the static override. */
 let checkFnOverride: ((toolName: string, input: Record<string, unknown>, workingDir: string, policyContext?: PolicyContext) => Promise<{ decision: string; reason: string }>) | undefined;
 
+/** Override for generateScopeOptions — when set, returns this value instead of the default. */
+let scopeOptionsOverride: ScopeOption[] | undefined;
+
 /** Spy on addRule to capture calls without replacing the real implementation. */
 let addRuleSpy: ReturnType<typeof spyOn> | undefined;
 
@@ -61,7 +64,7 @@ mock.module('../permissions/checker.js', () => ({
     return { decision: 'allow', reason: 'allowed' };
   },
   generateAllowlistOptions: () => [{ label: 'exact', description: 'exact', pattern: 'exact' }],
-  generateScopeOptions: () => [{ label: '/tmp', scope: '/tmp' }],
+  generateScopeOptions: () => scopeOptionsOverride ?? [{ label: '/tmp', scope: '/tmp' }],
 }));
 
 mock.module('../memory/tool-usage-store.js', () => ({
@@ -317,6 +320,7 @@ describe('ToolExecutor contextual rule creation', () => {
     getToolOverride = undefined;
     checkResultOverride = undefined;
     checkFnOverride = undefined;
+    scopeOptionsOverride = undefined;
     if (addRuleSpy) { addRuleSpy.mockRestore(); addRuleSpy = undefined; }
   });
 
@@ -434,13 +438,26 @@ describe('ToolExecutor contextual rule creation', () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
-  test('always_allow without selectedScope defaults scope to everywhere', async () => {
+  test('always_allow without selectedScope for scoped tool does not create a rule', async () => {
     checkResultOverride = { decision: 'prompt', reason: 'test prompt' };
     const spy = setupAddRuleSpy();
 
     const prompter = makePrompterWithDecision('always_allow', 'file_read:*', undefined);
     const executor = new ToolExecutor(prompter);
     const result = await executor.execute('file_read', { path: 'test.txt' }, makeContext());
+
+    expect(result.isError).toBe(false);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  test('always_allow without selectedScope for non-scoped tool creates rule with everywhere scope', async () => {
+    checkResultOverride = { decision: 'prompt', reason: 'test prompt' };
+    scopeOptionsOverride = [];
+    const spy = setupAddRuleSpy();
+
+    const prompter = makePrompterWithDecision('always_allow', 'some_tool:*', undefined);
+    const executor = new ToolExecutor(prompter);
+    const result = await executor.execute('some_tool', {}, makeContext());
 
     expect(result.isError).toBe(false);
     expect(spy).toHaveBeenCalledTimes(1);
