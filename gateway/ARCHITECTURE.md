@@ -267,7 +267,7 @@ Telegram messages follow three paths through the system:
 ```
 Inbound (user → assistant):
   Telegram → Gateway POST /webhooks/telegram → verify secret → normalize → route
-    → Runtime POST /v1/assistants/:id/channels/inbound
+    → Runtime POST /v1/channels/inbound
     (replyCallbackUrl = ${gatewayInternalBaseUrl}/deliver/telegram)
 
 Outbound reply (assistant → user, triggered by inbound):
