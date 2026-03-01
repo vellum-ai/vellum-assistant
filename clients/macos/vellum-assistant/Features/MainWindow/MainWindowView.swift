@@ -163,8 +163,22 @@ struct MainWindowView: View {
                 } else if response.errorCode == "credentials_missing" {
                     // Save pending publish for auto-retry after credential setup
                     sharing.pendingPublish = (html: html, title: title, appId: appId)
-                    // Open the chat dock so the user can see the credential setup flow
-                    if case .app(let currentAppId) = windowState.selection {
+                    // Open the chat dock so the user can see the credential setup flow.
+                    // Use the publish target's appId (not windowState.selection) to avoid
+                    // a race where the user navigates away before this async callback fires.
+                    if let targetAppId = appId {
+                        isAppChatOpen = true
+                        let threadId = threadManager.activeThreadId ?? threadManager.visibleThreads.first?.id
+                        if let threadId {
+                            threadManager.selectThread(id: threadId)
+                            windowState.setAppEditing(appId: targetAppId, threadId: threadId)
+                        } else {
+                            threadManager.createThread()
+                            if let newThreadId = threadManager.activeThreadId {
+                                windowState.setAppEditing(appId: targetAppId, threadId: newThreadId)
+                            }
+                        }
+                    } else if case .app(let currentAppId) = windowState.selection {
                         isAppChatOpen = true
                         let threadId = threadManager.activeThreadId ?? threadManager.visibleThreads.first?.id
                         if let threadId {
@@ -1455,12 +1469,12 @@ struct MainWindowView: View {
                             .fill(Color(hex: 0xE86B40))
                             .frame(width: 8, height: 8)
                             .offset(x: 4, y: 4)
-                            .onDisappear {
-                                threadSwitcherHoverTimer?.cancel()
-                                threadSwitcherHoverTimer = nil
-                                showThreadSwitcher = false
-                            }
                     }
+                }
+                .onDisappear {
+                    threadSwitcherHoverTimer?.cancel()
+                    threadSwitcherHoverTimer = nil
+                    showThreadSwitcher = false
                 }
                 .contentShape(Rectangle())
                 .onTapGesture {
