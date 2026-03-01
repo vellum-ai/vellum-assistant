@@ -211,10 +211,10 @@ describe('inbound-message-handler trusted-contact interactivity', () => {
       body: JSON.stringify({
         sourceChannel: 'telegram',
         interface: 'telegram',
-        externalChatId: 'chat-123',
+        conversationExternalId: 'chat-123',
         externalMessageId: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         content: 'hello',
-        senderExternalUserId: 'telegram-user-default',
+        actorExternalId: 'telegram-user-default',
         replyCallbackUrl: 'https://gateway.test/deliver/telegram',
         ...overrides,
       }),
@@ -348,8 +348,8 @@ describe('inbound-message-handler trusted-contact interactivity', () => {
     expect(processCalls[0].options?.isInteractive).toBe(true);
   });
 
-  test('unknown actors remain non-interactive', async () => {
-    // No guardian binding, no member record => unknown trust class
+  test('unknown actors are ACL-denied without processing', async () => {
+    // No guardian binding, no member record => unknown trust class => ACL denial
     mockFindMember = () => null;
 
     const processCalls: Array<{ options?: Record<string, unknown> }> = [];
@@ -374,18 +374,21 @@ describe('inbound-message-handler trusted-contact interactivity', () => {
 
     const req = makeInboundRequest({
       externalMessageId: `msg-unknown-${Date.now()}`,
-      // No senderExternalUserId => unknown trust class
-      senderExternalUserId: undefined,
+      // Unrecognized actorExternalId => unknown trust class
+      actorExternalId: 'completely-unknown-user',
     });
 
     const res = await handleChannelInbound(req, processMessage as any, 'test-token');
     const body = await res.json() as Record<string, unknown>;
+    // Unknown actors are ACL-denied: accepted but denied with reason
     expect(body.accepted).toBe(true);
+    expect(body.denied).toBe(true);
+    expect(body.reason).toBe('not_a_member');
 
     await new Promise((resolve) => setTimeout(resolve, 300));
 
-    expect(processCalls.length).toBeGreaterThan(0);
-    expect(processCalls[0].options?.isInteractive).toBe(false);
+    // processMessage should NOT be called — unknown actors are denied at the ACL level
+    expect(processCalls.length).toBe(0);
   });
 });
 

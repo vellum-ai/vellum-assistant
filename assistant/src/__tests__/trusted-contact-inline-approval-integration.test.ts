@@ -103,6 +103,7 @@ let mockGuardianBinding: Record<string, unknown> | null = {
   channel: 'telegram',
   guardianExternalUserId: 'guardian-1',
   guardianDeliveryChatId: 'guardian-chat-1',
+  guardianPrincipalId: 'test-principal-id',
   status: 'active',
 };
 
@@ -259,6 +260,7 @@ describe('(a) target flow: trusted-contact inline guardian approval end-to-end',
       channel: 'telegram',
       guardianExternalUserId: 'guardian-1',
       guardianDeliveryChatId: 'guardian-chat-1',
+      guardianPrincipalId: 'test-principal-id',
       status: 'active',
     };
   });
@@ -368,6 +370,7 @@ describe('(b) prompt-path flow: confirmation_request bridges to guardian', () =>
       channel: 'telegram',
       guardianExternalUserId: 'guardian-1',
       guardianDeliveryChatId: 'guardian-chat-1',
+      guardianPrincipalId: 'test-principal-id',
       status: 'active',
     };
   });
@@ -550,6 +553,7 @@ describe('(d) unknown actor flow: fail-closed with no interactive approval', () 
       channel: 'telegram',
       guardianExternalUserId: 'guardian-1',
       guardianDeliveryChatId: 'guardian-chat-1',
+      guardianPrincipalId: 'test-principal-id',
       status: 'active',
     };
   });
@@ -734,6 +738,7 @@ describe('(f) timeout/stale flow: stale guardian decision after inline wait time
       channel: 'telegram',
       guardianExternalUserId: 'guardian-1',
       guardianDeliveryChatId: 'guardian-chat-1',
+      guardianPrincipalId: 'test-principal-id',
       status: 'active',
     };
   });
@@ -948,6 +953,7 @@ describe('cross-milestone integration checks', () => {
       channel: 'telegram',
       guardianExternalUserId: 'guardian-1',
       guardianDeliveryChatId: 'guardian-chat-1',
+      guardianPrincipalId: 'test-principal-id',
       status: 'active',
     };
   });

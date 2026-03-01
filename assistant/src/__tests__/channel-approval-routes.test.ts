@@ -181,8 +181,8 @@ const TEST_BEARER_TOKEN = 'token';
 function makeInboundRequest(overrides: Record<string, unknown> = {}): Request {
   const body: Record<string, unknown> = {
     sourceChannel: 'telegram',
-    externalChatId: 'chat-123',
-    senderExternalUserId: 'telegram-user-default',
+    conversationExternalId: 'chat-123',
+    actorExternalId: 'telegram-user-default',
     externalMessageId: `msg-${Date.now()}-${Math.random()}`,
     content: 'hello',
     replyCallbackUrl: 'https://gateway.test/deliver',
@@ -516,11 +516,11 @@ describe('empty content with callbackData bypasses validation', () => {
     const reqBody = {
       sourceChannel: 'telegram',
       interface: 'telegram',
-      externalChatId: 'chat-123',
+      conversationExternalId: 'chat-123',
       externalMessageId: `msg-${Date.now()}-${Math.random()}`,
       callbackData: 'apr:req-empty-2:approve_once',
       replyCallbackUrl: 'https://gateway.test/deliver',
-      senderExternalUserId: 'telegram-user-default',
+      actorExternalId: 'telegram-user-default',
     };
     const req = new Request('http://localhost/channels/inbound', {
       method: 'POST',
@@ -780,8 +780,8 @@ describe('SMS channel approval decisions', () => {
     const body = {
       sourceChannel: 'sms',
       interface: 'sms',
-      externalChatId: 'sms-chat-123',
-      senderExternalUserId: 'sms-user-default',
+      conversationExternalId: 'sms-chat-123',
+      actorExternalId: 'sms-user-default',
       externalMessageId: `msg-${Date.now()}-${Math.random()}`,
       content: 'hello',
       replyCallbackUrl: 'https://gateway.test/deliver',
@@ -904,10 +904,10 @@ describe('SMS guardian verify intercept', () => {
       body: JSON.stringify({
         sourceChannel: 'sms',
         interface: 'sms',
-        externalChatId: 'sms-chat-verify',
+        conversationExternalId: 'sms-chat-verify',
         externalMessageId: `msg-${Date.now()}-${Math.random()}`,
         content: secret,
-        senderExternalUserId: 'sms-user-42',
+        actorExternalId: 'sms-user-42',
         replyCallbackUrl: 'https://gateway.test/deliver',
       }),
     });
@@ -945,10 +945,10 @@ describe('SMS guardian verify intercept', () => {
       body: JSON.stringify({
         sourceChannel: 'sms',
         interface: 'sms',
-        externalChatId: 'sms-chat-verify-fail',
+        conversationExternalId: 'sms-chat-verify-fail',
         externalMessageId: `msg-${Date.now()}-${Math.random()}`,
         content: '000000',
-        senderExternalUserId: 'sms-user-43',
+        actorExternalId: 'sms-user-43',
         replyCallbackUrl: 'https://gateway.test/deliver',
       }),
     });
@@ -998,10 +998,10 @@ describe('SMS guardian verify intercept', () => {
       body: JSON.stringify({
         sourceChannel: 'sms',
         interface: 'sms',
-        externalChatId: 'sms-chat-hex-message',
+        conversationExternalId: 'sms-chat-hex-message',
         externalMessageId: `msg-${Date.now()}-${Math.random()}`,
         content: secret,
-        senderExternalUserId: 'sms-user-hex',
+        actorExternalId: 'sms-user-hex',
         replyCallbackUrl: 'https://gateway.test/deliver',
       }),
     });
@@ -1067,9 +1067,9 @@ describe('guardian decision scoping — multiple pending approvals', () => {
     // The guardian clicks the approval button for the OLDER request
     const req = makeInboundRequest({
       content: '',
-      externalChatId: 'guardian-scope-chat',
+      conversationExternalId: 'guardian-scope-chat',
       callbackData: 'apr:req-older:approve_once',
-      senderExternalUserId: 'guardian-scope-user',
+      actorExternalId: 'guardian-scope-user',
     });
 
     const res = await handleChannelInbound(req, noopProcessMessage, 'token');
@@ -1145,8 +1145,8 @@ describe('ambiguous plain-text decision with multiple pending requests', () => {
     // Guardian sends plain-text "yes" — ambiguous because two approvals are pending
     const req = makeInboundRequest({
       content: 'yes',
-      externalChatId: 'guardian-ambig-chat',
-      senderExternalUserId: 'guardian-ambig-user',
+      conversationExternalId: 'guardian-ambig-chat',
+      actorExternalId: 'guardian-ambig-user',
     });
 
     const res = await handleChannelInbound(
@@ -1307,7 +1307,7 @@ describe('assistant-scoped guardian verification via handleChannelInbound', () =
 
     const req = makeInboundRequest({
       content: secret,
-      senderExternalUserId: 'user-default-asst',
+      actorExternalId: 'user-default-asst',
     });
 
     const res = await handleChannelInbound(req, noopProcessMessage, 'token');
@@ -1330,7 +1330,7 @@ describe('assistant-scoped guardian verification via handleChannelInbound', () =
 
     const req = makeInboundRequest({
       content: secret,
-      senderExternalUserId: 'user-for-asst-x',
+      actorExternalId: 'user-for-asst-x',
     });
 
     const res = await handleChannelInbound(req, noopProcessMessage, 'token', 'asst-route-X');
@@ -1356,7 +1356,7 @@ describe('assistant-scoped guardian verification via handleChannelInbound', () =
 
     const req = makeInboundRequest({
       content: secret,
-      senderExternalUserId: 'user-cross-test',
+      actorExternalId: 'user-cross-test',
     });
 
     const res = await handleChannelInbound(req, noopProcessMessage, 'token', 'asst-B-cross');
@@ -1384,7 +1384,7 @@ describe('assistant-scoped guardian verification via handleChannelInbound', () =
 
     const req = makeInboundRequest({
       content: 'hello from non-self assistant',
-      senderExternalUserId: 'incoming-user',
+      actorExternalId: 'incoming-user',
     });
 
     const res = await handleChannelInbound(req, noopProcessMessage, 'token', 'asst-non-self');
@@ -1467,7 +1467,7 @@ describe('handleChannelInbound gatewayOriginSecret integration', () => {
       body: JSON.stringify({
         sourceChannel: 'telegram',
         interface: 'telegram',
-        externalChatId: 'chat-gw-secret-test',
+        conversationExternalId: 'chat-gw-secret-test',
         externalMessageId: `msg-${Date.now()}-${Math.random()}`,
         content: 'hello',
       }),
@@ -1494,10 +1494,10 @@ describe('handleChannelInbound gatewayOriginSecret integration', () => {
       body: JSON.stringify({
         sourceChannel: 'telegram',
         interface: 'telegram',
-        externalChatId: 'chat-gw-secret-pass',
+        conversationExternalId: 'chat-gw-secret-pass',
         externalMessageId: `msg-${Date.now()}-${Math.random()}`,
         content: 'hello',
-        senderExternalUserId: 'telegram-user-default',
+        actorExternalId: 'telegram-user-default',
       }),
     });
 
@@ -1521,10 +1521,10 @@ describe('handleChannelInbound gatewayOriginSecret integration', () => {
       body: JSON.stringify({
         sourceChannel: 'telegram',
         interface: 'telegram',
-        externalChatId: 'chat-gw-fallback',
+        conversationExternalId: 'chat-gw-fallback',
         externalMessageId: `msg-${Date.now()}-${Math.random()}`,
         content: 'hello',
-        senderExternalUserId: 'telegram-user-default',
+        actorExternalId: 'telegram-user-default',
       }),
     });
 
@@ -1745,8 +1745,8 @@ describe('guardian conversational approval via conversation engine', () => {
 
     const req = makeInboundRequest({
       content: 'hmm what does this do?',
-      externalChatId: 'guardian-conv-chat',
-      senderExternalUserId: 'guardian-conv-user',
+      conversationExternalId: 'guardian-conv-chat',
+      actorExternalId: 'guardian-conv-user',
     });
 
     const res = await handleChannelInbound(
@@ -1809,8 +1809,8 @@ describe('guardian conversational approval via conversation engine', () => {
 
     const req = makeInboundRequest({
       content: 'yes go ahead and run it',
-      externalChatId: 'guardian-nlp-chat',
-      senderExternalUserId: 'guardian-nlp-user',
+      conversationExternalId: 'guardian-nlp-chat',
+      actorExternalId: 'guardian-nlp-user',
     });
 
     const res = await handleChannelInbound(
@@ -1867,9 +1867,9 @@ describe('guardian conversational approval via conversation engine', () => {
     // Guardian clicks approve_always via callback button
     const req = makeInboundRequest({
       content: '',
-      externalChatId: 'guardian-dg-chat',
+      conversationExternalId: 'guardian-dg-chat',
       callbackData: 'apr:req-gdg-1:approve_always',
-      senderExternalUserId: 'guardian-dg-user',
+      actorExternalId: 'guardian-dg-user',
     });
 
     const res = await handleChannelInbound(
@@ -1937,8 +1937,8 @@ describe('guardian conversational approval via conversation engine', () => {
 
     const req = makeInboundRequest({
       content: 'approve it',
-      externalChatId: 'guardian-multi-chat',
-      senderExternalUserId: 'guardian-multi-user',
+      conversationExternalId: 'guardian-multi-chat',
+      actorExternalId: 'guardian-multi-user',
     });
 
     const res = await handleChannelInbound(
@@ -2058,8 +2058,8 @@ describe('keep_pending remains conversational — guardian path', () => {
 
     const guardianReq = makeInboundRequest({
       content: 'yes',
-      externalChatId: 'guardian-chat-fb',
-      senderExternalUserId: 'guardian-user-fb',
+      conversationExternalId: 'guardian-chat-fb',
+      actorExternalId: 'guardian-user-fb',
     });
     const res = await handleChannelInbound(
       guardianReq, noopProcessMessage, 'token', 'self', undefined,
@@ -2100,8 +2100,8 @@ describe('requester cancel of guardian-gated pending request', () => {
     // Create requester conversation
     const initReq = makeInboundRequest({
       content: 'init',
-      externalChatId: 'requester-cancel-chat',
-      senderExternalUserId: 'requester-cancel-user',
+      conversationExternalId: 'requester-cancel-chat',
+      actorExternalId: 'requester-cancel-user',
     });
     await handleChannelInbound(initReq, noopProcessMessage, 'token');
 
@@ -2135,8 +2135,8 @@ describe('requester cancel of guardian-gated pending request', () => {
 
     const req = makeInboundRequest({
       content: 'deny',
-      externalChatId: 'requester-cancel-chat',
-      senderExternalUserId: 'requester-cancel-user',
+      conversationExternalId: 'requester-cancel-chat',
+      actorExternalId: 'requester-cancel-user',
     });
     const res = await handleChannelInbound(
       req, noopProcessMessage, 'token', 'self', undefined,
@@ -2168,8 +2168,8 @@ describe('requester cancel of guardian-gated pending request', () => {
 
     const initReq = makeInboundRequest({
       content: 'init',
-      externalChatId: 'requester-cancel-chat',
-      senderExternalUserId: 'requester-cancel-user',
+      conversationExternalId: 'requester-cancel-chat',
+      actorExternalId: 'requester-cancel-user',
     });
     await handleChannelInbound(initReq, noopProcessMessage, 'token');
 
@@ -2203,8 +2203,8 @@ describe('requester cancel of guardian-gated pending request', () => {
 
     const req = makeInboundRequest({
       content: 'actually never mind, cancel it',
-      externalChatId: 'requester-cancel-chat',
-      senderExternalUserId: 'requester-cancel-user',
+      conversationExternalId: 'requester-cancel-chat',
+      actorExternalId: 'requester-cancel-user',
     });
     const res = await handleChannelInbound(
       req, noopProcessMessage, 'token', 'self', undefined,
@@ -2229,8 +2229,8 @@ describe('requester cancel of guardian-gated pending request', () => {
 
     const initReq = makeInboundRequest({
       content: 'init',
-      externalChatId: 'requester-cancel-chat',
-      senderExternalUserId: 'requester-cancel-user',
+      conversationExternalId: 'requester-cancel-chat',
+      actorExternalId: 'requester-cancel-user',
     });
     await handleChannelInbound(initReq, noopProcessMessage, 'token');
 
@@ -2264,8 +2264,8 @@ describe('requester cancel of guardian-gated pending request', () => {
 
     const req = makeInboundRequest({
       content: 'what is happening?',
-      externalChatId: 'requester-cancel-chat',
-      senderExternalUserId: 'requester-cancel-user',
+      conversationExternalId: 'requester-cancel-chat',
+      actorExternalId: 'requester-cancel-user',
     });
     const res = await handleChannelInbound(
       req, noopProcessMessage, 'token', 'self', undefined,
@@ -2290,8 +2290,8 @@ describe('requester cancel of guardian-gated pending request', () => {
 
     const initReq = makeInboundRequest({
       content: 'init',
-      externalChatId: 'requester-cancel-chat',
-      senderExternalUserId: 'requester-cancel-user',
+      conversationExternalId: 'requester-cancel-chat',
+      actorExternalId: 'requester-cancel-user',
     });
     await handleChannelInbound(initReq, noopProcessMessage, 'token');
 
@@ -2321,8 +2321,8 @@ describe('requester cancel of guardian-gated pending request', () => {
     // Requester tries to self-approve while guardian approval is pending.
     const req = makeInboundRequest({
       content: 'approve',
-      externalChatId: 'requester-cancel-chat',
-      senderExternalUserId: 'requester-cancel-user',
+      conversationExternalId: 'requester-cancel-chat',
+      actorExternalId: 'requester-cancel-user',
     });
     const res = await handleChannelInbound(req, noopProcessMessage, 'token');
     const body = await res.json() as Record<string, unknown>;
@@ -2443,8 +2443,8 @@ describe('engine decision race condition — guardian path', () => {
 
     const guardianReq = makeInboundRequest({
       content: 'approve it',
-      externalChatId: 'guardian-race-chat',
-      senderExternalUserId: 'guardian-race-user',
+      conversationExternalId: 'guardian-race-chat',
+      actorExternalId: 'guardian-race-user',
     });
     const res = await handleChannelInbound(
       guardianReq, noopProcessMessage, 'token', 'self', undefined,
@@ -2807,8 +2807,8 @@ describe('NL approval routing via destination-scoped canonical requests', () => 
     // Send inbound guardian text reply "yes" from that chat
     const req = makeInboundRequest({
       sourceChannel: 'telegram',
-      externalChatId: guardianChatId,
-      senderExternalUserId: guardianUserId,
+      conversationExternalId: guardianChatId,
+      actorExternalId: guardianUserId,
       content: 'yes',
       externalMessageId: `msg-nl-approve-${Date.now()}`,
     });
@@ -2857,8 +2857,8 @@ describe('NL approval routing via destination-scoped canonical requests', () => 
     // Send from differentChatId — delivery-scoped lookup should not match
     const req = makeInboundRequest({
       sourceChannel: 'telegram',
-      externalChatId: differentChatId,
-      senderExternalUserId: guardianUserId,
+      conversationExternalId: differentChatId,
+      actorExternalId: guardianUserId,
       content: 'approve',
       externalMessageId: `msg-nl-mismatch-${Date.now()}`,
     });
@@ -2899,8 +2899,8 @@ describe('trusted-contact self-approval blocked before guardian approval row exi
     // Create the requester conversation (different user than guardian)
     const initReq = makeInboundRequest({
       content: 'init',
-      externalChatId: 'tc-selfapproval-chat',
-      senderExternalUserId: 'tc-selfapproval-user',
+      conversationExternalId: 'tc-selfapproval-chat',
+      actorExternalId: 'tc-selfapproval-user',
     });
     await handleChannelInbound(initReq, noopProcessMessage, 'token');
 
@@ -2927,8 +2927,8 @@ describe('trusted-contact self-approval blocked before guardian approval row exi
     // Trusted contact sends "yes" to try to self-approve
     const req = makeInboundRequest({
       content: 'yes',
-      externalChatId: 'tc-selfapproval-chat',
-      senderExternalUserId: 'tc-selfapproval-user',
+      conversationExternalId: 'tc-selfapproval-chat',
+      actorExternalId: 'tc-selfapproval-user',
     });
     const res = await handleChannelInbound(
       req, noopProcessMessage, 'token', 'self', undefined,
@@ -2955,8 +2955,8 @@ describe('trusted-contact self-approval blocked before guardian approval row exi
 
     const initReq = makeInboundRequest({
       content: 'init',
-      externalChatId: 'tc-selfapproval-chat',
-      senderExternalUserId: 'tc-selfapproval-user',
+      conversationExternalId: 'tc-selfapproval-chat',
+      actorExternalId: 'tc-selfapproval-user',
     });
     await handleChannelInbound(initReq, noopProcessMessage, 'token');
 
@@ -2974,8 +2974,8 @@ describe('trusted-contact self-approval blocked before guardian approval row exi
     // "approve" would normally be parsed as an approval decision.
     const req = makeInboundRequest({
       content: 'approve',
-      externalChatId: 'tc-selfapproval-chat',
-      senderExternalUserId: 'tc-selfapproval-user',
+      conversationExternalId: 'tc-selfapproval-chat',
+      actorExternalId: 'tc-selfapproval-user',
     });
     const res = await handleChannelInbound(req, noopProcessMessage, 'token');
     const body = await res.json() as Record<string, unknown>;

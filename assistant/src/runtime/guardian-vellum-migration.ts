@@ -12,14 +12,11 @@
  * - Preserves existing guardian bindings for other channels unchanged.
  */
 
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
 import { getDb } from '../memory/db.js';
-import {
-  createBinding,
-  getActiveBinding,
-} from '../memory/guardian-bindings.js';
+import { createBinding } from '../memory/guardian-bindings.js';
 import { channelGuardianBindings } from '../memory/schema.js';
 import { getLogger } from '../util/logger.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from './assistant-scope.js';
@@ -34,30 +31,47 @@ const log = getLogger('guardian-vellum-migration');
  * Returns the guardianPrincipalId (existing or newly created).
  */
 export function ensureVellumGuardianBinding(assistantId: string = DAEMON_INTERNAL_ASSISTANT_ID): string {
-  const existing = getActiveBinding(assistantId, 'vellum');
-  if (existing) {
-    // If the binding exists but is missing guardianPrincipalId, backfill it
-    // from the binding's guardianExternalUserId (the canonical identity).
-    if (!existing.guardianPrincipalId) {
-      const principalId = existing.guardianExternalUserId;
-      const db = getDb();
-      db.update(channelGuardianBindings)
-        .set({ guardianPrincipalId: principalId, updatedAt: Date.now() })
-        .where(eq(channelGuardianBindings.id, existing.id))
-        .run();
+  const db = getDb();
 
-      log.info(
-        { assistantId, guardianPrincipalId: principalId },
-        'Backfilled guardianPrincipalId on existing vellum binding',
+  // We intentionally query without filtering to `status = 'active'` so this
+  // function is idempotent even if a stale/revoked row exists. The table has a
+  // UNIQUE constraint on (assistant_id, channel), so attempting to create a new
+  // row would fail.
+  const existing = db
+    .select()
+    .from(channelGuardianBindings)
+    .where(
+      and(
+        eq(channelGuardianBindings.assistantId, assistantId),
+        eq(channelGuardianBindings.channel, 'vellum'),
+      ),
+    )
+    .get();
+
+  if (existing) {
+    if (existing.guardianPrincipalId) {
+      log.debug(
+        { assistantId, guardianPrincipalId: existing.guardianPrincipalId },
+        'Vellum guardian binding already exists with principal',
       );
-      return principalId;
+      return existing.guardianPrincipalId;
     }
 
-    log.debug(
-      { assistantId, guardianPrincipalId: existing.guardianPrincipalId },
-      'Vellum guardian binding already exists with principal',
+    // If the binding exists but is missing guardianPrincipalId, backfill it
+    // from the binding's guardianExternalUserId (the canonical identity).
+    const principalId = existing.guardianExternalUserId;
+
+    db.update(channelGuardianBindings)
+      .set({ guardianPrincipalId: principalId, status: 'active', updatedAt: Date.now() })
+      .where(eq(channelGuardianBindings.id, existing.id))
+      .run();
+
+    log.info(
+      { assistantId, guardianPrincipalId: principalId },
+      'Backfilled guardianPrincipalId on existing vellum binding',
     );
-    return existing.guardianPrincipalId;
+
+    return principalId;
   }
 
   const guardianPrincipalId = `vellum-principal-${uuid()}`;
