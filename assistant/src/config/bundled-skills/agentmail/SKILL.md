@@ -14,6 +14,10 @@ Example: `host_bash("vellum email status --json")`
 
 Never use browser/computer-use unless user explicitly approves fallback.
 
+## When to Use This Skill
+
+This skill manages the **assistant's own** AgentMail address (`@agentmail.to`) — not the user's personal email. Only use this skill when the user explicitly asks the assistant to send email **from the assistant's own address**, manage the assistant's inbox, or perform operations on the assistant's AgentMail account. Generic email requests ("send an email", "check my email", "draft a reply") are about the **user's Gmail** and should be handled by the Messaging skill instead.
+
 ## Rules
 
 - Always run `vellum email` commands via `host_bash` and parse JSON output.
