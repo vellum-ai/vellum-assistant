@@ -319,6 +319,21 @@ extension AppDelegate {
     }
 
     func deliverNotificationIntent(_ msg: NotificationIntentMessage) {
+        // Guardian scoping: skip notifications targeted at a different guardian.
+        // When the local principal is nil (not yet bootstrapped), pass through all
+        // notifications so urgent prompts aren't silently missed during startup.
+        if let target = msg.targetGuardianPrincipalId {
+            let localId = ActorTokenManager.getGuardianPrincipalId()
+            if let localId, localId != target {
+                log.info("Skipping notification_intent for guardian \(target) — local guardian is \(localId)")
+                // Ack so the delivery audit trail stays consistent
+                if let deliveryId = msg.deliveryId {
+                    sendNotificationIntentResult(deliveryId: deliveryId, success: true, errorMessage: nil, errorCode: nil)
+                }
+                return
+            }
+        }
+
         let nowMs = Date().timeIntervalSince1970 * 1000
         pruneFallbackMarkers(nowMs: nowMs)
 

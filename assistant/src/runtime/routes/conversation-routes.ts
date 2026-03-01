@@ -29,6 +29,8 @@ import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
 import { bridgeConfirmationRequestToGuardian } from '../confirmation-request-guardian-bridge.js';
 import { routeGuardianReply } from '../guardian-reply-router.js';
 import { httpError } from '../http-errors.js';
+import { resolveLocalIpcGuardianContext } from '../local-actor-identity.js';
+import { type ServerWithRequestIP, verifyHttpActorTokenWithLocalFallback } from '../middleware/actor-token.js';
 import type {
   ApprovalConversationGenerator,
   MessageProcessor,
@@ -92,6 +94,8 @@ async function tryConsumeInlineApprovalReply(params: {
   session: import('../../daemon/session.js').Session;
   onEvent: (msg: ServerMessage) => void;
   approvalConversationGenerator?: ApprovalConversationGenerator;
+  /** Verified actor identity from actor-token middleware. */
+  verifiedActorExternalUserId?: string;
 }): Promise<{ consumed: boolean; messageId?: string }> {
   const {
     conversationId,
@@ -102,6 +106,7 @@ async function tryConsumeInlineApprovalReply(params: {
     session,
     onEvent,
     approvalConversationGenerator,
+    verifiedActorExternalUserId,
   } = params;
   const trimmedContent = content.trim();
 
@@ -125,9 +130,14 @@ async function tryConsumeInlineApprovalReply(params: {
     messageText: trimmedContent,
     channel: sourceChannel,
     actor: {
-      externalUserId: undefined,
+      externalUserId: verifiedActorExternalUserId,
       channel: sourceChannel,
-      isTrusted: true,
+      // When a verified identity is available, disable the trusted bypass so
+      // that the identity-match checks in applyCanonicalGuardianDecision
+      // actually run. Only fall back to isTrusted when no verified identity
+      // was resolved (defensive — shouldn't happen for vellum since
+      // verification runs upstream).
+      isTrusted: !verifiedActorExternalUserId,
     },
     conversationId,
     pendingRequestIds,
@@ -425,6 +435,7 @@ export async function handleSendMessage(
     sendMessageDeps?: SendMessageDeps;
     approvalConversationGenerator?: ApprovalConversationGenerator;
   },
+  server: ServerWithRequestIP,
 ): Promise<Response> {
   const body = await req.json() as {
     conversationKey?: string;
@@ -482,11 +493,35 @@ export async function handleSendMessage(
 
   // ── Queue-if-busy path (preferred when sendMessageDeps is wired) ────
   if (deps.sendMessageDeps) {
+    // Vellum HTTP requests prefer actor-token identity. When absent (e.g. CLI
+    // bearer-auth only), fall back to local IPC identity resolution so
+    // bearer-authenticated local clients are not rejected.
+    const actorVerification = sourceChannel === 'vellum' ? verifyHttpActorTokenWithLocalFallback(req, server) : null;
+    if (actorVerification && !actorVerification.ok) {
+      return httpError(
+        actorVerification.status === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN',
+        actorVerification.message,
+        actorVerification.status,
+      );
+    }
+
     const smDeps = deps.sendMessageDeps;
     const session = await smDeps.getOrCreateSession(mapping.conversationId);
-    // HTTP API is a trusted local ingress (same as IPC) — set guardian context
-    // so that memory extraction is not silently disabled by unverified provenance.
-    session.setGuardianContext({ trustClass: 'guardian', sourceChannel: sourceChannel ?? 'http' });
+    // Resolve actor identity from the verified actor token. The token's
+    // guardianPrincipalId is matched against the vellum guardian binding
+    // through the standard trust pipeline.
+    if (actorVerification?.ok) {
+      session.setGuardianContext(actorVerification.guardianContext);
+    } else {
+      // Non-vellum channels through the HTTP API are still local
+      // authenticated requests. Resolve guardian context via the local
+      // identity pathway (vellum binding lookup) to preserve guardian
+      // trust. Falls back to a minimal guardian context if no binding
+      // exists (pre-bootstrap).
+      session.setGuardianContext(
+        resolveLocalIpcGuardianContext(sourceChannel) ?? { trustClass: 'guardian', sourceChannel },
+      );
+    }
     const onEvent = makeHubPublisher(smDeps, mapping.conversationId, session);
     // Route server-authoritative state signals (confirmation_state_changed,
     // assistant_activity_state) to the SSE hub. Without this, these signals
@@ -497,6 +532,13 @@ export async function handleSendMessage(
     const attachments = hasAttachments
       ? smDeps.resolveAttachments(attachmentIds)
       : [];
+
+    // Resolve the verified actor's external user ID for inline approval
+    // routing. Uses the guardianExternalUserId from the verified context
+    // (actor-token or local-fallback) rather than hardcoding undefined.
+    const verifiedActorExternalUserId = actorVerification?.ok
+      ? actorVerification.guardianContext.guardianExternalUserId
+      : undefined;
 
     // Try to consume the message as an inline approval/rejection reply.
     // On failure, degrade to the existing queue/auto-deny path rather than
@@ -511,6 +553,7 @@ export async function handleSendMessage(
       session,
       onEvent,
       approvalConversationGenerator: deps.approvalConversationGenerator,
+      verifiedActorExternalUserId,
     });
       if (inlineReplyResult.consumed) {
         return Response.json(
@@ -592,12 +635,27 @@ export async function handleSendMessage(
     return httpError('SERVICE_UNAVAILABLE', 'Message processing not configured', 503);
   }
 
+  // Require actor token for vellum channel requests on the legacy path too,
+  // with local IPC fallback for bearer-authenticated CLI clients.
+  const legacyActorVerification = sourceChannel === 'vellum' ? verifyHttpActorTokenWithLocalFallback(req, server) : null;
+  if (legacyActorVerification && !legacyActorVerification.ok) {
+    return httpError(
+      legacyActorVerification.status === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN',
+      legacyActorVerification.message,
+      legacyActorVerification.status,
+    );
+  }
+
+  const guardianContext = legacyActorVerification?.ok
+    ? legacyActorVerification.guardianContext
+    : resolveLocalIpcGuardianContext(sourceChannel) ?? { trustClass: 'guardian' as const, sourceChannel };
+
   try {
     const result = await processor(
       mapping.conversationId,
       content ?? '',
       hasAttachments ? attachmentIds : undefined,
-      { guardianContext: { trustClass: 'guardian', sourceChannel } },
+      { guardianContext },
       sourceChannel,
       sourceInterface,
     );

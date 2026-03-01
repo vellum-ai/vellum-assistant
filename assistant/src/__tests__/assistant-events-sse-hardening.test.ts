@@ -150,7 +150,7 @@ describe('SSE route — capacity limit', () => {
 
   test('new connection evicts oldest and returns 200', async () => {
     const hub = new AssistantEventHub({ maxSubscribers: 1 });
-    const opts = { hub, heartbeatIntervalMs: 60_000 };
+    const opts = { hub, heartbeatIntervalMs: 60_000, skipActorVerification: true as const };
 
     const ac1 = new AbortController();
     const req1 = new Request('http://localhost/v1/events?conversationKey=evict-a', { signal: ac1.signal });
@@ -181,7 +181,7 @@ describe('SSE route — capacity limit', () => {
       { signal: new AbortController().signal },
     );
 
-    const response = handleSubscribeAssistantEvents(req, new URL(req.url), { hub });
+    const response = handleSubscribeAssistantEvents(req, new URL(req.url), { hub, skipActorVerification: true });
     expect(response.status).toBe(503);
     const body = await response.json() as { error: { message: string; code?: string } };
     expect(body.error.message).toMatch(/Too many concurrent connections/);
@@ -195,7 +195,7 @@ describe('SSE route — capacity limit', () => {
       { signal: ac.signal },
     );
 
-    const response = handleSubscribeAssistantEvents(req, new URL(req.url), { hub });
+    const response = handleSubscribeAssistantEvents(req, new URL(req.url), { hub, skipActorVerification: true });
 
     expect(response.status).toBe(200);
     ac.abort(); // clean up the subscription
@@ -218,6 +218,7 @@ describe('SSE route — heartbeat', () => {
     const response = handleSubscribeAssistantEvents(req, new URL(req.url), {
       hub,
       heartbeatIntervalMs: 10,
+      skipActorVerification: true,
     });
 
     // Wait for at least one heartbeat interval to fire.
@@ -243,6 +244,7 @@ describe('SSE route — heartbeat', () => {
     const response = handleSubscribeAssistantEvents(req, new URL(req.url), {
       hub,
       heartbeatIntervalMs: 10,
+      skipActorVerification: true,
     });
 
     // Wait for several intervals.
@@ -283,7 +285,7 @@ describe('SSE route — disconnect cleanup', () => {
       { signal: ac.signal },
     );
 
-    handleSubscribeAssistantEvents(req, new URL(req.url), { hub });
+    handleSubscribeAssistantEvents(req, new URL(req.url), { hub, skipActorVerification: true });
 
     expect(hub.subscriberCount()).toBe(1);
 
@@ -303,7 +305,7 @@ describe('SSE route — disconnect cleanup', () => {
       { signal: ac.signal },
     );
 
-    const response = handleSubscribeAssistantEvents(req, new URL(req.url), { hub });
+    const response = handleSubscribeAssistantEvents(req, new URL(req.url), { hub, skipActorVerification: true });
 
     expect(hub.subscriberCount()).toBe(1);
 

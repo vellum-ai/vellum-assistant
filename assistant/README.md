@@ -271,6 +271,16 @@ The channel guardian service generates verification challenge instructions with 
 - **Rebind requirement:** Creating a new guardian challenge when a binding already exists requires `rebind: true` in the IPC request. Without it, the daemon returns `already_bound`. This prevents accidental guardian replacement.
 - **Takeover prevention:** Verification is rejected when an active binding exists for a different external user. Same-user re-verification is allowed.
 
+### Vellum Guardian Identity (Actor Tokens)
+
+The vellum channel (macOS, iOS, CLI) uses HMAC-SHA256 signed actor tokens to bind guardian identity to HTTP requests. This enables identity-based authentication for the local desktop/mobile channel, paralleling how external channels (Telegram, SMS) use `externalUserId` for guardian identity.
+
+- **Bootstrap**: After hatch, the macOS client calls `POST /v1/integrations/guardian/vellum/bootstrap` with `{ platform, deviceId }`. Returns `{ guardianPrincipalId, actorToken, isNew }`. The endpoint is idempotent -- repeated calls with the same device return the same principal but mint a fresh token (revoking the previous one).
+- **iOS pairing**: The pairing response includes an `actorToken` automatically when a vellum guardian binding exists.
+- **IPC fallback**: Local IPC (Unix socket) connections resolve identity server-side via `resolveLocalIpcGuardianContext()` without requiring an actor token. CLI connections that pass bearer auth but lack an actor token also use this fallback (as long as the request is direct, not proxied through the gateway).
+- **HTTP enforcement**: Vellum HTTP routes require either an `X-Actor-Token` header or a provably-local connection (no `X-Forwarded-For` header). Gateway-proxied requests without an actor token are rejected.
+- **Startup migration**: On daemon start, `ensureVellumGuardianBinding()` backfills a vellum guardian binding for existing installations so the identity system works without requiring a manual bootstrap step.
+
 ## Guardian Verification and Ingress ACL
 
 This section documents the end-to-end flow from guardian verification through ingress membership enforcement, showing how the two systems work together to gate channel access.

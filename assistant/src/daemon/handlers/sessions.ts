@@ -20,6 +20,7 @@ import { GENERATING_TITLE, queueGenerateConversationTitle, UNTITLED_FALLBACK } f
 import * as externalConversationStore from '../../memory/external-conversation-store.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../../runtime/assistant-scope.js';
 import { routeGuardianReply } from '../../runtime/guardian-reply-router.js';
+import { resolveLocalIpcGuardianContext } from '../../runtime/local-actor-identity.js';
 import * as pendingInteractions from '../../runtime/pending-interactions.js';
 import { checkIngressForSecrets } from '../../security/secret-ingress.js';
 import { compileCustomPatterns, redactSecrets } from '../../security/secret-scanner.js';
@@ -279,9 +280,11 @@ export async function handleUserMessage(
         assistantMessageInterface: ipcInterface,
       });
       session.setAssistantId(DAEMON_INTERNAL_ASSISTANT_ID);
-      // IPC/desktop user IS the guardian — default to guardian trust so
-      // messages are not tagged as unknown provenance.
-      session.setGuardianContext({ trustClass: 'guardian', sourceChannel: ipcChannel });
+      // Resolve local IPC actor identity through the same trust pipeline
+      // used by HTTP channel ingress. The vellum guardian binding provides
+      // the guardianPrincipalId, and resolveGuardianContext classifies the
+      // local user as 'guardian' via binding match.
+      session.setGuardianContext(resolveLocalIpcGuardianContext(ipcChannel));
       session.setCommandIntent(null);
       // Fire-and-forget: don't block the IPC handler so the connection can
       // continue receiving messages (e.g. cancel, confirmations, or

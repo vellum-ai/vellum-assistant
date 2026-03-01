@@ -143,7 +143,7 @@ export function bridgeConfirmationRequestToGuardian(
       visibleInSourceNow: false,
     },
     contextPayload: {
-      requestKind: 'tool_approval',
+      requestKind: 'tool_approval' as const,
       requestId: canonicalRequest.id,
       requestCode: canonicalRequest.requestCode ?? canonicalRequest.id.slice(0, 6).toUpperCase(),
       sourceChannel,

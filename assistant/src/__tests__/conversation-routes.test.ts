@@ -17,7 +17,12 @@ mock.module('../memory/attachments-store.js', () => ({
   getAttachmentsByIds: () => [],
 }));
 
+import type { ServerWithRequestIP } from '../runtime/middleware/actor-token.js';
 import { handleSendMessage } from '../runtime/routes/conversation-routes.js';
+
+const mockLoopbackServer: ServerWithRequestIP = {
+  requestIP: () => ({ address: '127.0.0.1', family: 'IPv4', port: 0 }),
+};
 
 describe('handleSendMessage', () => {
   test('legacy fallback passes guardian context to processor', async () => {
@@ -41,7 +46,7 @@ describe('handleSendMessage', () => {
         capturedSourceChannel = sourceChannel;
         return { messageId: 'msg-legacy-fallback' };
       },
-    });
+    }, mockLoopbackServer);
 
     const body = await res.json() as { accepted: boolean; messageId: string };
     expect(res.status).toBe(202);

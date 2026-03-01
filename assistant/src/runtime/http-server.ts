@@ -138,6 +138,7 @@ import {
   handleRevokeMember,
   handleUpsertMember,
 } from './routes/ingress-routes.js';
+import { handleGuardianBootstrap } from './routes/guardian-bootstrap-routes.js';
 import {
   handleCancelOutbound,
   handleClearSlackChannelConfig,
@@ -446,7 +447,7 @@ export class RuntimeHttpServer {
         return rateLimitResponse(result);
       }
       // Attach rate limit headers to the eventual response
-      const originalResponse = await this.handleAuthenticatedRequest(req, url, path);
+      const originalResponse = await this.handleAuthenticatedRequest(req, url, path, server);
       const headers = new Headers(originalResponse.headers);
       for (const [k, v] of Object.entries(rateLimitHeaders(result))) {
         headers.set(k, v);
@@ -458,13 +459,13 @@ export class RuntimeHttpServer {
       });
     }
 
-    return this.handleAuthenticatedRequest(req, url, path);
+    return this.handleAuthenticatedRequest(req, url, path, server);
   }
 
   /**
    * Handle requests that have already passed auth and rate limiting.
    */
-  private async handleAuthenticatedRequest(req: Request, url: URL, path: string): Promise<Response> {
+  private async handleAuthenticatedRequest(req: Request, url: URL, path: string, server: ReturnType<typeof Bun.serve>): Promise<Response> {
     // Pairing registration (bearer-authenticated)
     if (path === '/v1/pairing/register' && req.method === 'POST') {
       return await handlePairingRegister(req, this.pairingContext);
@@ -525,7 +526,7 @@ export class RuntimeHttpServer {
     // Runtime routes: /v1/<endpoint>
     const routeMatch = path.match(/^\/v1\/(.+)$/);
     if (routeMatch) {
-      return this.dispatchEndpoint(routeMatch[1], req, url);
+      return this.dispatchEndpoint(routeMatch[1], req, url, server);
     }
 
     return httpError('NOT_FOUND', 'Not found', 404);
@@ -608,6 +609,7 @@ export class RuntimeHttpServer {
     endpoint: string,
     req: Request,
     url: URL,
+    server: ReturnType<typeof Bun.serve>,
   ): Promise<Response> {
     const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
     return withErrorHandling(endpoint, async () => {
@@ -707,18 +709,18 @@ export class RuntimeHttpServer {
           persistAndProcessMessage: this.persistAndProcessMessage,
           sendMessageDeps: this.sendMessageDeps,
           approvalConversationGenerator: this.approvalConversationGenerator,
-        });
+        }, server);
       }
 
       // Standalone approval endpoints — keyed by requestId, orthogonal to message sending
-      if (endpoint === 'confirm' && req.method === 'POST') return await handleConfirm(req);
-      if (endpoint === 'secret' && req.method === 'POST') return await handleSecret(req);
-      if (endpoint === 'trust-rules' && req.method === 'POST') return await handleTrustRule(req);
-      if (endpoint === 'pending-interactions' && req.method === 'GET') return handleListPendingInteractions(url);
+      if (endpoint === 'confirm' && req.method === 'POST') return await handleConfirm(req, server);
+      if (endpoint === 'secret' && req.method === 'POST') return await handleSecret(req, server);
+      if (endpoint === 'trust-rules' && req.method === 'POST') return await handleTrustRule(req, server);
+      if (endpoint === 'pending-interactions' && req.method === 'GET') return handleListPendingInteractions(url, req, server);
 
       // Guardian action endpoints — deterministic button-based decisions
-      if (endpoint === 'guardian-actions/pending' && req.method === 'GET') return handleGuardianActionsPending(req);
-      if (endpoint === 'guardian-actions/decision' && req.method === 'POST') return await handleGuardianActionDecision(req);
+      if (endpoint === 'guardian-actions/pending' && req.method === 'GET') return handleGuardianActionsPending(req, server);
+      if (endpoint === 'guardian-actions/decision' && req.method === 'POST') return await handleGuardianActionDecision(req, server);
 
       // Contacts
       if (endpoint === 'contacts' && req.method === 'GET') return handleListContacts(url);
@@ -759,6 +761,9 @@ export class RuntimeHttpServer {
       if (endpoint === 'integrations/guardian/outbound/start' && req.method === 'POST') return await handleStartOutbound(req);
       if (endpoint === 'integrations/guardian/outbound/resend' && req.method === 'POST') return await handleResendOutbound(req);
       if (endpoint === 'integrations/guardian/outbound/cancel' && req.method === 'POST') return await handleCancelOutbound(req);
+
+      // Guardian vellum channel bootstrap
+      if (endpoint === 'integrations/guardian/vellum/bootstrap' && req.method === 'POST') return await handleGuardianBootstrap(req, server);
 
       if (endpoint === 'attachments' && req.method === 'POST') return await handleUploadAttachment(req);
       if (endpoint === 'attachments' && req.method === 'DELETE') return await handleDeleteAttachment(req);
@@ -830,7 +835,7 @@ export class RuntimeHttpServer {
       if (endpoint === 'brain-graph' && req.method === 'GET') return handleGetBrainGraph();
       if (endpoint === 'brain-graph-ui' && req.method === 'GET') return handleServeBrainGraphUI(this.bearerToken);
       if (endpoint === 'home-base-ui' && req.method === 'GET') return handleServeHomeBaseUI(this.bearerToken);
-      if (endpoint === 'events' && req.method === 'GET') return handleSubscribeAssistantEvents(req, url);
+      if (endpoint === 'events' && req.method === 'GET') return handleSubscribeAssistantEvents(req, url, { server });
 
       // Internal OAuth callback endpoint (gateway -> runtime)
       if (endpoint === 'internal/oauth/callback' && req.method === 'POST') {
