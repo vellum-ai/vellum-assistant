@@ -36,7 +36,7 @@ test("install.sh installs vellum CLI and vellum ps works", async () => {
 
   // THEN `vellum ps` should run successfully and report one assistant
   const psOutput = execSync(
-    `. ~/.config/vellum/env && vellum ps`,
+    `vellum ps`,
     {
       encoding: "utf-8",
       timeout: 30_000,
@@ -55,7 +55,7 @@ test("install.sh installs vellum CLI and vellum ps works", async () => {
 
   if (assistantName) {
     execSync(
-      `. ~/.config/vellum/env && vellum retire ${assistantName}`,
+      `vellum retire ${assistantName}`,
       {
         stdio: "inherit",
         timeout: 30_000,
