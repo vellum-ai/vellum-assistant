@@ -263,7 +263,6 @@ mock.module('../tools/browser/browser-screencast.js', () => ({
   stopAllScreencasts: () => Promise.resolve(),
   isScreencastActive: () => false,
   getSender: () => undefined,
-  getScreencastSurfaceId: () => null,
 }));
 
 mock.module('../services/published-app-updater.js', () => ({
