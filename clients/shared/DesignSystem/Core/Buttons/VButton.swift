@@ -142,9 +142,7 @@ private struct VButtonStyle: ButtonStyle {
     private var shadowColor: Color {
         switch style {
         case .primary:
-            return isHovered
-                ? adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._600)
-                : adaptiveColor(light: Color(hex: 0x3D5739), dark: Forest._800)
+            return .clear
         case .danger:
             return .clear
         case .tertiary, .ghost:
