@@ -4,6 +4,10 @@ import {
   MANAGED_TWILIO_SMS_WEBHOOK_PATH,
 } from "./managed-twilio-sms-webhook.js";
 import {
+  handleManagedTwilioVoiceWebhook,
+  MANAGED_TWILIO_VOICE_WEBHOOK_PATH,
+} from "./managed-twilio-voice-webhook.js";
+import {
   createRouteResolveHandler,
   MANAGED_GATEWAY_ROUTE_RESOLVE_PATH,
   type ManagedGatewayUpstreamFetch,
@@ -94,6 +98,10 @@ export function createManagedGatewayAppFetch(
 
     if (pathname === MANAGED_TWILIO_SMS_WEBHOOK_PATH) {
       return handleManagedTwilioSmsWebhook(request, config);
+    }
+
+    if (pathname === MANAGED_TWILIO_VOICE_WEBHOOK_PATH) {
+      return handleManagedTwilioVoiceWebhook(request, config);
     }
 
     return Response.json({ error: "Not found" }, { status: 404 });

@@ -11,6 +11,7 @@ Managed gateway service skeleton for Vellum-owned shared channel identities.
 - staging deployment manifests, smoke checks, and rollout/rollback runbook
 - Twilio signature verifier primitives with rotation/revocation/expiry support
 - managed Twilio SMS webhook endpoint skeleton with explicit auth/validation envelopes
+- managed Twilio voice webhook endpoint skeleton with explicit auth/validation envelopes
 - health and readiness endpoints:
   - `/healthz`
   - `/readyz`
@@ -20,6 +21,7 @@ Managed gateway service skeleton for Vellum-owned shared channel identities.
   - `POST /v1/internal/managed-gateway/routes/resolve/`
 - Twilio inbound endpoint:
   - `POST /webhooks/twilio/sms`
+  - `POST /webhooks/twilio/voice`
 
 ## Configuration
 
@@ -70,6 +72,10 @@ Managed gateway route resolution contract lives in [`route-resolve-contract.md`]
 ## Managed Twilio SMS Webhook Contract
 
 Managed Twilio SMS webhook contract lives in [`managed-twilio-sms-webhook-contract.md`](./managed-twilio-sms-webhook-contract.md).
+
+## Managed Twilio Voice Webhook Contract
+
+Managed Twilio voice webhook contract lives in [`managed-twilio-voice-webhook-contract.md`](./managed-twilio-voice-webhook-contract.md).
 
 ## Staging Deployment Artifacts
 
