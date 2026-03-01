@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { Database } from 'bun:sqlite';
 import { drizzle } from 'drizzle-orm/bun-sqlite';
 import { sqliteTable, text, integer, real, index } from 'drizzle-orm/sqlite-core';
@@ -66,6 +66,22 @@ const schema = { memoryItems, memoryJobs };
 function getDbPath(): string {
   const baseDir = process.env.BASE_DATA_DIR?.trim() || homedir();
   return join(baseDir, '.vellum', 'workspace', 'data', 'db', 'assistant.db');
+}
+
+/**
+ * Read the runtime bearer token from ~/.vellum/http-token.
+ * This is the same token the gateway uses to authenticate internal API calls.
+ * Returns undefined if the file does not exist or cannot be read.
+ */
+function readBearerToken(): string | undefined {
+  const baseDir = process.env.BASE_DATA_DIR?.trim() || homedir();
+  const tokenPath = join(baseDir, '.vellum', 'http-token');
+  try {
+    const token = readFileSync(tokenPath, 'utf-8').trim();
+    return token || undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 let _db: ReturnType<typeof drizzle<typeof schema>> | null = null;
@@ -245,11 +261,17 @@ ${sampleText}
 
 Extract memory items about this Reddit user's personality, interests, preferences, and communication style.`;
 
+  const bearerToken = readBearerToken();
+  const authHeaders: Record<string, string> = { 'content-type': 'application/json' };
+  if (bearerToken) {
+    authHeaders['authorization'] = `Bearer ${bearerToken}`;
+  }
+
   let response: Response;
   try {
     response = await fetch(`${gatewayBase}/v1/llm/generate`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: authHeaders,
       body: JSON.stringify({
         modelIntent: 'latency-optimized',
         max_tokens: 4096,

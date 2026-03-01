@@ -16,13 +16,19 @@ import { stripHopByHop } from "../../util/strip-hop-by-hop.js";
 const log = getLogger("llm-generate-proxy");
 
 export function createLlmGenerateProxyHandler(config: GatewayConfig) {
-  async function handleLlmGenerate(req: Request): Promise<Response> {
+  async function handleLlmGenerate(req: Request, clientIp?: string): Promise<Response> {
     const start = performance.now();
     const upstream = `${config.assistantRuntimeBaseUrl}/v1/llm/generate`;
 
     const reqHeaders = stripHopByHop(new Headers(req.headers));
     reqHeaders.delete("host");
     reqHeaders.delete("authorization");
+
+    // Overwrite the forwarded IP with the real client IP to prevent spoofing,
+    // matching the same hardening applied in the general runtime proxy.
+    if (clientIp) {
+      reqHeaders.set("x-forwarded-for", clientIp);
+    }
 
     if (config.runtimeBearerToken) {
       reqHeaders.set("authorization", `Bearer ${config.runtimeBearerToken}`);

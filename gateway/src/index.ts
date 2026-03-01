@@ -462,7 +462,7 @@ function main() {
       if (url.pathname === "/v1/llm/generate" && req.method === "POST") {
         const authError = requireRuntimeBearerAuth();
         if (authError) return authError;
-        return llmGenerateProxy.handleLlmGenerate(tracedReq);
+        return llmGenerateProxy.handleLlmGenerate(tracedReq, getClientIp(req, svr, config.trustProxy));
       }
 
       // ── Brain graph proxy ──
