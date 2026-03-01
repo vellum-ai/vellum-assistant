@@ -933,7 +933,10 @@ private final class ComposerNativeTextView: NSTextView {
 
     override func becomeFirstResponder() -> Bool {
         let focused = super.becomeFirstResponder()
-        if focused { onFocusChange?(true) }
+        if focused {
+            onFocusChange?(true)
+            (window as? TitleBarZoomableWindow)?.clearComposerDismissed()
+        }
         return focused
     }
 
