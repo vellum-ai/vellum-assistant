@@ -1,5 +1,5 @@
 import { execFileSync, spawn } from "child_process";
-import { existsSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from "fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from "fs";
 import { createRequire } from "module";
 import { createConnection } from "net";
 import { homedir } from "os";
@@ -18,11 +18,24 @@ function getHatchLogDir(): string {
 }
 
 /** Open (or create) a log file in append mode, returning the file descriptor.
- *  Creates the parent directory if it doesn't exist. */
-function openHatchLogFile(name: string): number {
-  const dir = getHatchLogDir();
-  mkdirSync(dir, { recursive: true });
-  return openSync(join(dir, name), "a");
+ *  Creates the parent directory if it doesn't exist. Returns "ignore" if the
+ *  directory or file cannot be created (permissions, read-only filesystem, etc.)
+ *  so that spawn falls back to discarding output instead of aborting startup. */
+function openHatchLogFile(name: string): number | "ignore" {
+  try {
+    const dir = getHatchLogDir();
+    mkdirSync(dir, { recursive: true });
+    return openSync(join(dir, name), "a");
+  } catch {
+    return "ignore";
+  }
+}
+
+/** Close a file descriptor returned by openHatchLogFile (no-op for "ignore"). */
+function closeHatchLogFile(fd: number | "ignore"): void {
+  if (typeof fd === "number") {
+    try { closeSync(fd); } catch { /* best-effort */ }
+  }
 }
 
 function isAssistantSourceDir(dir: string): boolean {
@@ -391,18 +404,24 @@ export async function startLocalDaemon(): Promise<void> {
       }
 
       const daemonLogFd = openHatchLogFile("daemon.log");
-      const child = spawn(daemonBinary, [], {
-        cwd: dirname(daemonBinary),
-        detached: true,
-        stdio: ["ignore", daemonLogFd, daemonLogFd],
-        env: daemonEnv,
-      });
-      child.unref();
+      let daemonPid: number | undefined;
+      try {
+        const child = spawn(daemonBinary, [], {
+          cwd: dirname(daemonBinary),
+          detached: true,
+          stdio: ["ignore", daemonLogFd, daemonLogFd],
+          env: daemonEnv,
+        });
+        child.unref();
+        daemonPid = child.pid;
+      } finally {
+        closeHatchLogFile(daemonLogFd);
+      }
 
       // Write PID file immediately so the health monitor can find the process
       // and concurrent hatch() calls see it as alive.
-      if (child.pid) {
-        writeFileSync(pidFile, String(child.pid), "utf-8");
+      if (daemonPid) {
+        writeFileSync(pidFile, String(daemonPid), "utf-8");
       }
     }
 
@@ -550,21 +569,29 @@ export async function startGateway(assistantId?: string): Promise<string> {
     }
 
     const gatewayLogFd = openHatchLogFile("gateway.log");
-    gateway = spawn(gatewayBinary, [], {
-      detached: true,
-      stdio: ["ignore", gatewayLogFd, gatewayLogFd],
-      env: gatewayEnv,
-    });
+    try {
+      gateway = spawn(gatewayBinary, [], {
+        detached: true,
+        stdio: ["ignore", gatewayLogFd, gatewayLogFd],
+        env: gatewayEnv,
+      });
+    } finally {
+      closeHatchLogFile(gatewayLogFd);
+    }
   } else {
     // Source tree / bunx: resolve the gateway source directory and run via bun.
     const gatewayDir = resolveGatewayDir();
     const gwLogFd = openHatchLogFile("gateway.log");
-    gateway = spawn("bun", ["run", "src/index.ts"], {
-      cwd: gatewayDir,
-      detached: true,
-      stdio: ["ignore", gwLogFd, gwLogFd],
-      env: gatewayEnv,
-    });
+    try {
+      gateway = spawn("bun", ["run", "src/index.ts"], {
+        cwd: gatewayDir,
+        detached: true,
+        stdio: ["ignore", gwLogFd, gwLogFd],
+        env: gatewayEnv,
+      });
+    } finally {
+      closeHatchLogFile(gwLogFd);
+    }
   }
 
   gateway.unref();

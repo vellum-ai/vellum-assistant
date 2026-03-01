@@ -99,6 +99,16 @@ function buildRotatingLogger(config: LogFileConfig): pino.Logger {
     );
   }
 
+  // When stdout is not a TTY (e.g. desktop app redirects to a hatch log file),
+  // write to the rotating file only — the hatch log already captured early
+  // startup output and echoing pino output there is unnecessary duplication.
+  if (!process.stdout.isTTY) {
+    return pino(
+      { name: 'assistant', level, serializers: logSerializers },
+      fileStream,
+    );
+  }
+
   return pino(
     { name: 'assistant', level, serializers: logSerializers },
     pino.multistream([
