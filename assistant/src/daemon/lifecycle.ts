@@ -379,6 +379,11 @@ export async function runDaemon(): Promise<void> {
         const prevAllowedTools = session.allowedToolNames;
         session.allowedToolNames = new Set<string>();
 
+        // Snapshot in-memory history length before adding the instruction
+        // so we can truncate back on failure, keeping persisted DB and
+        // in-memory session history in sync.
+        const historyLenBefore = session.getMessages().length;
+
         const messageId = await session.persistUserMessage(
           instruction,
           [],
@@ -386,6 +391,18 @@ export async function runDaemon(): Promise<void> {
           { pointerInstruction: true },
           '[Call status event]',
         );
+
+        // Helper: roll back in-memory history and persisted messages on
+        // failure so subsequent turns aren't influenced by a phantom
+        // [CALL_STATUS_EVENT] turn that users can't see.
+        const rollback = (extraMessageIds?: string[]) => {
+          session.getMessages().splice(historyLenBefore);
+          try { conversationStore.deleteMessageById(messageId); } catch { /* best effort */ }
+          for (const id of extraMessageIds ?? []) {
+            try { conversationStore.deleteMessageById(id); } catch { /* best effort */ }
+          }
+        };
+
         let agentLoopError: string | undefined;
         try {
           await session.runAgentLoop(instruction, messageId, (msg) => {
@@ -403,9 +420,7 @@ export async function runDaemon(): Promise<void> {
           session.allowedToolNames = prevAllowedTools;
         }
         if (agentLoopError) {
-          // Clean up the orphaned instruction message so the fallback
-          // path doesn't leave a phantom user message in the conversation.
-          try { conversationStore.deleteMessageById(messageId); } catch { /* best effort */ }
+          rollback();
           throw new Error(agentLoopError);
         }
 
@@ -434,11 +449,7 @@ export async function runDaemon(): Promise<void> {
                 { conversationId, missingFacts },
                 'Generated pointer text failed fact validation — falling back to deterministic',
               );
-              // Remove both the instruction user message and the generated
-              // assistant message so the conversation is clean for the
-              // deterministic fallback.
-              try { conversationStore.deleteMessageById(latest.id); } catch { /* best effort */ }
-              try { conversationStore.deleteMessageById(messageId); } catch { /* best effort */ }
+              rollback([latest.id]);
               throw new Error('Generated pointer text failed fact validation');
             }
           }
