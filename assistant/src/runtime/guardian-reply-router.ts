@@ -20,7 +20,6 @@
 import {
   applyCanonicalGuardianDecision,
   type CanonicalDecisionResult,
-  isAuthorizedGuardianPrincipal,
 } from '../approvals/guardian-decision-primitive.js';
 import type { ActorContext, ChannelDeliveryContext } from '../approvals/guardian-request-resolvers.js';
 import {
@@ -307,11 +306,8 @@ export async function routeGuardianReply(
       // silently defaulting to approve_once.
       if (!codeResult.remainingText || codeResult.remainingText.trim().length === 0) {
         // Identity check: only expose request details to the assigned guardian
-        // principal. Uses the shared cross-channel principal helper (same logic
-        // as applyCanonicalGuardianDecision) to prevent leaking request details
-        // (toolName, questionText) to unauthorized senders while allowing
-        // cross-channel lookups (e.g. desktop guardian entering a code for a
-        // Telegram-originated request).
+        // principal. Strict principal equality prevents leaking request details
+        // (toolName, questionText) to unauthorized senders.
         if (!actor.guardianPrincipalId) {
           return {
             decisionApplied: false,
@@ -324,7 +320,7 @@ export async function routeGuardianReply(
 
         if (
           request.guardianPrincipalId &&
-          !isAuthorizedGuardianPrincipal(actor.guardianPrincipalId, request.guardianPrincipalId)
+          actor.guardianPrincipalId !== request.guardianPrincipalId
         ) {
           log.warn(
             {
@@ -333,7 +329,7 @@ export async function routeGuardianReply(
               expectedPrincipal: request.guardianPrincipalId,
               actualPrincipal: actor.guardianPrincipalId,
             },
-            'Code-only clarification blocked: actor principal does not match request or canonical principal',
+            'Code-only clarification blocked: actor principal does not match request principal',
           );
           return {
             decisionApplied: false,

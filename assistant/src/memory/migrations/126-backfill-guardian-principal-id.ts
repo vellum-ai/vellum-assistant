@@ -11,10 +11,13 @@ import { withCrashRecovery } from './validate-migration-state.js';
  *    binding's guardianExternalUserId. This is the stable identity used for
  *    all guardian decisions from the desktop client.
  *
- * 2. Backfill channel_guardian_bindings: for every active binding that has
- *    a guardianExternalUserId but is missing guardianPrincipalId, set
- *    guardianPrincipalId = guardianExternalUserId. Each channel's external
- *    user ID *is* the principal identity for that channel.
+ * 2. Backfill channel_guardian_bindings:
+ *    a. For the vellum binding: set guardianPrincipalId = guardianExternalUserId
+ *       (the vellum external user ID IS the canonical principal).
+ *    b. For non-vellum bindings: set guardianPrincipalId to the vellum
+ *       binding's principal (unifying all channels onto one canonical
+ *       principal). Falls back to guardianExternalUserId if no vellum
+ *       binding exists.
  *
  * 3. Backfill canonical_guardian_requests (pending only):
  *    a. If the request has a guardianExternalUserId that maps to an active
@@ -28,7 +31,7 @@ import { withCrashRecovery } from './validate-migration-state.js';
  *    guardianPrincipalId.
  */
 export function migrateBackfillGuardianPrincipalId(database: DrizzleDb): void {
-  withCrashRecovery(database, 'migration_backfill_guardian_principal_id_v1', () => {
+  withCrashRecovery(database, 'migration_backfill_guardian_principal_id_v2', () => {
     const raw = getSqliteFrom(database);
 
     // Guard: tables must exist
@@ -50,18 +53,47 @@ export function migrateBackfillGuardianPrincipalId(database: DrizzleDb): void {
     try {
       raw.exec('BEGIN');
 
-      // ── Step 1: Backfill channel_guardian_bindings ──────────────────
-      // For every active binding missing guardianPrincipalId, set it to
-      // the binding's own guardianExternalUserId. Each channel binding's
-      // external user ID serves as that binding's principal identity.
+      // ── Step 1a: Backfill vellum binding first ─────────────────────
+      // The vellum binding's external user ID IS the canonical principal.
       raw.exec(/*sql*/ `
         UPDATE channel_guardian_bindings
         SET guardian_principal_id = guardian_external_user_id,
             updated_at = ${Date.now()}
         WHERE status = 'active'
+          AND channel = 'vellum'
           AND guardian_external_user_id IS NOT NULL
           AND guardian_principal_id IS NULL
       `);
+
+      // ── Step 1b: Derive canonical principal from vellum binding ──
+      const vellumRow = raw.query(
+        `SELECT guardian_principal_id FROM channel_guardian_bindings
+         WHERE assistant_id = 'self' AND channel = 'vellum' AND status = 'active'
+         AND guardian_principal_id IS NOT NULL LIMIT 1`,
+      ).get() as { guardian_principal_id: string } | null;
+
+      if (vellumRow) {
+        // Unify non-vellum bindings onto the canonical principal
+        raw.query(
+          `UPDATE channel_guardian_bindings
+           SET guardian_principal_id = ?,
+               updated_at = ${Date.now()}
+           WHERE status = 'active'
+             AND channel != 'vellum'
+             AND guardian_external_user_id IS NOT NULL
+             AND guardian_principal_id IS NULL`,
+        ).run(vellumRow.guardian_principal_id);
+      } else {
+        // No vellum binding — fallback to channel-specific principal
+        raw.exec(/*sql*/ `
+          UPDATE channel_guardian_bindings
+          SET guardian_principal_id = guardian_external_user_id,
+              updated_at = ${Date.now()}
+          WHERE status = 'active'
+            AND guardian_external_user_id IS NOT NULL
+            AND guardian_principal_id IS NULL
+        `);
+      }
 
       // ── Step 2: Derive assistant principal from vellum binding ─────
       // The vellum binding's guardianExternalUserId is the canonical

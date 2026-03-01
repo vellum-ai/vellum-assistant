@@ -94,6 +94,7 @@ function createTestCanonicalRequest(overrides: {
   kind?: string;
   toolName?: string;
   guardianExternalUserId?: string;
+  guardianPrincipalId?: string;
   questionText?: string;
   expiresAt?: string;
 }) {
@@ -105,6 +106,7 @@ function createTestCanonicalRequest(overrides: {
     sourceChannel: 'vellum',
     conversationId: overrides.conversationId,
     guardianExternalUserId: overrides.guardianExternalUserId,
+    guardianPrincipalId: overrides.guardianPrincipalId ?? 'test-principal',
     toolName: overrides.toolName ?? 'bash',
     questionText: overrides.questionText,
     requestCode: generateCanonicalRequestCode(),
@@ -304,7 +306,7 @@ describe('HTTP handleGuardianActionDecision', () => {
     expect(body.requestId).toBe('req-stale-1');
   });
 
-  test('passes actorContext with undefined externalUserId (unauthenticated endpoint)', async () => {
+  test('passes actorContext with vellum channel and guardianPrincipalId', async () => {
     createTestCanonicalRequest({ conversationId: 'conv-actor', requestId: 'req-actor-1' });
     mockApplyCanonicalGuardianDecision.mockResolvedValueOnce({ applied: true, requestId: 'req-actor-1', grantMinted: false });
 
@@ -315,7 +317,6 @@ describe('HTTP handleGuardianActionDecision', () => {
     await handleGuardianActionDecision(req, mockLoopbackServer);
     const call = mockApplyCanonicalGuardianDecision.mock.calls[0]![0] as Record<string, unknown>;
     const actorContext = call.actorContext as Record<string, unknown>;
-    expect(actorContext.externalUserId).toBeUndefined();
     expect(actorContext.channel).toBe('vellum');
     expect(actorContext.guardianPrincipalId).toBeDefined();
   });
@@ -373,6 +374,7 @@ describe('listGuardianDecisionPrompts', () => {
       sourceType: 'desktop',
       sourceChannel: 'vellum',
       conversationId: 'conv-expired',
+      guardianPrincipalId: 'test-principal',
       toolName: 'bash',
       requestCode: generateCanonicalRequestCode(),
       status: 'pending',
@@ -597,7 +599,7 @@ describe('IPC guardian_action_decision', () => {
     expect(sent[0].reason).toBe('already_resolved');
   });
 
-  test('passes actorContext with undefined externalUserId (unauthenticated endpoint)', async () => {
+  test('passes actorContext with vellum channel and guardianPrincipalId', async () => {
     createTestCanonicalRequest({ conversationId: 'conv-ipc-actor', requestId: 'req-ipc-actor' });
     mockApplyCanonicalGuardianDecision.mockResolvedValueOnce({ applied: true, requestId: 'req-ipc-actor', grantMinted: false });
 
@@ -609,7 +611,6 @@ describe('IPC guardian_action_decision', () => {
     );
     const call = mockApplyCanonicalGuardianDecision.mock.calls[0]![0] as Record<string, unknown>;
     const actorContext = call.actorContext as Record<string, unknown>;
-    expect(actorContext.externalUserId).toBeUndefined();
     expect(actorContext.channel).toBe('vellum');
     expect(actorContext.guardianPrincipalId).toBeDefined();
   });

@@ -310,13 +310,18 @@ export function validateAndConsumeChallenge(
     metadata.displayName = actorDisplayName.trim();
   }
 
+  // Unify all channel bindings onto the canonical (vellum) principal so that
+  // cross-channel authorization reduces to strict principal equality.
+  const vellumBinding = getActiveBinding(assistantId, 'vellum');
+  const canonicalPrincipal = vellumBinding?.guardianPrincipalId ?? actorExternalUserId;
+
   // Create the new guardian binding
   const binding = createBinding({
     assistantId,
     channel,
     guardianExternalUserId: actorExternalUserId,
     guardianDeliveryChatId: actorChatId,
-    guardianPrincipalId: actorExternalUserId,
+    guardianPrincipalId: canonicalPrincipal,
     verifiedVia: 'challenge',
     metadataJson: Object.keys(metadata).length > 0 ? JSON.stringify(metadata) : null,
   });
