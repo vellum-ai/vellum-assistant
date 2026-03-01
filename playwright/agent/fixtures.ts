@@ -42,7 +42,7 @@ const FIXTURE_REGISTRY: Record<string, FixtureFactory> = {
  * True per-worker isolation requires either:
  *   (a) building N app copies with distinct bundle IDs, or
  *   (b) passing the domain via a launch argument the app respects.
- * See PARALLEL.md for the full analysis.
+ * See the PR description for the full analysis.
  */
 function defaultsDomain(workerIndex: number): string {
   const base = "com.vellum.vellum-assistant";
