@@ -250,7 +250,7 @@ function is401Error(err: unknown): boolean {
  *   "OAuth2 token refresh failed (HTTP 400: invalid_grant)"
  *   "OAuth2 token refresh failed (HTTP 500)"
  *
- * Credential errors: 400 with invalid_grant, 401, 403.
+ * Credential errors: 400 with invalid_grant or invalid_client, 401, 403.
  * Everything else (5xx, network errors, non-credential 400s) is transient.
  */
 function isCredentialError(err: unknown): boolean {
@@ -258,7 +258,8 @@ function isCredentialError(err: unknown): boolean {
   const msg = err.message;
   // 401/403 are always credential errors
   if (/HTTP\s+40[13]\b/.test(msg)) return true;
-  // 400 with invalid_grant means the refresh token is revoked/expired
-  if (/HTTP\s+400\b/.test(msg) && /invalid_grant/.test(msg)) return true;
+  // 400 with invalid_grant means the refresh token is revoked/expired;
+  // invalid_client means client credentials are bad/rotated
+  if (/HTTP\s+400\b/.test(msg) && /invalid_grant|invalid_client/.test(msg)) return true;
   return false;
 }
