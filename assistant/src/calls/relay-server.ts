@@ -1334,10 +1334,18 @@ export class RelayConnection {
     // routing through handleUserInstruction, which would start a fresh
     // model turn and risk reintroduction/disclosure reset.
     const guardianLabel = this.resolveGuardianLabel();
-    this.sendTextToken(
-      `Great! ${guardianLabel} said I can speak with you. How can I help?`,
-      true,
-    );
+    const handoffText = `Great! ${guardianLabel} said I can speak with you. How can I help?`;
+    this.sendTextToken(handoffText, true);
+
+    // Record the deterministic handoff as an assistant_spoke event and
+    // fire the transcript notifier so it appears in conversation history
+    // and real-time transcript subscribers — matching the parity of text
+    // spoken through the normal runTurn() pipeline.
+    recordCallEvent(this.callSessionId, 'assistant_spoke', { text: handoffText });
+    const session = getCallSession(this.callSessionId);
+    if (session) {
+      fireCallTranscriptNotifier(session.conversationId, this.callSessionId, 'assistant', handoffText);
+    }
 
     recordCallEvent(this.callSessionId, 'inbound_acl_post_approval_handoff_spoken', {
       from: fromNumber,
