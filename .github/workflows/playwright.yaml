@@ -7,6 +7,10 @@ on:
         description: 'Release version to test (e.g. "1.2.3"). If set, downloads the DMG from vellum-ai/velly releases instead of building from source.'
         required: false
         type: string
+      test_case:
+        description: 'Run a single test case by name (e.g. "hello-world"). If empty, runs all tests.'
+        required: false
+        type: string
   pull_request:
     types: [labeled]
 
@@ -155,7 +159,12 @@ jobs:
         id: tests
         working-directory: playwright
         continue-on-error: true
-        run: bun run test
+        run: |
+          if [ -n "${{ inputs.test_case }}" ]; then
+            bun run test -g "${{ inputs.test_case }}"
+          else
+            bun run test
+          fi
 
       - name: Upload test artifacts
         id: upload-artifacts
