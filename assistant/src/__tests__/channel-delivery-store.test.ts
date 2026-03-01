@@ -508,7 +508,7 @@ describe('channel-delivery-store', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         sourceChannel: 'telegram',
-        externalChatId: 'chat-del',
+        conversationExternalId: 'chat-del',
         // Note: no assistantId in the body — it comes from the route param
       }),
     });
@@ -558,7 +558,7 @@ describe('channel-delivery-store', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         sourceChannel: 'telegram',
-        externalChatId: 'chat-def',
+        conversationExternalId: 'chat-def',
       }),
     });
 

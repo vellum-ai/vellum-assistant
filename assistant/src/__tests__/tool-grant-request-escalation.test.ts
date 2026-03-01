@@ -84,6 +84,7 @@ mock.module('../runtime/channel-guardian-service.js', () => ({
         channel: 'telegram',
         guardianExternalUserId: 'guardian-1',
         guardianDeliveryChatId: 'guardian-chat-1',
+        guardianPrincipalId: 'test-principal-id',
         status: 'active',
       };
     }

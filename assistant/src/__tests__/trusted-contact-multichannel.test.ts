@@ -221,7 +221,7 @@ for (const config of CHANNEL_CONFIGS) {
       // Guardian notification helper was called for the correct channel
       expect(notifyGuardianCalls.length).toBe(1);
       expect(notifyGuardianCalls[0].sourceChannel).toBe(config.channel);
-      expect(notifyGuardianCalls[0].senderExternalUserId).toBe(config.senderExternalUserId);
+      expect(notifyGuardianCalls[0].actorExternalId).toBe(config.senderExternalUserId);
     });
 
     test('verification creates active member for channel', () => {
