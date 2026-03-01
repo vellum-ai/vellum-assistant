@@ -37,7 +37,8 @@ export async function execute(
   context: ToolContext,
 ): Promise<ToolHandlerResult> {
   mkdirSync(context.screenshotDir, { recursive: true });
-  const filePath = `${context.screenshotDir}/${input.name as string}.png`;
+  const index = String(context.screenshotCounter.value++).padStart(3, "0");
+  const filePath = `${context.screenshotDir}/${index}-${input.name as string}.png`;
   try {
     execFileSync("screencapture", ["-x", filePath], { timeout: 10_000 });
     return {

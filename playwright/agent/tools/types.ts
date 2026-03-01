@@ -18,6 +18,7 @@ export interface TestResult {
 
 export interface ToolContext {
   screenshotDir: string;
+  screenshotCounter: { value: number };
 }
 
 export interface ToolHandlerResult {

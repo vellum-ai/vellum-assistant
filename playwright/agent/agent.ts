@@ -11,7 +11,7 @@ import path from "path";
 import Anthropic from "@anthropic-ai/sdk";
 import type { Page } from "playwright";
 
-import { TOOL_DEFINITIONS, executeTool, type TestResult } from "./tools";
+import { TOOL_DEFINITIONS, createToolExecutor, type TestResult } from "./tools";
 
 // ── Constants ───────────────────────────────────────────────────────
 
@@ -98,6 +98,7 @@ async function runAgentLoop(options: AgentOptions, signal: AbortSignal): Promise
     traceLog(traceLogPath, "Agent started");
   }
 
+  const executeTool = createToolExecutor(screenshotDir);
   const client = new Anthropic();
   const messages: Anthropic.MessageParam[] = [
     {
@@ -212,7 +213,6 @@ async function runAgentLoop(options: AgentOptions, signal: AbortSignal): Promise
         page,
         block.name,
         block.input as Record<string, unknown>,
-        screenshotDir,
       );
 
       traceLog(traceLogPath, `RESULT ${block.name}: ${result.success ? "ok" : "FAIL"} — ${result.data}`);

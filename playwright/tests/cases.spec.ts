@@ -134,6 +134,10 @@ for (const file of caseFiles) {
         verbose: !!process.env.VERBOSE,
       });
 
+      // Stop the screen recording BEFORE attaching so the file is finalized
+      await stopScreenRecording(recorder);
+      recorder = undefined;
+
       // Attach the trace log to the Playwright report
       try {
         const traceContent = readFileSync(traceLogPath, "utf-8");
