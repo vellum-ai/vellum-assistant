@@ -21,32 +21,24 @@ import { slackProvider as slackWatcherProvider } from '../watcher/providers/slac
 const log = getLogger('lifecycle');
 
 export async function initializeProvidersAndTools(config: AssistantConfig): Promise<void> {
-  console.log('[Daemon] Initializing providers and tools...');
   log.info('Daemon startup: initializing providers and tools');
   initializeProviders(config);
-  console.log('[Daemon] Providers initialized');
   await initializeTools();
-  console.log('[Daemon] Tools initialized');
 
   // Start MCP servers and register their tools
   if (config.mcp?.servers && Object.keys(config.mcp.servers).length > 0) {
-    console.log('[MCP] Initializing MCP servers:', Object.keys(config.mcp.servers).join(', '));
     const manager = getMcpServerManager();
     try {
       const serverToolInfos = await manager.start(config.mcp);
       for (const { serverId, serverConfig, tools } of serverToolInfos) {
-        console.log(`[MCP] Server "${serverId}" connected — discovered ${tools.length} tools:`, tools.map(t => t.name).join(', '));
         const mcpTools = createMcpToolsFromServer(tools, serverId, serverConfig, manager);
         registerMcpTools(mcpTools);
-        console.log(`[MCP] Registered ${mcpTools.length} tools from "${serverId}":`, mcpTools.map(t => t.name).join(', '));
       }
     } catch (err) {
-      console.error('[MCP] Server initialization failed:', err);
       log.error({ err }, 'MCP server initialization failed — continuing without MCP tools');
     }
   }
 
-  console.log('[Daemon] Providers and tools initialization complete');
   log.info('Daemon startup: providers and tools initialized');
 }
 
