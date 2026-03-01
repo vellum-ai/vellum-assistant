@@ -440,9 +440,9 @@ export async function runDaemon(): Promise<void> {
           });
 
           // Identify messages created during this run by diffing against
-          // the pre-run snapshot. This is race-safe: only messages that
-          // appeared in this conversation during *our* agent loop are
-          // considered, regardless of concurrent pointer events.
+          // the pre-run snapshot. This captures all messages added to the
+          // conversation during the loop window, which may include messages
+          // from concurrent pointer events (see over-capture caveat above).
           const postRunMessages = conversationStore.getMessages(conversationId);
           const createdMessageIds = postRunMessages
             .filter((m) => !preRunMessageIds.has(m.id) && m.id !== messageId)
