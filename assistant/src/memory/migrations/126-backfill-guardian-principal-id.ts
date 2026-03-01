@@ -140,31 +140,26 @@ export function migrateBackfillGuardianPrincipalId(database: DrizzleDb): void {
             ).run(assistantPrincipal, now);
           }
 
-          // 3c. Expire remaining pending requests that still have no
-          // guardian_principal_id AND whose TTL has already elapsed.
-          // Requests without an expires_at or whose TTL has not yet passed
-          // are left alone so in-flight operations (e.g. voice
-          // pending_question records) are not prematurely killed by the
-          // migration.
+          // 3c. Expire ALL remaining pending requests that still have no
+          // guardian_principal_id, regardless of their expires_at value.
+          // These requests can never be approved in the principal-based
+          // system, so they must be expired proactively.
           const stillUnbound = raw.query(
             `SELECT id FROM canonical_guardian_requests
-             WHERE status = 'pending'
-               AND guardian_principal_id IS NULL
-               AND expires_at IS NOT NULL
-               AND expires_at < ?`,
-          ).all(now) as Array<{ id: string }>;
+             WHERE guardian_principal_id IS NULL
+               AND status = 'pending'`,
+          ).all() as Array<{ id: string }>;
 
           for (const req of stillUnbound) {
             expireStmt.run(now, req.id);
           }
 
-          // Also expire requests identified in 3a that had no binding match,
-          // but only if their TTL has already elapsed (same rationale as 3c).
+          // Also expire requests identified in 3a that had no binding match.
           for (const id of unboundRequestIds) {
             const check = raw.query(
-              `SELECT guardian_principal_id, expires_at FROM canonical_guardian_requests WHERE id = ? AND status = 'pending'`,
-            ).get(id) as { guardian_principal_id: string | null; expires_at: string | null } | null;
-            if (check && !check.guardian_principal_id && check.expires_at && check.expires_at < now) {
+              `SELECT guardian_principal_id FROM canonical_guardian_requests WHERE id = ? AND status = 'pending'`,
+            ).get(id) as { guardian_principal_id: string | null } | null;
+            if (check && !check.guardian_principal_id) {
               expireStmt.run(now, id);
             }
           }

@@ -190,7 +190,6 @@ const DECISIONABLE_KINDS = new Set([
   'tool_approval',
   'tool_grant_request',
   'pending_question',
-  'access_request',
 ]);
 
 export function createCanonicalGuardianRequest(params: CreateCanonicalGuardianRequestParams): CanonicalGuardianRequest {

@@ -462,6 +462,7 @@ export async function applyCanonicalGuardianDecision(
     status: targetStatus,
     answerText: userText,
     decidedByExternalUserId: actorContext.externalUserId,
+    decidedByPrincipalId: actorContext.guardianPrincipalId,
   });
 
   if (!resolved) {

@@ -312,9 +312,18 @@ export async function routeGuardianReply(
         // (toolName, questionText) to unauthorized senders while allowing
         // cross-channel lookups (e.g. desktop guardian entering a code for a
         // Telegram-originated request).
+        if (!actor.guardianPrincipalId) {
+          return {
+            decisionApplied: false,
+            consumed: true,
+            type: 'code_only_clarification',
+            requestId: request.id,
+            replyText: 'Request not found.',
+          };
+        }
+
         if (
           request.guardianPrincipalId &&
-          actor.guardianPrincipalId &&
           !isAuthorizedGuardianPrincipal(actor.guardianPrincipalId, request.guardianPrincipalId)
         ) {
           log.warn(
