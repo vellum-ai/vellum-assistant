@@ -360,6 +360,7 @@ describe('inbound-message-handler trusted-contact interactivity', () => {
 
     const res = await handleChannelInbound(req, undefined, 'test-token');
     const body = await res.json() as Record<string, unknown>;
+    // Unknown actors are ACL-denied: accepted but denied with reason
     expect(body.accepted).toBe(true);
     expect(body.denied).toBe(true);
     expect(body.reason).toBe('not_a_member');

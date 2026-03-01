@@ -306,10 +306,9 @@ describe('notification decision strategy', () => {
     });
 
     test('ingress.access_request template includes caller name for voice-originated requests', () => {
-      // In production, senderIdentifier resolves to senderName for voice
-      // calls (senderName || senderUsername || senderExternalUserId), so
-      // both values are the caller's name. The phone number arrives via
-      // senderExternalUserId and should appear in the parenthetical.
+      // In production, senderIdentifier resolves to the voice caller identity
+      // (actorDisplayName || actorUsername || actorExternalId).
+      // The phone number arrives via actorExternalId and should appear in parentheses.
       const signal = makeSignal({
         sourceEventName: 'ingress.access_request',
         contextPayload: {

@@ -31,13 +31,26 @@ mock.module('../util/logger.js', () => ({
 
 let mockTelegramBinding: unknown = null;
 let mockSmsBinding: unknown = null;
+let mockVellumBinding: unknown = null;
 
 mock.module('../memory/channel-guardian-store.js', () => ({
   getActiveBinding: (_assistantId: string, channel: string) => {
     if (channel === 'telegram') return mockTelegramBinding;
     if (channel === 'sms') return mockSmsBinding;
+    if (channel === 'vellum') return mockVellumBinding;
     return null;
   },
+  createBinding: (params: Record<string, unknown>) => ({
+    id: `binding-${Date.now()}`,
+    ...params,
+    status: 'active',
+    verifiedAt: Date.now(),
+    verifiedVia: 'test',
+    metadataJson: null,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  }),
+  listActiveBindingsByAssistant: () => mockVellumBinding ? [mockVellumBinding] : [],
 }));
 
 mock.module('../config/loader.js', () => ({
@@ -116,13 +129,30 @@ function resetTables(): void {
   db.run('DELETE FROM canonical_guardian_requests');
   db.run('DELETE FROM guardian_action_deliveries');
   db.run('DELETE FROM guardian_action_requests');
+  db.run('DELETE FROM channel_guardian_bindings');
   db.run('DELETE FROM call_pending_questions');
   db.run('DELETE FROM call_events');
   db.run('DELETE FROM call_sessions');
   db.run('DELETE FROM conversations');
-  db.run('DELETE FROM channel_guardian_bindings');
+
   mockTelegramBinding = null;
   mockSmsBinding = null;
+  // Pre-seed vellum binding so the self-healing path in dispatchGuardianQuestion
+  // never triggers (avoids UNIQUE constraint violations on repeated dispatches).
+  mockVellumBinding = {
+    id: 'binding-vellum-test',
+    assistantId: 'self',
+    channel: 'vellum',
+    guardianExternalUserId: 'vellum-guardian',
+    guardianDeliveryChatId: 'local',
+    guardianPrincipalId: 'test-principal-id',
+    status: 'active',
+    verifiedAt: Date.now(),
+    verifiedVia: 'test',
+    metadataJson: null,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
   emitCalls.length = 0;
   threadCreatedFromMock = null;
   mockEmitResult = {

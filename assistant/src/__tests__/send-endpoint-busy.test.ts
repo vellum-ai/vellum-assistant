@@ -15,6 +15,7 @@ import { afterAll, beforeEach, describe, expect, mock,test } from 'bun:test';
 import type { ServerMessage } from '../daemon/ipc-protocol.js';
 import type { Session } from '../daemon/session.js';
 import { createCanonicalGuardianRequest } from '../memory/canonical-guardian-store.js';
+import { createBinding } from '../memory/channel-guardian-store.js';
 import { getOrCreateConversation } from '../memory/conversation-key-store.js';
 
 const testDir = realpathSync(mkdtempSync(join(tmpdir(), 'send-endpoint-busy-test-')));
@@ -234,7 +235,17 @@ describe('POST /v1/messages — queue-if-busy and hub publishing', () => {
     db.run('DELETE FROM conversation_keys');
     db.run('DELETE FROM canonical_guardian_deliveries');
     db.run('DELETE FROM canonical_guardian_requests');
+    db.run('DELETE FROM channel_guardian_bindings');
     pendingInteractions.clear();
+
+    createBinding({
+      assistantId: 'self',
+      channel: 'vellum',
+      guardianExternalUserId: 'guardian-vellum',
+      guardianDeliveryChatId: 'vellum',
+      guardianPrincipalId: 'test-principal-id',
+    });
+
     eventHub = new AssistantEventHub();
   });
 
