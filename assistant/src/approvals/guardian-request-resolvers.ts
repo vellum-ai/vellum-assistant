@@ -39,7 +39,7 @@ const log = getLogger('guardian-request-resolvers');
 
 /** Actor context for the entity making the decision. */
 export interface ActorContext {
-  /** External user ID of the deciding actor (undefined for desktop/trusted). */
+  /** External user ID of the deciding actor (undefined for desktop actors). */
   externalUserId: string | undefined;
   /** Channel the decision arrived on. */
   channel: string;

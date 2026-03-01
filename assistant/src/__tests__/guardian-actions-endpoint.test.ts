@@ -317,7 +317,7 @@ describe('HTTP handleGuardianActionDecision', () => {
     const actorContext = call.actorContext as Record<string, unknown>;
     expect(actorContext.externalUserId).toBeUndefined();
     expect(actorContext.channel).toBe('vellum');
-    expect(actorContext.isTrusted).toBe(true);
+    expect(actorContext.guardianPrincipalId).toBeDefined();
   });
 });
 
@@ -611,7 +611,7 @@ describe('IPC guardian_action_decision', () => {
     const actorContext = call.actorContext as Record<string, unknown>;
     expect(actorContext.externalUserId).toBeUndefined();
     expect(actorContext.channel).toBe('vellum');
-    expect(actorContext.isTrusted).toBe(true);
+    expect(actorContext.guardianPrincipalId).toBeDefined();
   });
 });
 

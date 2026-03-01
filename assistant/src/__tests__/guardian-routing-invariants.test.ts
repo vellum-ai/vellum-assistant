@@ -5,7 +5,7 @@
  * its key architectural invariants:
  *
  *   1. All decision paths route through `applyCanonicalGuardianDecision`
- *   2. Identity checks are enforced before decisions are applied
+ *   2. Principal-based authorization is enforced before decisions are applied
  *   3. Stale/expired/already-resolved decisions are rejected
  *   4. Code-only messages return clarification (not auto-approve)
  *   5. Disambiguation with multiple pending requests stays fail-closed
@@ -88,11 +88,14 @@ afterAll(() => {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/** Consistent test principal used across all test actors and requests. */
+const TEST_PRINCIPAL_ID = 'test-principal-id';
+
 function guardianActor(overrides: Partial<ActorContext> = {}): ActorContext {
   return {
     externalUserId: 'guardian-1',
     channel: 'telegram',
-    isTrusted: false,
+    guardianPrincipalId: TEST_PRINCIPAL_ID,
     ...overrides,
   };
 }
@@ -101,7 +104,7 @@ function trustedActor(overrides: Partial<ActorContext> = {}): ActorContext {
   return {
     externalUserId: undefined,
     channel: 'desktop',
-    isTrusted: true,
+    guardianPrincipalId: TEST_PRINCIPAL_ID,
     ...overrides,
   };
 }
@@ -223,25 +226,26 @@ describe('routing invariant: all decision paths reference applyCanonicalGuardian
 });
 
 // ===========================================================================
-// SECTION 2: Identity enforcement invariants
+// SECTION 2: Principal-based authorization invariants
 // ===========================================================================
 
-describe('routing invariant: identity checks enforced before decisions', () => {
+describe('routing invariant: principal-based authorization enforced before decisions', () => {
   beforeEach(() => resetTables());
 
-  test('non-matching actor identity is rejected by canonical primitive', async () => {
+  test('mismatching actor principal is rejected by canonical primitive', async () => {
     const req = createCanonicalGuardianRequest({
       kind: 'tool_approval',
       sourceType: 'channel',
       conversationId: 'conv-1',
       guardianExternalUserId: 'guardian-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     });
 
     const result = await applyCanonicalGuardianDecision({
       requestId: req.id,
       action: 'approve_once',
-      actorContext: guardianActor({ externalUserId: 'imposter-99' }),
+      actorContext: guardianActor({ guardianPrincipalId: 'wrong-principal' }),
     });
 
     expect(result.applied).toBe(false);
@@ -253,12 +257,13 @@ describe('routing invariant: identity checks enforced before decisions', () => {
     expect(unchanged!.status).toBe('pending');
   });
 
-  test('trusted (desktop) actor bypasses identity check', async () => {
+  test('matching principal authorizes desktop actor', async () => {
     const req = createCanonicalGuardianRequest({
       kind: 'tool_approval',
       sourceType: 'desktop',
       conversationId: 'conv-1',
       guardianExternalUserId: 'guardian-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     });
 
@@ -271,19 +276,19 @@ describe('routing invariant: identity checks enforced before decisions', () => {
     expect(result.applied).toBe(true);
   });
 
-  test('request with no guardian binding rejects non-trusted actor', async () => {
+  test('actor without guardianPrincipalId is rejected', async () => {
     const req = createCanonicalGuardianRequest({
       kind: 'tool_approval',
       sourceType: 'channel',
       conversationId: 'conv-1',
-      // No guardianExternalUserId — open request
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     });
 
     const result = await applyCanonicalGuardianDecision({
       requestId: req.id,
       action: 'approve_once',
-      actorContext: guardianActor({ externalUserId: 'anyone' }),
+      actorContext: guardianActor({ guardianPrincipalId: undefined }),
     });
 
     expect(result.applied).toBe(false);
@@ -291,12 +296,13 @@ describe('routing invariant: identity checks enforced before decisions', () => {
     expect(result.reason).toBe('identity_mismatch');
   });
 
-  test('identity mismatch on code-only message blocks detail leakage', async () => {
+  test('principal mismatch on code-only message blocks detail leakage', async () => {
     createCanonicalGuardianRequest({
       kind: 'tool_approval',
       sourceType: 'channel',
       conversationId: 'conv-1',
       guardianExternalUserId: 'guardian-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: 'ABC123',
       toolName: 'shell',
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -304,7 +310,7 @@ describe('routing invariant: identity checks enforced before decisions', () => {
 
     const result = await routeGuardianReply(replyCtx({
       messageText: 'ABC123',
-      actor: guardianActor({ externalUserId: 'imposter' }),
+      actor: guardianActor({ guardianPrincipalId: 'wrong-principal' }),
       conversationId: 'conv-1',
     }));
 
@@ -329,6 +335,7 @@ describe('routing invariant: stale/expired/already-resolved decisions rejected',
       sourceType: 'channel',
       conversationId: 'conv-1',
       guardianExternalUserId: 'guardian-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       expiresAt: new Date(Date.now() - 10_000).toISOString(), // already expired
     });
 
@@ -349,6 +356,7 @@ describe('routing invariant: stale/expired/already-resolved decisions rejected',
       sourceType: 'channel',
       conversationId: 'conv-1',
       guardianExternalUserId: 'guardian-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     });
 
@@ -393,6 +401,7 @@ describe('routing invariant: stale/expired/already-resolved decisions rejected',
       sourceType: 'channel',
       conversationId: 'conv-1',
       guardianExternalUserId: 'guardian-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: 'ABC123',
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     });
@@ -423,6 +432,7 @@ describe('routing invariant: stale/expired/already-resolved decisions rejected',
       sourceType: 'channel',
       conversationId: 'conv-1',
       guardianExternalUserId: 'guardian-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       expiresAt: new Date(Date.now() - 10_000).toISOString(), // already expired
     });
 
@@ -451,6 +461,7 @@ describe('routing invariant: code-only messages return clarification', () => {
       sourceType: 'channel',
       conversationId: 'conv-1',
       guardianExternalUserId: 'guardian-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: 'A1B2C3',
       toolName: 'shell',
       questionText: 'Run shell command: ls -la',
@@ -482,6 +493,7 @@ describe('routing invariant: code-only messages return clarification', () => {
       sourceChannel: 'voice',
       conversationId: 'conv-1',
       guardianExternalUserId: 'guardian-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       callSessionId: 'call-1',
       pendingQuestionId: 'pq-1',
       requestCode: 'A2B3C4',
@@ -513,6 +525,7 @@ describe('routing invariant: code-only messages return clarification', () => {
       sourceChannel: 'voice',
       conversationId: 'conv-1',
       guardianExternalUserId: 'guardian-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       callSessionId: 'call-2',
       pendingQuestionId: 'pq-2',
       requestCode: 'B2C3D4',
@@ -544,6 +557,7 @@ describe('routing invariant: code-only messages return clarification', () => {
       sourceType: 'channel',
       conversationId: 'conv-1',
       guardianExternalUserId: 'guardian-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: 'A1B2C3',
       toolName: 'shell',
       inputDigest: 'sha256:abc',
@@ -570,6 +584,7 @@ describe('routing invariant: code-only messages return clarification', () => {
       sourceType: 'channel',
       conversationId: 'conv-1',
       guardianExternalUserId: 'guardian-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: 'D4E5F6',
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     });
@@ -601,6 +616,7 @@ describe('routing invariant: disambiguation stays fail-closed', () => {
       sourceType: 'channel',
       conversationId: 'conv-1',
       guardianExternalUserId: 'guardian-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: 'DDD444',
       toolName: 'shell',
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -628,6 +644,7 @@ describe('routing invariant: disambiguation stays fail-closed', () => {
       sourceType: 'channel',
       conversationId: 'conv-1',
       guardianExternalUserId: 'guardian-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: 'GGG777',
       toolName: 'shell',
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -648,12 +665,13 @@ describe('routing invariant: disambiguation stays fail-closed', () => {
     expect(unchanged!.status).toBe('pending');
   });
 
-  test('explicit empty pendingRequestIds hint stays fail-closed for trusted actors', async () => {
+  test('explicit empty pendingRequestIds hint stays fail-closed for desktop actors', async () => {
     createCanonicalGuardianRequest({
       kind: 'tool_approval',
       sourceType: 'channel',
       conversationId: 'conv-other',
       guardianExternalUserId: 'guardian-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: 'HHH888',
       toolName: 'shell',
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -678,6 +696,7 @@ describe('routing invariant: disambiguation stays fail-closed', () => {
       sourceType: 'channel',
       conversationId: 'conv-1',
       guardianExternalUserId: 'guardian-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: 'EEE555',
       toolName: 'shell',
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -688,6 +707,7 @@ describe('routing invariant: disambiguation stays fail-closed', () => {
       sourceType: 'channel',
       conversationId: 'conv-1',
       guardianExternalUserId: 'guardian-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: 'FFF666',
       toolName: 'file_write',
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -719,6 +739,7 @@ describe('routing invariant: disambiguation stays fail-closed', () => {
       sourceType: 'channel',
       conversationId: 'conv-1',
       guardianExternalUserId: 'guardian-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: 'AAA111',
       toolName: 'shell',
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -729,6 +750,7 @@ describe('routing invariant: disambiguation stays fail-closed', () => {
       sourceType: 'channel',
       conversationId: 'conv-1',
       guardianExternalUserId: 'guardian-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: 'BBB222',
       toolName: 'file_write',
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -771,6 +793,7 @@ describe('routing invariant: disambiguation stays fail-closed', () => {
       sourceChannel: 'voice',
       conversationId: 'conv-1',
       guardianExternalUserId: 'guardian-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       callSessionId: 'call-answer',
       pendingQuestionId: 'pq-answer',
       requestCode: 'ABC123',
@@ -784,6 +807,7 @@ describe('routing invariant: disambiguation stays fail-closed', () => {
       sourceChannel: 'voice',
       conversationId: 'conv-1',
       guardianExternalUserId: 'guardian-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       callSessionId: 'call-approval',
       pendingQuestionId: 'pq-approval',
       requestCode: 'DEF456',
@@ -815,6 +839,7 @@ describe('routing invariant: disambiguation stays fail-closed', () => {
       sourceType: 'channel',
       conversationId: 'conv-1',
       guardianExternalUserId: 'guardian-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: 'CCC333',
       toolName: 'shell',
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -849,6 +874,7 @@ describe('routing invariant: disambiguation stays fail-closed', () => {
       sourceType: 'channel',
       conversationId: 'conv-1',
       guardianExternalUserId: 'guardian-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       toolName: 'shell',
       requestCode: 'GO1234',
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -876,6 +902,7 @@ describe('routing invariant: disambiguation stays fail-closed', () => {
       sourceType: 'channel',
       conversationId: 'conv-1',
       guardianExternalUserId: 'guardian-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: '111AAA',
       toolName: 'shell',
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -885,6 +912,7 @@ describe('routing invariant: disambiguation stays fail-closed', () => {
       sourceType: 'channel',
       conversationId: 'conv-2',
       guardianExternalUserId: 'guardian-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: '222BBB',
       toolName: 'shell',
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -951,6 +979,7 @@ describe('routing invariant: approve_always downgraded for guardian-on-behalf', 
       sourceType: 'channel',
       conversationId: 'conv-1',
       guardianExternalUserId: 'guardian-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       toolName: 'shell',
       inputDigest: 'sha256:abc',
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -983,6 +1012,7 @@ describe('routing invariant: callback buttons route through canonical primitive'
       sourceType: 'channel',
       conversationId: 'conv-1',
       guardianExternalUserId: 'guardian-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       toolName: 'shell',
       inputDigest: 'sha256:abc',
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -1009,6 +1039,7 @@ describe('routing invariant: callback buttons route through canonical primitive'
       sourceType: 'channel',
       conversationId: 'conv-1',
       guardianExternalUserId: 'guardian-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     });
     registerPendingToolApprovalInteraction(req.id, 'conv-1', 'shell');
@@ -1032,6 +1063,7 @@ describe('routing invariant: callback buttons route through canonical primitive'
       sourceType: 'channel',
       conversationId: 'conv-other',
       guardianExternalUserId: 'guardian-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     });
     registerPendingToolApprovalInteraction(req.id, 'conv-other', 'shell');
@@ -1044,8 +1076,8 @@ describe('routing invariant: callback buttons route through canonical primitive'
 
     // Should be consumed — conversationId scoping was removed because in
     // cross-channel flows the guardian's conversation differs from the
-    // requester's. Identity validation in the canonical decision primitive
-    // (guardianExternalUserId match) is the correct security boundary.
+    // requester's. Principal validation in the canonical decision primitive
+    // is the correct security boundary.
     expect(result.consumed).toBe(true);
     expect(result.decisionApplied).toBe(true);
 
@@ -1056,14 +1088,14 @@ describe('routing invariant: callback buttons route through canonical primitive'
 });
 
 // ===========================================================================
-// SECTION 9: Destination hints do not bypass identity binding for tool_approval
+// SECTION 9: Destination hints do not bypass principal binding for tool_approval
 // ===========================================================================
 
-describe('routing invariant: destination hints do not bypass tool_approval identity binding', () => {
+describe('routing invariant: destination hints do not bypass tool_approval principal binding', () => {
   beforeEach(() => resetTables());
 
-  test('explicit pendingRequestIds still fail closed when guardianExternalUserId is missing', async () => {
-    // Voice-originated tool approval with missing guardian identity binding.
+  test('explicit pendingRequestIds still fail closed when guardianPrincipalId does not match', async () => {
+    // Voice-originated tool approval with a different principal than the actor.
     const req = createCanonicalGuardianRequest({
       kind: 'tool_approval',
       sourceType: 'voice',
@@ -1071,8 +1103,8 @@ describe('routing invariant: destination hints do not bypass tool_approval ident
       conversationId: 'conv-voice-1',
       toolName: 'shell',
       requestCode: 'NL1234',
+      guardianPrincipalId: 'request-principal',
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
-      // guardianExternalUserId intentionally omitted
     });
     registerPendingToolApprovalInteraction(req.id, 'conv-voice-1', 'shell');
 
@@ -1081,7 +1113,7 @@ describe('routing invariant: destination hints do not bypass tool_approval ident
     const result = await routeGuardianReply(replyCtx({
       messageText: 'approve',
       channel: 'telegram',
-      actor: guardianActor({ externalUserId: 'guardian-tg-user' }),
+      actor: guardianActor({ guardianPrincipalId: 'different-principal' }),
       conversationId: 'conv-guardian-chat',
       pendingRequestIds: [req.id],
       approvalConversationGenerator: undefined,
@@ -1095,8 +1127,8 @@ describe('routing invariant: destination hints do not bypass tool_approval ident
     expect(resolved!.status).toBe('pending');
   });
 
-  test('without destination hints, missing guardianExternalUserId means no pending requests found', async () => {
-    // Voice-originated request: no guardianExternalUserId
+  test('without destination hints, unbound principal means no pending requests found', async () => {
+    // Voice-originated request: different principal
     const req = createCanonicalGuardianRequest({
       kind: 'tool_approval',
       sourceType: 'voice',
@@ -1104,6 +1136,7 @@ describe('routing invariant: destination hints do not bypass tool_approval ident
       conversationId: 'conv-voice-2',
       toolName: 'shell',
       requestCode: 'NL5678',
+      guardianPrincipalId: 'voice-principal',
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     });
 
@@ -1143,6 +1176,7 @@ describe('routing invariant: invite handoff bypass for access requests', () => {
       sourceChannel: 'telegram',
       conversationId: 'conv-access-1',
       guardianExternalUserId: 'guardian-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: 'INV001',
       toolName: 'ingress_access_request',
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -1171,6 +1205,7 @@ describe('routing invariant: invite handoff bypass for access requests', () => {
       sourceType: 'channel',
       sourceChannel: 'telegram',
       guardianExternalUserId: 'guardian-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     });
 
@@ -1193,6 +1228,7 @@ describe('routing invariant: invite handoff bypass for access requests', () => {
       sourceType: 'channel',
       conversationId: 'conv-1',
       guardianExternalUserId: 'guardian-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: 'TAP001',
       toolName: 'shell',
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -1219,6 +1255,7 @@ describe('routing invariant: invite handoff bypass for access requests', () => {
       sourceChannel: 'telegram',
       conversationId: 'conv-access-2',
       guardianExternalUserId: 'guardian-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: 'A00B01',
       toolName: 'ingress_access_request',
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -1239,13 +1276,14 @@ describe('routing invariant: invite handoff bypass for access requests', () => {
     expect(resolved!.status).toBe('approved');
   });
 
-  test('trusted desktop access-request approval returns a verification code reply', async () => {
+  test('desktop access-request approval returns a verification code reply', async () => {
     const req = createCanonicalGuardianRequest({
       kind: 'access_request',
       sourceType: 'channel',
       sourceChannel: 'telegram',
       conversationId: 'conv-access-desktop',
       guardianExternalUserId: 'guardian-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: 'C0D3A5',
       toolName: 'ingress_access_request',
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -1276,6 +1314,7 @@ describe('routing invariant: invite handoff bypass for access requests', () => {
       sourceChannel: 'telegram',
       conversationId: 'conv-access-desktop-nl',
       guardianExternalUserId: 'guardian-1',
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
       requesterExternalUserId: 'requester-1',
       requesterChatId: 'chat-1',
       requestCode: 'A1B2C3',

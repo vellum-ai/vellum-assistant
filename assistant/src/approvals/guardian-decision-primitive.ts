@@ -386,7 +386,7 @@ export async function applyCanonicalGuardianDecision(
 
   // 2c. Principal-based authorization: actor.guardianPrincipalId must match
   // request.guardianPrincipalId for any applied decision. This is the single
-  // authorization gate — there is no trusted bypass.
+  // authorization gate — principal identity must always match.
 
   if (!request.guardianPrincipalId) {
     log.warn(
