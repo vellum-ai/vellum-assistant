@@ -2,47 +2,126 @@
  * Concise pointer/status messages posted to the initiating conversation
  * so the user sees call lifecycle events without the full transcript
  * (which lives in the dedicated voice conversation).
+ *
+ * Trust-aware: trusted audiences receive assistant-generated copy when a
+ * generator is available; untrusted/unknown audiences always receive
+ * deterministic fallback text.
  */
 
 import * as conversationStore from '../memory/conversation-store.js';
+import { getLogger } from '../util/logger.js';
+import type { PointerCopyGenerator } from '../runtime/http-types.js';
+import {
+  composeCallPointerMessageGenerative,
+  getPointerFallbackMessage,
+  type CallPointerMessageContext,
+} from './call-pointer-message-composer.js';
+
+const log = getLogger('call-pointer-messages');
 
 export type PointerEvent = 'started' | 'completed' | 'failed' | 'guardian_verification_succeeded' | 'guardian_verification_failed';
+
+export type PointerAudienceMode = 'auto' | 'trusted' | 'untrusted';
+
+// ---------------------------------------------------------------------------
+// Module-level generator injection (set by daemon lifecycle at startup)
+// ---------------------------------------------------------------------------
+
+let pointerCopyGenerator: PointerCopyGenerator | undefined;
+
+/**
+ * Inject the daemon-provided pointer copy generator.
+ * Called from daemon/lifecycle.ts at startup, following the same pattern
+ * as setRelayBroadcast.
+ */
+export function setPointerCopyGenerator(generator: PointerCopyGenerator): void {
+  pointerCopyGenerator = generator;
+}
+
+/** @internal Reset for tests. */
+export function resetPointerCopyGenerator(): void {
+  pointerCopyGenerator = undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Trust resolution
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve whether the audience for a pointer message is trusted.
+ *
+ * Trusted when:
+ * - conversation threadType is 'private' (local desktop-origin context)
+ * - conversation origin channel is 'vellum' (desktop app)
+ *
+ * Untrusted by default when insufficient evidence.
+ */
+function resolvePointerAudienceTrust(conversationId: string): boolean {
+  try {
+    const threadType = conversationStore.getConversationThreadType(conversationId);
+    if (threadType === 'private') return true;
+
+    const originChannel = conversationStore.getConversationOriginChannel(conversationId);
+    if (originChannel === 'vellum') return true;
+  } catch {
+    // Conversation may not exist or DB may be unavailable — default untrusted.
+  }
+
+  return false;
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
 
 export async function addPointerMessage(
   conversationId: string,
   event: PointerEvent,
   phoneNumber: string,
   extra?: { duration?: string; reason?: string; verificationCode?: string; channel?: string },
+  audienceMode: PointerAudienceMode = 'auto',
 ): Promise<void> {
+  const context: CallPointerMessageContext = {
+    scenario: event,
+    phoneNumber,
+    duration: extra?.duration,
+    reason: extra?.reason,
+    verificationCode: extra?.verificationCode,
+    channel: extra?.channel,
+  };
+
+  // Build required-facts list so generated text cannot drop key details.
+  const requiredFacts: string[] = [phoneNumber];
+  if (extra?.duration) requiredFacts.push(extra.duration);
+  if (extra?.verificationCode) requiredFacts.push(extra.verificationCode);
+  if (extra?.reason) requiredFacts.push(extra.reason);
+
+  // Enforce lifecycle outcome keywords so the LLM cannot rewrite e.g. a
+  // "failed" event as a success — the generated text must contain the
+  // outcome word verbatim.
+  const eventOutcomeKeywords: Record<PointerEvent, string | undefined> = {
+    started: 'started',
+    completed: 'completed',
+    failed: 'failed',
+    guardian_verification_succeeded: 'succeeded',
+    guardian_verification_failed: 'failed',
+  };
+  const outcomeKeyword = eventOutcomeKeywords[event];
+  if (outcomeKeyword) requiredFacts.push(outcomeKeyword);
+
   let text: string;
-  switch (event) {
-    case 'started':
-      text = extra?.verificationCode
-        ? `\u{1F4DE} Call to ${phoneNumber} started. Verification code: ${extra.verificationCode}`
-        : `\u{1F4DE} Call to ${phoneNumber} started.`;
-      break;
-    case 'completed':
-      text = extra?.duration
-        ? `\u{1F4DE} Call to ${phoneNumber} completed (${extra.duration}).`
-        : `\u{1F4DE} Call to ${phoneNumber} completed.`;
-      break;
-    case 'failed':
-      text = extra?.reason
-        ? `\u{1F4DE} Call to ${phoneNumber} failed: ${extra.reason}.`
-        : `\u{1F4DE} Call to ${phoneNumber} failed.`;
-      break;
-    case 'guardian_verification_succeeded': {
-      const ch = extra?.channel ?? 'voice';
-      text = `\u{2705} Guardian verification (${ch}) for ${phoneNumber} succeeded.`;
-      break;
+
+  const isTrusted =
+    audienceMode === 'trusted' ||
+    (audienceMode === 'auto' && resolvePointerAudienceTrust(conversationId));
+
+  if (isTrusted && pointerCopyGenerator) {
+    text = await composeCallPointerMessageGenerative(context, { requiredFacts }, pointerCopyGenerator);
+  } else {
+    if (!isTrusted && pointerCopyGenerator) {
+      log.debug({ event, conversationId }, 'Untrusted audience — using deterministic pointer copy');
     }
-    case 'guardian_verification_failed': {
-      const ch = extra?.channel ?? 'voice';
-      text = extra?.reason
-        ? `\u{274C} Guardian verification (${ch}) for ${phoneNumber} failed: ${extra.reason}.`
-        : `\u{274C} Guardian verification (${ch}) for ${phoneNumber} failed.`;
-      break;
-    }
+    text = getPointerFallbackMessage(context);
   }
 
   // Pointer messages are assistant-generated status updates in the initiating
