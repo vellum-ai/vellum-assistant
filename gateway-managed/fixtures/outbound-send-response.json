@@ -6,5 +6,6 @@
   "route_type": "sms",
   "identity_key": "+15559990000",
   "delivery_id": "SM-provider-123",
-  "provider_status": "queued"
+  "provider_status": "queued",
+  "credential_id": "twilio-2026-01"
 }
