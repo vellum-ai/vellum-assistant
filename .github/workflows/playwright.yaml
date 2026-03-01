@@ -39,7 +39,7 @@ permissions:
   actions: read
 
 jobs:
-  # Build the shard matrix dynamically so the `shards` input controls parallelism.
+  # Compute the shard matrix dynamically so the `shards` input controls parallelism.
   prepare:
     name: Prepare matrix
     if: >-
@@ -58,22 +58,18 @@ jobs:
           echo "matrix=$INDICES" >> "$GITHUB_OUTPUT"
           echo "total=$TOTAL" >> "$GITHUB_OUTPUT"
 
-  playwright:
-    name: Playwright Tests (${{ matrix.shard }}/${{ needs.prepare.outputs.total-shards }})
+  # Build (or download) the macOS app once, then upload it as an artifact
+  # so that each shard can download it instead of rebuilding.
+  build:
+    name: Build app
     needs: prepare
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request' && github.event.label.name == 'e2e')
     runs-on: macos-14
-    environment: dev
-    timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: ${{ fromJson(needs.prepare.outputs.shard-matrix) }}
+    timeout-minutes: 30
     env:
       APP_DISPLAY_NAME: Vellum
-      TOTAL_SHARDS: ${{ needs.prepare.outputs.total-shards }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -152,6 +148,75 @@ jobs:
           chmod +x cli/src/adapters/install.sh
           echo "install.sh downloaded to cli/src/adapters/install.sh"
 
+      # ── Package build outputs for shard jobs ──
+
+      - name: Collect build outputs
+        run: |
+          mkdir -p /tmp/build-outputs
+
+          # App bundle
+          if [ -d clients/macos/dist ]; then
+            cp -R clients/macos/dist /tmp/build-outputs/app-dist
+          fi
+
+          # install.sh (only present for release_version runs)
+          if [ -f cli/src/adapters/install.sh ]; then
+            cp cli/src/adapters/install.sh /tmp/build-outputs/install.sh
+          fi
+
+      - name: Upload build outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-build
+          path: /tmp/build-outputs/
+          retention-days: 1
+          if-no-files-found: error
+
+  # Run Playwright tests, optionally sharded across multiple runners.
+  # Each shard downloads the pre-built app artifact from the build job.
+  playwright:
+    name: Playwright Tests (${{ matrix.shard }}/${{ needs.prepare.outputs.total-shards }})
+    needs: [prepare, build]
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && github.event.label.name == 'e2e')
+    runs-on: macos-14
+    environment: dev
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJson(needs.prepare.outputs.shard-matrix) }}
+    env:
+      APP_DISPLAY_NAME: Vellum
+      TOTAL_SHARDS: ${{ needs.prepare.outputs.total-shards }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download build outputs
+        uses: actions/download-artifact@v4
+        with:
+          name: app-build
+          path: /tmp/build-outputs
+
+      - name: Restore build outputs
+        run: |
+          # Restore app bundle
+          if [ -d /tmp/build-outputs/app-dist ]; then
+            mkdir -p clients/macos
+            cp -R /tmp/build-outputs/app-dist clients/macos/dist
+            echo "App restored at: clients/macos/dist/"
+          fi
+
+          # Restore install.sh
+          if [ -f /tmp/build-outputs/install.sh ]; then
+            mkdir -p cli/src/adapters
+            cp /tmp/build-outputs/install.sh cli/src/adapters/install.sh
+            chmod +x cli/src/adapters/install.sh
+            echo "install.sh restored at: cli/src/adapters/install.sh"
+          fi
+
       # ── Common steps ──
 
       - name: Remove all source files except playwright and app
@@ -206,6 +271,11 @@ jobs:
           echo "ANTHROPIC_API_KEY=${{ steps.secrets.outputs.ANTHROPIC_API_KEY }}" >> "$GITHUB_ENV"
           echo "TWILIO_AUTH_TOKEN=${{ steps.secrets.outputs.TWILIO_AUTH_TOKEN }}" >> "$GITHUB_ENV"
           echo "TWILIO_ACCOUNT_SID=${{ vars.TWILIO_ACCOUNT_SID }}" >> "$GITHUB_ENV"
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
 
       - name: Install Playwright dependencies
         if: ${{ !inputs.use_xcode }}
