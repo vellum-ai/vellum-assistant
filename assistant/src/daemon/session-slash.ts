@@ -1,4 +1,8 @@
 import { randomBytes, randomUUID } from 'node:crypto';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+import QRCode from 'qrcode';
 
 import { getGatewayPort, getIngressPublicBaseUrl } from '../config/env.js';
 import { getConfig, loadRawConfig, saveRawConfig } from '../config/loader.js';
@@ -11,13 +15,14 @@ import {
   rewriteKnownSlashCommandPrompt,
 } from '../skills/slash-commands.js';
 import { getLocalIPv4 } from '../util/network-info.js';
+import { getWorkspaceDir } from '../util/platform.js';
 import { getAssistantName } from './identity-helpers.js';
 import type { PairingStore } from './pairing-store.js';
 
 export type SlashResolution =
   | { kind: 'passthrough'; content: string }
   | { kind: 'rewritten'; content: string; skillId: string }
-  | { kind: 'unknown'; message: string };
+  | { kind: 'unknown'; message: string; qrFilename?: string };
 
 // ── /pair command — module-level pairing context ────────────────────
 
@@ -349,6 +354,27 @@ export function resolveSlash(content: string, context?: SlashContext): SlashReso
 
 // ── /pair command ────────────────────────────────────────────────────
 
+function buildPairingQRCodeFilename(): string {
+  const now = new Date();
+  const ts = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, '0'),
+    String(now.getDate()).padStart(2, '0'),
+    String(now.getHours()).padStart(2, '0'),
+    String(now.getMinutes()).padStart(2, '0'),
+    String(now.getSeconds()).padStart(2, '0'),
+  ].join('');
+  return `code${ts}.png`;
+}
+
+async function savePairingQRCodePng(payloadJson: string, filename: string): Promise<void> {
+  const qrDir = join(getWorkspaceDir(), 'pairing-qr');
+  mkdirSync(qrDir, { recursive: true });
+  const qrPngPath = join(qrDir, filename);
+  const pngBuffer = await QRCode.toBuffer(payloadJson, { type: 'png', width: 512 });
+  writeFileSync(qrPngPath, pngBuffer);
+}
+
 function resolvePairCommand(content: string): SlashResolution | null {
   if (content.trim() !== '/pair') return null;
 
@@ -402,6 +428,12 @@ function resolvePairCommand(content: string): SlashResolution | null {
     payload.localLanUrl = localLanUrl;
   }
 
+  // Save QR code as PNG to the workspace pairing-qr folder (fire-and-forget
+  // so the synchronous slash resolution is not blocked).
+  const payloadJson = JSON.stringify(payload);
+  const qrFilename = buildPairingQRCodeFilename();
+  savePairingQRCodePng(payloadJson, qrFilename).catch(() => {});
+
   const lines = [
     'Pairing Ready\n',
     'Scan the QR code below with the Vellum iOS app, or use the pairing payload to connect manually.\n',
@@ -414,10 +446,11 @@ function resolvePairCommand(content: string): SlashResolution | null {
     lines.push(`LAN URL:  ${localLanUrl}`);
   }
   lines.push(
+    `\nQR code saved to pairing-qr/${qrFilename}`,
     '\nThis pairing request expires in 5 minutes. Run `/pair` again to generate a new one.',
   );
 
-  return { kind: 'unknown', message: lines.join('\n') };
+  return { kind: 'unknown', message: lines.join('\n'), qrFilename };
 }
 
 // ── Provider Ordering Error Detection ────────────────────────────────
