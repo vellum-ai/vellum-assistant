@@ -14,7 +14,7 @@ concurrency:
 jobs:
   checks:
     if: contains(github.event.pull_request.labels.*.name, 'preview')
-    name: Lint & Type Check
+    name: Lint, Type Check & Test
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -40,3 +40,6 @@ jobs:
 
       - name: Compile check
         run: bun build --compile src/index.ts --outfile /dev/null
+
+      - name: Test
+        run: bun run test
