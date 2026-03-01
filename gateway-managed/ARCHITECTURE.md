@@ -37,6 +37,12 @@ The managed gateway is a dedicated service lane for Vellum-owned shared channel 
 - Supports lifecycle-aware token validation (rotation overlap, revocation, and expiry).
 - Extends managed-gateway config with Twilio token catalog validation at startup.
 
+## P07 PR-2 scope
+
+- Adds managed Twilio SMS webhook skeleton endpoint at `/webhooks/twilio/sms`.
+- Enforces Twilio signature verification and explicit validation/auth error envelopes.
+- Defers route-resolution and downstream dispatch wiring to follow-up PRs.
+
 ## Endpoints
 
 - `GET /healthz`
@@ -44,3 +50,4 @@ The managed gateway is a dedicated service lane for Vellum-owned shared channel 
 - `GET /v1/internal/managed-gateway/healthz/`
 - `GET /v1/internal/managed-gateway/readyz/`
 - `POST /v1/internal/managed-gateway/routes/resolve/`
+- `POST /webhooks/twilio/sms`
