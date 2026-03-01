@@ -118,6 +118,7 @@ struct VoiceSettingsView: View {
             }
         }
         .padding(VSpacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
     }
 
@@ -314,6 +315,7 @@ struct VoiceSettingsView: View {
                 .accessibilityLabel("Enable wake word listening")
         }
         .padding(VSpacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
     }
 
@@ -360,6 +362,7 @@ struct VoiceSettingsView: View {
             }
         }
         .padding(VSpacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
     }
 
@@ -392,6 +395,7 @@ struct VoiceSettingsView: View {
             .accessibilityLabel("Conversation timeout duration")
         }
         .padding(VSpacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
     }
 
@@ -493,6 +497,7 @@ struct VoiceSettingsView: View {
             }
         }
         .padding(VSpacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
     }
 

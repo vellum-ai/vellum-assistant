@@ -260,6 +260,7 @@ struct SettingsAccountTab: View {
             }
         }
         .padding(VSpacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
     }
 
@@ -352,6 +353,7 @@ struct SettingsAccountTab: View {
                 }
             }
             .padding(VSpacing.lg)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .vCard(background: VColor.surfaceSubtle)
         }
     }
@@ -369,7 +371,7 @@ struct SettingsAccountTab: View {
                 .font(VFont.sectionTitle)
                 .foregroundColor(VColor.textPrimary)
 
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
+            VStack(alignment: .leading, spacing: VSpacing.lg) {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text("Retire this assistant")
                         .font(VFont.body)
@@ -390,6 +392,7 @@ struct SettingsAccountTab: View {
             }
         }
         .padding(VSpacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
     }
 
@@ -456,7 +459,7 @@ struct SettingsAccountTab: View {
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
 
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                VStack(alignment: .leading, spacing: VSpacing.lg) {
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
                         Text("Hatch a new assistant")
                             .font(VFont.body)
@@ -472,6 +475,7 @@ struct SettingsAccountTab: View {
                 }
             }
             .padding(VSpacing.lg)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .vCard(background: VColor.surfaceSubtle)
         }
     }

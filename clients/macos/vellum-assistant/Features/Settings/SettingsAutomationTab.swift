@@ -18,7 +18,7 @@ struct SettingsAutomationTab: View {
                         .font(VFont.sectionTitle)
                         .foregroundColor(VColor.textPrimary)
 
-                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    VStack(alignment: .leading, spacing: VSpacing.lg) {
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
                             Text("Manage Reminders")
                                 .font(VFont.body)
@@ -33,6 +33,7 @@ struct SettingsAutomationTab: View {
                     }
                 }
                 .padding(VSpacing.lg)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .vCard(background: VColor.surfaceSubtle)
 
                 VStack(alignment: .leading, spacing: VSpacing.md) {
@@ -40,7 +41,7 @@ struct SettingsAutomationTab: View {
                         .font(VFont.sectionTitle)
                         .foregroundColor(VColor.textPrimary)
 
-                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    VStack(alignment: .leading, spacing: VSpacing.lg) {
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
                             Text("Manage Scheduled Tasks")
                                 .font(VFont.body)
@@ -55,6 +56,7 @@ struct SettingsAutomationTab: View {
                     }
                 }
                 .padding(VSpacing.lg)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .vCard(background: VColor.surfaceSubtle)
             }
 
@@ -135,6 +137,7 @@ struct HeartbeatAutomationSection: View {
                 .foregroundColor(VColor.textMuted)
         }
         .padding(VSpacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
     }
 
@@ -238,6 +241,7 @@ struct HeartbeatAutomationSection: View {
             }
         }
         .padding(VSpacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
     }
 
