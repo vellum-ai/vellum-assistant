@@ -4,12 +4,14 @@ struct TestCase {
     let name: String
     let filePath: String
     let fixture: String?
+    let requiredEnv: [String]?
     let experimental: Bool
     let rawContent: String
 }
 
 struct ParsedFrontmatter {
     let fixture: String?
+    let requiredEnv: [String]?
     let experimental: Bool
     let body: String
 }
@@ -17,7 +19,7 @@ struct ParsedFrontmatter {
 func parseFrontmatter(_ content: String) -> ParsedFrontmatter {
     // Match YAML frontmatter between --- delimiters
     guard let range = content.range(of: "^---\n([\\s\\S]*?)\n---\n([\\s\\S]*)$", options: .regularExpression) else {
-        return ParsedFrontmatter(fixture: nil, experimental: false, body: content)
+        return ParsedFrontmatter(fixture: nil, requiredEnv: nil, experimental: false, body: content)
     }
 
     let matched = String(content[range])
@@ -48,6 +50,7 @@ func parseFrontmatter(_ content: String) -> ParsedFrontmatter {
     }
 
     var fixture: String?
+    var requiredEnv: [String]?
     var experimental: Bool = false
     for line in frontmatterLines {
         let parts = line.split(separator: ":", maxSplits: 1)
@@ -57,6 +60,8 @@ func parseFrontmatter(_ content: String) -> ParsedFrontmatter {
         switch key {
         case "fixture":
             fixture = value
+        case "required_env":
+            requiredEnv = value.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         case "experimental":
             experimental = value.lowercased() == "true"
         default:
@@ -65,7 +70,7 @@ func parseFrontmatter(_ content: String) -> ParsedFrontmatter {
     }
 
     let body = bodyLines.joined(separator: "\n")
-    return ParsedFrontmatter(fixture: fixture, experimental: experimental, body: body)
+    return ParsedFrontmatter(fixture: fixture, requiredEnv: requiredEnv, experimental: experimental, body: body)
 }
 
 func discoverTestCases(casesDir: String, filter: String?) -> [TestCase] {
@@ -90,7 +95,7 @@ func discoverTestCases(casesDir: String, filter: String?) -> [TestCase] {
             continue
         }
 
-        cases.append(TestCase(name: name, filePath: filePath, fixture: parsed.fixture, experimental: parsed.experimental, rawContent: rawContent))
+        cases.append(TestCase(name: name, filePath: filePath, fixture: parsed.fixture, requiredEnv: parsed.requiredEnv, experimental: parsed.experimental, rawContent: rawContent))
     }
 
     return cases

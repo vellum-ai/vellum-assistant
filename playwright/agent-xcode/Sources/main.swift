@@ -53,6 +53,16 @@ func main() async {
             continue
         }
 
+        // Check required env vars
+        if let requiredEnv = testCase.requiredEnv {
+            let missing = requiredEnv.filter { ProcessInfo.processInfo.environment[$0] == nil }
+            if !missing.isEmpty {
+                skipped.append(testCase.name)
+                print("⏭ Skipping (missing env: \(missing.joined(separator: ", "))): \(testCase.name)")
+                continue
+            }
+        }
+
         print("▶ Running: \(testCase.name)")
         let startTime = Date()
 
