@@ -742,6 +742,19 @@ echo "Built: $APP_DIR"
 # 7. Run if requested
 if [ "$CMD" = "run" ]; then
     echo "Launching..."
+    # Kill any previous build.sh watcher processes so they don't linger
+    # after their terminal is closed and trigger surprise rebuilds.
+    # Skip when invoked as a nested rebuild (VELLUM_NO_WATCH=1) to avoid
+    # killing the parent watcher process.
+    if [ -z "${VELLUM_NO_WATCH:-}" ]; then
+        my_pid=$$
+        for pid in $(pgrep -f "build\.sh run" 2>/dev/null || true); do
+            if [ "$pid" != "$my_pid" ]; then
+                kill "$pid" 2>/dev/null || true
+            fi
+        done
+    fi
+
     # Kill existing instance if running (SIGTERM for clean shutdown)
     if pgrep -x "$BUNDLE_DISPLAY_NAME" > /dev/null; then
         pkill -x "$BUNDLE_DISPLAY_NAME" 2>/dev/null || true

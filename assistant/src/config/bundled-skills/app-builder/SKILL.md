@@ -1023,6 +1023,8 @@ async function handleBulk(action) {
 
 **Presentation slideshow** — multi-slide deck with 8 layout variants (title, stats, bullets, quote, comparison, visual, timeline, closing). Use the slideshow widget for presentations, pitch decks, and multi-slide educational content. The model provides slide content; the widget handles navigation, transitions, and keyboard support. Never tell the user how to navigate slides — the UI is self-explanatory.
 
+> **For comprehensive slide design guidelines, see the "Presentation Slide Design" section below.** The following HTML shows the structural template for all 8 layout types.
+
 ```html
 <!DOCTYPE html>
 <html lang="en">
@@ -1508,7 +1510,103 @@ Before delivering any app, mentally verify these 10 items — they cover the gap
 | `.v-metric-card .v-metric-icon` | Emoji icon in metric cards | Place emoji `<span>` with `.v-metric-icon` inside `.v-metric-card` |
 | `.v-slideshow` | Presentation slide deck with transitions | `.v-slide` (`.active`), `.v-slide-label`, `.v-slide-title`, `.v-slide-body`, `.v-slide-stats`, `.v-slide-stat`, `.v-slide-quote` — init with `vellum.widgets.slideshow()` |
 
-Every app should include: search/filter, toast notifications for all CRUD operations, `window.vellum.confirm()` for destructive actions, staggered page-load animation, card hover effects, and skeleton loading states.
+Every app should include: search/filter, toast notifications for all CRUD operations, `window.vellum.confirm()` for destructive actions, staggered page-load animation, card hover effects, and skeleton loading states. (These requirements do not apply to presentation slide decks — see "Presentation Slide Design" below.)
+
+## Presentation Slide Design
+
+### Slide Design Philosophy
+
+- **One idea per slide** — each slide communicates a single concept, not a cluster of related points
+- **Glanceable, not readable** — a slide should be understood in 3 seconds; dense text belongs in documents, not presentations
+- **Visual storytelling arc** — open strong, build context, create emotional resonance, close with impact
+- **Cinematic quality bar** — every deck should feel at home in a startup pitch, TED talk, or Apple keynote
+- **The slide is the visual** — don't describe what the audience should imagine; show it through layout, color, and typography
+
+### What App Rules to Skip for Slides
+
+The general app design checklist does NOT apply to slide decks. Specifically skip:
+
+- Contextual header/greeting ("Good morning, Alex") — slides are not dashboards
+- Search/filter, pill toggles, suggestion chips — slides are not interactive apps
+- Toast notifications, confirm dialogs, form validation — no CRUD in slides
+- Data bridge API / `window.vellum.data` — slides are static content
+- Skeleton loading states — slides render instantly
+- Mandatory trust/status pill badge — use only when slide content calls for it (e.g., a "verified" badge on a stats slide)
+- Mandatory emoji stat cards — use when they strengthen the message, skip when they clutter
+- The app Pre-Ship Design Checklist — use the Slide Pre-Ship Checklist instead
+
+### Slide Typography
+
+- **Title slides:** `clamp(2rem, 5vw, 3rem)`, weight 800 — much larger than app text
+- **Body text:** `clamp(1rem, 2.5vw, 1.25rem)` — larger than app body (14px); keep to 2–3 sentences max
+- **Stat values:** `clamp(1.75rem, 4vw, 2.5rem)` — big numbers are the most impactful element on any slide
+- **Accent-word technique is ESSENTIAL** — even more than apps, every heading should color one key word with the accent color
+- **Contrast is everything** — near-white on dark, near-black on light; no washed-out middle ground
+- **Never go below 15px** for any visible text — if it doesn't fit, cut words, don't shrink font
+
+### Slide Color & Visual Treatment
+
+- **Bold, full-bleed backgrounds** — deep navy, rich purple, dark emerald, charcoal; not just tinted whites
+- **Animated gradient backgrounds** are ideal for title and closing slides — use `background-size: 400% 400%` with CSS animation
+- **Domain-matched palettes still apply**, just executed more dramatically — a finance deck is navy/gold, a health deck is teal/white
+- **One accent color used sparingly** — titles, stat borders, label dots, CTA buttons; never more than one accent
+- **Glassmorphism works well** for slide overlays on visual/immersive slides — `backdrop-filter: blur()` with semi-transparent bg
+- **Full-screen immersion:** `.v-slideshow` should use `border-radius: 0; min-height: 100vh` for edge-to-edge feel
+- **Vary background darkness across slides** — alternate between dark, medium, and light backgrounds to create visual rhythm
+
+### Slide Layout Rhythm
+
+When to use each of the 8 layout variants:
+
+| Slide | Type | When to Use |
+|---|---|---|
+| 1 | **Title** | Bold title with accent word, subtitle, optional badge — always first |
+| 2 | **Stats** | Early for credibility; 2–4 stat cards with big numbers |
+| 3–4 | **Bullets / Content** | Core message; 3–5 bullets max, or 2–3 sentence body |
+| 5 | **Quote** | Emotional punctuation; center-aligned, breaks visual pattern |
+| 6 | **Comparison** | Two-column before/after, entity comparison, or pros/cons |
+| 7 | **Visual / Immersive** | Gradient background with glass overlay, minimal text |
+| 8 | **Closing / CTA** | Bold title, short takeaway, optional stat reinforcement |
+
+**Layout rhythm rules:**
+
+- **NEVER** two slides of the same type back-to-back
+- **5–8 slides:** title → stats → bullets → quote → comparison or visual → closing
+- **3–4 slides:** title → stats or bullets → closing
+- **10+ slides:** repeat content/stats but always separate with a quote or visual slide
+- **Every deck needs at least 3 different layout types** — variety creates visual interest
+
+### Slide Anti-Slop Rules
+
+- **NEVER** more than 6 bullet points per slide — if you have more, split into two slides
+- **NEVER** body text smaller than 15px — cut words instead of shrinking
+- **NEVER** the same background color on consecutive slides — vary dark/light/gradient
+- **NEVER** skip accent-word on title/heading slides — it's the #1 visual technique
+- **NEVER** use `.v-slide-label` on every single slide — aim for 40–60% of slides
+- **NEVER** center-align bullet slides — only center quotes and closing slides
+- **NEVER** use the same stat value format everywhere — mix `$2.4M`, `147%`, `3x`, `12k+` for variety
+
+### Slide Pre-Ship Checklist
+
+Before delivering any slide deck, verify:
+
+1. **Domain-matched palette** — colors match the topic (not default violet for everything)
+2. **Bold background** — dark, gradient, or strongly tinted; not plain white
+3. **Accent word in every title** — one key word colored with the accent
+4. **One idea per slide** — each slide understood in 3 seconds
+5. **Layout variety** — 3+ different layout types, no consecutive same-type
+6. **Typography scale** — clear hierarchy; titles much larger than body text
+7. **Sparse content** — max 6 bullets, max 3 sentences body text per slide
+8. **Visual punctuation** — at least one quote, visual, or center-aligned slide
+9. **Strong open and close** — impactful title slide, clear takeaway closing
+10. **Immersive feel** — full-viewport slides, `min-height: 100vh; border-radius: 0`
+
+### What Great Slide Decks Look Like
+
+- **Startup pitch deck** — dark navy animated gradient, accent-word title, trust pill on stats, big stat numbers (`$12M ARR`, `3x growth`), customer quote mid-deck, CTA closing with one bold ask
+- **Company overview** — corporate blue on charcoal, stats-heavy early slides, comparison slide (us vs. competitors), timeline slide, professional/minimal emoji usage
+- **Educational deck** — bright accent on light background, emoji in bullet points for visual anchoring, expert quote, glass overlay visual slide, "key takeaways" closing
+- **Creative agency deck** — bold saturated palette, animated gradient backgrounds, minimal text per slide, maximum visual drama, notable client quote, portfolio-style comparison
 
 ## Error Handling
 

@@ -43,7 +43,7 @@ export function createTelegramDeliverHandler(config: GatewayConfig) {
       return Response.json({ error: "Invalid JSON" }, { status: 400 });
     }
 
-    const { chatId, text, assistantId, attachments, approval, chatAction } = body;
+    const { chatId, text, assistantId: _assistantId, attachments, approval, chatAction } = body;
 
     if (!chatId || typeof chatId !== "string") {
       return Response.json({ error: "chatId is required" }, { status: 400 });

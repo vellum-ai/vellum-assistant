@@ -158,27 +158,31 @@ struct SettingsAccountTab: View {
                         .foregroundColor(VColor.textSecondary)
                 }
             } else if let user = authManager.currentUser {
-                HStack(spacing: VSpacing.sm) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(VColor.success)
-                        .font(.system(size: 14))
-                    Text(user.email ?? user.display ?? "Signed in")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
-                    Spacer()
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    HStack(spacing: VSpacing.sm) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(VColor.success)
+                            .font(.system(size: 14))
+                        Text(user.email ?? user.display ?? "Signed in")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textSecondary)
+                        Spacer()
+                    }
                     VButton(label: "Log Out", style: .danger, size: .large) {
                         Task { await authManager.logout() }
                     }
                 }
             } else {
-                HStack(spacing: VSpacing.sm) {
-                    Image(systemName: "xmark.circle")
-                        .foregroundColor(VColor.textMuted)
-                        .font(.system(size: 14))
-                    Text("Not signed in")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
-                    Spacer()
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    HStack(spacing: VSpacing.sm) {
+                        Image(systemName: "xmark.circle")
+                            .foregroundColor(VColor.textMuted)
+                            .font(.system(size: 14))
+                        Text("Not signed in")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textSecondary)
+                        Spacer()
+                    }
                     VButton(
                         label: authManager.isSubmitting ? "Signing in..." : "Log In",
                         style: .primary,
@@ -256,6 +260,7 @@ struct SettingsAccountTab: View {
             }
         }
         .padding(VSpacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
     }
 
@@ -348,6 +353,7 @@ struct SettingsAccountTab: View {
                 }
             }
             .padding(VSpacing.lg)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .vCard(background: VColor.surfaceSubtle)
         }
     }
@@ -365,7 +371,7 @@ struct SettingsAccountTab: View {
                 .font(VFont.sectionTitle)
                 .foregroundColor(VColor.textPrimary)
 
-            HStack {
+            VStack(alignment: .leading, spacing: VSpacing.lg) {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text("Retire this assistant")
                         .font(VFont.body)
@@ -380,13 +386,13 @@ struct SettingsAccountTab: View {
                             .foregroundColor(VColor.textMuted)
                     }
                 }
-                Spacer()
                 VButton(label: "Retire...", style: .danger, size: .large) {
                     showingRetireConfirmation = true
                 }
             }
         }
         .padding(VSpacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
     }
 
@@ -453,7 +459,7 @@ struct SettingsAccountTab: View {
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
 
-                HStack {
+                VStack(alignment: .leading, spacing: VSpacing.lg) {
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
                         Text("Hatch a new assistant")
                             .font(VFont.body)
@@ -462,7 +468,6 @@ struct SettingsAccountTab: View {
                             .font(VFont.caption)
                             .foregroundColor(VColor.textMuted)
                     }
-                    Spacer()
                     VButton(label: "Hatch...", style: .primary, size: .large) {
                         AppDelegate.shared?.replayOnboarding()
                         onClose()
@@ -470,6 +475,7 @@ struct SettingsAccountTab: View {
                 }
             }
             .padding(VSpacing.lg)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .vCard(background: VColor.surfaceSubtle)
         }
     }

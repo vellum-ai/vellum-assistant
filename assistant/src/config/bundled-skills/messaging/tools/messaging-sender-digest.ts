@@ -1,0 +1,51 @@
+import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
+import { err, ok, resolveProvider, withProviderToken } from './shared.js';
+
+export async function run(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
+  const platform = input.platform as string | undefined;
+  const query = (input.query as string) ?? 'category:promotions newer_than:90d';
+  const maxMessages = input.max_messages as number | undefined;
+  const maxSenders = input.max_senders as number | undefined;
+
+  try {
+    const provider = resolveProvider(platform);
+
+    if (!provider.senderDigest) {
+      return err(`The ${provider.displayName} provider does not support sender digest scanning.`);
+    }
+
+    return withProviderToken(provider, async (token) => {
+      const result = await provider.senderDigest!(token, query, { maxMessages, maxSenders });
+
+      if (result.senders.length === 0) {
+        return ok(JSON.stringify({
+          senders: [],
+          total_scanned: 0,
+          message: 'No emails found matching the query. Try broadening the search (e.g. remove category filter or extend date range).',
+        }));
+      }
+
+      // Map to snake_case output format for LLM consumption
+      const senders = result.senders.map((s) => ({
+        id: s.id,
+        display_name: s.displayName,
+        email: s.email,
+        message_count: s.messageCount,
+        has_unsubscribe: s.hasUnsubscribe,
+        newest_message_id: s.newestMessageId,
+        search_query: s.searchQuery,
+        message_ids: s.messageIds,
+        has_more: s.hasMore,
+      }));
+
+      return ok(JSON.stringify({
+        senders,
+        total_scanned: result.totalScanned,
+        query_used: result.queryUsed,
+        note: `message_count reflects emails found per sender within the ${result.totalScanned} messages scanned. The archive tool may find additional messages beyond this sample.`,
+      }));
+    });
+  } catch (e) {
+    return err(e instanceof Error ? e.message : String(e));
+  }
+}

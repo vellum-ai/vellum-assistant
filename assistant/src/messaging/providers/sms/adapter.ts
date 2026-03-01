@@ -18,6 +18,7 @@ import { getGatewayInternalBaseUrl, getTwilioPhoneNumberEnv } from '../../../con
 import { loadConfig } from '../../../config/loader.js';
 import { getOrCreateConversation } from '../../../memory/conversation-key-store.js';
 import * as externalConversationStore from '../../../memory/external-conversation-store.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from '../../../runtime/assistant-scope.js';
 import { getSecureKey } from '../../../security/secure-keys.js';
 import { readHttpToken } from '../../../util/platform.js';
 import type { MessagingProvider } from '../../provider.js';
@@ -56,22 +57,8 @@ function hasTwilioCredentials(): boolean {
   );
 }
 
-/**
- * Resolve the configured SMS phone number.
- * Priority: assistant-scoped phone number > TWILIO_PHONE_NUMBER env > config sms.phoneNumber > secure key fallback.
- */
-function getPhoneNumber(assistantId?: string): string | undefined {
-  // Check assistant-scoped phone number first
-  if (assistantId) {
-    try {
-      const config = loadConfig();
-      const assistantPhone = config.sms?.assistantPhoneNumbers?.[assistantId];
-      if (assistantPhone) return assistantPhone;
-    } catch {
-      // Config may not be available yet during early startup
-    }
-  }
-
+/** Resolve the configured SMS phone number. */
+function getPhoneNumber(): string | undefined {
   const fromEnv = getTwilioPhoneNumberEnv();
   if (fromEnv) return fromEnv;
 
@@ -83,15 +70,6 @@ function getPhoneNumber(assistantId?: string): string | undefined {
   }
 
   return getSecureKey('credential:twilio:phone_number') || undefined;
-}
-
-function hasAnyAssistantPhoneNumber(): boolean {
-  try {
-    const config = loadConfig();
-    return Object.keys(config.sms?.assistantPhoneNumbers ?? {}).length > 0;
-  } catch {
-    return false;
-  }
 }
 
 export const smsMessagingProvider: MessagingProvider = {
@@ -106,7 +84,16 @@ export const smsMessagingProvider: MessagingProvider = {
    * the `from` for outbound messages.
    */
   isConnected(): boolean {
-    return hasTwilioCredentials() && (!!getPhoneNumber() || hasAnyAssistantPhoneNumber());
+    if (!hasTwilioCredentials()) return false;
+    if (getPhoneNumber()) return true;
+    try {
+      const config = loadConfig();
+      const mappings = config.sms?.assistantPhoneNumbers as Record<string, string> | undefined;
+      if (mappings && Object.keys(mappings).length > 0) return true;
+    } catch {
+      // Config may not be available yet
+    }
+    return false;
   },
 
   async testConnection(_token: string): Promise<ConnectionInfo> {
@@ -120,7 +107,26 @@ export const smsMessagingProvider: MessagingProvider = {
     }
 
     const phoneNumber = getPhoneNumber();
-    if (!phoneNumber && !hasAnyAssistantPhoneNumber()) {
+    if (!phoneNumber) {
+      // Mirror isConnected(): fall back to assistant-scoped phone numbers
+      try {
+        const config = loadConfig();
+        const mappings = config.sms?.assistantPhoneNumbers as Record<string, string> | undefined;
+        if (mappings && Object.keys(mappings).length > 0) {
+          const accountSid = getSecureKey('credential:twilio:account_sid')!;
+          return {
+            connected: true,
+            user: 'assistant-scoped',
+            platform: 'sms',
+            metadata: {
+              accountSid: accountSid.slice(0, 6) + '...',
+              assistantPhoneNumbers: Object.keys(mappings).length,
+            },
+          };
+        }
+      } catch {
+        // Config may not be available yet
+      }
       return {
         connected: false,
         user: 'unknown',
@@ -133,12 +139,11 @@ export const smsMessagingProvider: MessagingProvider = {
 
     return {
       connected: true,
-      user: phoneNumber ?? 'assistant-scoped numbers configured',
+      user: phoneNumber,
       platform: 'sms',
       metadata: {
         accountSid: accountSid.slice(0, 6) + '...',
-        ...(phoneNumber ? { phoneNumber } : {}),
-        hasAssistantScopedPhoneNumbers: hasAnyAssistantPhoneNumber(),
+        phoneNumber,
       },
     };
   },
@@ -152,16 +157,14 @@ export const smsMessagingProvider: MessagingProvider = {
 
     // Upsert external conversation binding so the conversation key mapping
     // exists for the next inbound SMS from this number.
+    const isSelfScope = !assistantId || assistantId === DAEMON_INTERNAL_ASSISTANT_ID;
     try {
       const sourceChannel = 'sms';
-      const conversationKey = assistantId && assistantId !== 'self'
-        ? `asst:${assistantId}:${sourceChannel}:${conversationId}`
-        : `${sourceChannel}:${conversationId}`;
+      const conversationKey = isSelfScope
+        ? `${sourceChannel}:${conversationId}`
+        : `asst:${assistantId}:${sourceChannel}:${conversationId}`;
       const { conversationId: internalId } = getOrCreateConversation(conversationKey);
-      // external_conversation_bindings is assistant-agnostic (unique by
-      // sourceChannel + externalChatId). Restrict proactive writes to self so
-      // multi-assistant sends cannot clobber each other's binding metadata.
-      if (!assistantId || assistantId === 'self') {
+      if (isSelfScope) {
         externalConversationStore.upsertOutboundBinding({
           conversationId: internalId,
           sourceChannel,

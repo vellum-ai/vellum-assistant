@@ -14,12 +14,13 @@
 
 import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
 import {
-  createCanonicalGuardianDelivery,
   type CanonicalGuardianRequest,
+  createCanonicalGuardianDelivery,
 } from '../memory/canonical-guardian-store.js';
 import { emitNotificationSignal } from '../notifications/emit-signal.js';
 import { canonicalizeInboundIdentity } from '../util/canonicalize-identity.js';
 import { getLogger } from '../util/logger.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from './assistant-scope.js';
 import { getGuardianBinding } from './channel-guardian-service.js';
 
 const log = getLogger('confirmation-request-guardian-bridge');
@@ -66,7 +67,7 @@ export function bridgeConfirmationRequestToGuardian(
     guardianContext,
     conversationId,
     toolName,
-    assistantId = 'self',
+    assistantId = DAEMON_INTERNAL_ASSISTANT_ID,
   } = params;
 
   // Only bridge for trusted-contact sessions. Guardians self-approve and
@@ -144,7 +145,7 @@ export function bridgeConfirmationRequestToGuardian(
     contextPayload: {
       requestKind: 'tool_approval' as const,
       requestId: canonicalRequest.id,
-      requestCode: canonicalRequest.requestCode ?? '',
+      requestCode: canonicalRequest.requestCode ?? canonicalRequest.id.slice(0, 6).toUpperCase(),
       sourceChannel,
       requesterExternalUserId: guardianContext.requesterExternalUserId,
       requesterChatId: guardianContext.requesterChatId ?? null,

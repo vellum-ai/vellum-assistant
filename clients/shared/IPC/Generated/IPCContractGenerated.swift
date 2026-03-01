@@ -846,14 +846,12 @@ public struct IPCChannelReadinessRequest: Codable, Sendable {
     public let type: String
     public let action: String
     public let channel: String?
-    public let assistantId: String?
     public let includeRemote: Bool?
 
-    public init(type: String, action: String, channel: String? = nil, assistantId: String? = nil, includeRemote: Bool? = nil) {
+    public init(type: String, action: String, channel: String? = nil, includeRemote: Bool? = nil) {
         self.type = type
         self.action = action
         self.channel = channel
-        self.assistantId = assistantId
         self.includeRemote = includeRemote
     }
 }
@@ -1995,19 +1993,17 @@ public struct IPCGuardianVerificationRequest: Codable, Sendable {
     public let action: String
     public let channel: String?
     public let sessionId: String?
-    public let assistantId: String?
     public let rebind: Bool?
     /// E.164 phone number for SMS/voice, Telegram handle/chat-id. Used by outbound actions.
     public let destination: String?
     /// Origin conversation ID so completion/failure pointers can route back.
     public let originConversationId: String?
 
-    public init(type: String, action: String, channel: String? = nil, sessionId: String? = nil, assistantId: String? = nil, rebind: Bool? = nil, destination: String? = nil, originConversationId: String? = nil) {
+    public init(type: String, action: String, channel: String? = nil, sessionId: String? = nil, rebind: Bool? = nil, destination: String? = nil, originConversationId: String? = nil) {
         self.type = type
         self.action = action
         self.channel = channel
         self.sessionId = sessionId
-        self.assistantId = assistantId
         self.rebind = rebind
         self.destination = destination
         self.originConversationId = originConversationId
@@ -5122,12 +5118,11 @@ public struct IPCTwilioConfigRequest: Codable, Sendable {
     public let phoneNumber: String?
     public let areaCode: String?
     public let country: String?
-    public let assistantId: String?
     public let verificationSid: String?
     public let verificationParams: IPCTwilioConfigRequestVerificationParams?
     public let text: String?
 
-    public init(type: String, action: String, accountSid: String? = nil, authToken: String? = nil, phoneNumber: String? = nil, areaCode: String? = nil, country: String? = nil, assistantId: String? = nil, verificationSid: String? = nil, verificationParams: IPCTwilioConfigRequestVerificationParams? = nil, text: String? = nil) {
+    public init(type: String, action: String, accountSid: String? = nil, authToken: String? = nil, phoneNumber: String? = nil, areaCode: String? = nil, country: String? = nil, verificationSid: String? = nil, verificationParams: IPCTwilioConfigRequestVerificationParams? = nil, text: String? = nil) {
         self.type = type
         self.action = action
         self.accountSid = accountSid
@@ -5135,7 +5130,6 @@ public struct IPCTwilioConfigRequest: Codable, Sendable {
         self.phoneNumber = phoneNumber
         self.areaCode = areaCode
         self.country = country
-        self.assistantId = assistantId
         self.verificationSid = verificationSid
         self.verificationParams = verificationParams
         self.text = text

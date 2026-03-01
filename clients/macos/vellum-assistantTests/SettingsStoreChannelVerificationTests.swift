@@ -88,7 +88,6 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         let guardianMessages = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
         let challengeMessages = guardianMessages.filter { $0.action == "create_challenge" && $0.channel == "telegram" }
         XCTAssertEqual(challengeMessages.count, 1)
-        XCTAssertEqual(challengeMessages.first?.assistantId, testAssistantId)
     }
 
     // MARK: - startChannelGuardianVerification (SMS)
@@ -102,7 +101,6 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         let guardianMessages = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
         let challengeMessages = guardianMessages.filter { $0.action == "create_challenge" && $0.channel == "sms" }
         XCTAssertEqual(challengeMessages.count, 1)
-        XCTAssertEqual(challengeMessages.first?.assistantId, testAssistantId)
     }
 
     // MARK: - Successful status response
@@ -453,7 +451,6 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         let guardianMessages = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
         let revokeMessages = guardianMessages.filter { $0.action == "revoke" && $0.channel == "telegram" }
         XCTAssertEqual(revokeMessages.count, 1)
-        XCTAssertEqual(revokeMessages.first?.assistantId, testAssistantId)
     }
 
     func testRevokeSmsGuardianSendsRevokeAction() {
@@ -462,7 +459,6 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         let guardianMessages = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
         let revokeMessages = guardianMessages.filter { $0.action == "revoke" && $0.channel == "sms" }
         XCTAssertEqual(revokeMessages.count, 1)
-        XCTAssertEqual(revokeMessages.first?.assistantId, testAssistantId)
     }
 
     // MARK: - No daemon client doesn't crash
@@ -544,9 +540,6 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         XCTAssertEqual(telegramStatus.count, 1)
         XCTAssertEqual(smsStatus.count, 1)
         XCTAssertEqual(voiceStatus.count, 1)
-        XCTAssertEqual(telegramStatus.first?.assistantId, testAssistantId)
-        XCTAssertEqual(smsStatus.first?.assistantId, testAssistantId)
-        XCTAssertEqual(voiceStatus.first?.assistantId, testAssistantId)
     }
 
     func testStatusPollResponseDoesNotClearGuardianChallengePending() {
@@ -583,24 +576,6 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
 
         XCTAssertEqual(store.telegramGuardianInstruction, "Send code abc123 on Telegram")
         XCTAssertFalse(store.telegramGuardianVerificationInProgress)
-    }
-
-    func testGuardianRequestsFallBackToSelfWhenNoConnectedAssistantId() {
-        UserDefaults.standard.removeObject(forKey: connectedAssistantIdDefaultsKey)
-        sentMessages.removeAll()
-
-        let localStore = SettingsStore(daemonClient: daemonClient)
-        localStore.startChannelGuardianVerification(channel: "telegram")
-        localStore.revokeChannelGuardian(channel: "sms")
-
-        let guardianMessages = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
-        let statusMessages = guardianMessages.filter { $0.action == "status" }
-        let createMessages = guardianMessages.filter { $0.action == "create_challenge" }
-        let revokeMessages = guardianMessages.filter { $0.action == "revoke" }
-
-        XCTAssertTrue(statusMessages.allSatisfy { $0.assistantId == "self" })
-        XCTAssertTrue(createMessages.allSatisfy { $0.assistantId == "self" })
-        XCTAssertTrue(revokeMessages.allSatisfy { $0.assistantId == "self" })
     }
 
     // MARK: - Revoke clears instruction
@@ -729,7 +704,6 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         let guardianMessages = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
         let challengeMessages = guardianMessages.filter { $0.action == "create_challenge" && $0.channel == "voice" }
         XCTAssertEqual(challengeMessages.count, 1)
-        XCTAssertEqual(challengeMessages.first?.assistantId, testAssistantId)
     }
 
     func testSuccessfulStatusResponseUpdatesVoiceGuardianState() {
@@ -786,7 +760,6 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         let guardianMessages = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
         let revokeMessages = guardianMessages.filter { $0.action == "revoke" && $0.channel == "voice" }
         XCTAssertEqual(revokeMessages.count, 1)
-        XCTAssertEqual(revokeMessages.first?.assistantId, testAssistantId)
     }
 
     func testRevokeVoiceGuardianClearsInstruction() {
@@ -854,7 +827,6 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         let outboundMessages = guardianMessages.filter { $0.action == "start_outbound" && $0.channel == "sms" }
         XCTAssertEqual(outboundMessages.count, 1)
         XCTAssertEqual(outboundMessages.first?.destination, "+15551234567")
-        XCTAssertEqual(outboundMessages.first?.assistantId, testAssistantId)
         XCTAssertTrue(store.smsGuardianVerificationInProgress)
     }
 
@@ -944,7 +916,6 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         let guardianMessages = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
         let resendMessages = guardianMessages.filter { $0.action == "resend_outbound" && $0.channel == "sms" }
         XCTAssertEqual(resendMessages.count, resendCountBefore + 1)
-        XCTAssertEqual(resendMessages.first?.assistantId, testAssistantId)
     }
 
     // MARK: - Outbound Verification: cancel clears state
@@ -966,7 +937,6 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         let guardianMessages = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
         let cancelMessages = guardianMessages.filter { $0.action == "cancel_outbound" && $0.channel == "sms" }
         XCTAssertEqual(cancelMessages.count, 1)
-        XCTAssertEqual(cancelMessages.first?.assistantId, testAssistantId)
     }
 
     func testCancelOutboundTelegramClearsBootstrapUrl() {

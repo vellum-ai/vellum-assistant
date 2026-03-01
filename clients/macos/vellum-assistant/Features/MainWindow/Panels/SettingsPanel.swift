@@ -964,11 +964,11 @@ struct SettingsPanel: View {
 
     private func permissionRow(label: String, subtitle: String, granted: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack(spacing: VSpacing.md) {
+            HStack {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text(label)
                         .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
+                        .foregroundColor(VColor.textSecondary)
                     Text(subtitle)
                         .font(VFont.caption)
                         .foregroundColor(VColor.textMuted)
@@ -977,23 +977,12 @@ struct SettingsPanel: View {
 
                 Spacer()
 
-                Image(systemName: granted ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 16))
-                    .foregroundColor(granted ? VColor.success : VColor.textMuted)
+                VToggle(isOn: .constant(granted)).allowsHitTesting(false)
             }
-            .padding(VSpacing.md)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .vCard(background: VColor.surfaceSubtle)
-        .onHover { hovering in
-            if hovering {
-                NSCursor.pointingHand.push()
-            } else {
-                NSCursor.pop()
-            }
-        }
     }
 
     // MARK: - Permission Helpers

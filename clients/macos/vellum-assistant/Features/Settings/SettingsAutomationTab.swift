@@ -18,7 +18,7 @@ struct SettingsAutomationTab: View {
                         .font(VFont.sectionTitle)
                         .foregroundColor(VColor.textPrimary)
 
-                    HStack {
+                    VStack(alignment: .leading, spacing: VSpacing.lg) {
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
                             Text("Manage Reminders")
                                 .font(VFont.body)
@@ -27,13 +27,13 @@ struct SettingsAutomationTab: View {
                                 .font(VFont.caption)
                                 .foregroundColor(VColor.textMuted)
                         }
-                        Spacer()
-                        VButton(label: "Manage...", style: .tertiary) {
+                        VButton(label: "Manage...", style: .secondary, size: .large) {
                             showingReminders = true
                         }
                     }
                 }
                 .padding(VSpacing.lg)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .vCard(background: VColor.surfaceSubtle)
 
                 VStack(alignment: .leading, spacing: VSpacing.md) {
@@ -41,7 +41,7 @@ struct SettingsAutomationTab: View {
                         .font(VFont.sectionTitle)
                         .foregroundColor(VColor.textPrimary)
 
-                    HStack {
+                    VStack(alignment: .leading, spacing: VSpacing.lg) {
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
                             Text("Manage Scheduled Tasks")
                                 .font(VFont.body)
@@ -50,13 +50,13 @@ struct SettingsAutomationTab: View {
                                 .font(VFont.caption)
                                 .foregroundColor(VColor.textMuted)
                         }
-                        Spacer()
-                        VButton(label: "Manage...", style: .tertiary) {
+                        VButton(label: "Manage...", style: .secondary, size: .large) {
                             showingScheduledTasks = true
                         }
                     }
                 }
                 .padding(VSpacing.lg)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .vCard(background: VColor.surfaceSubtle)
             }
 
@@ -137,6 +137,7 @@ struct HeartbeatAutomationSection: View {
                 .foregroundColor(VColor.textMuted)
         }
         .padding(VSpacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
     }
 
@@ -156,7 +157,7 @@ struct HeartbeatAutomationSection: View {
                         .font(VFont.caption)
                         .foregroundColor(VColor.textSecondary)
                 } else {
-                    VButton(label: "Run Now", style: .primary) {
+                    VButton(label: "Run Now", style: .primary, size: .large) {
                         isRunning = true
                         runError = nil
                         guard let client = daemonClient else {
@@ -240,6 +241,7 @@ struct HeartbeatAutomationSection: View {
             }
         }
         .padding(VSpacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
     }
 

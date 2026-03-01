@@ -1018,6 +1018,64 @@
       "execution_target": "host"
     },
     {
+      "name": "messaging_sender_digest",
+      "description": "Scan connected email platform and group messages by sender to identify high-volume senders (e.g. newsletters). Works with any email provider that supports sender digest. Returns top senders sorted by message count with metadata for bulk cleanup.",
+      "category": "messaging",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "platform": {
+            "type": "string",
+            "description": "Platform (e.g. \"gmail\"). Auto-detected if only one is connected."
+          },
+          "query": {
+            "type": "string",
+            "description": "Search query (default 'category:promotions newer_than:90d')"
+          },
+          "max_messages": {
+            "type": "number",
+            "description": "Maximum messages to scan (default 500, cap 2000)"
+          },
+          "max_senders": {
+            "type": "number",
+            "description": "Maximum senders to return (default 30)"
+          }
+        }
+      },
+      "executor": "tools/messaging-sender-digest.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "messaging_archive_by_sender",
+      "description": "Archive all messages matching a search query on the connected email platform. Paginates through all results and archives in bulk. Works with any email provider that supports archive by query. Include a confidence score (0-1).",
+      "category": "messaging",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "platform": {
+            "type": "string",
+            "description": "Platform (e.g. \"gmail\"). Auto-detected if only one is connected."
+          },
+          "query": {
+            "type": "string",
+            "description": "Search query (e.g. \"from:marketing@example.com category:promotions newer_than:90d\")"
+          },
+          "confidence": {
+            "type": "number",
+            "description": "Confidence score (0-1) for this action"
+          }
+        },
+        "required": [
+          "query",
+          "confidence"
+        ]
+      },
+      "executor": "tools/messaging-archive-by-sender.ts",
+      "execution_target": "host"
+    },
+    {
       "name": "gmail_outreach_scan",
       "description": "Scan Gmail for cold outreach emails (sales, recruiting, marketing) using LLM classification. Returns top outreach senders with suggested cleanup actions. Read-only \u2014 use gmail_batch_archive and gmail_filters for cleanup.",
       "category": "messaging",

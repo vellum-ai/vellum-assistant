@@ -908,8 +908,6 @@ describe('Telegram config handler', () => {
 
 import { handleGuardianVerification } from '../daemon/handlers/config.js';
 import type { GuardianVerificationRequest } from '../daemon/ipc-contract.js';
-import { createBinding } from '../memory/channel-guardian-store.js';
-
 describe('Guardian verification IPC actions', () => {
   beforeEach(() => {
     secureKeyStore = {};
@@ -971,85 +969,4 @@ describe('Guardian verification IPC actions', () => {
     expect(res.error).toContain('Unknown action');
   });
 
-  test('create_challenge with explicit assistantId scopes challenge to that assistant', () => {
-    const msg: GuardianVerificationRequest = {
-      type: 'guardian_verification',
-      action: 'create_challenge',
-      channel: 'telegram',
-      assistantId: 'asst-ipc-X',
-    };
-
-    const { ctx, sent } = createTestContext();
-    handleGuardianVerification(msg, {} as net.Socket, ctx);
-
-    expect(sent).toHaveLength(1);
-    const res = sent[0] as { type: string; success: boolean; secret?: string; instruction?: string };
-    expect(res.success).toBe(true);
-    expect(res.secret).toBeDefined();
-    expect(res.instruction).toContain('send');
-    expect(res.instruction).toContain('code');
-  });
-
-  test('status action with explicit assistantId checks binding for that assistant', () => {
-    // Create a control binding for a known assistant so we can verify
-    // that querying a *different* assistantId actually returns bound=false
-    // (not just because no bindings exist at all).
-    createBinding({
-      assistantId: 'asst-ipc-bound',
-      channel: 'telegram',
-      guardianExternalUserId: 'guardian-user-1',
-      guardianDeliveryChatId: 'guardian-chat-1',
-    });
-
-    // Querying a different assistant should return bound=false
-    const unboundMsg: GuardianVerificationRequest = {
-      type: 'guardian_verification',
-      action: 'status',
-      channel: 'telegram',
-      assistantId: 'asst-ipc-Y',
-    };
-
-    const { ctx: ctx1, sent: sent1 } = createTestContext();
-    handleGuardianVerification(unboundMsg, {} as net.Socket, ctx1);
-
-    expect(sent1).toHaveLength(1);
-    const unboundRes = sent1[0] as { type: string; success: boolean; bound: boolean };
-    expect(unboundRes.success).toBe(true);
-    expect(unboundRes.bound).toBe(false);
-
-    // Querying the bound assistant should return bound=true
-    const boundMsg: GuardianVerificationRequest = {
-      type: 'guardian_verification',
-      action: 'status',
-      channel: 'telegram',
-      assistantId: 'asst-ipc-bound',
-    };
-
-    const { ctx: ctx2, sent: sent2 } = createTestContext();
-    handleGuardianVerification(boundMsg, {} as net.Socket, ctx2);
-
-    expect(sent2).toHaveLength(1);
-    const boundRes = sent2[0] as { type: string; success: boolean; bound: boolean; guardianExternalUserId?: string };
-    expect(boundRes.success).toBe(true);
-    expect(boundRes.bound).toBe(true);
-    expect(boundRes.guardianExternalUserId).toBe('guardian-user-1');
-  });
-
-  test('assistantId defaults to "self" when not provided', () => {
-    // create_challenge without assistantId should scope to 'self'
-    const createMsg: GuardianVerificationRequest = {
-      type: 'guardian_verification',
-      action: 'create_challenge',
-      channel: 'telegram',
-      // assistantId intentionally omitted
-    };
-
-    const { ctx: ctx1, sent: sent1 } = createTestContext();
-    handleGuardianVerification(createMsg, {} as net.Socket, ctx1);
-
-    expect(sent1).toHaveLength(1);
-    const createRes = sent1[0] as { type: string; success: boolean; secret?: string };
-    expect(createRes.success).toBe(true);
-    expect(createRes.secret).toBeDefined();
-  });
 });

@@ -254,8 +254,8 @@ INVITE_JSON=$(curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/ingress/invites" \
   -d '{
     "sourceChannel": "voice",
     "expectedExternalUserId": "<phone_number_E164>",
-    "friendName": "<invitee_first_name>",
-    "guardianName": "<guardian_first_name>",
+    "friendName": "<invitee display name>",
+    "guardianName": "<guardian display name>",
     "maxUses": 1,
     "note": "<optional note, e.g. the person it is for>"
   }')
@@ -265,8 +265,8 @@ printf '%s\n' "$INVITE_JSON"
 Required fields:
 - `sourceChannel` — must be `"voice"`
 - `expectedExternalUserId` — the invitee's phone number in E.164 format (e.g., `+15551234567`)
-- `friendName` — the invitee's first name (used in the voice greeting)
-- `guardianName` — the guardian's first name (used in the voice greeting)
+- `friendName` — the invitee's display name (e.g., "Mom", "Dr. Smith"). Used during the voice verification call to personalize the experience.
+- `guardianName` — the guardian's display name (e.g., "Alex"). Used during the voice verification call so the invitee knows who invited them.
 
 Optional fields:
 - `maxUses` — how many times the code can be used (default: 1)
@@ -274,8 +274,9 @@ Optional fields:
 - ~~`voiceCodeDigits`~~ — always 6 digits; this parameter is accepted but ignored
 - `note` — a human-readable label for the invite (e.g., "For Mom", "Dr. Smith")
 
-The create response contains `{ ok: true, invite: { id, voiceCode, expectedExternalUserId, ... } }`.
+The create response contains `{ ok: true, invite: { id, voiceCode, expectedExternalUserId, friendName, guardianName, ... } }`.
 - `voiceCode` is the numeric code the invitee must enter and is only returned at creation time.
+- `friendName` and `guardianName` are echoed back in the response.
 - Voice invite responses do **not** include `token` or `share.url`. Do not try to build or send a deep link for voice invites.
 
 **Presenting to the guardian**: Give the guardian clear instructions to relay to the invitee:
@@ -352,8 +353,8 @@ Replace `<invite_id>` with the invite's `id` from the list response. The same re
   - `sourceChannel is required for create` — when creating an invite, always pass `"sourceChannel": "telegram"` for Telegram or `"sourceChannel": "voice"` for voice invites.
   - `expectedExternalUserId is required for voice invites` — voice invites must include the invitee's phone number.
   - `expectedExternalUserId must be in E.164 format` — the phone number must start with `+` followed by country code and number (e.g., `+15551234567`).
-  - `friendName is required for voice invites` — ask for the invitee's first name.
-  - `guardianName is required for voice invites` — ask for the guardian's (your user's) first name.
+  - `friendName is required for voice invites` — voice invites must include the invitee's display name.
+  - `guardianName is required for voice invites` — voice invites must include the guardian's display name.
   - `Invite not found or already revoked` — the invite ID may be invalid or the invite is already revoked.
 
 ## Typical Workflows
@@ -374,9 +375,9 @@ Replace `<invite_id>` with the invite's `id` from the list response. The same re
 
 **"Revoke invite"** / **"Cancel invite link"** — List invites to identify the target, confirm, then revoke by ID.
 
-**"Create a voice invite for +15551234567"** — Ask for the friend's first name and the guardian's first name (if not already known), then create a voice invite with `sourceChannel: "voice"`, the phone number as `expectedExternalUserId`, and both names. Present the invite code and instructions: the person must call from that number and enter the code.
+**"Create a voice invite for +15551234567"** — Create a voice invite with `sourceChannel: "voice"` and the given phone number as `expectedExternalUserId`. Present the invite code and instructions: the person must call from that number and enter the code.
 
-**"Let my mom call in"** / **"Invite someone by phone"** — Ask for the phone number in E.164 format, the friend's first name, and the guardian's first name. Create a voice invite and present the code + calling instructions.
+**"Let my mom call in"** / **"Invite someone by phone"** — Ask for the phone number in E.164 format, create a voice invite, and present the code + calling instructions.
 
 **"Show my voice invites"** / **"List phone invites"** — List invites filtered by `sourceChannel=voice`, present active invites with bound phone number and expiration info.
 

@@ -39,7 +39,7 @@ mock.module('../security/secret-ingress.js', () => ({
 // By default returns an active member so ACL passes.
 let mockFindMember: (() => unknown) | null = null;
 mock.module('../memory/ingress-member-store.js', () => ({
-  findMember: (...args: unknown[]) => {
+  findMember: (..._args: unknown[]) => {
     if (mockFindMember) return mockFindMember();
     return {
       id: 'member-test-default',
@@ -64,17 +64,16 @@ mock.module('../memory/ingress-member-store.js', () => ({
   upsertMember: () => {},
 }));
 
-import {
-  type GuardianContext,
-  resolveRoutingState,
-  resolveRoutingStateFromRuntime,
-  type RoutingState,
-} from '../runtime/guardian-context-resolver.js';
 import * as channelDeliveryStore from '../memory/channel-delivery-store.js';
 import { createBinding } from '../memory/channel-guardian-store.js';
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import { channelInboundEvents, messages } from '../memory/schema.js';
 import { sweepFailedEvents } from '../runtime/channel-retry-sweep.js';
+import {
+  type GuardianContext,
+  resolveRoutingState,
+  resolveRoutingStateFromRuntime,
+} from '../runtime/guardian-context-resolver.js';
 import { handleChannelInbound } from '../runtime/routes/channel-routes.js';
 
 initializeDb();
@@ -221,24 +220,6 @@ describe('inbound-message-handler trusted-contact interactivity', () => {
       }),
     });
   }
-
-  const noopProcessMessage = mock(async (
-    conversationId: string,
-    _content: string,
-    _attachmentIds?: string[],
-    _options?: Record<string, unknown>,
-  ) => {
-    const messageId = `msg-${Date.now()}`;
-    const db = getDb();
-    db.insert(messages).values({
-      id: messageId,
-      conversationId,
-      role: 'user',
-      content: JSON.stringify([{ type: 'text', text: 'hello' }]),
-      createdAt: Date.now(),
-    }).run();
-    return { messageId };
-  });
 
   test('trusted contact with guardian binding gets interactive turn', async () => {
     // Create guardian binding so the trusted contact has a resolvable route
@@ -447,7 +428,7 @@ describe('channel-retry-sweep routing state', () => {
   }
 
   test('trusted_contact with guardian binding replays as interactive', async () => {
-    const eventId = seedFailedEvent('trusted_contact', 'guardian-for-sweep');
+    seedFailedEvent('trusted_contact', 'guardian-for-sweep');
     let capturedOptions: { isInteractive?: boolean } | undefined;
 
     await sweepFailedEvents(
@@ -471,7 +452,7 @@ describe('channel-retry-sweep routing state', () => {
   });
 
   test('trusted_contact without guardian binding replays as non-interactive', async () => {
-    const eventId = seedFailedEvent('trusted_contact');
+    seedFailedEvent('trusted_contact');
     let capturedOptions: { isInteractive?: boolean } | undefined;
 
     await sweepFailedEvents(
@@ -495,7 +476,7 @@ describe('channel-retry-sweep routing state', () => {
   });
 
   test('guardian replays as interactive', async () => {
-    const eventId = seedFailedEvent('guardian', 'guardian-self');
+    seedFailedEvent('guardian', 'guardian-self');
     let capturedOptions: { isInteractive?: boolean } | undefined;
 
     await sweepFailedEvents(
@@ -519,7 +500,7 @@ describe('channel-retry-sweep routing state', () => {
   });
 
   test('unknown replays as non-interactive', async () => {
-    const eventId = seedFailedEvent('unknown');
+    seedFailedEvent('unknown');
     let capturedOptions: { isInteractive?: boolean } | undefined;
 
     await sweepFailedEvents(

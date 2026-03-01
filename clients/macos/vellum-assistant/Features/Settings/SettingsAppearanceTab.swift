@@ -83,10 +83,11 @@ struct SettingsAppearanceTab: View {
             .vCard(background: VColor.surfaceSubtle)
 
             // KEYBOARD SHORTCUTS section
-            VStack(alignment: .leading, spacing: VSpacing.md) {
+            VStack(alignment: .leading, spacing: 0) {
                 Text("Keyboard Shortcuts")
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
+                    .padding(.bottom, VSpacing.md)
 
                 // Open Vellum (configurable)
                 HStack {
@@ -94,34 +95,28 @@ struct SettingsAppearanceTab: View {
                         .font(VFont.body)
                         .foregroundColor(VColor.textSecondary)
                     Spacer()
-                    Text(ShortcutHelper.displayString(for: store.globalHotkeyShortcut))
-                        .font(VFont.mono)
-                        .foregroundColor(VColor.textPrimary)
-                        .padding(.horizontal, VSpacing.sm)
-                        .padding(.vertical, VSpacing.xs)
-                        .background(VColor.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.sm)
-                                .stroke(VColor.surfaceBorder, lineWidth: 1)
-                        )
+                    shortcutKeyPill(ShortcutHelper.displayString(for: store.globalHotkeyShortcut))
 
                     if isRecordingGlobalHotkey {
-                        VButton(label: "Press shortcut...", style: .tertiary) {
+                        VButton(label: "Press shortcut...", style: .outlined, size: .large) {
                             stopRecording()
                         }
                     } else {
-                        VButton(label: "Record", style: .tertiary) {
+                        VButton(label: "Record", style: .outlined, size: .large) {
                             startRecording()
                         }
                     }
                 }
+                .padding(.vertical, VSpacing.md)
 
                 if let shortcutConflictWarning {
                     Text(shortcutConflictWarning)
                         .font(VFont.caption)
                         .foregroundColor(VColor.warning)
+                        .padding(.bottom, VSpacing.xs)
                 }
+
+                Divider().background(VColor.surfaceBorder)
 
                 // Quick Input (configurable)
                 HStack {
@@ -129,28 +124,22 @@ struct SettingsAppearanceTab: View {
                         .font(VFont.body)
                         .foregroundColor(VColor.textSecondary)
                     Spacer()
-                    Text(ShortcutHelper.displayString(for: store.quickInputHotkeyShortcut))
-                        .font(VFont.mono)
-                        .foregroundColor(VColor.textPrimary)
-                        .padding(.horizontal, VSpacing.sm)
-                        .padding(.vertical, VSpacing.xs)
-                        .background(VColor.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.sm)
-                                .stroke(VColor.surfaceBorder, lineWidth: 1)
-                        )
+                    shortcutKeyPill(ShortcutHelper.displayString(for: store.quickInputHotkeyShortcut))
 
                     if isRecordingQuickInputHotkey {
-                        VButton(label: "Press shortcut...", style: .tertiary) {
+                        VButton(label: "Press shortcut...", style: .outlined, size: .large) {
                             stopRecording()
                         }
                     } else {
-                        VButton(label: "Record", style: .tertiary) {
+                        VButton(label: "Record", style: .outlined, size: .large) {
                             startRecordingQuickInput()
                         }
                     }
                 }
+                .padding(.vertical, VSpacing.md)
+
+                Divider().background(VColor.surfaceBorder)
+
                 ShortcutRow(label: "Start voice input", shortcut: "Hold Fn")
             }
             .padding(VSpacing.lg)
@@ -288,6 +277,27 @@ struct SettingsAppearanceTab: View {
             shortcutMonitor = nil
         }
     }
+
+    // MARK: - Pill helper
+
+    @ViewBuilder
+    private func shortcutKeyPill(_ text: String) -> some View {
+        HStack(spacing: VSpacing.sm) {
+            ForEach(text.components(separatedBy: " "), id: \.self) { token in
+                Text(token)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textSecondary)
+            }
+        }
+        .padding(.horizontal, VSpacing.lg)
+        .padding(.vertical, VSpacing.xs)
+        .background(VColor.surfaceSubtle)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.xl)
+                .stroke(VColor.surfaceBorder, lineWidth: 1)
+        )
+    }
 }
 
 /// A read-only row displaying a keyboard shortcut and its description.
@@ -301,18 +311,23 @@ private struct ShortcutRow: View {
                 .font(VFont.body)
                 .foregroundColor(VColor.textSecondary)
             Spacer()
-            Text(shortcut)
-                .font(VFont.mono)
-                .foregroundColor(VColor.textPrimary)
-                .padding(.horizontal, VSpacing.sm)
-                .padding(.vertical, VSpacing.xs)
-                .background(VColor.surface)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.sm)
-                        .stroke(VColor.surfaceBorder, lineWidth: 1)
-                )
+            HStack(spacing: VSpacing.sm) {
+                ForEach(shortcut.components(separatedBy: " "), id: \.self) { token in
+                    Text(token)
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textSecondary)
+                }
+            }
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.vertical, VSpacing.xs)
+            .background(VColor.surfaceSubtle)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.xl)
+                    .stroke(VColor.surfaceBorder, lineWidth: 1)
+            )
         }
+        .padding(.vertical, VSpacing.md)
     }
 }
 

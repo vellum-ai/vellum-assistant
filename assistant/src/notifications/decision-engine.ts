@@ -17,13 +17,13 @@ import { createTimeout, extractToolUse, getConfiguredProvider, userMessage } fro
 import type { ModelIntent } from '../providers/types.js';
 import { getLogger } from '../util/logger.js';
 import { composeFallbackCopy } from './copy-composer.js';
+import { createDecision } from './decisions-store.js';
 import {
   buildGuardianRequestCodeInstruction,
   hasGuardianRequestCodeInstruction,
   resolveGuardianQuestionInstructionMode,
   stripConflictingGuardianRequestInstructions,
 } from './guardian-question-mode.js';
-import { createDecision } from './decisions-store.js';
 import { getPreferenceSummary } from './preference-summary.js';
 import type { NotificationSignal, RoutingIntent } from './signal.js';
 import { buildThreadCandidates, serializeCandidatesForPrompt,type ThreadCandidateSet } from './thread-candidates.js';

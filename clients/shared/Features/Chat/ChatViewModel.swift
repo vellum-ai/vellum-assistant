@@ -456,6 +456,34 @@ public final class ChatViewModel: ObservableObject {
     /// Page size for chat message display; older messages are loaded in this increment.
     public static let messagePageSize = 50
 
+    /// Deterministic approval/reject phrases consumed inline by the daemon's
+    /// guardian router. Keep this list in sync with guardian-reply-router.ts.
+    private static let explicitInlineConfirmationDecisionPhrases: Set<String> = [
+        "approve", "approved", "approve once", "yes", "y", "allow", "go for it", "go ahead", "proceed", "do it",
+        "reject", "deny", "decline", "no", "n", "block", "cancel",
+    ]
+
+    private static func normalizeDecisionPhrase(_ text: String) -> String {
+        text
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "[.!?]+$", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+    }
+
+    /// Returns true when the outbound user message is a plain-text approval/reject
+    /// reply intended to answer an inline confirmation prompt.
+    private static func isLikelyInlineConfirmationDecisionMessage(
+        rawText: String,
+        hasAttachments: Bool,
+        hasSkillInvocation: Bool
+    ) -> Bool {
+        guard !hasAttachments, !hasSkillInvocation else { return false }
+        let normalized = normalizeDecisionPhrase(rawText)
+        guard !normalized.isEmpty else { return false }
+        return explicitInlineConfirmationDecisionPhrases.contains(normalized)
+    }
+
     /// Number of messages currently revealed at the top of the conversation.
     /// The view slices `messages` to `messages.suffix(displayedMessageCount)`.
     /// Grows by `messagePageSize` each time the user scrolls to the top.
@@ -903,10 +931,18 @@ public final class ChatViewModel: ObservableObject {
         let hasSkillInvocation = pendingSkillInvocation != nil
         guard !text.isEmpty || hasAttachments || hasSkillInvocation else { return }
 
-        // If there are pending tool confirmations, mark them all as denied in the UI.
-        // The daemon auto-denies them all server-side when it receives this message.
-        for i in messages.indices where messages[i].confirmation?.state == .pending {
-            messages[i].confirmation?.state = .denied
+        // For ordinary follow-up messages, pessimistically mark pending prompts as denied
+        // to match daemon auto-deny behavior. Skip this for explicit approval/reject text
+        // because those replies are consumed inline by the daemon and should not flash a
+        // premature denied state in the UI.
+        if !Self.isLikelyInlineConfirmationDecisionMessage(
+            rawText: rawText,
+            hasAttachments: hasAttachments,
+            hasSkillInvocation: hasSkillInvocation
+        ) {
+            for i in messages.indices where messages[i].confirmation?.state == .pending {
+                messages[i].confirmation?.state = .denied
+            }
         }
 
         // When "/model" or "/models" is sent, refresh model state so the picker/table has fresh data

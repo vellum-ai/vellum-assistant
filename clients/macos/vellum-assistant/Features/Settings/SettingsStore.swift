@@ -255,14 +255,6 @@ public final class SettingsStore: ObservableObject {
     /// Last model reported by the daemon — used to skip redundant model_set calls
     /// that would otherwise reinitialize providers and evict idle sessions.
     private var lastDaemonModel: String?
-    private var twilioAssistantScope: String {
-        let stored = UserDefaults.standard.string(forKey: "connectedAssistantId")?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        if let stored, !stored.isEmpty {
-            return stored
-        }
-        return "self"
-    }
     private var twilioPhoneRefreshPending = false
     private var twilioNumbersRefreshPending = false
     private var pendingGuardianChallengeChannel: String?
@@ -272,15 +264,6 @@ public final class SettingsStore: ObservableObject {
     private let guardianChallengeTimeoutDuration: TimeInterval
     private let guardianStatusPollInterval: TimeInterval
     private let guardianStatusPollWindow: TimeInterval
-    private var guardianAssistantScope: String {
-        let stored = UserDefaults.standard.string(forKey: "connectedAssistantId")?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        if let stored, !stored.isEmpty {
-            return stored
-        }
-        return "self"
-    }
-
     private static func reflectedString(_ value: Any, key: String) -> String? {
         for child in Mirror(reflecting: value).children {
             guard child.label == key else { continue }
@@ -1063,7 +1046,7 @@ public final class SettingsStore: ObservableObject {
                 twilioPhoneRefreshPending = false
                 return
             }
-            try daemonClient.sendTwilioConfig(action: "get", assistantId: twilioAssistantScope)
+            try daemonClient.sendTwilioConfig(action: "get")
         } catch {
             twilioSaveInProgress = false
             twilioPhoneRefreshPending = false
@@ -1086,8 +1069,7 @@ public final class SettingsStore: ObservableObject {
             try daemonClient.sendTwilioConfig(
                 action: "set_credentials",
                 accountSid: trimmedSid,
-                authToken: trimmedToken,
-                assistantId: twilioAssistantScope
+                authToken: trimmedToken
             )
         } catch {
             twilioSaveInProgress = false
@@ -1104,7 +1086,7 @@ public final class SettingsStore: ObservableObject {
                 twilioSaveInProgress = false
                 return
             }
-            try daemonClient.sendTwilioConfig(action: "clear_credentials", assistantId: twilioAssistantScope)
+            try daemonClient.sendTwilioConfig(action: "clear_credentials")
         } catch {
             twilioSaveInProgress = false
             twilioError = "Failed to clear Twilio credentials: \(error.localizedDescription)"
@@ -1126,8 +1108,7 @@ public final class SettingsStore: ObservableObject {
             }
             try daemonClient.sendTwilioConfig(
                 action: "assign_number",
-                phoneNumber: trimmed,
-                assistantId: twilioAssistantScope
+                phoneNumber: trimmed
             )
         } catch {
             twilioSaveInProgress = false
@@ -1152,8 +1133,7 @@ public final class SettingsStore: ObservableObject {
             try daemonClient.sendTwilioConfig(
                 action: "provision_number",
                 areaCode: (trimmedAreaCode?.isEmpty == false) ? trimmedAreaCode : nil,
-                country: (trimmedCountry?.isEmpty == false) ? trimmedCountry?.uppercased() : nil,
-                assistantId: twilioAssistantScope
+                country: (trimmedCountry?.isEmpty == false) ? trimmedCountry?.uppercased() : nil
             )
         } catch {
             twilioSaveInProgress = false
@@ -1172,7 +1152,7 @@ public final class SettingsStore: ObservableObject {
                 twilioNumbersRefreshPending = false
                 return
             }
-            try daemonClient.sendTwilioConfig(action: "list_numbers", assistantId: twilioAssistantScope)
+            try daemonClient.sendTwilioConfig(action: "list_numbers")
         } catch {
             twilioListInProgress = false
             twilioNumbersRefreshPending = false
@@ -1184,7 +1164,7 @@ public final class SettingsStore: ObservableObject {
 
     func refreshChannelGuardianStatus(channel: String) {
         do {
-            try daemonClient?.sendGuardianVerification(action: "status", channel: channel, assistantId: guardianAssistantScope)
+            try daemonClient?.sendGuardianVerification(action: "status", channel: channel)
         } catch {
             log.error("Failed to refresh \(channel) guardian status: \(error)")
         }
@@ -1234,7 +1214,6 @@ public final class SettingsStore: ObservableObject {
             try daemonClient.sendGuardianVerification(
                 action: "create_challenge",
                 channel: channel,
-                assistantId: guardianAssistantScope,
                 rebind: rebind ? true : nil
             )
         } catch {
@@ -1274,7 +1253,7 @@ public final class SettingsStore: ObservableObject {
         }
         // Invalidate the pending challenge token on the backend so it can't be used after cancellation
         do {
-            try daemonClient?.sendGuardianVerification(action: "revoke", channel: channel, assistantId: guardianAssistantScope)
+            try daemonClient?.sendGuardianVerification(action: "revoke", channel: channel)
         } catch {
             log.error("Failed to revoke \(channel) guardian challenge on cancel: \(error)")
         }
@@ -1296,7 +1275,7 @@ public final class SettingsStore: ObservableObject {
             break
         }
         do {
-            try daemonClient?.sendGuardianVerification(action: "revoke", channel: channel, assistantId: guardianAssistantScope)
+            try daemonClient?.sendGuardianVerification(action: "revoke", channel: channel)
         } catch {
             log.error("Failed to revoke \(channel) guardian: \(error)")
         }
@@ -1417,7 +1396,6 @@ public final class SettingsStore: ObservableObject {
             try daemonClient.sendGuardianVerification(
                 action: "start_outbound",
                 channel: channel,
-                assistantId: guardianAssistantScope,
                 destination: destination
             )
         } catch {
@@ -1442,8 +1420,7 @@ public final class SettingsStore: ObservableObject {
         do {
             try daemonClient?.sendGuardianVerification(
                 action: "resend_outbound",
-                channel: channel,
-                assistantId: guardianAssistantScope
+                channel: channel
             )
         } catch {
             log.error("Failed to resend outbound \(channel) guardian verification: \(error)")
@@ -1466,8 +1443,7 @@ public final class SettingsStore: ObservableObject {
         do {
             try daemonClient?.sendGuardianVerification(
                 action: "cancel_outbound",
-                channel: channel,
-                assistantId: guardianAssistantScope
+                channel: channel
             )
         } catch {
             log.error("Failed to cancel outbound \(channel) guardian verification: \(error)")

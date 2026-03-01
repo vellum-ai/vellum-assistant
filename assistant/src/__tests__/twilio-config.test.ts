@@ -86,25 +86,14 @@ describe('twilio-config', () => {
     expect(config.phoneNumber).toBe('+15558888888');
   });
 
-  test('resolves assistant-scoped phone number when assistantId is provided', () => {
+  test('returns global phone number when assistantPhoneNumbers mapping exists', () => {
     mockLoadConfigResult = {
       sms: {
         phoneNumber: '+15551234567',
         assistantPhoneNumbers: { 'ast-1': '+15557777777' },
       },
     };
-    const config = getTwilioConfig('ast-1');
-    expect(config.phoneNumber).toBe('+15557777777');
-  });
-
-  test('falls back to global phone number when assistant has no dedicated number', () => {
-    mockLoadConfigResult = {
-      sms: {
-        phoneNumber: '+15551234567',
-        assistantPhoneNumbers: { 'ast-1': '+15557777777' },
-      },
-    };
-    const config = getTwilioConfig('ast-unknown');
+    const config = getTwilioConfig();
     expect(config.phoneNumber).toBe('+15551234567');
   });
 });

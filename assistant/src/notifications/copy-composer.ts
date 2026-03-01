@@ -9,11 +9,11 @@
  * values from the context payload.
  */
 
-import type { NotificationSignal } from './signal.js';
 import {
   buildGuardianRequestCodeInstruction,
   resolveGuardianQuestionInstructionMode,
 } from './guardian-question-mode.js';
+import type { NotificationSignal } from './signal.js';
 import type { NotificationChannel, RenderedChannelCopy } from './types.js';
 
 type CopyTemplate = (payload: Record<string, unknown>) => RenderedChannelCopy;

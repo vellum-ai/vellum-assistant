@@ -55,7 +55,6 @@ export interface TwilioConfigRequest {
   phoneNumber?: string;       // Only for action: 'assign_number' or 'sms_send_test'
   areaCode?: string;          // Only for action: 'provision_number'
   country?: string;           // Only for action: 'provision_number' (ISO 3166-1 alpha-2, default 'US')
-  assistantId?: string;       // Scope number assignment/lookup to a specific assistant
   verificationSid?: string;   // Only for update/delete verification actions
   verificationParams?: {
     tollfreePhoneNumberSid?: string;
@@ -78,8 +77,6 @@ export interface ChannelReadinessRequest {
   type: 'channel_readiness';
   action: 'get' | 'refresh';
   channel?: ChannelId;
-  /** @deprecated Ignored — daemon always uses internal scope (DAEMON_INTERNAL_ASSISTANT_ID). */
-  assistantId?: string;
   includeRemote?: boolean;
 }
 
@@ -88,8 +85,6 @@ export interface GuardianVerificationRequest {
   action: 'create_challenge' | 'status' | 'revoke' | 'start_outbound' | 'resend_outbound' | 'cancel_outbound';
   channel?: ChannelId;  // Defaults to 'telegram'
   sessionId?: string;
-  /** @deprecated Ignored — daemon always uses internal scope (DAEMON_INTERNAL_ASSISTANT_ID). */
-  assistantId?: string;
   rebind?: boolean;  // When true, allows creating a challenge even if a binding already exists
   /** E.164 phone number for SMS/voice, Telegram handle/chat-id. Used by outbound actions. */
   destination?: string;

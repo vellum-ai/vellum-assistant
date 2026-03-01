@@ -87,6 +87,7 @@ import {
   handleGetAttachmentContent,
   handleUploadAttachment,
 } from './routes/attachment-routes.js';
+import { handleGetBrainGraph, handleServeBrainGraphUI, handleServeHomeBaseUI } from './routes/brain-graph-routes.js';
 import {
   handleAnswerCall,
   handleCancelCall,
@@ -831,6 +832,9 @@ export class RuntimeHttpServer {
       }
 
       if (endpoint === 'identity' && req.method === 'GET') return handleGetIdentity();
+      if (endpoint === 'brain-graph' && req.method === 'GET') return handleGetBrainGraph();
+      if (endpoint === 'brain-graph-ui' && req.method === 'GET') return handleServeBrainGraphUI(this.bearerToken);
+      if (endpoint === 'home-base-ui' && req.method === 'GET') return handleServeHomeBaseUI(this.bearerToken);
       if (endpoint === 'events' && req.method === 'GET') return handleSubscribeAssistantEvents(req, url, { server });
 
       // Internal OAuth callback endpoint (gateway -> runtime)
