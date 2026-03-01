@@ -355,33 +355,41 @@ function makeHubPublisher(
 
       // Create a canonical guardian request so IPC/HTTP handlers can find it
       // via applyCanonicalGuardianDecision.
-      const guardianContext = session.guardianContext;
-      const sourceChannel = guardianContext?.sourceChannel ?? 'vellum';
-      const canonicalRequest = createCanonicalGuardianRequest({
-        id: msg.requestId,
-        kind: 'tool_approval',
-        sourceType: resolveCanonicalRequestSourceType(sourceChannel),
-        sourceChannel,
-        conversationId,
-        requesterExternalUserId: guardianContext?.requesterExternalUserId,
-        requesterChatId: guardianContext?.requesterChatId,
-        guardianExternalUserId: guardianContext?.guardianExternalUserId,
-        toolName: msg.toolName,
-        status: 'pending',
-        requestCode: generateCanonicalRequestCode(),
-        expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
-      });
-
-      // For trusted-contact sessions, bridge to guardian.question so the
-      // guardian gets notified and can approve via callback/request-code.
-      if (guardianContext) {
-        bridgeConfirmationRequestToGuardian({
-          canonicalRequest,
-          guardianContext,
+      try {
+        const guardianContext = session.guardianContext;
+        const sourceChannel = guardianContext?.sourceChannel ?? 'vellum';
+        const canonicalRequest = createCanonicalGuardianRequest({
+          id: msg.requestId,
+          kind: 'tool_approval',
+          sourceType: resolveCanonicalRequestSourceType(sourceChannel),
+          sourceChannel,
           conversationId,
+          requesterExternalUserId: guardianContext?.requesterExternalUserId,
+          requesterChatId: guardianContext?.requesterChatId,
+          guardianExternalUserId: guardianContext?.guardianExternalUserId,
+          guardianPrincipalId: guardianContext?.guardianPrincipalId ?? undefined,
           toolName: msg.toolName,
-          assistantId: session.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
+          status: 'pending',
+          requestCode: generateCanonicalRequestCode(),
+          expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
         });
+
+        // For trusted-contact sessions, bridge to guardian.question so the
+        // guardian gets notified and can approve via callback/request-code.
+        if (guardianContext) {
+          bridgeConfirmationRequestToGuardian({
+            canonicalRequest,
+            guardianContext,
+            conversationId,
+            toolName: msg.toolName,
+            assistantId: session.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
+          });
+        }
+      } catch (err) {
+        log.debug(
+          { err, requestId: msg.requestId, conversationId },
+          'Failed to create canonical request from hub publisher',
+        );
       }
     } else if (msg.type === 'secret_request') {
       pendingInteractions.register(msg.requestId, {

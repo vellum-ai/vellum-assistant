@@ -617,17 +617,25 @@ export async function handleChannelInbound(
       assistantId: canonicalAssistantId,
     });
 
-    createCanonicalGuardianRequest({
-      kind: 'tool_approval',
-      sourceType: 'channel',
-      sourceChannel,
-      conversationId: result.conversationId,
-      requesterExternalUserId: canonicalSenderId ?? rawSenderId ?? undefined,
-      guardianExternalUserId: binding.guardianExternalUserId,
-      toolName: 'ingress_message',
-      questionText: 'Ingress policy requires guardian approval',
-      expiresAt: new Date(Date.now() + GUARDIAN_APPROVAL_TTL_MS).toISOString(),
-    });
+    try {
+      createCanonicalGuardianRequest({
+        kind: 'tool_approval',
+        sourceType: 'channel',
+        sourceChannel,
+        conversationId: result.conversationId,
+        requesterExternalUserId: canonicalSenderId ?? rawSenderId ?? undefined,
+        guardianExternalUserId: binding.guardianExternalUserId,
+        guardianPrincipalId: binding.guardianPrincipalId ?? undefined,
+        toolName: 'ingress_message',
+        questionText: 'Ingress policy requires guardian approval',
+        expiresAt: new Date(Date.now() + GUARDIAN_APPROVAL_TTL_MS).toISOString(),
+      });
+    } catch (err) {
+      log.warn(
+        { err, conversationId: result.conversationId, sourceChannel },
+        'Failed to create canonical guardian request for ingress escalation — escalation continues via notification pipeline',
+      );
+    }
 
     // Emit notification signal through the unified pipeline (fire-and-forget).
     // This lets the decision engine route escalation alerts to all configured
