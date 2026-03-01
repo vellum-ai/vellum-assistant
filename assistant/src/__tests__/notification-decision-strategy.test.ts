@@ -669,6 +669,13 @@ describe('notification decision strategy', () => {
       expect(hasAccessRequestInstructions(text, 'A1B2C3')).toBe(false);
     });
 
+    test('rejects text with valid approve but negated reject directive', () => {
+      // The reject directive appears as a loose substring (negated with "Do not reply"),
+      // not in the same Reply-anchored sentence as approve. This must fail.
+      const text = 'Reply "A1B2C3 approve" to grant access. Do not reply "A1B2C3 reject" to deny.\nReply "open invite flow" to start.';
+      expect(hasAccessRequestInstructions(text, 'A1B2C3')).toBe(false);
+    });
+
     test('accepts directives at the start of text (no preceding newline needed)', () => {
       const text = 'Reply "A1B2C3 approve" to grant or "A1B2C3 reject" to deny. Reply "open invite flow" to start.';
       expect(hasAccessRequestInstructions(text, 'A1B2C3')).toBe(true);

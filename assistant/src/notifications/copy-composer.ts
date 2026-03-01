@@ -65,13 +65,17 @@ export function buildAccessRequestIdentityLine(payload: Record<string, unknown>)
     return `${safeName} (${safeId}) is calling and requesting access to the assistant.`;
   }
 
-  // For non-voice, include extra context when available
+  // For non-voice, include extra context when available.
+  // Sanitize before comparing to avoid deduplication failures when identity
+  // fields contain control characters that are stripped from `requester`.
+  const sanitizedUsername = actorUsername ? sanitizeIdentityField(actorUsername) : undefined;
+  const sanitizedExternalId = actorExternalId ? sanitizeIdentityField(actorExternalId) : undefined;
   const parts = [requester];
-  if (actorUsername && actorUsername !== requester) {
-    parts.push(`@${sanitizeIdentityField(actorUsername)}`);
+  if (sanitizedUsername && sanitizedUsername !== requester) {
+    parts.push(`@${sanitizedUsername}`);
   }
-  if (actorExternalId && actorExternalId !== requester && actorExternalId !== actorUsername) {
-    parts.push(`[${sanitizeIdentityField(actorExternalId)}]`);
+  if (sanitizedExternalId && sanitizedExternalId !== requester && sanitizedExternalId !== sanitizedUsername) {
+    parts.push(`[${sanitizedExternalId}]`);
   }
   if (sourceChannel) {
     parts.push(`via ${sourceChannel}`);
@@ -108,17 +112,19 @@ export function hasAccessRequestInstructions(
 ): boolean {
   if (typeof text !== 'string') return false;
   const escapedCode = requestCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  // Match the decision directive: Reply "CODE approve" ... "CODE reject"
-  // anchored so it begins a line or follows sentence-ending punctuation + space
+  // Match the full decision directive: Reply "CODE approve" ... "CODE reject"
+  // anchored so it begins a line or follows sentence-ending punctuation + space.
+  // Both approve and reject must appear in the same Reply-anchored sentence to
+  // prevent negated reject directives (e.g. `Do not reply "CODE reject"`) from
+  // passing validation as a loose substring match.
   const decisionRe = new RegExp(
-    `(?:^|[.!?]\\s+|\\n)\\s*reply\\s+"${escapedCode}\\s+approve"`,
+    `(?:^|[.!?]\\s+|\\n)\\s*reply\\s+"${escapedCode}\\s+approve"[^"]*"${escapedCode}\\s+reject"`,
     'im',
   );
-  const rejectRe = new RegExp(`"${escapedCode}\\s+reject"`, 'i');
   // Match the invite directive: Reply "open invite flow" at a line/sentence start
   const inviteRe = /(?:^|[.!?]\s+|\n)\s*reply\s+"open invite flow"/im;
 
-  return decisionRe.test(text) && rejectRe.test(text) && inviteRe.test(text);
+  return decisionRe.test(text) && inviteRe.test(text);
 }
 
 /**
