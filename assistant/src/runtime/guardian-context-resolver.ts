@@ -24,6 +24,8 @@ export interface GuardianContext {
   trustClass: ActorTrustClass;
   guardianChatId?: string;
   guardianExternalUserId?: string;
+  /** Canonical principal ID from the guardian binding. Nullable for backward compatibility — M5 will make this required. */
+  guardianPrincipalId?: string | null;
   requesterIdentifier?: string;
   requesterDisplayName?: string;
   requesterSenderDisplayName?: string;
@@ -50,6 +52,7 @@ export function resolveGuardianContext(input: ResolveGuardianContextInput): Guar
     guardianChatId: trust.guardianBindingMatch?.guardianDeliveryChatId ??
       (trust.trustClass === 'guardian' ? input.externalChatId : undefined),
     guardianExternalUserId: canonicalGuardianExternalUserId,
+    guardianPrincipalId: trust.guardianPrincipalId,
     requesterIdentifier: trust.actorMetadata.identifier,
     requesterDisplayName: trust.actorMetadata.displayName,
     requesterSenderDisplayName: trust.actorMetadata.senderDisplayName,
@@ -150,6 +153,7 @@ export function toGuardianRuntimeContext(sourceChannel: ChannelId, ctx: Guardian
     trustClass: ctx.trustClass,
     guardianChatId: ctx.guardianChatId,
     guardianExternalUserId: ctx.guardianExternalUserId,
+    guardianPrincipalId: ctx.guardianPrincipalId,
     requesterIdentifier: ctx.requesterIdentifier,
     requesterDisplayName: ctx.requesterDisplayName,
     requesterSenderDisplayName: ctx.requesterSenderDisplayName,
