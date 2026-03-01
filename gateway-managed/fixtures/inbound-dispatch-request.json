@@ -7,7 +7,7 @@
     "receivedAt": "2026-03-01T00:00:00Z",
     "message": {
       "content": "Hello",
-      "conversationExternalId": "+15551230000",
+      "conversationExternalId": "+15551239999",
       "externalMessageId": "SM123"
     },
     "actor": {
@@ -19,7 +19,7 @@
       "messageId": "SM123"
     },
     "raw": {
-      "SmsSid": "SM123",
+      "MessageSid": "SM123",
       "From": "+15551239999",
       "To": "+15551230000",
       "Body": "Hello"
