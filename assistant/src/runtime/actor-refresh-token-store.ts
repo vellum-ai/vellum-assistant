@@ -9,6 +9,7 @@ import { and, eq } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
 import { getDb } from '../memory/db.js';
+import { rawChanges } from '../memory/raw-query.js';
 import { actorRefreshTokenRecords } from '../memory/schema.js';
 import { getLogger } from '../util/logger.js';
 
@@ -113,7 +114,7 @@ export function findActiveByDeviceBinding(
 export function markRotated(tokenHash: string): boolean {
   const db = getDb();
   const now = Date.now();
-  const result = db.update(actorRefreshTokenRecords)
+  db.update(actorRefreshTokenRecords)
     .set({ status: 'rotated', lastUsedAt: now, updatedAt: now })
     .where(
       and(
@@ -122,7 +123,7 @@ export function markRotated(tokenHash: string): boolean {
       ),
     )
     .run();
-  return result.changes > 0;
+  return rawChanges() > 0;
 }
 
 /** Revoke all tokens in a family (replay detection response). */
