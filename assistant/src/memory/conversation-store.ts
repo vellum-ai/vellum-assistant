@@ -17,6 +17,7 @@ export {
   getConversationMemoryScopeId,
   getConversationOriginChannel,
   getConversationOriginInterface,
+  getConversationRecentProvenanceTrustClass,
   getConversationThreadType,
   getMessageById,
   getMessages,
