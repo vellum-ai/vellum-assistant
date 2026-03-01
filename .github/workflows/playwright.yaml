@@ -21,6 +21,11 @@ on:
         required: false
         type: boolean
         default: false
+      shards:
+        description: 'Number of parallel shards (macOS runners) to split tests across. Each shard gets its own isolated runner.'
+        required: false
+        type: number
+        default: 1
   pull_request:
     types: [labeled]
 
@@ -34,16 +39,41 @@ permissions:
   actions: read
 
 jobs:
+  # Build the shard matrix dynamically so the `shards` input controls parallelism.
+  prepare:
+    name: Prepare matrix
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && github.event.label.name == 'e2e')
+    runs-on: ubuntu-latest
+    outputs:
+      shard-matrix: ${{ steps.set-matrix.outputs.matrix }}
+      total-shards: ${{ steps.set-matrix.outputs.total }}
+    steps:
+      - name: Compute shard indices
+        id: set-matrix
+        run: |
+          TOTAL=${{ inputs.shards || 1 }}
+          INDICES=$(python3 -c "import json; print(json.dumps(list(range(1, $TOTAL + 1))))")
+          echo "matrix=$INDICES" >> "$GITHUB_OUTPUT"
+          echo "total=$TOTAL" >> "$GITHUB_OUTPUT"
+
   playwright:
-    name: Playwright Tests
+    name: Playwright Tests (${{ matrix.shard }}/${{ needs.prepare.outputs.total-shards }})
+    needs: prepare
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request' && github.event.label.name == 'e2e')
     runs-on: macos-14
     environment: dev
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJson(needs.prepare.outputs.shard-matrix) }}
     env:
       APP_DISPLAY_NAME: Vellum
+      TOTAL_SHARDS: ${{ needs.prepare.outputs.total-shards }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -199,6 +229,11 @@ jobs:
         env:
           RUN_EXPERIMENTAL: ${{ inputs.run_experimental && '1' || '' }}
         run: |
+          SHARD_ARGS=""
+          if [ "$TOTAL_SHARDS" -gt 1 ]; then
+            SHARD_ARGS="--shard=${{ matrix.shard }}/$TOTAL_SHARDS"
+          fi
+
           if [ "${{ inputs.use_xcode }}" = "true" ]; then
             unset RUN_EXPERIMENTAL
             XCODE_ARGS=""
@@ -210,9 +245,9 @@ jobs:
             fi
             cd agent-xcode && ./.build/release/agent-xcode $XCODE_ARGS
           elif [ -n "${{ inputs.test_case }}" ]; then
-            bun run test -g "${{ inputs.test_case }}"
+            bun run test -g "${{ inputs.test_case }}" $SHARD_ARGS
           else
-            bun run test
+            bun run test $SHARD_ARGS
           fi
 
       - name: Upload test artifacts
@@ -220,7 +255,7 @@ jobs:
         if: always() && steps.tests.outcome != 'skipped'
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-results
+          name: playwright-results-${{ matrix.shard }}
           path: |
             playwright/test-results/
             playwright/playwright-report/

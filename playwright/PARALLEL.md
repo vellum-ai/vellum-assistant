@@ -128,47 +128,39 @@ test wall-clock time may not improve linearly if rate-limited.
 
 ## Recommendation
 
-### Phase 1: Immediate wins (this PR)
+### Phase 1: Groundwork + CI sharding (this PR)
 
-1. **Set `workers: 4`** in `playwright.config.ts` (configurable via
-   `PW_WORKERS` env var).
+1. **Workers default to 1** in `playwright.config.ts` (opt-in via `PW_WORKERS`
+   env var) to keep single-runner behavior safe.
 2. **Fix temp file isolation** — worker-indexed paths for AppleScript/env-var
    scripts.
 3. **Thread `workerIndex`** through the entire tool chain so future tools can
    use it.
 4. **Worker-aware fixture setup** — `setupFixture` now accepts `workerIndex`.
+5. **CI sharding** via `--shard` flag, controlled by a new `shards` input on
+   the `playwright.yaml` workflow (default: 1). Set `shards: 4` to run tests
+   across 4 parallel macOS runners.
 
-These changes are **safe for the current test suite** because:
-
-- `install.spec.ts` is a single test (no parallelism within one test).
-- `cases.spec.ts` generates multiple tests, but with `fullyParallel: false`
-  Playwright distributes them across workers round-robin. Since there are
-  currently only 5 case files (and 1 is experimental), only a few tests will
-  run concurrently.
-- **However**, if multiple desktop-app fixture tests run at the same time,
-  they will still conflict (constraint #2). In practice, CI should set
-  `PW_WORKERS=1` until the desktop app isolation is solved, or accept the
-  risk with the small test count.
-
-### Phase 2: CI sharding (recommended next step)
-
-Use Playwright's built-in `--shard` flag to split tests across multiple macOS
-runners:
-
-```yaml
-strategy:
-  matrix:
-    shard: [1, 2, 3, 4]
-steps:
-  - run: bun run test -- --shard=${{ matrix.shard }}/4
-```
+The `shards` input spins up N parallel macOS runners via a matrix strategy. Each
+shard gets Playwright's `--shard=M/N` flag, which distributes tests evenly. A
+lightweight `prepare` job computes the shard indices dynamically.
 
 This gives each shard its own:
 - macOS display (screen recording isolation)
 - App instance (singleton is fine — only one test uses it per runner)
 - Filesystem (no temp file or data directory conflicts)
 
-Cost: ~4× runner minutes, but wall-clock time drops by ~4×.
+Cost: ~N× runner minutes, but wall-clock time drops by ~N×.
+
+**Usage:**
+
+```bash
+# Single runner (default, same as before)
+bun run scripts/agent-ci.ts
+
+# 4 parallel shards via workflow dispatch
+gh workflow run playwright.yaml -f shards=4
+```
 
 ### Phase 3: Per-worker app copies (if sharding cost is too high)
 
@@ -196,7 +188,8 @@ and fixture changes.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PW_WORKERS` | `4` | Number of Playwright parallel workers |
+| `PW_WORKERS` | `1` | Number of Playwright parallel workers per runner |
+| `shards` (workflow input) | `1` | Number of parallel macOS runners to split tests across |
 
 ---
 
@@ -204,7 +197,7 @@ and fixture changes.
 
 | File | Change |
 |------|--------|
-| `playwright.config.ts` | Added `workers` (default 4, configurable via `PW_WORKERS`) and `fullyParallel: false` |
+| `playwright.config.ts` | Added `workers` (default 1, configurable via `PW_WORKERS`) and `fullyParallel: false` |
 | `agent/tools/types.ts` | Added `workerIndex` to `ToolContext` |
 | `agent/tools/index.ts` | `executeTool` now accepts and passes `workerIndex` |
 | `agent/tools/applescript.ts` | Temp script path includes worker index |
@@ -213,3 +206,4 @@ and fixture changes.
 | `agent/fixtures.ts` | `setupFixture` accepts `workerIndex`, uses worker-specific defaults domain |
 | `agent/runner.ts` | Passes `workerIndex: 0` explicitly (standalone runner is single-threaded) |
 | `tests/cases.spec.ts` | Passes `testInfo.workerIndex` to both `setupFixture` and `runAgent` |
+| `.github/workflows/playwright.yaml` | Added `shards` input, `prepare` job for dynamic matrix, `--shard` flag, per-shard artifact names |

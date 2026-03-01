@@ -5,15 +5,18 @@ import { defineConfig } from "@playwright/test";
 /**
  * Parallel execution configuration.
  *
- * We use 4 workers to speed up test runs, but desktop-app tests that interact
- * with native macOS UI via AppleScript/System Events have constraints that
- * currently prevent safe parallel execution (see PARALLEL.md for details).
+ * Desktop-app tests interact with native macOS UI via AppleScript/System Events
+ * and have constraints that prevent safe parallel execution on a single runner
+ * (see PARALLEL.md for details). Workers default to 1 for safety.
+ *
+ * To run in parallel, use CI sharding (--shard) across multiple runners, or
+ * set PW_WORKERS=N for local experimentation with non-desktop tests.
  *
  * The `fullyParallel` flag controls whether tests *within* a single file run
- * in parallel. We keep it off by default so that the dynamically-generated
- * tests in cases.spec.ts are distributed across workers one-at-a-time.
+ * in parallel. We keep it off so that the dynamically-generated tests in
+ * cases.spec.ts are distributed across workers one-at-a-time.
  */
-const workers = parseInt(process.env.PW_WORKERS ?? "4", 10);
+const workers = parseInt(process.env.PW_WORKERS ?? "1", 10);
 
 export default defineConfig({
   testDir: "./tests",
