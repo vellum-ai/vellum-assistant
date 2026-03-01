@@ -39,7 +39,7 @@ import {
  * are still pending, mapped to the GuardianDecisionPrompt shape so clients
  * can render structured button UIs.
  */
-export function handleGuardianActionsPending(req: Request, server?: ServerWithRequestIP): Response {
+export function handleGuardianActionsPending(req: Request, server: ServerWithRequestIP): Response {
   const tokenResult = verifyHttpActorTokenWithLocalFallback(req, server);
   if (!tokenResult.ok) {
     return httpError(
@@ -72,7 +72,7 @@ export function handleGuardianActionsPending(req: Request, server?: ServerWithRe
  * primitive which handles CAS resolution, resolver dispatch, and grant
  * minting.
  */
-export async function handleGuardianActionDecision(req: Request, server?: ServerWithRequestIP): Promise<Response> {
+export async function handleGuardianActionDecision(req: Request, server: ServerWithRequestIP): Promise<Response> {
   const tokenResult = verifyHttpActorTokenWithLocalFallback(req, server);
   if (!tokenResult.ok) {
     return httpError(

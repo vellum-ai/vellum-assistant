@@ -58,11 +58,16 @@ import {
 import { initializeDb, resetDb } from '../memory/db.js';
 import { getDb } from '../memory/db.js';
 import { conversations } from '../memory/schema.js';
+import type { ServerWithRequestIP } from '../runtime/middleware/actor-token.js';
 import {
   handleGuardianActionDecision,
   handleGuardianActionsPending,
   listGuardianDecisionPrompts,
 } from '../runtime/routes/guardian-action-routes.js';
+
+const mockLoopbackServer: ServerWithRequestIP = {
+  requestIP: () => ({ address: '127.0.0.1', family: 'IPv4', port: 0 }),
+};
 
 initializeDb();
 
@@ -145,7 +150,7 @@ describe('HTTP handleGuardianActionDecision', () => {
       method: 'POST',
       body: JSON.stringify({ action: 'approve_once' }),
     });
-    const res = await handleGuardianActionDecision(req);
+    const res = await handleGuardianActionDecision(req, mockLoopbackServer);
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error.message).toContain('requestId');
@@ -156,7 +161,7 @@ describe('HTTP handleGuardianActionDecision', () => {
       method: 'POST',
       body: JSON.stringify({ requestId: 'req-1' }),
     });
-    const res = await handleGuardianActionDecision(req);
+    const res = await handleGuardianActionDecision(req, mockLoopbackServer);
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error.message).toContain('action');
@@ -167,7 +172,7 @@ describe('HTTP handleGuardianActionDecision', () => {
       method: 'POST',
       body: JSON.stringify({ requestId: 'req-1', action: 'nuke_from_orbit' }),
     });
-    const res = await handleGuardianActionDecision(req);
+    const res = await handleGuardianActionDecision(req, mockLoopbackServer);
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error.message).toContain('Invalid action');
@@ -180,7 +185,7 @@ describe('HTTP handleGuardianActionDecision', () => {
       method: 'POST',
       body: JSON.stringify({ requestId: 'nonexistent', action: 'approve_once' }),
     });
-    const res = await handleGuardianActionDecision(req);
+    const res = await handleGuardianActionDecision(req, mockLoopbackServer);
     expect(res.status).toBe(404);
   });
 
@@ -192,7 +197,7 @@ describe('HTTP handleGuardianActionDecision', () => {
       method: 'POST',
       body: JSON.stringify({ requestId: 'req-gd-1', action: 'approve_once' }),
     });
-    const res = await handleGuardianActionDecision(req);
+    const res = await handleGuardianActionDecision(req, mockLoopbackServer);
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.applied).toBe(true);
@@ -207,7 +212,7 @@ describe('HTTP handleGuardianActionDecision', () => {
       method: 'POST',
       body: JSON.stringify({ requestId: 'req-scope-1', action: 'approve_once', conversationId: 'conv-wrong' }),
     });
-    const res = await handleGuardianActionDecision(req);
+    const res = await handleGuardianActionDecision(req, mockLoopbackServer);
     expect(res.status).toBe(404);
     const body = await res.json();
     expect(body.error.message).toContain('No pending guardian action');
@@ -222,7 +227,7 @@ describe('HTTP handleGuardianActionDecision', () => {
       method: 'POST',
       body: JSON.stringify({ requestId: 'req-scope-2', action: 'reject', conversationId: 'conv-match' }),
     });
-    const res = await handleGuardianActionDecision(req);
+    const res = await handleGuardianActionDecision(req, mockLoopbackServer);
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.applied).toBe(true);
@@ -236,7 +241,7 @@ describe('HTTP handleGuardianActionDecision', () => {
       method: 'POST',
       body: JSON.stringify({ requestId: 'req-scope-3', action: 'approve_once' }),
     });
-    const res = await handleGuardianActionDecision(req);
+    const res = await handleGuardianActionDecision(req, mockLoopbackServer);
     expect(res.status).toBe(200);
   });
 
@@ -254,7 +259,7 @@ describe('HTTP handleGuardianActionDecision', () => {
       method: 'POST',
       body: JSON.stringify({ requestId: 'req-access-1', action: 'approve_once' }),
     });
-    const res = await handleGuardianActionDecision(req);
+    const res = await handleGuardianActionDecision(req, mockLoopbackServer);
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.applied).toBe(true);
@@ -276,7 +281,7 @@ describe('HTTP handleGuardianActionDecision', () => {
       method: 'POST',
       body: JSON.stringify({ requestId: 'req-voice-access-1', action: 'approve_once' }),
     });
-    const res = await handleGuardianActionDecision(req);
+    const res = await handleGuardianActionDecision(req, mockLoopbackServer);
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.applied).toBe(true);
@@ -291,7 +296,7 @@ describe('HTTP handleGuardianActionDecision', () => {
       method: 'POST',
       body: JSON.stringify({ requestId: 'req-stale-1', action: 'approve_once' }),
     });
-    const res = await handleGuardianActionDecision(req);
+    const res = await handleGuardianActionDecision(req, mockLoopbackServer);
     const body = await res.json();
     expect(body.applied).toBe(false);
     expect(body.reason).toBe('already_resolved');
@@ -307,7 +312,7 @@ describe('HTTP handleGuardianActionDecision', () => {
       method: 'POST',
       body: JSON.stringify({ requestId: 'req-actor-1', action: 'approve_once' }),
     });
-    await handleGuardianActionDecision(req);
+    await handleGuardianActionDecision(req, mockLoopbackServer);
     const call = mockApplyCanonicalGuardianDecision.mock.calls[0]![0] as Record<string, unknown>;
     const actorContext = call.actorContext as Record<string, unknown>;
     expect(actorContext.externalUserId).toBeUndefined();
@@ -325,7 +330,7 @@ describe('HTTP handleGuardianActionsPending', () => {
 
   test('returns 400 when conversationId is missing', () => {
     const req = new Request('http://localhost/v1/guardian-actions/pending');
-    const res = handleGuardianActionsPending(req);
+    const res = handleGuardianActionsPending(req, mockLoopbackServer);
     expect(res.status).toBe(400);
   });
 
@@ -337,7 +342,7 @@ describe('HTTP handleGuardianActionsPending', () => {
     });
 
     const req = new Request('http://localhost/v1/guardian-actions/pending?conversationId=conv-list');
-    const res = handleGuardianActionsPending(req);
+    const res = handleGuardianActionsPending(req, mockLoopbackServer);
     expect(res.status).toBe(200);
 
     // Verify the prompts directly via the shared helper

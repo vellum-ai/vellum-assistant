@@ -24,6 +24,8 @@ const log = getLogger('runtime-http');
 /**
  * Mint an actor token for a paired device if a vellum guardian principal exists.
  * Returns the raw actor token string, or null if no vellum binding exists.
+ *
+ * NOTE: This function MUST remain synchronous — the mintingInFlight guard depends on it.
  */
 function mintPairingActorToken(deviceId: string, platform: string): string | null {
   try {
@@ -114,6 +116,8 @@ function sweepPendingDeviceIds(): void {
  * In-flight mint guard — prevents overlapping status polls from triggering
  * concurrent token mints for the same pairing request. The second mint
  * would revoke the first token, leaving the client with an invalid token.
+ *
+ * MUST remain synchronous — async would break this concurrency guard.
  */
 const mintingInFlight = new Set<string>();
 

@@ -143,11 +143,15 @@ export function hashToken(token: string): string {
 // Mint
 // ---------------------------------------------------------------------------
 
+/** Default TTL for actor tokens: 90 days in milliseconds. */
+const DEFAULT_TOKEN_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+
 /**
  * Mint a new actor token.
  *
  * @param params Token claims (assistantId, platform, deviceId, guardianPrincipalId).
- * @param ttlMs  Optional TTL in milliseconds. Null/undefined means non-expiring.
+ * @param ttlMs  Optional TTL in milliseconds. Defaults to 90 days.
+ *               Pass `null` explicitly for a non-expiring token.
  * @returns The raw token, its hash, and the embedded claims.
  */
 export function mintActorToken(params: {
@@ -158,13 +162,14 @@ export function mintActorToken(params: {
   ttlMs?: number | null;
 }): MintResult {
   const now = Date.now();
+  const effectiveTtl = params.ttlMs === null ? null : (params.ttlMs ?? DEFAULT_TOKEN_TTL_MS);
   const claims: ActorTokenClaims = {
     assistantId: params.assistantId,
     platform: params.platform,
     deviceId: params.deviceId,
     guardianPrincipalId: params.guardianPrincipalId,
     iat: now,
-    exp: params.ttlMs != null ? now + params.ttlMs : null,
+    exp: effectiveTtl != null ? now + effectiveTtl : null,
     jti: randomBytes(16).toString('hex'),
   };
 

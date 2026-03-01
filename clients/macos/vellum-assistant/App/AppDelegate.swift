@@ -610,17 +610,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
     // MARK: - Actor Token Bootstrap
 
-    /// Ensures an actor token is present. If missing, waits for the daemon
-    /// to become reachable and calls the bootstrap endpoint with exponential
-    /// backoff. Runs entirely in the background and never blocks the UI.
+    /// Bootstraps the actor token on every launch so macOS always has a
+    /// fresh token with a 90-day TTL. The bootstrap endpoint is idempotent
+    /// so re-calling on each startup is safe. Waits for the daemon to
+    /// become reachable and retries with exponential backoff.
     private func ensureActorTokenBootstrap() {
         actorTokenBootstrapTask?.cancel()
 
         actorTokenBootstrapTask = Task { [weak self] in
             guard let self else { return }
-
-            // Already have a token — nothing to do.
-            if ActorTokenManager.hasToken { return }
 
             let deviceId = PairingQRCodeSheet.computeHostId()
             var delay: UInt64 = 2_000_000_000 // 2 seconds initial

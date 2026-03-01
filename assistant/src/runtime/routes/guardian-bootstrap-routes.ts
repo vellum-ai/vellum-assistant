@@ -24,6 +24,7 @@ import {
   revokeByDeviceBinding,
 } from '../actor-token-store.js';
 import { httpError } from '../http-errors.js';
+import type { ServerWithRequestIP } from '../middleware/actor-token.js';
 
 const log = getLogger('guardian-bootstrap');
 
@@ -55,20 +56,37 @@ function ensureGuardianPrincipal(assistantId: string): {
     guardianExternalUserId: guardianPrincipalId,
     guardianDeliveryChatId: 'local',
     verifiedVia: 'bootstrap',
-    metadataJson: JSON.stringify({ bootstrapedAt: Date.now() }),
+    metadataJson: JSON.stringify({ bootstrappedAt: Date.now() }),
   });
 
   log.info({ assistantId, guardianPrincipalId }, 'Created vellum guardian principal via bootstrap');
   return { guardianPrincipalId, isNew: true };
 }
 
+/** Loopback addresses — used to gate the bootstrap endpoint to local-only. */
+const LOOPBACK_ADDRESSES = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
+
 /**
  * Handle POST /v1/integrations/guardian/vellum/bootstrap
  *
- * Body: { platform: 'macos' | 'ios', deviceId: string }
+ * Body: { platform: 'macos', deviceId: string }
  * Returns: { guardianPrincipalId, actorToken, isNew }
+ *
+ * This endpoint is loopback-only (macOS local use only). iOS devices
+ * obtain actor tokens exclusively through the QR pairing flow.
  */
-export async function handleGuardianBootstrap(req: Request): Promise<Response> {
+export async function handleGuardianBootstrap(req: Request, server: ServerWithRequestIP): Promise<Response> {
+  // Reject proxied requests — bootstrap is local-only
+  if (req.headers.get('x-forwarded-for')) {
+    return httpError('FORBIDDEN', 'Bootstrap endpoint is local-only', 403);
+  }
+
+  // Reject non-loopback peers
+  const peerIp = server.requestIP(req)?.address;
+  if (!peerIp || !LOOPBACK_ADDRESSES.has(peerIp)) {
+    return httpError('FORBIDDEN', 'Bootstrap endpoint is local-only', 403);
+  }
+
   try {
     const body = await req.json() as Record<string, unknown>;
     const platform = typeof body.platform === 'string' ? body.platform.trim() : '';
@@ -78,8 +96,8 @@ export async function handleGuardianBootstrap(req: Request): Promise<Response> {
       return httpError('BAD_REQUEST', 'Missing required fields: platform, deviceId', 400);
     }
 
-    if (platform !== 'macos' && platform !== 'ios') {
-      return httpError('BAD_REQUEST', 'Invalid platform. Expected "macos" or "ios".', 400);
+    if (platform !== 'macos') {
+      return httpError('BAD_REQUEST', 'Invalid platform. Bootstrap is macOS-only; iOS uses QR pairing.', 400);
     }
 
     const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;

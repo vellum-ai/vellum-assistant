@@ -407,7 +407,7 @@ export async function handleSendMessage(
     sendMessageDeps?: SendMessageDeps;
     approvalConversationGenerator?: ApprovalConversationGenerator;
   },
-  server?: ServerWithRequestIP,
+  server: ServerWithRequestIP,
 ): Promise<Response> {
   const body = await req.json() as {
     conversationKey?: string;

@@ -51,10 +51,30 @@ import {
 } from '../runtime/actor-token-store.js';
 import { ensureVellumGuardianBinding } from '../runtime/guardian-vellum-migration.js';
 import {
+  isActorBoundGuardian,
+  isLocalFallbackBoundGuardian,
+  type ServerWithRequestIP,
   verifyHttpActorToken,
   verifyHttpActorTokenWithLocalFallback,
 } from '../runtime/middleware/actor-token.js';
 import { resolveLocalIpcGuardianContext } from '../runtime/local-actor-identity.js';
+
+// ---------------------------------------------------------------------------
+// Mock server helpers for loopback IP checks
+// ---------------------------------------------------------------------------
+
+/** Creates a mock server that returns the given IP for any request. */
+function mockServer(address: string): ServerWithRequestIP {
+  return {
+    requestIP: () => ({ address, family: 'IPv4', port: 0 }),
+  };
+}
+
+/** Mock loopback server — returns 127.0.0.1 for all requests. */
+const loopbackServer = mockServer('127.0.0.1');
+
+/** Mock non-loopback server — returns a LAN IP for all requests. */
+const nonLoopbackServer = mockServer('192.168.1.50');
 
 initializeDb();
 
@@ -80,7 +100,7 @@ afterAll(() => {
 // ---------------------------------------------------------------------------
 
 describe('actor-token mint/verify', () => {
-  test('mint returns token, hash, and claims', () => {
+  test('mint returns token, hash, and claims with default 90-day TTL', () => {
     const result = mintActorToken({
       assistantId: 'self',
       platform: 'macos',
@@ -95,8 +115,23 @@ describe('actor-token mint/verify', () => {
     expect(result.claims.deviceId).toBe('device-123');
     expect(result.claims.guardianPrincipalId).toBe('principal-abc');
     expect(result.claims.iat).toBeGreaterThan(0);
-    expect(result.claims.exp).toBeNull();
+    // Default TTL is 90 days
+    expect(result.claims.exp).not.toBeNull();
+    const ninetyDaysMs = 90 * 24 * 60 * 60 * 1000;
+    expect(result.claims.exp! - result.claims.iat).toBe(ninetyDaysMs);
     expect(result.claims.jti).toBeTruthy();
+  });
+
+  test('mint returns non-expiring token when ttlMs is explicitly null', () => {
+    const result = mintActorToken({
+      assistantId: 'self',
+      platform: 'macos',
+      deviceId: 'device-no-exp',
+      guardianPrincipalId: 'principal-no-exp',
+      ttlMs: null,
+    });
+
+    expect(result.claims.exp).toBeNull();
   });
 
   test('verify succeeds for valid token', () => {
@@ -338,7 +373,7 @@ describe('bootstrap endpoint idempotency', () => {
       body: JSON.stringify({ platform: 'macos', deviceId: 'test-device-1' }),
     });
 
-    const res1 = await handleGuardianBootstrap(req1);
+    const res1 = await handleGuardianBootstrap(req1, loopbackServer);
     expect(res1.status).toBe(200);
     const body1 = await res1.json() as Record<string, unknown>;
     expect(body1.guardianPrincipalId).toBeTruthy();
@@ -352,7 +387,7 @@ describe('bootstrap endpoint idempotency', () => {
       body: JSON.stringify({ platform: 'macos', deviceId: 'test-device-1' }),
     });
 
-    const res2 = await handleGuardianBootstrap(req2);
+    const res2 = await handleGuardianBootstrap(req2, loopbackServer);
     expect(res2.status).toBe(200);
     const body2 = await res2.json() as Record<string, unknown>;
     expect(body2.guardianPrincipalId).toBe(body1.guardianPrincipalId);
@@ -371,7 +406,7 @@ describe('bootstrap endpoint idempotency', () => {
       body: JSON.stringify({ platform: 'macos' }),
     });
 
-    const res = await handleGuardianBootstrap(req);
+    const res = await handleGuardianBootstrap(req, loopbackServer);
     expect(res.status).toBe(400);
   });
 
@@ -384,7 +419,7 @@ describe('bootstrap endpoint idempotency', () => {
       body: JSON.stringify({ platform: 'android', deviceId: 'test-device' }),
     });
 
-    const res = await handleGuardianBootstrap(req);
+    const res = await handleGuardianBootstrap(req, loopbackServer);
     expect(res.status).toBe(400);
   });
 
@@ -397,16 +432,16 @@ describe('bootstrap endpoint idempotency', () => {
       body: JSON.stringify({ platform: 'macos', deviceId: 'device-A' }),
     });
 
-    const res1 = await handleGuardianBootstrap(req1);
+    const res1 = await handleGuardianBootstrap(req1, loopbackServer);
     const body1 = await res1.json() as Record<string, unknown>;
 
     const req2 = new Request('http://localhost/v1/integrations/guardian/vellum/bootstrap', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ platform: 'ios', deviceId: 'device-B' }),
+      body: JSON.stringify({ platform: 'macos', deviceId: 'device-B' }),
     });
 
-    const res2 = await handleGuardianBootstrap(req2);
+    const res2 = await handleGuardianBootstrap(req2, loopbackServer);
     const body2 = await res2.json() as Record<string, unknown>;
 
     // Same principal, different tokens
@@ -538,7 +573,7 @@ describe('HTTP actor token local fallback', () => {
       headers: { 'Content-Type': 'application/json' },
     });
 
-    const result = verifyHttpActorTokenWithLocalFallback(req);
+    const result = verifyHttpActorTokenWithLocalFallback(req, loopbackServer);
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.guardianContext.trustClass).toBe('guardian');
@@ -561,7 +596,7 @@ describe('HTTP actor token local fallback', () => {
       },
     });
 
-    const result = verifyHttpActorTokenWithLocalFallback(req);
+    const result = verifyHttpActorTokenWithLocalFallback(req, loopbackServer);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.status).toBe(401);
@@ -595,7 +630,7 @@ describe('HTTP actor token local fallback', () => {
       },
     });
 
-    const result = verifyHttpActorTokenWithLocalFallback(req);
+    const result = verifyHttpActorTokenWithLocalFallback(req, loopbackServer);
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.claims).not.toBeNull();
@@ -628,5 +663,372 @@ describe('resolveLocalIpcGuardianContext', () => {
     ensureVellumGuardianBinding('self');
     const ctx = resolveLocalIpcGuardianContext('vellum');
     expect(ctx.sourceChannel).toBe('vellum');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Pairing actor-token flow
+// ---------------------------------------------------------------------------
+
+describe('pairing actor-token flow', () => {
+  test('mintPairingActorToken returns actor token in approved pairing status poll', async () => {
+    // Set up a vellum guardian binding (required for pairing token mint)
+    ensureVellumGuardianBinding('self');
+
+    const { PairingStore } = await import('../daemon/pairing-store.js');
+    const { handlePairingRequest, handlePairingStatus } = await import('../runtime/routes/pairing-routes.js');
+
+    const store = new PairingStore();
+    store.start();
+
+    const pairingRequestId = 'test-pair-' + Date.now();
+    const pairingSecret = 'test-secret-123';
+    const bearerToken = 'test-bearer';
+
+    // Register a pairing request
+    store.register({
+      pairingRequestId,
+      pairingSecret,
+      gatewayUrl: 'https://gw.test',
+    });
+
+    const ctx = {
+      pairingStore: store,
+      bearerToken,
+      featureFlagToken: undefined,
+      pairingBroadcast: () => {},
+    };
+
+    // iOS initiates pairing
+    const pairReq = new Request('http://localhost/v1/pairing/request', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        pairingRequestId,
+        pairingSecret,
+        deviceId: 'ios-device-1',
+        deviceName: 'Test iPhone',
+      }),
+    });
+
+    const pairRes = await handlePairingRequest(pairReq, ctx);
+    expect(pairRes.status).toBe(200);
+    const pairBody = await pairRes.json() as Record<string, unknown>;
+    expect(pairBody.status).toBe('pending');
+
+    // macOS approves the pairing
+    store.approve(pairingRequestId, bearerToken);
+
+    // iOS polls for status — should get approved with actor token
+    const statusUrl = new URL(`http://localhost/v1/pairing/status?id=${pairingRequestId}&secret=${pairingSecret}`);
+    const statusRes = handlePairingStatus(statusUrl, ctx);
+    expect(statusRes.status).toBe(200);
+    const statusBody = await statusRes.json() as Record<string, unknown>;
+    expect(statusBody.status).toBe('approved');
+    expect(statusBody.actorToken).toBeTruthy();
+    expect(statusBody.bearerToken).toBe(bearerToken);
+
+    store.stop();
+  });
+
+  test('approved actor token is available within 5 min TTL window', async () => {
+    ensureVellumGuardianBinding('self');
+
+    const { PairingStore } = await import('../daemon/pairing-store.js');
+    const { handlePairingRequest, handlePairingStatus } = await import('../runtime/routes/pairing-routes.js');
+
+    const store = new PairingStore();
+    store.start();
+
+    const pairingRequestId = 'test-ttl-' + Date.now();
+    const pairingSecret = 'test-secret-ttl';
+    const bearerToken = 'test-bearer-ttl';
+
+    store.register({
+      pairingRequestId,
+      pairingSecret,
+      gatewayUrl: 'https://gw.test',
+    });
+
+    const ctx = {
+      pairingStore: store,
+      bearerToken,
+      featureFlagToken: undefined,
+      pairingBroadcast: () => {},
+    };
+
+    // iOS initiates pairing
+    const pairReq = new Request('http://localhost/v1/pairing/request', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        pairingRequestId,
+        pairingSecret,
+        deviceId: 'ios-device-ttl',
+        deviceName: 'TTL iPhone',
+      }),
+    });
+
+    await handlePairingRequest(pairReq, ctx);
+    store.approve(pairingRequestId, bearerToken);
+
+    // First poll — mints the token
+    const statusUrl = new URL(`http://localhost/v1/pairing/status?id=${pairingRequestId}&secret=${pairingSecret}`);
+    const firstRes = handlePairingStatus(statusUrl, ctx);
+    const firstBody = await firstRes.json() as Record<string, unknown>;
+    const firstToken = firstBody.actorToken as string;
+    expect(firstToken).toBeTruthy();
+
+    // Second poll — same token from cache
+    const secondRes = handlePairingStatus(statusUrl, ctx);
+    const secondBody = await secondRes.json() as Record<string, unknown>;
+    expect(secondBody.actorToken).toBe(firstToken);
+
+    store.stop();
+  });
+
+  test('mintingInFlight guard prevents concurrent mints (synchronous check)', async () => {
+    ensureVellumGuardianBinding('self');
+
+    const { PairingStore } = await import('../daemon/pairing-store.js');
+    const { handlePairingRequest, handlePairingStatus } = await import('../runtime/routes/pairing-routes.js');
+
+    const store = new PairingStore();
+    store.start();
+
+    const pairingRequestId = 'test-concurrent-' + Date.now();
+    const pairingSecret = 'test-secret-conc';
+    const bearerToken = 'test-bearer-conc';
+
+    store.register({
+      pairingRequestId,
+      pairingSecret,
+      gatewayUrl: 'https://gw.test',
+    });
+
+    const ctx = {
+      pairingStore: store,
+      bearerToken,
+      featureFlagToken: undefined,
+      pairingBroadcast: () => {},
+    };
+
+    const pairReq = new Request('http://localhost/v1/pairing/request', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        pairingRequestId,
+        pairingSecret,
+        deviceId: 'ios-device-conc',
+        deviceName: 'Concurrent iPhone',
+      }),
+    });
+
+    await handlePairingRequest(pairReq, ctx);
+    store.approve(pairingRequestId, bearerToken);
+
+    // Fire two status polls simultaneously — both synchronous so they
+    // should not double-mint
+    const statusUrl = new URL(`http://localhost/v1/pairing/status?id=${pairingRequestId}&secret=${pairingSecret}`);
+    const res1 = handlePairingStatus(statusUrl, ctx);
+    const res2 = handlePairingStatus(statusUrl, ctx);
+
+    const body1 = await res1.json() as Record<string, unknown>;
+    const body2 = await res2.json() as Record<string, unknown>;
+
+    // Both should succeed and return the same token (second sees the cached token)
+    expect(body1.status).toBe('approved');
+    expect(body2.status).toBe('approved');
+    expect(body1.actorToken).toBeTruthy();
+    // The second poll should return the same cached token
+    expect(body2.actorToken).toBe(body1.actorToken);
+
+    store.stop();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Loopback IP check tests
+// ---------------------------------------------------------------------------
+
+describe('loopback IP check (verifyHttpActorTokenWithLocalFallback)', () => {
+  test('succeeds with mock server returning loopback IP', () => {
+    ensureVellumGuardianBinding('self');
+
+    const req = new Request('http://localhost/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const result = verifyHttpActorTokenWithLocalFallback(req, loopbackServer);
+    expect(result.ok).toBe(true);
+    if (result.ok && 'localFallback' in result) {
+      expect(result.localFallback).toBe(true);
+      expect(result.guardianContext.trustClass).toBe('guardian');
+    }
+  });
+
+  test('succeeds with mock server returning IPv6 loopback (::1)', () => {
+    ensureVellumGuardianBinding('self');
+
+    const req = new Request('http://localhost/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const ipv6LoopbackServer = mockServer('::1');
+    const result = verifyHttpActorTokenWithLocalFallback(req, ipv6LoopbackServer);
+    expect(result.ok).toBe(true);
+  });
+
+  test('succeeds with mock server returning IPv4-mapped IPv6 loopback', () => {
+    ensureVellumGuardianBinding('self');
+
+    const req = new Request('http://localhost/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const mappedLoopbackServer = mockServer('::ffff:127.0.0.1');
+    const result = verifyHttpActorTokenWithLocalFallback(req, mappedLoopbackServer);
+    expect(result.ok).toBe(true);
+  });
+
+  test('returns 401 with mock server returning non-loopback IP', () => {
+    ensureVellumGuardianBinding('self');
+
+    const req = new Request('http://localhost/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const result = verifyHttpActorTokenWithLocalFallback(req, nonLoopbackServer);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(401);
+      expect(result.message).toContain('Non-loopback requests require actor identity');
+    }
+  });
+
+  test('returns 401 with X-Forwarded-For header present', () => {
+    ensureVellumGuardianBinding('self');
+
+    const req = new Request('http://localhost/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Forwarded-For': '10.0.0.1',
+      },
+    });
+
+    const result = verifyHttpActorTokenWithLocalFallback(req, loopbackServer);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(401);
+      expect(result.message).toContain('Proxied requests require actor identity');
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bootstrap loopback guard tests
+// ---------------------------------------------------------------------------
+
+describe('bootstrap loopback guard', () => {
+  test('rejects bootstrap request with X-Forwarded-For header', async () => {
+    const { handleGuardianBootstrap } = await import('../runtime/routes/guardian-bootstrap-routes.js');
+
+    const req = new Request('http://localhost/v1/integrations/guardian/vellum/bootstrap', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Forwarded-For': '10.0.0.1',
+      },
+      body: JSON.stringify({ platform: 'macos', deviceId: 'test-device' }),
+    });
+
+    const res = await handleGuardianBootstrap(req, loopbackServer);
+    expect(res.status).toBe(403);
+    const body = await res.json() as { error: { message: string } };
+    expect(body.error.message).toContain('local-only');
+  });
+
+  test('rejects bootstrap request from non-loopback IP', async () => {
+    const { handleGuardianBootstrap } = await import('../runtime/routes/guardian-bootstrap-routes.js');
+
+    const req = new Request('http://localhost/v1/integrations/guardian/vellum/bootstrap', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ platform: 'macos', deviceId: 'test-device' }),
+    });
+
+    const res = await handleGuardianBootstrap(req, nonLoopbackServer);
+    expect(res.status).toBe(403);
+    const body = await res.json() as { error: { message: string } };
+    expect(body.error.message).toContain('local-only');
+  });
+
+  test('accepts bootstrap request from loopback IP', async () => {
+    const { handleGuardianBootstrap } = await import('../runtime/routes/guardian-bootstrap-routes.js');
+
+    const req = new Request('http://localhost/v1/integrations/guardian/vellum/bootstrap', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ platform: 'macos', deviceId: 'test-device-ok' }),
+    });
+
+    const res = await handleGuardianBootstrap(req, loopbackServer);
+    expect(res.status).toBe(200);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Utility function tests (isActorBoundGuardian, isLocalFallbackBoundGuardian)
+// ---------------------------------------------------------------------------
+
+describe('utility functions', () => {
+  test('isActorBoundGuardian returns true when actor matches bound guardian', () => {
+    const principalId = ensureVellumGuardianBinding('self');
+    const { claims } = mintActorToken({
+      assistantId: 'self',
+      platform: 'macos',
+      deviceId: 'device-bound',
+      guardianPrincipalId: principalId,
+    });
+
+    expect(isActorBoundGuardian(claims)).toBe(true);
+  });
+
+  test('isActorBoundGuardian returns false for mismatched principal', () => {
+    ensureVellumGuardianBinding('self');
+    const { claims } = mintActorToken({
+      assistantId: 'self',
+      platform: 'macos',
+      deviceId: 'device-mismatch',
+      guardianPrincipalId: 'wrong-principal-id',
+    });
+
+    expect(isActorBoundGuardian(claims)).toBe(false);
+  });
+
+  test('isActorBoundGuardian returns false when no vellum binding exists', () => {
+    const { claims } = mintActorToken({
+      assistantId: 'self',
+      platform: 'macos',
+      deviceId: 'device-no-binding',
+      guardianPrincipalId: 'some-principal',
+    });
+
+    expect(isActorBoundGuardian(claims)).toBe(false);
+  });
+
+  test('isLocalFallbackBoundGuardian returns true when vellum binding exists', () => {
+    ensureVellumGuardianBinding('self');
+    expect(isLocalFallbackBoundGuardian()).toBe(true);
+  });
+
+  test('isLocalFallbackBoundGuardian returns true even without binding (pre-bootstrap fallback)', () => {
+    // No binding — local user is inherently the guardian of their own machine
+    expect(isLocalFallbackBoundGuardian()).toBe(true);
   });
 });

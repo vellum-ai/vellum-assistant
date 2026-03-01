@@ -42,8 +42,8 @@ export function handleSubscribeAssistantEvents(
 ): Response {
   // Verify actor-token identity for vellum channel requests, with local
   // CLI fallback for bearer-authenticated clients without X-Actor-Token.
-  if (!options?.skipActorVerification) {
-    const actorVerification = verifyHttpActorTokenWithLocalFallback(req, options?.server);
+  if (!options?.skipActorVerification && options?.server) {
+    const actorVerification = verifyHttpActorTokenWithLocalFallback(req, options.server);
     if (!actorVerification.ok) {
       return httpError(
         actorVerification.status === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN',
