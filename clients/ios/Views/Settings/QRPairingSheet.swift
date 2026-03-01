@@ -409,13 +409,21 @@ struct QRPairingSheet: View {
             }
             let localLanUrl = response["localLanUrl"] as? String
             let featureFlagToken = response["featureFlagToken"] as? String
+            let refreshToken = response["refreshToken"] as? String
+            let actorTokenExpiresAt = response["actorTokenExpiresAt"] as? Int
+            let refreshTokenExpiresAt = response["refreshTokenExpiresAt"] as? Int
+            let refreshAfter = response["refreshAfter"] as? Int
             savePairingConfig(
                 bearerToken: bearerToken,
                 gatewayUrl: gatewayUrl,
                 hostId: payload.hostId,
                 localLanUrl: localLanUrl,
                 featureFlagToken: featureFlagToken,
-                actorToken: actorToken
+                actorToken: actorToken,
+                refreshToken: refreshToken,
+                actorTokenExpiresAt: actorTokenExpiresAt,
+                refreshTokenExpiresAt: refreshTokenExpiresAt,
+                refreshAfter: refreshAfter
             )
             connectToMac()
 
@@ -496,13 +504,21 @@ struct QRPairingSheet: View {
                     }
                     let localLanUrl = json["localLanUrl"] as? String
                     let featureFlagToken = json["featureFlagToken"] as? String
+                    let refreshToken = json["refreshToken"] as? String
+                    let actorTokenExpiresAt = json["actorTokenExpiresAt"] as? Int
+                    let refreshTokenExpiresAt = json["refreshTokenExpiresAt"] as? Int
+                    let refreshAfter = json["refreshAfter"] as? Int
                     savePairingConfig(
                         bearerToken: bearerToken,
                         gatewayUrl: gatewayUrl,
                         hostId: payload.hostId,
                         localLanUrl: localLanUrl,
                         featureFlagToken: featureFlagToken,
-                        actorToken: actorToken
+                        actorToken: actorToken,
+                        refreshToken: refreshToken,
+                        actorTokenExpiresAt: actorTokenExpiresAt,
+                        refreshTokenExpiresAt: refreshTokenExpiresAt,
+                        refreshAfter: refreshAfter
                     )
                     connectToMac()
 
@@ -527,7 +543,7 @@ struct QRPairingSheet: View {
 
     // MARK: - Config Persistence
 
-    private func savePairingConfig(bearerToken: String, gatewayUrl: String, hostId: String, localLanUrl: String?, featureFlagToken: String? = nil, actorToken: String? = nil) {
+    private func savePairingConfig(bearerToken: String, gatewayUrl: String, hostId: String, localLanUrl: String?, featureFlagToken: String? = nil, actorToken: String? = nil, refreshToken: String? = nil, actorTokenExpiresAt: Int? = nil, refreshTokenExpiresAt: Int? = nil, refreshAfter: Int? = nil) {
         UserDefaults.standard.set(gatewayUrl, forKey: UserDefaultsKeys.gatewayBaseURL)
         _ = APIKeyManager.shared.setAPIKey(bearerToken, provider: "runtime-bearer-token")
         if !hostId.isEmpty {
@@ -539,12 +555,25 @@ struct QRPairingSheet: View {
         // Don't delete on absence — the server may not send featureFlagToken yet,
         // so a missing field shouldn't wipe a previously stored token.
 
-        // Persist the actor token received during pairing so subsequent HTTP
-        // requests include the X-Actor-Token header immediately.
+        // Persist the actor token and refresh credentials received during pairing
+        // so subsequent HTTP requests include the X-Actor-Token header immediately.
         // When re-pairing to an assistant that omits the token, clear the
         // previous value so the old credential is never sent to the new gateway.
-        if let actorToken = actorToken, !actorToken.isEmpty {
+        if let actorToken = actorToken, !actorToken.isEmpty,
+           let refreshToken = refreshToken,
+           let actorTokenExpiresAt = actorTokenExpiresAt,
+           let refreshTokenExpiresAt = refreshTokenExpiresAt,
+           let refreshAfter = refreshAfter {
+            ActorTokenManager.storeCredentials(
+                actorToken: actorToken,
+                actorTokenExpiresAt: actorTokenExpiresAt,
+                refreshToken: refreshToken,
+                refreshTokenExpiresAt: refreshTokenExpiresAt,
+                refreshAfter: refreshAfter
+            )
+        } else if let actorToken = actorToken, !actorToken.isEmpty {
             ActorTokenManager.setToken(actorToken)
+            ActorTokenManager.clearRefreshMetadata()
         } else {
             ActorTokenManager.deleteToken()
         }
@@ -566,7 +595,7 @@ struct QRPairingSheet: View {
         // next app restart.
         if !ActorTokenManager.hasToken {
             if let appDelegate = UIApplication.shared.delegate as? AppDelegate {
-                appDelegate.ensureActorTokenBootstrap()
+                appDelegate.ensureActorCredentials()
             }
         }
 

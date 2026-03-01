@@ -1,5 +1,9 @@
 import Foundation
 import os
+import CryptoKit
+#if os(macOS)
+import IOKit
+#endif
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "HTTPTransport")
 
@@ -94,6 +98,18 @@ public final class HTTPTransport {
 
     /// SSE reconnect task handle.
     private var sseReconnectTask: Task<Void, Never>?
+
+    /// Result of an async authentication refresh attempt.
+    enum AuthRefreshResult {
+        case success
+        case transientFailure
+        case terminalFailure
+    }
+
+    /// In-flight refresh task. Concurrent 401 handlers await this instead of
+    /// returning false immediately, so user actions aren't dropped while a
+    /// refresh triggered by another codepath is still in progress.
+    private var refreshTask: Task<AuthRefreshResult, Never>?
 
     /// Callback for incoming server messages (called on main actor).
     var onMessage: ((ServerMessage) -> Void)?
@@ -340,7 +356,7 @@ public final class HTTPTransport {
 
     // MARK: - HTTP Endpoints
 
-    private func sendMessage(content: String?, sessionId: String) async {
+    private func sendMessage(content: String?, sessionId: String, isRetry: Bool = false) async {
         guard let url = URL(string: "\(baseURL)/v1/messages") else { return }
 
         var request = URLRequest(url: url)
@@ -365,8 +381,22 @@ public final class HTTPTransport {
 
             if http.statusCode == 202 || http.statusCode == 200 {
                 log.info("Message sent successfully")
-            } else if http.statusCode == 401 {
-                handleAuthenticationFailure()
+            } else if http.statusCode == 401 && !isRetry {
+                let refreshResult = await handleAuthenticationFailureAsync()
+                switch refreshResult {
+                case .success:
+                    await sendMessage(content: content, sessionId: sessionId, isRetry: true)
+                case .terminalFailure:
+                    // performRefresh() already emitted .authenticationRequired — don't overwrite it
+                    break
+                case .transientFailure:
+                    onMessage?(.sessionError(SessionErrorMessage(
+                        sessionId: sessionId,
+                        code: .providerApi,
+                        userMessage: "Failed to send message — authentication error. Please try again.",
+                        retryable: true
+                    )))
+                }
             } else {
                 let errorBody = String(data: data, encoding: .utf8) ?? "unknown"
                 log.error("Send message failed (\(http.statusCode)): \(errorBody)")
@@ -388,7 +418,7 @@ public final class HTTPTransport {
         }
     }
 
-    private func sendDecision(requestId: String, decision: String) async {
+    private func sendDecision(requestId: String, decision: String, isRetry: Bool = false) async {
         guard let url = URL(string: "\(baseURL)/v1/confirm") else { return }
 
         var request = URLRequest(url: url)
@@ -406,8 +436,16 @@ public final class HTTPTransport {
             let (_, response) = try await URLSession.shared.data(for: request)
 
             if let http = response as? HTTPURLResponse {
-                if http.statusCode == 401 {
-                    handleAuthenticationFailure()
+                if http.statusCode == 401 && !isRetry {
+                    let refreshResult = await handleAuthenticationFailureAsync()
+                    switch refreshResult {
+                    case .success:
+                        await sendDecision(requestId: requestId, decision: decision, isRetry: true)
+                    case .terminalFailure:
+                        break
+                    case .transientFailure:
+                        log.error("Decision response failed: authentication error after 401 refresh")
+                    }
                 } else if http.statusCode != 200 {
                     log.error("Decision response failed (\(http.statusCode))")
                 }
@@ -417,7 +455,7 @@ public final class HTTPTransport {
         }
     }
 
-    private func sendSecret(requestId: String, value: String?) async {
+    private func sendSecret(requestId: String, value: String?, isRetry: Bool = false) async {
         guard let url = URL(string: "\(baseURL)/v1/secret") else { return }
 
         var request = URLRequest(url: url)
@@ -435,8 +473,16 @@ public final class HTTPTransport {
             let (_, response) = try await URLSession.shared.data(for: request)
 
             if let http = response as? HTTPURLResponse {
-                if http.statusCode == 401 {
-                    handleAuthenticationFailure()
+                if http.statusCode == 401 && !isRetry {
+                    let refreshResult = await handleAuthenticationFailureAsync()
+                    switch refreshResult {
+                    case .success:
+                        await sendSecret(requestId: requestId, value: value, isRetry: true)
+                    case .terminalFailure:
+                        break
+                    case .transientFailure:
+                        log.error("Secret response failed: authentication error after 401 refresh")
+                    }
                 } else if http.statusCode != 200 {
                     log.error("Secret response failed (\(http.statusCode))")
                 }
@@ -446,7 +492,7 @@ public final class HTTPTransport {
         }
     }
 
-    private func fetchGuardianActionsPending(conversationId: String) async {
+    private func fetchGuardianActionsPending(conversationId: String, isRetry: Bool = false) async {
         let encoded = conversationId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? conversationId
         guard let url = URL(string: "\(baseURL)/v1/guardian-actions/pending?conversationId=\(encoded)") else { return }
 
@@ -457,8 +503,16 @@ public final class HTTPTransport {
             let (data, response) = try await URLSession.shared.data(for: request)
 
             if let http = response as? HTTPURLResponse {
-                if http.statusCode == 401 {
-                    handleAuthenticationFailure()
+                if http.statusCode == 401 && !isRetry {
+                    let refreshResult = await handleAuthenticationFailureAsync()
+                    switch refreshResult {
+                    case .success:
+                        await fetchGuardianActionsPending(conversationId: conversationId, isRetry: true)
+                    case .terminalFailure:
+                        break
+                    case .transientFailure:
+                        log.error("Fetch guardian actions pending failed: authentication error after 401 refresh")
+                    }
                     return
                 }
                 guard http.statusCode == 200 else {
@@ -478,7 +532,7 @@ public final class HTTPTransport {
         }
     }
 
-    private func submitGuardianActionDecision(requestId: String, action: String, conversationId: String?) async {
+    private func submitGuardianActionDecision(requestId: String, action: String, conversationId: String?, isRetry: Bool = false) async {
         guard let url = URL(string: "\(baseURL)/v1/guardian-actions/decision") else { return }
 
         var request = URLRequest(url: url)
@@ -499,8 +553,17 @@ public final class HTTPTransport {
             let (data, response) = try await URLSession.shared.data(for: request)
 
             if let http = response as? HTTPURLResponse {
-                if http.statusCode == 401 {
-                    handleAuthenticationFailure()
+                if http.statusCode == 401 && !isRetry {
+                    let refreshResult = await handleAuthenticationFailureAsync()
+                    switch refreshResult {
+                    case .success:
+                        await submitGuardianActionDecision(requestId: requestId, action: action, conversationId: conversationId, isRetry: true)
+                        return
+                    case .terminalFailure:
+                        break
+                    case .transientFailure:
+                        break
+                    }
                     onMessage?(.guardianActionDecisionResponse(GuardianActionDecisionResponseMessage(
                         applied: false,
                         reason: "authentication_failed",
@@ -549,7 +612,7 @@ public final class HTTPTransport {
         let prompts: [GuardianDecisionPromptWire]
     }
 
-    private func sendConversationSeen(_ signal: IPCConversationSeenSignal) async {
+    private func sendConversationSeen(_ signal: IPCConversationSeenSignal, isRetry: Bool = false) async {
         guard let url = URL(string: "\(baseURL)/v1/conversations/seen") else { return }
 
         var request = URLRequest(url: url)
@@ -579,8 +642,11 @@ public final class HTTPTransport {
             let (_, response) = try await URLSession.shared.data(for: request)
 
             if let http = response as? HTTPURLResponse {
-                if http.statusCode == 401 {
-                    handleAuthenticationFailure()
+                if http.statusCode == 401 && !isRetry {
+                    let refreshResult = await handleAuthenticationFailureAsync()
+                    if case .success = refreshResult {
+                        await sendConversationSeen(signal, isRetry: true)
+                    }
                 } else if http.statusCode != 200 {
                     log.error("Conversation seen signal failed (\(http.statusCode))")
                 }
@@ -590,7 +656,7 @@ public final class HTTPTransport {
         }
     }
 
-    private func fetchSessionList(offset: Int = 0, limit: Int = 50) async {
+    private func fetchSessionList(offset: Int = 0, limit: Int = 50, isRetry: Bool = false) async {
         guard let url = URL(string: "\(baseURL)/v1/conversations?limit=\(limit)&offset=\(offset)") else { return }
 
         var request = URLRequest(url: url)
@@ -601,8 +667,12 @@ public final class HTTPTransport {
 
             guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
                 let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-                if statusCode == 401 {
-                    handleAuthenticationFailure()
+                if statusCode == 401 && !isRetry {
+                    let refreshResult = await handleAuthenticationFailureAsync()
+                    if case .success = refreshResult {
+                        await fetchSessionList(offset: offset, limit: limit, isRetry: true)
+                        return
+                    }
                 }
                 log.error("Fetch session list failed")
                 onMessage?(.sessionListResponse(SessionListResponseMessage(type: "session_list_response", sessions: [], hasMore: nil)))
@@ -625,7 +695,7 @@ public final class HTTPTransport {
         }
     }
 
-    private func fetchHistory(sessionId: String) async {
+    private func fetchHistory(sessionId: String, isRetry: Bool = false) async {
         let encoded = sessionId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? sessionId
         let urlString = "\(baseURL)/v1/messages?conversationId=\(encoded)"
         guard let url = URL(string: urlString) else { return }
@@ -638,8 +708,12 @@ public final class HTTPTransport {
 
             guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
                 let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-                if statusCode == 401 {
-                    handleAuthenticationFailure()
+                if statusCode == 401 && !isRetry {
+                    let refreshResult = await handleAuthenticationFailureAsync()
+                    if case .success = refreshResult {
+                        await fetchHistory(sessionId: sessionId, isRetry: true)
+                        return
+                    }
                 }
                 log.error("Fetch history failed (HTTP \(statusCode))")
                 return
@@ -874,17 +948,111 @@ public final class HTTPTransport {
 
     // MARK: - 401 Recovery
 
-    /// Surface a session-expired error to the client. On iOS this means
-    /// the user must re-pair via QR code since we cannot read the token from disk.
+    /// Fire-and-forget token refresh for non-async callers (health check, SSE).
+    /// Async callers that need retry-or-skip semantics should use
+    /// handleAuthenticationFailureAsync() directly.
     private func handleAuthenticationFailure() {
-        log.error("Authentication failed — bearer token is stale")
-        onMessage?(.sessionError(SessionErrorMessage(
-            sessionId: "",
-            code: .authenticationRequired,
-            userMessage: "Session expired. Please re-pair your device.",
-            retryable: false
-        )))
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            _ = await self.handleAuthenticationFailureAsync()
+        }
     }
+
+    /// Async variant of handleAuthenticationFailure that returns the refresh outcome.
+    /// On `.success`, callers should retry the original request.
+    /// On `.terminalFailure`, callers must NOT emit their own error — `performRefresh()`
+    /// already emitted `.authenticationRequired` which is the correct final user-facing state.
+    /// On `.transientFailure`, callers may emit a generic error (refresh will retry on next 401).
+    private func handleAuthenticationFailureAsync() async -> AuthRefreshResult {
+        // If a refresh is already in flight, wait for its outcome instead of
+        // returning false (which would drop the caller's user action).
+        if let existing = refreshTask {
+            return await existing.value
+        }
+
+        let task = Task<AuthRefreshResult, Never> { @MainActor [weak self] in
+            guard let self else { return .transientFailure }
+            defer { self.refreshTask = nil }
+            return await self.performRefresh()
+        }
+        refreshTask = task
+        return await task.value
+    }
+
+    /// Performs the actual credential refresh. Split out so handleAuthenticationFailureAsync
+    /// can manage the coalescing task lifecycle separately.
+    private func performRefresh() async -> AuthRefreshResult {
+        #if os(macOS)
+        let refreshPlatform = "macos"
+        // macOS uses SHA-256 of IOPlatformUUID as device ID (matches PairingQRCodeSheet.computeHostId())
+        let refreshDeviceId = Self.computeMacOSDeviceId()
+        #else
+        let refreshPlatform = "ios"
+        // iOS uses Keychain-stored device ID (matches AppDelegate.getOrCreateDeviceId())
+        let refreshDeviceId = APIKeyManager.shared.getAPIKey(provider: "pairing-device-id") ?? ""
+        #endif
+
+        let result = await ActorCredentialRefresher.refresh(
+            baseURL: self.baseURL,
+            bearerToken: self.bearerToken,
+            platform: refreshPlatform,
+            deviceId: refreshDeviceId
+        )
+
+        switch result {
+        case .success:
+            log.info("Token refresh succeeded — reconnecting SSE")
+            // Reconnect SSE with new credentials
+            self.stopSSE()
+            self.startSSE()
+            return .success
+
+        case .terminalError(let reason):
+            log.error("Token refresh failed terminally: \(reason) — re-pair required")
+            self.onMessage?(.sessionError(SessionErrorMessage(
+                sessionId: "",
+                code: .authenticationRequired,
+                userMessage: "Session expired. Please re-pair your device.",
+                retryable: false
+            )))
+            return .terminalFailure
+
+        case .transientError:
+            log.warning("Token refresh encountered transient error — will retry on next 401")
+            return .transientFailure
+        }
+    }
+
+    // MARK: - macOS Device ID
+
+    #if os(macOS)
+    /// Compute a stable device ID matching PairingQRCodeSheet.computeHostId().
+    /// SHA-256 of the IOPlatformUUID + an app-specific salt.
+    private static func computeMacOSDeviceId() -> String {
+        let platformUUID = getMacOSPlatformUUID() ?? UUID().uuidString
+        let salt = "vellum-assistant-host-id"
+        let input = Data((platformUUID + salt).utf8)
+        let hash = SHA256.hash(data: input)
+        return hash.compactMap { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Read the IOPlatformUUID from the IORegistry (macOS hardware identifier).
+    private static func getMacOSPlatformUUID() -> String? {
+        let service = IOServiceGetMatchingService(
+            kIOMainPortDefault,
+            IOServiceMatching("IOPlatformExpertDevice")
+        )
+        guard service != 0 else { return nil }
+        defer { IOObjectRelease(service) }
+
+        let key = kIOPlatformUUIDKey as CFString
+        guard let uuid = IORegistryEntryCreateCFProperty(service, key, kCFAllocatorDefault, 0)?
+            .takeRetainedValue() as? String else {
+            return nil
+        }
+        return uuid
+    }
+    #endif
 
     // MARK: - Helpers
 

@@ -22,7 +22,7 @@ This document owns assistant-runtime architecture details. The repo-level archit
 - Voice calls mirror the same prompt contract: `CallController` receives guardian context on setup and refreshes it immediately after successful voice challenge verification, so the first post-verification turn is grounded as `actor_role: guardian`.
 - Voice-specific behavior (DTMF/speech verification flow, relay state machine) remains voice-local; only actor-role resolution is shared.
 
-### Vellum Guardian Identity Model (Actor Tokens + Bootstrap)
+### Vellum Guardian Identity Model (Actor Tokens + Refresh Tokens)
 
 The vellum channel (macOS desktop, iOS, CLI) uses an identity-bound actor token system to authenticate guardian identity on HTTP routes. This replaces the previous implicit trust model where all local connections were assumed to be the guardian.
 
@@ -30,15 +30,29 @@ The vellum channel (macOS desktop, iOS, CLI) uses an identity-bound actor token 
 
 1. **Startup migration** — On daemon start, `ensureVellumGuardianBinding()` (in `guardian-vellum-migration.ts`) backfills a `channel='vellum'` guardian binding with a stable `guardianPrincipalId` (format: `vellum-principal-<uuid>`). Existing installations get a binding with `verifiedVia: 'startup-migration'`; new installs get one via bootstrap. This migration is idempotent and preserves bindings for other channels (Telegram, SMS, etc.).
 
-2. **Hatch bootstrap (loopback-only, macOS)** — On every launch, the macOS client calls `POST /v1/integrations/guardian/vellum/bootstrap` with `{ platform: 'macos', deviceId }`. The endpoint is loopback-only: it rejects requests with `X-Forwarded-For` and verifies the peer IP is a loopback address (`127.0.0.1`, `::1`, `::ffff:127.0.0.1`). The endpoint is idempotent: it ensures a vellum guardian principal exists, revokes any prior token for the same device binding, mints a new HMAC-SHA256 signed actor token with a 90-day TTL, stores only the SHA-256 hash, and returns `{ guardianPrincipalId, actorToken, isNew }`. The raw token is returned once and never persisted on the server. macOS re-bootstraps on each startup to refresh its token.
+2. **Bootstrap (loopback-only, macOS) — initial issuance only** — On first launch (no existing actor token), the macOS client calls `POST /v1/integrations/guardian/vellum/bootstrap` with `{ platform: 'macos', deviceId }`. The endpoint is loopback-only: it rejects requests with `X-Forwarded-For` and verifies the peer IP is a loopback address (`127.0.0.1`, `::1`, `::ffff:127.0.0.1`). The endpoint ensures a vellum guardian principal exists, revokes any prior token for the same device binding, mints a new HMAC-SHA256 signed actor token with a 30-day TTL and a rotating refresh token, stores only the SHA-256 hashes, and returns `{ guardianPrincipalId, actorToken, actorTokenExpiresAt, refreshToken, refreshTokenExpiresAt, refreshAfter, isNew }`. Bootstrap is only used for initial credential issuance — ongoing renewal is handled exclusively by the refresh endpoint.
 
-3. **iOS pairing** — iOS devices obtain actor tokens exclusively through the QR pairing flow (re-pairs on credential loss). When an iOS device completes pairing, the pairing response includes an `actorToken` minted against the same vellum guardian principal. The pairing handler in `pairing-routes.ts` calls `mintPairingActorToken()` which looks up the vellum binding and mints a device-specific token. iOS does not call the bootstrap endpoint.
+3. **iOS pairing — initial issuance only** — iOS devices obtain actor tokens exclusively through the QR pairing flow. When an iOS device completes pairing, the pairing response includes an `actorToken` and `refreshToken` minted against the same vellum guardian principal. The pairing handler in `pairing-routes.ts` calls `mintPairingActorToken()` which looks up the vellum binding and mints a device-specific token pair. iOS does not call the bootstrap endpoint. Re-pairing is only needed if both the actor token and refresh token expire.
 
 4. **IPC identity** — Local IPC connections (Unix domain socket from the macOS native app) do not send actor tokens. Instead, the daemon assigns a deterministic local actor identity via `resolveLocalIpcGuardianContext()` in `local-actor-identity.ts`. This looks up the vellum guardian binding and routes through the same `resolveGuardianContext` trust pipeline used by HTTP channel ingress. When no vellum binding exists yet (pre-bootstrap), a fallback guardian context is returned since the local macOS user is inherently the guardian of their own machine.
 
-**Actor token format:** `base64url(JSON claims) + '.' + base64url(HMAC-SHA256 signature)`. Claims include `assistantId`, `platform`, `deviceId`, `guardianPrincipalId`, `iat`, `exp` (default: 90 days from issuance), and `jti`.
+**Actor token format:** `base64url(JSON claims) + '.' + base64url(HMAC-SHA256 signature)`. Claims include `assistantId`, `platform`, `deviceId`, `guardianPrincipalId`, `iat`, `exp` (30 days from issuance), and `jti`.
 
 **Hash-only storage:** Only the SHA-256 hex digest of the raw token is persisted in the `actor_token_records` table. Token verification recomputes the hash and looks it up in the store to check revocation status. Tokens are scoped to `(assistantId, guardianPrincipalId, hashedDeviceId)` with a one-active-per-device invariant.
+
+**Refresh token lifecycle:**
+
+Refresh tokens provide a rotating credential renewal mechanism that avoids re-bootstrap or re-pairing for ongoing sessions.
+
+- **Issuance:** A refresh token is minted alongside every actor token (during bootstrap or pairing). The response includes `refreshToken`, `refreshTokenExpiresAt`, and `refreshAfter` (the timestamp at which clients should proactively refresh, set to 80% of the actor token TTL).
+- **Dual expiry:** Each refresh token has a 365-day absolute expiry (from issuance) and a 90-day inactivity expiry (from last use). The effective expiry is the earlier of the two. Using a refresh token resets the inactivity window.
+- **Single-use rotation:** Each call to `POST /v1/integrations/guardian/vellum/refresh` consumes the presented refresh token and returns a new actor token + new refresh token pair. The old refresh token is marked as rotated and cannot be reused.
+- **Token family tracking:** Refresh tokens are grouped into families (one family per initial issuance chain). All tokens in a family share a `familyId`.
+- **Replay detection:** If a client presents a refresh token that has already been rotated (i.e., it was used once and a successor was issued), the server treats this as a potential token theft. The entire token family for that device is revoked, forcing re-bootstrap or re-pairing.
+- **Device binding:** Refresh tokens are bound to `(assistantId, guardianPrincipalId, hashedDeviceId)`. A refresh request from a different device binding is rejected.
+- **Hash-only storage:** Only the SHA-256 hex digest of the refresh token is stored in the `actor_refresh_token_records` table. The raw token is returned once and never persisted on the server.
+
+**Refresh endpoint:** `POST /v1/integrations/guardian/vellum/refresh` accepts `{ refreshToken }` in the request body. It validates the token hash, checks expiry and device binding, performs replay detection, rotates the token, mints a new actor token, and returns `{ actorToken, actorTokenExpiresAt, refreshToken, refreshTokenExpiresAt, refreshAfter }`. This endpoint is only reachable through the gateway (bearer-authenticated).
 
 **Signing key management:** A 32-byte random signing key is generated on first startup and persisted at `~/.vellum/protected/actor-token-signing-key` with `chmod 0o600`. The key is loaded on subsequent startups via `loadOrCreateSigningKey()`.
 
@@ -52,11 +66,14 @@ The vellum channel (macOS desktop, iOS, CLI) uses an identity-bound actor token 
 |------|---------|
 | `src/runtime/actor-token-service.ts` | HMAC-SHA256 mint/verify, signing key management, `hashToken` |
 | `src/runtime/actor-token-store.ts` | Hash-only persistence: create, find by hash/device binding, revoke |
+| `src/runtime/actor-refresh-token-service.ts` | Refresh token rotation, replay detection, family revocation |
+| `src/runtime/actor-refresh-token-store.ts` | Refresh token hash-only persistence: create, find, rotate, revoke by family |
 | `src/runtime/middleware/actor-token.ts` | HTTP middleware: `verifyHttpActorToken`, `verifyHttpActorTokenWithLocalFallback`, `isActorBoundGuardian` |
 | `src/runtime/local-actor-identity.ts` | `resolveLocalIpcGuardianContext` — deterministic IPC identity |
 | `src/runtime/guardian-vellum-migration.ts` | `ensureVellumGuardianBinding` — startup binding backfill |
-| `src/runtime/routes/guardian-bootstrap-routes.ts` | `POST /v1/integrations/guardian/vellum/bootstrap` handler |
-| `src/runtime/routes/pairing-routes.ts` | `mintPairingActorToken` — actor token in pairing response |
+| `src/runtime/routes/guardian-bootstrap-routes.ts` | `POST /v1/integrations/guardian/vellum/bootstrap` handler (initial issuance only) |
+| `src/runtime/routes/guardian-refresh-routes.ts` | `POST /v1/integrations/guardian/vellum/refresh` handler (token rotation) |
+| `src/runtime/routes/pairing-routes.ts` | `mintPairingActorToken` — actor token + refresh token in pairing response |
 | `src/memory/guardian-bindings.ts` | Guardian binding persistence (shared across all channels) |
 
 ### Channel-Agnostic Scoped Approval Grants
