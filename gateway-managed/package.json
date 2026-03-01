@@ -7,7 +7,8 @@
     "build": "bun build src/index.ts --outdir dist --target bun",
     "start": "bun run src/index.ts",
     "test": "bash scripts/test.sh",
-    "typecheck": "bunx tsc --noEmit"
+    "typecheck": "bunx tsc --noEmit",
+    "smoke:staging": "bash deploy/scripts/smoke-check-staging.sh"
   },
   "devDependencies": {
     "@types/bun": "^1.2.4",
