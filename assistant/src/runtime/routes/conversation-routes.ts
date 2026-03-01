@@ -30,8 +30,6 @@ import { routeGuardianReply } from '../guardian-reply-router.js';
 import { httpError } from '../http-errors.js';
 import type {
   ApprovalConversationGenerator,
-  MessageProcessor,
-  NonBlockingMessageProcessor,
   RuntimeAttachmentMetadata,
   RuntimeMessagePayload,
   SendMessageDeps,
@@ -408,8 +406,6 @@ function makeHubPublisher(
 export async function handleSendMessage(
   req: Request,
   deps: {
-    processMessage?: MessageProcessor;
-    persistAndProcessMessage?: NonBlockingMessageProcessor;
     sendMessageDeps?: SendMessageDeps;
     approvalConversationGenerator?: ApprovalConversationGenerator;
   },
@@ -469,8 +465,13 @@ export async function handleSendMessage(
 
   const mapping = getOrCreateConversation(conversationKey);
 
-  // ── Queue-if-busy path (preferred when sendMessageDeps is wired) ────
-  if (deps.sendMessageDeps) {
+  // ── Fail fast when sendMessageDeps is not wired ─────────────────────
+  if (!deps.sendMessageDeps) {
+    return httpError('SERVICE_UNAVAILABLE', 'Message processing not configured', 503);
+  }
+
+  // ── Queue-if-busy path ──────────────────────────────────────────────
+  {
     // Vellum HTTP requests prefer actor-token identity. When absent (e.g. CLI
     // bearer-auth only), fall back to local IPC identity resolution so
     // bearer-authenticated local clients are not rejected.
@@ -609,44 +610,6 @@ export async function handleSendMessage(
     });
 
     return Response.json({ accepted: true, messageId }, { status: 202 });
-  }
-
-  // ── Legacy path (fallback when sendMessageDeps not wired) ───────────
-  const processor = deps.persistAndProcessMessage ?? deps.processMessage;
-  if (!processor) {
-    return httpError('SERVICE_UNAVAILABLE', 'Message processing not configured', 503);
-  }
-
-  // Require actor token for vellum channel requests on the legacy path too,
-  // with local IPC fallback for bearer-authenticated CLI clients.
-  const legacyActorVerification = sourceChannel === 'vellum' ? verifyHttpActorTokenWithLocalFallback(req, server) : null;
-  if (legacyActorVerification && !legacyActorVerification.ok) {
-    return httpError(
-      legacyActorVerification.status === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN',
-      legacyActorVerification.message,
-      legacyActorVerification.status,
-    );
-  }
-
-  const guardianContext = legacyActorVerification?.ok
-    ? legacyActorVerification.guardianContext
-    : resolveLocalIpcGuardianContext(sourceChannel) ?? { trustClass: 'guardian' as const, sourceChannel };
-
-  try {
-    const result = await processor(
-      mapping.conversationId,
-      content ?? '',
-      hasAttachments ? attachmentIds : undefined,
-      { guardianContext },
-      sourceChannel,
-      sourceInterface,
-    );
-    return Response.json({ accepted: true, messageId: result.messageId }, { status: 202 });
-  } catch (err) {
-    if (err instanceof Error && err.message === 'Session is already processing a message') {
-      return httpError('CONFLICT', 'Session is busy processing another message. Please retry.', 409);
-    }
-    throw err;
   }
 }
 
