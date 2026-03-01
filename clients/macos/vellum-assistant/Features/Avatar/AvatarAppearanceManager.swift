@@ -11,14 +11,17 @@ final class AvatarAppearanceManager {
     private(set) var customAvatarImage: NSImage?
 
     /// Cached fallback avatar to avoid rebuilding on every access.
-    private var cachedFallbackAvatar: NSImage?
+    /// @ObservationIgnored so that populating the cache inside a computed getter
+    /// doesn't fire an observation notification and trigger another SwiftUI
+    /// view-update pass (which would create a re-render loop).
+    @ObservationIgnored private var cachedFallbackAvatar: NSImage?
     /// The name used to build the cached fallback, so we can invalidate when identity changes.
-    private var cachedFallbackName: String?
+    @ObservationIgnored private var cachedFallbackName: String?
     /// Cached chat-size avatar (56pt for 2x Retina).
-    private var cachedChatAvatar: NSImage?
+    @ObservationIgnored private var cachedChatAvatar: NSImage?
     /// Cached full-size fallback avatar for larger displays (identity panel, constellation).
-    private var cachedFullFallbackAvatar: NSImage?
-    private var cachedFullFallbackName: String?
+    @ObservationIgnored private var cachedFullFallbackAvatar: NSImage?
+    @ObservationIgnored private var cachedFullFallbackName: String?
 
     /// Bundled initial avatar loaded once from Resources.
     private static let bundledInitialAvatar: NSImage? = {
