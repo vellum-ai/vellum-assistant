@@ -197,9 +197,14 @@ export async function handleTrustRule(req: Request, server: ServerWithRequestIP)
     return httpError('FORBIDDEN', 'pattern does not match any server-provided allowlist option', 403);
   }
 
-  // Validate scope against server-provided scope options
+  // Validate scope against server-provided scope options.
+  // Non-scoped tools have empty scopeOptions — only "everywhere" is valid for them.
   const validScopes = (confirmation.scopeOptions ?? []).map((o) => o.scope);
-  if (!validScopes.includes(scope)) {
+  if (validScopes.length === 0) {
+    if (scope !== 'everywhere') {
+      return httpError('FORBIDDEN', 'non-scoped tools only accept scope "everywhere"', 403);
+    }
+  } else if (!validScopes.includes(scope)) {
     return httpError('FORBIDDEN', 'scope does not match any server-provided scope option', 403);
   }
 

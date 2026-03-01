@@ -237,7 +237,6 @@ export class PermissionChecker {
           persistentDecisionsAllowed
           && (response.decision === 'always_allow' || response.decision === 'always_allow_high_risk')
           && response.selectedPattern
-          && response.selectedScope
         ) {
           const ruleOptions: {
             allowHighRisk?: boolean;
@@ -253,7 +252,8 @@ export class PermissionChecker {
           }
 
           const hasOptions = Object.keys(ruleOptions).length > 0;
-          addRule(name, response.selectedPattern, response.selectedScope, 'allow', 100, hasOptions ? ruleOptions : undefined);
+          const effectiveScope = response.selectedScope ?? 'everywhere';
+          addRule(name, response.selectedPattern, effectiveScope, 'allow', 100, hasOptions ? ruleOptions : undefined);
         }
 
         return { allowed: true, decision, riskLevel };
