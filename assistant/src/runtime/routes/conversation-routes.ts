@@ -157,6 +157,7 @@ async function tryConsumeInlineApprovalReply(params: {
   // so we emit resolved_stale here for those cases.
   if (routerResult.requestId && !routerResult.decisionApplied) {
     session.emitConfirmationStateChanged({
+      sessionId: conversationId,
       requestId: routerResult.requestId,
       state: 'resolved_stale',
       source: 'inline_nl',
