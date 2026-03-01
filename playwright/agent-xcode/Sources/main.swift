@@ -5,6 +5,7 @@ import Foundation
 func main() async {
     let args = CommandLine.arguments
     let verbose = args.contains("--verbose")
+    let runExperimental = args.contains("--experimental") || ProcessInfo.processInfo.environment["RUN_EXPERIMENTAL"] != nil
     let filter = args.first(where: { !$0.starts(with: "--") && $0 != args[0] })
     let appDisplayName = ProcessInfo.processInfo.environment["APP_DISPLAY_NAME"] ?? "Vellum"
 
@@ -41,9 +42,27 @@ func main() async {
     print()
 
     // Run tests
-    var results: [(name: String, passed: Bool, message: String, durationMs: Int)] = []
+    var results: [(name: String, passed: Bool, message: String, reasoning: String, durationMs: Int)] = []
+    var skipped: [String] = []
 
     for testCase in testCases {
+        // Skip experimental tests unless --experimental or RUN_EXPERIMENTAL is set
+        if testCase.experimental && !runExperimental {
+            skipped.append(testCase.name)
+            print("⏭ Skipping (experimental): \(testCase.name)")
+            continue
+        }
+
+        // Check required env vars
+        if let requiredEnv = testCase.requiredEnv {
+            let missing = requiredEnv.filter { ProcessInfo.processInfo.environment[$0] == nil }
+            if !missing.isEmpty {
+                skipped.append(testCase.name)
+                print("⏭ Skipping (missing env: \(missing.joined(separator: ", "))): \(testCase.name)")
+                continue
+            }
+        }
+
         print("▶ Running: \(testCase.name)")
         let startTime = Date()
 
@@ -66,18 +85,21 @@ func main() async {
             ))
 
             let durationMs = Int(Date().timeIntervalSince(startTime) * 1000)
-            results.append((name: testCase.name, passed: result.passed, message: result.message, durationMs: durationMs))
+            results.append((name: testCase.name, passed: result.passed, message: result.message, reasoning: result.reasoning, durationMs: durationMs))
 
             let icon = result.passed ? "✓" : "✗"
             let duration = String(format: "%.1f", Double(durationMs) / 1000.0)
             print("  \(icon) \(testCase.name) (\(duration)s)")
             if !result.passed {
                 print("    \(result.message)")
+                if !result.reasoning.isEmpty {
+                    print("    Reasoning: \(result.reasoning)")
+                }
             }
             print()
         } catch {
             let durationMs = Int(Date().timeIntervalSince(startTime) * 1000)
-            results.append((name: testCase.name, passed: false, message: "Runner error: \(error.localizedDescription)", durationMs: durationMs))
+            results.append((name: testCase.name, passed: false, message: "Runner error: \(error.localizedDescription)", reasoning: "An unexpected error occurred in the runner before the agent could report a result.", durationMs: durationMs))
             let duration = String(format: "%.1f", Double(durationMs) / 1000.0)
             print("  ✗ \(testCase.name) (\(duration)s)")
             print("    Runner error: \(error.localizedDescription)")
@@ -94,8 +116,30 @@ func main() async {
     let totalDuration = results.reduce(0) { $0 + $1.durationMs }
 
     print(String(repeating: "─", count: 60))
-    print("Results: \(passed) passed, \(failed) failed (\(String(format: "%.1f", Double(totalDuration) / 1000.0))s total)")
+    var summaryParts = ["\(passed) passed", "\(failed) failed"]
+    if !skipped.isEmpty {
+        summaryParts.append("\(skipped.count) skipped")
+    }
+    print("Results: \(summaryParts.joined(separator: ", ")) (\(String(format: "%.1f", Double(totalDuration) / 1000.0))s total)")
     print(String(repeating: "─", count: 60))
+
+    // Write JSON test report for artifact consumption
+    let reportDir = (casesDir as NSString).appendingPathComponent("../../test-results")
+    let resolvedReportDir = (reportDir as NSString).standardizingPath
+    try? FileManager.default.createDirectory(atPath: resolvedReportDir, withIntermediateDirectories: true)
+    let report: [[String: Any]] = results.map { r in
+        [
+            "name": r.name,
+            "passed": r.passed,
+            "message": r.message,
+            "reasoning": r.reasoning,
+            "durationMs": r.durationMs,
+        ]
+    }
+    if let jsonData = try? JSONSerialization.data(withJSONObject: ["tests": report], options: [.prettyPrinted, .sortedKeys]) {
+        let reportPath = (resolvedReportDir as NSString).appendingPathComponent("test-report.json")
+        try? jsonData.write(to: URL(fileURLWithPath: reportPath))
+    }
 
     exit(failed > 0 ? 1 : 0)
 }

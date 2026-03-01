@@ -6,6 +6,7 @@ import AppKit
 struct TestResult {
     let passed: Bool
     let message: String
+    let reasoning: String
 }
 
 // MARK: - Tool Result
@@ -557,15 +558,20 @@ private func buildReportResultTool() -> Tool {
                 ]),
                 "message": .object([
                     "type": .string("string"),
-                    "description": .string("A message describing the test result."),
+                    "description": .string("A short summary of the test outcome (e.g. 'All steps completed successfully' or 'Button not found')."),
+                ]),
+                "reasoning": .object([
+                    "type": .string("string"),
+                    "description": .string("Detailed step-by-step reasoning for why the test passed or failed. Include what you observed at each step, what you expected to see, and where things diverged if the test failed."),
                 ]),
             ]),
-            "required": .array([.string("passed"), .string("message")]),
+            "required": .array([.string("passed"), .string("message"), .string("reasoning")]),
         ]),
         execute: { input in
             let passed = input["passed"]?.boolValue ?? false
             let message = input["message"]?.stringValue ?? (passed ? "Test passed" : "Test failed")
-            return .result(TestResult(passed: passed, message: message))
+            let reasoning = input["reasoning"]?.stringValue ?? ""
+            return .result(TestResult(passed: passed, message: message, reasoning: reasoning))
         }
     )
 }

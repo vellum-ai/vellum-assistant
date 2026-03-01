@@ -4,11 +4,15 @@ struct TestCase {
     let name: String
     let filePath: String
     let fixture: String?
+    let requiredEnv: [String]?
+    let experimental: Bool
     let rawContent: String
 }
 
 struct ParsedFrontmatter {
     let fixture: String?
+    let requiredEnv: [String]?
+    let experimental: Bool
     let body: String
 }
 
@@ -46,15 +50,27 @@ func parseFrontmatter(_ content: String) -> ParsedFrontmatter {
     }
 
     var fixture: String?
+    var requiredEnv: [String]?
+    var experimental: Bool = false
     for line in frontmatterLines {
         let parts = line.split(separator: ":", maxSplits: 1)
-        if parts.count == 2 && parts[0].trimmingCharacters(in: .whitespaces) == "fixture" {
-            fixture = parts[1].trimmingCharacters(in: .whitespaces)
+        guard parts.count == 2 else { continue }
+        let key = parts[0].trimmingCharacters(in: .whitespaces)
+        let value = parts[1].trimmingCharacters(in: .whitespaces)
+        switch key {
+        case "fixture":
+            fixture = value
+        case "required_env":
+            requiredEnv = value.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        case "experimental":
+            experimental = value.lowercased() == "true"
+        default:
+            break
         }
     }
 
     let body = bodyLines.joined(separator: "\n")
-    return ParsedFrontmatter(fixture: fixture, body: body)
+    return ParsedFrontmatter(fixture: fixture, requiredEnv: requiredEnv, experimental: experimental, body: body)
 }
 
 func discoverTestCases(casesDir: String, filter: String?) -> [TestCase] {
@@ -79,7 +95,7 @@ func discoverTestCases(casesDir: String, filter: String?) -> [TestCase] {
             continue
         }
 
-        cases.append(TestCase(name: name, filePath: filePath, fixture: parsed.fixture, rawContent: rawContent))
+        cases.append(TestCase(name: name, filePath: filePath, fixture: parsed.fixture, requiredEnv: parsed.requiredEnv, experimental: parsed.experimental, rawContent: rawContent))
     }
 
     return cases
