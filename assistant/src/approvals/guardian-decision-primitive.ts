@@ -289,6 +289,10 @@ export function mintCanonicalRequestGrant(params: {
  *      principal — this covers the cross-channel case where a request was
  *      created with a channel binding's principal (e.g. Telegram) but the
  *      guardian responds from vellum/desktop.
+ *   3. The request's principal matches the canonical (vellum) principal —
+ *      this covers the reverse cross-channel case where a request was
+ *      created via voice/desktop (bound to the vellum principal) but the
+ *      guardian responds from a channel (e.g. Telegram).
  *
  * Returns `true` when the actor is authorized, `false` otherwise.
  */
@@ -300,12 +304,16 @@ export function isAuthorizedGuardianPrincipal(
     return true;
   }
 
-  // Cross-channel fallback: check if the actor matches the assistant's
-  // canonical (vellum) principal.
   const vellumBinding = getActiveBinding(DAEMON_INTERNAL_ASSISTANT_ID, 'vellum');
   const canonicalPrincipal = vellumBinding?.guardianPrincipalId;
 
-  return !!canonicalPrincipal && actorPrincipalId === canonicalPrincipal;
+  // Allow if the actor IS the canonical principal (vellum approving channel request)
+  if (!!canonicalPrincipal && actorPrincipalId === canonicalPrincipal) {
+    return true;
+  }
+
+  // Allow if the request is bound to the canonical principal (channel approving vellum/voice request)
+  return !!canonicalPrincipal && requestPrincipalId === canonicalPrincipal;
 }
 
 // ---------------------------------------------------------------------------
