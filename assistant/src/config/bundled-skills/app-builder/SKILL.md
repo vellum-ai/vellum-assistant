@@ -92,14 +92,24 @@ These are hard prohibitions. Violating any of these produces that unmistakable "
 Copy-paste-ready CSS techniques. All work in the sandboxed WebView with no external dependencies.
 
 ### Animated Gradient Background
+
+Choose **one** of the following color variants (do not combine both):
+
+**Variant A — Warm pastels (light, airy feel):**
 ```css
-/* Warm pastels */
 body {
   background: linear-gradient(-45deg, #fef3c7, #fce7f3, #e0e7ff, #d1fae5);
   background-size: 400% 400%;
   animation: gradientShift 15s ease infinite;
 }
-/* Dark jewel tones */
+@keyframes gradientShift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+```
+
+**Variant B — Dark jewel tones (deep, rich feel):**
+```css
 body {
   background: linear-gradient(-45deg, #0f172a, #1e1b4b, #172554, #0c4a6e);
   background-size: 400% 400%;
