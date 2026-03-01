@@ -57,7 +57,7 @@ describe("managed-gateway probes", () => {
       status: "ready",
       service: "managed-gateway",
       mode: "skeleton",
-      upstreamBaseUrl: "http://127.0.0.1:8000",
+      upstreamConfigured: true,
     });
   });
 

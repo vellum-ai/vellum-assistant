@@ -5,6 +5,7 @@ import {
   type ManagedGatewayUpstreamFetch,
   normalizeIdentityKey,
 } from "./route-resolve.js";
+import { buildUpstreamUrl } from "./upstream-url.js";
 
 const ROUTE_RESOLVE_SCOPE = "routes:resolve";
 
@@ -65,10 +66,10 @@ export async function resolveManagedRoute(
   const headers = new Headers(authHeaders);
   headers.set("content-type", "application/json");
 
-  const upstreamUrl = new URL(
-    MANAGED_GATEWAY_ROUTE_RESOLVE_PATH,
+  const upstreamUrl = buildUpstreamUrl(
     config.djangoInternalBaseUrl,
-  ).toString();
+    MANAGED_GATEWAY_ROUTE_RESOLVE_PATH,
+  );
 
   let normalizedIdentityKey: string;
   try {
