@@ -17,8 +17,8 @@ import {
   getActiveBinding,
 } from '../../memory/guardian-bindings.js';
 import { getLogger } from '../../util/logger.js';
-import { normalizeAssistantId } from '../../util/platform.js';
 import { mintActorToken } from '../actor-token-service.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
 import {
   createActorTokenRecord,
   revokeByDeviceBinding,
@@ -82,7 +82,7 @@ export async function handleGuardianBootstrap(req: Request): Promise<Response> {
       return httpError('BAD_REQUEST', 'Invalid platform. Expected "macos" or "ios".', 400);
     }
 
-    const assistantId = normalizeAssistantId('self');
+    const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
     const { guardianPrincipalId, isNew } = ensureGuardianPrincipal(assistantId);
     const hashedDeviceId = hashDeviceId(deviceId);
 
