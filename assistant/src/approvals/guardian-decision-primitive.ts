@@ -52,8 +52,8 @@ import { mintGrantFromDecision } from './approval-primitive.js';
 import {
   type ActorContext,
   type ChannelDeliveryContext,
-  type ResolverEmissionContext,
   getResolver,
+  type ResolverEmissionContext,
 } from './guardian-request-resolvers.js';
 
 const log = getLogger('guardian-decision-primitive');

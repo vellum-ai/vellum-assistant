@@ -100,6 +100,10 @@ import {
   stopCanonicalGuardianExpirySweep,
 } from './routes/canonical-guardian-expiry-sweep.js';
 import {
+  handleGetChannelReadiness,
+  handleRefreshChannelReadiness,
+} from './routes/channel-readiness-routes.js';
+import {
   handleChannelDeliveryAck,
   handleChannelInbound,
   handleDeleteConversation,
@@ -127,6 +131,7 @@ import {
   handleGuardianActionDecision,
   handleGuardianActionsPending,
 } from './routes/guardian-action-routes.js';
+import { handleGuardianBootstrap } from './routes/guardian-bootstrap-routes.js';
 import { handleGetIdentity,handleHealth } from './routes/identity-routes.js';
 import {
   handleBlockMember,
@@ -138,7 +143,6 @@ import {
   handleRevokeMember,
   handleUpsertMember,
 } from './routes/ingress-routes.js';
-import { handleGuardianBootstrap } from './routes/guardian-bootstrap-routes.js';
 import {
   handleCancelOutbound,
   handleClearSlackChannelConfig,
@@ -161,10 +165,6 @@ import {
   handlePairingRequest,
   handlePairingStatus,
 } from './routes/pairing-routes.js';
-import {
-  handleGetChannelReadiness,
-  handleRefreshChannelReadiness,
-} from './routes/channel-readiness-routes.js';
 import { handleAddSecret } from './routes/secret-routes.js';
 import {
   handleAssignTwilioNumber,

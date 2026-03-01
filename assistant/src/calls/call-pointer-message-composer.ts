@@ -8,8 +8,8 @@
  * Follows the same pattern as approval-message-composer.ts and
  * guardian-action-message-composer.ts.
  */
-import { getLogger } from '../util/logger.js';
 import type { PointerCopyGenerator } from '../runtime/http-types.js';
+import { getLogger } from '../util/logger.js';
 
 const log = getLogger('call-pointer-message-composer');
 

@@ -33,16 +33,12 @@ import {
 } from '../../calls/twilio-rest.js';
 import { getGatewayInternalBaseUrl } from '../../config/env.js';
 import { loadRawConfig, saveRawConfig } from '../../config/loader.js';
+import { getReadinessService } from '../../daemon/handlers/config-channels.js';
+import { syncTwilioWebhooks } from '../../daemon/handlers/config-ingress.js';
 import type { IngressConfig } from '../../inbound/public-ingress-urls.js';
 import { deleteSecureKey, getSecureKey, setSecureKey } from '../../security/secure-keys.js';
 import { deleteCredentialMetadata, upsertCredentialMetadata } from '../../tools/credentials/metadata-store.js';
-import { getLogger } from '../../util/logger.js';
 import { readHttpToken } from '../../util/platform.js';
-import { getReadinessService } from '../../daemon/handlers/config-channels.js';
-import { syncTwilioWebhooks } from '../../daemon/handlers/config-ingress.js';
-import { httpError } from '../http-errors.js';
-
-const log = getLogger('twilio-routes');
 
 // ---------------------------------------------------------------------------
 // Shared helpers
