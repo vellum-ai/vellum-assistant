@@ -458,8 +458,10 @@ public final class ChatViewModel: ObservableObject {
 
     /// Deterministic approval/reject phrases consumed inline by the daemon's
     /// guardian router. Keep this list in sync with guardian-reply-router.ts.
-    private static let explicitInlineConfirmationDecisionPhrases: Set<String> = [
+    private static let explicitInlineConfirmationApprovePhrases: Set<String> = [
         "approve", "approved", "approve once", "yes", "y", "allow", "go for it", "go ahead", "proceed", "do it",
+    ]
+    private static let explicitInlineConfirmationRejectPhrases: Set<String> = [
         "reject", "deny", "decline", "no", "n", "block", "cancel",
     ]
 
@@ -471,17 +473,23 @@ public final class ChatViewModel: ObservableObject {
             .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
     }
 
-    /// Returns true when the outbound user message is a plain-text approval/reject
-    /// reply intended to answer an inline confirmation prompt.
-    private static func isLikelyInlineConfirmationDecisionMessage(
+    /// Infer a deterministic inline confirmation decision from outbound user text.
+    /// Returns nil when the text is not an explicit decision phrase.
+    private static func inferInlineConfirmationDecision(
         rawText: String,
         hasAttachments: Bool,
         hasSkillInvocation: Bool
-    ) -> Bool {
-        guard !hasAttachments, !hasSkillInvocation else { return false }
+    ) -> String? {
+        guard !hasAttachments, !hasSkillInvocation else { return nil }
         let normalized = normalizeDecisionPhrase(rawText)
-        guard !normalized.isEmpty else { return false }
-        return explicitInlineConfirmationDecisionPhrases.contains(normalized)
+        guard !normalized.isEmpty else { return nil }
+        if explicitInlineConfirmationApprovePhrases.contains(normalized) {
+            return "allow"
+        }
+        if explicitInlineConfirmationRejectPhrases.contains(normalized) {
+            return "deny"
+        }
+        return nil
     }
 
     /// Number of messages currently revealed at the top of the conversation.
@@ -932,14 +940,26 @@ public final class ChatViewModel: ObservableObject {
         guard !text.isEmpty || hasAttachments || hasSkillInvocation else { return }
 
         // For ordinary follow-up messages, pessimistically mark pending prompts as denied
-        // to match daemon auto-deny behavior. Skip this for explicit approval/reject text
-        // because those replies are consumed inline by the daemon and should not flash a
-        // premature denied state in the UI.
-        if !Self.isLikelyInlineConfirmationDecisionMessage(
+        // to match daemon auto-deny behavior.
+        //
+        // For deterministic approval/reject text replies:
+        // - if there is exactly one pending confirmation, optimistically resolve it in
+        //   the UI immediately so the decision bubble does not linger after the user reply
+        // - otherwise leave pending confirmations unchanged (message may be routed as a
+        //   normal chat turn or require disambiguation server-side)
+        if let inlineDecision = Self.inferInlineConfirmationDecision(
             rawText: rawText,
             hasAttachments: hasAttachments,
             hasSkillInvocation: hasSkillInvocation
         ) {
+            let pendingConfirmationIndices = messages.indices.filter {
+                messages[$0].confirmation?.state == .pending
+            }
+            if pendingConfirmationIndices.count == 1 {
+                let idx = pendingConfirmationIndices[0]
+                messages[idx].confirmation?.state = inlineDecision == "allow" ? .approved : .denied
+            }
+        } else {
             for i in messages.indices where messages[i].confirmation?.state == .pending {
                 messages[i].confirmation?.state = .denied
             }

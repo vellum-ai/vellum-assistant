@@ -108,7 +108,7 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertNil(viewModel.errorText)
     }
 
-    func testSendMessageDoesNotPrematurelyDenyPendingConfirmationForExplicitApprovePhrase() {
+    func testSendMessageOptimisticallyApprovesSinglePendingConfirmationForExplicitApprovePhrase() {
         viewModel.sessionId = "sess-1"
         var confirmation = ToolConfirmationData(
             requestId: "req-approve",
@@ -129,8 +129,34 @@ final class ChatViewModelTests: XCTestCase {
 
         XCTAssertEqual(
             viewModel.messages.first(where: { $0.confirmation?.requestId == "req-approve" })?.confirmation?.state,
-            .pending,
-            "Explicit natural-language approval phrases should keep pending confirmation state until daemon resolution"
+            .approved,
+            "Explicit natural-language approval phrases should optimistically resolve a single pending confirmation"
+        )
+    }
+
+    func testSendMessageOptimisticallyDeniesSinglePendingConfirmationForExplicitRejectPhrase() {
+        viewModel.sessionId = "sess-1"
+        var confirmation = ToolConfirmationData(
+            requestId: "req-reject",
+            toolName: "bash",
+            input: ["command": AnyCodable("ls -la")],
+            riskLevel: "low",
+            diff: nil,
+            allowlistOptions: [],
+            scopeOptions: [],
+            executionTarget: "host",
+            persistentDecisionsAllowed: true
+        )
+        confirmation.state = .pending
+        viewModel.messages.append(ChatMessage(role: .assistant, text: "", confirmation: confirmation))
+
+        viewModel.inputText = "no"
+        viewModel.sendMessage()
+
+        XCTAssertEqual(
+            viewModel.messages.first(where: { $0.confirmation?.requestId == "req-reject" })?.confirmation?.state,
+            .denied,
+            "Explicit rejection phrases should optimistically resolve a single pending confirmation as denied"
         )
     }
 
@@ -157,6 +183,51 @@ final class ChatViewModelTests: XCTestCase {
             viewModel.messages.first(where: { $0.confirmation?.requestId == "req-follow-up" })?.confirmation?.state,
             .denied,
             "Non-decision follow-up text should keep the existing optimistic auto-deny behavior"
+        )
+    }
+
+    func testSendMessageKeepsPendingConfirmationsWhenDecisionPhraseIsAmbiguousAcrossMultipleRequests() {
+        viewModel.sessionId = "sess-1"
+        var confirmationA = ToolConfirmationData(
+            requestId: "req-a",
+            toolName: "bash",
+            input: ["command": AnyCodable("ls -la")],
+            riskLevel: "low",
+            diff: nil,
+            allowlistOptions: [],
+            scopeOptions: [],
+            executionTarget: "host",
+            persistentDecisionsAllowed: true
+        )
+        confirmationA.state = .pending
+        var confirmationB = ToolConfirmationData(
+            requestId: "req-b",
+            toolName: "bash",
+            input: ["command": AnyCodable("pwd")],
+            riskLevel: "low",
+            diff: nil,
+            allowlistOptions: [],
+            scopeOptions: [],
+            executionTarget: "host",
+            persistentDecisionsAllowed: true
+        )
+        confirmationB.state = .pending
+
+        viewModel.messages.append(ChatMessage(role: .assistant, text: "", confirmation: confirmationA))
+        viewModel.messages.append(ChatMessage(role: .assistant, text: "", confirmation: confirmationB))
+
+        viewModel.inputText = "approve"
+        viewModel.sendMessage()
+
+        XCTAssertEqual(
+            viewModel.messages.first(where: { $0.confirmation?.requestId == "req-a" })?.confirmation?.state,
+            .pending,
+            "Decision phrases should not pre-resolve when multiple pending confirmations exist"
+        )
+        XCTAssertEqual(
+            viewModel.messages.first(where: { $0.confirmation?.requestId == "req-b" })?.confirmation?.state,
+            .pending,
+            "Decision phrases should not pre-resolve when multiple pending confirmations exist"
         )
     }
 
