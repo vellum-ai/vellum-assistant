@@ -984,14 +984,6 @@ struct SettingsPanel: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .vCard(background: VColor.surfaceSubtle)
-        .onHover { hovering in
-            if hovering {
-                NSCursor.pointingHand.push()
-            } else {
-                NSCursor.pop()
-            }
-        }
     }
 
     // MARK: - Permission Helpers
