@@ -108,6 +108,25 @@ export const smsMessagingProvider: MessagingProvider = {
 
     const phoneNumber = getPhoneNumber();
     if (!phoneNumber) {
+      // Mirror isConnected(): fall back to assistant-scoped phone numbers
+      try {
+        const config = loadConfig();
+        const mappings = config.sms?.assistantPhoneNumbers as Record<string, string> | undefined;
+        if (mappings && Object.keys(mappings).length > 0) {
+          const accountSid = getSecureKey('credential:twilio:account_sid')!;
+          return {
+            connected: true,
+            user: 'assistant-scoped',
+            platform: 'sms',
+            metadata: {
+              accountSid: accountSid.slice(0, 6) + '...',
+              assistantPhoneNumbers: Object.keys(mappings).length,
+            },
+          };
+        }
+      } catch {
+        // Config may not be available yet
+      }
       return {
         connected: false,
         user: 'unknown',
