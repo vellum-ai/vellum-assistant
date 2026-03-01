@@ -22,7 +22,7 @@ import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
 import { computeToolApprovalDigest } from '../security/tool-approval-digest.js';
 import { getLogger } from '../util/logger.js';
 import { readHttpToken } from '../util/platform.js';
-import { getMaxCallDurationMs, getUserConsultationTimeoutMs, SILENCE_TIMEOUT_MS } from './call-constants.js';
+import { getMaxCallDurationMs, getSilenceTimeoutMs, getUserConsultationTimeoutMs } from './call-constants.js';
 import { persistCallCompletionMessage } from './call-conversation-messages.js';
 import { addPointerMessage, formatDuration } from './call-pointer-messages.js';
 import { fireCallCompletionNotifier, fireCallQuestionNotifier, fireCallTranscriptNotifier,registerCallController, unregisterCallController } from './call-state.js';
@@ -1049,8 +1049,15 @@ export class CallController {
   private resetSilenceTimer(): void {
     if (this.silenceTimer) clearTimeout(this.silenceTimer);
     this.silenceTimer = setTimeout(() => {
+      // During guardian wait states, the relay heartbeat timer handles
+      // periodic updates — suppress the generic "Are you still there?"
+      // which is confusing when the caller is waiting on a decision.
+      if (this.relay.getConnectionState() === 'awaiting_guardian_decision') {
+        log.debug({ callSessionId: this.callSessionId }, 'Silence timeout suppressed during guardian wait');
+        return;
+      }
       log.info({ callSessionId: this.callSessionId }, 'Silence timeout triggered');
       this.relay.sendTextToken('Are you still there?', true);
-    }, SILENCE_TIMEOUT_MS);
+    }, getSilenceTimeoutMs());
   }
 }
