@@ -1551,6 +1551,9 @@ extension ChatViewModel {
             // Ignore stale events — only accept monotonically increasing versions.
             guard msg.activityVersion > lastActivityVersion else { return }
             lastActivityVersion = msg.activityVersion
+            assistantActivityPhase = msg.phase
+            assistantActivityAnchor = msg.anchor
+            assistantActivityReason = msg.reason
             switch msg.phase {
             case "thinking":
                 isThinking = true

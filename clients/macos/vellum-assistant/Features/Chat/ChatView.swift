@@ -34,6 +34,9 @@ struct ChatView: View {
     var onModelPickerSelect: ((UUID, String) -> Void)?
     var selectedModel: String = ""
     var configuredProviders: Set<String> = []
+    var assistantActivityPhase: String = "idle"
+    var assistantActivityAnchor: String = "global"
+    var assistantActivityReason: String? = nil
     let onConfirmationAllow: (String) -> Void
     let onConfirmationDeny: (String) -> Void
     let onAlwaysAllow: (String, String, String, String) -> Void
@@ -175,6 +178,9 @@ struct ChatView: View {
                             messages: messages,
                             isSending: isSending,
                             isThinking: isThinking,
+                            assistantActivityPhase: assistantActivityPhase,
+                            assistantActivityAnchor: assistantActivityAnchor,
+                            assistantActivityReason: assistantActivityReason,
                             selectedModel: selectedModel,
                             configuredProviders: configuredProviders,
                             activeSubagents: activeSubagents,
