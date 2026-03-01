@@ -46,10 +46,10 @@ struct ConversationsListResponse: Decodable {
 /// - Translating IPC message types to HTTP API calls
 /// - Auto-reconnect with exponential backoff
 @MainActor
-final class HTTPTransport {
+public final class HTTPTransport {
 
-    let baseURL: String
-    private(set) var bearerToken: String?
+    public let baseURL: String
+    public private(set) var bearerToken: String?
     private let conversationKey: String
     private let sourceChannel: String
 
