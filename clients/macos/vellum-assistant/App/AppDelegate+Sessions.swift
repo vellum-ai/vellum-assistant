@@ -287,11 +287,13 @@ extension AppDelegate {
     /// backgrounded to guarantee delivery if the notification_intent IPC is late.
     func handleNotificationThreadCreated(_ msg: IPCNotificationThreadCreated) {
         // Guardian scoping: skip thread creation for notifications targeted at
-        // a different guardian identity.
+        // a different guardian identity. When the local principal is nil (not yet
+        // bootstrapped), pass through all notifications so urgent prompts aren't
+        // silently missed during startup.
         if let target = msg.targetGuardianPrincipalId {
             let localId = ActorTokenManager.getGuardianPrincipalId()
-            if localId == nil || localId != target {
-                log.info("Skipping notification_thread_created for guardian \(target) — local guardian is \(localId ?? "nil")")
+            if let localId, localId != target {
+                log.info("Skipping notification_thread_created for guardian \(target) — local guardian is \(localId)")
                 return
             }
         }
