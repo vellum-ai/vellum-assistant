@@ -165,13 +165,14 @@ async function runTestCase(
     const videoPath = path.join(videoDir, "screen-recording.mov");
     recorder = startScreenRecording(videoPath);
 
-    // Run the agent
+    // Run the agent (workerIndex=0 since standalone runner is single-threaded)
     const result = await runAgent({
       testContent,
       page,
       screenshotDir,
       traceLogPath,
       verbose,
+      workerIndex: 0,
     });
 
     return {

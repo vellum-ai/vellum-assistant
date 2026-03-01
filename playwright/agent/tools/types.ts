@@ -19,6 +19,8 @@ export interface TestResult {
 export interface ToolContext {
   screenshotDir: string;
   screenshotCounter: { value: number };
+  /** Playwright parallel worker index (0-based). Used to isolate temp files, app instances, etc. */
+  workerIndex: number;
 }
 
 export interface ToolHandlerResult {
