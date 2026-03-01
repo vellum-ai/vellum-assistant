@@ -125,11 +125,19 @@ final class AppListManager: ObservableObject {
 
     /// Sync apps from the daemon's authoritative list into the local sidebar list.
     /// Adds any apps that don't already exist locally, using their daemon createdAt timestamp.
+    /// Removes local apps the daemon no longer reports (e.g. filtered Home Base).
     /// Always propagates daemon descriptions to existing apps when they differ.
     func syncFromDaemon(_ daemonApps: [AppItem_Daemon]) {
         let existingIds = Set(apps.map(\.id))
+        let daemonIds = Set(daemonApps.map(\.id))
         var newCount = 0
         var updatedCount = 0
+
+        // Remove local apps the daemon no longer reports
+        let prunedCount = apps.count
+        apps.removeAll { !daemonIds.contains($0.id) }
+        let removedCount = prunedCount - apps.count
+
         for daemonApp in daemonApps {
             if existingIds.contains(daemonApp.id) {
                 if let desc = daemonApp.description,
@@ -155,9 +163,9 @@ final class AppListManager: ObservableObject {
             apps.append(item)
             newCount += 1
         }
-        if newCount > 0 || updatedCount > 0 {
+        if newCount > 0 || updatedCount > 0 || removedCount > 0 {
             save()
-            log.info("Synced from daemon: \(newCount) new app(s), \(updatedCount) description(s) updated")
+            log.info("Synced from daemon: \(newCount) new, \(updatedCount) updated, \(removedCount) pruned")
         }
     }
 
