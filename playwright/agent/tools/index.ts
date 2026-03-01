@@ -55,27 +55,31 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = TOOLS.map((t) => t.definition)
 
 // ── Dispatcher ──────────────────────────────────────────────────────
 
-export async function executeTool(
-  page: Page,
-  toolName: string,
-  toolInput: Record<string, unknown>,
-  screenshotDir: string,
-): Promise<ToolHandlerResult> {
-  const tool = toolsByName.get(toolName);
-  if (!tool) {
-    return {
-      result: { success: false, data: `Unknown tool: ${toolName}` },
-    };
-  }
+export function createToolExecutor(screenshotDir: string) {
+  const context: ToolContext = {
+    screenshotDir,
+    screenshotCounter: { value: 0 },
+  };
 
-  const context: ToolContext = { screenshotDir };
+  return async function executeTool(
+    page: Page,
+    toolName: string,
+    toolInput: Record<string, unknown>,
+  ): Promise<ToolHandlerResult> {
+    const tool = toolsByName.get(toolName);
+    if (!tool) {
+      return {
+        result: { success: false, data: `Unknown tool: ${toolName}` },
+      };
+    }
 
-  try {
-    return await tool.execute(page, toolInput, context);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return {
-      result: { success: false, data: `Error executing ${toolName}: ${message}` },
-    };
-  }
+    try {
+      return await tool.execute(page, toolInput, context);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        result: { success: false, data: `Error executing ${toolName}: ${message}` },
+      };
+    }
+  };
 }
