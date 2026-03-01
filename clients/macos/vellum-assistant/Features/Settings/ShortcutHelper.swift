@@ -9,7 +9,7 @@ enum ShortcutHelper {
     /// display string like "Command Shift Space".
     static func displayString(for shortcut: String) -> String {
         let parts = shortcut.lowercased().split(separator: "+").map(String.init)
-        return parts.map { displayToken($0) }.joined(separator: " ")
+        return parts.map { displayToken($0) }.joined()
     }
 
     /// Parses a shortcut string into modifier flags and a key string suitable
