@@ -7,6 +7,8 @@ on:
         description: 'Release version to test (e.g. "1.2.3"). If set, downloads the DMG from vellum-ai/velly releases instead of building from source.'
         required: false
         type: string
+  pull_request:
+    types: [labeled]
 
 concurrency:
   group: playwright-${{ github.run_id }}
@@ -20,6 +22,9 @@ permissions:
 jobs:
   playwright:
     name: Playwright Tests
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && github.event.label.name == 'e2e')
     runs-on: macos-14
     environment: dev
     timeout-minutes: 60
