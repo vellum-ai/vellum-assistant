@@ -26,3 +26,4 @@ Response contract:
 
 Related contract:
 - inbound dispatch: [`inbound-dispatch-contract.md`](./inbound-dispatch-contract.md)
+- outbound send: [`outbound-send-contract.md`](./outbound-send-contract.md)

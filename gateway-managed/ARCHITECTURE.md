@@ -4,7 +4,7 @@ This directory is the OSS publication point for managed-gateway wire contracts.
 
 ## Scope
 
-1. Public request/response contracts for internal route resolution and inbound dispatch.
+1. Public request/response contracts for internal route resolution, inbound dispatch, and outbound send.
 2. Public webhook envelope contracts for managed Twilio SMS and voice ingress.
 3. Canonical JSON fixtures used for compatibility and drift checks.
 
@@ -18,6 +18,7 @@ This directory is the OSS publication point for managed-gateway wire contracts.
 
 - `POST /v1/internal/managed-gateway/routes/resolve/`
 - `POST /v1/internal/managed-gateway/inbound/dispatch/`
+- `POST /v1/internal/managed-gateway/outbound-send/`
 - `POST /webhooks/twilio/sms`
 - `POST /webhooks/twilio/voice`
 

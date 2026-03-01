@@ -1,0 +1,20 @@
+{
+  "route_id": "9c13036a-11f9-4c70-8f48-39ca6e2b35b2",
+  "assistant_id": "0f33135d-2457-4ffe-a284-dc484f47a6f7",
+  "normalized_send": {
+    "version": "v1",
+    "sourceChannel": "sms",
+    "message": {
+      "to": "+15551239999",
+      "content": "Hello from managed outbound lane",
+      "externalMessageId": "SM-out-123"
+    },
+    "source": {
+      "requestId": "send_req_123"
+    },
+    "raw": {
+      "to": "+15551239999",
+      "body": "Hello from managed outbound lane"
+    }
+  }
+}
