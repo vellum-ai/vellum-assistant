@@ -1565,7 +1565,7 @@ When to use each of the 8 layout variants:
 | **Bullets / Content** | Core message; 3–5 bullets max, or 2–3 sentence body |
 | **Quote** | Emotional punctuation; center-aligned, breaks visual pattern |
 | **Comparison** | Two-column before/after, entity comparison, or pros/cons |
-| **Timeline** | Chronological progression; milestones, history, roadmap, or process steps using `.v-timeline` entries |
+| **Timeline** | Chronological progression; milestones, history, roadmap, or process steps using `.v-timeline-entry` entries |
 | **Visual / Immersive** | Gradient background with glass overlay, minimal text |
 | **Closing / CTA** | Bold title, short takeaway, optional stat reinforcement |
 
