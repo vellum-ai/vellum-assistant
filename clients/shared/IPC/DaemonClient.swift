@@ -248,6 +248,12 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `confirmation_request` message for tool permission approval.
     public var onConfirmationRequest: ((ConfirmationRequestMessage) -> Void)?
 
+    /// Called when the daemon sends a `confirmation_state_changed` message with authoritative state transitions.
+    public var onConfirmationStateChanged: ((ConfirmationStateChangedMessage) -> Void)?
+
+    /// Called when the daemon sends an `assistant_activity_state` message for thinking/streaming lifecycle.
+    public var onAssistantActivityState: ((AssistantActivityStateMessage) -> Void)?
+
     /// Called when the daemon sends a `secret_request` message for secure credential input.
     public var onSecretRequest: ((SecretRequestMessage) -> Void)?
 

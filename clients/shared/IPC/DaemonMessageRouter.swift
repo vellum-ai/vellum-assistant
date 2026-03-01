@@ -71,6 +71,10 @@ extension DaemonClient {
             onGenerationHandoff?(msg)
         case .confirmationRequest(let msg):
             onConfirmationRequest?(msg)
+        case .confirmationStateChanged(let msg):
+            onConfirmationStateChanged?(msg)
+        case .assistantActivityState(let msg):
+            onAssistantActivityState?(msg)
         case .secretRequest(let msg):
             onSecretRequest?(msg)
         case .taskRouted(let msg):

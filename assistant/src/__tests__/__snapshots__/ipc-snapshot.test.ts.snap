@@ -1157,6 +1157,40 @@ exports[`IPC message snapshots ClientMessage types generate_avatar serializes to
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types guardian_actions_pending_request serializes to expected JSON 1`] = `
+{
+  "conversationId": "conv-guardian-001",
+  "type": "guardian_actions_pending_request",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types guardian_action_decision serializes to expected JSON 1`] = `
+{
+  "action": "approve_once",
+  "conversationId": "conv-guardian-001",
+  "requestId": "req-guardian-001",
+  "type": "guardian_action_decision",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types reorder_threads serializes to expected JSON 1`] = `
+{
+  "type": "reorder_threads",
+  "updates": [
+    {
+      "displayOrder": 0,
+      "isPinned": false,
+      "sessionId": "sess-001",
+    },
+    {
+      "displayOrder": 1,
+      "isPinned": true,
+      "sessionId": "sess-002",
+    },
+  ],
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types auth_result serializes to expected JSON 1`] = `
 {
   "success": true,
@@ -1285,6 +1319,30 @@ exports[`IPC message snapshots ServerMessage types confirmation_request serializ
   "sessionId": "sess-001",
   "toolName": "bash",
   "type": "confirmation_request",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types confirmation_state_changed serializes to expected JSON 1`] = `
+{
+  "causedByRequestId": "req-003",
+  "decisionText": "approve",
+  "requestId": "req-002",
+  "sessionId": "sess-001",
+  "source": "inline_nl",
+  "state": "approved",
+  "type": "confirmation_state_changed",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types assistant_activity_state serializes to expected JSON 1`] = `
+{
+  "activityVersion": 1,
+  "anchor": "assistant_turn",
+  "phase": "thinking",
+  "reason": "message_dequeued",
+  "requestId": "req-003",
+  "sessionId": "sess-001",
+  "type": "assistant_activity_state",
 }
 `;
 
@@ -3119,40 +3177,6 @@ exports[`IPC message snapshots ServerMessage types generate_avatar_response seri
 {
   "success": true,
   "type": "generate_avatar_response",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types guardian_actions_pending_request serializes to expected JSON 1`] = `
-{
-  "conversationId": "conv-guardian-001",
-  "type": "guardian_actions_pending_request",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types guardian_action_decision serializes to expected JSON 1`] = `
-{
-  "action": "approve_once",
-  "conversationId": "conv-guardian-001",
-  "requestId": "req-guardian-001",
-  "type": "guardian_action_decision",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types reorder_threads serializes to expected JSON 1`] = `
-{
-  "type": "reorder_threads",
-  "updates": [
-    {
-      "displayOrder": 0,
-      "isPinned": false,
-      "sessionId": "sess-001",
-    },
-    {
-      "displayOrder": 1,
-      "isPinned": true,
-      "sessionId": "sess-002",
-    },
-  ],
 }
 `;
 

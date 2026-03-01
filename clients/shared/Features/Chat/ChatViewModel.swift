@@ -412,6 +412,10 @@ public final class ChatViewModel: ObservableObject {
     /// ChatViewModel when multiple threads have active sessions.
     public var lastToolUseReceivedAt: Date?
 
+    /// Monotonically increasing version counter for server-authoritative activity state.
+    /// Used to ignore stale `assistant_activity_state` events.
+    var lastActivityVersion: Int = 0
+
     /// Called when an inline confirmation is responded to, so the floating panel can be dismissed.
     /// Parameters: (requestId, decision)
     public var onInlineConfirmationResponse: ((String, String) -> Void)?
@@ -455,34 +459,6 @@ public final class ChatViewModel: ObservableObject {
 
     /// Page size for chat message display; older messages are loaded in this increment.
     public static let messagePageSize = 50
-
-    /// Deterministic approval/reject phrases consumed inline by the daemon's
-    /// guardian router. Keep this list in sync with guardian-reply-router.ts.
-    private static let explicitInlineConfirmationDecisionPhrases: Set<String> = [
-        "approve", "approved", "approve once", "yes", "y", "allow", "go for it", "go ahead", "proceed", "do it",
-        "reject", "deny", "decline", "no", "n", "block", "cancel",
-    ]
-
-    private static func normalizeDecisionPhrase(_ text: String) -> String {
-        text
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-            .replacingOccurrences(of: "[.!?]+$", with: "", options: .regularExpression)
-            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-    }
-
-    /// Returns true when the outbound user message is a plain-text approval/reject
-    /// reply intended to answer an inline confirmation prompt.
-    private static func isLikelyInlineConfirmationDecisionMessage(
-        rawText: String,
-        hasAttachments: Bool,
-        hasSkillInvocation: Bool
-    ) -> Bool {
-        guard !hasAttachments, !hasSkillInvocation else { return false }
-        let normalized = normalizeDecisionPhrase(rawText)
-        guard !normalized.isEmpty else { return false }
-        return explicitInlineConfirmationDecisionPhrases.contains(normalized)
-    }
 
     /// Number of messages currently revealed at the top of the conversation.
     /// The view slices `messages` to `messages.suffix(displayedMessageCount)`.
@@ -822,6 +798,7 @@ public final class ChatViewModel: ObservableObject {
                 self?.requestIdToMessageId.removeAll()
                 self?.activeRequestIdToMessageId.removeAll()
                 self?.pendingLocalDeletions.removeAll()
+                self?.lastActivityVersion = 0
                 // If a run was in progress when the connection dropped, the
                 // client may have missed the messageComplete (or the full
                 // assistant response). Reset the spinner and re-fetch history
@@ -931,19 +908,9 @@ public final class ChatViewModel: ObservableObject {
         let hasSkillInvocation = pendingSkillInvocation != nil
         guard !text.isEmpty || hasAttachments || hasSkillInvocation else { return }
 
-        // For ordinary follow-up messages, pessimistically mark pending prompts as denied
-        // to match daemon auto-deny behavior. Skip this for explicit approval/reject text
-        // because those replies are consumed inline by the daemon and should not flash a
-        // premature denied state in the UI.
-        if !Self.isLikelyInlineConfirmationDecisionMessage(
-            rawText: rawText,
-            hasAttachments: hasAttachments,
-            hasSkillInvocation: hasSkillInvocation
-        ) {
-            for i in messages.indices where messages[i].confirmation?.state == .pending {
-                messages[i].confirmation?.state = .denied
-            }
-        }
+        // Confirmation state is now server-authoritative: the daemon emits
+        // `confirmation_state_changed` events for all resolution paths.
+        // No client-side pessimistic denial is needed.
 
         // When "/model" or "/models" is sent, refresh model state so the picker/table has fresh data
         if (text == "/model" || text == "/models") && !hasSkillInvocation {
