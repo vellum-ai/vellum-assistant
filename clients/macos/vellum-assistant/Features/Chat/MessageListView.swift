@@ -6,6 +6,9 @@ struct MessageListView: View {
     let messages: [ChatMessage]
     let isSending: Bool
     let isThinking: Bool
+    let assistantActivityPhase: String
+    let assistantActivityAnchor: String
+    let assistantActivityReason: String?
     let selectedModel: String
     let configuredProviders: Set<String>
     let activeSubagents: [SubagentInfo]
@@ -107,6 +110,62 @@ struct MessageListView: View {
         ModelListBubble(currentModel: selectedModel, configuredProviders: configuredProviders)
     }
 
+    private var shouldAnchorThinkingToConfirmationChip: Bool {
+        assistantActivityPhase == "thinking"
+            && assistantActivityAnchor == "assistant_turn"
+            && assistantActivityReason == "confirmation_resolved"
+    }
+
+    private func resolvedThinkingAnchorIndex(for list: [ChatMessage]) -> Int? {
+        guard shouldAnchorThinkingToConfirmationChip else { return nil }
+        guard !list.isEmpty else { return nil }
+
+        for index in list.indices.reversed() {
+            // Decided confirmation chips are usually rendered inline on the
+            // preceding assistant bubble.
+            if list[index].role == .assistant, list.index(after: index) < list.endIndex {
+                let next = list[list.index(after: index)]
+                if let nextConfirmation = next.confirmation, nextConfirmation.state != .pending {
+                    return index
+                }
+            }
+
+            // Fallback for standalone decided confirmation bubbles.
+            if let confirmation = list[index].confirmation, confirmation.state != .pending {
+                let hasPrecedingAssistant = index > list.startIndex
+                    && list[list.index(before: index)].role == .assistant
+                if !hasPrecedingAssistant {
+                    return index
+                }
+            }
+        }
+
+        return nil
+    }
+
+    @ViewBuilder
+    private func thinkingIndicatorRow(displayMessages: [ChatMessage]) -> some View {
+        HStack(alignment: .top, spacing: VSpacing.sm) {
+            Image(nsImage: appearance.chatAvatarImage)
+                .interpolation(.none)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .frame(width: 28, height: 28)
+                .clipShape(Circle())
+                .padding(.top, 2)
+
+            RunningIndicator(
+                label: !hasEverSentMessage && displayMessages.contains(where: { $0.role == .user })
+                    ? "Waking up..."
+                    : "Thinking",
+                showIcon: false
+            )
+        }
+        .frame(maxWidth: 520, alignment: .leading)
+        .id("thinking-indicator")
+        .transition(.opacity.combined(with: .move(edge: .bottom)))
+    }
+
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
@@ -142,10 +201,39 @@ struct MessageListView: View {
                     let displayMessages = visibleMessages
                     let activePendingRequestId = PendingConfirmationFocusSelector.activeRequestId(from: displayMessages)
                     let latestAssistantId = displayMessages.last(where: { $0.role == .assistant })?.id
+                    let anchoredThinkingIndex = resolvedThinkingAnchorIndex(for: displayMessages)
                     // Pre-compute subagent lookup to avoid O(n*m) filtering inside ForEach
                     let subagentsByParent: [UUID: [SubagentInfo]] = Dictionary(grouping: activeSubagents.filter { $0.parentMessageId != nil }, by: { $0.parentMessageId! })
                     let orphanSubagents = activeSubagents.filter { $0.parentMessageId == nil }
                     let showTimestamp = timestampIndices(for: displayMessages)
+                    let lastVisible = displayMessages.last
+                    let currentTurnMessages: ArraySlice<ChatMessage> = {
+                        if isSending, let last = displayMessages.last, last.role == .user {
+                            let lastNonUser = displayMessages.last(where: {
+                                $0.role != .user
+                            })
+                            let isActivelyProcessing = lastNonUser?.isStreaming == true
+                                || lastNonUser?.confirmation?.state == .pending
+                            if !isActivelyProcessing {
+                                return displayMessages[displayMessages.endIndex...]
+                            }
+                        }
+                        let lastTurnStart = displayMessages.indices.reversed().first(where: { idx in
+                            displayMessages[idx].role == .user
+                                && displayMessages.index(after: idx) < displayMessages.endIndex
+                                && displayMessages[displayMessages.index(after: idx)].role != .user
+                        })
+                        if let idx = lastTurnStart {
+                            return displayMessages[displayMessages.index(after: idx)...]
+                        }
+                        return displayMessages[displayMessages.startIndex...]
+                    }()
+                    let hasActiveToolCall = currentTurnMessages.contains(where: {
+                        $0.toolCalls.contains(where: { !$0.isComplete })
+                    })
+                    let shouldShowThinkingIndicator = isSending
+                        && !(lastVisible?.isStreaming == true)
+                        && !hasActiveToolCall
                     ForEach(Array(zip(displayMessages.indices, displayMessages)), id: \.1.id) { index, message in
                         if showTimestamp.contains(index) {
                             TimestampDivider(date: message.timestamp)
@@ -246,6 +334,10 @@ struct MessageListView: View {
                                 .id("subagent-\(subagent.id)")
                                 .transition(.opacity)
                         }
+
+                        if shouldShowThinkingIndicator && anchoredThinkingIndex == index {
+                            thinkingIndicatorRow(displayMessages: displayMessages)
+                        }
                     }
 
                     ForEach(orphanSubagents) { subagent in
@@ -261,51 +353,8 @@ struct MessageListView: View {
                             .transition(.opacity.combined(with: .move(edge: .bottom)))
                     }
 
-                    let lastVisible = displayMessages.last
-                    let currentTurnMessages: ArraySlice<ChatMessage> = {
-                        if isSending, let last = displayMessages.last, last.role == .user {
-                            let lastNonUser = displayMessages.last(where: {
-                                $0.role != .user
-                            })
-                            let isActivelyProcessing = lastNonUser?.isStreaming == true
-                                || lastNonUser?.confirmation?.state == .pending
-                            if !isActivelyProcessing {
-                                return displayMessages[displayMessages.endIndex...]
-                            }
-                        }
-                        let lastTurnStart = displayMessages.indices.reversed().first(where: { idx in
-                            displayMessages[idx].role == .user
-                                && displayMessages.index(after: idx) < displayMessages.endIndex
-                                && displayMessages[displayMessages.index(after: idx)].role != .user
-                        })
-                        if let idx = lastTurnStart {
-                            return displayMessages[displayMessages.index(after: idx)...]
-                        }
-                        return displayMessages[displayMessages.startIndex...]
-                    }()
-                    let hasActiveToolCall = currentTurnMessages.contains(where: {
-                        $0.toolCalls.contains(where: { !$0.isComplete })
-                    })
-                    if isSending && !(lastVisible?.isStreaming == true) && !hasActiveToolCall {
-                        HStack(alignment: .top, spacing: VSpacing.sm) {
-                            Image(nsImage: appearance.chatAvatarImage)
-                                .interpolation(.none)
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                                .frame(width: 28, height: 28)
-                                .clipShape(Circle())
-                                .padding(.top, 2)
-
-                            RunningIndicator(
-                                label: !hasEverSentMessage && displayMessages.contains(where: { $0.role == .user })
-                                    ? "Waking up..."
-                                    : "Thinking",
-                                showIcon: false
-                            )
-                        }
-                        .frame(maxWidth: 520, alignment: .leading)
-                        .id("thinking-indicator")
-                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    if shouldShowThinkingIndicator && anchoredThinkingIndex == nil {
+                        thinkingIndicatorRow(displayMessages: displayMessages)
                     }
 
                     Color.clear.frame(height: 1)
