@@ -526,10 +526,10 @@ export async function handleSendMessage(
     // from the verified context (actor-token or local-fallback).
     const verifiedActorExternalUserId = actorVerification?.ok
       ? actorVerification.guardianContext.guardianExternalUserId
-      : undefined;
+      : session.guardianContext?.guardianExternalUserId;
     const verifiedActorPrincipalId = actorVerification?.ok
       ? actorVerification.guardianContext.guardianPrincipalId ?? undefined
-      : undefined;
+      : session.guardianContext?.guardianPrincipalId ?? undefined;
 
     // Try to consume the message as a canonical guardian approval/rejection reply.
     // On failure, degrade to the existing queue/auto-deny path rather than

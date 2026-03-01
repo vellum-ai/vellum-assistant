@@ -36,6 +36,7 @@ import {
   type GuardianApprovalRequest,
   updateApprovalDecision,
 } from '../memory/channel-guardian-store.js';
+import { getActiveBinding } from '../memory/guardian-bindings.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
 import type {
   ApprovalAction,
@@ -380,16 +381,40 @@ export async function applyCanonicalGuardianDecision(
   }
 
   if (actorContext.guardianPrincipalId !== request.guardianPrincipalId) {
-    log.warn(
+    // Cross-channel fallback: when a request was created with a channel
+    // binding's principal (e.g. Telegram) but the guardian responds from
+    // vellum/desktop, the actor's principal is the vellum binding's
+    // canonical principal. Allow the decision if the actor matches the
+    // assistant's canonical (vellum) principal — this is the single
+    // assistant-scoped guardian identity used for decision authorization
+    // across all channels and surfaces.
+    const vellumBinding = getActiveBinding(DAEMON_INTERNAL_ASSISTANT_ID, 'vellum');
+    const canonicalPrincipal = vellumBinding?.guardianPrincipalId;
+
+    if (!canonicalPrincipal || actorContext.guardianPrincipalId !== canonicalPrincipal) {
+      log.warn(
+        {
+          event: 'canonical_decision_principal_mismatch',
+          requestId,
+          expectedPrincipal: request.guardianPrincipalId,
+          actualPrincipal: actorContext.guardianPrincipalId,
+          canonicalPrincipal: canonicalPrincipal ?? null,
+        },
+        'Actor principal does not match request principal or canonical principal',
+      );
+      return { applied: false, reason: 'identity_mismatch', detail: 'principal mismatch' };
+    }
+
+    log.info(
       {
-        event: 'canonical_decision_principal_mismatch',
+        event: 'canonical_decision_cross_channel_principal_match',
         requestId,
-        expectedPrincipal: request.guardianPrincipalId,
-        actualPrincipal: actorContext.guardianPrincipalId,
+        requestPrincipal: request.guardianPrincipalId,
+        actorPrincipal: actorContext.guardianPrincipalId,
+        canonicalPrincipal,
       },
-      'Actor principal does not match request principal',
+      'Actor principal matches canonical vellum principal (cross-channel authorization)',
     );
-    return { applied: false, reason: 'identity_mismatch', detail: 'principal mismatch' };
   }
 
   // 2d. Check expiry

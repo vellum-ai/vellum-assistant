@@ -197,10 +197,13 @@ function findPendingCanonicalRequests(
 
   // Actors without an externalUserId: scope by conversationId so the NL
   // path can discover pending requests bound to this conversation.
+  // Include guardianPrincipalId filter when available so the guardian only
+  // sees requests they are authorized to act on.
   if (conversationId) {
     return listCanonicalGuardianRequests({
       status: 'pending',
       conversationId,
+      ...(actor.guardianPrincipalId ? { guardianPrincipalId: actor.guardianPrincipalId } : {}),
     });
   }
 
