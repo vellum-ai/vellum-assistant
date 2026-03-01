@@ -93,6 +93,13 @@ Copy-paste-ready CSS techniques. All work in the sandboxed WebView with no exter
 
 ### Animated Gradient Background
 ```css
+/* Warm pastels */
+body {
+  background: linear-gradient(-45deg, #fef3c7, #fce7f3, #e0e7ff, #d1fae5);
+  background-size: 400% 400%;
+  animation: gradientShift 15s ease infinite;
+}
+/* Dark jewel tones */
 body {
   background: linear-gradient(-45deg, #0f172a, #1e1b4b, #172554, #0c4a6e);
   background-size: 400% 400%;
@@ -108,9 +115,9 @@ body {
 ```css
 body {
   background:
-    radial-gradient(ellipse at 20% 50%, color-mix(in srgb, var(--v-violet-500) 15%, transparent) 0%, transparent 50%),
-    radial-gradient(ellipse at 80% 20%, color-mix(in srgb, var(--v-indigo-500) 12%, transparent) 0%, transparent 50%),
-    radial-gradient(ellipse at 50% 80%, color-mix(in srgb, var(--v-emerald-500) 8%, transparent) 0%, transparent 50%),
+    radial-gradient(ellipse at 20% 50%, color-mix(in srgb, var(--v-rose-400) 15%, transparent) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 20%, color-mix(in srgb, var(--v-amber-400) 12%, transparent) 0%, transparent 50%),
+    radial-gradient(ellipse at 50% 80%, color-mix(in srgb, var(--v-teal-400) 10%, transparent) 0%, transparent 50%),
     var(--v-bg);
 }
 ```
@@ -161,7 +168,7 @@ body::before {
 ### Gradient Text
 ```css
 .gradient-text {
-  background: linear-gradient(135deg, var(--v-violet-500), var(--v-indigo-400));
+  background: linear-gradient(135deg, var(--v-rose-500), var(--v-amber-400));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -348,7 +355,7 @@ document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
 .accent-word { color: var(--accent, var(--v-accent)); }
 /* Gradient variant — use .v-gradient-text from the design system, or customize: */
 .accent-gradient {
-  background: linear-gradient(135deg, var(--accent, var(--v-violet-500)), var(--v-indigo-400));
+  background: linear-gradient(135deg, var(--accent, var(--v-rose-500)), var(--v-amber-400));
   -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
 }
 ```
@@ -1546,7 +1553,7 @@ The general app design checklist does NOT apply to slide decks. Specifically ski
 
 ### Slide Color & Visual Treatment
 
-- **Bold, full-bleed backgrounds** — deep navy, rich purple, dark emerald, charcoal; not just tinted whites
+- **Bold, full-bleed backgrounds** — warm cream, blush pink, soft lavender, deep navy, rich purple, dark emerald; vary light and dark across the deck
 - **Animated gradient backgrounds** are ideal for title and closing slides — use `background-size: 400% 400%` with CSS animation
 - **Domain-matched palettes still apply**, just executed more dramatically — a finance deck is navy/gold, a health deck is teal/white
 - **One accent color used sparingly** — titles, stat borders, label dots, CTA buttons; never more than one accent
