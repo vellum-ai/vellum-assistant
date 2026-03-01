@@ -76,5 +76,9 @@ export function createBrainGraphProxyHandler(config: GatewayConfig) {
     return proxyTo(req, `${config.assistantRuntimeBaseUrl}/v1/brain-graph-ui`);
   }
 
-  return { handleBrainGraph, handleBrainGraphUI };
+  async function handleHomeBaseUI(req: Request): Promise<Response> {
+    return proxyTo(req, `${config.assistantRuntimeBaseUrl}/v1/home-base-ui`);
+  }
+
+  return { handleBrainGraph, handleBrainGraphUI, handleHomeBaseUI };
 }

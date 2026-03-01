@@ -126,7 +126,7 @@ import {
   handleGuardianActionDecision,
   handleGuardianActionsPending,
 } from './routes/guardian-action-routes.js';
-import { handleGetBrainGraph, handleServeBrainGraphUI } from './routes/brain-graph-routes.js';
+import { handleGetBrainGraph, handleServeBrainGraphUI, handleServeHomeBaseUI } from './routes/brain-graph-routes.js';
 import { handleGetIdentity,handleHealth } from './routes/identity-routes.js';
 import {
   handleBlockMember,
@@ -829,6 +829,7 @@ export class RuntimeHttpServer {
       if (endpoint === 'identity' && req.method === 'GET') return handleGetIdentity();
       if (endpoint === 'brain-graph' && req.method === 'GET') return handleGetBrainGraph();
       if (endpoint === 'brain-graph-ui' && req.method === 'GET') return handleServeBrainGraphUI(this.bearerToken);
+      if (endpoint === 'home-base-ui' && req.method === 'GET') return handleServeHomeBaseUI(this.bearerToken);
       if (endpoint === 'events' && req.method === 'GET') return handleSubscribeAssistantEvents(req, url);
 
       // Internal OAuth callback endpoint (gateway -> runtime)

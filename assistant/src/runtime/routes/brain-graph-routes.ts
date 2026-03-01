@@ -145,6 +145,36 @@ export function handleGetBrainGraph(): Response {
   }
 }
 
+export function handleServeHomeBaseUI(bearerToken?: string): Response {
+  try {
+    const prebuiltDir = resolveBundledDir(
+      import.meta.dirname ?? __dirname,
+      '../../home-base/prebuilt',
+      'prebuilt',
+    );
+    let html = readFileSync(join(prebuiltDir, 'index.html'), 'utf-8');
+    if (bearerToken) {
+      const escapedToken = bearerToken
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+      html = html.replace(
+        '</head>',
+        `  <meta name="api-token" content="${escapedToken}">\n</head>`,
+      );
+    }
+    return new Response(html, {
+      headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    });
+  } catch (err) {
+    return Response.json(
+      { error: 'Home Base UI not available', detail: err instanceof Error ? err.message : String(err) },
+      { status: 500 },
+    );
+  }
+}
+
 export function handleServeBrainGraphUI(bearerToken?: string): Response {
   try {
     const prebuiltDir = resolveBundledDir(
@@ -167,8 +197,21 @@ export function handleServeBrainGraphUI(bearerToken?: string): Response {
         `  <meta name="api-token" content="${escapedToken}">\n</head>`,
       );
     }
+    // CSP permits the CDN sources required by D3.js and Three.js.
+    // 'unsafe-eval' is needed by Three.js's shader compilation path.
+    const csp = [
+      "default-src 'self'",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://d3js.org",
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+      "font-src 'self' https://fonts.gstatic.com",
+      "connect-src 'self'",
+      "img-src 'self' data:",
+    ].join('; ');
     return new Response(html, {
-      headers: { 'Content-Type': 'text/html; charset=utf-8' },
+      headers: {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Content-Security-Policy': csp,
+      },
     });
   } catch (err) {
     return Response.json(

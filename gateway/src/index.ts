@@ -460,6 +460,11 @@ function main() {
         if (authError) return authError;
         return brainGraphProxy.handleBrainGraphUI(tracedReq);
       }
+      if (url.pathname === "/v1/home-base-ui" && req.method === "GET") {
+        const authError = requireRuntimeBearerAuth();
+        if (authError) return authError;
+        return brainGraphProxy.handleHomeBaseUI(tracedReq);
+      }
 
       // ── Telegram integration control-plane proxy ──
       if (
