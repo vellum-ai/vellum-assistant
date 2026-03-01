@@ -99,10 +99,17 @@ public final class HTTPTransport {
     /// SSE reconnect task handle.
     private var sseReconnectTask: Task<Void, Never>?
 
+    /// Result of an async authentication refresh attempt.
+    enum AuthRefreshResult {
+        case success
+        case transientFailure
+        case terminalFailure
+    }
+
     /// In-flight refresh task. Concurrent 401 handlers await this instead of
     /// returning false immediately, so user actions aren't dropped while a
     /// refresh triggered by another codepath is still in progress.
-    private var refreshTask: Task<Bool, Never>?
+    private var refreshTask: Task<AuthRefreshResult, Never>?
 
     /// Callback for incoming server messages (called on main actor).
     var onMessage: ((ServerMessage) -> Void)?
@@ -375,10 +382,14 @@ public final class HTTPTransport {
             if http.statusCode == 202 || http.statusCode == 200 {
                 log.info("Message sent successfully")
             } else if http.statusCode == 401 && !isRetry {
-                let refreshed = await handleAuthenticationFailureAsync()
-                if refreshed {
+                let refreshResult = await handleAuthenticationFailureAsync()
+                switch refreshResult {
+                case .success:
                     await sendMessage(content: content, sessionId: sessionId, isRetry: true)
-                } else {
+                case .terminalFailure:
+                    // performRefresh() already emitted .authenticationRequired — don't overwrite it
+                    break
+                case .transientFailure:
                     onMessage?(.sessionError(SessionErrorMessage(
                         sessionId: sessionId,
                         code: .providerApi,
@@ -426,10 +437,13 @@ public final class HTTPTransport {
 
             if let http = response as? HTTPURLResponse {
                 if http.statusCode == 401 && !isRetry {
-                    let refreshed = await handleAuthenticationFailureAsync()
-                    if refreshed {
+                    let refreshResult = await handleAuthenticationFailureAsync()
+                    switch refreshResult {
+                    case .success:
                         await sendDecision(requestId: requestId, decision: decision, isRetry: true)
-                    } else {
+                    case .terminalFailure:
+                        break
+                    case .transientFailure:
                         log.error("Decision response failed: authentication error after 401 refresh")
                     }
                 } else if http.statusCode != 200 {
@@ -460,10 +474,13 @@ public final class HTTPTransport {
 
             if let http = response as? HTTPURLResponse {
                 if http.statusCode == 401 && !isRetry {
-                    let refreshed = await handleAuthenticationFailureAsync()
-                    if refreshed {
+                    let refreshResult = await handleAuthenticationFailureAsync()
+                    switch refreshResult {
+                    case .success:
                         await sendSecret(requestId: requestId, value: value, isRetry: true)
-                    } else {
+                    case .terminalFailure:
+                        break
+                    case .transientFailure:
                         log.error("Secret response failed: authentication error after 401 refresh")
                     }
                 } else if http.statusCode != 200 {
@@ -487,10 +504,13 @@ public final class HTTPTransport {
 
             if let http = response as? HTTPURLResponse {
                 if http.statusCode == 401 && !isRetry {
-                    let refreshed = await handleAuthenticationFailureAsync()
-                    if refreshed {
+                    let refreshResult = await handleAuthenticationFailureAsync()
+                    switch refreshResult {
+                    case .success:
                         await fetchGuardianActionsPending(conversationId: conversationId, isRetry: true)
-                    } else {
+                    case .terminalFailure:
+                        break
+                    case .transientFailure:
                         log.error("Fetch guardian actions pending failed: authentication error after 401 refresh")
                     }
                     return
@@ -534,10 +554,15 @@ public final class HTTPTransport {
 
             if let http = response as? HTTPURLResponse {
                 if http.statusCode == 401 && !isRetry {
-                    let refreshed = await handleAuthenticationFailureAsync()
-                    if refreshed {
+                    let refreshResult = await handleAuthenticationFailureAsync()
+                    switch refreshResult {
+                    case .success:
                         await submitGuardianActionDecision(requestId: requestId, action: action, conversationId: conversationId, isRetry: true)
                         return
+                    case .terminalFailure:
+                        break
+                    case .transientFailure:
+                        break
                     }
                     onMessage?(.guardianActionDecisionResponse(GuardianActionDecisionResponseMessage(
                         applied: false,
@@ -618,8 +643,8 @@ public final class HTTPTransport {
 
             if let http = response as? HTTPURLResponse {
                 if http.statusCode == 401 && !isRetry {
-                    let refreshed = await handleAuthenticationFailureAsync()
-                    if refreshed {
+                    let refreshResult = await handleAuthenticationFailureAsync()
+                    if case .success = refreshResult {
                         await sendConversationSeen(signal, isRetry: true)
                     }
                 } else if http.statusCode != 200 {
@@ -643,8 +668,8 @@ public final class HTTPTransport {
             guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
                 let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
                 if statusCode == 401 && !isRetry {
-                    let refreshed = await handleAuthenticationFailureAsync()
-                    if refreshed {
+                    let refreshResult = await handleAuthenticationFailureAsync()
+                    if case .success = refreshResult {
                         await fetchSessionList(offset: offset, limit: limit, isRetry: true)
                         return
                     }
@@ -684,8 +709,8 @@ public final class HTTPTransport {
             guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
                 let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
                 if statusCode == 401 && !isRetry {
-                    let refreshed = await handleAuthenticationFailureAsync()
-                    if refreshed {
+                    let refreshResult = await handleAuthenticationFailureAsync()
+                    if case .success = refreshResult {
                         await fetchHistory(sessionId: sessionId, isRetry: true)
                         return
                     }
@@ -924,7 +949,8 @@ public final class HTTPTransport {
     // MARK: - 401 Recovery
 
     /// Fire-and-forget token refresh for non-async callers (health check, SSE).
-    /// Async callers that need retry should use handleAuthenticationFailureAsync() directly.
+    /// Async callers that need retry-or-skip semantics should use
+    /// handleAuthenticationFailureAsync() directly.
     private func handleAuthenticationFailure() {
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -932,17 +958,20 @@ public final class HTTPTransport {
         }
     }
 
-    /// Async variant of handleAuthenticationFailure that returns whether refresh succeeded.
-    /// Callers can use this to retry the original request on success.
-    private func handleAuthenticationFailureAsync() async -> Bool {
+    /// Async variant of handleAuthenticationFailure that returns the refresh outcome.
+    /// On `.success`, callers should retry the original request.
+    /// On `.terminalFailure`, callers must NOT emit their own error — `performRefresh()`
+    /// already emitted `.authenticationRequired` which is the correct final user-facing state.
+    /// On `.transientFailure`, callers may emit a generic error (refresh will retry on next 401).
+    private func handleAuthenticationFailureAsync() async -> AuthRefreshResult {
         // If a refresh is already in flight, wait for its outcome instead of
         // returning false (which would drop the caller's user action).
         if let existing = refreshTask {
             return await existing.value
         }
 
-        let task = Task<Bool, Never> { @MainActor [weak self] in
-            guard let self else { return false }
+        let task = Task<AuthRefreshResult, Never> { @MainActor [weak self] in
+            guard let self else { return .transientFailure }
             defer { self.refreshTask = nil }
             return await self.performRefresh()
         }
@@ -952,7 +981,7 @@ public final class HTTPTransport {
 
     /// Performs the actual credential refresh. Split out so handleAuthenticationFailureAsync
     /// can manage the coalescing task lifecycle separately.
-    private func performRefresh() async -> Bool {
+    private func performRefresh() async -> AuthRefreshResult {
         #if os(macOS)
         let refreshPlatform = "macos"
         // macOS uses SHA-256 of IOPlatformUUID as device ID (matches PairingQRCodeSheet.computeHostId())
@@ -976,7 +1005,7 @@ public final class HTTPTransport {
             // Reconnect SSE with new credentials
             self.stopSSE()
             self.startSSE()
-            return true
+            return .success
 
         case .terminalError(let reason):
             log.error("Token refresh failed terminally: \(reason) — re-pair required")
@@ -986,11 +1015,11 @@ public final class HTTPTransport {
                 userMessage: "Session expired. Please re-pair your device.",
                 retryable: false
             )))
-            return false
+            return .terminalFailure
 
         case .transientError:
             log.warning("Token refresh encountered transient error — will retry on next 401")
-            return false
+            return .transientFailure
         }
     }
 
