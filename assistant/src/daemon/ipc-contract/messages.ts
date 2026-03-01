@@ -201,6 +201,50 @@ export interface SuggestionResponse {
   source: 'llm' | 'none';
 }
 
+/**
+ * Authoritative per-request confirmation state transition emitted by the daemon.
+ *
+ * The client must use this event (not local phrase inference) to update
+ * confirmation bubble state.
+ */
+export interface ConfirmationStateChanged {
+  type: 'confirmation_state_changed';
+  sessionId: string;
+  requestId: string;
+  state: 'pending' | 'approved' | 'denied' | 'timed_out' | 'resolved_stale';
+  source: 'button' | 'inline_nl' | 'auto_deny' | 'timeout' | 'system';
+  /** requestId of the user message that triggered this transition. */
+  causedByRequestId?: string;
+  /** Normalized user text for analytics/debug (e.g. "approve", "deny"). */
+  decisionText?: string;
+}
+
+/**
+ * Server-side assistant activity lifecycle for thinking indicator placement.
+ *
+ * `activityVersion` is monotonically increasing per session. Clients must
+ * ignore events with a version older than their current known version.
+ */
+export interface AssistantActivityState {
+  type: 'assistant_activity_state';
+  sessionId: string;
+  activityVersion: number;
+  phase: 'idle' | 'thinking' | 'streaming' | 'tool_running' | 'awaiting_confirmation';
+  anchor: 'assistant_turn' | 'user_turn' | 'global';
+  /** Active user request when available. */
+  requestId?: string;
+  reason:
+    | 'message_dequeued'
+    | 'thinking_delta'
+    | 'first_text_delta'
+    | 'tool_use_start'
+    | 'confirmation_requested'
+    | 'confirmation_resolved'
+    | 'message_complete'
+    | 'generation_cancelled'
+    | 'error_terminal';
+}
+
 export type TraceEventKind =
   | 'request_received'
   | 'request_queued'
@@ -259,4 +303,6 @@ export type _MessagesServerMessages =
   | MessageRequestComplete
   | MessageQueuedDeleted
   | SuggestionResponse
-  | TraceEvent;
+  | TraceEvent
+  | ConfirmationStateChanged
+  | AssistantActivityState;

@@ -1551,6 +1551,14 @@ extension IPCConfirmationRequestDiff: Equatable {
     }
 }
 
+/// Authoritative confirmation state transition from daemon.
+/// Backed by generated `IPCConfirmationStateChanged`.
+public typealias ConfirmationStateChangedMessage = IPCConfirmationStateChanged
+
+/// Server-side assistant activity lifecycle event.
+/// Backed by generated `IPCAssistantActivityState`.
+public typealias AssistantActivityStateMessage = IPCAssistantActivityState
+
 
 /// Request a follow-up suggestion for the current session.
 /// Backed by generated `IPCSuggestionRequest`.
@@ -2229,6 +2237,7 @@ public enum ServerMessage: Decodable, Sendable {
     case sessionError(SessionErrorMessage)
     case userMessageEcho(UserMessageEchoMessage)
     case assistantTextDelta(AssistantTextDeltaMessage)
+    case assistantActivityState(AssistantActivityStateMessage)
     case assistantThinkingDelta(AssistantThinkingDeltaMessage)
     case messageComplete(MessageCompleteMessage)
     case sessionInfo(SessionInfoMessage)
@@ -2250,6 +2259,7 @@ public enum ServerMessage: Decodable, Sendable {
     case generationCancelled(GenerationCancelledMessage)
     case generationHandoff(GenerationHandoffMessage)
     case confirmationRequest(ConfirmationRequestMessage)
+    case confirmationStateChanged(ConfirmationStateChangedMessage)
     case secretRequest(SecretRequestMessage)
     case appDataResponse(AppDataResponseMessage)
     case messageQueued(MessageQueuedMessage)
@@ -2399,6 +2409,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "assistant_text_delta":
             let message = try AssistantTextDeltaMessage(from: decoder)
             self = .assistantTextDelta(message)
+        case "assistant_activity_state":
+            let message = try AssistantActivityStateMessage(from: decoder)
+            self = .assistantActivityState(message)
         case "assistant_thinking_delta":
             let message = try AssistantThinkingDeltaMessage(from: decoder)
             self = .assistantThinkingDelta(message)
@@ -2477,6 +2490,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "confirmation_request":
             let message = try ConfirmationRequestMessage(from: decoder)
             self = .confirmationRequest(message)
+        case "confirmation_state_changed":
+            let message = try ConfirmationStateChangedMessage(from: decoder)
+            self = .confirmationStateChanged(message)
         case "secret_request":
             let message = try SecretRequestMessage(from: decoder)
             self = .secretRequest(message)

@@ -1,7 +1,7 @@
 /**
  * Guardian action follow-up executor.
  *
- * After the conversation engine (M5) classifies the guardian's reply as
+ * After the conversation engine classifies the guardian's reply as
  * `call_back` or `message_back` and transitions the follow-up state to
  * `dispatching`, this module executes the actual action:
  *

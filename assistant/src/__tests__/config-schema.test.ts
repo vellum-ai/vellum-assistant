@@ -583,6 +583,10 @@ describe('AssistantConfigSchema', () => {
       userConsultTimeoutSeconds: 120,
       ttsPlaybackDelayMs: 3000,
       accessRequestPollIntervalMs: 500,
+      guardianWaitUpdateInitialIntervalMs: 5000,
+      guardianWaitUpdateInitialWindowMs: 30000,
+      guardianWaitUpdateSteadyMinIntervalMs: 7000,
+      guardianWaitUpdateSteadyMaxIntervalMs: 10000,
       disclosure: {
         enabled: true,
         text: 'At the very beginning of the call, introduce yourself as an assistant calling on behalf of the person you represent. Do not say "AI assistant".',

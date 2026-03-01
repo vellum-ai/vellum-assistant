@@ -11,6 +11,7 @@ import type {
   PairingApprovalResponse,
 } from '../ipc-protocol.js';
 import type { PairingStore } from '../pairing-store.js';
+import { cleanupPairingState } from '../../runtime/routes/pairing-routes.js';
 import { defineHandlers, type HandlerContext,log } from './shared.js';
 
 /** Module-level reference set by the daemon server at startup. */
@@ -46,6 +47,7 @@ function handlePairingApprovalResponse(
 
   if (msg.decision === 'deny') {
     pairingStoreRef.deny(msg.pairingRequestId);
+    cleanupPairingState(msg.pairingRequestId);
     log.info({ pairingRequestId: msg.pairingRequestId }, 'Pairing request denied');
     return;
   }

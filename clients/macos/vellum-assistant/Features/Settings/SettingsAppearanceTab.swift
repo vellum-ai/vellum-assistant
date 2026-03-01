@@ -293,6 +293,10 @@ struct SettingsAppearanceTab: View {
         .padding(.vertical, VSpacing.xs)
         .background(VColor.surfaceSubtle)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.xl)
+                .stroke(VColor.surfaceBorder, lineWidth: 1)
+        )
     }
 }
 
@@ -318,6 +322,10 @@ private struct ShortcutRow: View {
             .padding(.vertical, VSpacing.xs)
             .background(VColor.surfaceSubtle)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.xl)
+                    .stroke(VColor.surfaceBorder, lineWidth: 1)
+            )
         }
         .padding(.vertical, VSpacing.md)
     }

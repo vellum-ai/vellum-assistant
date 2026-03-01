@@ -373,6 +373,31 @@ public struct IPCAppUpdatePreviewResponse: Codable, Sendable {
     }
 }
 
+/// Server-side assistant activity lifecycle for thinking indicator placement.
+/// 
+/// `activityVersion` is monotonically increasing per session. Clients must
+/// ignore events with a version older than their current known version.
+public struct IPCAssistantActivityState: Codable, Sendable {
+    public let type: String
+    public let sessionId: String
+    public let activityVersion: Int
+    public let phase: String
+    public let anchor: String
+    /// Active user request when available.
+    public let requestId: String?
+    public let reason: String
+
+    public init(type: String, sessionId: String, activityVersion: Int, phase: String, anchor: String, requestId: String? = nil, reason: String) {
+        self.type = type
+        self.sessionId = sessionId
+        self.activityVersion = activityVersion
+        self.phase = phase
+        self.anchor = anchor
+        self.requestId = requestId
+        self.reason = reason
+    }
+}
+
 /// Attention state metadata for a conversation's latest assistant message.
 public struct IPCAssistantAttention: Codable, Sendable {
     public let hasUnseenLatestAssistantMessage: Bool
@@ -1030,6 +1055,32 @@ public struct IPCConfirmationResponse: Codable, Sendable {
         self.decision = decision
         self.selectedPattern = selectedPattern
         self.selectedScope = selectedScope
+    }
+}
+
+/// Authoritative per-request confirmation state transition emitted by the daemon.
+/// 
+/// The client must use this event (not local phrase inference) to update
+/// confirmation bubble state.
+public struct IPCConfirmationStateChanged: Codable, Sendable {
+    public let type: String
+    public let sessionId: String
+    public let requestId: String
+    public let state: String
+    public let source: String
+    /// requestId of the user message that triggered this transition.
+    public let causedByRequestId: String?
+    /// Normalized user text for analytics/debug (e.g. "approve", "deny").
+    public let decisionText: String?
+
+    public init(type: String, sessionId: String, requestId: String, state: String, source: String, causedByRequestId: String? = nil, decisionText: String? = nil) {
+        self.type = type
+        self.sessionId = sessionId
+        self.requestId = requestId
+        self.state = state
+        self.source = source
+        self.causedByRequestId = causedByRequestId
+        self.decisionText = decisionText
     }
 }
 
@@ -1803,12 +1854,12 @@ public struct IPCGalleryListResponse: Codable, Sendable {
 }
 
 public struct IPCGalleryManifest: Codable, Sendable {
-    public let version: Double
+    public let version: Int
     public let updatedAt: String
     public let categories: [IPCGalleryCategory]
     public let apps: [IPCGalleryApp]
 
-    public init(version: Double, updatedAt: String, categories: [IPCGalleryCategory], apps: [IPCGalleryApp]) {
+    public init(version: Int, updatedAt: String, categories: [IPCGalleryCategory], apps: [IPCGalleryApp]) {
         self.version = version
         self.updatedAt = updatedAt
         self.categories = categories
@@ -3126,14 +3177,18 @@ public struct IPCNotificationIntent: Codable, Sendable {
     public let body: String
     /// Optional deep-link metadata so the client can navigate to the relevant context.
     public let deepLinkMetadata: [String: AnyCodable]?
+    /// When set, this notification is guardian-sensitive and should only be
+    /// displayed by clients whose guardian identity matches this principal ID.
+    public let targetGuardianPrincipalId: String?
 
-    public init(type: String, deliveryId: String? = nil, sourceEventName: String, title: String, body: String, deepLinkMetadata: [String: AnyCodable]? = nil) {
+    public init(type: String, deliveryId: String? = nil, sourceEventName: String, title: String, body: String, deepLinkMetadata: [String: AnyCodable]? = nil, targetGuardianPrincipalId: String? = nil) {
         self.type = type
         self.deliveryId = deliveryId
         self.sourceEventName = sourceEventName
         self.title = title
         self.body = body
         self.deepLinkMetadata = deepLinkMetadata
+        self.targetGuardianPrincipalId = targetGuardianPrincipalId
     }
 }
 
@@ -3160,12 +3215,16 @@ public struct IPCNotificationThreadCreated: Codable, Sendable {
     public let conversationId: String
     public let title: String
     public let sourceEventName: String
+    /// When set, this thread was created for a guardian-sensitive notification
+    /// and should only be surfaced by clients bound to this guardian identity.
+    public let targetGuardianPrincipalId: String?
 
-    public init(type: String, conversationId: String, title: String, sourceEventName: String) {
+    public init(type: String, conversationId: String, title: String, sourceEventName: String, targetGuardianPrincipalId: String? = nil) {
         self.type = type
         self.conversationId = conversationId
         self.title = title
         self.sourceEventName = sourceEventName
+        self.targetGuardianPrincipalId = targetGuardianPrincipalId
     }
 }
 

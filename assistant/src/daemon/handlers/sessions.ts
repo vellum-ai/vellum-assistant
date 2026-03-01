@@ -9,6 +9,7 @@ import { getAttachmentsForMessage, getFilePathForAttachment, setAttachmentThumbn
 import {
   createCanonicalGuardianRequest,
   generateCanonicalRequestCode,
+  getCanonicalGuardianRequest,
   listCanonicalGuardianRequests,
   listPendingCanonicalGuardianRequestsByDestinationConversation,
   resolveCanonicalGuardianRequest,
@@ -19,6 +20,7 @@ import { GENERATING_TITLE, queueGenerateConversationTitle, UNTITLED_FALLBACK } f
 import * as externalConversationStore from '../../memory/external-conversation-store.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../../runtime/assistant-scope.js';
 import { routeGuardianReply } from '../../runtime/guardian-reply-router.js';
+import { resolveLocalIpcGuardianContext } from '../../runtime/local-actor-identity.js';
 import * as pendingInteractions from '../../runtime/pending-interactions.js';
 import { checkIngressForSecrets } from '../../security/secret-ingress.js';
 import { compileCustomPatterns, redactSecrets } from '../../security/secret-scanner.js';
@@ -268,6 +270,7 @@ export async function handleUserMessage(
       }
 
       rlog.info({ source }, 'Processing user message');
+      session.emitActivityState('thinking', 'message_dequeued', 'assistant_turn', dispatchRequestId);
       session.setTurnChannelContext({
         userMessageChannel: ipcChannel,
         assistantMessageChannel: ipcChannel,
@@ -277,9 +280,11 @@ export async function handleUserMessage(
         assistantMessageInterface: ipcInterface,
       });
       session.setAssistantId(DAEMON_INTERNAL_ASSISTANT_ID);
-      // IPC/desktop user IS the guardian — default to guardian trust so
-      // messages are not tagged as unknown provenance.
-      session.setGuardianContext({ trustClass: 'guardian', sourceChannel: ipcChannel });
+      // Resolve local IPC actor identity through the same trust pipeline
+      // used by HTTP channel ingress. The vellum guardian binding provides
+      // the guardianPrincipalId, and resolveGuardianContext classifies the
+      // local user as 'guardian' via binding match.
+      session.setGuardianContext(resolveLocalIpcGuardianContext(ipcChannel));
       session.setCommandIntent(null);
       // Fire-and-forget: don't block the IPC handler so the connection can
       // continue receiving messages (e.g. cancel, confirmations, or
@@ -607,6 +612,33 @@ export async function handleUserMessage(
           });
 
           if (routerResult.consumed && routerResult.type !== 'nl_keep_pending') {
+            // Emit authoritative confirmation state for resolved request
+            if (routerResult.requestId) {
+              let resolvedState: 'approved' | 'denied' | 'resolved_stale';
+              if (!routerResult.decisionApplied) {
+                resolvedState = 'resolved_stale';
+              } else {
+                // Determine actual decision from the canonical request's resolved status.
+                // The router result type is 'canonical_decision_applied' for both approve
+                // and reject, so we query the request to get the actual resolved status.
+                const resolvedRequest = getCanonicalGuardianRequest(routerResult.requestId);
+                resolvedState = resolvedRequest?.status === 'denied' ? 'denied' : 'approved';
+              }
+              session.emitConfirmationStateChanged({
+                sessionId: msg.sessionId,
+                requestId: routerResult.requestId,
+                state: resolvedState,
+                source: 'inline_nl',
+                causedByRequestId: requestId,
+                decisionText: messageText.trim(),
+              });
+              // The agent loop continues after both approval and denial, so
+              // always emit a thinking transition when the decision was applied.
+              if (routerResult.decisionApplied) {
+                session.emitActivityState('thinking', 'confirmation_resolved', 'assistant_turn');
+              }
+            }
+
             const consumedChannelMeta = {
               userMessageChannel: ipcChannel,
               assistantMessageChannel: ipcChannel,
@@ -690,6 +722,19 @@ export async function handleUserMessage(
     // will see the denial and can re-request the tool if still needed.
     if (session.hasAnyPendingConfirmation()) {
       rlog.info('Auto-denying pending confirmation(s) due to new user message');
+      // Emit authoritative confirmation state for each auto-denied request
+      // before the prompter clears them.
+      for (const interaction of pendingInteractions.getByConversation(msg.sessionId)) {
+        if (interaction.session === session && interaction.kind === 'confirmation') {
+          session.emitConfirmationStateChanged({
+            sessionId: msg.sessionId,
+            requestId: interaction.requestId,
+            state: 'denied',
+            source: 'auto_deny',
+            causedByRequestId: requestId,
+          });
+        }
+      }
       session.denyAllPendingConfirmations();
       // Keep the pending-interaction tracker aligned with the prompter so
       // stale request IDs are not reused as routing candidates.
@@ -735,6 +780,8 @@ export function handleConfirmationResponse(
         msg.decision,
         msg.selectedPattern,
         msg.selectedScope,
+        undefined,
+        { source: 'button' },
       );
       syncCanonicalStatusFromIpcConfirmationDecision(msg.requestId, msg.decision);
       pendingInteractions.resolve(msg.requestId);

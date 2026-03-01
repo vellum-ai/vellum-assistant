@@ -76,7 +76,6 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     let clientProvider: ClientProvider
     let authManager = AuthManager()
     let ambientAgentManager = AmbientAgentManager()
-
     override init() {
         self.clientProvider = ClientProvider(client: DaemonClient(config: .fromUserDefaults()))
         super.init()
@@ -89,7 +88,6 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // v4 upgrade migration — clear legacy pairing state so users re-pair through
         // the new approval flow. Runs once; the flag persists across future launches.
         migrateToPairingV4IfNeeded()
-
 
         // Initial connect is handled by SceneDelegate.sceneWillEnterForeground, which fires
         // during launch and on every background→foreground transition. Calling connect() here

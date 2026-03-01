@@ -262,7 +262,6 @@ struct MessageListView: View {
                     }
 
                     let lastVisible = displayMessages.last
-                    let hasPendingConfirmation = displayMessages.contains(where: { $0.confirmation?.state == .pending })
                     let currentTurnMessages: ArraySlice<ChatMessage> = {
                         if isSending, let last = displayMessages.last, last.role == .user {
                             let lastNonUser = displayMessages.last(where: {
@@ -287,7 +286,7 @@ struct MessageListView: View {
                     let hasActiveToolCall = currentTurnMessages.contains(where: {
                         $0.toolCalls.contains(where: { !$0.isComplete })
                     })
-                    if isSending && !(lastVisible?.isStreaming == true) && !hasPendingConfirmation && !hasActiveToolCall {
+                    if isSending && !(lastVisible?.isStreaming == true) && !hasActiveToolCall {
                         HStack(alignment: .top, spacing: VSpacing.sm) {
                             Image(nsImage: appearance.chatAvatarImage)
                                 .interpolation(.none)

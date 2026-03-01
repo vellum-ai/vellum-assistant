@@ -964,7 +964,7 @@ struct SettingsPanel: View {
 
     private func permissionRow(label: String, subtitle: String, granted: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack(spacing: VSpacing.md) {
+            HStack {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text(label)
                         .font(VFont.body)
@@ -979,7 +979,6 @@ struct SettingsPanel: View {
 
                 VToggle(isOn: .constant(granted)).allowsHitTesting(false)
             }
-            .padding(VSpacing.md)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
         }

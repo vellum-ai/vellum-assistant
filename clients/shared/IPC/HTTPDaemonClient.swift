@@ -892,6 +892,10 @@ final class HTTPTransport {
         if let token = bearerToken {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
+        // Attach actor token when available for identity-bound requests.
+        if let actorToken = ActorTokenManager.getToken() {
+            request.setValue(actorToken, forHTTPHeaderField: "X-Actor-Token")
+        }
     }
 
     private func setConnected(_ connected: Bool) {

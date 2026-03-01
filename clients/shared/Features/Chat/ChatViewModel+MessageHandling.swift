@@ -1526,6 +1526,46 @@ extension ChatViewModel {
                 }
             }
 
+        case .confirmationStateChanged(let msg):
+            guard belongsToSession(msg.sessionId) else { return }
+            // Find the confirmation with this requestId and update its state.
+            for i in messages.indices {
+                guard messages[i].confirmation?.requestId == msg.requestId else { continue }
+                switch msg.state {
+                case "approved":
+                    messages[i].confirmation?.state = .approved
+                case "denied":
+                    messages[i].confirmation?.state = .denied
+                case "timed_out":
+                    messages[i].confirmation?.state = .denied
+                case "resolved_stale":
+                    messages[i].confirmation?.state = .denied
+                default:
+                    break
+                }
+                break
+            }
+
+        case .assistantActivityState(let msg):
+            guard belongsToSession(msg.sessionId) else { return }
+            // Ignore stale events — only accept monotonically increasing versions.
+            guard msg.activityVersion > lastActivityVersion else { return }
+            lastActivityVersion = msg.activityVersion
+            switch msg.phase {
+            case "thinking":
+                isThinking = true
+                isSending = true
+            case "streaming", "tool_running":
+                isThinking = false
+            case "idle":
+                isThinking = false
+            case "awaiting_confirmation":
+                isThinking = false
+                isSending = false
+            default:
+                break
+            }
+
         case .watchStarted(let msg):
             guard belongsToSession(msg.sessionId) else { return }
             isWatchSessionActive = true

@@ -129,6 +129,14 @@ export interface AgentLoopSessionContext {
   readonly prompter: PermissionPrompter;
   readonly queue: MessageQueue;
 
+  emitActivityState(
+    phase: 'idle' | 'thinking' | 'streaming' | 'tool_running' | 'awaiting_confirmation',
+    reason: 'message_dequeued' | 'thinking_delta' | 'first_text_delta' | 'tool_use_start' | 'confirmation_requested' | 'confirmation_resolved' | 'message_complete' | 'generation_cancelled' | 'error_terminal',
+    anchor?: 'assistant_turn' | 'user_turn' | 'global',
+    requestId?: string,
+  ): void;
+  emitConfirmationStateChanged(params: import('./ipc-contract/messages.js').ConfirmationStateChanged extends { type: infer _ } ? Omit<import('./ipc-contract/messages.js').ConfirmationStateChanged, 'type'> : never): void;
+
   getWorkspaceGitService?: (workspaceDir: string) => GitServiceInitializer;
   commitTurnChanges?: typeof commitTurnChanges;
 
@@ -736,12 +744,14 @@ export async function runAgentLoopImpl(
         ...(emittedAttachments.length > 0 ? { attachments: emittedAttachments } : {}),
       });
     } else if (abortController.signal.aborted) {
+      ctx.emitActivityState('idle', 'generation_cancelled', 'global', reqId);
       ctx.traceEmitter.emit('generation_cancelled', 'Generation cancelled by user', {
         requestId: reqId,
         status: 'warning',
       });
       onEvent({ type: 'generation_cancelled', sessionId: ctx.conversationId });
     } else {
+      ctx.emitActivityState('idle', 'message_complete', 'global', reqId);
       ctx.traceEmitter.emit('message_complete', 'Message processing complete', {
         requestId: reqId,
         status: 'success',
@@ -773,6 +783,7 @@ export async function runAgentLoopImpl(
   } catch (err) {
     const errorCtx = { phase: 'agent_loop' as const, aborted: abortController.signal.aborted };
     if (isUserCancellation(err, errorCtx)) {
+      ctx.emitActivityState('idle', 'generation_cancelled', 'global', reqId);
       rlog.info('Generation cancelled by user');
       ctx.traceEmitter.emit('generation_cancelled', 'Generation cancelled by user', {
         requestId: reqId,
@@ -780,6 +791,7 @@ export async function runAgentLoopImpl(
       });
       onEvent({ type: 'generation_cancelled', sessionId: ctx.conversationId });
     } else {
+      ctx.emitActivityState('idle', 'error_terminal', 'global', reqId);
       const message = err instanceof Error ? err.message : String(err);
       const errorClass = err instanceof Error ? err.constructor.name : 'Error';
       rlog.error({ err }, 'Session processing error');

@@ -56,10 +56,12 @@ mock.module('../config/loader.js', () => ({
 // ── Call constants mock ──────────────────────────────────────────────
 
 let mockConsultationTimeoutMs = 90_000;
+let mockSilenceTimeoutMs = 30_000;
 
 mock.module('../calls/call-constants.js', () => ({
   getMaxCallDurationMs: () => 12 * 60 * 1000,
   getUserConsultationTimeoutMs: () => mockConsultationTimeoutMs,
+  getSilenceTimeoutMs: () => mockSilenceTimeoutMs,
   SILENCE_TIMEOUT_MS: 30_000,
   MAX_CALL_DURATION_MS: 3600 * 1000,
   USER_CONSULTATION_TIMEOUT_MS: 120 * 1000,
@@ -154,6 +156,7 @@ interface MockRelay extends RelayConnection {
   sentTokens: Array<{ token: string; last: boolean }>;
   endCalled: boolean;
   endReason: string | undefined;
+  mockConnectionState: string;
 }
 
 function createMockRelay(): MockRelay {
@@ -161,18 +164,24 @@ function createMockRelay(): MockRelay {
     sentTokens: [] as Array<{ token: string; last: boolean }>,
     _endCalled: false,
     _endReason: undefined as string | undefined,
+    _connectionState: 'connected',
   };
 
   return {
     get sentTokens() { return state.sentTokens; },
     get endCalled() { return state._endCalled; },
     get endReason() { return state._endReason; },
+    get mockConnectionState() { return state._connectionState; },
+    set mockConnectionState(v: string) { state._connectionState = v; },
     sendTextToken(token: string, last: boolean) {
       state.sentTokens.push({ token, last });
     },
     endSession(reason?: string) {
       state._endCalled = true;
       state._endReason = reason;
+    },
+    getConnectionState() {
+      return state._connectionState;
     },
   } as unknown as MockRelay;
 }
@@ -236,6 +245,7 @@ describe('call-controller', () => {
     mockStartVoiceTurn.mockImplementation(createMockVoiceTurn(['Hello', ' there']));
     // Reset consultation timeout to the default (long) value
     mockConsultationTimeoutMs = 90_000;
+    mockSilenceTimeoutMs = 30_000;
   });
 
   // ── handleCallerUtterance ─────────────────────────────────────────
@@ -1694,6 +1704,45 @@ describe('call-controller', () => {
     const events = getCallEvents(session.id);
     const coalesceEvents = events.filter((e) => e.eventType === 'guardian_consult_coalesced');
     expect(coalesceEvents.length).toBe(1);
+
+    controller.destroy();
+  });
+
+  // ── Silence suppression during guardian wait ──────────────────────
+
+  test('silence timeout suppressed during guardian wait: does not say "Are you still there?"', async () => {
+    mockSilenceTimeoutMs = 50; // Short timeout for testing
+    const { relay, controller } = setupController();
+
+    // Simulate guardian wait state on the relay
+    relay.mockConnectionState = 'awaiting_guardian_decision';
+
+    // Wait for the silence timeout to fire
+    await new Promise((r) => setTimeout(r, 200));
+
+    // "Are you still there?" should NOT have been sent
+    const silenceTokens = relay.sentTokens.filter((t) =>
+      t.token.includes('Are you still there?'),
+    );
+    expect(silenceTokens.length).toBe(0);
+
+    controller.destroy();
+  });
+
+  test('silence timeout fires normally when not in guardian wait', async () => {
+    mockSilenceTimeoutMs = 50; // Short timeout for testing
+    const { relay, controller } = setupController();
+
+    // Default connection state is 'connected' (not guardian wait)
+
+    // Wait for the silence timeout to fire
+    await new Promise((r) => setTimeout(r, 200));
+
+    // "Are you still there?" SHOULD have been sent
+    const silenceTokens = relay.sentTokens.filter((t) =>
+      t.token.includes('Are you still there?'),
+    );
+    expect(silenceTokens.length).toBe(1);
 
     controller.destroy();
   });
