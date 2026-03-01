@@ -304,8 +304,9 @@ class BrowserManager {
       }
 
       const launch = launchPersistentContext ?? await getDefaultLaunchFn();
-      const ctx = await launch(profileDir, { headless: true });
-      log.info({ profileDir }, 'Browser context created');
+      const ctx = await launch(profileDir, { headless: false });
+      this._browserLaunched = true;
+      log.info({ profileDir }, 'Browser context created (visible)');
       return ctx;
     })();
 
@@ -391,8 +392,21 @@ class BrowserManager {
     // Track downloads for this page
     this.setupDownloadTracking(sessionId, page);
 
-    // In CDP mode, position the window on the side so the user can watch.
-    if (this._browserMode === 'cdp' && !this.interactiveModeSessions.has(sessionId)) {
+    // For launched browsers (not CDP-connected), create a page-level CDP session
+    // so we can position the browser window. Browser domain commands (setWindowBounds,
+    // getWindowForTarget) are accessible from page-level CDP sessions.
+    if (!this.browserCdpSession && this._browserLaunched && this._browserMode !== 'cdp') {
+      try {
+        const rawPage = page as unknown as RawPlaywrightPage;
+        this.browserCdpSession = await rawPage.context().newCDPSession(rawPage);
+        await this.ensureBrowserWindowId();
+      } catch (err) {
+        log.warn({ err }, 'Failed to create CDP session for window positioning');
+      }
+    }
+
+    // Position the browser window so the user can watch.
+    if (this.browserCdpSession && !this.interactiveModeSessions.has(sessionId)) {
       await this.positionWindowSidebar();
     }
 
@@ -622,6 +636,9 @@ class BrowserManager {
       log.debug('positionWindowSidebar: placed browser window in top-right');
     } catch (err) {
       log.warn({ err }, 'positionWindowSidebar: failed to position window');
+      // CDP session may be stale (e.g. page closed) — clear it so it gets recreated
+      this.browserCdpSession = null;
+      this.browserWindowId = null;
     }
   }
 
