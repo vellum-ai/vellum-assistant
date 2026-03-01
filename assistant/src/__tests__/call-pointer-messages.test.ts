@@ -25,7 +25,7 @@ mock.module('../util/logger.js', () => ({
     }),
 }));
 
-import { addPointerMessage, formatDuration, resetPointerCopyGenerator, setPointerCopyGenerator } from '../calls/call-pointer-messages.js';
+import { addPointerMessage, formatDuration, resetPointerMessageProcessor, setPointerMessageProcessor } from '../calls/call-pointer-messages.js';
 import { getMessages } from '../memory/conversation-store.js';
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import { conversations } from '../memory/schema.js';
@@ -95,7 +95,7 @@ describe('addPointerMessage', () => {
   });
 
   afterEach(() => {
-    resetPointerCopyGenerator();
+    resetPointerMessageProcessor();
   });
 
   afterAll(() => {
@@ -192,87 +192,101 @@ describe('addPointerMessage', () => {
     expect(text).toContain('failed: Max attempts exceeded');
   });
 
-  // Trust-aware tests: in test env, generator is not called (NODE_ENV=test
-  // short-circuits to fallback), so these validate the trust gating path
-  // while still receiving deterministic text.
+  // Trust-aware tests
 
-  test('untrusted audience uses deterministic fallback even with generator set', () => {
+  test('untrusted audience uses deterministic fallback even with processor set', () => {
     const convId = 'conv-ptr-untrusted';
-    // standard threadType + no origin channel = untrusted
     ensureConversation(convId, { threadType: 'standard' });
 
-    const generatorCalled = { value: false };
-    setPointerCopyGenerator(async () => {
-      generatorCalled.value = true;
-      return 'generated text';
+    const processorCalled = { value: false };
+    setPointerMessageProcessor(async () => {
+      processorCalled.value = true;
     });
 
     addPointerMessage(convId, 'started', '+15551234567');
     const text = getLatestAssistantText(convId);
-    // In test env, deterministic fallback is always used regardless of trust
     expect(text).toContain('Call to +15551234567 started');
+    // processor not called because standard threadType + no origin = untrusted
+    expect(processorCalled.value).toBe(false);
   });
 
-  test('explicit untrusted audience mode skips generator', () => {
+  test('explicit untrusted audience mode skips processor', () => {
     const convId = 'conv-ptr-explicit-untrusted';
     ensureConversation(convId, { threadType: 'private' });
 
-    const generatorCalled = { value: false };
-    setPointerCopyGenerator(async () => {
-      generatorCalled.value = true;
-      return 'generated text';
+    const processorCalled = { value: false };
+    setPointerMessageProcessor(async () => {
+      processorCalled.value = true;
     });
 
     addPointerMessage(convId, 'started', '+15551234567', undefined, 'untrusted');
     const text = getLatestAssistantText(convId);
     expect(text).toContain('Call to +15551234567 started');
-    // generator is not called because audience is explicitly untrusted
-    expect(generatorCalled.value).toBe(false);
+    expect(processorCalled.value).toBe(false);
   });
 
-  test('private threadType is detected as trusted audience', async () => {
-    const convId = 'conv-ptr-private';
+  test('trusted audience routes through daemon processor with required facts', async () => {
+    const convId = 'conv-ptr-trusted';
     ensureConversation(convId, { threadType: 'private' });
 
-    setPointerCopyGenerator(async () => 'generated text');
+    let capturedInstruction = '';
+    let capturedFacts: string[] = [];
+    setPointerMessageProcessor(async (_convId, instruction, requiredFacts) => {
+      capturedInstruction = instruction;
+      capturedFacts = requiredFacts ?? [];
+    });
 
     await addPointerMessage(convId, 'completed', '+15559876543', { duration: '1m' });
+    // Processor was called with a structured instruction
+    expect(capturedInstruction).toContain('[CALL_STATUS_EVENT]');
+    expect(capturedInstruction).toContain('+15559876543');
+    expect(capturedInstruction).toContain('completed');
+    expect(capturedInstruction).toContain('1m');
+    // Required facts include phone number, duration, and outcome keyword
+    expect(capturedFacts).toContain('+15559876543');
+    expect(capturedFacts).toContain('1m');
+    expect(capturedFacts).toContain('completed');
+  });
+
+  test('trusted audience falls back to deterministic on processor failure', async () => {
+    const convId = 'conv-ptr-processor-fail';
+    ensureConversation(convId, { threadType: 'private' });
+
+    setPointerMessageProcessor(async () => {
+      throw new Error('Daemon unavailable');
+    });
+
+    await addPointerMessage(convId, 'failed', '+15559876543', { reason: 'busy' });
+    // Falls back to deterministic — written directly to conversation store
     const text = getLatestAssistantText(convId);
-    // In test env, falls back to deterministic even on trusted path
-    expect(text).toContain('Call to +15559876543 completed (1m)');
+    expect(text).toContain('failed: busy');
   });
 
   test('vellum origin channel is detected as trusted audience', async () => {
     const convId = 'conv-ptr-vellum';
     ensureConversation(convId, { originChannel: 'vellum' });
 
-    setPointerCopyGenerator(async () => 'generated text');
+    let processorCalled = false;
+    setPointerMessageProcessor(async () => {
+      processorCalled = true;
+    });
 
     await addPointerMessage(convId, 'failed', '+15559876543', { reason: 'busy' });
-    const text = getLatestAssistantText(convId);
-    expect(text).toContain('failed: busy');
+    expect(processorCalled).toBe(true);
   });
 
   test('missing conversation defaults to untrusted', () => {
-    const _convId = 'conv-ptr-missing';
-    // Don't create the conversation — trust resolution should default to untrusted
+    const convId = 'conv-ptr-no-signals';
+    ensureConversation(convId);
 
-    const generatorCalled = { value: false };
-    setPointerCopyGenerator(async () => {
-      generatorCalled.value = true;
-      return 'generated text';
+    const processorCalled = { value: false };
+    setPointerMessageProcessor(async () => {
+      processorCalled.value = true;
     });
 
-    // This will fail at addMessage because conversation doesn't exist,
-    // but the trust check itself should not throw. Test just the trust
-    // gating by using a conversation that exists but has no trust signals.
-    const convId2 = 'conv-ptr-no-signals';
-    ensureConversation(convId2);
-
-    addPointerMessage(convId2, 'started', '+15551234567');
-    const text = getLatestAssistantText(convId2);
+    addPointerMessage(convId, 'started', '+15551234567');
+    const text = getLatestAssistantText(convId);
     expect(text).toContain('Call to +15551234567 started');
-    // generator not called because standard threadType + no origin = untrusted
-    expect(generatorCalled.value).toBe(false);
+    expect(processorCalled.value).toBe(false);
   });
 });

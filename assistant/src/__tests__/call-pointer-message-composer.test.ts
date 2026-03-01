@@ -9,11 +9,9 @@ mock.module('../util/logger.js', () => ({
 }));
 
 import {
-  buildPointerGenerationPrompt,
+  buildPointerInstruction,
   type CallPointerMessageContext,
-  composeCallPointerMessageGenerative,
   getPointerFallbackMessage,
-  includesRequiredFacts,
 } from '../calls/call-pointer-message-composer.js';
 
 // ---------------------------------------------------------------------------
@@ -105,67 +103,59 @@ describe('getPointerFallbackMessage', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Required facts validation
+// Daemon instruction builder
 // ---------------------------------------------------------------------------
 
-describe('includesRequiredFacts', () => {
-  test('returns true when no required facts', () => {
-    expect(includesRequiredFacts('any text', undefined)).toBe(true);
-    expect(includesRequiredFacts('any text', [])).toBe(true);
-  });
-
-  test('returns true when all facts present', () => {
-    expect(includesRequiredFacts('Call to +15551234567 completed (2m).', ['+15551234567', '2m'])).toBe(true);
-  });
-
-  test('returns false when a fact is missing', () => {
-    expect(includesRequiredFacts('Call completed.', ['+15551234567'])).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Prompt builder
-// ---------------------------------------------------------------------------
-
-describe('buildPointerGenerationPrompt', () => {
-  test('includes context JSON and fallback message', () => {
+describe('buildPointerInstruction', () => {
+  test('includes event tag, scenario, and phone number', () => {
     const ctx: CallPointerMessageContext = { scenario: 'started', phoneNumber: '+15551234567' };
-    const prompt = buildPointerGenerationPrompt(ctx, 'Fallback text', undefined);
-    expect(prompt).toContain(JSON.stringify(ctx));
-    expect(prompt).toContain('Fallback text');
+    const instruction = buildPointerInstruction(ctx);
+    expect(instruction).toContain('[CALL_STATUS_EVENT]');
+    expect(instruction).toContain('Event: started');
+    expect(instruction).toContain('Phone number: +15551234567');
   });
 
-  test('includes required facts clause when provided', () => {
+  test('includes duration when provided', () => {
     const ctx: CallPointerMessageContext = { scenario: 'completed', phoneNumber: '+15559876543', duration: '3m' };
-    const prompt = buildPointerGenerationPrompt(ctx, 'Fallback', ['+15559876543', '3m']);
-    expect(prompt).toContain('Required facts to include');
-    expect(prompt).toContain('+15559876543');
-    expect(prompt).toContain('3m');
+    const instruction = buildPointerInstruction(ctx);
+    expect(instruction).toContain('Duration: 3m');
   });
-});
 
-// ---------------------------------------------------------------------------
-// Generative composition (test env falls back to deterministic)
-// ---------------------------------------------------------------------------
+  test('includes reason when provided', () => {
+    const ctx: CallPointerMessageContext = { scenario: 'failed', phoneNumber: '+15559876543', reason: 'no answer' };
+    const instruction = buildPointerInstruction(ctx);
+    expect(instruction).toContain('Reason: no answer');
+  });
 
-describe('composeCallPointerMessageGenerative', () => {
-  test('returns fallback in test environment regardless of generator', async () => {
-    const generator = async () => 'LLM-generated copy';
+  test('includes verification code when provided', () => {
+    const ctx: CallPointerMessageContext = { scenario: 'started', phoneNumber: '+15551234567', verificationCode: '42' };
+    const instruction = buildPointerInstruction(ctx);
+    expect(instruction).toContain('Verification code: 42');
+  });
+
+  test('includes channel when provided', () => {
+    const ctx: CallPointerMessageContext = {
+      scenario: 'guardian_verification_succeeded',
+      phoneNumber: '+15559876543',
+      channel: 'sms',
+    };
+    const instruction = buildPointerInstruction(ctx);
+    expect(instruction).toContain('Channel: sms');
+  });
+
+  test('omits optional fields when not provided', () => {
     const ctx: CallPointerMessageContext = { scenario: 'started', phoneNumber: '+15551234567' };
-    const result = await composeCallPointerMessageGenerative(ctx, {}, generator);
-    // NODE_ENV is 'test' during bun test
-    expect(result).toContain('Call to +15551234567 started');
+    const instruction = buildPointerInstruction(ctx);
+    expect(instruction).not.toContain('Duration:');
+    expect(instruction).not.toContain('Reason:');
+    expect(instruction).not.toContain('Verification code:');
+    expect(instruction).not.toContain('Channel:');
   });
 
-  test('returns fallback when no generator provided', async () => {
-    const ctx: CallPointerMessageContext = { scenario: 'failed', phoneNumber: '+15559876543', reason: 'busy' };
-    const result = await composeCallPointerMessageGenerative(ctx);
-    expect(result).toContain('failed: busy');
-  });
-
-  test('uses custom fallbackText when provided', async () => {
+  test('ends with generation instructions', () => {
     const ctx: CallPointerMessageContext = { scenario: 'completed', phoneNumber: '+15559876543' };
-    const result = await composeCallPointerMessageGenerative(ctx, { fallbackText: 'Custom fallback' });
-    expect(result).toBe('Custom fallback');
+    const instruction = buildPointerInstruction(ctx);
+    expect(instruction).toContain('Write a brief');
+    expect(instruction).toContain('Preserve all factual details');
   });
 });
