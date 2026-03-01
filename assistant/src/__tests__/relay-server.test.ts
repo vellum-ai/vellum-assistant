@@ -2798,4 +2798,401 @@ describe('relay-server', () => {
 
     relay.destroy();
   });
+
+  // ── Callback handoff notification tests ────────────────────────────
+
+  test('callback opt-in + access timeout -> emits callback handoff notification exactly once', async () => {
+    mockConfig.calls.userConsultTimeoutSeconds = 2;
+
+    ensureConversation('conv-cb-handoff-timeout');
+    const session = createCallSession({
+      conversationId: 'conv-cb-handoff-timeout',
+      provider: 'twilio',
+      fromNumber: '+15557770020',
+      toNumber: '+15551111111',
+      assistantId: 'self',
+    });
+
+    const { ws, relay } = createMockWs(session.id);
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'setup',
+      callSid: 'CA_cb_handoff_timeout',
+      from: '+15557770020',
+      to: '+15551111111',
+    }));
+
+    // Provide name to enter guardian wait
+    await relay.handleMessage(JSON.stringify({
+      type: 'prompt',
+      voicePrompt: 'Callback Tester',
+      lang: 'en-US',
+      last: true,
+    }));
+
+    expect(relay.getConnectionState()).toBe('awaiting_guardian_decision');
+
+    // Trigger impatience to get callback offer
+    await relay.handleMessage(JSON.stringify({
+      type: 'prompt',
+      voicePrompt: 'Hurry up please',
+      lang: 'en-US',
+      last: true,
+    }));
+
+    // Wait for cooldown
+    await new Promise((resolve) => setTimeout(resolve, 3100));
+
+    // Accept callback offer
+    await relay.handleMessage(JSON.stringify({
+      type: 'prompt',
+      voicePrompt: 'Yes, please call me back',
+      lang: 'en-US',
+      last: true,
+    }));
+
+    // Verify callback opt-in was set
+    const eventsBeforeTimeout = getCallEvents(session.id);
+    expect(eventsBeforeTimeout.some((e) => e.eventType === 'voice_guardian_wait_callback_opt_in_set')).toBe(true);
+
+    // Wait for timeout
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+
+    expect(relay.getConnectionState()).toBe('disconnecting');
+
+    // Allow async notification emission to complete
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    const events = getCallEvents(session.id);
+    // Should have exactly one callback_handoff_notified event (or callback_handoff_failed
+    // if the notification pipeline isn't fully wired in tests — either proves emission)
+    const handoffEvents = events.filter(
+      (e) => e.eventType === 'callback_handoff_notified' || e.eventType === 'callback_handoff_failed',
+    );
+    expect(handoffEvents.length).toBe(1);
+
+    // Verify the timeout event was also recorded
+    expect(events.some((e) => e.eventType === 'inbound_acl_access_timeout')).toBe(true);
+
+    // Timeout copy should include callback note
+    const textMessages = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+      .filter((m) => m.type === 'text');
+    expect(textMessages.some((m) => (m.token ?? '').includes('callback'))).toBe(true);
+
+    mockConfig.calls.userConsultTimeoutSeconds = 120;
+    relay.destroy();
+  });
+
+  test('no callback opt-in + access timeout -> no callback handoff notification', async () => {
+    mockConfig.calls.userConsultTimeoutSeconds = 2;
+
+    ensureConversation('conv-no-cb-handoff');
+    const session = createCallSession({
+      conversationId: 'conv-no-cb-handoff',
+      provider: 'twilio',
+      fromNumber: '+15557770021',
+      toNumber: '+15551111111',
+      assistantId: 'self',
+    });
+
+    const { relay } = createMockWs(session.id);
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'setup',
+      callSid: 'CA_no_cb_handoff',
+      from: '+15557770021',
+      to: '+15551111111',
+    }));
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'prompt',
+      voicePrompt: 'No Callback Tester',
+      lang: 'en-US',
+      last: true,
+    }));
+
+    expect(relay.getConnectionState()).toBe('awaiting_guardian_decision');
+
+    // Wait for timeout without opting into callback
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+
+    expect(relay.getConnectionState()).toBe('disconnecting');
+
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    const events = getCallEvents(session.id);
+    // Should NOT have callback handoff events
+    const handoffEvents = events.filter(
+      (e) => e.eventType === 'callback_handoff_notified' || e.eventType === 'callback_handoff_failed',
+    );
+    expect(handoffEvents.length).toBe(0);
+
+    mockConfig.calls.userConsultTimeoutSeconds = 120;
+    relay.destroy();
+  });
+
+  test('callback opt-in + transport close during guardian wait -> emits callback handoff notification', async () => {
+    ensureConversation('conv-cb-handoff-transport');
+    const session = createCallSession({
+      conversationId: 'conv-cb-handoff-transport',
+      provider: 'twilio',
+      fromNumber: '+15557770022',
+      toNumber: '+15551111111',
+      assistantId: 'self',
+    });
+
+    const { relay } = createMockWs(session.id);
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'setup',
+      callSid: 'CA_cb_handoff_transport',
+      from: '+15557770022',
+      to: '+15551111111',
+    }));
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'prompt',
+      voicePrompt: 'Transport Close Tester',
+      lang: 'en-US',
+      last: true,
+    }));
+
+    expect(relay.getConnectionState()).toBe('awaiting_guardian_decision');
+
+    // Trigger callback offer and opt-in
+    await relay.handleMessage(JSON.stringify({
+      type: 'prompt',
+      voicePrompt: 'Hurry up please',
+      lang: 'en-US',
+      last: true,
+    }));
+
+    await new Promise((resolve) => setTimeout(resolve, 3100));
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'prompt',
+      voicePrompt: 'Yes please',
+      lang: 'en-US',
+      last: true,
+    }));
+
+    // Simulate transport close while still in guardian wait
+    relay.handleTransportClosed(1001, 'Going away');
+
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    const events = getCallEvents(session.id);
+    const handoffEvents = events.filter(
+      (e) => e.eventType === 'callback_handoff_notified' || e.eventType === 'callback_handoff_failed',
+    );
+    expect(handoffEvents.length).toBe(1);
+
+    relay.destroy();
+  });
+
+  test('timeout then transport-close race -> still emits only one handoff notification', async () => {
+    mockConfig.calls.userConsultTimeoutSeconds = 2;
+
+    ensureConversation('conv-cb-handoff-race');
+    const session = createCallSession({
+      conversationId: 'conv-cb-handoff-race',
+      provider: 'twilio',
+      fromNumber: '+15557770023',
+      toNumber: '+15551111111',
+      assistantId: 'self',
+    });
+
+    const { relay } = createMockWs(session.id);
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'setup',
+      callSid: 'CA_cb_handoff_race',
+      from: '+15557770023',
+      to: '+15551111111',
+    }));
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'prompt',
+      voicePrompt: 'Race Tester',
+      lang: 'en-US',
+      last: true,
+    }));
+
+    // Opt into callback
+    await relay.handleMessage(JSON.stringify({
+      type: 'prompt',
+      voicePrompt: 'Hurry up please',
+      lang: 'en-US',
+      last: true,
+    }));
+
+    await new Promise((resolve) => setTimeout(resolve, 3100));
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'prompt',
+      voicePrompt: 'Yes call me back',
+      lang: 'en-US',
+      last: true,
+    }));
+
+    // Wait for timeout to fire
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+
+    // Now transport close too (simulating race)
+    relay.handleTransportClosed(1000, 'Normal closure');
+
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    const events = getCallEvents(session.id);
+    // Guard should ensure only ONE handoff event
+    const handoffEvents = events.filter(
+      (e) => e.eventType === 'callback_handoff_notified' || e.eventType === 'callback_handoff_failed',
+    );
+    expect(handoffEvents.length).toBe(1);
+
+    mockConfig.calls.userConsultTimeoutSeconds = 120;
+    relay.destroy();
+  });
+
+  test('callback handoff payload includes requesterMemberId when voice caller maps to existing member', async () => {
+    mockConfig.calls.userConsultTimeoutSeconds = 2;
+
+    ensureConversation('conv-cb-handoff-member');
+    const session = createCallSession({
+      conversationId: 'conv-cb-handoff-member',
+      provider: 'twilio',
+      fromNumber: '+15557770024',
+      toNumber: '+15551111111',
+      assistantId: 'self',
+    });
+
+    // Add the caller as a trusted contact so findMember resolves
+    addTrustedVoiceContact('+15557770024');
+
+    const { relay } = createMockWs(session.id);
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'setup',
+      callSid: 'CA_cb_handoff_member',
+      from: '+15557770024',
+      to: '+15551111111',
+    }));
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'prompt',
+      voicePrompt: 'Member Tester',
+      lang: 'en-US',
+      last: true,
+    }));
+
+    expect(relay.getConnectionState()).toBe('awaiting_guardian_decision');
+
+    // Opt into callback
+    await relay.handleMessage(JSON.stringify({
+      type: 'prompt',
+      voicePrompt: 'Hurry up',
+      lang: 'en-US',
+      last: true,
+    }));
+
+    await new Promise((resolve) => setTimeout(resolve, 3100));
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'prompt',
+      voicePrompt: 'Yes please call me back',
+      lang: 'en-US',
+      last: true,
+    }));
+
+    // Wait for timeout
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    const events = getCallEvents(session.id);
+    const handoffEvents = events.filter(
+      (e) => e.eventType === 'callback_handoff_notified' || e.eventType === 'callback_handoff_failed',
+    );
+    expect(handoffEvents.length).toBe(1);
+
+    // Parse the payload to verify requesterMemberId is present
+    const handoffEvent = handoffEvents[0];
+    const payload = JSON.parse(handoffEvent.payloadJson) as Record<string, unknown>;
+    // The member was added, so requesterMemberId should be populated
+    expect(payload.requesterMemberId).toBeDefined();
+    expect(typeof payload.requesterMemberId).toBe('string');
+
+    mockConfig.calls.userConsultTimeoutSeconds = 120;
+    relay.destroy();
+  });
+
+  test('callback handoff payload omits member reference when no member record exists', async () => {
+    mockConfig.calls.userConsultTimeoutSeconds = 2;
+
+    ensureConversation('conv-cb-handoff-no-member');
+    const session = createCallSession({
+      conversationId: 'conv-cb-handoff-no-member',
+      provider: 'twilio',
+      fromNumber: '+15557770025',
+      toNumber: '+15551111111',
+      assistantId: 'self',
+    });
+
+    // Do NOT add caller as trusted contact
+
+    const { relay } = createMockWs(session.id);
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'setup',
+      callSid: 'CA_cb_handoff_no_member',
+      from: '+15557770025',
+      to: '+15551111111',
+    }));
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'prompt',
+      voicePrompt: 'No Member Tester',
+      lang: 'en-US',
+      last: true,
+    }));
+
+    expect(relay.getConnectionState()).toBe('awaiting_guardian_decision');
+
+    // Opt into callback
+    await relay.handleMessage(JSON.stringify({
+      type: 'prompt',
+      voicePrompt: 'Come on hurry up',
+      lang: 'en-US',
+      last: true,
+    }));
+
+    await new Promise((resolve) => setTimeout(resolve, 3100));
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'prompt',
+      voicePrompt: 'Yes callback please',
+      lang: 'en-US',
+      last: true,
+    }));
+
+    // Wait for timeout
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    const events = getCallEvents(session.id);
+    const handoffEvents = events.filter(
+      (e) => e.eventType === 'callback_handoff_notified' || e.eventType === 'callback_handoff_failed',
+    );
+    expect(handoffEvents.length).toBe(1);
+
+    // Parse the payload to verify requesterMemberId is null
+    const handoffEvent = handoffEvents[0];
+    const payload = JSON.parse(handoffEvent.payloadJson) as Record<string, unknown>;
+    expect(payload.requesterMemberId).toBeNull();
+
+    mockConfig.calls.userConsultTimeoutSeconds = 120;
+    relay.destroy();
+  });
 });
