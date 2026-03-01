@@ -502,7 +502,13 @@ class CredentialStoreTool implements Tool {
 
         const authUrl = (input.auth_url as string | undefined) ?? profile?.authUrl;
         const tokenUrl = (input.token_url as string | undefined) ?? profile?.tokenUrl;
-        if (!clientId) return { content: 'Error: client_id is required for oauth2_connect action. Provide it directly or store it first with credential_store.', isError: true };
+        if (!clientId) {
+          const skillId = profile?.setupSkillId;
+          const skillHint = skillId
+            ? ` Load the "${skillId}" skill to set up credentials for ${rawService}.`
+            : ' Provide it directly or store it first with credential_store.';
+          return { content: `Error: client_id is required for oauth2_connect action.${skillHint}`, isError: true };
+        }
 
         // Fail early when client_secret is required but missing — guide the
         // agent to collect it from the user rather than letting it improvise
