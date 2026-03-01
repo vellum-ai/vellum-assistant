@@ -28,8 +28,6 @@ import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
 import { bridgeConfirmationRequestToGuardian } from '../confirmation-request-guardian-bridge.js';
 import { routeGuardianReply } from '../guardian-reply-router.js';
 import { httpError } from '../http-errors.js';
-import { resolveLocalIpcGuardianContext } from '../local-actor-identity.js';
-import { type ServerWithRequestIP, verifyHttpActorTokenWithLocalFallback } from '../middleware/actor-token.js';
 import type {
   ApprovalConversationGenerator,
   MessageProcessor,
@@ -38,6 +36,8 @@ import type {
   RuntimeMessagePayload,
   SendMessageDeps,
 } from '../http-types.js';
+import { resolveLocalIpcGuardianContext } from '../local-actor-identity.js';
+import { type ServerWithRequestIP, verifyHttpActorTokenWithLocalFallback } from '../middleware/actor-token.js';
 import * as pendingInteractions from '../pending-interactions.js';
 
 const log = getLogger('conversation-routes');

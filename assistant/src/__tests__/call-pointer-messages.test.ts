@@ -254,7 +254,7 @@ describe('addPointerMessage', () => {
   });
 
   test('missing conversation defaults to untrusted', () => {
-    const convId = 'conv-ptr-missing';
+    const _convId = 'conv-ptr-missing';
     // Don't create the conversation — trust resolution should default to untrusted
 
     const generatorCalled = { value: false };

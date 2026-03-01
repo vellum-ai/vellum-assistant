@@ -162,7 +162,7 @@ export function mintActorToken(params: {
   ttlMs?: number | null;
 }): MintResult {
   const now = Date.now();
-  const effectiveTtl = params.ttlMs === null ? null : (params.ttlMs ?? DEFAULT_TOKEN_TTL_MS);
+  const effectiveTtl = params.ttlMs === undefined ? DEFAULT_TOKEN_TTL_MS : params.ttlMs;
   const claims: ActorTokenClaims = {
     assistantId: params.assistantId,
     platform: params.platform,

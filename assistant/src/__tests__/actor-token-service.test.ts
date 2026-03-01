@@ -31,7 +31,7 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
-import { initializeDb, getSqlite, resetDb } from '../memory/db.js';
+import { getSqlite, initializeDb, resetDb } from '../memory/db.js';
 import {
   createBinding,
   getActiveBinding,
@@ -50,6 +50,7 @@ import {
   revokeByTokenHash,
 } from '../runtime/actor-token-store.js';
 import { ensureVellumGuardianBinding } from '../runtime/guardian-vellum-migration.js';
+import { resolveLocalIpcGuardianContext } from '../runtime/local-actor-identity.js';
 import {
   isActorBoundGuardian,
   isLocalFallbackBoundGuardian,
@@ -57,7 +58,6 @@ import {
   verifyHttpActorToken,
   verifyHttpActorTokenWithLocalFallback,
 } from '../runtime/middleware/actor-token.js';
-import { resolveLocalIpcGuardianContext } from '../runtime/local-actor-identity.js';
 
 // ---------------------------------------------------------------------------
 // Mock server helpers for loopback IP checks

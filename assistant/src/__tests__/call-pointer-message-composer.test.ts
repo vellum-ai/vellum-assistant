@@ -1,5 +1,4 @@
 import { describe, expect, test } from 'bun:test';
-
 import { mock } from 'bun:test';
 
 mock.module('../util/logger.js', () => ({
@@ -11,10 +10,10 @@ mock.module('../util/logger.js', () => ({
 
 import {
   buildPointerGenerationPrompt,
+  type CallPointerMessageContext,
   composeCallPointerMessageGenerative,
   getPointerFallbackMessage,
   includesRequiredFacts,
-  type CallPointerMessageContext,
 } from '../calls/call-pointer-message-composer.js';
 
 // ---------------------------------------------------------------------------

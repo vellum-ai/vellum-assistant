@@ -4,8 +4,8 @@ import { join } from 'node:path';
 
 import { config as dotenvConfig } from 'dotenv';
 
-import { reconcileCallsOnStartup } from '../calls/call-recovery.js';
 import { setPointerCopyGenerator } from '../calls/call-pointer-messages.js';
+import { reconcileCallsOnStartup } from '../calls/call-recovery.js';
 import { setRelayBroadcast } from '../calls/relay-server.js';
 import { TwilioConversationRelayProvider } from '../calls/twilio-provider.js';
 import { setVoiceBridgeDeps } from '../calls/voice-session-bridge.js';
@@ -38,9 +38,9 @@ import { migrateToWorkspaceLayout } from '../migrations/workspace-layout.js';
 import { emitNotificationSignal, registerBroadcastFn } from '../notifications/emit-signal.js';
 import { initSigningKey, loadOrCreateSigningKey } from '../runtime/actor-token-service.js';
 import { assistantEventHub } from '../runtime/assistant-event-hub.js';
+import { ensureVellumGuardianBinding } from '../runtime/guardian-vellum-migration.js';
 import { RuntimeHttpServer } from '../runtime/http-server.js';
 import { startScheduler } from '../schedule/scheduler.js';
-import { ensureVellumGuardianBinding } from '../runtime/guardian-vellum-migration.js';
 import { getLogger, initLogger } from '../util/logger.js';
 import {
   ensureDataDir,

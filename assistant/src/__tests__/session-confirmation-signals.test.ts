@@ -13,7 +13,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test';
+import { afterAll, describe, expect, mock, test } from 'bun:test';
 
 import type { AgentEvent, CheckpointDecision, CheckpointInfo } from '../agent/loop.js';
 import type { ServerMessage } from '../daemon/ipc-protocol.js';
@@ -246,7 +246,7 @@ function makeSession(sendToClient?: (msg: ServerMessage) => void): Session {
  */
 function seedPendingConfirmation(session: Session, requestId: string): void {
   const prompter = session['prompter'] as unknown as {
-    pending: Map<string, { resolve: Function; reject: Function; timer: ReturnType<typeof setTimeout> }>;
+    pending: Map<string, { resolve: (...args: unknown[]) => void; reject: (...args: unknown[]) => void; timer: ReturnType<typeof setTimeout> }>;
   };
   prompter.pending.set(requestId, {
     resolve: () => {},

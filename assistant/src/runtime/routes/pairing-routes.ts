@@ -11,11 +11,11 @@ import type { ServerMessage } from '../../daemon/ipc-contract.js';
 import { PairingStore } from '../../daemon/pairing-store.js';
 import { getLogger } from '../../util/logger.js';
 import { mintActorToken } from '../actor-token-service.js';
-import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
 import {
   createActorTokenRecord,
   revokeByDeviceBinding,
 } from '../actor-token-store.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
 import { ensureVellumGuardianBinding } from '../guardian-vellum-migration.js';
 import { httpError } from '../http-errors.js';
 

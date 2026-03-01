@@ -13,7 +13,7 @@
 
 import { answerCall } from '../calls/call-domain.js';
 import { getGatewayInternalBaseUrl } from '../config/env.js';
-import { getCanonicalGuardianRequest, type CanonicalGuardianRequest } from '../memory/canonical-guardian-store.js';
+import { type CanonicalGuardianRequest,getCanonicalGuardianRequest } from '../memory/canonical-guardian-store.js';
 import { upsertMember } from '../memory/ingress-member-store.js';
 import { emitNotificationSignal } from '../notifications/emit-signal.js';
 import { addRule } from '../permissions/trust-store.js';

@@ -9,12 +9,12 @@
  */
 
 import * as conversationStore from '../memory/conversation-store.js';
-import { getLogger } from '../util/logger.js';
 import type { PointerCopyGenerator } from '../runtime/http-types.js';
+import { getLogger } from '../util/logger.js';
 import {
+  type CallPointerMessageContext,
   composeCallPointerMessageGenerative,
   getPointerFallbackMessage,
-  type CallPointerMessageContext,
 } from './call-pointer-message-composer.js';
 
 const log = getLogger('call-pointer-messages');
