@@ -431,8 +431,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         )
 
         let hostingController = NSHostingController(rootView: interstitialView)
+        hostingController.sizingOptions = []  // Prevent auto-resizing from SwiftUI
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
+            contentRect: NSRect(x: 0, y: 0, width: 380, height: 300),
             styleMask: [.titled, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -443,6 +444,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         window.isMovableByWindowBackground = true
         window.backgroundColor = NSColor(VColor.background)
         window.isReleasedWhenClosed = false
+        window.setContentSize(NSSize(width: 380, height: 300))
         window.center()
 
         NSApp.setActivationPolicy(.regular)
