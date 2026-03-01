@@ -24,11 +24,33 @@ ensure_git() {
 
     info "Installing git..."
     if [ "$(uname -s)" = "Darwin" ]; then
-        if command -v brew >/dev/null 2>&1; then
-            brew install git
-        else
-            error "git is required. Install Homebrew (https://brew.sh) then run: brew install git"
-            exit 1
+        # On macOS, the standard way to get git is via Xcode Command Line Tools.
+        # Try installing CLT first before falling back to Homebrew.
+        if ! xcode-select -p >/dev/null 2>&1; then
+            info "Installing Xcode Command Line Tools (includes git)..."
+            xcode-select --install 2>/dev/null || true
+            info "Please follow the on-screen dialog to install. Waiting..."
+            local waited=0
+            while ! xcode-select -p >/dev/null 2>&1; do
+                sleep 5
+                waited=$((waited + 5))
+                if [ "$waited" -ge 600 ]; then
+                    error "Timed out waiting for Xcode Command Line Tools. Please install manually and re-run."
+                    exit 1
+                fi
+            done
+            hash -r 2>/dev/null || true
+        fi
+
+        # If git still doesn't work after CLT, try Homebrew as a fallback.
+        if ! git --version >/dev/null 2>&1; then
+            hash -r 2>/dev/null || true
+            if command -v brew >/dev/null 2>&1; then
+                brew install git
+            else
+                error "git is still not available. Please install manually: xcode-select --install"
+                exit 1
+            fi
         fi
     elif command -v apt-get >/dev/null 2>&1; then
         sudo apt-get update -qq && sudo apt-get install -y -qq git
