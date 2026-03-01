@@ -10,6 +10,7 @@ import { retireInstance as retireGcpInstance } from "../lib/gcp";
 import { stopProcessByPidFile } from "../lib/process";
 import { getArchivePath, getMetadataPath } from "../lib/retire-archive";
 import { exec } from "../lib/step-runner";
+import { openLogFile, closeLogFile, writeToLogFile } from "../lib/xdg-log";
 
 function resolveCloud(entry: AssistantEntry): string {
   if (entry.cloud) {
@@ -120,7 +121,42 @@ function parseSource(): string | undefined {
   return undefined;
 }
 
+/** Patch console methods to also append output to the given log file descriptor. */
+function teeConsoleToLogFile(fd: number | "ignore"): void {
+  if (fd === "ignore") return;
+
+  const origLog = console.log.bind(console);
+  const origWarn = console.warn.bind(console);
+  const origError = console.error.bind(console);
+
+  const timestamp = () => new Date().toISOString();
+
+  console.log = (...args: unknown[]) => {
+    origLog(...args);
+    writeToLogFile(fd, `[${timestamp()}] ${args.map(String).join(" ")}\n`);
+  };
+  console.warn = (...args: unknown[]) => {
+    origWarn(...args);
+    writeToLogFile(fd, `[${timestamp()}] WARN: ${args.map(String).join(" ")}\n`);
+  };
+  console.error = (...args: unknown[]) => {
+    origError(...args);
+    writeToLogFile(fd, `[${timestamp()}] ERROR: ${args.map(String).join(" ")}\n`);
+  };
+}
+
 export async function retire(): Promise<void> {
+  const logFd = process.env.VELLUM_DESKTOP_APP ? openLogFile("retire.log") : "ignore";
+  teeConsoleToLogFile(logFd);
+
+  try {
+    await retireInner();
+  } finally {
+    closeLogFile(logFd);
+  }
+}
+
+async function retireInner(): Promise<void> {
   const args = process.argv.slice(3);
   if (args.includes("--help") || args.includes("-h")) {
     console.log("Usage: vellum retire <name> [--source <source>]");

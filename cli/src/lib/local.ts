@@ -1,5 +1,5 @@
 import { execFileSync, spawn } from "child_process";
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "fs";
 import { createRequire } from "module";
 import { createConnection } from "net";
 import { homedir } from "os";
@@ -8,35 +8,10 @@ import { dirname, join } from "path";
 import { loadLatestAssistant } from "./assistant-config.js";
 import { GATEWAY_PORT } from "./constants.js";
 import { stopProcessByPidFile } from "./process.js";
+import { openLogFile, closeLogFile } from "./xdg-log.js";
 
 const _require = createRequire(import.meta.url);
 
-/** Returns the XDG-compatible log directory for Vellum hatch logs. */
-function getHatchLogDir(): string {
-  const configHome = process.env.XDG_CONFIG_HOME || join(homedir(), ".config");
-  return join(configHome, "vellum", "logs");
-}
-
-/** Open (or create) a log file in append mode, returning the file descriptor.
- *  Creates the parent directory if it doesn't exist. Returns "ignore" if the
- *  directory or file cannot be created (permissions, read-only filesystem, etc.)
- *  so that spawn falls back to discarding output instead of aborting startup. */
-function openHatchLogFile(name: string): number | "ignore" {
-  try {
-    const dir = getHatchLogDir();
-    mkdirSync(dir, { recursive: true });
-    return openSync(join(dir, name), "a");
-  } catch {
-    return "ignore";
-  }
-}
-
-/** Close a file descriptor returned by openHatchLogFile (no-op for "ignore"). */
-function closeHatchLogFile(fd: number | "ignore"): void {
-  if (typeof fd === "number") {
-    try { closeSync(fd); } catch { /* best-effort */ }
-  }
-}
 
 function isAssistantSourceDir(dir: string): boolean {
   const pkgPath = join(dir, "package.json");
@@ -403,7 +378,7 @@ export async function startLocalDaemon(): Promise<void> {
         }
       }
 
-      const daemonLogFd = openHatchLogFile("daemon.log");
+      const daemonLogFd = openLogFile("daemon.log");
       let daemonPid: number | undefined;
       try {
         const child = spawn(daemonBinary, [], {
@@ -415,7 +390,7 @@ export async function startLocalDaemon(): Promise<void> {
         child.unref();
         daemonPid = child.pid;
       } finally {
-        closeHatchLogFile(daemonLogFd);
+        closeLogFile(daemonLogFd);
       }
 
       // Write PID file immediately so the health monitor can find the process
@@ -568,7 +543,7 @@ export async function startGateway(assistantId?: string): Promise<string> {
       );
     }
 
-    const gatewayLogFd = openHatchLogFile("gateway.log");
+    const gatewayLogFd = openLogFile("gateway.log");
     try {
       gateway = spawn(gatewayBinary, [], {
         detached: true,
@@ -576,12 +551,12 @@ export async function startGateway(assistantId?: string): Promise<string> {
         env: gatewayEnv,
       });
     } finally {
-      closeHatchLogFile(gatewayLogFd);
+      closeLogFile(gatewayLogFd);
     }
   } else {
     // Source tree / bunx: resolve the gateway source directory and run via bun.
     const gatewayDir = resolveGatewayDir();
-    const gwLogFd = openHatchLogFile("gateway.log");
+    const gwLogFd = openLogFile("gateway.log");
     try {
       gateway = spawn("bun", ["run", "src/index.ts"], {
         cwd: gatewayDir,
@@ -590,7 +565,7 @@ export async function startGateway(assistantId?: string): Promise<string> {
         env: gatewayEnv,
       });
     } finally {
-      closeHatchLogFile(gwLogFd);
+      closeLogFile(gwLogFd);
     }
   }
 
