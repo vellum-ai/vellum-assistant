@@ -162,6 +162,12 @@ export function getOllamaBaseUrlEnv(): string | undefined {
   return str('OLLAMA_BASE_URL');
 }
 
+// ── Platform ─────────────────────────────────────────────────────────────────
+
+export function getPlatformBaseUrl(): string {
+  return str('PLATFORM_BASE_URL') ?? '';
+}
+
 // ── Startup validation ──────────────────────────────────────────────────────
 
 /**
