@@ -551,6 +551,11 @@ async function displayPairingQRCode(runtimeUrl: string, bearerToken: string | un
 }
 
 async function hatchLocal(species: Species, name: string | null, daemonOnly: boolean = false, restart: boolean = false): Promise<void> {
+  if (restart && !name && !process.env.VELLUM_ASSISTANT_NAME) {
+    console.error("Error: Cannot restart without a known assistant ID. Provide --name or ensure VELLUM_ASSISTANT_NAME is set.");
+    process.exit(1);
+  }
+
   const instanceName =
     name ?? process.env.VELLUM_ASSISTANT_NAME ?? `${species}-${generateRandomSuffix()}`;
 
@@ -662,6 +667,11 @@ export async function hatch(): Promise<void> {
   console.log(`@vellumai/cli v${cliVersion}`);
 
   const { species, detached, name, remote, daemonOnly, restart } = parseArgs();
+
+  if (restart && remote !== "local") {
+    console.error("Error: --restart is only supported for local hatch targets.");
+    process.exit(1);
+  }
 
   if (remote === "local") {
     await hatchLocal(species, name, daemonOnly, restart);
