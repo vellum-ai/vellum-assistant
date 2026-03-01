@@ -504,6 +504,25 @@ function installCLISymlink(): void {
   console.log(`   ⚠ Could not create symlink for vellum CLI (tried ${preferredPath} and ${fallbackPath})`);
 }
 
+async function waitForDaemonReady(runtimeUrl: string, bearerToken: string | undefined, timeoutMs = 15000): Promise<boolean> {
+  const start = Date.now();
+  const pollInterval = 1000;
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const res = await fetch(`${runtimeUrl}/v1/health`, {
+        method: "GET",
+        headers: bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {},
+        signal: AbortSignal.timeout(2000),
+      });
+      if (res.ok) return true;
+    } catch {
+      // Daemon not ready yet
+    }
+    await new Promise((r) => setTimeout(r, pollInterval));
+  }
+  return false;
+}
+
 async function displayPairingQRCode(runtimeUrl: string, bearerToken: string | undefined): Promise<void> {
   try {
     const pairingRequestId = randomUUID();
@@ -511,33 +530,26 @@ async function displayPairingQRCode(runtimeUrl: string, bearerToken: string | un
 
     // The daemon's HTTP server may not be fully ready even though the gateway
     // health check passed (the gateway is up, but the upstream daemon HTTP
-    // endpoint it proxies to may still be initializing). Retry transient 502/503
-    // errors a few times with backoff before giving up.
-    const MAX_RETRIES = 5;
-    const RETRY_DELAY_MS = 2000;
-    let registerRes: Response | undefined;
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-      registerRes = await fetch(`${runtimeUrl}/pairing/register`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
-        },
-        body: JSON.stringify({ pairingRequestId, pairingSecret, gatewayUrl: runtimeUrl }),
-      });
-
-      if (registerRes.ok || (registerRes.status !== 502 && registerRes.status !== 503)) {
-        break;
-      }
-
-      if (attempt < MAX_RETRIES) {
-        await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
-      }
+    // endpoint it proxies to may still be initializing). Poll the daemon's
+    // health endpoint through the gateway to ensure it's reachable.
+    const daemonReady = await waitForDaemonReady(runtimeUrl, bearerToken);
+    if (!daemonReady) {
+      console.warn("⚠ Daemon health check did not pass within 15s. Run `vellum pair` to try again.\n");
+      return;
     }
 
-    if (!registerRes!.ok) {
-      const body = await registerRes!.text().catch(() => "");
-      console.warn(`⚠ Could not register pairing request: ${registerRes!.status} ${registerRes!.statusText}${body ? ` — ${body}` : ""}. Run \`vellum pair\` to try again.\n`);
+    const registerRes = await fetch(`${runtimeUrl}/pairing/register`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
+      },
+      body: JSON.stringify({ pairingRequestId, pairingSecret, gatewayUrl: runtimeUrl }),
+    });
+
+    if (!registerRes.ok) {
+      const body = await registerRes.text().catch(() => "");
+      console.warn(`⚠ Could not register pairing request: ${registerRes.status} ${registerRes.statusText}${body ? ` — ${body}` : ""}. Run \`vellum pair\` to try again.\n`);
       return;
     }
 
