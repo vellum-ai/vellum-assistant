@@ -1,66 +1,15 @@
 process.title = "vellum-managed-gateway";
 
 import { loadConfig } from "./config.js";
+import { createManagedGatewayAppFetch } from "./http.js";
 
 const config = loadConfig();
-
-function healthPayload() {
-  return {
-    status: "ok",
-    service: config.serviceName,
-    mode: config.mode,
-    enabled: config.enabled,
-  };
-}
-
-function readinessResponse(): Response {
-  if (!config.enabled) {
-    return Response.json(
-      {
-        status: "not_ready",
-        service: config.serviceName,
-        mode: config.mode,
-        reason: "managed_gateway_disabled",
-      },
-      { status: 503 },
-    );
-  }
-
-  const payload: Record<string, string> = {
-    status: "ready",
-    service: config.serviceName,
-    mode: config.mode,
-  };
-  if (config.djangoInternalBaseUrl) {
-    payload.upstreamBaseUrl = config.djangoInternalBaseUrl;
-  }
-
-  return Response.json(payload);
-}
-
-function routeRequest(pathname: string): Response {
-  if (
-    pathname === "/healthz"
-    || pathname === "/v1/internal/managed-gateway/healthz/"
-  ) {
-    return Response.json(healthPayload());
-  }
-
-  if (
-    pathname === "/readyz"
-    || pathname === "/v1/internal/managed-gateway/readyz/"
-  ) {
-    return readinessResponse();
-  }
-
-  return Response.json({ error: "Not found" }, { status: 404 });
-}
+const appFetch = createManagedGatewayAppFetch(config);
 
 const server = Bun.serve({
   port: config.port,
   async fetch(req) {
-    const url = new URL(req.url);
-    return routeRequest(url.pathname);
+    return appFetch(req);
   },
 });
 
