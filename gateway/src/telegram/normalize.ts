@@ -1,4 +1,4 @@
-import type { GatewayInboundEventV1 } from "../types.js";
+import type { GatewayInboundEvent } from "../types.js";
 
 interface TelegramPhotoSize {
   file_id: string;
@@ -55,12 +55,13 @@ interface TelegramUpdate {
 }
 
 /**
- * Normalize a Telegram webhook payload into a GatewayInboundEventV1.
- * Returns null if the payload is unsupported (non-text, non-private, etc.).
+ * Normalize a Telegram webhook payload into a GatewayInboundEvent.
+ * Returns null if the payload is unsupported (non-text, non-private, etc.)
+ * or if the sender identity cannot be determined.
  */
 export function normalizeTelegramUpdate(
   payload: Record<string, unknown>,
-): Omit<GatewayInboundEventV1, "routing"> | null {
+): GatewayInboundEvent | null {
   const update = payload as TelegramUpdate;
   const updateId = update.update_id;
 
@@ -86,7 +87,12 @@ export function normalizeTelegramUpdate(
       return null;
     }
 
-    const externalUserId = cbq.from?.id ? String(cbq.from.id) : chatId;
+    // Drop the update if the sender identity cannot be determined
+    if (!cbq.from?.id) {
+      return null;
+    }
+
+    const actorExternalId = String(cbq.from.id);
 
     const displayName = [cbq.from?.first_name, cbq.from?.last_name]
       .filter(Boolean)
@@ -99,13 +105,13 @@ export function normalizeTelegramUpdate(
       receivedAt: new Date().toISOString(),
       message: {
         content: cbq.data,
-        externalChatId: chatId,
+        conversationExternalId: chatId,
         externalMessageId: String(updateId),
         callbackQueryId: cbq.id,
         callbackData: cbq.data,
       },
-      sender: {
-        externalUserId,
+      actor: {
+        actorExternalId,
         username: cbq.from?.username,
         displayName: displayName || undefined,
         firstName: cbq.from?.first_name,
@@ -135,9 +141,12 @@ export function normalizeTelegramUpdate(
     return null;
   }
 
-  const externalUserId = message.from?.id
-    ? String(message.from.id)
-    : String(message.chat.id);
+  // Drop the update if the sender identity cannot be determined
+  if (!message.from?.id) {
+    return null;
+  }
+
+  const actorExternalId = String(message.from.id);
 
   const displayName = [message.from?.first_name, message.from?.last_name]
     .filter(Boolean)
@@ -168,13 +177,13 @@ export function normalizeTelegramUpdate(
     receivedAt: new Date().toISOString(),
     message: {
       content,
-      externalChatId: String(message.chat.id),
+      conversationExternalId: String(message.chat.id),
       externalMessageId: String(updateId),
       ...(attachments.length > 0 ? { attachments } : {}),
       ...(isEdit ? { isEdit: true } : {}),
     },
-    sender: {
-      externalUserId,
+    actor: {
+      actorExternalId,
       username: message.from?.username,
       displayName: displayName || undefined,
       firstName: message.from?.first_name,

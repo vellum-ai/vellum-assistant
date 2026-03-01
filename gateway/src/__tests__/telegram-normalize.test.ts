@@ -26,15 +26,15 @@ describe("normalizeTelegramUpdate", () => {
     expect(result!.version).toBe("v1");
     expect(result!.sourceChannel).toBe("telegram");
     expect(result!.message.content).toBe("Hello bot");
-    expect(result!.message.externalChatId).toBe("99001");
+    expect(result!.message.conversationExternalId).toBe("99001");
     expect(result!.message.externalMessageId).toBe("123456");
-    expect(result!.sender.externalUserId).toBe("55001");
-    expect(result!.sender.username).toBe("testuser");
-    expect(result!.sender.displayName).toBe("Test User");
-    expect(result!.sender.firstName).toBe("Test");
-    expect(result!.sender.lastName).toBe("User");
-    expect(result!.sender.languageCode).toBe("en");
-    expect(result!.sender.isBot).toBe(false);
+    expect(result!.actor.actorExternalId).toBe("55001");
+    expect(result!.actor.username).toBe("testuser");
+    expect(result!.actor.displayName).toBe("Test User");
+    expect(result!.actor.firstName).toBe("Test");
+    expect(result!.actor.lastName).toBe("User");
+    expect(result!.actor.languageCode).toBe("en");
+    expect(result!.actor.isBot).toBe(false);
     expect(result!.source.updateId).toBe("123456");
     expect(result!.source.messageId).toBe("42");
     expect(result!.source.chatType).toBe("private");
@@ -176,7 +176,7 @@ describe("normalizeTelegramUpdate", () => {
     expect(normalizeTelegramUpdate(payload)).toBeNull();
   });
 
-  test("uses chat.id as fallback for sender when from.id is missing", () => {
+  test("returns null when from.id is missing", () => {
     const payload = {
       update_id: 1,
       message: {
@@ -186,8 +186,7 @@ describe("normalizeTelegramUpdate", () => {
       },
     };
     const result = normalizeTelegramUpdate(payload);
-    expect(result).not.toBeNull();
-    expect(result!.sender.externalUserId).toBe("12345");
+    expect(result).toBeNull();
   });
 
   test("returns null for callback_query without message context", () => {
@@ -217,11 +216,11 @@ describe("normalizeTelegramUpdate", () => {
     expect(result).not.toBeNull();
     expect(result!.message.isEdit).toBe(true);
     expect(result!.message.content).toBe("Hello bot (edited)");
-    expect(result!.message.externalChatId).toBe("99001");
+    expect(result!.message.conversationExternalId).toBe("99001");
     expect(result!.message.externalMessageId).toBe("200");
     expect(result!.source.updateId).toBe("200");
     expect(result!.source.messageId).toBe("42");
-    expect(result!.sender.externalUserId).toBe("55001");
+    expect(result!.actor.actorExternalId).toBe("55001");
   });
 
   test("prefers message over edited_message when both are present", () => {
@@ -309,18 +308,18 @@ describe("normalizeTelegramUpdate: callback_query", () => {
     expect(result!.version).toBe("v1");
     expect(result!.sourceChannel).toBe("telegram");
     expect(result!.message.content).toBe("apr:run-abc:approve");
-    expect(result!.message.externalChatId).toBe("12345");
+    expect(result!.message.conversationExternalId).toBe("12345");
     expect(result!.message.externalMessageId).toBe("5001");
     expect(result!.message.callbackQueryId).toBe("cbq-123");
     expect(result!.message.callbackData).toBe("apr:run-abc:approve");
     expect(result!.message.attachments).toBeUndefined();
-    expect(result!.sender.externalUserId).toBe("67890");
-    expect(result!.sender.username).toBe("testuser");
-    expect(result!.sender.displayName).toBe("Test User");
-    expect(result!.sender.firstName).toBe("Test");
-    expect(result!.sender.lastName).toBe("User");
-    expect(result!.sender.languageCode).toBe("en");
-    expect(result!.sender.isBot).toBe(false);
+    expect(result!.actor.actorExternalId).toBe("67890");
+    expect(result!.actor.username).toBe("testuser");
+    expect(result!.actor.displayName).toBe("Test User");
+    expect(result!.actor.firstName).toBe("Test");
+    expect(result!.actor.lastName).toBe("User");
+    expect(result!.actor.languageCode).toBe("en");
+    expect(result!.actor.isBot).toBe(false);
     expect(result!.source.updateId).toBe("5001");
     expect(result!.source.messageId).toBe("42");
     expect(result!.source.chatType).toBe("private");
@@ -377,7 +376,7 @@ describe("normalizeTelegramUpdate: callback_query", () => {
     expect(result).toBeNull();
   });
 
-  test("falls back to chat.id for externalUserId when from.id is missing", () => {
+  test("returns null when callback_query from.id is missing", () => {
     const payload = {
       update_id: 5005,
       callback_query: {
@@ -393,8 +392,7 @@ describe("normalizeTelegramUpdate: callback_query", () => {
     };
 
     const result = normalizeTelegramUpdate(payload);
-    expect(result).not.toBeNull();
-    expect(result!.sender.externalUserId).toBe("12345");
+    expect(result).toBeNull();
   });
 
   test("callback_query does not set isEdit or attachments", () => {

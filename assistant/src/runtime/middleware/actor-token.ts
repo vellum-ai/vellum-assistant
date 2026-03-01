@@ -116,8 +116,8 @@ export function verifyHttpActorToken(req: Request): ActorTokenVerification {
   const guardianCtx = resolveGuardianContext({
     assistantId,
     sourceChannel: 'vellum',
-    externalChatId: 'local',
-    senderExternalUserId: claims.guardianPrincipalId,
+    conversationExternalId: 'local',
+    actorExternalId: claims.guardianPrincipalId,
   });
 
   const guardianContext = toGuardianRuntimeContext('vellum' as ChannelId, guardianCtx);

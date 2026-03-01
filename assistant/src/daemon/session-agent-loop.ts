@@ -405,9 +405,9 @@ export async function runAgentLoopImpl(
         const actorTrust = resolveActorTrust({
           assistantId: ctx.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
           sourceChannel: gc.sourceChannel,
-          externalChatId: gc.requesterChatId,
-          senderExternalUserId: gc.requesterExternalUserId,
-          senderDisplayName: gc.requesterSenderDisplayName,
+          conversationExternalId: gc.requesterChatId,
+          actorExternalId: gc.requesterExternalUserId,
+          actorDisplayName: gc.requesterSenderDisplayName,
         });
         resolvedInboundActorContext = inboundActorContextFromTrust(actorTrust);
       } else {

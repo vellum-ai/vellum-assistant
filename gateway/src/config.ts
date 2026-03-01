@@ -8,7 +8,7 @@ import { getRootDir, readKeychainCredential, readCredential, readTwilioCredentia
 const log = getLogger("config");
 
 export type RoutingEntry = {
-  type: "chat_id" | "user_id";
+  type: "conversation_id" | "actor_id";
   key: string;
   assistantId: string;
 };
@@ -110,13 +110,13 @@ function parseRoutingJson(raw: string): RoutingEntry[] {
     if (typeof assistantId !== "string" || !assistantId) {
       throw new Error(`Invalid assistant ID for routing key "${key}"`);
     }
-    if (key.startsWith("chat:")) {
-      entries.push({ type: "chat_id", key: key.slice(5), assistantId });
-    } else if (key.startsWith("user:")) {
-      entries.push({ type: "user_id", key: key.slice(5), assistantId });
+    if (key.startsWith("conversation:")) {
+      entries.push({ type: "conversation_id", key: key.slice(13), assistantId });
+    } else if (key.startsWith("actor:")) {
+      entries.push({ type: "actor_id", key: key.slice(6), assistantId });
     } else {
       throw new Error(
-        `Invalid routing key "${key}": must start with "chat:" or "user:"`,
+        `Invalid routing key "${key}": must start with "conversation:" or "actor:"`,
       );
     }
   }

@@ -56,11 +56,11 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
 }
 
 describe("resolveAssistant", () => {
-  test("resolves by chat_id match", () => {
+  test("resolves by conversation_id match", () => {
     const config = makeConfig({
       routingEntries: [
-        { type: "chat_id", key: "99001", assistantId: "assistant-a" },
-        { type: "user_id", key: "55001", assistantId: "assistant-b" },
+        { type: "conversation_id", key: "99001", assistantId: "assistant-a" },
+        { type: "actor_id", key: "55001", assistantId: "assistant-b" },
       ],
     });
 
@@ -68,15 +68,15 @@ describe("resolveAssistant", () => {
     expect(isRejection(result)).toBe(false);
     if (!isRejection(result)) {
       expect(result.assistantId).toBe("assistant-a");
-      expect(result.routeSource).toBe("chat_id");
+      expect(result.routeSource).toBe("conversation_id");
     }
   });
 
-  test("falls back to user_id when chat_id does not match", () => {
+  test("falls back to actor_id when conversation_id does not match", () => {
     const config = makeConfig({
       routingEntries: [
-        { type: "chat_id", key: "99999", assistantId: "assistant-a" },
-        { type: "user_id", key: "55001", assistantId: "assistant-b" },
+        { type: "conversation_id", key: "99999", assistantId: "assistant-a" },
+        { type: "actor_id", key: "55001", assistantId: "assistant-b" },
       ],
     });
 
@@ -84,7 +84,7 @@ describe("resolveAssistant", () => {
     expect(isRejection(result)).toBe(false);
     if (!isRejection(result)) {
       expect(result.assistantId).toBe("assistant-b");
-      expect(result.routeSource).toBe("user_id");
+      expect(result.routeSource).toBe("actor_id");
     }
   });
 
@@ -114,11 +114,11 @@ describe("resolveAssistant", () => {
     }
   });
 
-  test("chat_id takes priority over user_id for same assistant", () => {
+  test("conversation_id takes priority over actor_id for same assistant", () => {
     const config = makeConfig({
       routingEntries: [
-        { type: "user_id", key: "55001", assistantId: "assistant-user" },
-        { type: "chat_id", key: "99001", assistantId: "assistant-chat" },
+        { type: "actor_id", key: "55001", assistantId: "assistant-user" },
+        { type: "conversation_id", key: "99001", assistantId: "assistant-chat" },
       ],
     });
 
@@ -126,7 +126,7 @@ describe("resolveAssistant", () => {
     expect(isRejection(result)).toBe(false);
     if (!isRejection(result)) {
       expect(result.assistantId).toBe("assistant-chat");
-      expect(result.routeSource).toBe("chat_id");
+      expect(result.routeSource).toBe("conversation_id");
     }
   });
 
