@@ -386,6 +386,19 @@ export async function runDaemon(): Promise<void> {
           { pointerInstruction: true },
           '[Call status event]',
         );
+
+        // Helper: roll back persisted messages on failure, then reload
+        // in-memory history from the (now cleaned) DB. Reloading avoids
+        // stale-index issues when context compaction reassigns the
+        // messages array during runAgentLoop.
+        const rollback = async (extraMessageIds?: string[]) => {
+          try { conversationStore.deleteMessageById(messageId); } catch { /* best effort */ }
+          for (const id of extraMessageIds ?? []) {
+            try { conversationStore.deleteMessageById(id); } catch { /* best effort */ }
+          }
+          try { await session.loadFromDb(); } catch { /* best effort */ }
+        };
+
         let agentLoopError: string | undefined;
         try {
           await session.runAgentLoop(instruction, messageId, (msg) => {
@@ -403,9 +416,16 @@ export async function runDaemon(): Promise<void> {
           session.allowedToolNames = prevAllowedTools;
         }
         if (agentLoopError) {
-          // Clean up the orphaned instruction message so the fallback
-          // path doesn't leave a phantom user message in the conversation.
-          try { conversationStore.deleteMessageById(messageId); } catch { /* best effort */ }
+          // Remove any assistant messages persisted during the failed run
+          // (e.g. session_error text) so the deterministic fallback is the
+          // only visible pointer output for this event. Scope to the
+          // assistant message immediately following the instruction to
+          // avoid deleting messages from other concurrent turns.
+          const allMsgs = conversationStore.getMessages(conversationId);
+          const instrIdx = allMsgs.findIndex((m) => m.id === messageId);
+          const nextMsg = instrIdx >= 0 ? allMsgs[instrIdx + 1] : undefined;
+          const extraIds = nextMsg && nextMsg.role === 'assistant' ? [nextMsg.id] : [];
+          await rollback(extraIds);
           throw new Error(agentLoopError);
         }
 
@@ -434,11 +454,7 @@ export async function runDaemon(): Promise<void> {
                 { conversationId, missingFacts },
                 'Generated pointer text failed fact validation — falling back to deterministic',
               );
-              // Remove both the instruction user message and the generated
-              // assistant message so the conversation is clean for the
-              // deterministic fallback.
-              try { conversationStore.deleteMessageById(latest.id); } catch { /* best effort */ }
-              try { conversationStore.deleteMessageById(messageId); } catch { /* best effort */ }
+              await rollback([latest.id]);
               throw new Error('Generated pointer text failed fact validation');
             }
           }
