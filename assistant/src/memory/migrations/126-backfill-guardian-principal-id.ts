@@ -125,35 +125,46 @@ export function migrateBackfillGuardianPrincipalId(database: DrizzleDb): void {
           }
 
           // 3b. Desktop-originated pending requests missing guardian info
-          // entirely — bind to the assistant principal.
+          // entirely — bind to the assistant principal. Only applies to
+          // requests that also lack a guardian external user ID; requests
+          // that carry an external ID but failed step 3a mapping should be
+          // expired, not reassigned.
           if (assistantPrincipal) {
             raw.query(
               `UPDATE canonical_guardian_requests
                SET guardian_principal_id = ?, updated_at = ?
                WHERE status = 'pending'
                  AND guardian_principal_id IS NULL
+                 AND guardian_external_user_id IS NULL
                  AND (source_type = 'desktop' OR source_channel = 'vellum')`,
             ).run(assistantPrincipal, now);
           }
 
-          // 3c. Expire any remaining pending requests that still have no
-          // guardian_principal_id — these cannot be safely bound.
+          // 3c. Expire remaining pending requests that still have no
+          // guardian_principal_id AND whose TTL has already elapsed.
+          // Requests without an expires_at or whose TTL has not yet passed
+          // are left alone so in-flight operations (e.g. voice
+          // pending_question records) are not prematurely killed by the
+          // migration.
           const stillUnbound = raw.query(
             `SELECT id FROM canonical_guardian_requests
-             WHERE status = 'pending' AND guardian_principal_id IS NULL`,
-          ).all() as Array<{ id: string }>;
+             WHERE status = 'pending'
+               AND guardian_principal_id IS NULL
+               AND expires_at IS NOT NULL
+               AND expires_at < ?`,
+          ).all(now) as Array<{ id: string }>;
 
           for (const req of stillUnbound) {
             expireStmt.run(now, req.id);
           }
 
-          // Also expire requests identified in 3a that had no binding match
+          // Also expire requests identified in 3a that had no binding match,
+          // but only if their TTL has already elapsed (same rationale as 3c).
           for (const id of unboundRequestIds) {
-            // Re-check in case step 3b already handled it
             const check = raw.query(
-              `SELECT guardian_principal_id FROM canonical_guardian_requests WHERE id = ? AND status = 'pending'`,
-            ).get(id) as { guardian_principal_id: string | null } | null;
-            if (check && !check.guardian_principal_id) {
+              `SELECT guardian_principal_id, expires_at FROM canonical_guardian_requests WHERE id = ? AND status = 'pending'`,
+            ).get(id) as { guardian_principal_id: string | null; expires_at: string | null } | null;
+            if (check && !check.guardian_principal_id && check.expires_at && check.expires_at < now) {
               expireStmt.run(now, id);
             }
           }
