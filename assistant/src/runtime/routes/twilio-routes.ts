@@ -148,7 +148,7 @@ export function handleGetTwilioConfig(): Response {
  * Body: { accountSid: string, authToken: string }
  */
 export async function handleSetTwilioCredentials(req: Request): Promise<Response> {
-  const body = (await req.json()) as { accountSid?: string; authToken?: string };
+  const body = (await req.json().catch(() => ({}))) as { accountSid?: string; authToken?: string };
 
   if (!body.accountSid || !body.authToken) {
     return Response.json({
@@ -253,7 +253,7 @@ export async function handleProvisionTwilioNumber(req: Request): Promise<Respons
     });
   }
 
-  const body = (await req.json()) as { country?: string; areaCode?: string };
+  const body = (await req.json().catch(() => ({}))) as { country?: string; areaCode?: string };
   const accountSid = getSecureKey('credential:twilio:account_sid')!;
   const authToken = getSecureKey('credential:twilio:auth_token')!;
   const country = body.country ?? 'US';
@@ -307,7 +307,7 @@ export async function handleProvisionTwilioNumber(req: Request): Promise<Respons
  * Body: { phoneNumber: string }
  */
 export async function handleAssignTwilioNumber(req: Request): Promise<Response> {
-  const body = (await req.json()) as { phoneNumber?: string };
+  const body = (await req.json().catch(() => ({}))) as { phoneNumber?: string };
 
   if (!body.phoneNumber) {
     return Response.json({
@@ -368,7 +368,7 @@ export async function handleReleaseTwilioNumber(req: Request): Promise<Response>
     });
   }
 
-  const body = (await req.json()) as { phoneNumber?: string };
+  const body = (await req.json().catch(() => ({}))) as { phoneNumber?: string };
   const raw = loadRawConfig();
   const sms = (raw?.sms ?? {}) as Record<string, unknown>;
   const phoneNumber = body.phoneNumber || (sms.phoneNumber as string) || '';
@@ -488,7 +488,7 @@ export async function handleSubmitTollfreeVerification(req: Request): Promise<Re
     });
   }
 
-  const vp = (await req.json()) as Record<string, unknown>;
+  const vp = (await req.json().catch(() => ({}))) as Record<string, unknown>;
 
   const requiredFields: Array<[string, unknown]> = [
     ['tollfreePhoneNumberSid', vp.tollfreePhoneNumberSid],
@@ -629,7 +629,7 @@ export async function handleUpdateTollfreeVerification(req: Request, verificatio
     }
   }
 
-  const updateParams = { ...(await req.json() as Record<string, unknown>) };
+  const updateParams = { ...(await req.json().catch(() => ({})) as Record<string, unknown>) };
   if (updateParams.useCaseCategories) {
     updateParams.useCaseCategories = normalizeUseCaseCategories(updateParams.useCaseCategories as string[]);
   }
@@ -692,7 +692,7 @@ export async function handleSmsSendTest(req: Request): Promise<Response> {
     });
   }
 
-  const body = (await req.json()) as { phoneNumber?: string; text?: string };
+  const body = (await req.json().catch(() => ({}))) as { phoneNumber?: string; text?: string };
   const to = body.phoneNumber;
   if (!to) {
     return Response.json({
