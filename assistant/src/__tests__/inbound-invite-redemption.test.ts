@@ -118,12 +118,12 @@ function buildInboundRequest(overrides: Record<string, unknown> = {}): Request {
   const body: Record<string, unknown> = {
     sourceChannel: 'telegram',
     interface: 'telegram',
-    externalChatId: 'chat-invite-test',
+    conversationExternalId: 'chat-invite-test',
     externalMessageId: `msg-invite-${Date.now()}-${msgCounter}`,
     content: '/start iv_sometoken',
-    senderExternalUserId: 'user-invite-123',
-    senderName: 'Invite User',
-    senderUsername: 'invite_user',
+    actorExternalId: 'user-invite-123',
+    actorDisplayName: 'Invite User',
+    actorUsername: 'invite_user',
     replyCallbackUrl: 'http://localhost:7830/deliver/telegram',
     sourceMetadata: {
       commandIntent: { type: 'start', payload: 'iv_sometoken' },
@@ -309,8 +309,8 @@ describe('inbound invite redemption intercept', () => {
     // Active member sends a normal message (no invite token)
     const req = buildInboundRequest({
       content: 'Hello, just a normal message!',
-      senderExternalUserId: 'user-active-member',
-      externalChatId: 'chat-active',
+      actorExternalId: 'user-active-member',
+      conversationExternalId: 'chat-active',
       sourceMetadata: {},
     });
     const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
@@ -353,7 +353,7 @@ describe('inbound invite redemption intercept', () => {
     });
 
     const req = buildInviteRequest(rawToken, {
-      senderExternalUserId: 'user-already-active',
+      actorExternalId: 'user-already-active',
     });
     const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
     const json = await resp.json() as Record<string, unknown>;
@@ -378,7 +378,7 @@ describe('inbound invite redemption intercept', () => {
     });
 
     const req = buildInviteRequest(rawToken, {
-      senderName: 'Noa Flaherty',
+      actorDisplayName: 'Noa Flaherty',
     });
     const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
     const json = await resp.json() as Record<string, unknown>;
