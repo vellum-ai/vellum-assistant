@@ -89,7 +89,9 @@ function authenticateBearer(
     );
   }
 
-  const metadata = config.internalAuth.bearerTokens[tokenValue];
+  const metadata = Object.hasOwn(config.internalAuth.bearerTokens, tokenValue)
+    ? config.internalAuth.bearerTokens[tokenValue]
+    : undefined;
   if (!metadata) {
     throw new ManagedGatewayInternalAuthError(
       "unknown_bearer",
@@ -134,8 +136,14 @@ function authenticateMtls(
   }
 
   const audienceHeader = config.internalAuth.mtlsAudienceHeader;
-  const audience =
-    request.headers.get(audienceHeader)?.trim() || config.internalAuth.audience;
+  const audience = request.headers.get(audienceHeader)?.trim() || "";
+  if (!audience) {
+    throw new ManagedGatewayInternalAuthError(
+      "missing_mtls_audience",
+      401,
+      "Missing managed gateway mTLS audience.",
+    );
+  }
   ensureAudience(audience, config.internalAuth.audience, "mTLS");
 
   const scopesHeader = config.internalAuth.mtlsScopesHeader;

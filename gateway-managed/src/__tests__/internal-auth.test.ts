@@ -74,6 +74,20 @@ describe("internal auth - bearer", () => {
     ).toThrow("Unknown managed gateway bearer token.");
   });
 
+  test("rejects bearer token matching Object prototype property", () => {
+    const config = makeConfig({});
+
+    for (const proto of ["constructor", "toString", "__proto__"]) {
+      expect(() =>
+        authenticateInternalRequest(
+          makeRequest({ authorization: `Bearer ${proto}` }),
+          config,
+          "routes:resolve",
+        ),
+      ).toThrow("Unknown managed gateway bearer token.");
+    }
+  });
+
   test("rejects expired bearer token", () => {
     const config = makeConfig({
       MANAGED_GATEWAY_INTERNAL_BEARER_TOKENS: JSON.stringify({
@@ -249,6 +263,24 @@ describe("internal auth - mtls", () => {
         "routes:resolve",
       ),
     ).toThrow("Managed gateway mTLS principal is not authorized.");
+  });
+
+  test("rejects mTLS request when audience header is missing", () => {
+    const config = makeConfig({
+      MANAGED_GATEWAY_INTERNAL_AUTH_MODE: "mtls",
+      MANAGED_GATEWAY_INTERNAL_MTLS_PRINCIPALS: "managed-gateway-staging",
+    });
+
+    expect(() =>
+      authenticateInternalRequest(
+        makeRequest({
+          "x-managed-gateway-principal": "managed-gateway-staging",
+          "x-managed-gateway-scopes": "managed-gateway:internal,routes:resolve",
+        }),
+        config,
+        "routes:resolve",
+      ),
+    ).toThrow("Missing managed gateway mTLS audience.");
   });
 
   test("rejects mTLS scope mismatch", () => {
