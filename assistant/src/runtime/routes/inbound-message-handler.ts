@@ -164,6 +164,9 @@ export async function handleChannelInbound(
   if (!conversationExternalId || typeof conversationExternalId !== 'string') {
     return httpError('BAD_REQUEST', 'conversationExternalId is required', 400);
   }
+  if (!body.actorExternalId || typeof body.actorExternalId !== 'string' || !body.actorExternalId.trim()) {
+    return httpError('BAD_REQUEST', 'actorExternalId is required', 400);
+  }
   if (!externalMessageId || typeof externalMessageId !== 'string') {
     return httpError('BAD_REQUEST', 'externalMessageId is required', 400);
   }

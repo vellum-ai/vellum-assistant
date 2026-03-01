@@ -139,7 +139,7 @@ export type RuntimeInboundPayload = {
   callbackQueryId?: string;
   callbackData?: string;
   actorDisplayName?: string;
-  actorExternalId?: string;
+  actorExternalId: string;
   actorUsername?: string;
   sourceMetadata?: Record<string, unknown>;
   attachmentIds?: string[];
