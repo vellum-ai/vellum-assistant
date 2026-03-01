@@ -31,7 +31,7 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
-import { initializeDb, resetDb } from '../memory/db.js';
+import { initializeDb, getSqlite, resetDb } from '../memory/db.js';
 import {
   createBinding,
   getActiveBinding,
@@ -61,9 +61,14 @@ initializeDb();
 beforeEach(() => {
   // Reset the signing key to a deterministic value for reproducibility
   initSigningKey(Buffer.from('test-signing-key-32-bytes-long!!'));
-  // Clear DB state between tests
+  // Clear DB state between tests. resetDb closes the connection; initializeDb
+  // re-opens it and ensures tables exist. We then truncate tables that carry
+  // state across tests so each test starts from a clean slate.
   resetDb();
   initializeDb();
+  const db = getSqlite();
+  db.run('DELETE FROM actor_token_records');
+  db.run('DELETE FROM channel_guardian_bindings');
 });
 
 afterAll(() => {

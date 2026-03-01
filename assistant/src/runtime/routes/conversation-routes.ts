@@ -92,6 +92,8 @@ async function tryConsumeInlineApprovalReply(params: {
   session: import('../../daemon/session.js').Session;
   onEvent: (msg: ServerMessage) => void;
   approvalConversationGenerator?: ApprovalConversationGenerator;
+  /** Verified actor identity from actor-token middleware. */
+  verifiedActorExternalUserId?: string;
 }): Promise<{ consumed: boolean; messageId?: string }> {
   const {
     conversationId,
@@ -102,6 +104,7 @@ async function tryConsumeInlineApprovalReply(params: {
     session,
     onEvent,
     approvalConversationGenerator,
+    verifiedActorExternalUserId,
   } = params;
   const trimmedContent = content.trim();
 
@@ -125,7 +128,7 @@ async function tryConsumeInlineApprovalReply(params: {
     messageText: trimmedContent,
     channel: sourceChannel,
     actor: {
-      externalUserId: undefined,
+      externalUserId: verifiedActorExternalUserId,
       channel: sourceChannel,
       isTrusted: true,
     },
@@ -488,6 +491,13 @@ export async function handleSendMessage(
       ? smDeps.resolveAttachments(attachmentIds)
       : [];
 
+    // Resolve the verified actor's external user ID for inline approval
+    // routing. Uses the guardianExternalUserId from the verified context
+    // (actor-token or local-fallback) rather than hardcoding undefined.
+    const verifiedActorExternalUserId = actorVerification?.ok
+      ? actorVerification.guardianContext.guardianExternalUserId
+      : undefined;
+
     // Try to consume the message as an inline approval/rejection reply.
     // On failure, degrade to the existing queue/auto-deny path rather than
     // surfacing a 500 — mirrors the IPC handler's catch-and-fallback.
@@ -501,6 +511,7 @@ export async function handleSendMessage(
       session,
       onEvent,
       approvalConversationGenerator: deps.approvalConversationGenerator,
+      verifiedActorExternalUserId,
     });
       if (inlineReplyResult.consumed) {
         return Response.json(

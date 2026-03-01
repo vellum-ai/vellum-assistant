@@ -135,20 +135,29 @@ export function revokeByDeviceBinding(
   const db = getDb();
   const now = Date.now();
 
-  const result = db
-    .update(actorTokenRecords)
+  const condition = and(
+    eq(actorTokenRecords.assistantId, assistantId),
+    eq(actorTokenRecords.guardianPrincipalId, guardianPrincipalId),
+    eq(actorTokenRecords.hashedDeviceId, hashedDeviceId),
+    eq(actorTokenRecords.status, 'active'),
+  );
+
+  // Count matching rows before the update since drizzle's bun-sqlite
+  // .run() does not expose the underlying changes count in its types.
+  const matching = db
+    .select({ id: actorTokenRecords.id })
+    .from(actorTokenRecords)
+    .where(condition)
+    .all();
+
+  if (matching.length === 0) return 0;
+
+  db.update(actorTokenRecords)
     .set({ status: 'revoked', updatedAt: now })
-    .where(
-      and(
-        eq(actorTokenRecords.assistantId, assistantId),
-        eq(actorTokenRecords.guardianPrincipalId, guardianPrincipalId),
-        eq(actorTokenRecords.hashedDeviceId, hashedDeviceId),
-        eq(actorTokenRecords.status, 'active'),
-      ),
-    )
+    .where(condition)
     .run();
 
-  return result.changes;
+  return matching.length;
 }
 
 /**
@@ -183,18 +192,27 @@ export function revokeByTokenHash(tokenHash: string): boolean {
   const db = getDb();
   const now = Date.now();
 
-  const result = db
-    .update(actorTokenRecords)
+  const condition = and(
+    eq(actorTokenRecords.tokenHash, tokenHash),
+    eq(actorTokenRecords.status, 'active'),
+  );
+
+  // Check existence before update since drizzle's bun-sqlite .run()
+  // does not expose the underlying changes count in its types.
+  const existing = db
+    .select({ id: actorTokenRecords.id })
+    .from(actorTokenRecords)
+    .where(condition)
+    .get();
+
+  if (!existing) return false;
+
+  db.update(actorTokenRecords)
     .set({ status: 'revoked', updatedAt: now })
-    .where(
-      and(
-        eq(actorTokenRecords.tokenHash, tokenHash),
-        eq(actorTokenRecords.status, 'active'),
-      ),
-    )
+    .where(condition)
     .run();
 
-  return result.changes > 0;
+  return true;
 }
 
 // ---------------------------------------------------------------------------

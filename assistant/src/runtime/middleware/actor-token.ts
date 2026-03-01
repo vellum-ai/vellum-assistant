@@ -189,8 +189,23 @@ export type ActorTokenVerificationWithFallback =
  * `server.requestIP(req)`. When omitted (legacy callers), the function
  * falls back to the X-Forwarded-For-only check for backward compatibility.
  *
- * This preserves backward compatibility with the CLI, which sends only
- * `Authorization: Bearer <token>` without `X-Actor-Token`.
+ * --- CLI compatibility note ---
+ *
+ * The local fallback is an intentional CLI compatibility path, not a
+ * security gap. The CLI currently sends only `Authorization: Bearer <token>`
+ * without `X-Actor-Token`. This fallback allows the CLI to function until
+ * it is migrated to actor tokens in a future milestone.
+ *
+ * The fallback is gated by three conditions that together ensure only
+ * genuinely local connections receive guardian identity:
+ *   (1) Absence of X-Forwarded-For header — the gateway always injects
+ *       this header when proxying, so its presence indicates a remote client.
+ *   (2) Loopback origin check when `server` is provided — verifies the
+ *       peer IP is 127.0.0.1/::1, preventing LAN or container peers.
+ *   (3) Valid bearer authentication — already enforced upstream by the
+ *       HTTP server's auth gate before this function is called.
+ *
+ * Once the CLI adopts actor tokens, this fallback can be removed.
  */
 export function verifyHttpActorTokenWithLocalFallback(
   req: Request,
