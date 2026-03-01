@@ -405,8 +405,8 @@ describe('trusted contact activated notification signal', () => {
     // Verify payload
     const payload = activatedSignals[0].contextPayload as Record<string, unknown>;
     expect(payload.sourceChannel).toBe('telegram');
-    expect(payload.externalUserId).toBe('requester-user-456');
-    expect(payload.externalChatId).toBe('chat-123');
+    expect(payload.actorExternalId).toBe('requester-user-456');
+    expect(payload.conversationExternalId).toBe('chat-123');
 
     // Verify deduplication key includes the user identity
     const dedupeKey = activatedSignals[0].dedupeKey as string;
