@@ -28,24 +28,36 @@ describe('isTrusted guard', () => {
     // Search for `isTrusted` used as a property (e.g., `.isTrusted`, `isTrusted:`,
     // `isTrusted =`) in production TypeScript files, excluding tests, node_modules,
     // and the allowed trust-class variable pattern.
-    const result = execSync(
+    const raw = execSync(
       [
         'grep -rn "isTrusted" assistant/src/ --include="*.ts"',
         'grep -v "__tests__"',
         'grep -v "node_modules"',
-        // Allow `isTrustedActor`, `isTrustedContact`, `isTrustedTrustClass` —
-        // these are local variable names checking trust class, not the legacy
-        // ActorContext property.
-        'grep -v "isTrustedActor\\|isTrustedContact\\|isTrustedTrustClass"',
       ].join(' | ') + ' || true',
       { encoding: 'utf-8', cwd: repoRoot },
     );
 
-    if (result.trim()) {
+    // Filter in JS: strip allowed token names from each line, then check if
+    // `isTrusted` still appears. This avoids the grep -v approach which could
+    // mask forbidden usage on lines that also contain allowed tokens.
+    const ALLOWED_TOKENS = ['isTrustedActor', 'isTrustedContact', 'isTrustedTrustClass'];
+    const offending = raw
+      .trim()
+      .split('\n')
+      .filter((line) => {
+        if (!line) return false;
+        let stripped = line;
+        for (const token of ALLOWED_TOKENS) {
+          stripped = stripped.replaceAll(token, '');
+        }
+        return stripped.includes('isTrusted');
+      });
+
+    if (offending.length > 0) {
       throw new Error(
         'Found `isTrusted` references in production code. Authorization must use ' +
         '`guardianPrincipalId` matching instead. Offending lines:\n' +
-        result.trim(),
+        offending.join('\n'),
       );
     }
   });
