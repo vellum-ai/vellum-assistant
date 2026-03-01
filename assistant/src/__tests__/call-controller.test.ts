@@ -400,6 +400,43 @@ describe('call-controller', () => {
     controller.destroy();
   });
 
+  test('markNextCallerTurnAsOpeningAck: tags the next caller turn with CALL_OPENING_ACK without requiring a prior CALL_OPENING', async () => {
+    let turnCount = 0;
+    mockStartVoiceTurn.mockImplementation(async (opts: { content: string; onTextDelta: (t: string) => void; onComplete: () => void }) => {
+      turnCount++;
+
+      if (turnCount === 1) {
+        // First caller utterance after markNextCallerTurnAsOpeningAck
+        expect(opts.content).toContain('[CALL_OPENING_ACK]');
+        expect(opts.content).toContain('I want to check my balance');
+        for (const token of ['Sure, let me check your balance.']) {
+          opts.onTextDelta(token);
+        }
+      } else {
+        // Subsequent utterance should NOT have the marker
+        expect(opts.content).not.toContain('[CALL_OPENING_ACK]');
+        for (const token of ['Your balance is $42.']) {
+          opts.onTextDelta(token);
+        }
+      }
+      opts.onComplete();
+      return { turnId: `run-${turnCount}`, abort: () => {} };
+    });
+
+    const { controller } = setupController();
+
+    // Simulate post-approval: call markNextCallerTurnAsOpeningAck directly
+    // without any prior startInitialGreeting / CALL_OPENING
+    controller.markNextCallerTurnAsOpeningAck();
+
+    await controller.handleCallerUtterance('I want to check my balance');
+    await controller.handleCallerUtterance('How much exactly?');
+
+    expect(turnCount).toBe(2);
+
+    controller.destroy();
+  });
+
   // ── ASK_GUARDIAN pattern ──────────────────────────────────────────
 
   test('ASK_GUARDIAN pattern: detects pattern, creates pending question, sets session to waiting_on_user', async () => {
