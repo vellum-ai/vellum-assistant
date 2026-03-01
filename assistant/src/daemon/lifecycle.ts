@@ -382,8 +382,12 @@ export async function runDaemon(): Promise<void> {
         );
         let agentLoopError: string | undefined;
         await session.runAgentLoop(instruction, messageId, (msg) => {
-          if ('type' in msg && msg.type === 'error' && 'message' in msg) {
-            agentLoopError = (msg as { message: string }).message;
+          if ('type' in msg && (msg.type === 'error' || msg.type === 'session_error')) {
+            agentLoopError = 'message' in msg
+              ? (msg as { message: string }).message
+              : 'userMessage' in msg
+                ? (msg as { userMessage: string }).userMessage
+                : 'Agent loop failed';
           }
         });
         if (agentLoopError) {
