@@ -144,14 +144,32 @@ export function handleAppsList(socket: net.Socket, ctx: HandlerContext): void {
   try {
     const allApps = listApps();
     const homeBaseId = resolveHomeBaseAppId();
+
+    // When no home base was found by ID, do a single targeted search for an app
+    // matching the HTML marker. listApps() returns metadata-only (no htmlDefinition),
+    // so the HTML marker check requires loading the full app from disk. We limit
+    // this expensive operation to the case where homeBaseId is null and stop after
+    // finding the first match.
+    const excludeIds = new Set<string>();
+    if (homeBaseId) {
+      excludeIds.add(homeBaseId);
+    } else {
+      for (const a of allApps) {
+        if (isPrebuiltHomeBaseApp(a)) {
+          excludeIds.add(a.id);
+          continue;
+        }
+        const fullApp = getApp(a.id);
+        if (fullApp && isPrebuiltHomeBaseApp(fullApp)) {
+          excludeIds.add(a.id);
+          break;
+        }
+      }
+    }
+
     const apps = allApps.filter((a) => {
-      if (homeBaseId && a.id === homeBaseId) return false;
+      if (excludeIds.has(a.id)) return false;
       if (isPrebuiltHomeBaseApp(a)) return false;
-      // listApps() returns metadata-only (no htmlDefinition), so the HTML marker
-      // check inside isPrebuiltHomeBaseApp is inert above. Load the full app to
-      // let the HTML fallback fire when the description prefix has been removed.
-      const fullApp = getApp(a.id);
-      if (fullApp && isPrebuiltHomeBaseApp(fullApp)) return false;
       return true;
     });
     ctx.send(socket, {
