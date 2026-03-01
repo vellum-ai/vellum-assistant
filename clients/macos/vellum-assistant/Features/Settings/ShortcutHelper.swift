@@ -76,6 +76,17 @@ enum ShortcutHelper {
         return mods
     }
 
+    /// Returns a display string for the currently held modifier keys (e.g. "⌃ ⇧ ⌘").
+    /// Used during shortcut recording to show which modifiers the user is pressing.
+    static func modifierDisplayString(from flags: NSEvent.ModifierFlags) -> String {
+        var parts: [String] = []
+        if flags.contains(.control) { parts.append("\u{2303}") }
+        if flags.contains(.option) { parts.append("\u{2325}") }
+        if flags.contains(.shift) { parts.append("\u{21E7}") }
+        if flags.contains(.command) { parts.append("\u{2318}") }
+        return parts.joined(separator: " ")
+    }
+
     // MARK: - Private
 
     private static func displayToken(_ token: String) -> String {

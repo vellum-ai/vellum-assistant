@@ -9,6 +9,8 @@ struct SettingsAppearanceTab: View {
     @State private var isRecordingGlobalHotkey = false
     @State private var isRecordingQuickInputHotkey = false
     @State private var shortcutMonitor: Any?
+    @State private var flagsMonitor: Any?
+    @State private var recordingDisplayString: String?
     @State private var shortcutConflictWarning: String?
     @State private var showTimezonePicker = false
 
@@ -95,7 +97,11 @@ struct SettingsAppearanceTab: View {
                         .font(VFont.body)
                         .foregroundColor(VColor.textSecondary)
                     Spacer()
-                    shortcutKeyPill(ShortcutHelper.displayString(for: store.globalHotkeyShortcut))
+                    if isRecordingGlobalHotkey, let display = recordingDisplayString, !display.isEmpty {
+                        shortcutKeyPill(display)
+                    } else {
+                        shortcutKeyPill(ShortcutHelper.displayString(for: store.globalHotkeyShortcut))
+                    }
 
                     if isRecordingGlobalHotkey {
                         VButton(label: "Press shortcut...", style: .outlined, size: .large) {
@@ -124,7 +130,11 @@ struct SettingsAppearanceTab: View {
                         .font(VFont.body)
                         .foregroundColor(VColor.textSecondary)
                     Spacer()
-                    shortcutKeyPill(ShortcutHelper.displayString(for: store.quickInputHotkeyShortcut))
+                    if isRecordingQuickInputHotkey, let display = recordingDisplayString, !display.isEmpty {
+                        shortcutKeyPill(display)
+                    } else {
+                        shortcutKeyPill(ShortcutHelper.displayString(for: store.quickInputHotkeyShortcut))
+                    }
 
                     if isRecordingQuickInputHotkey {
                         VButton(label: "Press shortcut...", style: .outlined, size: .large) {
@@ -261,6 +271,14 @@ struct SettingsAppearanceTab: View {
     private func startRecordingShortcut(onRecord: @escaping (String, UInt16) -> Void) {
         stopRecording()
         shortcutConflictWarning = nil
+        recordingDisplayString = nil
+
+        // Monitor modifier key changes to show pressed modifiers in real-time.
+        flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { event in
+            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            recordingDisplayString = ShortcutHelper.modifierDisplayString(from: mods)
+            return event
+        }
 
         shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
@@ -291,9 +309,14 @@ struct SettingsAppearanceTab: View {
     private func stopRecording() {
         isRecordingGlobalHotkey = false
         isRecordingQuickInputHotkey = false
+        recordingDisplayString = nil
         if let monitor = shortcutMonitor {
             NSEvent.removeMonitor(monitor)
             shortcutMonitor = nil
+        }
+        if let monitor = flagsMonitor {
+            NSEvent.removeMonitor(monitor)
+            flagsMonitor = nil
         }
     }
 
