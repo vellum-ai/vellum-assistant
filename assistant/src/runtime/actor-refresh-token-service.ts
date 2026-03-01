@@ -92,12 +92,16 @@ export function mintRefreshToken(params: {
   hashedDeviceId: string;
   platform: string;
   familyId?: string;
+  /** When provided (during rotation), inherit the parent token's absolute expiry
+   *  instead of computing a fresh one. This ensures refresh rotation resets the
+   *  inactivity window but does NOT extend the absolute session lifetime. */
+  absoluteExpiresAt?: number;
 }): MintRefreshTokenResult {
   const now = Date.now();
   const familyId = params.familyId ?? randomBytes(16).toString('hex');
   const refreshToken = generateRefreshToken();
   const refreshTokenHash = hashRefreshToken(refreshToken);
-  const absoluteExpiresAt = now + REFRESH_ABSOLUTE_TTL_MS;
+  const absoluteExpiresAt = params.absoluteExpiresAt ?? now + REFRESH_ABSOLUTE_TTL_MS;
   const inactivityExpiresAt = now + REFRESH_INACTIVITY_TTL_MS;
 
   createRefreshTokenRecord({
@@ -268,13 +272,15 @@ export function rotateCredentials(params: {
     expiresAt: claims.exp,
   });
 
-  // Mint new refresh token in the same family
+  // Mint new refresh token in the same family, inheriting the parent's absolute
+  // expiry so rotation resets inactivity but never extends the session lifetime.
   const refresh = mintRefreshToken({
     assistantId: record.assistantId,
     guardianPrincipalId: record.guardianPrincipalId,
     hashedDeviceId: record.hashedDeviceId,
     platform: params.platform,
     familyId: record.familyId,
+    absoluteExpiresAt: record.absoluteExpiresAt,
   });
 
   log.info(

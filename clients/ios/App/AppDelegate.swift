@@ -123,6 +123,12 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // Start the ambient agent trigger so it begins timing from launch.
         ambientAgentManager.setup()
 
+        // Ensure actor credentials are present and start the proactive refresh
+        // loop. On first launch (no actor token) this is a no-op until pairing
+        // completes; on subsequent launches it schedules proactive refresh when
+        // the access token nears expiry — mirroring macOS's proceedToApp() call.
+        ensureActorCredentials()
+
         return true
     }
 
