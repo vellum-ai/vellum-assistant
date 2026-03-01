@@ -7,6 +7,11 @@ on:
         description: 'Release version to test (e.g. "1.2.3"). If set, downloads the DMG from vellum-ai/velly releases instead of building from source.'
         required: false
         type: string
+      run_experimental:
+        description: 'Run experimental tests (tests marked with experimental: true in front matter).'
+        required: false
+        type: boolean
+        default: false
   pull_request:
     types: [labeled]
 
@@ -155,6 +160,8 @@ jobs:
         id: tests
         working-directory: playwright
         continue-on-error: true
+        env:
+          RUN_EXPERIMENTAL: ${{ inputs.run_experimental && '1' || '' }}
         run: bun run test
 
       - name: Upload test artifacts

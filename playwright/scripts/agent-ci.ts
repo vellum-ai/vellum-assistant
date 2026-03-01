@@ -7,6 +7,7 @@
  *   bun run scripts/agent-ci.ts -b my-branch       # trigger on a specific branch
  *   bun run scripts/agent-ci.ts -v 1.2.3           # test against released version 1.2.3
  *   bun run scripts/agent-ci.ts --version 1.2.3 -d # test release + detach
+ *   bun run scripts/agent-ci.ts --experimental     # include experimental tests
  */
 
 import { spawnSync } from "child_process";
@@ -26,6 +27,7 @@ function parseFlagValue(short: string, long: string): string | undefined {
 
 const releaseVersion = parseFlagValue("-v", "--version");
 const branch = parseFlagValue("-b", "--branch");
+const experimental = process.argv.includes("--experimental");
 
 function gh(args: string[]): { stdout: string; status: number } {
   const result = spawnSync("gh", args, { encoding: "utf-8", stdio: ["inherit", "pipe", "inherit"] });
@@ -168,10 +170,14 @@ if (branch) {
 if (releaseVersion) {
   triggerArgs.push("-f", `release_version=${releaseVersion}`);
 }
+if (experimental) {
+  triggerArgs.push("-f", "run_experimental=true");
+}
 
 const details = [
   branch ? `branch=${branch}` : null,
   releaseVersion ? `release_version=${releaseVersion}` : null,
+  experimental ? "run_experimental=true" : null,
 ].filter(Boolean);
 console.log(`Triggering ${WORKFLOW}${details.length ? ` with ${details.join(", ")}` : ""}...`);
 const trigger = ghPassthrough(triggerArgs);
