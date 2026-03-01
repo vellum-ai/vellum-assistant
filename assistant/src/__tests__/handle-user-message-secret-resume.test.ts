@@ -41,6 +41,7 @@ describe('handleUserMessage secret redirect continuation', () => {
       setGuardianContext: () => {},
       setCommandIntent: () => {},
       updateClient: () => {},
+      emitActivityState: () => {},
       processMessage: (content: string, _attachments: unknown[], _onEvent: unknown, requestId: string) => {
         processCalls.push({ content, requestId });
         return Promise.resolve();
