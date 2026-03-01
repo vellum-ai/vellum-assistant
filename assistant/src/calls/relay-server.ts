@@ -15,8 +15,9 @@ import { getCanonicalGuardianRequest } from '../memory/canonical-guardian-store.
 import { listActiveBindingsByAssistant } from '../memory/channel-guardian-store.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { findActiveVoiceInvites } from '../memory/ingress-invite-store.js';
-import { upsertMember } from '../memory/ingress-member-store.js';
+import { findMember, upsertMember } from '../memory/ingress-member-store.js';
 import { revokeScopedApprovalGrantsForContext } from '../memory/scoped-approval-grants.js';
+import { emitNotificationSignal } from '../notifications/emit-signal.js';
 import { notifyGuardianOfAccessRequest } from '../runtime/access-request-helper.js';
 import {
   resolveActorTrust,
@@ -219,6 +220,7 @@ export class RelayConnection {
   // Callback offer state (in-memory per-call)
   private callbackOfferMade = false;
   private callbackOptIn = false;
+  private callbackHandoffNotified = false;
 
   constructor(ws: ServerWebSocket<RelayWebSocketData>, callSessionId: string) {
     this.ws = ws;
@@ -371,6 +373,12 @@ export class RelayConnection {
    * we still finalize the call lifecycle from the relay close signal.
    */
   handleTransportClosed(code?: number, reason?: string): void {
+    // If the call was still in guardian-wait with callback opt-in, emit the
+    // handoff notification before cleaning up wait state.
+    if (this.accessRequestWaitActive && this.callbackOptIn) {
+      this.emitAccessRequestCallbackHandoff('transport_closed');
+    }
+
     // Clean up access request wait state on disconnect to stop polling
     this.clearAccessRequestWait();
     if (this.nameCaptureTimeoutTimer) {
@@ -1369,6 +1377,9 @@ export class RelayConnection {
    * Handle an access request timeout: deliver deterministic copy and hang up.
    */
   private handleAccessRequestTimeout(): void {
+    // Emit callback handoff notification before clearing wait state
+    this.emitAccessRequestCallbackHandoff('timeout');
+
     this.clearAccessRequestWait();
 
     const guardianLabel = this.resolveGuardianLabel();
@@ -1403,6 +1414,100 @@ export class RelayConnection {
     setTimeout(() => {
       this.endSession('Access request timed out');
     }, getTtsPlaybackDelayMs());
+  }
+
+  /**
+   * Emit a callback handoff notification to the guardian when the caller
+   * opted into a callback during guardian wait but the wait ended without
+   * resolution (timeout or transport close).
+   *
+   * Idempotent: uses callbackHandoffNotified guard + deterministic dedupeKey
+   * to ensure at most one notification per call/request.
+   */
+  private emitAccessRequestCallbackHandoff(reason: 'timeout' | 'transport_closed'): void {
+    if (!this.callbackOptIn) return;
+    if (!this.accessRequestId) return;
+    if (this.callbackHandoffNotified) return;
+
+    this.callbackHandoffNotified = true;
+
+    const assistantId = this.accessRequestAssistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
+    const fromNumber = this.accessRequestFromNumber ?? null;
+
+    // Resolve canonical request for requestCode and conversationId
+    const canonicalRequest = this.accessRequestId
+      ? getCanonicalGuardianRequest(this.accessRequestId)
+      : null;
+
+    // Resolve trusted-contact member reference when possible
+    let requesterMemberId: string | null = null;
+    if (fromNumber) {
+      try {
+        const member = findMember({
+          assistantId,
+          sourceChannel: 'voice',
+          externalUserId: fromNumber,
+          externalChatId: fromNumber,
+        });
+        if (member && member.status === 'active' && member.policy === 'allow') {
+          requesterMemberId = member.id;
+        }
+      } catch (err) {
+        log.warn({ err, callSessionId: this.callSessionId }, 'Failed to resolve member for callback handoff');
+      }
+    }
+
+    const dedupeKey = `access-request-callback-handoff:${this.accessRequestId}`;
+    const sourceSessionId = canonicalRequest?.conversationId
+      ?? `access-req-callback-${this.accessRequestId}`;
+
+    void emitNotificationSignal({
+      sourceEventName: 'ingress.access_request.callback_handoff',
+      sourceChannel: 'voice',
+      sourceSessionId,
+      assistantId,
+      attentionHints: {
+        requiresAction: false,
+        urgency: 'medium',
+        isAsyncBackground: true,
+        visibleInSourceNow: false,
+      },
+      contextPayload: {
+        requestId: this.accessRequestId,
+        requestCode: canonicalRequest?.requestCode ?? null,
+        callSessionId: this.callSessionId,
+        sourceChannel: 'voice',
+        reason,
+        callbackOptIn: true,
+        callerPhoneNumber: fromNumber,
+        callerName: this.accessRequestCallerName ?? null,
+        requesterExternalUserId: fromNumber,
+        requesterChatId: fromNumber,
+        requesterMemberId,
+        requesterMemberSourceChannel: requesterMemberId ? 'voice' : null,
+      },
+      dedupeKey,
+    }).then(() => {
+      recordCallEvent(this.callSessionId, 'callback_handoff_notified', {
+        requestId: this.accessRequestId,
+        reason,
+        requesterMemberId,
+      });
+      log.info(
+        { callSessionId: this.callSessionId, requestId: this.accessRequestId, reason },
+        'Callback handoff notification emitted',
+      );
+    }).catch((err) => {
+      recordCallEvent(this.callSessionId, 'callback_handoff_failed', {
+        requestId: this.accessRequestId,
+        reason,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      log.error(
+        { err, callSessionId: this.callSessionId, requestId: this.accessRequestId },
+        'Failed to emit callback handoff notification',
+      );
+    });
   }
 
   /**
