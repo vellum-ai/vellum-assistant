@@ -5,6 +5,16 @@ import { loadConfig } from "../config.js";
 const BASE_ENV: NodeJS.ProcessEnv = {
   ...process.env,
   MANAGED_GATEWAY_DJANGO_INTERNAL_BASE_URL: "http://127.0.0.1:8000",
+  MANAGED_GATEWAY_INTERNAL_AUTH_MODE: "bearer",
+  MANAGED_GATEWAY_INTERNAL_AUTH_AUDIENCE: "managed-gateway-internal",
+  MANAGED_GATEWAY_INTERNAL_BEARER_TOKENS: JSON.stringify({
+    "token-active": {
+      token_id: "mgw-active",
+      principal: "managed-gateway-staging",
+      audience: "managed-gateway-internal",
+      scopes: ["managed-gateway:internal", "routes:resolve"],
+    },
+  }),
 };
 
 function handleRequest(url: string, env: NodeJS.ProcessEnv = process.env): Response {
