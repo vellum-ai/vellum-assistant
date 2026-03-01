@@ -211,10 +211,10 @@ describe('inbound-message-handler trusted-contact interactivity', () => {
       body: JSON.stringify({
         sourceChannel: 'telegram',
         interface: 'telegram',
-        externalChatId: 'chat-123',
+        conversationExternalId: 'chat-123',
         externalMessageId: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         content: 'hello',
-        senderExternalUserId: 'telegram-user-default',
+        actorExternalId: 'telegram-user-default',
         replyCallbackUrl: 'https://gateway.test/deliver/telegram',
         ...overrides,
       }),
@@ -374,8 +374,8 @@ describe('inbound-message-handler trusted-contact interactivity', () => {
 
     const req = makeInboundRequest({
       externalMessageId: `msg-unknown-${Date.now()}`,
-      // No senderExternalUserId => unknown trust class
-      senderExternalUserId: undefined,
+      // No actorExternalId => unknown trust class
+      actorExternalId: undefined,
     });
 
     const res = await handleChannelInbound(req, processMessage as any, 'test-token');

@@ -257,11 +257,11 @@ describe('Verification control messages are deterministic (guard)', () => {
         body: JSON.stringify({
           sourceChannel: 'telegram',
           interface: 'telegram',
-          externalChatId: 'chat-123',
+          conversationExternalId: 'chat-123',
           externalMessageId: `msg-guard-${Date.now()}`,
           content: secret,
-          senderExternalUserId: 'user-123',
-          senderName: 'Test User',
+          actorExternalId: 'user-123',
+          actorDisplayName: 'Test User',
           replyCallbackUrl: 'http://localhost/callback',
         }),
       });
@@ -330,11 +330,11 @@ describe('Verification control messages are deterministic (guard)', () => {
         body: JSON.stringify({
           sourceChannel: 'telegram',
           interface: 'telegram',
-          externalChatId: 'chat-bootstrap-123',
+          conversationExternalId: 'chat-bootstrap-123',
           externalMessageId: `msg-bootstrap-${Date.now()}`,
           content: `/start gv_${bootstrapToken}`,
-          senderExternalUserId: 'user-bootstrap-123',
-          senderName: 'Bootstrap User',
+          actorExternalId: 'user-bootstrap-123',
+          actorDisplayName: 'Bootstrap User',
           replyCallbackUrl: 'http://localhost/callback',
           sourceMetadata: {
             commandIntent: { type: 'start', payload: `gv_${bootstrapToken}` },

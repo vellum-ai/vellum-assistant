@@ -160,12 +160,12 @@ function buildInboundRequest(
   const body: Record<string, unknown> = {
     sourceChannel: config.channel,
     interface: config.channel,
-    externalChatId: config.externalChatId,
+    conversationExternalId: config.externalChatId,
     externalMessageId: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     content: 'Hello, can I use this assistant?',
-    senderExternalUserId: config.senderExternalUserId,
-    senderName: 'Test Requester',
-    senderUsername: 'test_requester',
+    actorExternalId: config.senderExternalUserId,
+    actorDisplayName: 'Test Requester',
+    actorUsername: 'test_requester',
     replyCallbackUrl: `http://localhost:7830${config.deliverEndpoint}`,
     ...overrides,
   };

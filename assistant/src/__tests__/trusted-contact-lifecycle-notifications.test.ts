@@ -125,12 +125,12 @@ function buildInboundRequest(overrides: Record<string, unknown> = {}): Request {
   const body: Record<string, unknown> = {
     sourceChannel: 'telegram',
     interface: 'telegram',
-    externalChatId: 'chat-123',
+    conversationExternalId: 'chat-123',
     externalMessageId: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     content: 'Hello',
-    senderExternalUserId: 'requester-user-456',
-    senderName: 'Alice Requester',
-    senderUsername: 'alice_req',
+    actorExternalId: 'requester-user-456',
+    actorDisplayName: 'Alice Requester',
+    actorUsername: 'alice_req',
     replyCallbackUrl: 'http://localhost:7830/deliver/telegram',
     ...overrides,
   };
@@ -192,9 +192,9 @@ describe('trusted contact lifecycle notification signals', () => {
 
     // Guardian denies via callback button
     const guardianReq = buildInboundRequest({
-      externalChatId: 'guardian-chat-789',
-      senderExternalUserId: 'guardian-user-789',
-      senderName: 'Guardian',
+      conversationExternalId: 'guardian-chat-789',
+      actorExternalId: 'guardian-user-789',
+      actorDisplayName: 'Guardian',
       content: '',
       callbackData: `apr:${testRequestId}:reject`,
     });
@@ -267,9 +267,9 @@ describe('trusted contact lifecycle notification signals', () => {
 
     // Guardian approves via callback button
     const guardianReq = buildInboundRequest({
-      externalChatId: 'guardian-chat-789',
-      senderExternalUserId: 'guardian-user-789',
-      senderName: 'Guardian',
+      conversationExternalId: 'guardian-chat-789',
+      actorExternalId: 'guardian-user-789',
+      actorDisplayName: 'Guardian',
       content: '',
       callbackData: `apr:${testRequestId}:approve_once`,
     });
@@ -340,9 +340,9 @@ describe('trusted contact lifecycle notification signals', () => {
 
     // All guardian_decision signals include the approval ID in the dedupe key
     const guardianReq = buildInboundRequest({
-      externalChatId: 'guardian-chat-789',
-      senderExternalUserId: 'guardian-user-789',
-      senderName: 'Guardian',
+      conversationExternalId: 'guardian-chat-789',
+      actorExternalId: 'guardian-user-789',
+      actorDisplayName: 'Guardian',
       content: '',
       callbackData: `apr:${testRequestId}:reject`,
     });
@@ -389,8 +389,8 @@ describe('trusted contact activated notification signal', () => {
     // Requester enters the verification code
     const verifyReq = buildInboundRequest({
       content: session.secret,
-      externalChatId: 'chat-123',
-      senderExternalUserId: 'requester-user-456',
+      conversationExternalId: 'chat-123',
+      actorExternalId: 'requester-user-456',
     });
 
     await handleChannelInbound(verifyReq, undefined, TEST_BEARER_TOKEN);
@@ -449,9 +449,9 @@ describe('trusted contact activated notification signal', () => {
 
     const verifyReq = buildInboundRequest({
       content: session.secret,
-      externalChatId: 'chat-123',
-      senderExternalUserId: 'requester-user-456',
-      senderName: 'Noa Flaherty',
+      conversationExternalId: 'chat-123',
+      actorExternalId: 'requester-user-456',
+      actorDisplayName: 'Noa Flaherty',
     });
 
     await handleChannelInbound(verifyReq, undefined, TEST_BEARER_TOKEN);
@@ -476,8 +476,8 @@ describe('trusted contact activated notification signal', () => {
     // "Guardian" enters the verification code
     const verifyReq = buildInboundRequest({
       content: secret,
-      externalChatId: 'guardian-chat-new',
-      senderExternalUserId: 'guardian-user-new',
+      conversationExternalId: 'guardian-chat-new',
+      actorExternalId: 'guardian-user-new',
     });
 
     await handleChannelInbound(verifyReq, undefined, TEST_BEARER_TOKEN);
@@ -520,8 +520,8 @@ describe('trusted contact activated notification signal', () => {
 
     const verifyReq = buildInboundRequest({
       content: session.secret,
-      externalChatId: 'chat-123',
-      senderExternalUserId: 'requester-user-456',
+      conversationExternalId: 'chat-123',
+      actorExternalId: 'requester-user-456',
     });
 
     await handleChannelInbound(verifyReq, undefined, TEST_BEARER_TOKEN);

@@ -119,8 +119,8 @@ function makeInboundRequest(overrides: Record<string, unknown> = {}): Request {
   const body = {
     sourceChannel: 'telegram',
     interface: 'telegram',
-    externalChatId: 'chat-123',
-    senderExternalUserId: 'telegram-user-default',
+    conversationExternalId: 'chat-123',
+    actorExternalId: 'telegram-user-default',
     externalMessageId: `msg-${Date.now()}-${Math.random()}`,
     content: 'hello',
     replyCallbackUrl: 'https://gateway.test/deliver',
