@@ -32,7 +32,7 @@ import { withCrashRecovery } from './validate-migration-state.js';
  *    guardianPrincipalId.
  */
 export function migrateBackfillGuardianPrincipalId(database: DrizzleDb): void {
-  withCrashRecovery(database, 'migration_backfill_guardian_principal_id_v2', () => {
+  withCrashRecovery(database, 'migration_backfill_guardian_principal_id_v3', () => {
     const raw = getSqliteFrom(database);
 
     // Guard: tables must exist
