@@ -12,7 +12,6 @@ import * as attachmentsStore from '../../memory/attachments-store.js';
 import {
   createCanonicalGuardianRequest,
   generateCanonicalRequestCode,
-  getCanonicalGuardianRequest,
   listCanonicalGuardianRequests,
   listPendingCanonicalGuardianRequestsByDestinationConversation,
 } from '../../memory/canonical-guardian-store.js';
@@ -132,38 +131,19 @@ async function tryConsumeInlineApprovalReply(params: {
     conversationId,
     pendingRequestIds,
     approvalConversationGenerator,
+    emissionContext: {
+      source: 'inline_nl',
+      decisionText: trimmedContent,
+    },
   });
 
   if (!routerResult.consumed || routerResult.type === 'nl_keep_pending') {
     return { consumed: false };
   }
 
-  // Emit authoritative confirmation state for the resolved request.
-  // The onStateSignal listener routes these to the SSE hub automatically.
-  if (routerResult.requestId) {
-    let resolvedState: 'approved' | 'denied' | 'resolved_stale';
-    if (!routerResult.decisionApplied) {
-      resolvedState = 'resolved_stale';
-    } else {
-      // Determine actual decision from the canonical request's resolved status.
-      // The router result type is 'canonical_decision_applied' for both approve
-      // and reject, so we query the request to get the actual resolved status.
-      const resolvedRequest = getCanonicalGuardianRequest(routerResult.requestId);
-      resolvedState = resolvedRequest?.status === 'denied' ? 'denied' : 'approved';
-    }
-    session.emitConfirmationStateChanged({
-      sessionId: conversationId,
-      requestId: routerResult.requestId,
-      state: resolvedState,
-      source: 'inline_nl' as const,
-      decisionText: trimmedContent,
-    });
-    // The agent loop continues after both approval and denial, so
-    // always emit a thinking transition when the decision was applied.
-    if (routerResult.decisionApplied) {
-      session.emitActivityState('thinking', 'confirmation_resolved', 'assistant_turn');
-    }
-  }
+  // Confirmation state and activity emissions are handled centrally by
+  // handleConfirmationResponse (called via the resolver chain), so no
+  // manual emission is needed here.
 
   // Decision has been applied — transcript persistence is best-effort.
   // If DB writes fail, we still return consumed: true so the approval text

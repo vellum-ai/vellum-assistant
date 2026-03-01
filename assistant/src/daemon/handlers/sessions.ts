@@ -9,7 +9,6 @@ import { getAttachmentsForMessage, getFilePathForAttachment, setAttachmentThumbn
 import {
   createCanonicalGuardianRequest,
   generateCanonicalRequestCode,
-  getCanonicalGuardianRequest,
   listCanonicalGuardianRequests,
   listPendingCanonicalGuardianRequestsByDestinationConversation,
   resolveCanonicalGuardianRequest,
@@ -606,35 +605,17 @@ export async function handleUserMessage(
             conversationId: msg.sessionId,
             pendingRequestIds: pendingRequestIdsForConversation,
             approvalConversationGenerator: desktopApprovalConversationGenerator,
+            emissionContext: {
+              source: 'inline_nl',
+              causedByRequestId: requestId,
+              decisionText: messageText.trim(),
+            },
           });
 
           if (routerResult.consumed && routerResult.type !== 'nl_keep_pending') {
-            // Emit authoritative confirmation state for resolved request
-            if (routerResult.requestId) {
-              let resolvedState: 'approved' | 'denied' | 'resolved_stale';
-              if (!routerResult.decisionApplied) {
-                resolvedState = 'resolved_stale';
-              } else {
-                // Determine actual decision from the canonical request's resolved status.
-                // The router result type is 'canonical_decision_applied' for both approve
-                // and reject, so we query the request to get the actual resolved status.
-                const resolvedRequest = getCanonicalGuardianRequest(routerResult.requestId);
-                resolvedState = resolvedRequest?.status === 'denied' ? 'denied' : 'approved';
-              }
-              session.emitConfirmationStateChanged({
-                sessionId: msg.sessionId,
-                requestId: routerResult.requestId,
-                state: resolvedState,
-                source: 'inline_nl',
-                causedByRequestId: requestId,
-                decisionText: messageText.trim(),
-              });
-              // The agent loop continues after both approval and denial, so
-              // always emit a thinking transition when the decision was applied.
-              if (routerResult.decisionApplied) {
-                session.emitActivityState('thinking', 'confirmation_resolved', 'assistant_turn');
-              }
-            }
+            // Confirmation state and activity emissions are handled centrally
+            // by handleConfirmationResponse (called via the resolver chain),
+            // so no manual emission is needed here.
 
             const consumedChannelMeta = {
               userMessageChannel: ipcChannel,

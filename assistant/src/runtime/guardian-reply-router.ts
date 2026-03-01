@@ -21,7 +21,7 @@ import {
   applyCanonicalGuardianDecision,
   type CanonicalDecisionResult,
 } from '../approvals/guardian-decision-primitive.js';
-import type { ActorContext, ChannelDeliveryContext } from '../approvals/guardian-request-resolvers.js';
+import type { ActorContext, ChannelDeliveryContext, ResolverEmissionContext } from '../approvals/guardian-request-resolvers.js';
 import {
   type CanonicalGuardianRequest,
   getCanonicalGuardianRequest,
@@ -67,6 +67,8 @@ export interface GuardianReplyContext {
   approvalConversationGenerator?: ApprovalConversationGenerator;
   /** Optional channel delivery context for resolver-driven side effects. */
   channelDeliveryContext?: ChannelDeliveryContext;
+  /** Optional emission context threaded to handleConfirmationResponse for correct source attribution. */
+  emissionContext?: ResolverEmissionContext;
 }
 
 export type GuardianReplyResultType =
@@ -242,7 +244,7 @@ function notConsumed(): GuardianReplyResult {
 export async function routeGuardianReply(
   ctx: GuardianReplyContext,
 ): Promise<GuardianReplyResult> {
-  const { messageText, actor, conversationId, callbackData, approvalConversationGenerator, channelDeliveryContext } = ctx;
+  const { messageText, actor, conversationId, callbackData, approvalConversationGenerator, channelDeliveryContext, emissionContext } = ctx;
   const pendingRequests = findPendingCanonicalRequests(actor, ctx.pendingRequestIds, conversationId);
   const scopedPendingRequestIds = ctx.pendingRequestIds ? new Set(ctx.pendingRequestIds) : null;
 
@@ -254,7 +256,7 @@ export async function routeGuardianReply(
   if (callbackData) {
     const parsed = parseCallbackAction(callbackData);
     if (parsed) {
-      return applyDecision(parsed.requestId, parsed.action, actor, undefined, channelDeliveryContext);
+      return applyDecision(parsed.requestId, parsed.action, actor, undefined, channelDeliveryContext, emissionContext);
     }
   }
 
@@ -340,7 +342,7 @@ export async function routeGuardianReply(
       // If the text indicates rejection, use reject; otherwise approve_once.
       const action = inferActionFromText(codeResult.remainingText);
 
-      return applyDecision(request.id, action, actor, codeResult.remainingText, channelDeliveryContext);
+      return applyDecision(request.id, action, actor, codeResult.remainingText, channelDeliveryContext, emissionContext);
     }
   }
 
@@ -382,6 +384,7 @@ export async function routeGuardianReply(
           actor,
           messageText,
           channelDeliveryContext,
+          emissionContext,
         );
       }
 
@@ -482,7 +485,7 @@ export async function routeGuardianReply(
       };
     }
 
-    const result = await applyDecision(targetId, decisionAction, actor, messageText, channelDeliveryContext);
+    const result = await applyDecision(targetId, decisionAction, actor, messageText, channelDeliveryContext, emissionContext);
 
     // Attach the engine's reply text for stale/expired/identity-mismatch cases,
     // but preserve the explicit failure text when the resolver failed — the engine
@@ -511,6 +514,7 @@ async function applyDecision(
   actor: ActorContext,
   userText?: string,
   channelDeliveryContext?: ChannelDeliveryContext,
+  emissionContext?: ResolverEmissionContext,
 ): Promise<GuardianReplyResult> {
   const canonicalResult = await applyCanonicalGuardianDecision({
     requestId,
@@ -518,6 +522,7 @@ async function applyDecision(
     actorContext: actor,
     userText,
     channelDeliveryContext,
+    emissionContext,
   });
 
   if (canonicalResult.applied) {
