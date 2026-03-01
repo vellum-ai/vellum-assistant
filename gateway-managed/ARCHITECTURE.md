@@ -49,6 +49,12 @@ The managed gateway is a dedicated service lane for Vellum-owned shared channel 
 - Enforces Twilio signature verification and explicit validation/auth error envelopes.
 - Defers payload normalization and dispatch wiring to follow-up PRs.
 
+## P07 PR-4 scope
+
+- Adds shared managed inbound event types for Twilio SMS and voice channels.
+- Normalizes Twilio webhook payloads into a consistent internal event shape.
+- Keeps endpoint contracts unchanged while preparing PR-5 route-resolution wiring.
+
 ## Endpoints
 
 - `GET /healthz`

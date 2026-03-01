@@ -12,6 +12,7 @@ Managed gateway service skeleton for Vellum-owned shared channel identities.
 - Twilio signature verifier primitives with rotation/revocation/expiry support
 - managed Twilio SMS webhook endpoint skeleton with explicit auth/validation envelopes
 - managed Twilio voice webhook endpoint skeleton with explicit auth/validation envelopes
+- shared inbound event normalization for managed Twilio SMS and voice payloads
 - health and readiness endpoints:
   - `/healthz`
   - `/readyz`
@@ -76,6 +77,10 @@ Managed Twilio SMS webhook contract lives in [`managed-twilio-sms-webhook-contra
 ## Managed Twilio Voice Webhook Contract
 
 Managed Twilio voice webhook contract lives in [`managed-twilio-voice-webhook-contract.md`](./managed-twilio-voice-webhook-contract.md).
+
+## Managed Inbound Event Shape
+
+Managed Twilio payloads normalize into a shared internal event shape before route-resolution/dispatch wiring. Current normalizers live in `src/twilio-normalize.ts`.
 
 ## Staging Deployment Artifacts
 
