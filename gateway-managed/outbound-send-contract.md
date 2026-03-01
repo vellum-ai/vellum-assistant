@@ -11,11 +11,13 @@ Authz boundary:
 - requires managed gateway internal auth middleware (`bearer` or `mtls`)
 - requires `messages:send` scope
 - requires audience match to `MANAGED_GATEWAY_INTERNAL_AUTH_AUDIENCE`
+- runtime-managed callbacks may authenticate with `X-Managed-Gateway-Callback-Token` when configured on the platform
 
 Response contract:
 - `202`: accepted send envelope with `route_id`, `assistant_id`, `provider`, `route_type`, `identity_key`, optional `delivery_id`, optional `provider_status`, and optional `credential_id`
 - `400`: error envelope (`validation_error`) for invalid payloads
 - `401`: error envelope for internal auth failure
 - `404`: pass-through error envelope (`managed_route_not_found`) from Django route ownership checks
+- `409`: error envelope (`idempotency_conflict`) when `normalized_send.source.requestId` is reused with a different payload
 - `502`: error envelope for provider transport failures or non-2xx Twilio responses
 - `503`: error envelope when managed Twilio provider credentials/config are missing or no active token remains
