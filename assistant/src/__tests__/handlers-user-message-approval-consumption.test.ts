@@ -101,6 +101,8 @@ interface TestSession {
   setGuardianContext: (ctx: unknown) => void;
   setCommandIntent: (intent: unknown) => void;
   updateClient: (sendToClient: (msg: ServerMessage) => void, hasNoClient?: boolean) => void;
+  emitActivityState: (...args: unknown[]) => void;
+  emitConfirmationStateChanged: (...args: unknown[]) => void;
   processMessage: (...args: unknown[]) => Promise<string>;
 }
 
@@ -155,6 +157,8 @@ function makeSession(overrides: Partial<TestSession> = {}): TestSession {
     setGuardianContext: () => {},
     setCommandIntent: () => {},
     updateClient: () => {},
+    emitActivityState: () => {},
+    emitConfirmationStateChanged: () => {},
     processMessage: async () => 'msg-id',
     ...overrides,
   };
@@ -482,6 +486,8 @@ describe('handleUserMessage pending-confirmation reply interception', () => {
       'always_allow',
       undefined,
       undefined,
+      undefined,
+      { source: 'button' },
     ]);
     expect(resolveCanonicalGuardianRequestMock).toHaveBeenCalledWith(
       'req-confirm-allow',

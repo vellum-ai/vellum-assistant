@@ -230,25 +230,25 @@ describe('addPointerMessage', () => {
     expect(generatorCalled.value).toBe(false);
   });
 
-  test('private threadType is detected as trusted audience', () => {
+  test('private threadType is detected as trusted audience', async () => {
     const convId = 'conv-ptr-private';
     ensureConversation(convId, { threadType: 'private' });
 
     setPointerCopyGenerator(async () => 'generated text');
 
-    addPointerMessage(convId, 'completed', '+15559876543', { duration: '1m' });
+    await addPointerMessage(convId, 'completed', '+15559876543', { duration: '1m' });
     const text = getLatestAssistantText(convId);
     // In test env, falls back to deterministic even on trusted path
     expect(text).toContain('Call to +15559876543 completed (1m)');
   });
 
-  test('vellum origin channel is detected as trusted audience', () => {
+  test('vellum origin channel is detected as trusted audience', async () => {
     const convId = 'conv-ptr-vellum';
     ensureConversation(convId, { originChannel: 'vellum' });
 
     setPointerCopyGenerator(async () => 'generated text');
 
-    addPointerMessage(convId, 'failed', '+15559876543', { reason: 'busy' });
+    await addPointerMessage(convId, 'failed', '+15559876543', { reason: 'busy' });
     const text = getLatestAssistantText(convId);
     expect(text).toContain('failed: busy');
   });
