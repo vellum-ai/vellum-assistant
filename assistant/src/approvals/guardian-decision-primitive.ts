@@ -18,7 +18,8 @@
  *   9. Kind-specific resolver dispatch via the resolver registry
  *
  * Security invariants enforced here:
- *   - Decision application is identity-bound to expected guardian identity
+ *   - Decision authorization is purely principal-based:
+ *     actor.guardianPrincipalId must match request.guardianPrincipalId
  *   - Decisions are first-response-wins (CAS-like stale protection)
  *   - `approve_always` is rejected/downgraded for guardian-on-behalf requests
  *   - Scoped grant minting only on explicit approve for requests with tool metadata
@@ -349,44 +350,46 @@ export async function applyCanonicalGuardianDecision(
     return { applied: false, reason: 'invalid_action', detail: `invalid action: ${action}` };
   }
 
-  // 2c. Validate identity: actor must match guardian_external_user_id
-  // unless the actor is trusted (desktop).
-  //
-  // Channel tool-approval requests must always be identity-bound. Treat
-  // missing guardianExternalUserId as unauthorized (fail-closed) so a
-  // non-guardian actor can never approve an unbound request.
-  if (
-    !actorContext.isTrusted &&
-    request.kind === 'tool_approval' &&
-    !request.guardianExternalUserId
-  ) {
+  // 2c. Principal-based authorization: actor.guardianPrincipalId must match
+  // request.guardianPrincipalId for any applied decision. This is the single
+  // authorization gate — there is no trusted bypass.
+
+  if (!request.guardianPrincipalId) {
     log.warn(
       {
-        event: 'canonical_decision_missing_guardian_binding',
+        event: 'canonical_decision_missing_request_principal',
         requestId,
         kind: request.kind,
         sourceType: request.sourceType,
       },
-      'Canonical tool approval missing guardian binding; rejecting decision',
+      'Canonical request missing guardianPrincipalId; rejecting decision',
     );
-    return { applied: false, reason: 'identity_mismatch', detail: 'missing guardian binding' };
+    return { applied: false, reason: 'identity_mismatch', detail: 'request missing guardianPrincipalId' };
   }
 
-  if (
-    request.guardianExternalUserId &&
-    !actorContext.isTrusted &&
-    actorContext.externalUserId !== request.guardianExternalUserId
-  ) {
+  if (!actorContext.guardianPrincipalId) {
     log.warn(
       {
-        event: 'canonical_decision_identity_mismatch',
+        event: 'canonical_decision_missing_actor_principal',
         requestId,
-        expectedGuardian: request.guardianExternalUserId,
-        actualActor: actorContext.externalUserId,
+        actorChannel: actorContext.channel,
       },
-      'Actor identity does not match expected guardian',
+      'Actor missing guardianPrincipalId; rejecting decision',
     );
-    return { applied: false, reason: 'identity_mismatch' };
+    return { applied: false, reason: 'identity_mismatch', detail: 'actor missing guardianPrincipalId' };
+  }
+
+  if (actorContext.guardianPrincipalId !== request.guardianPrincipalId) {
+    log.warn(
+      {
+        event: 'canonical_decision_principal_mismatch',
+        requestId,
+        expectedPrincipal: request.guardianPrincipalId,
+        actualPrincipal: actorContext.guardianPrincipalId,
+      },
+      'Actor principal does not match request principal',
+    );
+    return { applied: false, reason: 'identity_mismatch', detail: 'principal mismatch' };
   }
 
   // 2d. Check expiry

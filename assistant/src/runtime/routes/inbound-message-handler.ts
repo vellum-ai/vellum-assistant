@@ -980,7 +980,7 @@ export async function handleChannelInbound(
       actor: {
         externalUserId: canonicalSenderId ?? rawSenderId!,
         channel: sourceChannel,
-        isTrusted: false,
+        guardianPrincipalId: guardianCtx.guardianPrincipalId ?? undefined,
       },
       conversationId: result.conversationId,
       callbackData: body.callbackData,

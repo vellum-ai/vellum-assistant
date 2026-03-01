@@ -383,9 +383,9 @@ export async function processMessage(
       messageText: trimmedContent,
       channel: 'vellum',
       actor: {
-        externalUserId: undefined,
+        externalUserId: session.guardianContext?.guardianExternalUserId,
         channel: 'vellum',
-        isTrusted: true,
+        guardianPrincipalId: session.guardianContext?.guardianPrincipalId ?? undefined,
       },
       conversationId: session.conversationId,
       pendingRequestIds: canonicalPendingRequestIdsForConversation,
