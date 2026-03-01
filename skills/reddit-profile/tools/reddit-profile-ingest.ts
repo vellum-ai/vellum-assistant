@@ -322,11 +322,20 @@ Extract memory items about this Reddit user's personality, interests, preference
     return extractPatternBased(username, about, sampleText);
   }
 
-  return toolUse.input.items.map((item) => ({
-    ...item,
-    confidence: Math.min(1, Math.max(0, item.confidence)),
-    importance: Math.min(1, Math.max(0, item.importance)),
-  }));
+  const validKinds = new Set(['preference', 'profile', 'fact', 'opinion', 'style', 'interest']);
+  return toolUse.input.items
+    .filter((item) =>
+      // Validate required fields before mapping to avoid downstream errors
+      // (e.g. fingerprint computation calling .toLowerCase() on undefined).
+      typeof item.subject === 'string' && item.subject.length > 0
+      && typeof item.statement === 'string' && item.statement.length > 0
+      && typeof item.kind === 'string' && validKinds.has(item.kind),
+    )
+    .map((item) => ({
+      ...item,
+      confidence: Number.isFinite(item.confidence) ? Math.min(1, Math.max(0, item.confidence)) : 0.5,
+      importance: Number.isFinite(item.importance) ? Math.min(1, Math.max(0, item.importance)) : 0.5,
+    }));
 }
 
 // -- Pattern-based fallback extraction --
@@ -544,9 +553,12 @@ export async function run(
     extracted = extractPatternBased(username, about, sampleText);
   }
 
-  // Ensure baseline is included (dedup by subject)
+  // Ensure the canonical username/account-date baseline item is always present.
+  // Match specifically on 'reddit username' in the subject to avoid a false
+  // match from items like 'Reddit communities' that would suppress the stable
+  // identity anchor this check is meant to guarantee.
   const hasUsernameItem = extracted.some(
-    (i) => i.kind === 'profile' && i.subject.toLowerCase().includes('reddit'),
+    (i) => i.kind === 'profile' && i.subject.toLowerCase().includes('reddit username'),
   );
   if (!hasUsernameItem) {
     extracted = [baselineItem, ...extracted];
