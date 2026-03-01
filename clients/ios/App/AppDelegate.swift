@@ -123,10 +123,9 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // Start the ambient agent trigger so it begins timing from launch.
         ambientAgentManager.setup()
 
-        // Ensure actor credentials are present and start the proactive refresh
-        // loop. On first launch (no actor token) this is a no-op until pairing
-        // completes; on subsequent launches it schedules proactive refresh when
-        // the access token nears expiry — mirroring macOS's proceedToApp() call.
+        // Start the proactive credential refresh loop. On iOS, initial credentials
+        // come from QR pairing (bootstrap is macOS-only). If no actor token exists
+        // yet, the refresh loop simply waits until pairing provides one.
         ensureActorCredentials()
 
         return true
@@ -206,10 +205,8 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         actorTokenBootstrapTask = Task { [weak self] in
             guard let self else { return }
 
-            // If we have no actor token at all, we need initial bootstrap
-            if !ActorTokenManager.hasToken {
-                await self.performInitialBootstrap()
-            }
+            // On iOS, initial credentials come from QR pairing — bootstrap is macOS-only.
+            // Skip performInitialBootstrap() entirely; the pairing flow stores credentials.
 
             // Run proactive refresh loop
             while !Task.isCancelled {
@@ -243,37 +240,6 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 
     /// Performs the initial actor token bootstrap with exponential backoff.
     /// Called only when no actor token exists (first launch or after credential wipe).
-    private func performInitialBootstrap() async {
-        let deviceId = Self.getOrCreateDeviceId()
-        var delay: UInt64 = 2_000_000_000
-        let maxDelay: UInt64 = 60_000_000_000
-        var connectionDelay: UInt64 = 2_000_000_000
-        let connectionMaxDelay: UInt64 = 300_000_000_000
-
-        while !Task.isCancelled {
-            guard self.clientProvider.client.isConnected else {
-                try? await Task.sleep(nanoseconds: connectionDelay)
-                connectionDelay = min(connectionDelay * 2, connectionMaxDelay)
-                continue
-            }
-
-            guard let daemon = self.clientProvider.client as? DaemonClient else { return }
-            let success = await daemon.bootstrapActorToken(
-                platform: "ios",
-                deviceId: deviceId
-            )
-
-            if success {
-                log.info("Initial actor token bootstrap succeeded")
-                return
-            }
-
-            let jitter = UInt64.random(in: 0...(delay / 4))
-            try? await Task.sleep(nanoseconds: delay + jitter)
-            delay = min(delay * 2, maxDelay)
-        }
-    }
-
     /// Stable device ID stored in Keychain, shared with QRPairingSheet.
     private static func getOrCreateDeviceId() -> String {
         if let existing = APIKeyManager.shared.getAPIKey(provider: "pairing-device-id"), !existing.isEmpty {

@@ -35,7 +35,7 @@ export function createActorRefreshTokenRecordsTable(database: DrizzleDb): void {
 
   // Unique active refresh token per device binding
   database.run(
-    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_refresh_tokens_active_device
+    /*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_refresh_tokens_active_device
       ON actor_refresh_token_records(assistant_id, guardian_principal_id, hashed_device_id)
       WHERE status = 'active'`,
   );

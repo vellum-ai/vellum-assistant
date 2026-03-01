@@ -9,6 +9,7 @@
 
 import { createHash, randomBytes } from 'node:crypto';
 
+import { getDb } from '../memory/db.js';
 import { getLogger } from '../util/logger.js';
 import { hashToken, mintActorToken } from './actor-token-service.js';
 import {
@@ -244,59 +245,65 @@ export function rotateCredentials(params: {
     return { ok: false, error: 'device_binding_mismatch' };
   }
 
-  // Mark old refresh token as rotated (atomic CAS — fails if a concurrent request already consumed it)
-  const didRotate = markRotated(refreshTokenHash);
-  if (!didRotate) {
-    return { ok: false, error: 'refresh_reuse_detected' };
-  }
+  // Wrap the entire rotate-revoke-remint sequence in a transaction so that
+  // partial failures (e.g., DB write error after revoking old tokens) roll back
+  // atomically instead of stranding device credentials.
+  const db = getDb();
+  return db.transaction(() => {
+    // Mark old refresh token as rotated (atomic CAS — fails if a concurrent request already consumed it)
+    const didRotate = markRotated(refreshTokenHash);
+    if (!didRotate) {
+      return { ok: false as const, error: 'refresh_reuse_detected' as const };
+    }
 
-  // Revoke old access tokens for this device
-  revokeActorTokensByDevice(record.assistantId, record.guardianPrincipalId, record.hashedDeviceId);
+    // Revoke old access tokens for this device
+    revokeActorTokensByDevice(record.assistantId, record.guardianPrincipalId, record.hashedDeviceId);
 
-  // Mint new access token
-  const { token: actorToken, tokenHash: actorTokenHash, claims } = mintActorToken({
-    assistantId: record.assistantId,
-    platform: params.platform,
-    deviceId: params.deviceId,
-    guardianPrincipalId: record.guardianPrincipalId,
-    ttlMs: ACCESS_TOKEN_TTL_MS,
-  });
-
-  createActorTokenRecord({
-    tokenHash: actorTokenHash,
-    assistantId: record.assistantId,
-    guardianPrincipalId: record.guardianPrincipalId,
-    hashedDeviceId: record.hashedDeviceId,
-    platform: params.platform,
-    issuedAt: claims.iat,
-    expiresAt: claims.exp,
-  });
-
-  // Mint new refresh token in the same family, inheriting the parent's absolute
-  // expiry so rotation resets inactivity but never extends the session lifetime.
-  const refresh = mintRefreshToken({
-    assistantId: record.assistantId,
-    guardianPrincipalId: record.guardianPrincipalId,
-    hashedDeviceId: record.hashedDeviceId,
-    platform: params.platform,
-    familyId: record.familyId,
-    absoluteExpiresAt: record.absoluteExpiresAt,
-  });
-
-  log.info(
-    { familyId: record.familyId, platform: params.platform },
-    'Credential rotation completed',
-  );
-
-  return {
-    ok: true,
-    result: {
+    // Mint new access token
+    const { token: actorToken, tokenHash: actorTokenHash, claims } = mintActorToken({
+      assistantId: record.assistantId,
+      platform: params.platform,
+      deviceId: params.deviceId,
       guardianPrincipalId: record.guardianPrincipalId,
-      actorToken,
-      actorTokenExpiresAt: claims.exp!,
-      refreshToken: refresh.refreshToken,
-      refreshTokenExpiresAt: refresh.refreshTokenExpiresAt,
-      refreshAfter: refresh.refreshAfter,
-    },
-  };
+      ttlMs: ACCESS_TOKEN_TTL_MS,
+    });
+
+    createActorTokenRecord({
+      tokenHash: actorTokenHash,
+      assistantId: record.assistantId,
+      guardianPrincipalId: record.guardianPrincipalId,
+      hashedDeviceId: record.hashedDeviceId,
+      platform: params.platform,
+      issuedAt: claims.iat,
+      expiresAt: claims.exp,
+    });
+
+    // Mint new refresh token in the same family, inheriting the parent's absolute
+    // expiry so rotation resets inactivity but never extends the session lifetime.
+    const refresh = mintRefreshToken({
+      assistantId: record.assistantId,
+      guardianPrincipalId: record.guardianPrincipalId,
+      hashedDeviceId: record.hashedDeviceId,
+      platform: params.platform,
+      familyId: record.familyId,
+      absoluteExpiresAt: record.absoluteExpiresAt,
+    });
+
+    log.info(
+      { familyId: record.familyId, platform: params.platform },
+      'Credential rotation completed',
+    );
+
+    return {
+      ok: true as const,
+      result: {
+        guardianPrincipalId: record.guardianPrincipalId,
+        actorToken,
+        actorTokenExpiresAt: claims.exp!,
+        refreshToken: refresh.refreshToken,
+        refreshTokenExpiresAt: refresh.refreshTokenExpiresAt,
+        refreshAfter: refresh.refreshAfter,
+      },
+    };
+  });
 }

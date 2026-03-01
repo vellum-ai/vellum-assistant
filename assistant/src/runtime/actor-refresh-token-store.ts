@@ -104,23 +104,16 @@ export function findActiveByDeviceBinding(
   return row ? rowToRecord(row) : null;
 }
 
-/** Mark a refresh token as rotated (used successfully, replaced by a new one). */
+/**
+ * Atomically mark a refresh token as rotated (used successfully, replaced by a new one).
+ * Uses a single conditional UPDATE and checks the affected row count to ensure
+ * exactly one row transitioned from 'active' to 'rotated'. This prevents
+ * concurrent refresh requests from both succeeding (CAS semantics).
+ */
 export function markRotated(tokenHash: string): boolean {
   const db = getDb();
   const now = Date.now();
-  const existing = db
-    .select({ id: actorRefreshTokenRecords.id })
-    .from(actorRefreshTokenRecords)
-    .where(
-      and(
-        eq(actorRefreshTokenRecords.tokenHash, tokenHash),
-        eq(actorRefreshTokenRecords.status, 'active'),
-      ),
-    )
-    .get();
-  if (!existing) return false;
-
-  db.update(actorRefreshTokenRecords)
+  const result = db.update(actorRefreshTokenRecords)
     .set({ status: 'rotated', lastUsedAt: now, updatedAt: now })
     .where(
       and(
@@ -129,7 +122,7 @@ export function markRotated(tokenHash: string): boolean {
       ),
     )
     .run();
-  return true;
+  return result.changes > 0;
 }
 
 /** Revoke all tokens in a family (replay detection response). */
