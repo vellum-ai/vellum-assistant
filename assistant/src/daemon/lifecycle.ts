@@ -380,7 +380,18 @@ export async function runDaemon(): Promise<void> {
           { pointerInstruction: true },
           '[Call status event]',
         );
-        await session.runAgentLoop(instruction, messageId, () => {});
+        let agentLoopError: string | undefined;
+        await session.runAgentLoop(instruction, messageId, (msg) => {
+          if ('type' in msg && msg.type === 'error' && 'message' in msg) {
+            agentLoopError = (msg as { message: string }).message;
+          }
+        });
+        if (agentLoopError) {
+          // Clean up the orphaned instruction message so the fallback
+          // path doesn't leave a phantom user message in the conversation.
+          try { conversationStore.deleteMessageById(messageId); } catch { /* best effort */ }
+          throw new Error(agentLoopError);
+        }
       });
       runtimeHttp.setPairingBroadcast((msg) => server.broadcast(msg as ServerMessage));
       initPairingHandlers(runtimeHttp.getPairingStore(), bearerToken);
