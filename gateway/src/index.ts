@@ -637,7 +637,14 @@ function main() {
         });
       }
 
-      // ── Pairing proxy (unauthenticated at gateway, secret-gated) ──
+      // ── Pairing proxy ──
+      // Register requires bearer auth (privileged operation from CLI/macOS)
+      if (url.pathname === "/pairing/register" && tracedReq.method === "POST") {
+        const authError = requireRuntimeBearerAuth();
+        if (authError) return authError;
+        return pairingProxy.handlePairingRegister(tracedReq);
+      }
+      // Request and status are unauthenticated at the gateway (secret-gated)
       // Record auth failures when the daemon rejects the pairing secret
       if (url.pathname === "/pairing/request" && tracedReq.method === "POST") {
         const res = await pairingProxy.handlePairingRequest(tracedReq);
