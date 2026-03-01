@@ -130,16 +130,19 @@ describe('guardianPrincipalId roundtrip', () => {
       const req = createCanonicalGuardianRequest({
         kind: 'tool_approval',
         sourceType: 'voice',
+        guardianPrincipalId: 'guardian-principal-1',
         decidedByPrincipalId: 'decider-principal-1',
       });
 
       expect(req.decidedByPrincipalId).toBe('decider-principal-1');
+      expect(req.guardianPrincipalId).toBe('guardian-principal-1');
     });
 
     test('updates decidedByPrincipalId via updateCanonicalGuardianRequest', () => {
       const req = createCanonicalGuardianRequest({
         kind: 'tool_approval',
         sourceType: 'channel',
+        guardianPrincipalId: 'principal-for-update-test',
       });
 
       const updated = updateCanonicalGuardianRequest(req.id, {
@@ -179,6 +182,7 @@ describe('guardianPrincipalId roundtrip', () => {
       const req = createCanonicalGuardianRequest({
         kind: 'tool_approval',
         sourceType: 'channel',
+        guardianPrincipalId: 'principal-for-resolve-test',
       });
 
       const resolved = resolveCanonicalGuardianRequest(req.id, 'pending', {

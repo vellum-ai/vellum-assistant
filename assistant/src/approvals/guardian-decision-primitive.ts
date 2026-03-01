@@ -36,7 +36,10 @@ import {
   type GuardianApprovalRequest,
   updateApprovalDecision,
 } from '../memory/channel-guardian-store.js';
-import { getActiveBinding } from '../memory/guardian-bindings.js';
+import {
+  getActiveBinding,
+  listActiveBindingsByAssistant,
+} from '../memory/guardian-bindings.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
 import type {
   ApprovalAction,
@@ -312,8 +315,16 @@ export function isAuthorizedGuardianPrincipal(
     return true;
   }
 
-  // Allow if the request is bound to the canonical principal (channel approving vellum/voice request)
-  return !!canonicalPrincipal && requestPrincipalId === canonicalPrincipal;
+  // Allow if the request is bound to the canonical principal (channel approving
+  // vellum/voice request) AND the actor's principal belongs to an active guardian
+  // binding for this assistant. Without this binding check, any actor with any
+  // guardianPrincipalId could approve vellum-originated requests.
+  if (!!canonicalPrincipal && requestPrincipalId === canonicalPrincipal) {
+    const activeBindings = listActiveBindingsByAssistant(DAEMON_INTERNAL_ASSISTANT_ID);
+    return activeBindings.some(b => b.guardianPrincipalId === actorPrincipalId);
+  }
+
+  return false;
 }
 
 // ---------------------------------------------------------------------------

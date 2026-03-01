@@ -84,13 +84,14 @@ export function migrateBackfillGuardianPrincipalId(database: DrizzleDb): void {
 
           // 3a. Pending requests with a guardianExternalUserId that maps
           // to an active binding — use the binding's principal.
+          // Includes all kinds; binding is always useful when available.
           const pendingWithGuardian = raw.query(
-            `SELECT r.id, r.guardian_external_user_id
+            `SELECT r.id, r.guardian_external_user_id, r.kind
              FROM canonical_guardian_requests r
              WHERE r.status = 'pending'
                AND r.guardian_principal_id IS NULL
                AND r.guardian_external_user_id IS NOT NULL`,
-          ).all() as Array<{ id: string; guardian_external_user_id: string }>;
+          ).all() as Array<{ id: string; guardian_external_user_id: string; kind: string }>;
 
           // Build a lookup of guardianExternalUserId -> principalId from
           // active bindings (all already backfilled in step 1).
@@ -118,8 +119,10 @@ export function migrateBackfillGuardianPrincipalId(database: DrizzleDb): void {
             const principal = externalToP.get(req.guardian_external_user_id);
             if (principal) {
               updateStmt.run(principal, now, req.id);
-            } else {
-              // Cannot deterministically map — will expire below
+            } else if (req.kind !== 'access_request') {
+              // Cannot deterministically map — will expire below.
+              // Exclude access_request: non-decisionable, proceeds via
+              // invite flow and does not require principal binding.
               unboundRequestIds.push(req.id);
             }
           }
@@ -140,14 +143,20 @@ export function migrateBackfillGuardianPrincipalId(database: DrizzleDb): void {
             ).run(assistantPrincipal, now);
           }
 
-          // 3c. Expire ALL remaining pending requests that still have no
-          // guardian_principal_id, regardless of their expires_at value.
-          // These requests can never be approved in the principal-based
-          // system, so they must be expired proactively.
+          // 3c. Expire remaining pending DECISIONABLE requests that still
+          // have no guardian_principal_id, regardless of their expires_at
+          // value. These requests can never be approved in the principal-
+          // based system, so they must be expired proactively.
+          //
+          // Exclude `access_request` rows: they are non-decisionable and
+          // proceed via the invite flow without requiring principal-bound
+          // approve/deny. Expiring them would drop valid in-flight access
+          // requests that the guardian has not yet acted on.
           const stillUnbound = raw.query(
             `SELECT id FROM canonical_guardian_requests
              WHERE guardian_principal_id IS NULL
-               AND status = 'pending'`,
+               AND status = 'pending'
+               AND kind != 'access_request'`,
           ).all() as Array<{ id: string }>;
 
           for (const req of stillUnbound) {
