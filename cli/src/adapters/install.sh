@@ -28,17 +28,42 @@ ensure_git() {
         # Try installing CLT first before falling back to Homebrew.
         if ! xcode-select -p >/dev/null 2>&1; then
             info "Installing Xcode Command Line Tools (includes git)..."
-            xcode-select --install 2>/dev/null || true
-            info "Please follow the on-screen dialog to install. Waiting..."
-            local waited=0
-            while ! xcode-select -p >/dev/null 2>&1; do
-                sleep 5
-                waited=$((waited + 5))
-                if [ "$waited" -ge 600 ]; then
-                    error "Timed out waiting for Xcode Command Line Tools. Please install manually and re-run."
-                    exit 1
-                fi
-            done
+
+            # Use softwareupdate to install CLT non-interactively instead of
+            # xcode-select --install which opens a GUI dialog requiring manual
+            # confirmation.
+            touch /tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress
+            local clt_package
+            clt_package=$(softwareupdate -l 2>/dev/null \
+                | grep -o '.*Command Line Tools.*' \
+                | grep -v "^\*" \
+                | sed 's/^ *//' \
+                | sort -V \
+                | tail -1)
+
+            if [ -n "$clt_package" ]; then
+                info "Found package: $clt_package"
+                softwareupdate -i "$clt_package" --verbose 2>&1 | while IFS= read -r line; do
+                    printf "  %s\n" "$line"
+                done
+            else
+                # Fallback: if softwareupdate can't find the package, try
+                # xcode-select --install and wait for user interaction.
+                info "Could not find CLT package via softwareupdate, falling back to xcode-select..."
+                xcode-select --install 2>/dev/null || true
+                info "Please follow the on-screen dialog to install. Waiting..."
+                local waited=0
+                while ! xcode-select -p >/dev/null 2>&1; do
+                    sleep 5
+                    waited=$((waited + 5))
+                    if [ "$waited" -ge 600 ]; then
+                        error "Timed out waiting for Xcode Command Line Tools. Please install manually and re-run."
+                        exit 1
+                    fi
+                done
+            fi
+
+            rm -f /tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress
             hash -r 2>/dev/null || true
         fi
 
