@@ -29,19 +29,11 @@ type GuardianTrustClass = GuardianRuntimeContext['trustClass'];
 function parseProvenanceTrustClass(metadata: string | null): GuardianTrustClass | undefined {
   if (!metadata) return undefined;
   try {
-    const parsed = JSON.parse(metadata) as {
-      provenanceTrustClass?: unknown;
-      provenanceActorRole?: unknown;
-    };
+    const parsed = JSON.parse(metadata) as { provenanceTrustClass?: unknown };
     const trustClass = parsed?.provenanceTrustClass;
     if (trustClass === 'guardian' || trustClass === 'trusted_contact' || trustClass === 'unknown') {
       return trustClass;
     }
-    // Legacy fallback for rows persisted before provenanceTrustClass existed.
-    const legacyRole = parsed?.provenanceActorRole;
-    if (legacyRole === 'guardian') return 'guardian';
-    if (legacyRole === 'non-guardian') return 'trusted_contact';
-    if (legacyRole === 'unverified_channel') return 'unknown';
   } catch {
     // Ignore malformed metadata and treat as unknown provenance.
   }
