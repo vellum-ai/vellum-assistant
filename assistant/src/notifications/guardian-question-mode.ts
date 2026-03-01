@@ -181,9 +181,9 @@ export function parseGuardianQuestionPayload(
       const callSessionId = nonEmptyString(payload.callSessionId);
       const activeGuardianRequestCount = typeof payload.activeGuardianRequestCount === 'number'
         ? payload.activeGuardianRequestCount
-        : null;
+        : undefined;
       const toolName = nonEmptyString(payload.toolName);
-      if (!callSessionId || activeGuardianRequestCount === null || Number.isNaN(activeGuardianRequestCount)) {
+      if (!callSessionId || activeGuardianRequestCount === undefined || Number.isNaN(activeGuardianRequestCount)) {
         return null;
       }
       const pendingQuestionPayload: PendingQuestionGuardianPayload = {

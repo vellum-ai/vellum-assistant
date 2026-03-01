@@ -23,6 +23,7 @@ export interface ChannelReadinessSnapshot {
 }
 
 /** Optional probe context for readiness checks. */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface ChannelProbeContext {}
 
 /** Probe interface that channels implement to provide readiness checks. */
