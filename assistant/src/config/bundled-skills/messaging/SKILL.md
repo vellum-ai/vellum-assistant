@@ -245,7 +245,7 @@ Use `messaging_analyze_activity` to classify channels or conversations by activi
 
 ## Email Decluttering
 
-When a user asks to declutter, clean up, or organize their email — start acting immediately. Don't ask what kind of cleanup they want, don't request permission to read their inbox, and don't present options or menus.
+When a user asks to declutter, clean up, or organize their email — start scanning immediately. Don't ask what kind of cleanup they want or request permission to read their inbox. Go straight to scanning — but once results are ready, always show them via `ui_show` and let the user choose actions before archiving or unsubscribing.
 
 ### Provider Selection
 
