@@ -1,10 +1,6 @@
 /**
  * Shared types for the runtime HTTP server and its route handlers.
  */
-import type {
-  CallPointerMessageContext,
-  ComposeCallPointerMessageOptions,
-} from '../calls/call-pointer-message-composer.js';
 import type { ChannelId, InterfaceId } from '../channels/types.js';
 import type { Session } from '../daemon/session.js';
 import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
@@ -58,15 +54,6 @@ export interface ApprovalConversationContext {
 export type ApprovalConversationGenerator = (
   context: ApprovalConversationContext,
 ) => Promise<ApprovalConversationResult>;
-
-/**
- * Daemon-injected function that generates call pointer copy using a provider.
- * Returns generated text or `null` on failure (caller falls back to deterministic text).
- */
-export type PointerCopyGenerator = (
-  context: CallPointerMessageContext,
-  options?: ComposeCallPointerMessageOptions,
-) => Promise<string | null>;
 
 /**
  * Daemon-injected function that generates guardian action copy using a provider.

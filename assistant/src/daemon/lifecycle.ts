@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { config as dotenvConfig } from 'dotenv';
 
-import { setPointerCopyGenerator } from '../calls/call-pointer-messages.js';
+import { setPointerMessageProcessor } from '../calls/call-pointer-messages.js';
 import { reconcileCallsOnStartup } from '../calls/call-recovery.js';
 import { setRelayBroadcast } from '../calls/relay-server.js';
 import { TwilioConversationRelayProvider } from '../calls/twilio-provider.js';
@@ -53,7 +53,6 @@ import {
 import { listWorkItems, updateWorkItem } from '../work-items/work-item-store.js';
 import { WorkspaceHeartbeatService } from '../workspace/heartbeat-service.js';
 import { createApprovalConversationGenerator,createApprovalCopyGenerator } from './approval-generators.js';
-import { createPointerCopyGenerator } from './call-pointer-generators.js';
 import { hasNoAuthOverride, hasUngatedNoAuthOverride } from './connection-policy.js';
 import { cleanupPidFile, cleanupPidFileIfOwner, writePid } from './daemon-control.js';
 import { createGuardianActionCopyGenerator, createGuardianFollowUpConversationGenerator } from './guardian-action-generators.js';
@@ -372,7 +371,9 @@ export async function runDaemon(): Promise<void> {
     try {
       await runtimeHttp.start();
       setRelayBroadcast((msg) => server.broadcast(msg));
-      setPointerCopyGenerator(createPointerCopyGenerator());
+      setPointerMessageProcessor(async (conversationId, instruction) => {
+        await server.persistAndProcessMessage(conversationId, instruction, []);
+      });
       runtimeHttp.setPairingBroadcast((msg) => server.broadcast(msg as ServerMessage));
       initPairingHandlers(runtimeHttp.getPairingStore(), bearerToken);
       initSlashPairingContext(runtimeHttp.getPairingStore());

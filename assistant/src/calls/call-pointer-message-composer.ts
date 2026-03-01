@@ -1,17 +1,10 @@
 /**
- * Layered call pointer message composition system.
+ * Deterministic call pointer message templates and instruction builder.
  *
- * Generates pointer/status copy through a priority chain:
- *   1. Generator-produced text (when provided by daemon and audience is trusted)
- *   2. Deterministic fallback templates (preserving existing semantics)
- *
- * Follows the same pattern as approval-message-composer.ts and
- * guardian-action-message-composer.ts.
+ * Provides fallback templates for untrusted audiences and builds
+ * structured instructions for the daemon session to generate pointer
+ * copy as a natural conversation turn for trusted audiences.
  */
-import type { PointerCopyGenerator } from '../runtime/http-types.js';
-import { getLogger } from '../util/logger.js';
-
-const log = getLogger('call-pointer-message-composer');
 
 // ---------------------------------------------------------------------------
 // Types
@@ -33,83 +26,33 @@ export interface CallPointerMessageContext {
   channel?: string;
 }
 
-export interface ComposeCallPointerMessageOptions {
-  fallbackText?: string;
-  requiredFacts?: string[];
-  maxTokens?: number;
-  timeoutMs?: number;
-}
-
 // ---------------------------------------------------------------------------
-// Constants (exported for the daemon-injected generator implementation)
-// ---------------------------------------------------------------------------
-
-export const POINTER_COPY_TIMEOUT_MS = 3_000;
-export const POINTER_COPY_MAX_TOKENS = 120;
-export const POINTER_COPY_SYSTEM_PROMPT =
-  'You are an assistant writing a brief status update about a phone call. '
-  + 'Keep it concise (1-2 sentences), natural, and informative. '
-  + 'Preserve all factual details exactly (phone numbers, durations, failure reasons, verification status). '
-  + 'Do not mention internal systems or technical details. '
-  + 'Return plain text only.';
-
-// ---------------------------------------------------------------------------
-// Public API
+// Daemon instruction builder
 // ---------------------------------------------------------------------------
 
 /**
- * Compose pointer copy using the daemon-injected generator when available,
- * with deterministic fallback for reliability.
- *
- * The generator parameter is the daemon-provided function that knows about
- * providers. When absent (or in test env), only the deterministic fallback
- * is used.
+ * Build an instruction message to send to the daemon session so the
+ * assistant generates a natural pointer status update as a conversation turn.
  */
-export async function composeCallPointerMessageGenerative(
-  context: CallPointerMessageContext,
-  options: ComposeCallPointerMessageOptions = {},
-  generator?: PointerCopyGenerator,
-): Promise<string> {
-  const fallbackText = options.fallbackText?.trim() || getPointerFallbackMessage(context);
+export function buildPointerInstruction(context: CallPointerMessageContext): string {
+  const parts: string[] = [
+    '[CALL_STATUS_EVENT]',
+    `Event: ${context.scenario}`,
+    `Phone number: ${context.phoneNumber}`,
+  ];
+  if (context.duration) parts.push(`Duration: ${context.duration}`);
+  if (context.reason) parts.push(`Reason: ${context.reason}`);
+  if (context.verificationCode) parts.push(`Verification code: ${context.verificationCode}`);
+  if (context.channel) parts.push(`Channel: ${context.channel}`);
 
-  if (process.env.NODE_ENV === 'test') {
-    return fallbackText;
-  }
+  parts.push('');
+  parts.push(
+    'Write a brief (1-2 sentence) status update about this phone call event for the user. '
+    + 'Preserve all factual details exactly (phone numbers, durations, failure reasons, verification codes). '
+    + 'Be concise, natural, and informative.',
+  );
 
-  if (generator) {
-    try {
-      const generated = await generator(context, options);
-      if (generated) return generated;
-    } catch (err) {
-      log.warn({ err, scenario: context.scenario }, 'Failed to generate pointer copy, using fallback');
-    }
-  }
-
-  return fallbackText;
-}
-
-/** @internal Exported for use by the daemon-injected generator implementation. */
-export function buildPointerGenerationPrompt(
-  context: CallPointerMessageContext,
-  fallbackText: string,
-  requiredFacts: string[] | undefined,
-): string {
-  const factClause = requiredFacts && requiredFacts.length > 0
-    ? `Required facts to include: ${requiredFacts.join(', ')}.\n`
-    : '';
-  return [
-    'Rewrite the following call status message as a natural, conversational update.',
-    'Keep the same concrete facts (phone number, duration, failure reason, verification status).',
-    factClause,
-    `Context JSON: ${JSON.stringify(context)}`,
-    `Fallback message: ${fallbackText}`,
-  ].filter(Boolean).join('\n\n');
-}
-
-/** @internal Exported for use by the daemon-injected generator implementation. */
-export function includesRequiredFacts(text: string, requiredFacts: string[] | undefined): boolean {
-  if (!requiredFacts || requiredFacts.length === 0) return true;
-  return requiredFacts.every((fact) => text.includes(fact));
+  return parts.join('\n');
 }
 
 // ---------------------------------------------------------------------------
@@ -119,8 +62,7 @@ export function includesRequiredFacts(text: string, requiredFacts: string[] | un
 /**
  * Return a scenario-specific deterministic fallback message.
  *
- * These preserve the exact semantics of the original hard-coded pointer
- * templates from call-pointer-messages.ts.
+ * Used for untrusted audiences and when the daemon processor is unavailable.
  */
 export function getPointerFallbackMessage(context: CallPointerMessageContext): string {
   switch (context.scenario) {
