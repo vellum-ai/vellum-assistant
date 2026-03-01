@@ -24,27 +24,40 @@ export function resolveUserReference(): string {
 }
 
 /**
- * Resolve the user's pronouns from the Onboarding Snapshot section of
- * USER.md.  Returns `null` when the file is missing, the field is empty,
- * or the value is a sentinel like `declined_by_user`.
+ * Resolve the user's pronouns from USER.md.  Returns `null` when the
+ * file is missing, the field is empty, or the value is a sentinel like
+ * `declined_by_user`.
  *
- * The match is scoped to lines after "## Onboarding Snapshot" to avoid
- * false matches against free-form notes earlier in the file.
+ * Checks the Onboarding Snapshot section first (structured `- Pronouns:`
+ * field), then falls back to a file-wide `Pronouns:` match so that
+ * pronouns set or updated outside of onboarding are still picked up.
  */
 export function resolveUserPronouns(): string | null {
   const content = readTextFileSync(getWorkspacePromptPath('USER.md'));
-  if (content != null) {
-    // Only search within the Onboarding Snapshot section
-    const snapshotIdx = content.indexOf('## Onboarding Snapshot');
-    const section = snapshotIdx >= 0 ? content.slice(snapshotIdx) : content;
+  if (content == null) return null;
+
+  // Prefer the structured field in the Onboarding Snapshot section.
+  const snapshotIdx = content.indexOf('## Onboarding Snapshot');
+  if (snapshotIdx >= 0) {
+    const section = content.slice(snapshotIdx);
     const match = section.match(/^- Pronouns:[ \t]*(.*)/m);
     if (match && match[1].trim()) {
-      const raw = match[1].trim();
-      if (raw === 'declined_by_user') return null;
-      // Strip "inferred: " prefix for clean output
-      return raw.replace(/^inferred:\s*/i, '');
+      return cleanPronounValue(match[1].trim());
     }
   }
 
+  // Fallback: match anywhere in the file (e.g. set in the Details section
+  // after onboarding).
+  const fallback = content.match(/Pronouns:[ \t]*(.*)/);
+  if (fallback && fallback[1].trim()) {
+    return cleanPronounValue(fallback[1].trim());
+  }
+
   return null;
+}
+
+function cleanPronounValue(raw: string): string | null {
+  if (raw === 'declined_by_user') return null;
+  // Strip "inferred: " prefix for clean output
+  return raw.replace(/^inferred:\s*/i, '');
 }
