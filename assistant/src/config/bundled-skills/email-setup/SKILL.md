@@ -9,7 +9,7 @@ You are setting up your own personal email address. This is a one-time operation
 
 ## Prerequisites
 
-Only proceed if the user explicitly asks you to create or set up your email address. Do NOT proactively run this skill.
+Only proceed if the user explicitly asks you to create or set up **your own** (the assistant's) email address — e.g., "set up your email", "create your email address", "I want you to have your own email". Generic email requests like "send an email", "check my email", or "set up email" are about the **user's Gmail** and should be handled by the Messaging skill, not this one. Do NOT proactively run this skill.
 
 ## Step 1: Check if Email Already Exists
 
