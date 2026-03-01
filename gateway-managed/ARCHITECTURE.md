@@ -43,6 +43,12 @@ The managed gateway is a dedicated service lane for Vellum-owned shared channel 
 - Enforces Twilio signature verification and explicit validation/auth error envelopes.
 - Defers route-resolution and downstream dispatch wiring to follow-up PRs.
 
+## P07 PR-3 scope
+
+- Adds managed Twilio voice webhook skeleton endpoint at `/webhooks/twilio/voice`.
+- Enforces Twilio signature verification and explicit validation/auth error envelopes.
+- Defers payload normalization and dispatch wiring to follow-up PRs.
+
 ## Endpoints
 
 - `GET /healthz`
@@ -51,3 +57,4 @@ The managed gateway is a dedicated service lane for Vellum-owned shared channel 
 - `GET /v1/internal/managed-gateway/readyz/`
 - `POST /v1/internal/managed-gateway/routes/resolve/`
 - `POST /webhooks/twilio/sms`
+- `POST /webhooks/twilio/voice`
