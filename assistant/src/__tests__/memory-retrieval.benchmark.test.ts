@@ -31,16 +31,13 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
-// Simulated network delay for semantic search (ms). When > 0, the mock
-// semantic search sleeps for this duration before returning, simulating the
-// Qdrant network round-trip that early termination is designed to skip.
-let semanticSearchDelayMs = 0;
+// Counter for semantic search invocations — used to verify early termination
+// skips the call entirely rather than relying on flaky wall-clock comparisons.
+let semanticSearchCallCount = 0;
 
 mock.module('../memory/search/semantic.js', () => ({
   semanticSearch: async () => {
-    if (semanticSearchDelayMs > 0) {
-      await Bun.sleep(semanticSearchDelayMs);
-    }
+    semanticSearchCallCount++;
     return [];
   },
   isQdrantConnectionError: () => false,
@@ -305,14 +302,10 @@ describe('Memory retrieval benchmark', () => {
     expect(recall.selectedCount).toBeGreaterThan(0);
   });
 
-  test('early termination is measurably faster than baseline', async () => {
-    const conversationId = 'conv-bench-et-delta';
+  test('early termination skips semantic search entirely', async () => {
+    const conversationId = 'conv-bench-et-skip';
     const now = 1_700_500_000_000;
     seedMemoryItems(conversationId, 500, now);
-
-    // Simulate the Qdrant network round-trip that ET is designed to skip.
-    // Use 250ms to dominate over variable CPU-bound work on slower CI hosts.
-    semanticSearchDelayMs = 250;
 
     const query = 'What do we know about topic-5 and keyword-3?';
 
@@ -363,40 +356,22 @@ describe('Memory retrieval benchmark', () => {
       },
     };
 
-    try {
-      // Warm up to avoid cold-start bias
-      await buildMemoryRecall(query, conversationId, etConfig);
-      await buildMemoryRecall(query, conversationId, noEtConfig);
+    // Run with ET enabled — semantic search should be skipped
+    semanticSearchCallCount = 0;
+    const etRecall = await buildMemoryRecall(query, conversationId, etConfig);
+    const etCalls = semanticSearchCallCount;
 
-      const iterations = 9;
-      const etTimes: number[] = [];
-      const baselineTimes: number[] = [];
+    expect(etRecall.earlyTerminated).toBe(true);
+    expect(etRecall.semanticHits).toBe(0);
+    expect(etCalls).toBe(0);
 
-      for (let i = 0; i < iterations; i++) {
-        const t0 = performance.now();
-        const etRecall = await buildMemoryRecall(query, conversationId, etConfig);
-        etTimes.push(performance.now() - t0);
-        expect(etRecall.earlyTerminated).toBe(true);
+    // Run without ET — semantic search should be invoked
+    semanticSearchCallCount = 0;
+    const baselineRecall = await buildMemoryRecall(query, conversationId, noEtConfig);
+    const baselineCalls = semanticSearchCallCount;
 
-        const t1 = performance.now();
-        const baselineRecall = await buildMemoryRecall(query, conversationId, noEtConfig);
-        baselineTimes.push(performance.now() - t1);
-        expect(baselineRecall.earlyTerminated).toBe(false);
-      }
-
-      etTimes.sort((a, b) => a - b);
-      baselineTimes.sort((a, b) => a - b);
-      const medianEt = etTimes[Math.floor(iterations / 2)];
-      const medianBaseline = baselineTimes[Math.floor(iterations / 2)];
-
-      // ET skips the mocked network delay, so it should be measurably faster.
-      // Use a 10% threshold to tolerate slower CI hosts where CPU-bound work
-      // takes longer relative to the fixed mock delay.
-      const speedup = 1 - medianEt / medianBaseline;
-      expect(speedup).toBeGreaterThanOrEqual(0.10);
-    } finally {
-      semanticSearchDelayMs = 0;
-    }
+    expect(baselineRecall.earlyTerminated).toBe(false);
+    expect(baselineCalls).toBeGreaterThan(0);
   });
 
   test('recall.latencyMs tracks wall-clock within 50% tolerance', async () => {

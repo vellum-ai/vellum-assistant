@@ -92,19 +92,36 @@ mock.module('../tools/skills/skill-tool-factory.js', () => ({
 }));
 
 // node:fs mock — TOOLS.json always exists for fake skills.
-// Must include all named exports that transitive deps import, otherwise
+// Must include ALL named exports that any transitive dep imports, otherwise
 // Bun's module resolver throws "Export named '…' not found".
+const statStub = () => ({ isSymbolicLink: () => false, isDirectory: () => false, isFile: () => true });
 mock.module('node:fs', () => ({
   existsSync: () => true,
   readFileSync: () => '',
-  lstatSync: () => ({ isSymbolicLink: () => false, isDirectory: () => false, isFile: () => true }),
+  lstatSync: statStub,
   readdirSync: () => [],
   realpathSync: (p: string) => p,
-  statSync: () => ({ isSymbolicLink: () => false, isDirectory: () => false, isFile: () => true }),
+  statSync: statStub,
+  statfsSync: statStub,
   mkdirSync: () => undefined,
+  mkdtempSync: () => '/tmp/mock',
   renameSync: () => undefined,
   rmSync: () => undefined,
+  unlinkSync: () => undefined,
   writeFileSync: () => undefined,
+  appendFileSync: () => undefined,
+  copyFileSync: () => undefined,
+  cpSync: () => undefined,
+  chmodSync: () => undefined,
+  symlinkSync: () => undefined,
+  utimesSync: () => undefined,
+  openSync: () => 0,
+  closeSync: () => undefined,
+  readSync: () => 0,
+  createWriteStream: () => ({ write: () => true, end: () => {}, on: () => {} }),
+  watch: () => ({ close: () => {} }),
+  Dirent: class {},
+  Stats: class {},
 }));
 
 const benchmarkRegistry = new Map<string, unknown>();

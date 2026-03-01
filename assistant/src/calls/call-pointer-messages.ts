@@ -13,8 +13,8 @@ import * as conversationStore from '../memory/conversation-store.js';
 import { getLogger } from '../util/logger.js';
 import {
   buildPointerInstruction,
-  getPointerFallbackMessage,
   type CallPointerMessageContext,
+  getPointerFallbackMessage,
 } from './call-pointer-message-composer.js';
 
 const log = getLogger('call-pointer-messages');
