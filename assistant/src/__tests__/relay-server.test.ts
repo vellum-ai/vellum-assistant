@@ -44,6 +44,13 @@ mock.module('../util/logger.js', () => ({
     }),
 }));
 
+// ── Identity helpers mock ─────────────────────────────────────────────
+
+let mockAssistantName: string | null = 'Vellum';
+mock.module('../daemon/identity-helpers.js', () => ({
+  getAssistantName: () => mockAssistantName,
+}));
+
 // ── Config mock ─────────────────────────────────────────────────────
 
 const mockConfig = {
@@ -1915,10 +1922,11 @@ describe('relay-server', () => {
     // Should be in the name capture state (not denied)
     expect(relay.getConnectionState()).toBe('awaiting_name');
 
-    // Should have sent the name capture prompt
+    // Should have sent the name capture prompt with assistant name + guardian label
     const textMessages = ws.sentMessages
       .map((raw) => JSON.parse(raw) as { type: string; token?: string })
       .filter((m) => m.type === 'text');
+    expect(textMessages.some((m) => (m.token ?? '').includes('Hi, this is Vellum,'))).toBe(true);
     expect(textMessages.some((m) => (m.token ?? '').includes("don't recognize this number"))).toBe(true);
     expect(textMessages.some((m) => (m.token ?? '').includes('Can I get your name'))).toBe(true);
 
@@ -1927,6 +1935,46 @@ describe('relay-server', () => {
     expect(events.some((e) => e.eventType === 'inbound_acl_name_capture_started')).toBe(true);
 
     relay.destroy();
+  });
+
+  test('inbound voice: unknown caller name capture uses fallback when assistant name is unavailable', async () => {
+    const prevName = mockAssistantName;
+    mockAssistantName = null;
+    try {
+      ensureConversation('conv-invite-no-name');
+      const session = createCallSession({
+        conversationId: 'conv-invite-no-name',
+        provider: 'twilio',
+        fromNumber: '+15558885556',
+        toNumber: '+15551111111',
+        assistantId: 'self',
+      });
+
+      const { ws, relay } = createMockWs(session.id);
+
+      await relay.handleMessage(JSON.stringify({
+        type: 'setup',
+        callSid: 'CA_invite_no_name',
+        from: '+15558885556',
+        to: '+15551111111',
+      }));
+
+      expect(relay.getConnectionState()).toBe('awaiting_name');
+
+      // Fallback prompt should NOT include assistant name but should include guardian label
+      const textMessages = ws.sentMessages
+        .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+        .filter((m) => m.type === 'text');
+      const promptText = textMessages.map((m) => m.token ?? '').join('');
+      expect(promptText).toContain("Hi, this is my guardian's assistant.");
+      expect(promptText).not.toContain('Vellum');
+      expect(promptText).toContain("don't recognize this number");
+      expect(promptText).toContain('Can I get your name');
+
+      relay.destroy();
+    } finally {
+      mockAssistantName = prevName;
+    }
   });
 
   // ── Friend-initiated in-call guardian approval flow ────────────────────
@@ -2156,7 +2204,7 @@ describe('relay-server', () => {
     relay.destroy();
   });
 
-  test('name capture flow: approved access request activates caller and continues call', async () => {
+  test('name capture flow: approved access request activates caller with deterministic handoff copy', async () => {
     ensureConversation('conv-access-approved');
     const session = createCallSession({
       conversationId: 'conv-access-approved',
@@ -2166,9 +2214,10 @@ describe('relay-server', () => {
       assistantId: 'self',
     });
 
-    mockSendMessage.mockImplementation(createMockProviderResponse(['I can help you with that.']));
+    // Track provider calls to verify no LLM turn is triggered on approval
+    const providerCallCountBefore = mockSendMessage.mock.calls.length;
 
-    const { relay } = createMockWs(session.id);
+    const { ws, relay } = createMockWs(session.id);
 
     await relay.handleMessage(JSON.stringify({
       type: 'setup',
@@ -2209,9 +2258,19 @@ describe('relay-server', () => {
     // Should have transitioned to connected state
     expect(relay.getConnectionState()).toBe('connected');
 
+    // Verify deterministic handoff copy was sent (not an LLM-generated response)
+    const textMessages = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+      .filter((m) => m.type === 'text');
+    expect(textMessages.some((m) => (m.token ?? '').includes('said I can speak with you. How can I help?'))).toBe(true);
+
+    // Verify no provider (LLM) call was made as part of the approval handoff
+    expect(mockSendMessage.mock.calls.length).toBe(providerCallCountBefore);
+
     // Verify events
     const events = getCallEvents(session.id);
     expect(events.some((e) => e.eventType === 'inbound_acl_access_approved')).toBe(true);
+    expect(events.some((e) => e.eventType === 'inbound_acl_post_approval_handoff_spoken')).toBe(true);
 
     // Session should be in_progress
     const updated = getCallSession(session.id);
