@@ -12,6 +12,7 @@ import type { ServerWebSocket } from 'bun';
 
 import { getConfig } from '../config/loader.js';
 import { getCanonicalGuardianRequest } from '../memory/canonical-guardian-store.js';
+import { listActiveBindingsByAssistant } from '../memory/channel-guardian-store.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { findActiveVoiceInvites } from '../memory/ingress-invite-store.js';
 import { upsertMember } from '../memory/ingress-member-store.js';
@@ -1535,10 +1536,24 @@ export class RelayConnection {
    */
   private resolveGuardianLabel(): string {
     const assistantId = this.accessRequestAssistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
-    const binding = getGuardianBinding(assistantId, 'voice');
-    if (binding?.metadataJson) {
+
+    // Try the voice-channel binding first, then fall back to any active
+    // binding for the assistant (mirrors the cross-channel fallback pattern
+    // in access-request-helper.ts).
+    let metadataJson: string | null = null;
+    const voiceBinding = getGuardianBinding(assistantId, 'voice');
+    if (voiceBinding?.metadataJson) {
+      metadataJson = voiceBinding.metadataJson;
+    } else {
+      const allBindings = listActiveBindingsByAssistant(assistantId);
+      if (allBindings.length > 0 && allBindings[0].metadataJson) {
+        metadataJson = allBindings[0].metadataJson;
+      }
+    }
+
+    if (metadataJson) {
       try {
-        const parsed = JSON.parse(binding.metadataJson) as Record<string, unknown>;
+        const parsed = JSON.parse(metadataJson) as Record<string, unknown>;
         if (typeof parsed.displayName === 'string' && parsed.displayName.trim().length > 0) {
           return parsed.displayName.trim();
         }
@@ -1676,33 +1691,44 @@ export class RelayConnection {
 
     if (classification === 'empty') return;
 
-    // Enforce cooldown to prevent spam
+    const guardianLabel = this.resolveGuardianLabel();
+
+    // Callback decisions must always be processed regardless of cooldown —
+    // the caller is answering a direct question and dropping their response
+    // would silently discard their decision.
+    switch (classification) {
+      case 'callback_opt_in': {
+        this.callbackOptIn = true;
+        this.lastInWaitReplyAt = now;
+        recordCallEvent(this.callSessionId, 'voice_guardian_wait_callback_opt_in_set', {});
+        this.sendTextToken(
+          `Noted, I'll make sure ${guardianLabel} knows you'd like a callback. For now, I'll keep trying to reach them.`,
+          true,
+        );
+        return;
+      }
+      case 'callback_decline': {
+        this.callbackOptIn = false;
+        this.lastInWaitReplyAt = now;
+        recordCallEvent(this.callSessionId, 'voice_guardian_wait_callback_opt_in_declined', {});
+        this.sendTextToken(
+          `No problem, I'll keep holding. Still waiting on ${guardianLabel}.`,
+          true,
+        );
+        return;
+      }
+      default:
+        break;
+    }
+
+    // Enforce cooldown on non-callback utterances to prevent spam
     if (now - this.lastInWaitReplyAt < RelayConnection.IN_WAIT_REPLY_COOLDOWN_MS) {
       log.debug({ callSessionId: this.callSessionId }, 'In-wait reply suppressed by cooldown');
       return;
     }
     this.lastInWaitReplyAt = now;
 
-    const guardianLabel = this.resolveGuardianLabel();
-
     switch (classification) {
-      case 'callback_opt_in': {
-        this.callbackOptIn = true;
-        recordCallEvent(this.callSessionId, 'voice_guardian_wait_callback_opt_in_set', {});
-        this.sendTextToken(
-          `Noted, I'll make sure ${guardianLabel} knows you'd like a callback. For now, I'll keep trying to reach them.`,
-          true,
-        );
-        break;
-      }
-      case 'callback_decline': {
-        recordCallEvent(this.callSessionId, 'voice_guardian_wait_callback_opt_in_declined', {});
-        this.sendTextToken(
-          `No problem, I'll keep holding. Still waiting on ${guardianLabel}.`,
-          true,
-        );
-        break;
-      }
       case 'impatient': {
         if (!this.callbackOfferMade) {
           this.callbackOfferMade = true;
