@@ -236,6 +236,36 @@ function hasActiveTwilioAuthToken(
   return false;
 }
 
+function hasActiveBearerTokenWithScope(
+  internalAuth: ManagedGatewayInternalAuthConfig,
+  requiredScope: string,
+  nowMs: number = Date.now(),
+): boolean {
+  for (const metadata of Object.values(internalAuth.bearerTokens)) {
+    if (metadata.revoked || internalAuth.revokedTokenIds.has(metadata.tokenId)) {
+      continue;
+    }
+
+    if (metadata.expiresAt) {
+      const expiresAt = Date.parse(metadata.expiresAt);
+      if (Number.isNaN(expiresAt) || expiresAt <= nowMs) {
+        continue;
+      }
+    }
+
+    if (
+      metadata.audience !== internalAuth.audience
+      || !metadata.scopes.includes(requiredScope)
+    ) {
+      continue;
+    }
+
+    return true;
+  }
+
+  return false;
+}
+
 function parseInternalAuthMode(raw: string | undefined): ManagedGatewayInternalAuthMode {
   const normalized = (raw || "bearer").trim().toLowerCase();
   if (normalized === "bearer" || normalized === "mtls") {
@@ -328,6 +358,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ManagedGateway
     if (!hasActiveTwilioAuthToken(twilio)) {
       throw new Error(
         "MANAGED_GATEWAY_TWILIO_AUTH_TOKENS must define at least one active token when managed gateway is enabled.",
+      );
+    }
+
+    if (
+      internalAuth.mode === "bearer"
+      && hasActiveTwilioAuthToken(twilio)
+      && !hasActiveBearerTokenWithScope(internalAuth, "events:dispatch")
+    ) {
+      throw new Error(
+        "At least one active bearer token must have the 'events:dispatch' scope when Twilio webhook handling is enabled.",
       );
     }
   }
