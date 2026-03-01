@@ -144,6 +144,14 @@ export async function resolveCallbackUrl(
       { err, callbackPath, type },
       'Failed to register platform callback route, falling back to direct URL',
     );
-    return directUrl();
+    try {
+      return directUrl();
+    } catch (fallbackErr) {
+      log.error(
+        { fallbackErr, callbackPath, type },
+        'Direct URL fallback also failed after platform registration failure',
+      );
+      throw err;
+    }
   }
 }
