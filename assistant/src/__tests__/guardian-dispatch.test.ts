@@ -56,11 +56,18 @@ mock.module('../memory/channel-guardian-store.js', () => ({
 mock.module('../config/loader.js', () => ({
   getConfig: () => ({
     ui: {},
-    
+
     calls: {
       userConsultTimeoutSeconds: 120,
     },
   }),
+}));
+
+// Mock guardian-vellum-migration to use a stable principal, avoiding UNIQUE
+// constraint errors when ensureVellumGuardianBinding is called across tests.
+// Returns a known principal so guardian-dispatch can attribute requests.
+mock.module('../runtime/guardian-vellum-migration.js', () => ({
+  ensureVellumGuardianBinding: () => 'test-principal-id',
 }));
 
 const emitCalls: unknown[] = [];

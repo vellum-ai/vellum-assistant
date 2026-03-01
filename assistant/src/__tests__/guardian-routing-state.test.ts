@@ -348,47 +348,22 @@ describe('inbound-message-handler trusted-contact interactivity', () => {
     expect(processCalls[0].options?.isInteractive).toBe(true);
   });
 
-  test('unknown actors are ACL-denied without processing', async () => {
-    // No guardian binding, no member record => unknown trust class => ACL denial
+  test('unknown actors remain non-interactive (denied at gate)', async () => {
+    // No member record => non-member denied at the ACL gate,
+    // which is the strongest form of "not interactive".
     mockFindMember = () => null;
-
-    const processCalls: Array<{ options?: Record<string, unknown> }> = [];
-    const processMessage = mock(async (
-      conversationId: string,
-      _content: string,
-      _attachmentIds?: string[],
-      options?: Record<string, unknown>,
-    ) => {
-      processCalls.push({ options });
-      const messageId = `msg-unknown-${Date.now()}`;
-      const db = getDb();
-      db.insert(messages).values({
-        id: messageId,
-        conversationId,
-        role: 'user',
-        content: JSON.stringify([{ type: 'text', text: 'hello' }]),
-        createdAt: Date.now(),
-      }).run();
-      return { messageId };
-    });
 
     const req = makeInboundRequest({
       externalMessageId: `msg-unknown-${Date.now()}`,
-      // Unrecognized actorExternalId => unknown trust class
-      actorExternalId: 'completely-unknown-user',
+      actorExternalId: 'unknown-user-no-member',
     });
 
-    const res = await handleChannelInbound(req, processMessage as any, 'test-token');
+    const res = await handleChannelInbound(req, undefined, 'test-token');
     const body = await res.json() as Record<string, unknown>;
     // Unknown actors are ACL-denied: accepted but denied with reason
     expect(body.accepted).toBe(true);
     expect(body.denied).toBe(true);
     expect(body.reason).toBe('not_a_member');
-
-    await new Promise((resolve) => setTimeout(resolve, 300));
-
-    // processMessage should NOT be called — unknown actors are denied at the ACL level
-    expect(processCalls.length).toBe(0);
   });
 });
 

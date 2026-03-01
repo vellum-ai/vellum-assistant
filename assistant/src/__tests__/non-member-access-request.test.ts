@@ -435,14 +435,14 @@ describe('access-request-helper unit tests', () => {
       channel: 'telegram',
       guardianExternalUserId: 'guardian-tg',
       guardianDeliveryChatId: 'tg-chat',
-      guardianPrincipalId: 'test-principal-id',
+      guardianPrincipalId: 'test-principal-tg',
     });
     createBinding({
       assistantId: 'self',
       channel: 'sms',
       guardianExternalUserId: 'guardian-sms',
       guardianDeliveryChatId: 'sms-chat',
-      guardianPrincipalId: 'test-principal-id-sms',
+      guardianPrincipalId: 'test-principal-sms',
     });
 
     const result = notifyGuardianOfAccessRequest({

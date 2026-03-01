@@ -285,7 +285,7 @@ describe('notification decision strategy', () => {
         sourceEventName: 'ingress.access_request',
         contextPayload: {
           senderIdentifier: 'user-123',
-          senderName: 'Bob Jones',
+          actorDisplayName: 'Bob Jones',
           sourceChannel: 'telegram',
           requestCode: 'T1G2M3',
         },
