@@ -9,7 +9,10 @@ import {
 } from "./managed-route-resolution-client.js";
 import type { ManagedGatewayUpstreamFetch } from "./route-resolve.js";
 import { normalizeManagedTwilioSmsPayload } from "./twilio-normalize.js";
-import { validateManagedTwilioSignature } from "./twilio-signature.js";
+import {
+  buildManagedSignatureUrlCandidates,
+  validateManagedTwilioSignature,
+} from "./twilio-signature.js";
 
 export const MANAGED_TWILIO_SMS_WEBHOOK_PATH = "/webhooks/twilio/sms";
 
@@ -56,22 +59,11 @@ export async function handleManagedTwilioSmsWebhook(
   }
 
   const params = new URLSearchParams(rawBody);
-  const payload = parseSmsPayload(params);
-  if (!payload) {
-    return Response.json(
-      {
-        error: {
-          code: "validation_error",
-          detail: "Invalid managed Twilio SMS webhook payload.",
-        },
-      },
-      { status: 400 },
-    );
-  }
+  const paramsRecord = toRecord(params);
 
   const verification = validateManagedTwilioSignature(config, {
-    url: request.url,
-    params: toRecord(params),
+    url: buildManagedSignatureUrlCandidates(request),
+    params: paramsRecord,
     signature: request.headers.get("x-twilio-signature"),
   });
   if (!verification.ok) {
@@ -86,7 +78,20 @@ export async function handleManagedTwilioSmsWebhook(
     );
   }
 
-  const normalizedEvent = normalizeManagedTwilioSmsPayload(toRecord(params));
+  const payload = parseSmsPayload(params);
+  if (!payload) {
+    return Response.json(
+      {
+        error: {
+          code: "validation_error",
+          detail: "Invalid managed Twilio SMS webhook payload.",
+        },
+      },
+      { status: 400 },
+    );
+  }
+
+  const normalizedEvent = normalizeManagedTwilioSmsPayload(paramsRecord);
   const routeResolution = await resolveManagedRoute(config, {
     routeType: "sms",
     identityKey: payload.to,

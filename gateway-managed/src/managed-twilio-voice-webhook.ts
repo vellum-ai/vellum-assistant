@@ -9,7 +9,10 @@ import {
 } from "./managed-route-resolution-client.js";
 import type { ManagedGatewayUpstreamFetch } from "./route-resolve.js";
 import { normalizeManagedTwilioVoicePayload } from "./twilio-normalize.js";
-import { validateManagedTwilioSignature } from "./twilio-signature.js";
+import {
+  buildManagedSignatureUrlCandidates,
+  validateManagedTwilioSignature,
+} from "./twilio-signature.js";
 
 export const MANAGED_TWILIO_VOICE_WEBHOOK_PATH = "/webhooks/twilio/voice";
 
@@ -56,22 +59,11 @@ export async function handleManagedTwilioVoiceWebhook(
   }
 
   const params = new URLSearchParams(rawBody);
-  const payload = parseVoicePayload(params);
-  if (!payload) {
-    return Response.json(
-      {
-        error: {
-          code: "validation_error",
-          detail: "Invalid managed Twilio voice webhook payload.",
-        },
-      },
-      { status: 400 },
-    );
-  }
+  const paramsRecord = toRecord(params);
 
   const verification = validateManagedTwilioSignature(config, {
-    url: request.url,
-    params: toRecord(params),
+    url: buildManagedSignatureUrlCandidates(request),
+    params: paramsRecord,
     signature: request.headers.get("x-twilio-signature"),
   });
   if (!verification.ok) {
@@ -86,7 +78,20 @@ export async function handleManagedTwilioVoiceWebhook(
     );
   }
 
-  const normalizedEvent = normalizeManagedTwilioVoicePayload(toRecord(params));
+  const payload = parseVoicePayload(params);
+  if (!payload) {
+    return Response.json(
+      {
+        error: {
+          code: "validation_error",
+          detail: "Invalid managed Twilio voice webhook payload.",
+        },
+      },
+      { status: 400 },
+    );
+  }
+
+  const normalizedEvent = normalizeManagedTwilioVoicePayload(paramsRecord);
   const routeResolution = await resolveManagedRoute(config, {
     routeType: "voice",
     identityKey: payload.to,
