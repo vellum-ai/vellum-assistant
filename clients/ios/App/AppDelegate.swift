@@ -76,6 +76,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     let clientProvider: ClientProvider
     let authManager = AuthManager()
     let ambientAgentManager = AmbientAgentManager()
+    private var actorTokenBootstrapTask: Task<Void, Never>?
     override init() {
         self.clientProvider = ClientProvider(client: DaemonClient(config: .fromUserDefaults()))
         super.init()
@@ -188,6 +189,60 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         log.info("v4 pairing migration complete — legacy pairing state cleared")
     }
 
+
+    // MARK: - Actor Token Bootstrap
+
+    /// Bootstraps the actor token after pairing so iOS has a fresh token.
+    /// The bootstrap endpoint is idempotent so re-calling is safe.
+    /// Waits for the daemon to become reachable and retries with
+    /// exponential backoff.
+    func ensureActorTokenBootstrap() {
+        actorTokenBootstrapTask?.cancel()
+
+        actorTokenBootstrapTask = Task { [weak self] in
+            guard let self else { return }
+
+            let deviceId = Self.getOrCreateDeviceId()
+            var delay: UInt64 = 2_000_000_000 // 2 seconds initial
+            let maxDelay: UInt64 = 60_000_000_000 // 60 seconds cap
+
+            var connectionDelay: UInt64 = 2_000_000_000 // 2 seconds initial
+            let connectionMaxDelay: UInt64 = 300_000_000_000 // 5 minutes cap
+
+            while !Task.isCancelled {
+                guard self.clientProvider.client.isConnected else {
+                    try? await Task.sleep(nanoseconds: connectionDelay)
+                    connectionDelay = min(connectionDelay * 2, connectionMaxDelay)
+                    continue
+                }
+
+                guard let daemon = self.clientProvider.client as? DaemonClient else { return }
+                let success = await daemon.bootstrapActorToken(
+                    platform: "ios",
+                    deviceId: deviceId
+                )
+
+                if success {
+                    log.info("Actor token bootstrap succeeded")
+                    return
+                }
+
+                let jitter = UInt64.random(in: 0...(delay / 4))
+                try? await Task.sleep(nanoseconds: delay + jitter)
+                delay = min(delay * 2, maxDelay)
+            }
+        }
+    }
+
+    /// Stable device ID stored in Keychain, shared with QRPairingSheet.
+    private static func getOrCreateDeviceId() -> String {
+        if let existing = APIKeyManager.shared.getAPIKey(provider: "pairing-device-id"), !existing.isEmpty {
+            return existing
+        }
+        let newId = UUID().uuidString
+        _ = APIKeyManager.shared.setAPIKey(newId, provider: "pairing-device-id")
+        return newId
+    }
 
     func application(
         _ application: UIApplication,
