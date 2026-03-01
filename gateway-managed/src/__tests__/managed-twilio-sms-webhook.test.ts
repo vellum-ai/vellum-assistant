@@ -1,13 +1,15 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 
 import { loadConfig } from "../config.js";
 import { createManagedGatewayAppFetch } from "../http.js";
 import { MANAGED_TWILIO_SMS_WEBHOOK_PATH } from "../managed-twilio-sms-webhook.js";
+import type { ManagedGatewayUpstreamFetch } from "../route-resolve.js";
 import { computeTwilioSignature } from "../twilio-signature.js";
 
 const FAR_FUTURE = "2099-01-01T00:00:00.000Z";
 
 type EnvOverrides = Record<string, string | undefined>;
+type MockedFetch = ReturnType<typeof mock<ManagedGatewayUpstreamFetch>>;
 
 function makeConfig(overrides: EnvOverrides = {}): ReturnType<typeof loadConfig> {
   return loadConfig({
@@ -55,7 +57,24 @@ function makeRequest(
 describe("managed Twilio SMS webhook skeleton", () => {
   test("returns 202 for valid signed Twilio SMS payload", async () => {
     const config = makeConfig();
-    const handler = createManagedGatewayAppFetch(config);
+    const fetchMock: MockedFetch = mock(async () => {
+      return new Response(
+        JSON.stringify({
+          route_id: "87c8dd8f-1f92-45c4-a524-126cf59fd760",
+          assistant_id: "8aa67431-9f28-40c0-98a5-e49d83bd15ab",
+          provider: "twilio",
+          route_type: "sms",
+          identity_key: "+15559999999",
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      );
+    });
+    const handler = createManagedGatewayAppFetch(config, {
+      fetchImpl: (...args) => fetchMock(...args),
+    });
     const payload = new URLSearchParams({
       From: "+15550000000",
       To: "+15559999999",
@@ -82,12 +101,45 @@ describe("managed Twilio SMS webhook skeleton", () => {
       from: "+15550000000",
       to: "+15559999999",
       body: "hello from managed lane",
+      assistant_id: "8aa67431-9f28-40c0-98a5-e49d83bd15ab",
+      route_id: "87c8dd8f-1f92-45c4-a524-126cf59fd760",
+      normalized_event: {
+        version: "v1",
+        sourceChannel: "sms",
+        receivedAt: expect.any(String),
+        message: {
+          content: "hello from managed lane",
+          conversationExternalId: "+15550000000",
+          externalMessageId: "SM123",
+        },
+        actor: {
+          actorExternalId: "+15550000000",
+          displayName: "+15550000000",
+        },
+        source: {
+          updateId: "SM123",
+          messageId: "SM123",
+          to: "+15559999999",
+        },
+        raw: {
+          From: "+15550000000",
+          To: "+15559999999",
+          Body: "hello from managed lane",
+          MessageSid: "SM123",
+          _to: "+15559999999",
+        },
+      },
     });
   });
 
   test("returns 400 for invalid webhook payload", async () => {
     const config = makeConfig();
-    const handler = createManagedGatewayAppFetch(config);
+    const fetchMock: MockedFetch = mock(async () => {
+      throw new Error("route resolution should not be called for invalid payload");
+    });
+    const handler = createManagedGatewayAppFetch(config, {
+      fetchImpl: (...args) => fetchMock(...args),
+    });
     const payload = new URLSearchParams({
       From: "+15550000000",
       To: "+15559999999",
@@ -110,11 +162,17 @@ describe("managed Twilio SMS webhook skeleton", () => {
         detail: "Invalid managed Twilio SMS webhook payload.",
       },
     });
+    expect(fetchMock).toHaveBeenCalledTimes(0);
   });
 
   test("returns 403 for missing Twilio signature", async () => {
     const config = makeConfig();
-    const handler = createManagedGatewayAppFetch(config);
+    const fetchMock: MockedFetch = mock(async () => {
+      throw new Error("route resolution should not be called for missing signature");
+    });
+    const handler = createManagedGatewayAppFetch(config, {
+      fetchImpl: (...args) => fetchMock(...args),
+    });
     const payload = new URLSearchParams({
       From: "+15550000000",
       To: "+15559999999",
@@ -131,11 +189,17 @@ describe("managed Twilio SMS webhook skeleton", () => {
         detail: "Missing X-Twilio-Signature header.",
       },
     });
+    expect(fetchMock).toHaveBeenCalledTimes(0);
   });
 
   test("returns 403 for invalid Twilio signature", async () => {
     const config = makeConfig();
-    const handler = createManagedGatewayAppFetch(config);
+    const fetchMock: MockedFetch = mock(async () => {
+      throw new Error("route resolution should not be called for invalid signature");
+    });
+    const handler = createManagedGatewayAppFetch(config, {
+      fetchImpl: (...args) => fetchMock(...args),
+    });
     const payload = new URLSearchParams({
       From: "+15550000000",
       To: "+15559999999",
@@ -154,16 +218,67 @@ describe("managed Twilio SMS webhook skeleton", () => {
         detail: "Invalid Twilio request signature.",
       },
     });
+    expect(fetchMock).toHaveBeenCalledTimes(0);
   });
 
   test("returns 405 for unsupported method", async () => {
     const config = makeConfig();
-    const handler = createManagedGatewayAppFetch(config);
+    const fetchMock: MockedFetch = mock(async () => {
+      throw new Error("route resolution should not be called for GET");
+    });
+    const handler = createManagedGatewayAppFetch(config, {
+      fetchImpl: (...args) => fetchMock(...args),
+    });
     const response = await handler(
       makeRequest(new URLSearchParams(), {}, "GET"),
     );
 
     expect(response.status).toBe(405);
     expect(response.headers.get("allow")).toBe("POST");
+    expect(fetchMock).toHaveBeenCalledTimes(0);
+  });
+
+  test("returns 404 when managed route is not found", async () => {
+    const config = makeConfig();
+    const fetchMock: MockedFetch = mock(async () => {
+      return new Response(
+        JSON.stringify({
+          error: {
+            code: "managed_route_not_found",
+            detail: "Managed route not found.",
+          },
+        }),
+        {
+          status: 404,
+          headers: { "content-type": "application/json" },
+        },
+      );
+    });
+    const handler = createManagedGatewayAppFetch(config, {
+      fetchImpl: (...args) => fetchMock(...args),
+    });
+    const payload = new URLSearchParams({
+      From: "+15550000000",
+      To: "+15559999999",
+      Body: "hello",
+      MessageSid: "SM126",
+    });
+    const signature = computeTwilioSignature(
+      `http://managed-gateway.test${MANAGED_TWILIO_SMS_WEBHOOK_PATH}`,
+      Object.fromEntries(payload),
+      "twilio-current-secret",
+    );
+
+    const response = await handler(makeRequest(payload, {
+      "x-twilio-signature": signature,
+    }));
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "managed_route_not_found",
+        detail: "Managed route not found.",
+      },
+    });
   });
 });

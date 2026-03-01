@@ -13,7 +13,8 @@ Authz boundary:
 - revoked or expired Twilio tokens are rejected
 
 Response contract:
-- `202`: accepted stub envelope for managed SMS webhook path
+- `202`: accepted stub envelope for managed SMS webhook path, including resolved `assistant_id` and `route_id`
 - `400`: validation error envelope (`validation_error`) for malformed payloads
 - `403`: auth failure envelope for missing/invalid signatures
+- `404`: route resolution error envelope when managed route mapping is missing
 - `405`: method-not-allowed envelope for non-POST methods

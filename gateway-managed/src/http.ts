@@ -97,11 +97,11 @@ export function createManagedGatewayAppFetch(
     }
 
     if (pathname === MANAGED_TWILIO_SMS_WEBHOOK_PATH) {
-      return handleManagedTwilioSmsWebhook(request, config);
+      return handleManagedTwilioSmsWebhook(request, config, dependencies.fetchImpl);
     }
 
     if (pathname === MANAGED_TWILIO_VOICE_WEBHOOK_PATH) {
-      return handleManagedTwilioVoiceWebhook(request, config);
+      return handleManagedTwilioVoiceWebhook(request, config, dependencies.fetchImpl);
     }
 
     return Response.json({ error: "Not found" }, { status: 404 });

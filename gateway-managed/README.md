@@ -13,6 +13,7 @@ Managed gateway service skeleton for Vellum-owned shared channel identities.
 - managed Twilio SMS webhook endpoint skeleton with explicit auth/validation envelopes
 - managed Twilio voice webhook endpoint skeleton with explicit auth/validation envelopes
 - shared inbound event normalization for managed Twilio SMS and voice payloads
+- managed route-resolution call (`phone -> assistant_id`) to Django before webhook acceptance
 - health and readiness endpoints:
   - `/healthz`
   - `/readyz`
