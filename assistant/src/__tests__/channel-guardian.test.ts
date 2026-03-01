@@ -1338,7 +1338,6 @@ describe('IPC handler channel-aware guardian status', () => {
       type: 'guardian_verification',
       action: 'status',
       channel: 'telegram',
-      assistantId: 'self',
     };
 
     handleGuardianVerification(msg, mockSocket, ctx);
@@ -1358,7 +1357,6 @@ describe('IPC handler channel-aware guardian status', () => {
       type: 'guardian_verification',
       action: 'status',
       channel: 'sms',
-      assistantId: 'self',
     };
 
     handleGuardianVerification(msg, mockSocket, ctx);
@@ -1384,7 +1382,6 @@ describe('IPC handler channel-aware guardian status', () => {
       type: 'guardian_verification',
       action: 'status',
       channel: 'telegram',
-      assistantId: 'self',
     };
 
     handleGuardianVerification(msg, mockSocket, ctx);
@@ -1413,7 +1410,6 @@ describe('IPC handler channel-aware guardian status', () => {
       type: 'guardian_verification',
       action: 'status',
       channel: 'telegram',
-      assistantId: 'self',
     };
 
     handleGuardianVerification(msg, mockSocket, ctx);
@@ -1457,36 +1453,6 @@ describe('IPC handler channel-aware guardian status', () => {
     expect(resp!.channel).toBe('sms');
   });
 
-  test('status action with custom assistantId is ignored (daemon uses internal scope)', () => {
-    // Create binding under the internal scope constant — the handler always
-    // uses DAEMON_INTERNAL_ASSISTANT_ID regardless of what the caller passes.
-    createBinding({
-      assistantId: 'self',
-      channel: 'telegram',
-      guardianExternalUserId: 'user-77',
-      guardianDeliveryChatId: 'chat-77',
-    });
-
-    const { ctx, lastResponse } = createMockCtx();
-    const msg: GuardianVerificationRequest = {
-      type: 'guardian_verification',
-      action: 'status',
-      channel: 'telegram',
-      assistantId: 'asst-custom',  // ignored by handler
-    };
-
-    handleGuardianVerification(msg, mockSocket, ctx);
-
-    const resp = lastResponse();
-    expect(resp).not.toBeNull();
-    expect(resp!.success).toBe(true);
-    expect(resp!.bound).toBe(true);
-    expect(resp!.assistantId).toBe('self');
-    expect(resp!.channel).toBe('telegram');
-    expect(resp!.guardianExternalUserId).toBe('user-77');
-    expect(resp!.guardianDeliveryChatId).toBe('chat-77');
-  });
-
   test('status action for unbound sms does not return guardianDeliveryChatId', () => {
     const { ctx, lastResponse } = createMockCtx();
     const msg: GuardianVerificationRequest = {
@@ -1512,7 +1478,6 @@ describe('IPC handler channel-aware guardian status', () => {
       type: 'guardian_verification',
       action: 'status',
       channel: 'voice',
-      assistantId: 'self',
     };
 
     handleGuardianVerification(msg, mockSocket, ctx);
@@ -1529,7 +1494,6 @@ describe('IPC handler channel-aware guardian status', () => {
       type: 'guardian_verification',
       action: 'status',
       channel: 'voice',
-      assistantId: 'self',
     };
 
     handleGuardianVerification(msg, mockSocket, ctx);
@@ -1944,7 +1908,6 @@ describe('IPC handler voice guardian verification', () => {
       type: 'guardian_verification',
       action: 'create_challenge',
       channel: 'voice',
-      assistantId: 'self',
     };
 
     handleGuardianVerification(msg, mockSocket, ctx);
@@ -1965,7 +1928,6 @@ describe('IPC handler voice guardian verification', () => {
       type: 'guardian_verification',
       action: 'status',
       channel: 'voice',
-      assistantId: 'self',
     };
 
     handleGuardianVerification(msg, mockSocket, ctx);
@@ -1991,7 +1953,6 @@ describe('IPC handler voice guardian verification', () => {
       type: 'guardian_verification',
       action: 'status',
       channel: 'voice',
-      assistantId: 'self',
     };
 
     handleGuardianVerification(msg, mockSocket, ctx);
@@ -2018,7 +1979,6 @@ describe('IPC handler voice guardian verification', () => {
       type: 'guardian_verification',
       action: 'revoke',
       channel: 'voice',
-      assistantId: 'self',
     };
 
     handleGuardianVerification(msg, mockSocket, ctx);
@@ -2051,7 +2011,6 @@ describe('IPC handler voice guardian verification', () => {
       type: 'guardian_verification',
       action: 'revoke',
       channel: 'voice',
-      assistantId: 'self',
     };
 
     handleGuardianVerification(msg, mockSocket, ctx);
@@ -2516,7 +2475,6 @@ describe('outbound SMS verification', () => {
       type: 'guardian_verification',
       action: 'start_outbound',
       channel: 'sms',
-      assistantId: 'self',
       destination: '+15551234567',
     };
 
@@ -2553,7 +2511,6 @@ describe('outbound SMS verification', () => {
       type: 'guardian_verification',
       action: 'start_outbound',
       channel: 'sms',
-      assistantId: 'self',
       destination: '+15559876543',
       rebind: false,
     };
@@ -2580,7 +2537,6 @@ describe('outbound SMS verification', () => {
       type: 'guardian_verification',
       action: 'start_outbound',
       channel: 'sms',
-      assistantId: 'self',
       destination: '+15559876543',
       rebind: true,
     };
@@ -2600,7 +2556,6 @@ describe('outbound SMS verification', () => {
       type: 'guardian_verification',
       action: 'start_outbound',
       channel: 'sms',
-      assistantId: 'self',
       destination: '+15551234567',
     }, mockSocket, startCtx);
 
@@ -2610,7 +2565,6 @@ describe('outbound SMS verification', () => {
       type: 'guardian_verification',
       action: 'resend_outbound',
       channel: 'sms',
-      assistantId: 'self',
     }, mockSocket, ctx);
 
     const resp = lastResponse();
@@ -2626,7 +2580,6 @@ describe('outbound SMS verification', () => {
       type: 'guardian_verification',
       action: 'start_outbound',
       channel: 'sms',
-      assistantId: 'self',
       destination: '+15551234567',
     }, mockSocket, startCtx);
 
@@ -2644,7 +2597,6 @@ describe('outbound SMS verification', () => {
       type: 'guardian_verification',
       action: 'resend_outbound',
       channel: 'sms',
-      assistantId: 'self',
     }, mockSocket, ctx);
 
     const resp = lastResponse();
@@ -2661,7 +2613,6 @@ describe('outbound SMS verification', () => {
       type: 'guardian_verification',
       action: 'start_outbound',
       channel: 'sms',
-      assistantId: 'self',
       destination: '+15551234567',
     }, mockSocket, startCtx);
 
@@ -2681,7 +2632,6 @@ describe('outbound SMS verification', () => {
       type: 'guardian_verification',
       action: 'resend_outbound',
       channel: 'sms',
-      assistantId: 'self',
     }, mockSocket, ctx);
 
     const resp = lastResponse();
@@ -2697,7 +2647,6 @@ describe('outbound SMS verification', () => {
       type: 'guardian_verification',
       action: 'start_outbound',
       channel: 'sms',
-      assistantId: 'self',
       destination: '+15551234567',
     }, mockSocket, startCtx);
 
@@ -2711,7 +2660,6 @@ describe('outbound SMS verification', () => {
       type: 'guardian_verification',
       action: 'cancel_outbound',
       channel: 'sms',
-      assistantId: 'self',
     }, mockSocket, ctx);
 
     const resp = lastResponse();
@@ -2803,7 +2751,6 @@ describe('outbound SMS verification', () => {
       type: 'guardian_verification',
       action: 'start_outbound',
       channel: 'slack',
-      assistantId: 'self',
       destination: '@some_user',
     }, mockSocket, ctx);
 
@@ -2819,7 +2766,6 @@ describe('outbound SMS verification', () => {
       type: 'guardian_verification',
       action: 'start_outbound',
       channel: 'sms',
-      assistantId: 'self',
       // no destination
     }, mockSocket, ctx);
 
@@ -2835,7 +2781,6 @@ describe('outbound SMS verification', () => {
       type: 'guardian_verification',
       action: 'start_outbound',
       channel: 'sms',
-      assistantId: 'self',
       destination: 'not-a-phone',
     }, mockSocket, ctx);
 
@@ -2851,7 +2796,6 @@ describe('outbound SMS verification', () => {
       type: 'guardian_verification',
       action: 'start_outbound',
       channel: 'sms',
-      assistantId: 'self',
       destination: '(555) 123-4567',
     }, mockSocket, ctx);
 
@@ -2892,7 +2836,6 @@ describe('outbound SMS verification', () => {
       type: 'guardian_verification',
       action: 'cancel_outbound',
       channel: 'sms',
-      assistantId: 'self',
     }, mockSocket, ctx);
 
     const resp = lastResponse();
@@ -2917,7 +2860,6 @@ describe('outbound Telegram verification', () => {
       type: 'guardian_verification',
       action: 'start_outbound',
       channel: 'telegram',
-      assistantId: 'self',
       destination: '@someuser',
     }, mockSocket, ctx);
 
@@ -2947,7 +2889,6 @@ describe('outbound Telegram verification', () => {
       type: 'guardian_verification',
       action: 'start_outbound',
       channel: 'telegram',
-      assistantId: 'self',
       destination: 'someuser',
     }, mockSocket, ctx);
 
@@ -2964,7 +2905,6 @@ describe('outbound Telegram verification', () => {
       type: 'guardian_verification',
       action: 'start_outbound',
       channel: 'telegram',
-      assistantId: 'self',
       destination: '123456789',
     }, mockSocket, ctx);
 
@@ -3002,7 +2942,6 @@ describe('outbound Telegram verification', () => {
       type: 'guardian_verification',
       action: 'start_outbound',
       channel: 'telegram',
-      assistantId: 'self',
       destination: '@someuser',
     }, mockSocket, ctx);
 
@@ -3025,7 +2964,6 @@ describe('outbound Telegram verification', () => {
       type: 'guardian_verification',
       action: 'start_outbound',
       channel: 'telegram',
-      assistantId: 'self',
       destination: '@newuser',
       rebind: false,
     }, mockSocket, ctx);
@@ -3196,7 +3134,6 @@ describe('outbound Telegram verification', () => {
       type: 'guardian_verification',
       action: 'start_outbound',
       channel: 'telegram',
-      assistantId: 'self',
       destination: '123456789',
     }, mockSocket, startCtx);
 
@@ -3210,7 +3147,6 @@ describe('outbound Telegram verification', () => {
       type: 'guardian_verification',
       action: 'resend_outbound',
       channel: 'telegram',
-      assistantId: 'self',
     }, mockSocket, ctx);
 
     const resp = lastResponse();
@@ -3231,7 +3167,6 @@ describe('outbound Telegram verification', () => {
       type: 'guardian_verification',
       action: 'start_outbound',
       channel: 'telegram',
-      assistantId: 'self',
       destination: '@someuser',
     }, mockSocket, startCtx);
 
@@ -3240,7 +3175,6 @@ describe('outbound Telegram verification', () => {
       type: 'guardian_verification',
       action: 'resend_outbound',
       channel: 'telegram',
-      assistantId: 'self',
     }, mockSocket, ctx);
 
     const resp = lastResponse();
@@ -3256,7 +3190,6 @@ describe('outbound Telegram verification', () => {
       type: 'guardian_verification',
       action: 'start_outbound',
       channel: 'telegram',
-      assistantId: 'self',
       destination: '123456789',
     }, mockSocket, startCtx);
 
@@ -3268,7 +3201,6 @@ describe('outbound Telegram verification', () => {
       type: 'guardian_verification',
       action: 'cancel_outbound',
       channel: 'telegram',
-      assistantId: 'self',
     }, mockSocket, ctx);
 
     const resp = lastResponse();
@@ -3314,7 +3246,6 @@ describe('outbound Telegram verification', () => {
       type: 'guardian_verification',
       action: 'start_outbound',
       channel: 'telegram',
-      assistantId: 'self',
     }, mockSocket, ctx);
 
     const resp = lastResponse();
@@ -3330,7 +3261,6 @@ describe('outbound Telegram verification', () => {
       type: 'guardian_verification',
       action: 'start_outbound',
       channel: 'telegram',
-      assistantId: 'self',
       destination: '123456789',
     }, mockSocket, startCtx);
 
@@ -3350,7 +3280,6 @@ describe('outbound Telegram verification', () => {
       type: 'guardian_verification',
       action: 'resend_outbound',
       channel: 'telegram',
-      assistantId: 'self',
     }, mockSocket, ctx);
 
     const resp = lastResponse();
@@ -3366,7 +3295,6 @@ describe('outbound Telegram verification', () => {
       type: 'guardian_verification',
       action: 'start_outbound',
       channel: 'telegram',
-      assistantId: 'self',
       destination: '123456789',
     }, mockSocket, startCtx);
 
@@ -3376,7 +3304,6 @@ describe('outbound Telegram verification', () => {
       type: 'guardian_verification',
       action: 'resend_outbound',
       channel: 'telegram',
-      assistantId: 'self',
     }, mockSocket, ctx);
 
     const resp = lastResponse();
@@ -3401,7 +3328,6 @@ describe('outbound voice verification', () => {
       type: 'guardian_verification',
       action: 'start_outbound',
       channel: 'voice',
-      assistantId: 'self',
       destination: '+15551234567',
     }, mockSocket, ctx);
 
@@ -3440,7 +3366,6 @@ describe('outbound voice verification', () => {
       type: 'guardian_verification',
       action: 'start_outbound',
       channel: 'voice',
-      assistantId: 'self',
       destination: 'not-a-phone',
     }, mockSocket, ctx);
 
@@ -3456,7 +3381,6 @@ describe('outbound voice verification', () => {
       type: 'guardian_verification',
       action: 'start_outbound',
       channel: 'voice',
-      assistantId: 'self',
       destination: '555-123-4567',
     }, mockSocket, ctx);
 
@@ -3496,7 +3420,6 @@ describe('outbound voice verification', () => {
       type: 'guardian_verification',
       action: 'start_outbound',
       channel: 'voice',
-      assistantId: 'self',
       destination: '+15559876543',
       rebind: false,
     }, mockSocket, ctx);
@@ -3514,7 +3437,6 @@ describe('outbound voice verification', () => {
       type: 'guardian_verification',
       action: 'start_outbound',
       channel: 'voice',
-      assistantId: 'self',
       destination: '+15551234567',
     }, mockSocket, startCtx);
 
@@ -3524,7 +3446,6 @@ describe('outbound voice verification', () => {
       type: 'guardian_verification',
       action: 'resend_outbound',
       channel: 'voice',
-      assistantId: 'self',
     }, mockSocket, ctx);
 
     const resp = lastResponse();
@@ -3540,7 +3461,6 @@ describe('outbound voice verification', () => {
       type: 'guardian_verification',
       action: 'start_outbound',
       channel: 'voice',
-      assistantId: 'self',
       destination: '+15551234567',
     }, mockSocket, startCtx);
 
@@ -3550,7 +3470,6 @@ describe('outbound voice verification', () => {
       type: 'guardian_verification',
       action: 'cancel_outbound',
       channel: 'voice',
-      assistantId: 'self',
     }, mockSocket, ctx);
 
     const resp = lastResponse();
@@ -3588,7 +3507,6 @@ describe('outbound voice verification', () => {
       type: 'guardian_verification',
       action: 'start_outbound',
       channel: 'voice',
-      assistantId: 'self',
       destination: '+15551234567',
     }, mockSocket, ctx);
 
@@ -3604,7 +3522,6 @@ describe('outbound voice verification', () => {
       type: 'guardian_verification',
       action: 'start_outbound',
       channel: 'voice',
-      assistantId: 'self',
     }, mockSocket, ctx);
 
     const resp = lastResponse();
@@ -3637,7 +3554,6 @@ describe('M1–M4 hardening coverage', () => {
       type: 'guardian_verification',
       action: 'start_outbound',
       channel: 'sms',
-      assistantId: 'self',
       destination: '+15551234567',
     }, mockSocket, ctx);
 
@@ -3658,7 +3574,6 @@ describe('M1–M4 hardening coverage', () => {
       type: 'guardian_verification',
       action: 'start_outbound',
       channel: 'sms',
-      assistantId: 'self',
       destination: '+15551234567',
     }, mockSocket, startCtx);
 
@@ -3673,7 +3588,6 @@ describe('M1–M4 hardening coverage', () => {
       type: 'guardian_verification',
       action: 'resend_outbound',
       channel: 'sms',
-      assistantId: 'self',
     }, mockSocket, ctx);
 
     const resp = lastResponse();
@@ -3692,7 +3606,6 @@ describe('M1–M4 hardening coverage', () => {
       type: 'guardian_verification',
       action: 'start_outbound',
       channel: 'telegram',
-      assistantId: 'self',
       destination: '@someuser',
     }, mockSocket, ctx);
 
