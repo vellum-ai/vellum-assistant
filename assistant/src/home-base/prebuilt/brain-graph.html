@@ -1199,7 +1199,7 @@
     // Avoid double-initialisation if already running
     if (initialized) return;
 
-    const canvas = document.getElementById('brain-canvas-3d');
+    let canvas = document.getElementById('brain-canvas-3d');
     const panel = document.getElementById('panel-3d');
 
     const entities = (data && data.entities) || [];
@@ -1233,6 +1233,7 @@
       renderer.domElement.id = 'brain-canvas-3d';
       panel.appendChild(renderer.domElement);
     }
+    canvas = canvas || renderer.domElement;
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.setClearColor(0x000000, 0);
 
