@@ -79,10 +79,10 @@ struct CloudCredentialsStepView: View {
                 let xdgDataHome = ProcessInfo.processInfo.environment["XDG_DATA_HOME"]
                     ?? (FileManager.default.homeDirectoryForCurrentUser.path + "/.local/share")
                 let qrPath = URL(fileURLWithPath: xdgDataHome)
-                    .appendingPathComponent("vellum/pairing-qr/pairing-qr.png")
+                    .appendingPathComponent("vellum/pairing-qr/initial.png")
                 if let data = try? Data(contentsOf: qrPath), !data.isEmpty {
                     state.customQRCodeImageData = data
-                    qrCodeImageFileName = "pairing-qr.png"
+                    qrCodeImageFileName = "initial.png"
                 }
             }
             withAnimation(.easeOut(duration: 0.5).delay(0.1)) {

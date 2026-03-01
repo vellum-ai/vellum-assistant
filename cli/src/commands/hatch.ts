@@ -544,7 +544,7 @@ async function displayPairingQRCode(runtimeUrl: string, bearerToken: string | un
     // (e.g. via SCP) for pairing through the Desktop app.
     const qrDir = join(homedir(), ".vellum", "pairing-qr");
     mkdirSync(qrDir, { recursive: true });
-    const qrPngPath = join(qrDir, "pairing-qr.png");
+    const qrPngPath = join(qrDir, "initial.png");
     try {
       const pngBuffer = await QRCode.toBuffer(payload, { type: "png", width: 512 });
       writeFileSync(qrPngPath, pngBuffer);

@@ -38,11 +38,11 @@ MAC_MINI_USER="${MAC_MINI_USER:-}"
 # ---------------------------------------------------------------------------
 
 # Remote path on the Mac mini where `vellum hatch` saves the QR code PNG.
-QR_CODE_REMOTE_PATH='~/.vellum/pairing-qr/pairing-qr.png'
+QR_CODE_REMOTE_PATH='~/.vellum/pairing-qr/initial.png'
 
 # Local XDG data path so the Desktop app can auto-detect the file.
 LOCAL_DEST_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/vellum/pairing-qr"
-LOCAL_DEST="${LOCAL_DEST_DIR}/pairing-qr.png"
+LOCAL_DEST="${LOCAL_DEST_DIR}/initial.png"
 
 # ---------------------------------------------------------------------------
 # Derived values
