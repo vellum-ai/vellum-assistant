@@ -65,6 +65,11 @@ export function getGuardianWaitUpdateSteadyMaxIntervalMs(): number {
   return getConfig().calls.guardianWaitUpdateSteadyMaxIntervalMs;
 }
 
+export function getSilenceTimeoutMs(): number {
+  return 30 * 1000; // 30 seconds
+}
+
+/** @deprecated Use getSilenceTimeoutMs() for mockability in tests. */
 export const SILENCE_TIMEOUT_MS = 30 * 1000; // 30 seconds
 
 // Legacy named exports for backward compatibility (use functions above for config-backed values)

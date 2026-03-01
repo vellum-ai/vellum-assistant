@@ -58,20 +58,14 @@ mock.module('../config/loader.js', () => ({
 let mockConsultationTimeoutMs = 90_000;
 let mockSilenceTimeoutMs = 30_000;
 
-mock.module('../calls/call-constants.js', () => {
-  const mod: Record<string, unknown> = {
-    getMaxCallDurationMs: () => 12 * 60 * 1000,
-    getUserConsultationTimeoutMs: () => mockConsultationTimeoutMs,
-    MAX_CALL_DURATION_MS: 3600 * 1000,
-    USER_CONSULTATION_TIMEOUT_MS: 120 * 1000,
-  };
-  Object.defineProperty(mod, 'SILENCE_TIMEOUT_MS', {
-    get: () => mockSilenceTimeoutMs,
-    enumerable: true,
-    configurable: true,
-  });
-  return mod;
-});
+mock.module('../calls/call-constants.js', () => ({
+  getMaxCallDurationMs: () => 12 * 60 * 1000,
+  getUserConsultationTimeoutMs: () => mockConsultationTimeoutMs,
+  getSilenceTimeoutMs: () => mockSilenceTimeoutMs,
+  SILENCE_TIMEOUT_MS: 30_000,
+  MAX_CALL_DURATION_MS: 3600 * 1000,
+  USER_CONSULTATION_TIMEOUT_MS: 120 * 1000,
+}));
 
 // ── Voice session bridge mock ────────────────────────────────────────
 
