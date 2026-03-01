@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "tools": [
+    {
+      "name": "reddit_profile_ingest",
+      "description": "Fetch a Reddit user's public post and comment history and write extracted personality traits, interests, preferences, and communication style into the assistant's memory. Returns a summary of what was learned.",
+      "category": "import",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "Reddit username (without the u/ prefix)"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Number of posts/comments to fetch per endpoint (max 100, default 100)"
+          }
+        },
+        "required": ["username"]
+      },
+      "executor": "tools/reddit-profile-ingest.ts",
+      "execution_target": "host"
+    }
+  ]
+}

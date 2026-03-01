@@ -85,6 +85,12 @@
       "name": "Trusted Contacts",
       "description": "Manage trusted contacts and Telegram invite links \u2014 list, allow, revoke, block users, and create/list/revoke shareable invite links",
       "emoji": "\ud83d\udc65"
+    },
+    {
+      "id": "reddit-profile",
+      "name": "Reddit Profile Import",
+      "description": "Ingest a Reddit user's public post and comment history to initialize the assistant's personality model and memory with interests, preferences, and communication style",
+      "emoji": "\ud83e\udd16"
     }
   ]
 }
