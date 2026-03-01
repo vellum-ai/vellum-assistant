@@ -58,14 +58,6 @@ export function resolveUserPronouns(): string | null {
     }
   }
 
-  // 3. No Onboarding Snapshot header at all — match anywhere.
-  if (snapshotIdx < 0) {
-    const fallback = content.match(/Pronouns:[ \t]*(.*)/);
-    if (fallback && fallback[1].trim()) {
-      return cleanPronounValue(fallback[1].trim());
-    }
-  }
-
   return null;
 }
 
