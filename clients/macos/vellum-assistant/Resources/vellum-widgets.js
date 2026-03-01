@@ -49,6 +49,7 @@
   widgets.sparkline = function (container, data, options) {
     var el = resolveContainer(container);
     if (!el || !data || !data.length) return;
+    el.style.overflow = 'hidden';
 
     var opts = Object.assign({ width: 200, height: 40, strokeWidth: 2, fill: true }, options);
     var w = opts.width, h = opts.height;
@@ -96,6 +97,7 @@
   widgets.barChart = function (container, data, options) {
     var el = resolveContainer(container);
     if (!el || !data || !data.length) return;
+    el.style.overflow = 'hidden';
 
     var opts = Object.assign({ width: 400, height: 200, barGap: 4, showLabels: true, showValues: true, horizontal: false }, options);
     var w = opts.width, h = opts.height;
@@ -152,6 +154,7 @@
   widgets.lineChart = function (container, data, options) {
     var el = resolveContainer(container);
     if (!el || !data || !data.length) return;
+    el.style.overflow = 'hidden';
 
     var opts = Object.assign({ width: 400, height: 200, showDots: true, showGrid: true, gridLines: 4 }, options);
     var w = opts.width, h = opts.height;
@@ -222,6 +225,7 @@
   widgets.progressRing = function (container, value, options) {
     var el = resolveContainer(container);
     if (!el) return;
+    el.style.overflow = 'hidden';
 
     var opts = Object.assign({ size: 100, strokeWidth: 8 }, options);
     var s = opts.size, sw = opts.strokeWidth;
