@@ -20,6 +20,7 @@ import {
 import { emitNotificationSignal } from '../notifications/emit-signal.js';
 import { canonicalizeInboundIdentity } from '../util/canonicalize-identity.js';
 import { getLogger } from '../util/logger.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from './assistant-scope.js';
 import { getGuardianBinding } from './channel-guardian-service.js';
 
 const log = getLogger('confirmation-request-guardian-bridge');
@@ -66,7 +67,7 @@ export function bridgeConfirmationRequestToGuardian(
     guardianContext,
     conversationId,
     toolName,
-    assistantId = 'self',
+    assistantId = DAEMON_INTERNAL_ASSISTANT_ID,
   } = params;
 
   // Only bridge for trusted-contact sessions. Guardians self-approve and

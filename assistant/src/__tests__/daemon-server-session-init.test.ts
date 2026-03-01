@@ -299,6 +299,10 @@ mock.module('../memory/conversation-store.js', () => ({
   getDisplayMetaForConversations: () => new Map(),
 }));
 
+mock.module('../runtime/confirmation-request-guardian-bridge.js', () => ({
+  bridgeConfirmationRequestToGuardian: () => ({ skipped: true, reason: 'not_trusted_contact' }),
+}));
+
 mock.module('../daemon/session.js', () => ({
   Session: MockSession,
   DEFAULT_MEMORY_POLICY: MOCK_DEFAULT_MEMORY_POLICY,
