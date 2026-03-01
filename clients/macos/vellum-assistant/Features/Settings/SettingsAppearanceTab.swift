@@ -25,19 +25,22 @@ struct SettingsAppearanceTab: View {
                         .font(VFont.body)
                         .foregroundColor(VColor.textSecondary)
                     Spacer()
-                    Picker("", selection: Binding(
-                        get: { themePreference },
-                        set: { newValue in
-                            themePreference = newValue
-                            AppDelegate.shared?.applyThemePreference()
-                        }
-                    )) {
-                        Text("System").tag("system")
-                        Text("Light").tag("light")
-                        Text("Dark").tag("dark")
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(width: 200)
+                    VSegmentedControl(
+                        items: [
+                            (label: "System", tag: "system"),
+                            (label: "Light", tag: "light"),
+                            (label: "Dark", tag: "dark"),
+                        ],
+                        selection: Binding(
+                            get: { themePreference },
+                            set: { newValue in
+                                themePreference = newValue
+                                AppDelegate.shared?.applyThemePreference()
+                            }
+                        ),
+                        style: .pill
+                    )
+                    .frame(width: 220)
                 }
 
                 Divider()

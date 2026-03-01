@@ -20,13 +20,16 @@ struct ButtonsGallerySection: View {
                 VStack(alignment: .leading, spacing: VSpacing.xl) {
                     // Controls
                     HStack(spacing: VSpacing.xl) {
-                        Picker("Style", selection: $selectedStyle) {
-                            Text("Primary").tag(VButton.Style.primary)
-                            Text("Tertiary").tag(VButton.Style.tertiary)
-                            Text("Secondary").tag(VButton.Style.secondary)
-                            Text("Danger").tag(VButton.Style.danger)
-                        }
-                        .pickerStyle(.segmented)
+                        VSegmentedControl(
+                            items: [
+                                (label: "Primary", tag: VButton.Style.primary),
+                                (label: "Tertiary", tag: VButton.Style.tertiary),
+                                (label: "Secondary", tag: VButton.Style.secondary),
+                                (label: "Danger", tag: VButton.Style.danger),
+                            ],
+                            selection: $selectedStyle,
+                            style: .pill
+                        )
                         .frame(maxWidth: 300)
 
                         Toggle("Full Width", isOn: $isFullWidth)
