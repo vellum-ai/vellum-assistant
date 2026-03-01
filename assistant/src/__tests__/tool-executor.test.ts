@@ -434,7 +434,7 @@ describe('ToolExecutor contextual rule creation', () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
-  test('always_allow without selectedScope does not create a rule', async () => {
+  test('always_allow without selectedScope defaults scope to everywhere', async () => {
     checkResultOverride = { decision: 'prompt', reason: 'test prompt' };
     const spy = setupAddRuleSpy();
 
@@ -443,7 +443,9 @@ describe('ToolExecutor contextual rule creation', () => {
     const result = await executor.execute('file_read', { path: 'test.txt' }, makeContext());
 
     expect(result.isError).toBe(false);
-    expect(spy).not.toHaveBeenCalled();
+    expect(spy).toHaveBeenCalledTimes(1);
+    const [, , scope] = spy.mock.calls[0];
+    expect(scope).toBe('everywhere');
   });
 
   test('always_allow_high_risk for core tool sets allowHighRisk without execution target', async () => {
