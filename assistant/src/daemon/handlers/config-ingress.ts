@@ -199,7 +199,10 @@ export async function handleIngressConfig(
 
       // When containerized with a platform, register the Telegram callback
       // route so the platform knows how to forward Telegram webhooks.
-      if (effectiveUrl && shouldUsePlatformCallbacks()) {
+      // This must happen independently of effectiveUrl — in containerized
+      // deployments without ingress.publicBaseUrl, platform callbacks are the
+      // only way to receive Telegram webhooks.
+      if (shouldUsePlatformCallbacks()) {
         registerCallbackRoute('webhooks/telegram', 'telegram').catch((err) => {
           log.warn({ err }, 'Failed to register Telegram platform callback route');
         });
