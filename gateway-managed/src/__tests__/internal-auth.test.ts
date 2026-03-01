@@ -34,6 +34,13 @@ function makeConfig(overrides: EnvOverrides): ReturnType<typeof loadConfig> {
     MANAGED_GATEWAY_MTLS_PRINCIPAL_HEADER: "x-managed-gateway-principal",
     MANAGED_GATEWAY_MTLS_AUDIENCE_HEADER: "x-managed-gateway-audience",
     MANAGED_GATEWAY_MTLS_SCOPES_HEADER: "x-managed-gateway-scopes",
+    MANAGED_GATEWAY_TWILIO_AUTH_TOKENS: JSON.stringify({
+      "twilio-current": {
+        token_id: "twilio-2026-01",
+        auth_token: "twilio-current-secret",
+        expires_at: FAR_FUTURE,
+      },
+    }),
     ...overrides,
   };
 

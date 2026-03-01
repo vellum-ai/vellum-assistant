@@ -24,6 +24,7 @@ rg -q "kind: Deployment" "$DEPLOYMENT_MANIFEST"
 rg -q "name: managed-gateway" "$DEPLOYMENT_MANIFEST"
 rg -q "containerPort: 7831" "$DEPLOYMENT_MANIFEST"
 rg -q "MANAGED_GATEWAY_DJANGO_INTERNAL_BASE_URL" "$DEPLOYMENT_MANIFEST"
+rg -q "MANAGED_GATEWAY_TWILIO_AUTH_TOKENS" "$DEPLOYMENT_MANIFEST"
 rg -q "path: /v1/internal/managed-gateway/readyz/" "$DEPLOYMENT_MANIFEST"
 rg -q "path: /v1/internal/managed-gateway/healthz/" "$DEPLOYMENT_MANIFEST"
 

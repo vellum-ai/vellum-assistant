@@ -19,6 +19,14 @@ const BASE_ENV: NodeJS.ProcessEnv = {
   }),
   MANAGED_GATEWAY_INTERNAL_MTLS_PRINCIPALS: "managed-gateway-staging",
   MANAGED_GATEWAY_INTERNAL_REVOKED_TOKEN_IDS: "",
+  MANAGED_GATEWAY_TWILIO_AUTH_TOKENS: JSON.stringify({
+    "twilio-current": {
+      token_id: "twilio-2026-01",
+      auth_token: "twilio-current-secret",
+      expires_at: "2099-01-01T00:00:00.000Z",
+    },
+  }),
+  MANAGED_GATEWAY_TWILIO_REVOKED_TOKEN_IDS: "",
 };
 
 describe("loadConfig", () => {
@@ -114,6 +122,28 @@ describe("loadConfig", () => {
       }),
     ).toThrow(
       "MANAGED_GATEWAY_INTERNAL_MTLS_PRINCIPALS must define at least one principal when mTLS mode is enabled.",
+    );
+  });
+
+  test("requires at least one active Twilio auth token when enabled", () => {
+    expect(() =>
+      loadConfig({
+        ...BASE_ENV,
+        MANAGED_GATEWAY_TWILIO_AUTH_TOKENS: "{}",
+      }),
+    ).toThrow(
+      "MANAGED_GATEWAY_TWILIO_AUTH_TOKENS must define at least one active token when managed gateway is enabled.",
+    );
+  });
+
+  test("rejects invalid Twilio auth token catalog JSON", () => {
+    expect(() =>
+      loadConfig({
+        ...BASE_ENV,
+        MANAGED_GATEWAY_TWILIO_AUTH_TOKENS: "{invalid-json",
+      }),
+    ).toThrow(
+      "MANAGED_GATEWAY_TWILIO_AUTH_TOKENS must be valid JSON.",
     );
   });
 });
