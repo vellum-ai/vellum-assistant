@@ -26,11 +26,16 @@ function readinessResponse(): Response {
     );
   }
 
-  return Response.json({
+  const payload: Record<string, string> = {
     status: "ready",
     service: config.serviceName,
     mode: config.mode,
-  });
+  };
+  if (config.djangoInternalBaseUrl) {
+    payload.upstreamBaseUrl = config.djangoInternalBaseUrl;
+  }
+
+  return Response.json(payload);
 }
 
 function routeRequest(pathname: string): Response {

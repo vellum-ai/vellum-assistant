@@ -2,8 +2,13 @@ import { describe, expect, test } from "bun:test";
 
 import { loadConfig } from "../config.js";
 
+const BASE_ENV: NodeJS.ProcessEnv = {
+  ...process.env,
+  MANAGED_GATEWAY_DJANGO_INTERNAL_BASE_URL: "http://127.0.0.1:8000",
+};
+
 function handleRequest(url: string, env: NodeJS.ProcessEnv = process.env): Response {
-  const config = loadConfig(env);
+  const config = loadConfig({ ...BASE_ENV, ...env });
   const pathname = new URL(url).pathname;
 
   if (pathname === "/healthz" || pathname === "/v1/internal/managed-gateway/healthz/") {
@@ -28,11 +33,16 @@ function handleRequest(url: string, env: NodeJS.ProcessEnv = process.env): Respo
       );
     }
 
-    return Response.json({
+    const payload: Record<string, string> = {
       status: "ready",
       service: config.serviceName,
       mode: config.mode,
-    });
+    };
+    if (config.djangoInternalBaseUrl) {
+      payload.upstreamBaseUrl = config.djangoInternalBaseUrl;
+    }
+
+    return Response.json(payload);
   }
 
   return Response.json({ error: "Not found" }, { status: 404 });
@@ -57,6 +67,7 @@ describe("managed-gateway probes", () => {
       status: "ready",
       service: "managed-gateway",
       mode: "skeleton",
+      upstreamBaseUrl: "http://127.0.0.1:8000",
     });
   });
 
