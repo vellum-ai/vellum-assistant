@@ -253,14 +253,57 @@
       min-height: 460px;
     }
 
-    /* Brain silhouette animation */
+    /* Brain silhouette animation — gentle breathing glow */
     @keyframes brain-breathe {
-      0%, 100% { opacity: 0.4; }
-      50% { opacity: 0.7; }
+      0%, 100% {
+        opacity: 0.35;
+        filter: drop-shadow(0 0 4px rgba(138, 91, 224, 0.2));
+      }
+      50% {
+        opacity: 0.75;
+        filter: drop-shadow(0 0 12px rgba(138, 91, 224, 0.55));
+      }
     }
 
     .brain-outline {
-      animation: brain-breathe 4s ease-in-out infinite;
+      animation: brain-breathe 3.5s ease-in-out infinite;
+    }
+
+    /* ── Refresh button ─────────────────────────────────────────── */
+    .refresh-btn {
+      font-family: inherit;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 34px;
+      height: 34px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 18px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      line-height: 1;
+      padding: 0;
+    }
+
+    .refresh-btn:hover {
+      border-color: var(--accent);
+      background: var(--accent-dim);
+      color: var(--v-violet-400);
+    }
+
+    .refresh-btn:active { transform: scale(0.93); }
+
+    .refresh-btn.spinning #refresh-icon {
+      display: inline-block;
+      animation: spin 0.7s linear infinite;
+    }
+
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to   { transform: rotate(360deg); }
     }
 
     /* ── 3D Panel ─────────────────────────────────────────────── */
@@ -295,6 +338,16 @@
     .state-overlay .icon {
       font-size: 48px;
       line-height: 1;
+    }
+
+    @keyframes empty-brain-pulse {
+      0%, 100% { transform: scale(1); opacity: 0.8; }
+      50% { transform: scale(1.12); opacity: 1; }
+    }
+
+    .empty-brain-icon {
+      animation: empty-brain-pulse 2.5s ease-in-out infinite;
+      display: inline-block;
     }
 
     .state-overlay h3 {
@@ -389,6 +442,24 @@
       font-size: 12px;
     }
 
+    .legend-item input[type="checkbox"] {
+      width: 13px;
+      height: 13px;
+      accent-color: var(--accent);
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    .legend-item {
+      cursor: pointer;
+      user-select: none;
+    }
+
+    /* Dim legend item when hidden */
+    .legend-item.hidden-category {
+      opacity: 0.4;
+    }
+
     /* ── Footer ───────────────────────────────────────────────── */
     .page-footer {
       position: relative;
@@ -456,6 +527,9 @@
           <div class="brain-pulse"></div>
           <span id="badge-knowledge-count">0 knowledge items</span>
         </div>
+        <button class="refresh-btn" id="btn-refresh" onclick="refreshBrainData()" title="Refresh">
+          <span id="refresh-icon">&#x21BB;</span>
+        </button>
         <div class="mode-toggle">
           <button class="mode-btn active" id="btn-2d" onclick="switchMode('2d')">2D</button>
           <button class="mode-btn" id="btn-3d" onclick="switchMode('3d')">3D</button>
@@ -492,26 +566,59 @@
       <canvas id="brain-canvas-3d"></canvas>
     </div>
 
-    <!-- Legend -->
+    <!-- Legend with category filter checkboxes -->
     <div class="legend" id="legend">
-      <div class="legend-item"><div class="legend-dot" style="background:#22c55e"></div><span class="legend-label">👤 Person</span></div>
-      <div class="legend-item"><div class="legend-dot" style="background:#f97316"></div><span class="legend-label">📁 Project</span></div>
-      <div class="legend-item"><div class="legend-dot" style="background:#06b6d4"></div><span class="legend-label">🔧 Tool</span></div>
-      <div class="legend-item"><div class="legend-dot" style="background:#a855f7"></div><span class="legend-label">🏢 Organization</span></div>
-      <div class="legend-item"><div class="legend-dot" style="background:#eab308"></div><span class="legend-label">💡 Concept</span></div>
-      <div class="legend-item"><div class="legend-dot" style="background:#14b8a6"></div><span class="legend-label">📍 Location</span></div>
-      <div class="legend-item"><div class="legend-dot" style="background:#8b5cf6"></div><span class="legend-label">🟣 Profile</span></div>
-      <div class="legend-item"><div class="legend-dot" style="background:#3b82f6"></div><span class="legend-label">🔵 Preference</span></div>
-      <div class="legend-item"><div class="legend-dot" style="background:#ef4444"></div><span class="legend-label">🔴 Constraint</span></div>
-      <div class="legend-item"><div class="legend-dot" style="background:#f59e0b"></div><span class="legend-label">🟡 Instruction</span></div>
-      <div class="legend-item"><div class="legend-dot" style="background:#ec4899"></div><span class="legend-label">🩷 Style</span></div>
+      <label class="legend-item" data-category="person">
+        <input type="checkbox" checked data-category="person" onchange="toggleCategory(this)" />
+        <div class="legend-dot" style="background:#22c55e"></div><span class="legend-label">👤 Person</span>
+      </label>
+      <label class="legend-item" data-category="project">
+        <input type="checkbox" checked data-category="project" onchange="toggleCategory(this)" />
+        <div class="legend-dot" style="background:#f97316"></div><span class="legend-label">📁 Project</span>
+      </label>
+      <label class="legend-item" data-category="tool">
+        <input type="checkbox" checked data-category="tool" onchange="toggleCategory(this)" />
+        <div class="legend-dot" style="background:#06b6d4"></div><span class="legend-label">🔧 Tool</span>
+      </label>
+      <label class="legend-item" data-category="organization">
+        <input type="checkbox" checked data-category="organization" onchange="toggleCategory(this)" />
+        <div class="legend-dot" style="background:#a855f7"></div><span class="legend-label">🏢 Organization</span>
+      </label>
+      <label class="legend-item" data-category="concept">
+        <input type="checkbox" checked data-category="concept" onchange="toggleCategory(this)" />
+        <div class="legend-dot" style="background:#eab308"></div><span class="legend-label">💡 Concept</span>
+      </label>
+      <label class="legend-item" data-category="location">
+        <input type="checkbox" checked data-category="location" onchange="toggleCategory(this)" />
+        <div class="legend-dot" style="background:#14b8a6"></div><span class="legend-label">📍 Location</span>
+      </label>
+      <label class="legend-item" data-category="profile">
+        <input type="checkbox" checked data-category="profile" onchange="toggleCategory(this)" />
+        <div class="legend-dot" style="background:#8b5cf6"></div><span class="legend-label">🟣 Profile</span>
+      </label>
+      <label class="legend-item" data-category="preference">
+        <input type="checkbox" checked data-category="preference" onchange="toggleCategory(this)" />
+        <div class="legend-dot" style="background:#3b82f6"></div><span class="legend-label">🔵 Preference</span>
+      </label>
+      <label class="legend-item" data-category="constraint">
+        <input type="checkbox" checked data-category="constraint" onchange="toggleCategory(this)" />
+        <div class="legend-dot" style="background:#ef4444"></div><span class="legend-label">🔴 Constraint</span>
+      </label>
+      <label class="legend-item" data-category="instruction">
+        <input type="checkbox" checked data-category="instruction" onchange="toggleCategory(this)" />
+        <div class="legend-dot" style="background:#f59e0b"></div><span class="legend-label">🟡 Instruction</span>
+      </label>
+      <label class="legend-item" data-category="style">
+        <input type="checkbox" checked data-category="style" onchange="toggleCategory(this)" />
+        <div class="legend-dot" style="background:#ec4899"></div><span class="legend-label">🩷 Style</span>
+      </label>
     </div>
 
   </main>
 
   <!-- ── Footer ─────────────────────────────────────────────── -->
   <footer class="page-footer">
-    <a href="/" class="back-link">← Back to Home Base</a>
+    <a href="/v1/home-base-ui" class="back-link">← Home</a>
   </footer>
 
   <!-- ── Tooltip ─────────────────────────────────────────────── -->
@@ -526,6 +633,51 @@
   <script>
   (function () {
     'use strict';
+
+    /* ── Category filter state ───────────────────────────────── */
+    // Tracks which entity/memory types are currently hidden
+    var hiddenCategories = {};
+
+    function toggleCategory(checkbox) {
+      var cat = checkbox.getAttribute('data-category');
+      var label = checkbox.closest('.legend-item');
+      if (!checkbox.checked) {
+        hiddenCategories[cat] = true;
+        if (label) label.classList.add('hidden-category');
+      } else {
+        delete hiddenCategories[cat];
+        if (label) label.classList.remove('hidden-category');
+      }
+      // Apply visibility to 2D D3 nodes
+      d3.selectAll('.node-group').each(function(d) {
+        var type = (d.type || d.kind || '').toLowerCase();
+        var visible = !hiddenCategories[type];
+        d3.select(this).style('display', visible ? null : 'none');
+      });
+      // Apply visibility to 3D nodes if they expose a filter hook
+      if (typeof window.filterThreeDCategories === 'function') {
+        window.filterThreeDCategories(hiddenCategories);
+      }
+    }
+    window.toggleCategory = toggleCategory;
+
+    /* ── Refresh ─────────────────────────────────────────────── */
+    function refreshBrainData() {
+      var btn = document.getElementById('btn-refresh');
+      if (btn) btn.classList.add('spinning');
+      // Clear existing panels
+      var panel2d = document.getElementById('panel-2d');
+      var panel3d = document.getElementById('panel-3d');
+      // Remove overlays (empty/error states)
+      panel2d.querySelectorAll('.state-overlay').forEach(function(el) { el.remove(); });
+      panel3d.querySelectorAll('.state-overlay').forEach(function(el) { el.remove(); });
+      // Reset 3D so it can reinitialise with new data
+      if (typeof window.destroyThreeD === 'function') window.destroyThreeD();
+      loadBrainData(function () {
+        if (btn) btn.classList.remove('spinning');
+      });
+    }
+    window.refreshBrainData = refreshBrainData;
 
     /* ── Mode toggle ─────────────────────────────────────────── */
     function switchMode(mode) {
@@ -739,12 +891,15 @@
       var relations = data.relations || [];
       var memorySummary = data.memorySummary || [];
 
-      // Empty state
+      // Empty state — improved with pulsing brain emoji
       if (entities.length === 0 && memorySummary.length === 0) {
         var panel = document.getElementById('panel-2d');
         var overlay = document.createElement('div');
         overlay.className = 'state-overlay';
-        overlay.innerHTML = '<div class="icon">🌱</div><h3>Your brain is empty</h3><p>Start a conversation to grow it!</p>';
+        overlay.innerHTML =
+          '<div class="icon empty-brain-icon">&#x1F9E0;</div>' +
+          '<h3>Your brain is empty</h3>' +
+          '<p>Start a conversation to grow it!</p>';
         panel.appendChild(overlay);
         return;
       }
@@ -919,7 +1074,7 @@
     }
 
     /* ── Data fetch ───────────────────────────────────────────── */
-    async function loadBrainData() {
+    async function loadBrainData(done) {
       try {
         var apiToken = document.querySelector('meta[name="api-token"]')?.content;
         var headers = {};
@@ -930,12 +1085,18 @@
         window.brainData = data;
         updateStats(data);
         renderBrain(data);
+        // Re-apply active category filters after re-render
+        d3.selectAll('.node-group').each(function(d) {
+          var type = (d.type || d.kind || '').toLowerCase();
+          if (hiddenCategories[type]) d3.select(this).style('display', 'none');
+        });
         // If the user switched to 3D before this fetch resolved, the panel is
         // already active but initThreeD was never called. Kick it off now.
         if (document.getElementById('panel-3d').classList.contains('active') &&
             typeof window.initThreeD === 'function') {
           window.initThreeD(data);
         }
+        if (typeof done === 'function') done();
       } catch (err) {
         console.error('Brain graph load error:', err);
         var panel = document.getElementById('panel-2d');
@@ -947,6 +1108,7 @@
           '<p></p>';
         overlay.querySelector('p').textContent = err.message || 'An unexpected error occurred.';
         panel.appendChild(overlay);
+        if (typeof done === 'function') done();
       }
     }
 
@@ -1007,6 +1169,17 @@
     if (initialized && animFrameId === null && typeof animateFn === 'function') {
       animateFn();
     }
+  };
+
+  // Reset 3D state so initThreeD can be called again after a refresh
+  window.destroyThreeD = function destroyThreeD() {
+    stopAnimation();
+    if (renderer) {
+      renderer.dispose();
+      renderer = null;
+    }
+    initialized = false;
+    animateFn = null;
   };
 
   window.addEventListener('beforeunload', stopAnimation);
@@ -1224,6 +1397,16 @@
     canvas.addEventListener('mouseleave', function() {
       tooltip.classList.remove('visible');
     });
+
+    // ── Category filter for 3D nodes ──────────────────────────────
+    window.filterThreeDCategories = function (hiddenCategories) {
+      nodeMeshes.forEach(function (mesh) {
+        const entity = nodeEntityMap.get(mesh);
+        if (!entity) return;
+        const type = (entity.type || entity.kind || '').toLowerCase();
+        mesh.visible = !hiddenCategories[type];
+      });
+    };
 
     // ── Resize handler ────────────────────────────────────────────
     function onResize() {
