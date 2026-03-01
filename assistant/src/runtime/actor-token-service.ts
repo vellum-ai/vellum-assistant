@@ -143,8 +143,8 @@ export function hashToken(token: string): string {
 // Mint
 // ---------------------------------------------------------------------------
 
-/** Default TTL for actor tokens: 90 days in milliseconds. */
-const DEFAULT_TOKEN_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+/** Default TTL for actor tokens: 30 days in milliseconds. */
+const DEFAULT_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 /**
  * Mint a new actor token.

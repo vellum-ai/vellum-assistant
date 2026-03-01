@@ -1756,6 +1756,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     public struct GuardianBootstrapResponse: Decodable {
         public let guardianPrincipalId: String
         public let actorToken: String
+        public let actorTokenExpiresAt: Int?
+        public let refreshToken: String?
+        public let refreshTokenExpiresAt: Int?
+        public let refreshAfter: Int?
         public let isNew: Bool
     }
 
@@ -1808,8 +1812,23 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             }
 
             let decoded = try JSONDecoder().decode(GuardianBootstrapResponse.self, from: data)
-            ActorTokenManager.setToken(decoded.actorToken)
-            ActorTokenManager.setGuardianPrincipalId(decoded.guardianPrincipalId)
+            if let refreshToken = decoded.refreshToken,
+               let actorTokenExpiresAt = decoded.actorTokenExpiresAt,
+               let refreshTokenExpiresAt = decoded.refreshTokenExpiresAt,
+               let refreshAfter = decoded.refreshAfter {
+                ActorTokenManager.storeCredentials(
+                    actorToken: decoded.actorToken,
+                    actorTokenExpiresAt: actorTokenExpiresAt,
+                    refreshToken: refreshToken,
+                    refreshTokenExpiresAt: refreshTokenExpiresAt,
+                    refreshAfter: refreshAfter,
+                    guardianPrincipalId: decoded.guardianPrincipalId
+                )
+            } else {
+                // Legacy fallback for older runtimes that don't return refresh tokens
+                ActorTokenManager.setToken(decoded.actorToken)
+                ActorTokenManager.setGuardianPrincipalId(decoded.guardianPrincipalId)
+            }
             log.info("Actor token bootstrap succeeded (isNew=\(decoded.isNew))")
             return true
         } catch {

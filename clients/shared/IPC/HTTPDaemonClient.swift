@@ -95,6 +95,9 @@ public final class HTTPTransport {
     /// SSE reconnect task handle.
     private var sseReconnectTask: Task<Void, Never>?
 
+    /// Whether a token refresh is currently in progress (prevents overlapping refreshes).
+    private var isRefreshing = false
+
     /// Callback for incoming server messages (called on main actor).
     var onMessage: ((ServerMessage) -> Void)?
 
@@ -874,16 +877,42 @@ public final class HTTPTransport {
 
     // MARK: - 401 Recovery
 
-    /// Surface a session-expired error to the client. On iOS this means
-    /// the user must re-pair via QR code since we cannot read the token from disk.
+    /// Attempt a single token refresh and retry the original request context.
+    /// If refresh fails terminally, surface the re-pair error to the user.
     private func handleAuthenticationFailure() {
-        log.error("Authentication failed — bearer token is stale")
-        onMessage?(.sessionError(SessionErrorMessage(
-            sessionId: "",
-            code: .authenticationRequired,
-            userMessage: "Session expired. Please re-pair your device.",
-            retryable: false
-        )))
+        // Only attempt one refresh at a time
+        guard !isRefreshing else { return }
+        isRefreshing = true
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.isRefreshing = false }
+
+            let result = await ActorCredentialRefresher.refresh(
+                baseURL: self.baseURL,
+                bearerToken: self.bearerToken
+            )
+
+            switch result {
+            case .success:
+                log.info("Token refresh succeeded — reconnecting SSE")
+                // Reconnect SSE with new credentials
+                self.stopSSE()
+                self.startSSE()
+
+            case .terminalError(let reason):
+                log.error("Token refresh failed terminally: \(reason) — re-pair required")
+                self.onMessage?(.sessionError(SessionErrorMessage(
+                    sessionId: "",
+                    code: .authenticationRequired,
+                    userMessage: "Session expired. Please re-pair your device.",
+                    retryable: false
+                )))
+
+            case .transientError:
+                log.warning("Token refresh encountered transient error — will retry on next 401")
+            }
+        }
     }
 
     // MARK: - Helpers

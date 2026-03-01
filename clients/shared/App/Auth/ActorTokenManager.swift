@@ -9,6 +9,10 @@ import Foundation
 public enum ActorTokenManager {
     private static let provider = "actor-token"
     private static let guardianPrincipalIdProvider = "actor-token-guardian-principal-id"
+    private static let refreshTokenProvider = "actor-refresh-token"
+    private static let actorTokenExpiresAtProvider = "actor-token-expires-at"
+    private static let refreshTokenExpiresAtProvider = "refresh-token-expires-at"
+    private static let refreshAfterProvider = "actor-token-refresh-after"
 
     public static func getToken() -> String? {
         APIKeyManager.shared.getAPIKey(provider: provider)
@@ -19,13 +23,100 @@ public enum ActorTokenManager {
     }
 
     public static func deleteToken() {
-        _ = APIKeyManager.shared.deleteAPIKey(provider: provider)
-        _ = APIKeyManager.shared.deleteAPIKey(provider: guardianPrincipalIdProvider)
+        deleteAllCredentials()
     }
 
     /// Whether an actor token is currently stored.
     public static var hasToken: Bool {
         getToken() != nil
+    }
+
+    // MARK: - Refresh Token
+
+    public static func getRefreshToken() -> String? {
+        APIKeyManager.shared.getAPIKey(provider: refreshTokenProvider)
+    }
+
+    public static func setRefreshToken(_ token: String) {
+        _ = APIKeyManager.shared.setAPIKey(token, provider: refreshTokenProvider)
+    }
+
+    public static func deleteRefreshToken() {
+        _ = APIKeyManager.shared.deleteAPIKey(provider: refreshTokenProvider)
+    }
+
+    // MARK: - Expiry Timestamps
+
+    public static func getActorTokenExpiresAt() -> Int? {
+        guard let str = APIKeyManager.shared.getAPIKey(provider: actorTokenExpiresAtProvider) else { return nil }
+        return Int(str)
+    }
+
+    public static func setActorTokenExpiresAt(_ epoch: Int) {
+        _ = APIKeyManager.shared.setAPIKey(String(epoch), provider: actorTokenExpiresAtProvider)
+    }
+
+    public static func getRefreshTokenExpiresAt() -> Int? {
+        guard let str = APIKeyManager.shared.getAPIKey(provider: refreshTokenExpiresAtProvider) else { return nil }
+        return Int(str)
+    }
+
+    public static func setRefreshTokenExpiresAt(_ epoch: Int) {
+        _ = APIKeyManager.shared.setAPIKey(String(epoch), provider: refreshTokenExpiresAtProvider)
+    }
+
+    public static func getRefreshAfter() -> Int? {
+        guard let str = APIKeyManager.shared.getAPIKey(provider: refreshAfterProvider) else { return nil }
+        return Int(str)
+    }
+
+    public static func setRefreshAfter(_ epoch: Int) {
+        _ = APIKeyManager.shared.setAPIKey(String(epoch), provider: refreshAfterProvider)
+    }
+
+    // MARK: - Credential Bundle
+
+    /// Store the full credential set from bootstrap/pairing/refresh response.
+    public static func storeCredentials(
+        actorToken: String,
+        actorTokenExpiresAt: Int,
+        refreshToken: String,
+        refreshTokenExpiresAt: Int,
+        refreshAfter: Int,
+        guardianPrincipalId: String? = nil
+    ) {
+        setToken(actorToken)
+        setActorTokenExpiresAt(actorTokenExpiresAt)
+        setRefreshToken(refreshToken)
+        setRefreshTokenExpiresAt(refreshTokenExpiresAt)
+        setRefreshAfter(refreshAfter)
+        if let guardianPrincipalId {
+            setGuardianPrincipalId(guardianPrincipalId)
+        }
+    }
+
+    /// Delete all credentials (used during unpair/logout).
+    public static func deleteAllCredentials() {
+        _ = APIKeyManager.shared.deleteAPIKey(provider: provider)
+        _ = APIKeyManager.shared.deleteAPIKey(provider: guardianPrincipalIdProvider)
+        _ = APIKeyManager.shared.deleteAPIKey(provider: refreshTokenProvider)
+        _ = APIKeyManager.shared.deleteAPIKey(provider: actorTokenExpiresAtProvider)
+        _ = APIKeyManager.shared.deleteAPIKey(provider: refreshTokenExpiresAtProvider)
+        _ = APIKeyManager.shared.deleteAPIKey(provider: refreshAfterProvider)
+    }
+
+    // MARK: - Proactive Refresh Checks
+
+    /// Whether the access token needs proactive refresh.
+    public static var needsProactiveRefresh: Bool {
+        guard let refreshAfter = getRefreshAfter() else { return false }
+        return Int(Date().timeIntervalSince1970 * 1000) >= refreshAfter
+    }
+
+    /// Whether the refresh token is expired.
+    public static var isRefreshTokenExpired: Bool {
+        guard let expiresAt = getRefreshTokenExpiresAt() else { return true }
+        return Int(Date().timeIntervalSince1970 * 1000) >= expiresAt
     }
 
     // MARK: - Guardian Principal ID

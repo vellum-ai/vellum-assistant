@@ -132,6 +132,7 @@ import {
   handleGuardianActionsPending,
 } from './routes/guardian-action-routes.js';
 import { handleGuardianBootstrap } from './routes/guardian-bootstrap-routes.js';
+import { handleGuardianRefresh } from './routes/guardian-refresh-routes.js';
 import { handleGetIdentity,handleHealth } from './routes/identity-routes.js';
 import {
   handleBlockMember,
@@ -783,6 +784,7 @@ export class RuntimeHttpServer {
 
       // Guardian vellum channel bootstrap
       if (endpoint === 'integrations/guardian/vellum/bootstrap' && req.method === 'POST') return await handleGuardianBootstrap(req, server);
+      if (endpoint === 'integrations/guardian/vellum/refresh' && req.method === 'POST') return await handleGuardianRefresh(req);
 
       // Integrations — Twilio config
       if (endpoint === 'integrations/twilio/config' && req.method === 'GET') return handleGetTwilioConfig();

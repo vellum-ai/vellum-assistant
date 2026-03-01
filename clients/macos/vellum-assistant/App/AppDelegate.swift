@@ -357,10 +357,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         setupAutoUpdate()
         installCLISymlinkIfNeeded()
 
-        // Ensure an actor token is present. On first launch this is the
-        // initial bootstrap; on subsequent launches it retries silently
-        // if a previous attempt failed or the token was cleared.
-        ensureActorTokenBootstrap()
+        // Ensure actor credentials are present. On first launch this performs
+        // initial bootstrap; on subsequent launches it schedules proactive
+        // refresh when the access token nears expiry.
+        ensureActorCredentials()
 
         if isFirstLaunch {
             // Enter the bootstrap state machine. The sequence is:
@@ -641,51 +641,88 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         }
     }
 
-    // MARK: - Actor Token Bootstrap
+    // MARK: - Actor Token Credentials
 
-    /// Bootstraps the actor token on every launch so macOS always has a
-    /// fresh token with a 90-day TTL. The bootstrap endpoint is idempotent
-    /// so re-calling on each startup is safe. Waits for the daemon to
-    /// become reachable and retries with exponential backoff.
-    private func ensureActorTokenBootstrap() {
+    /// Schedules proactive credential refresh when the access token is near expiry.
+    /// On first launch (no actor token), falls back to bootstrap for initial issuance.
+    private func ensureActorCredentials() {
         actorTokenBootstrapTask?.cancel()
 
         actorTokenBootstrapTask = Task { [weak self] in
             guard let self else { return }
 
-            let deviceId = PairingQRCodeSheet.computeHostId()
-            var delay: UInt64 = 2_000_000_000 // 2 seconds initial
-            let maxDelay: UInt64 = 60_000_000_000 // 60 seconds cap
-
-            // Separate backoff for waiting on daemon connection, matching the
-            // iOS implementation. Prevents busy-waiting at a fixed interval
-            // when the daemon is unreachable for extended periods.
-            var connectionDelay: UInt64 = 2_000_000_000 // 2 seconds initial
-            let connectionMaxDelay: UInt64 = 300_000_000_000 // 5 minutes cap
-
-            while !Task.isCancelled {
-                // Wait for the daemon to be connected before attempting.
-                guard self.daemonClient.isConnected else {
-                    try? await Task.sleep(nanoseconds: connectionDelay)
-                    connectionDelay = min(connectionDelay * 2, connectionMaxDelay)
-                    continue
-                }
-
-                let success = await self.daemonClient.bootstrapActorToken(
-                    platform: "macos",
-                    deviceId: deviceId
-                )
-
-                if success {
-                    log.info("Actor token bootstrap succeeded")
-                    return
-                }
-
-                // Exponential backoff with jitter
-                let jitter = UInt64.random(in: 0...(delay / 4))
-                try? await Task.sleep(nanoseconds: delay + jitter)
-                delay = min(delay * 2, maxDelay)
+            // If we have no actor token at all, we need initial bootstrap
+            if !ActorTokenManager.hasToken {
+                await self.performInitialBootstrap()
             }
+
+            // Run proactive refresh loop
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 5 * 60 * 1_000_000_000) // Check every 5 minutes
+                guard !Task.isCancelled else { return }
+
+                if ActorTokenManager.needsProactiveRefresh {
+                    guard self.daemonClient.isConnected else { continue }
+
+                    let baseURL: String
+                    let bearerToken: String?
+                    if let httpTransport = self.daemonClient.httpTransport {
+                        baseURL = httpTransport.baseURL
+                        bearerToken = httpTransport.bearerToken
+                    } else if let port = self.daemonClient.httpPort {
+                        baseURL = "http://localhost:\(port)"
+                        bearerToken = readHttpToken()
+                    } else {
+                        continue
+                    }
+
+                    let result = await ActorCredentialRefresher.refresh(
+                        baseURL: baseURL,
+                        bearerToken: bearerToken
+                    )
+
+                    switch result {
+                    case .success:
+                        log.info("Proactive token refresh succeeded")
+                    case .terminalError(let reason):
+                        log.error("Proactive token refresh failed terminally: \(reason)")
+                    case .transientError:
+                        log.warning("Proactive token refresh encountered transient error — will retry")
+                    }
+                }
+            }
+        }
+    }
+
+    /// Performs the initial actor token bootstrap with exponential backoff.
+    /// Called only when no actor token exists (first launch or after credential wipe).
+    private func performInitialBootstrap() async {
+        let deviceId = PairingQRCodeSheet.computeHostId()
+        var delay: UInt64 = 2_000_000_000
+        let maxDelay: UInt64 = 60_000_000_000
+        var connectionDelay: UInt64 = 2_000_000_000
+        let connectionMaxDelay: UInt64 = 300_000_000_000
+
+        while !Task.isCancelled {
+            guard daemonClient.isConnected else {
+                try? await Task.sleep(nanoseconds: connectionDelay)
+                connectionDelay = min(connectionDelay * 2, connectionMaxDelay)
+                continue
+            }
+
+            let success = await daemonClient.bootstrapActorToken(
+                platform: "macos",
+                deviceId: deviceId
+            )
+
+            if success {
+                log.info("Initial actor token bootstrap succeeded")
+                return
+            }
+
+            let jitter = UInt64.random(in: 0...(delay / 4))
+            try? await Task.sleep(nanoseconds: delay + jitter)
+            delay = min(delay * 2, maxDelay)
         }
     }
 
@@ -839,7 +876,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
         hasSetupDaemon = false
         setupDaemonClient()
-        ensureActorTokenBootstrap()
+        ensureActorCredentials()
     }
 
     @objc func performRetire() {
