@@ -316,6 +316,7 @@ export function validateAndConsumeChallenge(
     channel,
     guardianExternalUserId: actorExternalUserId,
     guardianDeliveryChatId: actorChatId,
+    guardianPrincipalId: actorExternalUserId,
     verifiedVia: 'challenge',
     metadataJson: Object.keys(metadata).length > 0 ? JSON.stringify(metadata) : null,
   });
