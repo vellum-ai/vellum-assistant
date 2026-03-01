@@ -22,7 +22,7 @@ import type { PairingStore } from './pairing-store.js';
 export type SlashResolution =
   | { kind: 'passthrough'; content: string }
   | { kind: 'rewritten'; content: string; skillId: string }
-  | { kind: 'unknown'; message: string };
+  | { kind: 'unknown'; message: string; qrFilename?: string };
 
 // ── /pair command — module-level pairing context ────────────────────
 
@@ -354,9 +354,7 @@ export function resolveSlash(content: string, context?: SlashContext): SlashReso
 
 // ── /pair command ────────────────────────────────────────────────────
 
-async function savePairingQRCodePng(payloadJson: string): Promise<void> {
-  const qrDir = join(getWorkspaceDir(), 'pairing-qr');
-  mkdirSync(qrDir, { recursive: true });
+function buildPairingQRCodeFilename(): string {
   const now = new Date();
   const ts = [
     now.getFullYear(),
@@ -366,7 +364,13 @@ async function savePairingQRCodePng(payloadJson: string): Promise<void> {
     String(now.getMinutes()).padStart(2, '0'),
     String(now.getSeconds()).padStart(2, '0'),
   ].join('');
-  const qrPngPath = join(qrDir, `code${ts}.png`);
+  return `code${ts}.png`;
+}
+
+async function savePairingQRCodePng(payloadJson: string, filename: string): Promise<void> {
+  const qrDir = join(getWorkspaceDir(), 'pairing-qr');
+  mkdirSync(qrDir, { recursive: true });
+  const qrPngPath = join(qrDir, filename);
   const pngBuffer = await QRCode.toBuffer(payloadJson, { type: 'png', width: 512 });
   writeFileSync(qrPngPath, pngBuffer);
 }
@@ -427,7 +431,8 @@ function resolvePairCommand(content: string): SlashResolution | null {
   // Save QR code as PNG to the workspace pairing-qr folder (fire-and-forget
   // so the synchronous slash resolution is not blocked).
   const payloadJson = JSON.stringify(payload);
-  savePairingQRCodePng(payloadJson).catch(() => {});
+  const qrFilename = buildPairingQRCodeFilename();
+  savePairingQRCodePng(payloadJson, qrFilename).catch(() => {});
 
   const lines = [
     'Pairing Ready\n',
@@ -441,10 +446,11 @@ function resolvePairCommand(content: string): SlashResolution | null {
     lines.push(`LAN URL:  ${localLanUrl}`);
   }
   lines.push(
+    `\nQR code saved to pairing-qr/${qrFilename}`,
     '\nThis pairing request expires in 5 minutes. Run `/pair` again to generate a new one.',
   );
 
-  return { kind: 'unknown', message: lines.join('\n') };
+  return { kind: 'unknown', message: lines.join('\n'), qrFilename };
 }
 
 // ── Provider Ordering Error Detection ────────────────────────────────
