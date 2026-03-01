@@ -9,20 +9,18 @@ You are helping your user set up SMS messaging. This skill orchestrates Twilio s
 
 ## Step 1: Check Channel Readiness
 
-First, check the current SMS channel readiness state by sending the `channel_readiness` IPC message:
+First, check the current SMS channel readiness state via the gateway:
 
-```json
-{
-  "type": "channel_readiness",
-  "action": "get",
-  "channel": "sms"
-}
+```bash
+TOKEN=$(cat ~/.vellum/http-token)
+curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/config" \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
-Inspect the `channel_readiness_response`. The response contains `snapshots` with each channel's readiness state.
+Inspect the response for `hasCredentials` and `phoneNumber`.
 
-- If the SMS channel shows `ready: true` and all `localChecks` pass, skip to Step 3.
-- If any local checks fail, proceed to Step 2 to fix the baseline.
+- If both are present and all baseline requirements are met, skip to Step 3.
+- If credentials or phone number are missing, proceed to Step 2 to fix the baseline.
 
 ## Step 2: Establish Baseline (Twilio Setup)
 
@@ -34,47 +32,35 @@ skill_load skill=twilio-setup
 
 Tell the user: *"SMS needs Twilio configured first. I've loaded the Twilio setup guide — let's walk through it."*
 
-After twilio-setup completes, re-check readiness:
+After twilio-setup completes, re-check readiness by calling the config endpoint again:
 
-```json
-{
-  "type": "channel_readiness",
-  "action": "refresh",
-  "channel": "sms"
-}
+```bash
+TOKEN=$(cat ~/.vellum/http-token)
+curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/config" \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 If baseline is still not ready, report the specific failures and ask the user to address them before continuing.
 
 ## Step 3: Remote Compliance Check
 
-Once baseline is ready, run a full readiness check including remote (Twilio API) checks:
+Once baseline is ready, check SMS compliance status including remote (Twilio API) checks:
 
-```json
-{
-  "type": "channel_readiness",
-  "action": "refresh",
-  "channel": "sms",
-  "includeRemote": true
-}
+```bash
+TOKEN=$(cat ~/.vellum/http-token)
+curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/sms/compliance" \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
-Examine the remote check results:
-- If all remote checks pass, proceed to Step 4.
+Examine the compliance results:
+- If all checks pass, proceed to Step 4.
 - If compliance issues are found (e.g., toll-free verification needed), guide the user through the compliance flow.
 
 ### Toll-Free Verification Submission
 
-When the remote check returns `toll_free_verification` as a failing check, use the daemon's built-in IPC compliance actions. These handle credential lookup, phone number SID resolution, field validation, and Twilio API calls internally.
+When the compliance check returns a toll-free verification requirement, use the gateway's compliance endpoints. These handle credential lookup, phone number SID resolution, field validation, and Twilio API calls internally.
 
-**Step 3a: Check compliance status.** First check if a verification already exists:
-
-```json
-{
-  "type": "twilio_config",
-  "action": "sms_compliance_status"
-}
-```
+**Step 3a: Check compliance status.** First check if a verification already exists (use the response from the compliance check above):
 
 The response includes a `compliance` object with `numberType`, `tollfreePhoneNumberSid`, `verificationSid`, `verificationStatus`, `rejectionReason`, `rejectionReasons`, `editAllowed`, and `editExpiration` fields. For toll-free numbers, `tollfreePhoneNumberSid` contains the Twilio phone number SID needed for verification submission.
 
@@ -98,15 +84,16 @@ The response includes a `compliance` object with `numberType`, `tollfreePhoneNum
 | Opt-in type | `optInType` | `VERBAL`, `WEB_FORM`, `PAPER_FORM`, `VIA_TEXT`, `MOBILE_QR_CODE` |
 | Opt-in image URL | `optInImageUrls` | Array of URLs showing opt-in mechanism (can be website URL) |
 
-The `tollfreePhoneNumberSid` is returned by the `sms_compliance_status` response in the `compliance` object. Use `compliance.tollfreePhoneNumberSid` from the Step 3a response as the value for `verificationParams.tollfreePhoneNumberSid` when submitting. Do NOT ask for EIN, business registration number, or business registration authority. Explain that Twilio labels some fields as "business" fields even for individual submitters.
+The `tollfreePhoneNumberSid` is returned by the compliance status response in the `compliance` object. Use `compliance.tollfreePhoneNumberSid` from the Step 3a response as the value for `tollfreePhoneNumberSid` when submitting. Do NOT ask for EIN, business registration number, or business registration authority. Explain that Twilio labels some fields as "business" fields even for individual submitters.
 
 **Step 3c: Submit verification:**
 
-```json
-{
-  "type": "twilio_config",
-  "action": "sms_submit_tollfree_verification",
-  "verificationParams": {
+```bash
+TOKEN=$(cat ~/.vellum/http-token)
+curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/sms/compliance/tollfree" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
     "tollfreePhoneNumberSid": "<compliance.tollfreePhoneNumberSid from Step 3a>",
     "businessName": "...",
     "businessWebsite": "...",
@@ -118,11 +105,10 @@ The `tollfreePhoneNumberSid` is returned by the `sms_compliance_status` response
     "optInType": "VERBAL",
     "messageVolume": "100",
     "businessType": "SOLE_PROPRIETOR"
-  }
-}
+  }'
 ```
 
-The daemon validates all fields before submitting to Twilio and returns clear error messages for invalid values.
+The endpoint validates all fields before submitting to Twilio and returns clear error messages for invalid values.
 
 **On success:** The response contains `compliance.verificationSid` and `compliance.verificationStatus` (typically `PENDING_REVIEW`). Tell the user Twilio typically reviews within 1-5 business days.
 
@@ -130,36 +116,33 @@ The daemon validates all fields before submitting to Twilio and returns clear er
 
 **Step 3d: Update a rejected verification** (if `editAllowed` is true):
 
-```json
-{
-  "type": "twilio_config",
-  "action": "sms_update_tollfree_verification",
-  "verificationSid": "<sid from compliance status>",
-  "verificationParams": {
+```bash
+TOKEN=$(cat ~/.vellum/http-token)
+curl -s -X PATCH "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/sms/compliance/tollfree/<verificationSid>" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
     "businessName": "updated value",
     "useCaseSummary": "updated value"
-  }
-}
+  }'
 ```
 
-Only include fields that need to change. The daemon checks edit eligibility and expiration before attempting the update.
+Only include fields that need to change. The endpoint checks edit eligibility and expiration before attempting the update.
 
 **Step 3e: Delete and resubmit** (if editing is not allowed):
 
-```json
-{
-  "type": "twilio_config",
-  "action": "sms_delete_tollfree_verification",
-  "verificationSid": "<sid from compliance status>"
-}
+```bash
+TOKEN=$(cat ~/.vellum/http-token)
+curl -s -X DELETE "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/sms/compliance/tollfree/<verificationSid>" \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 After deletion, return to Step 3b to collect information and resubmit. Warn the user that deleting resets their position in the review queue.
 
 **Common errors:**
 - `"Customer profiles submitted with verifications must be either ISV Starters or Secondary Customer Profiles"` — The number is linked to a Primary Customer Profile in Trust Hub, which blocks toll-free verification. Tell the user and suggest they resolve the profile assignment in the Twilio Console.
-- Missing required fields — The daemon validates and reports which fields are missing.
-- Invalid enum values — The daemon validates `optInType`, `messageVolume`, and `useCaseCategories` and reports valid values.
+- Missing required fields — The endpoint validates and reports which fields are missing.
+- Invalid enum values — The endpoint validates `optInType`, `messageVolume`, and `useCaseCategories` and reports valid values.
 
 **On success:** Tell the user the verification has been submitted and is now `PENDING_REVIEW`. Twilio typically reviews within 1-5 business days. They'll receive status updates at the notification email provided.
 
@@ -195,11 +178,31 @@ Tell the user: *"Let's send a test SMS to verify everything works. What phone nu
 
 **Trial account limitation:** On Twilio trial accounts, SMS can only be sent to verified phone numbers. If the send fails with a "not verified" error, tell the user to verify the recipient number in the Twilio Console under Verified Caller IDs, or upgrade their account.
 
-After the user provides a number, send a test message using the messaging tools:
-- Use `messaging_send` with `platform: "sms"`, `conversation_id: "<phone number>"`, and a test message like "Test SMS from your Vellum assistant."
-- Report the result honestly:
-  - If the send succeeds: *"The message was accepted by Twilio. Note: 'accepted' means Twilio received it for delivery, not that it reached the handset yet. Delivery can take a few seconds to a few minutes. If verification is still pending, carriers may silently drop the message."*
-  - If the send fails: report the error and suggest troubleshooting steps
+After the user provides a number, send a test message via the gateway:
+
+```bash
+TOKEN=$(cat ~/.vellum/http-token)
+curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/sms/test" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"phoneNumber":"<recipient phone number>","text":"Test SMS from your Vellum assistant."}'
+```
+
+Report the result honestly:
+- If the send succeeds: *"The message was accepted by Twilio. Note: 'accepted' means Twilio received it for delivery, not that it reached the handset yet. Delivery can take a few seconds to a few minutes. If verification is still pending, carriers may silently drop the message."*
+- If the send fails: report the error and suggest troubleshooting steps
+
+### SMS Diagnostics
+
+If the test fails or the user reports SMS issues, run the SMS doctor:
+
+```bash
+TOKEN=$(cat ~/.vellum/http-token)
+curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/sms/doctor" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+This runs a comprehensive health diagnostic, checking channel readiness, compliance/toll-free verification status, and the last test result. Report the diagnostics and actionable items to the user.
 
 ## Step 5: Final Status Report
 
@@ -229,17 +232,3 @@ Common issues:
 - **"Twilio error on send"** — Check credentials, phone number assignment, and ingress
 - **"Trial account limitations"** — Explain that trial accounts can only send to verified numbers
 - **"Customer profiles must be ISV Starters or Secondary"** — The toll-free number is linked to a Primary Customer Profile in Trust Hub. Must be unlinked or reassigned before verification can be submitted.
-
-## Accessing the Twilio API
-
-The skill references IPC messages (`channel_readiness`, `twilio_config`) that are sent via Unix socket to the daemon. The assistant does not have an HTTP endpoint for IPC. Use the following pattern to send IPC messages:
-
-```bash
-cd "$(git rev-parse --show-toplevel)/assistant" && bun -e '
-import { sendOneMessage } from "./src/cli/ipc-client.js";
-const res = await sendOneMessage({ type: "twilio_config", action: "get" });
-console.log(JSON.stringify(res, null, 2));
-'
-```
-
-All compliance operations (status checks, verification submission, updates, and deletion) are handled through the `twilio_config` IPC actions — no direct Twilio REST calls are needed.

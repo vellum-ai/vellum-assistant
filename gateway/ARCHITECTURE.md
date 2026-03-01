@@ -26,6 +26,8 @@ Internet
      Gateway (http://127.0.0.1:7830)
        |
        +-- Dedicated /v1/health --> Runtime /v1/health
+       +-- /v1/integrations/twilio/* --> Runtime (Twilio control-plane proxy)
+       +-- /v1/channels/readiness* --> Runtime (channel readiness proxy)
        +-- Runtime proxy /v1/* --> Runtime (http://127.0.0.1:7821)
        +-- /webhooks/* --> BLOCKED (404, never forwarded to runtime)
 ```
@@ -153,6 +155,65 @@ Telegram integration setup/config endpoints and ingress members/invites endpoint
 | `gateway/src/http/routes/telegram-control-plane-proxy.ts` | Telegram control-plane proxy handlers and upstream forwarding |
 | `gateway/src/http/routes/ingress-control-plane-proxy.ts` | Ingress control-plane proxy handlers and upstream forwarding |
 | `gateway/src/index.ts` | Route registration and bearer-auth enforcement for `/v1/integrations/telegram/*` and `/v1/ingress/*` |
+
+### Twilio Control-Plane Proxy
+
+Twilio integration setup/config endpoints are exposed directly by the gateway and forwarded to runtime handlers even when the broad runtime proxy is disabled. This keeps skills and clients on gateway URLs exclusively.
+
+**Forwarded endpoints:**
+
+| Method | Path |
+|--------|------|
+| GET | `/v1/integrations/twilio/config` |
+| POST | `/v1/integrations/twilio/credentials` |
+| DELETE | `/v1/integrations/twilio/credentials` |
+| GET | `/v1/integrations/twilio/numbers` |
+| POST | `/v1/integrations/twilio/numbers/provision` |
+| POST | `/v1/integrations/twilio/numbers/assign` |
+| POST | `/v1/integrations/twilio/numbers/release` |
+| GET | `/v1/integrations/twilio/sms/compliance` |
+| POST | `/v1/integrations/twilio/sms/compliance/tollfree` |
+| PATCH | `/v1/integrations/twilio/sms/compliance/tollfree/:sid` |
+| DELETE | `/v1/integrations/twilio/sms/compliance/tollfree/:sid` |
+| POST | `/v1/integrations/twilio/sms/test` |
+| POST | `/v1/integrations/twilio/sms/doctor` |
+
+**Authentication boundary:**
+
+- Gateway validates caller bearer auth against the runtime token.
+- Gateway forwards requests to runtime with the runtime bearer token and `X-Gateway-Origin` proof header.
+- Upstream 4xx/5xx responses are passed through, while connection errors return `502` and timeouts return `504`.
+
+**Key source files:**
+
+| File | Purpose |
+|------|---------|
+| `gateway/src/http/routes/twilio-control-plane-proxy.ts` | Twilio control-plane proxy handlers and upstream forwarding |
+| `gateway/src/index.ts` | Route registration and bearer-auth enforcement for `/v1/integrations/twilio/*` |
+
+### Channel Readiness Proxy
+
+Channel readiness endpoints are exposed directly by the gateway and forwarded to runtime handlers even when the broad runtime proxy is disabled.
+
+**Forwarded endpoints:**
+
+| Method | Path |
+|--------|------|
+| GET | `/v1/channels/readiness` |
+| POST | `/v1/channels/readiness/refresh` |
+
+**Authentication boundary:**
+
+- Gateway validates caller bearer auth against the runtime token.
+- Gateway forwards requests to runtime with the runtime bearer token and `X-Gateway-Origin` proof header.
+- Upstream 4xx/5xx responses are passed through, while connection errors return `502` and timeouts return `504`.
+
+**Key source files:**
+
+| File | Purpose |
+|------|---------|
+| `gateway/src/http/routes/channel-readiness-proxy.ts` | Channel readiness proxy handlers and upstream forwarding |
+| `gateway/src/index.ts` | Route registration and bearer-auth enforcement for `/v1/channels/readiness*` |
 
 ### Channel Binding Lifecycle (Lane Separation)
 

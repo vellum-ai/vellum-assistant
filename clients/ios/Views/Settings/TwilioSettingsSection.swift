@@ -193,11 +193,6 @@ struct TwilioSettingsSection: View {
         .onChange(of: clientProvider.isConnected) { _, connected in
             if connected { loadStatus() }
         }
-        .onDisappear {
-            if let daemon = clientProvider.client as? DaemonClient {
-                daemon.onTwilioConfigResponse = nil
-            }
-        }
     }
 
     // MARK: - Provision Sheet
@@ -250,177 +245,183 @@ struct TwilioSettingsSection: View {
         .presentationDetents([.medium])
     }
 
-    // MARK: - IPC Actions
+    // MARK: - HTTP Endpoint Resolution
 
-    private func loadStatus() {
-        guard let daemon = clientProvider.client as? DaemonClient else { return }
-        isLoading = true
-        errorMessage = nil
+    /// Resolve the gateway base URL and bearer token for Twilio HTTP calls.
+    private func resolveHTTPEndpoint() -> (baseURL: String, bearerToken: String?)? {
+        guard let daemon = clientProvider.client as? DaemonClient else { return nil }
+        if let httpTransport = daemon.httpTransport {
+            return (httpTransport.baseURL, httpTransport.bearerToken)
+        }
+        // Local mode is not available on iOS — httpTransport is required
+        return nil
+    }
 
-        daemon.onTwilioConfigResponse = { response in
-            isLoading = false
-            isClearing = false
-            if response.success {
-                hasCredentials = response.hasCredentials
-                phoneNumber = response.phoneNumber
-                errorMessage = nil
-            } else {
-                errorMessage = response.error ?? "Failed to load Twilio status"
-            }
+    /// Perform a Twilio HTTP request and apply the response.
+    private func performHTTPRequest(
+        method: String,
+        path: String,
+        body: [String: Any]? = nil,
+        applyPhoneNumber: Bool = false,
+        applyNumbers: Bool = false
+    ) async -> Bool {
+        guard let endpoint = resolveHTTPEndpoint(),
+              let url = URL(string: "\(endpoint.baseURL)\(path)") else {
+            errorMessage = "No HTTP endpoint available"
+            return false
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.timeoutInterval = 30
+        if let token = endpoint.bearerToken, !token.isEmpty {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        if let actorToken = ActorTokenManager.getToken() {
+            request.setValue(actorToken, forHTTPHeaderField: "X-Actor-Token")
+        }
+        if let body {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         }
 
         do {
-            try daemon.sendTwilioConfig(action: "get")
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                let errorBody = String(data: data, encoding: .utf8) ?? "Request failed"
+                errorMessage = errorBody
+                return false
+            }
+
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                errorMessage = "Invalid JSON response"
+                return false
+            }
+
+            let success = json["success"] as? Bool ?? false
+            if success {
+                hasCredentials = json["hasCredentials"] as? Bool ?? false
+                if applyPhoneNumber || json["phoneNumber"] != nil {
+                    phoneNumber = json["phoneNumber"] as? String
+                }
+                if applyNumbers {
+                    availableNumbers = Self.decodeTwilioNumbers(from: json["numbers"])
+                } else if json["numbers"] != nil {
+                    availableNumbers = Self.decodeTwilioNumbers(from: json["numbers"])
+                }
+                errorMessage = nil
+                return true
+            } else {
+                errorMessage = json["error"] as? String ?? "Unknown error"
+                return false
+            }
         } catch {
-            isLoading = false
-            errorMessage = "Failed to connect to daemon"
+            errorMessage = error.localizedDescription
+            return false
         }
     }
 
-    /// Restores the default onTwilioConfigResponse handler (the one set by
-    /// loadStatus) so that subsequent responses — such as clear_credentials —
-    /// are handled correctly instead of being swallowed by a stale callback
-    /// from a previous action.
-    private func restoreDefaultHandler() {
-        guard let daemon = clientProvider.client as? DaemonClient else { return }
-        daemon.onTwilioConfigResponse = { response in
+    /// Decode the `numbers` array from the Twilio HTTP response JSON.
+    private static func decodeTwilioNumbers(from raw: Any?) -> [TwilioNumberInfo] {
+        guard let array = raw as? [[String: Any]] else { return [] }
+        return array.compactMap { dict -> TwilioNumberInfo? in
+            guard let phoneNumber = dict["phoneNumber"] as? String,
+                  let friendlyName = dict["friendlyName"] as? String,
+                  let caps = dict["capabilities"] as? [String: Any] else { return nil }
+            let voice = caps["voice"] as? Bool ?? false
+            let sms = caps["sms"] as? Bool ?? false
+            return TwilioNumberInfo(
+                phoneNumber: phoneNumber,
+                friendlyName: friendlyName,
+                capabilities: TwilioNumberCapabilities(voice: voice, sms: sms)
+            )
+        }
+    }
+
+    // MARK: - HTTP Actions
+
+    private func loadStatus() {
+        isLoading = true
+        errorMessage = nil
+        Task {
+            await performHTTPRequest(
+                method: "GET",
+                path: "/v1/integrations/twilio/config",
+                applyPhoneNumber: true
+            )
             isLoading = false
-            isClearing = false
-            if response.success {
-                hasCredentials = response.hasCredentials
-                phoneNumber = response.phoneNumber
-                errorMessage = nil
-            } else {
-                errorMessage = response.error ?? "Failed to load Twilio status"
-            }
         }
     }
 
     private func clearCredentials() {
-        guard let daemon = clientProvider.client as? DaemonClient else { return }
         isClearing = true
         errorMessage = nil
-
-        daemon.onTwilioConfigResponse = { response in
+        Task {
+            let success = await performHTTPRequest(
+                method: "DELETE",
+                path: "/v1/integrations/twilio/credentials"
+            )
             isClearing = false
-            if response.success {
-                hasCredentials = response.hasCredentials
-                phoneNumber = response.phoneNumber
+            if success {
                 availableNumbers = []
-                errorMessage = nil
-            } else {
-                errorMessage = response.error ?? "Failed to clear credentials"
             }
-            restoreDefaultHandler()
-        }
-
-        do {
-            try daemon.sendTwilioConfig(action: "clear_credentials")
-        } catch {
-            isClearing = false
-            errorMessage = "Failed to send clear request"
-            restoreDefaultHandler()
         }
     }
 
     private func listNumbers() {
-        guard let daemon = clientProvider.client as? DaemonClient else { return }
         isLoadingNumbers = true
         errorMessage = nil
-
-        daemon.onTwilioConfigResponse = { response in
+        Task {
+            let success = await performHTTPRequest(
+                method: "GET",
+                path: "/v1/integrations/twilio/numbers",
+                applyNumbers: true
+            )
             isLoadingNumbers = false
-            if response.success {
-                hasCredentials = response.hasCredentials
-                // Don't update phoneNumber here — list_numbers responses don't
-                // include a phoneNumber field, so writing it would clear the
-                // currently assigned number in the UI.
-                availableNumbers = response.numbers ?? []
-                if availableNumbers.isEmpty {
-                    errorMessage = "No numbers found on this Twilio account."
-                } else {
-                    errorMessage = nil
-                }
-            } else {
-                errorMessage = response.error ?? "Failed to list numbers"
+            if success && availableNumbers.isEmpty {
+                errorMessage = "No numbers found on this Twilio account."
             }
-            restoreDefaultHandler()
-        }
-
-        do {
-            try daemon.sendTwilioConfig(action: "list_numbers")
-        } catch {
-            isLoadingNumbers = false
-            errorMessage = "Failed to connect to daemon"
-            restoreDefaultHandler()
         }
     }
 
     private func provisionNumber() {
-        guard let daemon = clientProvider.client as? DaemonClient else { return }
         isProvisioning = true
         errorMessage = nil
-
-        daemon.onTwilioConfigResponse = { response in
+        Task {
+            var body: [String: Any] = [:]
+            if !provisionAreaCode.isEmpty { body["areaCode"] = provisionAreaCode }
+            if !provisionCountry.isEmpty { body["country"] = provisionCountry }
+            let success = await performHTTPRequest(
+                method: "POST",
+                path: "/v1/integrations/twilio/numbers/provision",
+                body: body.isEmpty ? nil : body,
+                applyPhoneNumber: true
+            )
             isProvisioning = false
-            if response.success {
-                hasCredentials = response.hasCredentials
-                phoneNumber = response.phoneNumber
+            if success {
                 showProvisionSheet = false
                 provisionAreaCode = ""
-                errorMessage = nil
                 // Refresh the number list to include the newly provisioned number
                 listNumbers()
             } else {
-                // Dismiss the sheet so the error message is visible in the
-                // parent section rather than hidden behind the sheet.
                 showProvisionSheet = false
-                errorMessage = response.error ?? "Failed to provision number"
-                restoreDefaultHandler()
             }
-        }
-
-        do {
-            let areaCode = provisionAreaCode.isEmpty ? nil : provisionAreaCode
-            try daemon.sendTwilioConfig(
-                action: "provision_number",
-                areaCode: areaCode,
-                country: provisionCountry
-            )
-        } catch {
-            isProvisioning = false
-            showProvisionSheet = false
-            errorMessage = "Failed to connect to daemon"
-            restoreDefaultHandler()
         }
     }
 
     private func assignNumber(_ number: String) {
-        guard let daemon = clientProvider.client as? DaemonClient else { return }
         isAssigning = true
         assigningNumber = number
         errorMessage = nil
-
-        daemon.onTwilioConfigResponse = { response in
+        Task {
+            await performHTTPRequest(
+                method: "POST",
+                path: "/v1/integrations/twilio/numbers/assign",
+                body: ["phoneNumber": number],
+                applyPhoneNumber: true
+            )
             isAssigning = false
             assigningNumber = nil
-            if response.success {
-                hasCredentials = response.hasCredentials
-                phoneNumber = response.phoneNumber
-                errorMessage = nil
-            } else {
-                errorMessage = response.error ?? "Failed to assign number"
-            }
-            restoreDefaultHandler()
-        }
-
-        do {
-            try daemon.sendTwilioConfig(action: "assign_number", phoneNumber: number)
-        } catch {
-            isAssigning = false
-            assigningNumber = nil
-            errorMessage = "Failed to connect to daemon"
-            restoreDefaultHandler()
         }
     }
 }
