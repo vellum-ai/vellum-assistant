@@ -73,6 +73,17 @@ struct CloudCredentialsStepView: View {
             }
             if !state.customQRCodeImageData.isEmpty {
                 qrCodeImageFileName = "qr-code.png"
+            } else if isCustomHardware {
+                // Auto-detect QR code PNG from the well-known XDG data path
+                // where fetch-qr-code.sh places it after SCP from the Mac mini.
+                let xdgDataHome = ProcessInfo.processInfo.environment["XDG_DATA_HOME"]
+                    ?? (FileManager.default.homeDirectoryForCurrentUser.path + "/.local/share")
+                let qrPath = URL(fileURLWithPath: xdgDataHome)
+                    .appendingPathComponent("vellum/pairing-qr/pairing-qr.png")
+                if let data = try? Data(contentsOf: qrPath), !data.isEmpty {
+                    state.customQRCodeImageData = data
+                    qrCodeImageFileName = "pairing-qr.png"
+                }
             }
             withAnimation(.easeOut(duration: 0.5).delay(0.1)) {
                 showTitle = true

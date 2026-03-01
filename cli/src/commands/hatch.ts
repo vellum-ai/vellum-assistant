@@ -1,8 +1,9 @@
 import { createHash, randomBytes, randomUUID } from "crypto";
-import { appendFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, symlinkSync, unlinkSync } from "fs";
+import { appendFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, symlinkSync, unlinkSync, writeFileSync } from "fs";
 import { homedir, hostname, userInfo } from "os";
 import { join } from "path";
 
+import QRCode from "qrcode";
 import qrcode from "qrcode-terminal";
 
 // Direct import — bun embeds this at compile time so it works in compiled binaries.
@@ -538,6 +539,20 @@ async function displayPairingQRCode(runtimeUrl: string, bearerToken: string | un
         resolve(code);
       });
     });
+
+    // Save QR code as PNG to a well-known location so it can be retrieved
+    // (e.g. via SCP) for pairing through the Desktop app.
+    const qrDir = join(homedir(), ".vellum", "pairing-qr");
+    mkdirSync(qrDir, { recursive: true });
+    const qrPngPath = join(qrDir, "pairing-qr.png");
+    try {
+      const pngBuffer = await QRCode.toBuffer(payload, { type: "png", width: 512 });
+      writeFileSync(qrPngPath, pngBuffer);
+      console.log(`QR code PNG saved to ${qrPngPath}\n`);
+    } catch (pngErr) {
+      const pngReason = pngErr instanceof Error ? pngErr.message : String(pngErr);
+      console.warn(`\u26A0 Could not save QR code PNG: ${pngReason}\n`);
+    }
 
     console.log("Scan this QR code with the Vellum iOS app to pair:\n");
     console.log(qrString);
