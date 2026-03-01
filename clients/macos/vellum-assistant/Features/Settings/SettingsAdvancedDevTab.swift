@@ -105,50 +105,84 @@ struct SettingsAdvancedDevTab: View {
     }
 
     private func assistantFlagRow(flag: DaemonClient.AssistantFeatureFlag) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.xxs) {
-            VToggle(isOn: Binding(
-                get: {
-                    assistantFlags.first(where: { $0.key == flag.key })?.enabled ?? flag.enabled
-                },
-                set: { newValue in
-                    // Optimistically update local state
-                    if let index = assistantFlags.firstIndex(where: { $0.key == flag.key }) {
-                        assistantFlags[index] = DaemonClient.AssistantFeatureFlag(
-                            key: flag.key,
-                            enabled: newValue,
-                            defaultEnabled: flag.defaultEnabled,
-                            description: flag.description,
-                            label: flag.label
-                        )
-                    }
-                    // Persist via gateway API
-                    Task {
-                        do {
-                            try await daemonClient?.setFeatureFlag(key: flag.key, enabled: newValue)
-                        } catch {
-                            // Revert on failure
-                            if let index = assistantFlags.firstIndex(where: { $0.key == flag.key }) {
-                                assistantFlags[index] = DaemonClient.AssistantFeatureFlag(
-                                    key: flag.key,
-                                    enabled: !newValue,
-                                    defaultEnabled: flag.defaultEnabled,
-                                    description: flag.description,
-                                    label: flag.label
-                                )
-                            }
+        let flagBinding = Binding<Bool>(
+            get: {
+                assistantFlags.first(where: { $0.key == flag.key })?.enabled ?? flag.enabled
+            },
+            set: { newValue in
+                // Optimistically update local state
+                if let index = assistantFlags.firstIndex(where: { $0.key == flag.key }) {
+                    assistantFlags[index] = DaemonClient.AssistantFeatureFlag(
+                        key: flag.key,
+                        enabled: newValue,
+                        defaultEnabled: flag.defaultEnabled,
+                        description: flag.description,
+                        label: flag.label
+                    )
+                }
+                // Persist via gateway API
+                Task {
+                    do {
+                        try await daemonClient?.setFeatureFlag(key: flag.key, enabled: newValue)
+                    } catch {
+                        // Revert on failure
+                        if let index = assistantFlags.firstIndex(where: { $0.key == flag.key }) {
+                            assistantFlags[index] = DaemonClient.AssistantFeatureFlag(
+                                key: flag.key,
+                                enabled: !newValue,
+                                defaultEnabled: flag.defaultEnabled,
+                                description: flag.description,
+                                label: flag.label
+                            )
                         }
                     }
                 }
-            ), label: flag.displayName)
-            .font(VFont.body)
-            .foregroundColor(VColor.textSecondary)
-
-            if let description = flag.description, !description.isEmpty {
-                Text(description)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
             }
+        )
+        return HStack {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text(flag.displayName)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textSecondary)
+                if let description = flag.description, !description.isEmpty {
+                    Text(description)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                }
+            }
+            Spacer()
+            VToggle(isOn: flagBinding)
+                .accessibilityLabel(flag.displayName)
         }
+        .contentShape(Rectangle())
+        .onTapGesture { withAnimation { flagBinding.wrappedValue.toggle() } }
+    }
+
+    private func macOSFlagRow(index: Int, entry: MacOSFeatureFlagState) -> some View {
+        let flagBinding = Binding<Bool>(
+            get: { macOSFlagStates[index].enabled },
+            set: { newValue in
+                macOSFlagStates[index].enabled = newValue
+                MacOSClientFeatureFlagManager.shared.setOverride(entry.key, enabled: newValue)
+            }
+        )
+        return HStack {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text(entry.label)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textSecondary)
+                if !entry.description.isEmpty {
+                    Text(entry.description)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                }
+            }
+            Spacer()
+            VToggle(isOn: flagBinding)
+                .accessibilityLabel(entry.label)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { withAnimation { flagBinding.wrappedValue.toggle() } }
     }
 
     // MARK: - macOS Feature Flags
@@ -169,23 +203,7 @@ struct SettingsAdvancedDevTab: View {
                     .foregroundColor(VColor.textMuted)
             } else {
                 ForEach(Array(macOSFlagStates.enumerated()), id: \.element.id) { index, entry in
-                    VStack(alignment: .leading, spacing: VSpacing.xxs) {
-                        VToggle(isOn: Binding(
-                            get: { macOSFlagStates[index].enabled },
-                            set: { newValue in
-                                macOSFlagStates[index].enabled = newValue
-                                MacOSClientFeatureFlagManager.shared.setOverride(entry.key, enabled: newValue)
-                            }
-                        ), label: entry.label)
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
-
-                        if !entry.description.isEmpty {
-                            Text(entry.description)
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
-                        }
-                    }
+                    macOSFlagRow(index: index, entry: entry)
                 }
             }
         }
