@@ -4,7 +4,21 @@ import { loadConfig } from "../config.js";
 
 const BASE_ENV: NodeJS.ProcessEnv = {
   ...process.env,
+  MANAGED_GATEWAY_ENABLED: "true",
+  MANAGED_GATEWAY_STRICT_STARTUP_VALIDATION: "true",
   MANAGED_GATEWAY_DJANGO_INTERNAL_BASE_URL: "http://127.0.0.1:8000",
+  MANAGED_GATEWAY_INTERNAL_AUTH_MODE: "bearer",
+  MANAGED_GATEWAY_INTERNAL_AUTH_AUDIENCE: "managed-gateway-internal",
+  MANAGED_GATEWAY_INTERNAL_BEARER_TOKENS: JSON.stringify({
+    "token-active": {
+      token_id: "mgw-active",
+      principal: "managed-gateway-staging",
+      audience: "managed-gateway-internal",
+      scopes: ["managed-gateway:internal", "routes:resolve"],
+    },
+  }),
+  MANAGED_GATEWAY_INTERNAL_MTLS_PRINCIPALS: "managed-gateway-staging",
+  MANAGED_GATEWAY_INTERNAL_REVOKED_TOKEN_IDS: "",
 };
 
 describe("loadConfig", () => {
@@ -68,5 +82,38 @@ describe("loadConfig", () => {
     expect(config.enabled).toBe(true);
     expect(config.strictStartupValidation).toBe(false);
     expect(config.djangoInternalBaseUrl).toBeNull();
+  });
+
+  test("rejects unsupported internal auth mode", () => {
+    expect(() =>
+      loadConfig({
+        ...BASE_ENV,
+        MANAGED_GATEWAY_INTERNAL_AUTH_MODE: "invalid-mode",
+      }),
+    ).toThrow("MANAGED_GATEWAY_INTERNAL_AUTH_MODE must be one of: bearer, mtls.");
+  });
+
+  test("requires bearer token catalog when bearer mode is enabled", () => {
+    expect(() =>
+      loadConfig({
+        ...BASE_ENV,
+        MANAGED_GATEWAY_INTERNAL_AUTH_MODE: "bearer",
+        MANAGED_GATEWAY_INTERNAL_BEARER_TOKENS: "{}",
+      }),
+    ).toThrow(
+      "MANAGED_GATEWAY_INTERNAL_BEARER_TOKENS must define at least one token when bearer mode is enabled.",
+    );
+  });
+
+  test("requires mtls principal list when mtls mode is enabled", () => {
+    expect(() =>
+      loadConfig({
+        ...BASE_ENV,
+        MANAGED_GATEWAY_INTERNAL_AUTH_MODE: "mtls",
+        MANAGED_GATEWAY_INTERNAL_MTLS_PRINCIPALS: "",
+      }),
+    ).toThrow(
+      "MANAGED_GATEWAY_INTERNAL_MTLS_PRINCIPALS must define at least one principal when mTLS mode is enabled.",
+    );
   });
 });

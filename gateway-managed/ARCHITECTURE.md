@@ -13,6 +13,12 @@ The managed gateway is a dedicated service lane for Vellum-owned shared channel 
 - Fails fast on missing or invalid `MANAGED_GATEWAY_DJANGO_INTERNAL_BASE_URL`.
 - Supports safe defaults when disabled or when strict validation is explicitly turned off.
 
+## PR-3 scope
+
+- Adds internal auth middleware abstraction with `bearer` and `mtls` modes.
+- Enforces deny-by-default verification for audience and required scopes.
+- Defines token lifecycle checks for expiry and revocation to support safe rotation.
+
 ## Endpoints
 
 - `GET /healthz`
