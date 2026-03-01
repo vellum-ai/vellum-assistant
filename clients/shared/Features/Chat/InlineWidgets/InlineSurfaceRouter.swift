@@ -126,7 +126,9 @@ public struct InlineSurfaceRouter: View {
         }
         .onChange(of: surface) { oldSurface, newSurface in
             if newSurface.completionState != nil { return }
-            if oldSurface.data != newSurface.data || oldSurface.actions != newSurface.actions {
+            // Reset clicked state when content/actions change, or when completion is cleared
+            // (transition from completed back to active) so buttons become actionable again.
+            if oldSurface.data != newSurface.data || oldSurface.actions != newSurface.actions || oldSurface.completionState != nil {
                 clickedActionLabel = nil
             }
         }
