@@ -85,6 +85,32 @@ const TEMPLATES: Record<string, CopyTemplate> = {
     };
   },
 
+  'ingress.access_request.callback_handoff': (payload) => {
+    const callerName = nonEmpty(typeof payload.callerName === 'string' ? payload.callerName : undefined);
+    const callerPhone = nonEmpty(typeof payload.callerPhoneNumber === 'string' ? payload.callerPhoneNumber : undefined);
+    const requestCode = nonEmpty(typeof payload.requestCode === 'string' ? payload.requestCode : undefined);
+    const memberId = nonEmpty(typeof payload.requesterMemberId === 'string' ? payload.requesterMemberId : undefined);
+
+    const callerIdentity = callerName && callerPhone
+      ? `${callerName} (${callerPhone})`
+      : callerName ?? callerPhone ?? 'An unknown caller';
+
+    const lines: string[] = [];
+    lines.push(`${callerIdentity} called and requested a callback while you were unreachable.`);
+
+    if (requestCode) {
+      lines.push(`Request code: ${requestCode.toUpperCase()}`);
+    }
+    if (memberId) {
+      lines.push(`This caller is a trusted contact (member ID: ${memberId}).`);
+    }
+
+    return {
+      title: 'Callback Requested',
+      body: lines.join('\n'),
+    };
+  },
+
   'ingress.escalation': (payload) => ({
     title: 'Escalation',
     body: str(payload.senderIdentifier, 'An incoming message') + ' needs attention',
