@@ -4,14 +4,12 @@ struct TestCase {
     let name: String
     let filePath: String
     let fixture: String?
-    let requiredEnv: [String]?
     let experimental: Bool
     let rawContent: String
 }
 
 struct ParsedFrontmatter {
     let fixture: String?
-    let requiredEnv: [String]?
     let experimental: Bool
     let body: String
 }
@@ -50,7 +48,6 @@ func parseFrontmatter(_ content: String) -> ParsedFrontmatter {
     }
 
     var fixture: String?
-    var requiredEnv: [String]?
     var experimental: Bool = false
     for line in frontmatterLines {
         let parts = line.split(separator: ":", maxSplits: 1)
@@ -60,8 +57,6 @@ func parseFrontmatter(_ content: String) -> ParsedFrontmatter {
         switch key {
         case "fixture":
             fixture = value
-        case "required_env":
-            requiredEnv = value.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         case "experimental":
             experimental = value.lowercased() == "true"
         default:
@@ -70,7 +65,31 @@ func parseFrontmatter(_ content: String) -> ParsedFrontmatter {
     }
 
     let body = bodyLines.joined(separator: "\n")
-    return ParsedFrontmatter(fixture: fixture, requiredEnv: requiredEnv, experimental: experimental, body: body)
+    return ParsedFrontmatter(fixture: fixture, experimental: experimental, body: body)
+}
+
+/// Infer required environment variables from the test file content.
+///
+/// Scans the body for SCREAMING_SNAKE_CASE identifiers (e.g. ANTHROPIC_API_KEY)
+/// that look like environment variable names. Test authors just need to mention
+/// the env var name in the markdown body and it will be auto-detected.
+func inferRequiredEnv(_ content: String) -> [String] {
+    guard let regex = try? NSRegularExpression(pattern: "\\b([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)\\b") else {
+        return []
+    }
+    let range = NSRange(content.startIndex..., in: content)
+    let matches = regex.matches(in: content, range: range)
+    var seen = Set<String>()
+    var result: [String] = []
+    for match in matches {
+        if let matchRange = Range(match.range(at: 1), in: content) {
+            let envVar = String(content[matchRange])
+            if seen.insert(envVar).inserted {
+                result.append(envVar)
+            }
+        }
+    }
+    return result
 }
 
 func discoverTestCases(casesDir: String, filter: String?) -> [TestCase] {
@@ -95,7 +114,7 @@ func discoverTestCases(casesDir: String, filter: String?) -> [TestCase] {
             continue
         }
 
-        cases.append(TestCase(name: name, filePath: filePath, fixture: parsed.fixture, requiredEnv: parsed.requiredEnv, experimental: parsed.experimental, rawContent: rawContent))
+        cases.append(TestCase(name: name, filePath: filePath, fixture: parsed.fixture, experimental: parsed.experimental, rawContent: rawContent))
     }
 
     return cases

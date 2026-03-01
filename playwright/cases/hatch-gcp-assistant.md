@@ -1,7 +1,6 @@
 ---
 fixture: desktop-app
 experimental: true
-required_env: ANTHROPIC_API_KEY
 ---
 
 # Hatch Assistant on GCP
@@ -16,7 +15,7 @@ Verify that the full onboarding flow completes successfully: launch the app, ent
 2. Click the "Own API Key" Start button
 3. Select GCP as the hosting mode
 4. Verify that the API key input is rendered
-5. Enter your Anthropic API key into the input field
+5. Enter your ANTHROPIC_API_KEY into the input field
 6. Click the "Continue" button
 7. Verify that the GCP credentials form is rendered with Project ID, Zone, and Service Account Key fields
 8. Enter the GCP Project ID
