@@ -265,8 +265,8 @@ describe('notification decision strategy', () => {
         sourceEventName: 'ingress.access_request',
         contextPayload: {
           senderIdentifier: 'Alice Smith',
-          senderName: 'Alice Smith',
-          senderExternalUserId: '+15559998888',
+          actorDisplayName: 'Alice Smith',
+          actorExternalId: '+15559998888',
           sourceChannel: 'voice',
           requestCode: 'V1C2E3',
         },
@@ -286,7 +286,7 @@ describe('notification decision strategy', () => {
         sourceEventName: 'ingress.access_request',
         contextPayload: {
           senderIdentifier: 'user-123',
-          senderName: 'Bob Jones',
+          actorDisplayName: 'Bob Jones',
           sourceChannel: 'telegram',
           requestCode: 'T1G2M3',
         },
