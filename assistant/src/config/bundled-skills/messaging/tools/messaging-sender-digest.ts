@@ -20,7 +20,8 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
       if (result.senders.length === 0) {
         return ok(JSON.stringify({
           senders: [],
-          total_scanned: 0,
+          total_scanned: result.totalScanned,
+          query_used: result.queryUsed,
           message: 'No emails found matching the query. Try broadening the search (e.g. remove category filter or extend date range).',
         }));
       }
