@@ -28,6 +28,7 @@ import { buildAssistantEvent } from '../assistant-event.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
 import { routeGuardianReply } from '../guardian-reply-router.js';
 import { httpError } from '../http-errors.js';
+import { resolveLocalIpcGuardianContext } from '../local-actor-identity.js';
 import { verifyHttpActorTokenWithLocalFallback } from '../middleware/actor-token.js';
 import type {
   ApprovalConversationGenerator,
@@ -478,12 +479,14 @@ export async function handleSendMessage(
     if (actorVerification?.ok) {
       session.setGuardianContext(actorVerification.guardianContext);
     } else {
-      // Non-vellum channels (e.g. voice) go through the channel ingress
-      // path with their own trust resolution.
-      session.setGuardianContext({
-        sourceChannel,
-        trustClass: 'unknown',
-      });
+      // Non-vellum channels through the HTTP API are still local
+      // authenticated requests. Resolve guardian context via the local
+      // identity pathway (vellum binding lookup) to preserve guardian
+      // trust. Falls back to a minimal guardian context if no binding
+      // exists (pre-bootstrap).
+      session.setGuardianContext(
+        resolveLocalIpcGuardianContext(sourceChannel) ?? { trustClass: 'guardian', sourceChannel },
+      );
     }
     const onEvent = makeHubPublisher(smDeps, mapping.conversationId, session);
 
@@ -594,7 +597,7 @@ export async function handleSendMessage(
 
   const guardianContext = legacyActorVerification?.ok
     ? legacyActorVerification.guardianContext
-    : { trustClass: 'unknown' as const, sourceChannel };
+    : resolveLocalIpcGuardianContext(sourceChannel) ?? { trustClass: 'guardian' as const, sourceChannel };
 
   try {
     const result = await processor(
