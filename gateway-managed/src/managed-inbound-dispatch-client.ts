@@ -3,6 +3,7 @@ import type { ManagedGatewayInboundEvent } from "./managed-inbound-event.js";
 import { buildManagedInternalAuthHeaders } from "./managed-internal-auth-headers.js";
 import type { ManagedRouteResolution } from "./managed-route-resolution-client.js";
 import type { ManagedGatewayUpstreamFetch } from "./route-resolve.js";
+import { buildUpstreamUrl } from "./upstream-url.js";
 
 export const MANAGED_GATEWAY_INBOUND_DISPATCH_PATH = "/v1/internal/managed-gateway/inbound/dispatch/";
 const INBOUND_DISPATCH_SCOPE = "events:dispatch";
@@ -64,10 +65,10 @@ export async function dispatchManagedInboundEvent(
   const headers = new Headers(authHeaders);
   headers.set("content-type", "application/json");
 
-  const upstreamUrl = new URL(
-    MANAGED_GATEWAY_INBOUND_DISPATCH_PATH,
+  const upstreamUrl = buildUpstreamUrl(
     config.djangoInternalBaseUrl,
-  ).toString();
+    MANAGED_GATEWAY_INBOUND_DISPATCH_PATH,
+  );
 
   let response: Response;
   try {
