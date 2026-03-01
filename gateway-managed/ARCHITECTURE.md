@@ -25,6 +25,12 @@ The managed gateway is a dedicated service lane for Vellum-owned shared channel 
 - Enforces internal auth (`bearer` or `mtls`) with required `routes:resolve` scope.
 - Normalizes request routing keys and proxies to Django internal route resolver with explicit error envelopes.
 
+## PR-5 scope
+
+- Adds staging deployment scaffolding under `gateway-managed/deploy/` with Kubernetes stubs.
+- Adds manifest smoke checks and optional live readiness probes for staging endpoints.
+- Documents rollout and rollback procedures with explicit health/readiness checkpoints.
+
 ## Endpoints
 
 - `GET /healthz`

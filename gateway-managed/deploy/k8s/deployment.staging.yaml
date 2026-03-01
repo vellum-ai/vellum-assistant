@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: managed-gateway
+  labels:
+    app.kubernetes.io/name: managed-gateway
+    app.kubernetes.io/component: managed-gateway
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: managed-gateway
+      app.kubernetes.io/component: managed-gateway
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: managed-gateway
+        app.kubernetes.io/component: managed-gateway
+    spec:
+      containers:
+        - name: managed-gateway
+          image: ghcr.io/vellum-ai/vellum-managed-gateway:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 7831
+          env:
+            - name: MANAGED_GATEWAY_ENABLED
+              value: "true"
+            - name: MANAGED_GATEWAY_PORT
+              value: "7831"
+            - name: MANAGED_GATEWAY_DJANGO_INTERNAL_BASE_URL
+              value: "https://django-internal.example"
+            - name: MANAGED_GATEWAY_STRICT_STARTUP_VALIDATION
+              value: "true"
+            - name: MANAGED_GATEWAY_INTERNAL_AUTH_MODE
+              value: "bearer"
+            - name: MANAGED_GATEWAY_INTERNAL_AUTH_AUDIENCE
+              value: "managed-gateway-internal"
+          readinessProbe:
+            httpGet:
+              path: /v1/internal/managed-gateway/readyz/
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /v1/internal/managed-gateway/healthz/
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 2
+            failureThreshold: 3

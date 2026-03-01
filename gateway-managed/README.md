@@ -8,6 +8,7 @@ Managed gateway service skeleton for Vellum-owned shared channel identities.
 - strict startup config validation for enabled managed gateway mode
 - internal auth middleware abstraction for bearer and mTLS service auth
 - Django internal route resolve endpoint wiring for managed route lookup
+- staging deployment manifests, smoke checks, and rollout/rollback runbook
 - health and readiness endpoints:
   - `/healthz`
   - `/readyz`
@@ -52,3 +53,14 @@ bun run test
 ## Route Resolve Contract
 
 Managed gateway route resolution contract lives in [`route-resolve-contract.md`](./route-resolve-contract.md).
+
+## Staging Deployment Artifacts
+
+- Deployment scaffolding index: [`deploy/README.md`](./deploy/README.md)
+- Kubernetes stubs:
+  - [`deploy/k8s/deployment.staging.yaml`](./deploy/k8s/deployment.staging.yaml)
+  - [`deploy/k8s/service.staging.yaml`](./deploy/k8s/service.staging.yaml)
+- Manifest + optional live probe checks:
+  - `bun run smoke:staging`
+- Rollout and rollback runbook:
+  - [`deploy/staging-rollout.md`](./deploy/staging-rollout.md)

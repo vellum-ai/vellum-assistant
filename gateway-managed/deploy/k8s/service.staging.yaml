@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: managed-gateway
+  labels:
+    app.kubernetes.io/name: managed-gateway
+    app.kubernetes.io/component: managed-gateway
+spec:
+  selector:
+    app.kubernetes.io/name: managed-gateway
+    app.kubernetes.io/component: managed-gateway
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
