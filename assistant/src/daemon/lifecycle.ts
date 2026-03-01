@@ -372,7 +372,15 @@ export async function runDaemon(): Promise<void> {
       await runtimeHttp.start();
       setRelayBroadcast((msg) => server.broadcast(msg));
       setPointerMessageProcessor(async (conversationId, instruction) => {
-        await server.persistAndProcessMessage(conversationId, instruction, []);
+        const session = await server.getSessionForMessages(conversationId);
+        const messageId = await session.persistUserMessage(
+          instruction,
+          [],
+          undefined,
+          { pointerInstruction: true },
+          '[Call status event]',
+        );
+        await session.runAgentLoop(instruction, messageId, () => {});
       });
       runtimeHttp.setPairingBroadcast((msg) => server.broadcast(msg as ServerMessage));
       initPairingHandlers(runtimeHttp.getPairingStore(), bearerToken);
