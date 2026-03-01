@@ -1,4 +1,8 @@
 import { randomBytes, randomUUID } from 'node:crypto';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+import QRCode from 'qrcode';
 
 import { getGatewayPort, getIngressPublicBaseUrl } from '../config/env.js';
 import { getConfig, loadRawConfig, saveRawConfig } from '../config/loader.js';
@@ -11,6 +15,7 @@ import {
   rewriteKnownSlashCommandPrompt,
 } from '../skills/slash-commands.js';
 import { getLocalIPv4 } from '../util/network-info.js';
+import { getWorkspaceDir } from '../util/platform.js';
 import { getAssistantName } from './identity-helpers.js';
 import type { PairingStore } from './pairing-store.js';
 
@@ -349,6 +354,23 @@ export function resolveSlash(content: string, context?: SlashContext): SlashReso
 
 // ── /pair command ────────────────────────────────────────────────────
 
+async function savePairingQRCodePng(payloadJson: string): Promise<void> {
+  const qrDir = join(getWorkspaceDir(), 'pairing-qr');
+  mkdirSync(qrDir, { recursive: true });
+  const now = new Date();
+  const ts = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, '0'),
+    String(now.getDate()).padStart(2, '0'),
+    String(now.getHours()).padStart(2, '0'),
+    String(now.getMinutes()).padStart(2, '0'),
+    String(now.getSeconds()).padStart(2, '0'),
+  ].join('');
+  const qrPngPath = join(qrDir, `code${ts}.png`);
+  const pngBuffer = await QRCode.toBuffer(payloadJson, { type: 'png', width: 512 });
+  writeFileSync(qrPngPath, pngBuffer);
+}
+
 function resolvePairCommand(content: string): SlashResolution | null {
   if (content.trim() !== '/pair') return null;
 
@@ -401,6 +423,11 @@ function resolvePairCommand(content: string): SlashResolution | null {
   if (localLanUrl) {
     payload.localLanUrl = localLanUrl;
   }
+
+  // Save QR code as PNG to the workspace pairing-qr folder (fire-and-forget
+  // so the synchronous slash resolution is not blocked).
+  const payloadJson = JSON.stringify(payload);
+  savePairingQRCodePng(payloadJson).catch(() => {});
 
   const lines = [
     'Pairing Ready\n',
