@@ -651,8 +651,8 @@ extension AppDelegate {
                     // Sync daemon apps into the sidebar list so pre-existing apps appear
                     let daemonItems = response.apps.map {
                         AppListManager.AppItem_Daemon(
-                            id: $0.id, name: $0.name, icon: $0.icon,
-                            appType: $0.appType, createdAt: $0.createdAt
+                            id: $0.id, name: $0.name, description: $0.description,
+                            icon: $0.icon, appType: $0.appType, createdAt: $0.createdAt
                         )
                     }
                     self.mainWindow?.appListManager.syncFromDaemon(daemonItems)

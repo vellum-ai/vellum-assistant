@@ -1,7 +1,7 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// Full-screen apps grid view showing all apps as an icon grid with search and pinned/recent sections.
+/// Full-screen apps grid view showing all apps as a card grid with search and pinned/recent sections.
 struct AppsGridView: View {
     @ObservedObject var appListManager: AppListManager
     let daemonClient: DaemonClient
@@ -12,7 +12,16 @@ struct AppsGridView: View {
     @State private var recentVisibleCount = 10
     @State private var editingApp: AppListManager.AppItem?
 
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: VSpacing.sm), count: 5)
+    /// Cache of lazily-loaded preview screenshots keyed by app ID.
+    /// Empty string is used as a sentinel for "fetched but no preview available".
+    @State private var previewCache: [String: String] = [:]
+    /// In-flight preview fetch tasks, keyed by app ID, so they can be cancelled.
+    @State private var previewTasks: [String: Task<Void, Never>] = [:]
+
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: VSpacing.xl), count: 4)
+
+    /// Maximum width of the centered content area.
+    private let maxContentWidth: CGFloat = 1400
 
     var body: some View {
         ScrollView {
@@ -38,12 +47,16 @@ struct AppsGridView: View {
                     .padding(.top, VSpacing.xxxl)
                 }
             }
-            .frame(maxWidth: 700)
+            .frame(maxWidth: maxContentWidth)
             .frame(maxWidth: .infinity)
-            .padding(.horizontal, VSpacing.xl)
+            .padding(.horizontal, VSpacing.xxxl)
             .padding(.bottom, VSpacing.xxl)
         }
         .background(VColor.backgroundSubtle)
+        .onDisappear {
+            for task in previewTasks.values { task.cancel() }
+            previewTasks.removeAll()
+        }
         .sheet(item: $editingApp) { app in
             let iconInfo = resolvedIcon(for: app)
             AppIconPickerSheet(
@@ -67,29 +80,14 @@ struct AppsGridView: View {
 
     private var pinnedSectionView: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
-            Text("PINNED")
-                .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
-                .tracking(1.2)
+            Text("Pinned")
+                .font(VFont.headline)
+                .foregroundColor(VColor.textSecondary)
 
-            LazyVGrid(columns: columns, spacing: VSpacing.xl) {
+            LazyVGrid(columns: columns, spacing: VSpacing.xxl) {
                 ForEach(filteredPinnedApps) { app in
-                    appGridItem(app)
-                }
-            }
-        }
-    }
-
-    private func sectionView(title: String, apps: [AppListManager.AppItem]) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.lg) {
-            Text(title)
-                .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
-                .tracking(1.2)
-
-            LazyVGrid(columns: columns, spacing: VSpacing.xl) {
-                ForEach(apps) { app in
-                    appGridItem(app)
+                    appCard(app)
+                        .onAppear { fetchPreviewIfNeeded(app) }
                 }
             }
         }
@@ -97,16 +95,16 @@ struct AppsGridView: View {
 
     private var recentSectionView: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
-            Text("RECENT")
-                .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
-                .tracking(1.2)
+            Text("Recent")
+                .font(VFont.headline)
+                .foregroundColor(VColor.textSecondary)
 
             let visibleRecent = Array(filteredRecentApps.prefix(recentVisibleCount))
 
-            LazyVGrid(columns: columns, spacing: VSpacing.xl) {
+            LazyVGrid(columns: columns, spacing: VSpacing.xxl) {
                 ForEach(visibleRecent) { app in
-                    appGridItem(app)
+                    appCard(app)
+                        .onAppear { fetchPreviewIfNeeded(app) }
                 }
             }
 
@@ -131,11 +129,13 @@ struct AppsGridView: View {
         }
     }
 
-    // MARK: - Grid Item
+    // MARK: - App Card
 
-    private func appGridItem(_ app: AppListManager.AppItem) -> some View {
+    private func appCard(_ app: AppListManager.AppItem) -> some View {
         let isHovered = hoveredAppId == app.id
         let iconInfo = resolvedIcon(for: app)
+        let rawPreview = app.previewBase64 ?? previewCache[app.id]
+        let preview = rawPreview?.isEmpty == true ? nil : rawPreview
 
         return Button {
             appListManager.recordAppOpen(
@@ -144,26 +144,65 @@ struct AppsGridView: View {
             )
             onOpenApp(app.id)
         } label: {
-            VStack(spacing: VSpacing.sm) {
-                VAppIcon(
-                    sfSymbol: iconInfo.sfSymbol,
-                    gradientColors: iconInfo.colors,
-                    size: .medium
-                )
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                // Preview thumbnail or icon placeholder — all corners rounded.
+                // Use a sized container with .overlay so .fill images don't overflow.
+                Group {
+                    if let preview,
+                       let data = Data(base64Encoded: preview),
+                       let nsImage = NSImage(data: data) {
+                        Color.clear
+                            .aspectRatio(16.0 / 10.0, contentMode: .fit)
+                            .overlay(
+                                Image(nsImage: nsImage)
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fill)
+                            )
+                            .clipped()
+                    } else {
+                        ZStack {
+                            VColor.surface
 
-                Text(app.name)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                            VAppIcon(
+                                sfSymbol: iconInfo.sfSymbol,
+                                gradientColors: iconInfo.colors,
+                                size: .large
+                            )
+                        }
+                        .aspectRatio(16.0 / 10.0, contentMode: .fit)
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.lg)
+                        .stroke(VColor.surfaceBorder, lineWidth: 1)
+                )
+                .shadow(color: .black.opacity(0.06), radius: 4, y: 2)
+
+                // Name + description below the image
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(app.name)
+                        .font(VFont.bodyBold)
+                        .foregroundColor(VColor.textPrimary)
+                        .lineLimit(1)
+
+                    if let description = app.description, !description.isEmpty {
+                        Text(description)
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                            .lineLimit(1)
+                    }
+                }
+                .padding(.horizontal, VSpacing.xs)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .scaleEffect(isHovered ? 1.05 : 1.0)
+        .opacity(isHovered ? 0.85 : 1.0)
         .animation(VAnimation.fast, value: isHovered)
         .onHover { hovering in
             hoveredAppId = hovering ? app.id : nil
+            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
         }
         .contextMenu {
             Button("Open") {
@@ -187,6 +226,45 @@ struct AppsGridView: View {
         .accessibilityLabel(app.name)
     }
 
+    // MARK: - Preview Fetching
+
+    private func fetchPreviewIfNeeded(_ app: AppListManager.AppItem) {
+        // Skip if the app already has an inline preview
+        guard app.previewBase64 == nil else { return }
+        // Skip if already cached (including empty-string sentinel) or in-flight
+        guard previewCache[app.id] == nil, previewTasks[app.id] == nil else { return }
+
+        let stream = daemonClient.subscribe()
+        do {
+            try daemonClient.sendAppPreview(appId: app.id)
+        } catch { return }
+
+        let appId = app.id
+        let task = Task { @MainActor in
+            let timeout = Task { try await Task.sleep(nanoseconds: 10_000_000_000) }
+            defer {
+                timeout.cancel()
+                self.previewTasks.removeValue(forKey: appId)
+            }
+
+            for await message in stream {
+                if Task.isCancelled { break }
+                if case .appPreviewResponse(let response) = message,
+                   response.appId == appId {
+                    self.previewCache[appId] = response.preview ?? ""
+                    return
+                }
+            }
+        }
+
+        Task {
+            try? await Task.sleep(nanoseconds: 10_000_000_000)
+            if !task.isCancelled { task.cancel() }
+        }
+
+        previewTasks[appId] = task
+    }
+
     // MARK: - Helpers
 
     private func resolvedIcon(for app: AppListManager.AppItem) -> (sfSymbol: String, colors: [String]) {
@@ -199,14 +277,19 @@ struct AppsGridView: View {
     private var filteredPinnedApps: [AppListManager.AppItem] {
         let pinned = appListManager.displayApps.filter { $0.isPinned }
         guard !searchText.isEmpty else { return pinned }
-        return pinned.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
+        return pinned.filter { matchesSearch($0) }
     }
 
     private var filteredRecentApps: [AppListManager.AppItem] {
         let unpinned = appListManager.displayApps.filter { !$0.isPinned }
             .sorted { ($0.lastOpenedAt) > ($1.lastOpenedAt) }
         guard !searchText.isEmpty else { return unpinned }
-        return unpinned.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
+        return unpinned.filter { matchesSearch($0) }
+    }
+
+    private func matchesSearch(_ app: AppListManager.AppItem) -> Bool {
+        app.name.localizedCaseInsensitiveContains(searchText) ||
+        (app.description?.localizedCaseInsensitiveContains(searchText) ?? false)
     }
 }
 
