@@ -246,21 +246,22 @@ export async function startCli(): Promise<void> {
       const choice = trimmed.toLowerCase();
 
       // Uppercase 'A' → allowlist pattern selection (check before lowercase 'a')
-      if (trimmed === 'A' || choice === 'allowlist') {
+      // Only process when scope options exist, matching the display guard above
+      if ((trimmed === 'A' || choice === 'allowlist') && req.allowlistOptions.length > 0 && req.scopeOptions.length > 0) {
         // pendingConfirmation stays true through sub-prompts
         renderPatternSelection(req, 'always_allow');
         return;
       }
 
       // Uppercase 'H' → high-risk allowlist pattern selection
-      if (trimmed === 'H') {
+      if (trimmed === 'H' && req.allowlistOptions.length > 0 && req.scopeOptions.length > 0) {
         // pendingConfirmation stays true through sub-prompts
         renderPatternSelection(req, 'always_allow_high_risk');
         return;
       }
 
       // Uppercase 'D' → denylist pattern selection (check before lowercase 'd')
-      if (trimmed === 'D' || choice === 'denylist') {
+      if ((trimmed === 'D' || choice === 'denylist') && req.allowlistOptions.length > 0 && req.scopeOptions.length > 0) {
         // pendingConfirmation stays true through sub-prompts
         renderPatternSelection(req, 'always_deny');
         return;
