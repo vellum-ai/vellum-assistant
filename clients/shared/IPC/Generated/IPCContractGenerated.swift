@@ -3177,14 +3177,18 @@ public struct IPCNotificationIntent: Codable, Sendable {
     public let body: String
     /// Optional deep-link metadata so the client can navigate to the relevant context.
     public let deepLinkMetadata: [String: AnyCodable]?
+    /// When set, this notification is guardian-sensitive and should only be
+    /// displayed by clients whose guardian identity matches this principal ID.
+    public let targetGuardianPrincipalId: String?
 
-    public init(type: String, deliveryId: String? = nil, sourceEventName: String, title: String, body: String, deepLinkMetadata: [String: AnyCodable]? = nil) {
+    public init(type: String, deliveryId: String? = nil, sourceEventName: String, title: String, body: String, deepLinkMetadata: [String: AnyCodable]? = nil, targetGuardianPrincipalId: String? = nil) {
         self.type = type
         self.deliveryId = deliveryId
         self.sourceEventName = sourceEventName
         self.title = title
         self.body = body
         self.deepLinkMetadata = deepLinkMetadata
+        self.targetGuardianPrincipalId = targetGuardianPrincipalId
     }
 }
 
@@ -3211,12 +3215,16 @@ public struct IPCNotificationThreadCreated: Codable, Sendable {
     public let conversationId: String
     public let title: String
     public let sourceEventName: String
+    /// When set, this thread was created for a guardian-sensitive notification
+    /// and should only be surfaced by clients bound to this guardian identity.
+    public let targetGuardianPrincipalId: String?
 
-    public init(type: String, conversationId: String, title: String, sourceEventName: String) {
+    public init(type: String, conversationId: String, title: String, sourceEventName: String, targetGuardianPrincipalId: String? = nil) {
         self.type = type
         self.conversationId = conversationId
         self.title = title
         self.sourceEventName = sourceEventName
+        self.targetGuardianPrincipalId = targetGuardianPrincipalId
     }
 }
 

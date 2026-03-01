@@ -3,7 +3,9 @@
  *
  * GET /v1/events?conversationKey=...
  *
- * Auth is enforced by RuntimeHttpServer before this handler is called.
+ * Bearer auth is enforced by RuntimeHttpServer before this handler is called.
+ * Actor-token identity verification (with local CLI fallback) is performed
+ * within this handler to bind the SSE stream to a verified actor identity.
  * Subscribers receive all assistant events scoped to the given conversation.
  */
 
@@ -13,6 +15,7 @@ import type { AssistantEventSubscription } from '../assistant-event-hub.js';
 import { AssistantEventHub,assistantEventHub } from '../assistant-event-hub.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
 import { httpError } from '../http-errors.js';
+import { type ServerWithRequestIP, verifyHttpActorTokenWithLocalFallback } from '../middleware/actor-token.js';
 
 /** Keep-alive comment sent to idle clients every 30 s by default. */
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 30_000;
@@ -30,11 +33,23 @@ const DEFAULT_HEARTBEAT_INTERVAL_MS = 30_000;
 export function handleSubscribeAssistantEvents(
   req: Request,
   url: URL,
-  options?: {
-    hub?: AssistantEventHub;
-    heartbeatIntervalMs?: number;
-  },
+  options?:
+    | { hub?: AssistantEventHub; heartbeatIntervalMs?: number; skipActorVerification?: false; server: ServerWithRequestIP }
+    | { hub?: AssistantEventHub; heartbeatIntervalMs?: number; skipActorVerification: true },
 ): Response {
+  // Verify actor-token identity for vellum channel requests, with local
+  // CLI fallback for bearer-authenticated clients without X-Actor-Token.
+  if (options && !options.skipActorVerification) {
+    const actorVerification = verifyHttpActorTokenWithLocalFallback(req, options.server);
+    if (!actorVerification.ok) {
+      return httpError(
+        actorVerification.status === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN',
+        actorVerification.message,
+        actorVerification.status,
+      );
+    }
+  }
+
   const conversationKey = url.searchParams.get('conversationKey');
   if (!conversationKey) {
     return httpError('BAD_REQUEST', 'conversationKey is required', 400);
