@@ -31,6 +31,7 @@ export interface CanonicalGuardianRequest {
   requesterExternalUserId: string | null;
   requesterChatId: string | null;
   guardianExternalUserId: string | null;
+  guardianPrincipalId: string | null;
   callSessionId: string | null;
   pendingQuestionId: string | null;
   questionText: string | null;
@@ -40,6 +41,7 @@ export interface CanonicalGuardianRequest {
   status: CanonicalRequestStatus;
   answerText: string | null;
   decidedByExternalUserId: string | null;
+  decidedByPrincipalId: string | null;
   followupState: string | null;
   expiresAt: string | null;
   createdAt: string;
@@ -117,6 +119,7 @@ function rowToRequest(row: typeof canonicalGuardianRequests.$inferSelect): Canon
     requesterExternalUserId: row.requesterExternalUserId,
     requesterChatId: row.requesterChatId,
     guardianExternalUserId: row.guardianExternalUserId,
+    guardianPrincipalId: row.guardianPrincipalId,
     callSessionId: row.callSessionId,
     pendingQuestionId: row.pendingQuestionId,
     questionText: row.questionText,
@@ -126,6 +129,7 @@ function rowToRequest(row: typeof canonicalGuardianRequests.$inferSelect): Canon
     status: row.status as CanonicalRequestStatus,
     answerText: row.answerText,
     decidedByExternalUserId: row.decidedByExternalUserId,
+    decidedByPrincipalId: row.decidedByPrincipalId,
     followupState: row.followupState,
     expiresAt: row.expiresAt,
     createdAt: row.createdAt,
@@ -160,6 +164,7 @@ export interface CreateCanonicalGuardianRequestParams {
   requesterExternalUserId?: string;
   requesterChatId?: string;
   guardianExternalUserId?: string;
+  guardianPrincipalId?: string;
   callSessionId?: string;
   pendingQuestionId?: string;
   questionText?: string;
@@ -169,6 +174,7 @@ export interface CreateCanonicalGuardianRequestParams {
   status?: CanonicalRequestStatus;
   answerText?: string;
   decidedByExternalUserId?: string;
+  decidedByPrincipalId?: string;
   followupState?: string;
   expiresAt?: string;
 }
@@ -187,6 +193,7 @@ export function createCanonicalGuardianRequest(params: CreateCanonicalGuardianRe
     requesterExternalUserId: params.requesterExternalUserId ?? null,
     requesterChatId: params.requesterChatId ?? null,
     guardianExternalUserId: params.guardianExternalUserId ?? null,
+    guardianPrincipalId: params.guardianPrincipalId ?? null,
     callSessionId: params.callSessionId ?? null,
     pendingQuestionId: params.pendingQuestionId ?? null,
     questionText: params.questionText ?? null,
@@ -196,6 +203,7 @@ export function createCanonicalGuardianRequest(params: CreateCanonicalGuardianRe
     status: params.status ?? ('pending' as const),
     answerText: params.answerText ?? null,
     decidedByExternalUserId: params.decidedByExternalUserId ?? null,
+    decidedByPrincipalId: params.decidedByPrincipalId ?? null,
     followupState: params.followupState ?? null,
     expiresAt: params.expiresAt ?? null,
     createdAt: now,
@@ -292,6 +300,7 @@ export interface UpdateCanonicalGuardianRequestParams {
   status?: CanonicalRequestStatus;
   answerText?: string;
   decidedByExternalUserId?: string;
+  decidedByPrincipalId?: string;
   followupState?: string | null;
   expiresAt?: string;
 }
@@ -307,6 +316,7 @@ export function updateCanonicalGuardianRequest(
   if (updates.status !== undefined) setValues.status = updates.status;
   if (updates.answerText !== undefined) setValues.answerText = updates.answerText;
   if (updates.decidedByExternalUserId !== undefined) setValues.decidedByExternalUserId = updates.decidedByExternalUserId;
+  if (updates.decidedByPrincipalId !== undefined) setValues.decidedByPrincipalId = updates.decidedByPrincipalId;
   if (updates.followupState !== undefined) setValues.followupState = updates.followupState;
   if (updates.expiresAt !== undefined) setValues.expiresAt = updates.expiresAt;
 
@@ -322,6 +332,7 @@ export interface ResolveDecision {
   status: CanonicalRequestStatus;
   answerText?: string;
   decidedByExternalUserId?: string;
+  decidedByPrincipalId?: string;
 }
 
 /**
@@ -343,6 +354,7 @@ export function resolveCanonicalGuardianRequest(
   };
   if (decision.answerText !== undefined) setValues.answerText = decision.answerText;
   if (decision.decidedByExternalUserId !== undefined) setValues.decidedByExternalUserId = decision.decidedByExternalUserId;
+  if (decision.decidedByPrincipalId !== undefined) setValues.decidedByPrincipalId = decision.decidedByPrincipalId;
 
   db.update(canonicalGuardianRequests)
     .set(setValues)

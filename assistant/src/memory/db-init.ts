@@ -37,6 +37,7 @@ import {
   migrateNotificationDeliveryThreadDecision,
   migrateReminderRoutingIntent,
   migrateSchemaIndexesAndColumns,
+  migrateGuardianPrincipalIdColumns,
   migrateVoiceInviteColumns,
   migrateVoiceInviteDisplayMetadata,
   recoverCrashedMigrations,
@@ -172,6 +173,9 @@ export function initializeDb(): void {
 
   // 28. Actor token records (hash-only actor token persistence)
   createActorTokenRecordsTable(database);
+
+  // 29. Guardian principal ID columns on channel_guardian_bindings and canonical_guardian_requests
+  migrateGuardianPrincipalIdColumns(database);
 
   validateMigrationState(database);
 }

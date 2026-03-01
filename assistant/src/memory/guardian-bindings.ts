@@ -23,6 +23,7 @@ export interface GuardianBinding {
   channel: string;
   guardianExternalUserId: string;
   guardianDeliveryChatId: string;
+  guardianPrincipalId: string | null;
   status: BindingStatus;
   verifiedAt: number;
   verifiedVia: string;
@@ -42,6 +43,7 @@ function rowToBinding(row: typeof channelGuardianBindings.$inferSelect): Guardia
     channel: row.channel,
     guardianExternalUserId: row.guardianExternalUserId,
     guardianDeliveryChatId: row.guardianDeliveryChatId,
+    guardianPrincipalId: row.guardianPrincipalId,
     status: row.status as BindingStatus,
     verifiedAt: row.verifiedAt,
     verifiedVia: row.verifiedVia,
@@ -60,6 +62,7 @@ export function createBinding(params: {
   channel: string;
   guardianExternalUserId: string;
   guardianDeliveryChatId: string;
+  guardianPrincipalId?: string | null;
   verifiedVia?: string;
   metadataJson?: string | null;
 }): GuardianBinding {
@@ -73,6 +76,7 @@ export function createBinding(params: {
     channel: params.channel,
     guardianExternalUserId: params.guardianExternalUserId,
     guardianDeliveryChatId: params.guardianDeliveryChatId,
+    guardianPrincipalId: params.guardianPrincipalId ?? null,
     status: 'active' as const,
     verifiedAt: now,
     verifiedVia: params.verifiedVia ?? 'challenge',
