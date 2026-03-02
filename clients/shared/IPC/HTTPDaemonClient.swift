@@ -163,54 +163,15 @@ public final class HTTPTransport {
         let path: String
         let query: String?
 
-        switch endpoint {
-        case .healthz:
-            path = "/healthz"
-            query = nil
-        case .events(let conversationKey):
-            path = "/v1/events"
-            let encoded = conversationKey.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? conversationKey
-            query = "conversationKey=\(encoded)"
-        case .sendMessage:
-            path = "/v1/messages"
-            query = nil
-        case .getMessages(let conversationId):
-            path = "/v1/messages"
-            if let id = conversationId {
-                let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? id
-                query = "conversationId=\(encoded)"
-            } else {
-                query = nil
+        switch transportMetadata.routeMode {
+        case .runtimeFlat:
+            (path, query) = buildRuntimeFlatPath(for: endpoint)
+        case .platformAssistantProxy:
+            guard let assistantId = transportMetadata.platformAssistantId else {
+                log.error("platformAssistantProxy route mode requires platformAssistantId")
+                return nil
             }
-        case .conversations(let limit, let offset):
-            path = "/v1/conversations"
-            query = "limit=\(limit)&offset=\(offset)"
-        case .confirm:
-            path = "/v1/confirm"
-            query = nil
-        case .secret:
-            path = "/v1/secret"
-            query = nil
-        case .guardianActionsPending(let conversationId):
-            path = "/v1/guardian-actions/pending"
-            let encoded = conversationId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? conversationId
-            query = "conversationId=\(encoded)"
-        case .guardianActionsDecision:
-            path = "/v1/guardian-actions/decision"
-            query = nil
-        case .conversationsSeen:
-            path = "/v1/conversations/seen"
-            query = nil
-        case .identity:
-            path = "/v1/identity"
-            query = nil
-        case .featureFlags:
-            path = "/v1/feature-flags"
-            query = nil
-        case .featureFlagUpdate(let key):
-            let encoded = key.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? key
-            path = "/v1/feature-flags/\(encoded)"
-            query = nil
+            (path, query) = buildPlatformProxyPath(for: endpoint, assistantId: assistantId)
         }
 
         var urlString = "\(baseURL)\(path)"
@@ -218,6 +179,88 @@ public final class HTTPTransport {
             urlString += "?\(query)"
         }
         return URL(string: urlString)
+    }
+
+    /// Builds paths for the existing runtime-flat layout (e.g. /healthz, /v1/messages).
+    private func buildRuntimeFlatPath(for endpoint: Endpoint) -> (path: String, query: String?) {
+        switch endpoint {
+        case .healthz:
+            return ("/healthz", nil)
+        case .events(let conversationKey):
+            let encoded = conversationKey.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? conversationKey
+            return ("/v1/events", "conversationKey=\(encoded)")
+        case .sendMessage:
+            return ("/v1/messages", nil)
+        case .getMessages(let conversationId):
+            if let id = conversationId {
+                let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? id
+                return ("/v1/messages", "conversationId=\(encoded)")
+            }
+            return ("/v1/messages", nil)
+        case .conversations(let limit, let offset):
+            return ("/v1/conversations", "limit=\(limit)&offset=\(offset)")
+        case .confirm:
+            return ("/v1/confirm", nil)
+        case .secret:
+            return ("/v1/secret", nil)
+        case .guardianActionsPending(let conversationId):
+            let encoded = conversationId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? conversationId
+            return ("/v1/guardian-actions/pending", "conversationId=\(encoded)")
+        case .guardianActionsDecision:
+            return ("/v1/guardian-actions/decision", nil)
+        case .conversationsSeen:
+            return ("/v1/conversations/seen", nil)
+        case .identity:
+            return ("/v1/identity", nil)
+        case .featureFlags:
+            return ("/v1/feature-flags", nil)
+        case .featureFlagUpdate(let key):
+            let encoded = key.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? key
+            return ("/v1/feature-flags/\(encoded)", nil)
+        }
+    }
+
+    /// Builds paths for the platform assistant proxy layout
+    /// (e.g. /v1/assistants/{id}/healthz/, /v1/assistants/{id}/messages/).
+    /// Trailing slashes match the Django URL convention.
+    private func buildPlatformProxyPath(for endpoint: Endpoint, assistantId: String) -> (path: String, query: String?) {
+        let prefix = "/v1/assistants/\(assistantId)"
+
+        switch endpoint {
+        case .healthz:
+            return ("\(prefix)/healthz/", nil)
+        case .events(let conversationKey):
+            let encoded = conversationKey.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? conversationKey
+            return ("\(prefix)/events/", "conversationKey=\(encoded)")
+        case .sendMessage:
+            return ("\(prefix)/messages/", nil)
+        case .getMessages(let conversationId):
+            if let id = conversationId {
+                let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? id
+                return ("\(prefix)/messages/", "conversationId=\(encoded)")
+            }
+            return ("\(prefix)/messages/", nil)
+        case .conversations(let limit, let offset):
+            return ("\(prefix)/conversations/", "limit=\(limit)&offset=\(offset)")
+        case .confirm:
+            return ("\(prefix)/confirm/", nil)
+        case .secret:
+            return ("\(prefix)/secret/", nil)
+        case .guardianActionsPending(let conversationId):
+            let encoded = conversationId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? conversationId
+            return ("\(prefix)/guardian-actions/pending/", "conversationId=\(encoded)")
+        case .guardianActionsDecision:
+            return ("\(prefix)/guardian-actions/decision/", nil)
+        case .conversationsSeen:
+            return ("\(prefix)/conversations/seen/", nil)
+        case .identity:
+            return ("\(prefix)/identity/", nil)
+        case .featureFlags:
+            return ("\(prefix)/feature-flags/", nil)
+        case .featureFlagUpdate(let key):
+            let encoded = key.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? key
+            return ("\(prefix)/feature-flags/\(encoded)/", nil)
+        }
     }
 
     // MARK: - Connect (health check driven)
@@ -1035,6 +1078,19 @@ public final class HTTPTransport {
     /// Async callers that need retry-or-skip semantics should use
     /// handleAuthenticationFailureAsync() directly.
     private func handleAuthenticationFailure() {
+        // Managed mode uses session tokens — the bearer refresh flow does not apply.
+        // Signal session expiry so the app can prompt re-authentication.
+        if isManagedMode {
+            log.warning("401 in managed mode — session token may be expired")
+            onMessage?(.sessionError(SessionErrorMessage(
+                sessionId: "",
+                code: .authenticationRequired,
+                userMessage: "Session expired. Please sign in again.",
+                retryable: false
+            )))
+            return
+        }
+
         Task { @MainActor [weak self] in
             guard let self else { return }
             _ = await self.handleAuthenticationFailureAsync()
@@ -1047,6 +1103,18 @@ public final class HTTPTransport {
     /// already emitted `.authenticationRequired` which is the correct final user-facing state.
     /// On `.transientFailure`, callers may emit a generic error (refresh will retry on next 401).
     private func handleAuthenticationFailureAsync() async -> AuthRefreshResult {
+        // Managed mode: no bearer refresh — emit session-expired and return terminal.
+        if isManagedMode {
+            log.warning("401 in managed mode — session token may be expired")
+            onMessage?(.sessionError(SessionErrorMessage(
+                sessionId: "",
+                code: .authenticationRequired,
+                userMessage: "Session expired. Please sign in again.",
+                retryable: false
+            )))
+            return .terminalFailure
+        }
+
         // If a refresh is already in flight, wait for its outcome instead of
         // returning false (which would drop the caller's user action).
         if let existing = refreshTask {
@@ -1140,13 +1208,29 @@ public final class HTTPTransport {
     // MARK: - Helpers
 
     private func applyAuth(_ request: inout URLRequest) {
-        if let token = bearerToken {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        switch transportMetadata.authMode {
+        case .bearerToken:
+            if let token = bearerToken {
+                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            }
+        case .sessionToken:
+            if let token = SessionTokenManager.getToken() {
+                request.setValue(token, forHTTPHeaderField: "X-Session-Token")
+            }
         }
+
         // Attach actor token when available for identity-bound requests.
-        if let actorToken = ActorTokenManager.getToken() {
-            request.setValue(actorToken, forHTTPHeaderField: "X-Actor-Token")
+        // Skipped in managed mode where actor identity is derived from the session.
+        if transportMetadata.authMode == .bearerToken {
+            if let actorToken = ActorTokenManager.getToken() {
+                request.setValue(actorToken, forHTTPHeaderField: "X-Actor-Token")
+            }
         }
+    }
+
+    /// Whether this transport is operating in managed mode.
+    var isManagedMode: Bool {
+        transportMetadata.routeMode == .platformAssistantProxy
     }
 
     private func setConnected(_ connected: Bool) {
