@@ -38,6 +38,8 @@ private func createDesktopAppFixture(appDisplayName: String) throws -> FixtureCo
 /// Fixture for tests that assume an assistant is already hatched.
 /// Skips clearing onboarding state so the desktop app opens straight
 /// to the already-hatched assistant instead of showing the setup flow.
+/// Ensures `vellum` CLI is on PATH and runs `vellum hatch` if no
+/// assistant is currently alive.
 private func createDesktopAppHatchedFixture(appDisplayName: String) throws -> FixtureContext {
     let resolvedPath = resolveAppPath(appDisplayName: appDisplayName)
 
@@ -45,29 +47,8 @@ private func createDesktopAppHatchedFixture(appDisplayName: String) throws -> Fi
         throw FixtureError.appNotFound(resolvedPath)
     }
 
-    // Verify an assistant is already hatched
-    let ps = Process()
-    ps.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-    ps.arguments = ["vellum", "ps"]
-    let pipe = Pipe()
-    ps.standardOutput = pipe
-    ps.standardError = FileHandle.nullDevice
-    try ps.run()
-    ps.waitUntilExit()
-
-    guard ps.terminationStatus == 0 else {
-        throw FixtureError.noHatchedAssistant("vellum ps exited with status \(ps.terminationStatus)")
-    }
-
-    let data = pipe.fileHandleForReading.readDataToEndOfFile()
-    let output = String(data: data, encoding: .utf8) ?? ""
-    let rows = output.split(separator: "\n")
-        .map { String($0) }
-        .filter { !$0.isEmpty && !$0.contains("NAME") && !$0.hasPrefix("  -") }
-
-    guard !rows.isEmpty else {
-        throw FixtureError.noHatchedAssistant("vellum ps returned no assistant rows.\nOutput:\n\(output)")
-    }
+    ensureVellumInPath()
+    try ensureAssistantHatched()
 
     return FixtureContext(teardown: {
         retireAssistant()
@@ -76,6 +57,59 @@ private func createDesktopAppHatchedFixture(appDisplayName: String) throws -> Fi
 }
 
 // MARK: - Shared Helpers
+
+/// Ensures the `vellum` CLI is available on PATH by adding ~/.bun/bin.
+private func ensureVellumInPath() {
+    let home = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()
+    let bunBin = (home as NSString).appendingPathComponent(".bun/bin")
+
+    var env = ProcessInfo.processInfo.environment
+    let currentPath = env["PATH"] ?? ""
+    if !currentPath.contains(bunBin) {
+        setenv("PATH", "\(bunBin):\(currentPath)", 1)
+    }
+}
+
+/// Ensures an assistant is hatched. Checks `vellum ps` and runs
+/// `vellum hatch` if no assistant rows are found.
+private func ensureAssistantHatched() throws {
+    // Check if an assistant is already running
+    let ps = Process()
+    ps.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+    ps.arguments = ["vellum", "ps"]
+    let pipe = Pipe()
+    ps.standardOutput = pipe
+    ps.standardError = FileHandle.nullDevice
+    do {
+        try ps.run()
+        ps.waitUntilExit()
+    } catch {
+        // vellum ps failed — fall through to hatch
+    }
+
+    if ps.terminationStatus == 0 {
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        let output = String(data: data, encoding: .utf8) ?? ""
+        let rows = output.split(separator: "\n")
+            .map { String($0) }
+            .filter { !$0.isEmpty && !$0.contains("NAME") && !$0.hasPrefix("  -") }
+
+        if !rows.isEmpty {
+            return // Assistant already hatched
+        }
+    }
+
+    // No assistant found — hatch one
+    let hatch = Process()
+    hatch.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+    hatch.arguments = ["vellum", "hatch"]
+    try hatch.run()
+    hatch.waitUntilExit()
+
+    guard hatch.terminationStatus == 0 else {
+        throw FixtureError.noHatchedAssistant("vellum hatch exited with status \(hatch.terminationStatus)")
+    }
+}
 
 private func resolveAppPath(appDisplayName: String) -> String {
     let cwd = FileManager.default.currentDirectoryPath

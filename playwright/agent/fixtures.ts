@@ -87,7 +87,8 @@ async function createDesktopAppHatchedFixture(options: FixtureOptions): Promise<
   const appDisplayName = process.env.APP_DISPLAY_NAME ?? "Vellum";
 
   verifyAppExists(appDisplayName);
-  verifyAssistantHatched();
+  ensureVellumInPath();
+  ensureAssistantHatched();
 
   return {
     teardown: async () => {
@@ -125,7 +126,42 @@ function logVellumPs(): void {
   }
 }
 
-function verifyAssistantHatched(): void {
+/**
+ * Ensures the `vellum` CLI is available on PATH.
+ *
+ * The install script places the binary in ~/.bun/bin and writes a
+ * sourceable env file to ~/.config/vellum/env. We add ~/.bun/bin
+ * to the current process PATH so child_process calls can find it.
+ */
+function ensureVellumInPath(): void {
+  const home = process.env.HOME ?? "/root";
+  const bunBin = path.join(home, ".bun", "bin");
+
+  // Add ~/.bun/bin to PATH if not already present
+  if (!process.env.PATH?.includes(bunBin)) {
+    process.env.PATH = `${bunBin}:${process.env.PATH ?? ""}`;
+  }
+
+  try {
+    execSync("vellum --version", {
+      encoding: "utf-8",
+      timeout: 10_000,
+      shell: "/bin/bash",
+    });
+  } catch {
+    throw new Error(
+      `vellum CLI not found on PATH. Run install.sh first or ensure ~/.bun/bin is on PATH.`,
+    );
+  }
+}
+
+/**
+ * Ensures an assistant is hatched.
+ *
+ * Checks `vellum ps` for an existing assistant. If none is found,
+ * runs `vellum hatch` to create one.
+ */
+function ensureAssistantHatched(): void {
   let psOutput: string;
   try {
     psOutput = execSync("vellum ps", {
@@ -133,22 +169,33 @@ function verifyAssistantHatched(): void {
       timeout: 30_000,
       shell: "/bin/bash",
     });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`No hatched assistant found — vellum ps failed: ${message}`);
+  } catch {
+    // vellum ps failed — try hatching
+    psOutput = "";
   }
 
-  logVellumPs();
-
-  // Expect at least one assistant row after the header line
   const lines = psOutput
     .split("\n")
     .filter((l) => l.trim() && !l.includes("NAME") && !l.startsWith("  -"));
-  if (lines.length === 0) {
-    throw new Error(
-      `No hatched assistant found — vellum ps returned no assistant rows.\nOutput:\n${psOutput}`,
-    );
+
+  if (lines.length > 0) {
+    logVellumPs();
+    return;
   }
+
+  // No assistant found — hatch one
+  try {
+    execSync("vellum hatch", {
+      stdio: "inherit",
+      timeout: 300_000,
+      shell: "/bin/bash",
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`Failed to hatch assistant: ${message}`);
+  }
+
+  logVellumPs();
 }
 
 function retireAssistant(): void {
