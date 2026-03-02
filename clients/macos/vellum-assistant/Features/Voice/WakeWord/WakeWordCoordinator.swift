@@ -32,6 +32,10 @@ final class WakeWordCoordinator: ObservableObject {
     /// The in-flight activation task — stored so it can be cancelled if voice mode
     /// is toggled off before the mic handoff completes.
     private var activationTask: Task<Void, Never>?
+    /// True while the retry loop is calling deactivate() between attempts.
+    /// Prevents the `.off` state observer from cancelling the activation task
+    /// when the retry loop itself triggers the `.off` transition.
+    private var isRetryingActivation = false
 
     /// Cooldown after activation to prevent re-triggering from leftover audio.
     private var lastActivationTime: Date?
@@ -148,9 +152,12 @@ final class WakeWordCoordinator: ObservableObject {
                     return
                 }
 
-                // startListening() failed — tear down and retry
+                // startListening() failed — tear down and retry. Set the flag so
+                // the .off state observer doesn't cancel this activation task.
                 log.warning("startListening() failed on attempt \(attempt + 1) — mic not ready yet")
+                self.isRetryingActivation = true
                 self.voiceModeManager.deactivate()
+                self.isRetryingActivation = false
             }
 
             // All attempts failed
@@ -208,9 +215,12 @@ final class WakeWordCoordinator: ObservableObject {
             .sink { [weak self] newState in
                 guard let self else { return }
                 if newState == .off {
-                    // Cancel any in-flight activation attempts
-                    self.activationTask?.cancel()
-                    self.activationTask = nil
+                    // Cancel in-flight activation — but not when the retry loop
+                    // itself called deactivate() between attempts.
+                    if !self.isRetryingActivation {
+                        self.activationTask?.cancel()
+                        self.activationTask = nil
+                    }
                     // Only resume monitoring if wake word is enabled in settings
                     if UserDefaults.standard.bool(forKey: "wakeWordEnabled") {
                         log.info("Voice mode deactivated — resuming wake word listening after delay")
