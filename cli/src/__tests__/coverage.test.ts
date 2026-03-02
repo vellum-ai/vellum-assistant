@@ -1,0 +1,38 @@
+import { resolve } from "node:path";
+import { expect, test } from "bun:test";
+
+const EXCLUDE_PATTERNS = [".test.ts", ".d.ts"];
+const EXCLUDE_FILES = [
+  // index.ts calls main() at module level, causing side effects on import
+  "index.ts",
+];
+
+async function importAllModules(dir: string): Promise<string[]> {
+  const glob = new Bun.Glob("**/*.{ts,tsx}");
+  const files = [...glob.scanSync(dir)].filter(
+    (f) =>
+      !EXCLUDE_PATTERNS.some((pattern) => f.endsWith(pattern)) &&
+      !EXCLUDE_FILES.some((excluded) => f === excluded) &&
+      !f.includes("__tests__"),
+  );
+
+  await Promise.all(files.map((relPath) => import(resolve(dir, relPath))));
+
+  return files;
+}
+
+test("imports all source modules for coverage tracking", async () => {
+  /**
+   * Ensures all source files are loaded so Bun's coverage reporter
+   * includes them in the report, not just files touched by other tests.
+   */
+
+  // GIVEN the src directory containing all source modules
+  const srcDir = resolve(import.meta.dir, "..");
+
+  // WHEN we dynamically import every source module
+  const files = await importAllModules(srcDir);
+
+  // THEN at least one file should have been imported
+  expect(files.length).toBeGreaterThan(0);
+});
