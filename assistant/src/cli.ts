@@ -232,6 +232,12 @@ export async function startCli(): Promise<void> {
     }
     process.stdout.write(`\u2502\n`);
     process.stdout.write(`\u2502 [a] Allow once\n`);
+    if (req.temporaryOptionsAvailable?.includes('allow_10m')) {
+      process.stdout.write(`\u2502 [t] Allow 10m\n`);
+    }
+    if (req.temporaryOptionsAvailable?.includes('allow_thread')) {
+      process.stdout.write(`\u2502 [T] Allow Thread\n`);
+    }
     process.stdout.write(`\u2502 [d] Deny once\n`);
     if (req.allowlistOptions.length > 0 && req.scopeOptions.length > 0) {
       process.stdout.write(`\u2502 [A] Allowlist...\n`);
@@ -273,6 +279,24 @@ export async function startCli(): Promise<void> {
           type: 'confirmation_response',
           requestId: req.requestId,
           decision: 'allow',
+        });
+        return;
+      }
+
+      if (choice === 't' && trimmed === 't' && req.temporaryOptionsAvailable?.includes('allow_10m')) {
+        send({
+          type: 'confirmation_response',
+          requestId: req.requestId,
+          decision: 'allow_10m',
+        });
+        return;
+      }
+
+      if (trimmed === 'T' && req.temporaryOptionsAvailable?.includes('allow_thread')) {
+        send({
+          type: 'confirmation_response',
+          requestId: req.requestId,
+          decision: 'allow_thread',
         });
         return;
       }

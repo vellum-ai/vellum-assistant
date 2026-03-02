@@ -8,6 +8,8 @@ public struct ToolConfirmationBubble: View {
     public let onAllow: () -> Void
     public let onDeny: () -> Void
     public let onAlwaysAllow: (String, String, String, String) -> Void
+    /// Called when a temporary approval option is selected: (requestId, decision).
+    public let onTemporaryAllow: ((String, String) -> Void)?
     /// When `true` this bubble owns the keyboard monitor and shows selection
     /// highlights. When `false` the monitor is removed and keyboard-only state
     /// is cleared so a lower stacked bubble doesn't steal input.
@@ -26,12 +28,13 @@ public struct ToolConfirmationBubble: View {
     @State private var keyMonitor: Any?
     #endif
 
-    public init(confirmation: ToolConfirmationData, isKeyboardActive: Bool = true, onAllow: @escaping () -> Void, onDeny: @escaping () -> Void, onAlwaysAllow: @escaping (String, String, String, String) -> Void) {
+    public init(confirmation: ToolConfirmationData, isKeyboardActive: Bool = true, onAllow: @escaping () -> Void, onDeny: @escaping () -> Void, onAlwaysAllow: @escaping (String, String, String, String) -> Void, onTemporaryAllow: ((String, String) -> Void)? = nil) {
         self.confirmation = confirmation
         self.isKeyboardActive = isKeyboardActive
         self.onAllow = onAllow
         self.onDeny = onDeny
         self.onAlwaysAllow = onAlwaysAllow
+        self.onTemporaryAllow = onTemporaryAllow
     }
 
     private var hasRuleOptions: Bool {
@@ -48,6 +51,14 @@ public struct ToolConfirmationBubble: View {
 
     private var isDecided: Bool {
         confirmation.state != .pending
+    }
+
+    private var hasAllow10m: Bool {
+        confirmation.temporaryOptionsAvailable.contains("allow_10m")
+    }
+
+    private var hasAllowThread: Bool {
+        confirmation.temporaryOptionsAvailable.contains("allow_thread")
     }
 
     /// The decision value to send when "Always Allow" is clicked.
@@ -373,6 +384,8 @@ public struct ToolConfirmationBubble: View {
     /// Build the ordered list of top-level actions based on current confirmation state.
     private var topLevelActions: [ToolConfirmationKeyboardModel.Action] {
         var actions: [ToolConfirmationKeyboardModel.Action] = [.allowOnce]
+        if hasAllow10m { actions.append(.allow10m) }
+        if hasAllowThread { actions.append(.allowThread) }
         if hasRuleOptions && confirmation.persistentDecisionsAllowed {
             actions.append(.alwaysAllow)
         }
@@ -390,6 +403,24 @@ public struct ToolConfirmationBubble: View {
                 isDanger: false,
                 isKeyboardSelected: keyboardModel?.selectedAction == .allowOnce
             ) { markCommandExplanationSeen(); onAllow() }
+            if hasAllow10m {
+                confirmationButton(
+                    "Allow 10m",
+                    isPrimary: false,
+                    isDanger: false,
+                    isKeyboardSelected: keyboardModel?.selectedAction == .allow10m
+                ) { markCommandExplanationSeen(); onTemporaryAllow?(confirmation.requestId, "allow_10m") }
+                .help("Allow this action for 10 minutes")
+            }
+            if hasAllowThread {
+                confirmationButton(
+                    "Allow Thread",
+                    isPrimary: false,
+                    isDanger: false,
+                    isKeyboardSelected: keyboardModel?.selectedAction == .allowThread
+                ) { markCommandExplanationSeen(); onTemporaryAllow?(confirmation.requestId, "allow_thread") }
+                .help("Allow this action for the current thread")
+            }
             if hasRuleOptions && confirmation.persistentDecisionsAllowed { alwaysAllowInlineButton }
             confirmationButton(
                 "Don\u{2019}t Allow",
@@ -614,6 +645,10 @@ public struct ToolConfirmationBubble: View {
         switch action {
         case .allowOnce:
             onAllow()
+        case .allow10m:
+            onTemporaryAllow?(confirmation.requestId, "allow_10m")
+        case .allowThread:
+            onTemporaryAllow?(confirmation.requestId, "allow_thread")
         case .alwaysAllow:
             if confirmation.allowlistOptions.count > 1 {
                 withAnimation(VAnimation.fast) {

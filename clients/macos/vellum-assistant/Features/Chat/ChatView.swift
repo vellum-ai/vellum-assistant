@@ -41,6 +41,8 @@ struct ChatView: View {
     let onConfirmationAllow: (String) -> Void
     let onConfirmationDeny: (String) -> Void
     let onAlwaysAllow: (String, String, String, String) -> Void
+    /// Called when a temporary approval option is selected: (requestId, decision).
+    var onTemporaryAllow: ((String, String) -> Void)?
     var onGuardianAction: ((String, String) -> Void)?
     let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
     let sessionError: SessionError?
@@ -193,6 +195,7 @@ struct ChatView: View {
                             onConfirmationAllow: onConfirmationAllow,
                             onConfirmationDeny: onConfirmationDeny,
                             onAlwaysAllow: onAlwaysAllow,
+                            onTemporaryAllow: onTemporaryAllow,
                             onSurfaceAction: onSurfaceAction,
                             onGuardianAction: onGuardianAction,
                             onDismissDocumentWidget: onDismissDocumentWidget,
