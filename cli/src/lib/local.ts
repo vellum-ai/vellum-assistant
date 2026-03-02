@@ -2,7 +2,7 @@ import { execFileSync, spawn } from "child_process";
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "fs";
 import { createRequire } from "module";
 import { createConnection } from "net";
-import { homedir } from "os";
+import { homedir, hostname, networkInterfaces, platform } from "os";
 import { dirname, join } from "path";
 
 import { loadLatestAssistant } from "./assistant-config.js";
@@ -249,13 +249,59 @@ function isSocketResponsive(socketPath: string, timeoutMs = 1500): Promise<boole
   });
 }
 
+/** Discover the best local LAN address for this machine.
+ *  On macOS, prioritize the .local hostname (e.g. "Vargass-Mac-Mini.local").
+ *  Otherwise fall back to the first non-loopback LAN IPv4 address. */
+function discoverLanAddress(): string | undefined {
+  // On macOS, prefer the Bonjour .local hostname — it's user-friendly
+  // and routable on the local network without needing to know the IP.
+  if (platform() === "darwin") {
+    try {
+      const h = hostname();
+      if (h) {
+        const localName = h.endsWith(".local") ? h : `${h}.local`;
+        return localName;
+      }
+    } catch {
+      // hostname() failed, fall through to IP-based detection
+    }
+  }
+
+  // Enumerate network interfaces and pick the first non-loopback IPv4
+  // address on an en* (Wi-Fi/Ethernet) interface, matching the Swift
+  // NetworkInterfaceResolver precedence.
+  const ifaces = networkInterfaces();
+  const priorityInterfaces = ["en0", "en1"];
+  for (const name of priorityInterfaces) {
+    const addrs = ifaces[name];
+    if (!addrs) continue;
+    for (const addr of addrs) {
+      if (addr.family === "IPv4" && !addr.internal && !addr.address.startsWith("169.254.")) {
+        return addr.address;
+      }
+    }
+  }
+
+  // Fallback: any non-loopback IPv4 address
+  for (const [, addrs] of Object.entries(ifaces)) {
+    if (!addrs) continue;
+    for (const addr of addrs) {
+      if (addr.family === "IPv4" && !addr.internal && !addr.address.startsWith("169.254.")) {
+        return addr.address;
+      }
+    }
+  }
+
+  return undefined;
+}
+
 async function discoverPublicUrl(): Promise<string | undefined> {
   const cloud = process.env.VELLUM_CLOUD;
 
-  let externalIp: string | undefined;
-
-  // Try cloud-specific metadata services first for GCP and AWS.
-  if (cloud && cloud !== "local") {
+  // For GCP and AWS cloud instances, use cloud-specific metadata services
+  // to discover the public IP.
+  if (cloud === "gcp" || cloud === "aws") {
+    let externalIp: string | undefined;
     try {
       if (cloud === "gcp") {
         const resp = await fetch(
@@ -281,47 +327,23 @@ async function discoverPublicUrl(): Promise<string | undefined> {
     } catch {
       // metadata service not reachable
     }
-  }
 
-  // Fall back to a public IP discovery service for all environments
-  // (local, custom, or when cloud-specific metadata didn't resolve).
-  if (!externalIp) {
-    externalIp = await discoverPublicIpFallback();
-  }
-
-  if (externalIp) {
-    console.log(`   Discovered external IP: ${externalIp}`);
-    return `http://${externalIp}:${GATEWAY_PORT}`;
-  }
-
-  // Final fallback to localhost when no public IP could be discovered.
-  return `http://localhost:${GATEWAY_PORT}`;
-}
-
-/** Try to discover the machine's public IP using external services.
- *  Attempts multiple providers for resilience. */
-async function discoverPublicIpFallback(): Promise<string | undefined> {
-  const services = [
-    "https://api.ipify.org",
-    "https://ifconfig.me/ip",
-    "https://icanhazip.com",
-  ];
-
-  for (const url of services) {
-    try {
-      const resp = await fetch(url, { signal: AbortSignal.timeout(3000) });
-      if (resp.ok) {
-        const ip = (await resp.text()).trim();
-        // Basic validation: must look like an IPv4 or IPv6 address
-        if (ip && /^[\d.:a-fA-F]+$/.test(ip)) {
-          return ip;
-        }
-      }
-    } catch {
-      // Service unreachable, try the next one
+    if (externalIp) {
+      console.log(`   Discovered external IP: ${externalIp}`);
+      return `http://${externalIp}:${GATEWAY_PORT}`;
     }
   }
-  return undefined;
+
+  // For local and custom environments, use the LAN address instead of
+  // querying external public-IP discovery services.
+  const lanAddress = discoverLanAddress();
+  if (lanAddress) {
+    console.log(`   Discovered LAN address: ${lanAddress}`);
+    return `http://${lanAddress}:${GATEWAY_PORT}`;
+  }
+
+  // Final fallback to localhost when no address could be discovered.
+  return `http://localhost:${GATEWAY_PORT}`;
 }
 
 export async function startLocalDaemon(): Promise<void> {
