@@ -44,6 +44,8 @@ export interface GuardianDecisionAction {
 /** Canonical set of all guardian decision actions with their labels. */
 export const GUARDIAN_DECISION_ACTIONS = {
   approve_once:   { action: 'approve_once',   label: 'Approve once' },
+  approve_10m:    { action: 'approve_10m',    label: 'Allow 10 min' },
+  approve_thread: { action: 'approve_thread', label: 'Allow thread' },
   approve_always: { action: 'approve_always', label: 'Approve always' },
   reject:         { action: 'reject',         label: 'Reject' },
 } as const satisfies Record<string, GuardianDecisionAction>;
@@ -54,16 +56,21 @@ export const GUARDIAN_DECISION_ACTIONS = {
  *
  * When `persistentDecisionsAllowed` is `false`, the `approve_always` action
  * is excluded. When `forGuardianOnBehalf` is `true` (guardian acting on behalf
- * of a requester), `approve_always` is also excluded since guardians cannot
- * permanently allowlist tools on behalf of others.
+ * of a requester), both `approve_always` and the temporary modes are excluded
+ * since guardians cannot grant broad delegated allow modes on behalf of others.
+ *
+ * Temporary modes (`approve_10m`, `approve_thread`) are included for
+ * requester-side standard approval flows when persistent decisions are allowed.
  */
 export function buildDecisionActions(opts?: {
   persistentDecisionsAllowed?: boolean;
   forGuardianOnBehalf?: boolean;
 }): GuardianDecisionAction[] {
   const showAlways = opts?.persistentDecisionsAllowed !== false && !opts?.forGuardianOnBehalf;
+  const showTemporary = opts?.persistentDecisionsAllowed !== false && !opts?.forGuardianOnBehalf;
   return [
     GUARDIAN_DECISION_ACTIONS.approve_once,
+    ...(showTemporary ? [GUARDIAN_DECISION_ACTIONS.approve_10m, GUARDIAN_DECISION_ACTIONS.approve_thread] : []),
     ...(showAlways ? [GUARDIAN_DECISION_ACTIONS.approve_always] : []),
     GUARDIAN_DECISION_ACTIONS.reject,
   ];
@@ -72,16 +79,26 @@ export function buildDecisionActions(opts?: {
 /**
  * Build the plain-text fallback instruction string that matches the given
  * set of decision actions. Ensures the text always includes parser-compatible
- * keywords (yes/always/no) so text-based fallback remains actionable.
+ * keywords so text-based fallback remains actionable.
  */
 export function buildPlainTextFallback(
   promptText: string,
   actions: GuardianDecisionAction[],
 ): string {
   const hasAlways = actions.some(a => a.action === 'approve_always');
-  return hasAlways
-    ? `${promptText}\n\nReply "yes" to approve once, "always" to approve always, or "no" to reject.`
-    : `${promptText}\n\nReply "yes" to approve or "no" to reject.`;
+  const has10m = actions.some(a => a.action === 'approve_10m');
+  const hasThread = actions.some(a => a.action === 'approve_thread');
+
+  if (hasAlways && has10m && hasThread) {
+    return `${promptText}\n\nReply "yes" to approve once, "approve for 10 minutes", "approve for thread", "always" to approve always, or "no" to reject.`;
+  }
+  if (hasAlways) {
+    return `${promptText}\n\nReply "yes" to approve once, "always" to approve always, or "no" to reject.`;
+  }
+  if (has10m && hasThread) {
+    return `${promptText}\n\nReply "yes" to approve once, "approve for 10 minutes", "approve for thread", or "no" to reject.`;
+  }
+  return `${promptText}\n\nReply "yes" to approve or "no" to reject.`;
 }
 
 // ---------------------------------------------------------------------------

@@ -69,7 +69,13 @@ export const GUARDIAN_APPROVAL_TTL_MS = 30 * 60 * 1000;
  */
 export function requiredDecisionKeywords(actions: ApprovalUIMetadata['actions']): string[] {
   const hasAlways = actions.some((action) => action.id === 'approve_always');
-  return hasAlways ? ['yes', 'always', 'no'] : ['yes', 'no'];
+  const has10m = actions.some((action) => action.id === 'approve_10m');
+  const hasThread = actions.some((action) => action.id === 'approve_thread');
+  const keywords = ['yes', 'no'];
+  if (has10m) keywords.push('approve for 10 minutes');
+  if (hasThread) keywords.push('approve for thread');
+  if (hasAlways) keywords.push('always');
+  return keywords;
 }
 
 // ---------------------------------------------------------------------------
@@ -78,6 +84,8 @@ export function requiredDecisionKeywords(actions: ApprovalUIMetadata['actions'])
 
 const VALID_ACTIONS: ReadonlySet<string> = new Set<string>([
   'approve_once',
+  'approve_10m',
+  'approve_thread',
   'approve_always',
   'reject',
 ]);
