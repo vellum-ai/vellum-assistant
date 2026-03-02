@@ -11,7 +11,7 @@ import { dirname, join } from 'node:path';
 
 import { getLogger } from '../../util/logger.js';
 import { getRootDir } from '../../util/platform.js';
-import { isStaleEpoch } from './policy.js';
+import { CURRENT_POLICY_EPOCH, isStaleEpoch } from './policy.js';
 import type { ScopeProfile, TokenAudience, TokenClaims } from './types.js';
 
 const log = getLogger('token-service');
@@ -206,6 +206,29 @@ export function verifyToken(token: string, expectedAud: TokenAudience): VerifyRe
   }
 
   return { ok: true, claims };
+}
+
+// ---------------------------------------------------------------------------
+// Daemon delivery token
+// ---------------------------------------------------------------------------
+
+/**
+ * Mint a short-lived JWT for daemon-to-gateway delivery callbacks.
+ *
+ * Used when the daemon needs to call gateway /deliver/* endpoints. The
+ * gateway's deliver-auth middleware validates aud=vellum-daemon, so both
+ * sides share the same signing key and audience convention.
+ *
+ * sub=svc:daemon:self, scope_profile=gateway_service_v1
+ */
+export function mintDaemonDeliveryToken(): string {
+  return mintToken({
+    aud: 'vellum-daemon',
+    sub: 'svc:daemon:self',
+    scope_profile: 'gateway_service_v1',
+    policy_epoch: CURRENT_POLICY_EPOCH,
+    ttlSeconds: 60,
+  });
 }
 
 // ---------------------------------------------------------------------------

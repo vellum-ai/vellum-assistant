@@ -45,6 +45,7 @@ import { httpError } from './http-errors.js';
 // Auth
 import { authenticateRequest } from './auth/middleware.js';
 import { enforcePolicy, getPolicy } from './auth/route-policy.js';
+import { verifyToken } from './auth/token-service.js';
 import type { AuthContext } from './auth/types.js';
 // Middleware
 import {
@@ -52,7 +53,6 @@ import {
   isLoopbackHost,
   isPrivateNetworkOrigin,
   isPrivateNetworkPeer,
-  verifyBearerToken,
 } from './middleware/auth.js';
 import { withErrorHandling } from './middleware/error-handler.js';
 import {
@@ -571,10 +571,14 @@ export class RuntimeHttpServer {
       return httpError('FORBIDDEN', 'Browser relay only accepts connections from localhost', 403);
     }
 
-    if (!isHttpAuthDisabled() && this.bearerToken) {
+    if (!isHttpAuthDisabled()) {
       const wsUrl = new URL(req.url);
       const token = wsUrl.searchParams.get('token');
-      if (!token || !verifyBearerToken(token, this.bearerToken)) {
+      if (!token) {
+        return httpError('UNAUTHORIZED', 'Unauthorized', 401);
+      }
+      const jwtResult = verifyToken(token, 'vellum-daemon');
+      if (!jwtResult.ok) {
         return httpError('UNAUTHORIZED', 'Unauthorized', 401);
       }
     }
@@ -860,7 +864,7 @@ export class RuntimeHttpServer {
         // the old X-Gateway-Origin header check.
         const policyDenied = enforcePolicy('channels/inbound', authContext);
         if (policyDenied) return policyDenied;
-        return await handleChannelInbound(req, this.processMessage, this.bearerToken, assistantId, undefined, this.approvalCopyGenerator, this.approvalConversationGenerator, this.guardianActionCopyGenerator, this.guardianFollowUpConversationGenerator);
+        return await handleChannelInbound(req, this.processMessage, assistantId, this.approvalCopyGenerator, this.approvalConversationGenerator, this.guardianActionCopyGenerator, this.guardianFollowUpConversationGenerator);
       }
 
       if (endpoint === 'channels/delivery-ack' && req.method === 'POST') return await handleChannelDeliveryAck(req);

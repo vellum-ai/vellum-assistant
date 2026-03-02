@@ -26,7 +26,6 @@ import { checkIngressForSecrets } from '../../security/secret-ingress.js';
 import { canonicalizeInboundIdentity } from '../../util/canonicalize-identity.js';
 import { IngressBlockedError } from '../../util/errors.js';
 import { getLogger } from '../../util/logger.js';
-import { readHttpToken } from '../../util/platform.js';
 import { notifyGuardianOfAccessRequest } from '../access-request-helper.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
 import {
@@ -65,12 +64,12 @@ import type {
 import { redeemInvite } from '../invite-redemption-service.js';
 import { getInviteRedemptionReply } from '../invite-redemption-templates.js';
 import { deliverReplyViaCallback } from './channel-delivery-routes.js';
+import { mintDaemonDeliveryToken } from '../auth/token-service.js';
 import {
   canonicalChannelAssistantId,
   GUARDIAN_APPROVAL_TTL_MS,
   type GuardianContext,
   stripVerificationFailurePrefix,
-  verifyGatewayOrigin,
 } from './channel-route-shared.js';
 import { handleApprovalInterception } from './guardian-approval-interception.js';
 import { deliverGeneratedApprovalPrompt } from './guardian-approval-prompt.js';
@@ -96,24 +95,21 @@ function parseGuardianVerifyCode(content: string): string | undefined {
 export async function handleChannelInbound(
   req: Request,
   processMessage?: MessageProcessor,
-  bearerToken?: string,
   assistantId: string = DAEMON_INTERNAL_ASSISTANT_ID,
-  gatewayOriginSecret?: string,
   approvalCopyGenerator?: ApprovalCopyGenerator,
   approvalConversationGenerator?: ApprovalConversationGenerator,
   _guardianActionCopyGenerator?: GuardianActionCopyGenerator,
   _guardianFollowUpConversationGenerator?: GuardianFollowUpConversationGenerator,
 ): Promise<Response> {
-  // Reject requests that lack valid gateway-origin proof. This ensures
-  // channel inbound messages can only arrive via the gateway (which
-  // performs webhook-level verification) and not via direct HTTP calls.
-  if (!verifyGatewayOrigin(req, bearerToken, gatewayOriginSecret)) {
-    log.warn('Rejected channel inbound request: missing or invalid gateway-origin proof');
-    return Response.json(
-      { error: 'Forbidden: missing gateway-origin proof', code: 'GATEWAY_ORIGIN_REQUIRED' },
-      { status: 403 },
-    );
-  }
+  // Gateway-origin proof is enforced by route-policy middleware (svc_gateway
+  // principal type required) before this handler runs. The old
+  // verifyGatewayOrigin/X-Gateway-Origin header check is removed — the
+  // exchange JWT itself proves gateway origin.
+
+  // Mint a short-lived JWT for daemon-to-gateway delivery callbacks.
+  // Previously this was the opaque http-token threaded from the caller;
+  // now each handler invocation mints a fresh JWT.
+  const bearerToken = mintDaemonDeliveryToken();
 
   const body = await req.json() as {
     sourceChannel?: string;
@@ -1735,11 +1731,7 @@ function deliverBootstrapVerificationTelegram(
 ): void {
   const attemptDelivery = async (): Promise<boolean> => {
     const gatewayUrl = getGatewayInternalBaseUrl();
-    const bearerToken = readHttpToken();
-    if (!bearerToken) {
-      log.error('Cannot deliver bootstrap verification Telegram message: no runtime HTTP token available');
-      return false;
-    }
+    const bearerToken = mintDaemonDeliveryToken();
     const url = `${gatewayUrl}/deliver/telegram`;
     const resp = await fetch(url, {
       method: 'POST',

@@ -1,4 +1,4 @@
-import { validateEdgeToken, mintExchangeToken } from "../../auth/token-exchange.js";
+import { validateEdgeToken, mintExchangeToken, mintServiceToken } from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
 import { fetchImpl } from "../../fetch.js";
 import { getLogger } from "../../logger.js";
@@ -33,7 +33,10 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
 
     // Validate the edge JWT (aud=vellum-gateway) when auth is required.
     // On success, mint an exchange token (aud=vellum-daemon) for the runtime.
-    let exchangeToken: string | undefined;
+    // When auth is not required (or OPTIONS), mint a service token instead —
+    // the gateway always authenticates itself to the daemon regardless of the
+    // client-facing auth setting.
+    let exchangeToken: string;
     if (config.runtimeProxyRequireAuth && req.method !== "OPTIONS") {
       const authHeader = req.headers.get("authorization");
       if (!authHeader || !authHeader.toLowerCase().startsWith("bearer ")) {
@@ -46,6 +49,8 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
         return Response.json({ error: "Unauthorized" }, { status: 401 });
       }
       exchangeToken = mintExchangeToken(result.claims, result.claims.scope_profile);
+    } else {
+      exchangeToken = mintServiceToken();
     }
 
     // The daemon uses flat /v1/... paths. Rewrite any legacy
@@ -71,9 +76,7 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
     }
 
     // Replace with the exchange token for the runtime (proves gateway origin)
-    if (exchangeToken) {
-      reqHeaders.set("authorization", `Bearer ${exchangeToken}`);
-    }
+    reqHeaders.set("authorization", `Bearer ${exchangeToken}`);
 
     // Use a manual AbortController so the timeout only covers the connection
     // phase (waiting for response headers). Once headers arrive, the timeout is
