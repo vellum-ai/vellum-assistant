@@ -116,6 +116,30 @@ All guardian approval decisions — regardless of how they arrive — route thro
 | `src/daemon/ipc-contract/guardian-actions.ts`  | IPC message type definitions for guardian action requests/responses                                                                               |
 | `src/runtime/channel-approval-types.ts`        | Channel-facing approval action types and `toApprovalActionOptions` bridge                                                                         |
 
+### Temporary Approval Modes (Session-Scoped Overrides)
+
+In addition to persistent trust rules (`always_allow` / `always_deny`), the approval system supports two **temporary** approval modes that auto-approve tool confirmations for the duration of a conversation or a fixed time window. These exist to reduce prompt fatigue during intensive sessions without permanently altering the trust configuration.
+
+**Two modes:**
+
+1. **`allow_thread`** — Auto-approve all tool confirmations for the remainder of the current conversation. The override persists until the session ends, the conversation is closed, or the mode is explicitly cleared.
+2. **`allow_10m`** — Auto-approve all tool confirmations for 10 minutes (configurable). The override expires lazily on the next read after the TTL elapses — no background sweep runs.
+
+**Session-scoped, in-memory only:** Overrides are keyed by `conversationId` and stored in an in-memory `Map` inside `session-approval-overrides.ts`. They do not survive daemon restarts, which is intentional — temporary approvals should not outlive the session that created them.
+
+**Integration with the permission pipeline:** The permission checker (`src/tools/permission-checker.ts`) checks for an active temporary override via `getEffectiveMode()` before prompting the user. If an active override exists for the current conversation, the confirmation is auto-approved without surfacing a prompt. This check runs after persistent trust rules, so a persistent `deny` rule still takes precedence.
+
+**No persistent side effects:** Temporary modes do not write to `trust.json` or create persistent trust rules. They are purely ephemeral. The `buildDecisionActions()` function in `guardian-decision-types.ts` controls whether temporary options (`allow_10m`, `allow_thread`) are surfaced in the approval prompt UI, gated by the `temporaryOptionsAvailable` flag.
+
+**Key source files:**
+
+| File | Purpose |
+|------|---------|
+| `src/runtime/session-approval-overrides.ts` | In-memory store: `setThreadMode`, `setTimedMode`, `getEffectiveMode`, `clearMode`, `hasActiveOverride`, `clearAll` |
+| `src/permissions/types.ts` | `UserDecision` type (includes `allow_10m`, `allow_thread`, `temporary_override`), `isAllowDecision()` helper |
+| `src/runtime/guardian-decision-types.ts` | `buildDecisionActions()` — controls which temporary options appear in approval prompts |
+| `src/tools/permission-checker.ts` | Permission pipeline integration — checks temporary overrides before prompting |
+
 ### Canonical Guardian Request System
 
 The canonical guardian request system provides a channel-agnostic, unified domain for all guardian approval and question flows. It replaces the fragmented per-channel storage with a single source of truth that works identically for voice calls, Telegram/SMS/WhatsApp, and desktop UI.
