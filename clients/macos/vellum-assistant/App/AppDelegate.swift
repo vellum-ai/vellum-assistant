@@ -567,7 +567,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                         try await daemonClient.connect()
                     } catch {
                         if bootstrapFailureKind == .unknown {
-                            bootstrapFailureKind = .connectionRefused
+                            if error is DaemonClient.AuthError {
+                                bootstrapFailureKind = .authFailed
+                            } else {
+                                bootstrapFailureKind = .connectionRefused
+                            }
                         }
                         log.error("Bootstrap retry connect attempt failed: \(error)")
                     }
