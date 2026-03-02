@@ -27,13 +27,15 @@ Pull the latest changes from main, use `vellum` lifecycle CLI to stop and restar
 
 3. Quiesce with `vellum sleep` — stop daemon and gateway processes. This is directory-agnostic and stops processes globally regardless of CWD:
    ```bash
-   vellum sleep
+   vellum sleep || true
    ```
 
    **Fallback only if sleep fails** (processes stubbornly remain):
    ```bash
    pkill -x "vellum-assistant" || true
    pkill -f "gateway/src/index" || true
+   lsof -ti :7830 | xargs kill -9 2>/dev/null || true
+   lsof -ti :7821 | xargs kill -9 2>/dev/null || true
    ```
 
 4. Verify stopped — run `vellum ps` and confirm no running processes. If processes remain, log a warning:
