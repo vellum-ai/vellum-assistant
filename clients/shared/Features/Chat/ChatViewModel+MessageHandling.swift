@@ -1554,6 +1554,7 @@ extension ChatViewModel {
             assistantActivityPhase = msg.phase
             assistantActivityAnchor = msg.anchor
             assistantActivityReason = msg.reason
+            assistantStatusText = msg.statusText
             switch msg.phase {
             case "thinking":
                 isThinking = true

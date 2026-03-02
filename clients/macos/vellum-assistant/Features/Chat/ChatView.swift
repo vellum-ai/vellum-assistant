@@ -37,6 +37,7 @@ struct ChatView: View {
     let assistantActivityPhase: String
     let assistantActivityAnchor: String
     let assistantActivityReason: String?
+    let assistantStatusText: String?
     let onConfirmationAllow: (String) -> Void
     let onConfirmationDeny: (String) -> Void
     let onAlwaysAllow: (String, String, String, String) -> Void
@@ -184,6 +185,7 @@ struct ChatView: View {
                             assistantActivityPhase: assistantActivityPhase,
                             assistantActivityAnchor: assistantActivityAnchor,
                             assistantActivityReason: assistantActivityReason,
+                            assistantStatusText: assistantStatusText,
                             selectedModel: selectedModel,
                             configuredProviders: configuredProviders,
                             activeSubagents: activeSubagents,
@@ -631,6 +633,7 @@ private struct ChatViewPreviewWrapper: View {
                 assistantActivityPhase: "idle",
                 assistantActivityAnchor: "global",
                 assistantActivityReason: nil,
+                assistantStatusText: nil,
                 onConfirmationAllow: { _ in },
                 onConfirmationDeny: { _ in },
                 onAlwaysAllow: { _, _, _, _ in },

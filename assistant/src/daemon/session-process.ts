@@ -92,6 +92,7 @@ export interface ProcessSessionContext {
     reason: 'message_dequeued' | 'thinking_delta' | 'first_text_delta' | 'tool_use_start' | 'confirmation_requested' | 'confirmation_resolved' | 'message_complete' | 'generation_cancelled' | 'error_terminal',
     anchor?: 'assistant_turn' | 'user_turn' | 'global',
     requestId?: string,
+    statusText?: string,
   ): void;
 }
 
