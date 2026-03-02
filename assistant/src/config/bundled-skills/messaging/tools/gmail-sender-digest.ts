@@ -5,7 +5,7 @@ import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.j
 import { err,ok } from './shared.js';
 
 const MAX_MESSAGES_CAP = 2000;
-const MAX_IDS_PER_SENDER = 1000;
+const MAX_IDS_PER_SENDER = 2000;
 const MAX_SAMPLE_SUBJECTS = 3;
 
 interface SenderAggregation {
@@ -36,7 +36,7 @@ function parseFrom(from: string): { displayName: string; email: string } {
 
 export async function run(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
   const query = (input.query as string) ?? 'category:promotions newer_than:90d';
-  const maxMessages = Math.min((input.max_messages as number) ?? 500, MAX_MESSAGES_CAP);
+  const maxMessages = Math.min((input.max_messages as number) ?? 2000, MAX_MESSAGES_CAP);
   const maxSenders = (input.max_senders as number) ?? 30;
 
   try {
@@ -165,7 +165,7 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
         senders: result,
         total_scanned: allMessageIds.length,
         query_used: query,
-        note: `message_count reflects emails found per sender within the ${allMessageIds.length} messages scanned. The archive tool may find additional messages beyond this sample.`,
+        note: `message_count reflects emails found per sender within the ${allMessageIds.length} messages scanned. Use the message_ids array with gmail_batch_archive to archive exactly these messages.`,
       }));
     });
   } catch (e) {
