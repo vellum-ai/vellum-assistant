@@ -2,7 +2,7 @@ import { execFileSync, spawn } from "child_process";
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "fs";
 import { createRequire } from "module";
 import { createConnection } from "net";
-import { homedir } from "os";
+import { homedir, hostname, networkInterfaces, platform } from "os";
 import { dirname, join } from "path";
 
 import { loadLatestAssistant } from "./assistant-config.js";
@@ -254,8 +254,8 @@ async function discoverPublicUrl(): Promise<string | undefined> {
 
   let externalIp: string | undefined;
 
-  // Try cloud-specific metadata services first for GCP and AWS.
-  if (cloud && cloud !== "local") {
+  // Try cloud-specific metadata services for GCP and AWS.
+  if (cloud === "gcp" || cloud === "aws") {
     try {
       if (cloud === "gcp") {
         const resp = await fetch(
@@ -281,46 +281,85 @@ async function discoverPublicUrl(): Promise<string | undefined> {
     } catch {
       // metadata service not reachable
     }
+
+    if (externalIp) {
+      console.log(`   Discovered external IP: ${externalIp}`);
+      return `http://${externalIp}:${GATEWAY_PORT}`;
+    }
   }
 
-  // Fall back to a public IP discovery service for all environments
-  // (local, custom, or when cloud-specific metadata didn't resolve).
-  if (!externalIp) {
-    externalIp = await discoverPublicIpFallback();
+  // For local and custom environments, use the local LAN address.
+  // On macOS, prefer the .local hostname (Bonjour/mDNS) so other devices on
+  // the same network can reach the gateway by name.
+  if (platform() === "darwin") {
+    const localHostname = getMacLocalHostname();
+    if (localHostname) {
+      console.log(`   Discovered macOS local hostname: ${localHostname}`);
+      return `http://${localHostname}:${GATEWAY_PORT}`;
+    }
   }
 
-  if (externalIp) {
-    console.log(`   Discovered external IP: ${externalIp}`);
-    return `http://${externalIp}:${GATEWAY_PORT}`;
+  const lanIp = getLocalLanIPv4();
+  if (lanIp) {
+    console.log(`   Discovered LAN IP: ${lanIp}`);
+    return `http://${lanIp}:${GATEWAY_PORT}`;
   }
 
-  // Final fallback to localhost when no public IP could be discovered.
+  // Final fallback to localhost when no LAN address could be discovered.
   return `http://localhost:${GATEWAY_PORT}`;
 }
 
-/** Try to discover the machine's public IP using external services.
- *  Attempts multiple providers for resilience. */
-async function discoverPublicIpFallback(): Promise<string | undefined> {
-  const services = [
-    "https://api.ipify.org",
-    "https://ifconfig.me/ip",
-    "https://icanhazip.com",
-  ];
+/**
+ * Returns the macOS Bonjour/mDNS `.local` hostname (e.g. "Vargass-Mac-Mini.local"),
+ * or undefined if not running on macOS or the hostname cannot be determined.
+ */
+function getMacLocalHostname(): string | undefined {
+  const host = hostname();
+  if (!host) return undefined;
+  // macOS hostnames already end with .local when Bonjour is active
+  if (host.endsWith(".local")) return host;
+  // Otherwise, append .local — macOS resolves <ComputerName>.local via mDNS
+  return `${host}.local`;
+}
 
-  for (const url of services) {
-    try {
-      const resp = await fetch(url, { signal: AbortSignal.timeout(3000) });
-      if (resp.ok) {
-        const ip = (await resp.text()).trim();
-        // Basic validation: must look like an IPv4 or IPv6 address
-        if (ip && /^[\d.:a-fA-F]+$/.test(ip)) {
-          return ip;
-        }
+/**
+ * Returns the local IPv4 address most likely to be reachable from other
+ * devices on the same LAN.
+ *
+ * Priority order:
+ *   1. en0 (Wi-Fi on macOS)
+ *   2. en1 (secondary network on macOS)
+ *   3. First non-loopback IPv4 on any interface
+ *
+ * Skips link-local addresses (169.254.x.x) and IPv6.
+ * Returns undefined if no suitable address is found.
+ */
+function getLocalLanIPv4(): string | undefined {
+  const ifaces = networkInterfaces();
+
+  // Priority interfaces in order
+  const priorityInterfaces = ["en0", "en1"];
+
+  for (const ifName of priorityInterfaces) {
+    const addrs = ifaces[ifName];
+    if (!addrs) continue;
+    for (const addr of addrs) {
+      if (addr.family === "IPv4" && !addr.internal && !addr.address.startsWith("169.254.")) {
+        return addr.address;
       }
-    } catch {
-      // Service unreachable, try the next one
     }
   }
+
+  // Fallback: first non-loopback, non-link-local IPv4 on any interface
+  for (const [, addrs] of Object.entries(ifaces)) {
+    if (!addrs) continue;
+    for (const addr of addrs) {
+      if (addr.family === "IPv4" && !addr.internal && !addr.address.startsWith("169.254.")) {
+        return addr.address;
+      }
+    }
+  }
+
   return undefined;
 }
 
