@@ -12,11 +12,7 @@ extension Notification.Name {
     static let identityChanged = Notification.Name("identityChanged")
 }
 
-/// Manages API keys in the macOS login keychain.
-///
-/// Uses the `security` CLI tool for writes so entries are created without
-/// per-application ACLs — this lets the daemon (which also uses the `security`
-/// CLI) read the same keychain item.
+/// Manages API keys in the macOS login keychain via native SecItem* APIs.
 enum APIKeyManager {
     /// Shared with the daemon (keychain.ts uses service "vellum-assistant", account = provider name).
     private static let service = "vellum-assistant"
@@ -66,13 +62,13 @@ enum APIKeyManager {
                 return migrated
             }
         }
-        let value = cliGetKey(service: service, account: provider)
+        let value = nativeGetKey(service: service, account: provider)
         setCachedValue(value, for: provider)
         return value
     }
 
     static func setKey(_ key: String, for provider: String) {
-        if cliSetKey(service: service, account: provider, value: key) {
+        if nativeSetKey(service: service, account: provider, value: key) {
             setCachedValue(key, for: provider)
         } else {
             invalidateCachedValue(for: provider)
@@ -81,7 +77,7 @@ enum APIKeyManager {
     }
 
     static func deleteKey(for provider: String) {
-        cliDeleteKey(service: service, account: provider)
+        nativeDeleteKey(service: service, account: provider)
         invalidateCachedValue(for: provider)
         notifyKeyDidChange()
     }
@@ -113,6 +109,64 @@ enum APIKeyManager {
         readCacheLock.lock()
         defer { readCacheLock.unlock() }
         readCache.removeValue(forKey: provider)
+    }
+
+    // MARK: - Native Keychain (SecItem)
+
+    /// Read a generic password via `SecItemCopyMatching`.
+    private static func nativeGetKey(service: String, account: String) -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess,
+              let data = result as? Data,
+              let value = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        return value
+    }
+
+    /// Write a generic password via `SecItemAdd` (deletes existing first).
+    @discardableResult
+    private static func nativeSetKey(service: String, account: String, value: String) -> Bool {
+        guard let data = value.data(using: .utf8) else { return false }
+
+        // Delete existing entry (ignore status since it may not exist)
+        let deleteQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
+        ]
+        SecItemDelete(deleteQuery as CFDictionary)
+
+        // Add new entry
+        let addQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlocked
+        ]
+        let status = SecItemAdd(addQuery as CFDictionary, nil)
+        return status == errSecSuccess
+    }
+
+    /// Delete a generic password via `SecItemDelete`.
+    @discardableResult
+    private static func nativeDeleteKey(service: String, account: String) -> Bool {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
+        ]
+        let status = SecItemDelete(query as CFDictionary)
+        return status == errSecSuccess || status == errSecItemNotFound
     }
 
     // MARK: - CLI Helpers
