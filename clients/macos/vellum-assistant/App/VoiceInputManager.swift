@@ -55,6 +55,8 @@ final class VoiceInputManager {
     private var holdTask: Task<Void, Never>?
     private var otherKeyPressedDuringHold = false  // True if any other key pressed while holding
     private static let holdDelay: UInt64 = 300_000_000 // 300ms in nanoseconds
+    private var lastAppSwitchTime: Date = .distantPast
+    private var appSwitchObservers: [Any] = []
 
     private var activationFlags: NSEvent.ModifierFlags? {
         let stored = UserDefaults.standard.string(forKey: "activationKey") ?? "fn"
@@ -76,6 +78,35 @@ final class VoiceInputManager {
 
     func start() {
         setupFnKeyMonitors()
+
+        // Cancel any in-flight hold when the user switches apps, to prevent the
+        // microphone from activating accidentally during Cmd+Tab / Ctrl+Space etc.
+        // System keyboard shortcuts consume their .keyDown events before global
+        // monitors see them, so otherKeyPressedDuringHold never fires — making
+        // these notifications the only reliable signal for an app switch in progress.
+        let workspaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            self.lastAppSwitchTime = Date()
+            self.holdTask?.cancel()
+            self.holdTask = nil
+            self.otherKeyPressedDuringHold = false
+        }
+        let resignObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didResignActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            self.lastAppSwitchTime = Date()
+            self.holdTask?.cancel()
+            self.holdTask = nil
+            self.otherKeyPressedDuringHold = false
+        }
+        appSwitchObservers = [workspaceObserver, resignObserver]
 
         // Wire the dictation response callback to insert text and manage the overlay
         if onDictationResponse == nil {
@@ -109,6 +140,11 @@ final class VoiceInputManager {
             NSEvent.removeMonitor(monitor)
             localKeyDownMonitor = nil
         }
+        for observer in appSwitchObservers {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+            NotificationCenter.default.removeObserver(observer)
+        }
+        appSwitchObservers = []
         stopRecording()
         overlayWindow.dismiss()
         permissionOverlay.dismiss()
@@ -192,12 +228,16 @@ final class VoiceInputManager {
             // Activation key(s) pressed alone - start timer to begin recording while held
             holdTask?.cancel()
             otherKeyPressedDuringHold = false
+            // Skip if an app switch happened recently — this Fn/Ctrl press is likely
+            // from a system keyboard shortcut (Cmd+Tab, Ctrl+arrows) used to switch apps.
+            guard Date().timeIntervalSince(lastAppSwitchTime) > 0.5 else { return }
             holdTask = Task { [weak self] in
                 try? await Task.sleep(nanoseconds: Self.holdDelay)
                 guard !Task.isCancelled else { return }
                 guard let self = self else { return }
                 // Don't start recording if any key was pressed during hold (Control+C, etc.)
                 guard !self.otherKeyPressedDuringHold else { return }
+                guard Date().timeIntervalSince(self.lastAppSwitchTime) > 0.5 else { return }
                 // Capture frontmost app context before recording starts so the daemon
                 // knows where to insert the cleaned-up text after dictation completes.
                 if self.currentMode == .dictation {
