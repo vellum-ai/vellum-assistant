@@ -33,10 +33,10 @@ jobs:
           security set-keychain-settings -lut 3600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
-          echo "${{ secrets.DIST_CERTIFICATE_P12 }}" | base64 -D > /tmp/certificate.p12
+          echo "${{ secrets.CERTIFICATE_P12 }}" | base64 -D > /tmp/certificate.p12
           security import /tmp/certificate.p12 \
             -k "$KEYCHAIN_PATH" \
-            -P "${{ secrets.DIST_CERTIFICATE_PASSWORD }}" \
+            -P "${{ secrets.CERTIFICATE_PASSWORD }}" \
             -T /usr/bin/codesign \
             -T /usr/bin/security
           rm /tmp/certificate.p12
