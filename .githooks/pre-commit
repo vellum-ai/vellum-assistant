@@ -806,9 +806,6 @@ if git diff --cached --name-only | grep -q 'assistant/src/config/system-prompt.t
     echo "conversation."
     echo ""
     echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo ""
-    echo "Pausing for 3 seconds so you read the above..."
-    sleep 3
 fi
 
 # --- .claude/commands/ skill migration nudge ---
