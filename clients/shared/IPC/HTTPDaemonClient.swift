@@ -164,11 +164,11 @@ public final class HTTPTransport {
         applyAuth(&healthReq)
 
         do {
-            let (_, response) = try await URLSession.shared.data(for: healthReq)
+            let (data, response) = try await URLSession.shared.data(for: healthReq)
             guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
                 let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
                 if statusCode == 401 {
-                    handleAuthenticationFailure()
+                    handleAuthenticationFailure(responseData: data)
                 }
                 throw HTTPTransportError.healthCheckFailed
             }
@@ -382,7 +382,7 @@ public final class HTTPTransport {
             if http.statusCode == 202 || http.statusCode == 200 {
                 log.info("Message sent successfully")
             } else if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync()
+                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
                 switch refreshResult {
                 case .success:
                     await sendMessage(content: content, sessionId: sessionId, isRetry: true)
@@ -433,11 +433,11 @@ public final class HTTPTransport {
 
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (_, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await URLSession.shared.data(for: request)
 
             if let http = response as? HTTPURLResponse {
                 if http.statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync()
+                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
                     switch refreshResult {
                     case .success:
                         await sendDecision(requestId: requestId, decision: decision, isRetry: true)
@@ -470,11 +470,11 @@ public final class HTTPTransport {
 
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (_, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await URLSession.shared.data(for: request)
 
             if let http = response as? HTTPURLResponse {
                 if http.statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync()
+                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
                     switch refreshResult {
                     case .success:
                         await sendSecret(requestId: requestId, value: value, isRetry: true)
@@ -504,7 +504,7 @@ public final class HTTPTransport {
 
             if let http = response as? HTTPURLResponse {
                 if http.statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync()
+                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
                     switch refreshResult {
                     case .success:
                         await fetchGuardianActionsPending(conversationId: conversationId, isRetry: true)
@@ -554,7 +554,7 @@ public final class HTTPTransport {
 
             if let http = response as? HTTPURLResponse {
                 if http.statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync()
+                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
                     switch refreshResult {
                     case .success:
                         await submitGuardianActionDecision(requestId: requestId, action: action, conversationId: conversationId, isRetry: true)
@@ -639,11 +639,11 @@ public final class HTTPTransport {
 
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
-            let (_, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await URLSession.shared.data(for: request)
 
             if let http = response as? HTTPURLResponse {
                 if http.statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync()
+                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
                     if case .success = refreshResult {
                         await sendConversationSeen(signal, isRetry: true)
                     }
@@ -668,7 +668,7 @@ public final class HTTPTransport {
             guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
                 let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
                 if statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync()
+                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
                     if case .success = refreshResult {
                         await fetchSessionList(offset: offset, limit: limit, isRetry: true)
                         return
@@ -709,7 +709,7 @@ public final class HTTPTransport {
             guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
                 let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
                 if statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync()
+                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
                     if case .success = refreshResult {
                         await fetchHistory(sessionId: sessionId, isRetry: true)
                         return
@@ -951,10 +951,10 @@ public final class HTTPTransport {
     /// Fire-and-forget token refresh for non-async callers (health check, SSE).
     /// Async callers that need retry-or-skip semantics should use
     /// handleAuthenticationFailureAsync() directly.
-    private func handleAuthenticationFailure() {
+    private func handleAuthenticationFailure(responseData: Data? = nil) {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            _ = await self.handleAuthenticationFailureAsync()
+            _ = await self.handleAuthenticationFailureAsync(responseData: responseData)
         }
     }
 
@@ -963,7 +963,29 @@ public final class HTTPTransport {
     /// On `.terminalFailure`, callers must NOT emit their own error — `performRefresh()`
     /// already emitted `.authenticationRequired` which is the correct final user-facing state.
     /// On `.transientFailure`, callers may emit a generic error (refresh will retry on next 401).
-    private func handleAuthenticationFailureAsync() async -> AuthRefreshResult {
+    ///
+    /// When the server returns 401 with `{ "code": "refresh_required" }`, the client
+    /// attempts a credential refresh and retries once. Other 401 bodies are treated
+    /// as terminal auth failures.
+    private func handleAuthenticationFailureAsync(responseData: Data? = nil) async -> AuthRefreshResult {
+        // Parse the 401 body to determine if this is a refreshable error.
+        // If the body contains `{ "code": "refresh_required" }`, attempt refresh.
+        // If it contains a different code, treat as terminal.
+        if let data = responseData,
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let code = json["code"] as? String {
+            if code != "refresh_required" {
+                // Non-refreshable 401 — terminal failure
+                log.error("Non-refreshable 401 code: \(code) — re-auth required")
+                self.onMessage?(.sessionError(SessionErrorMessage(
+                    sessionId: "",
+                    code: .authenticationRequired,
+                    userMessage: "Session expired. Please re-pair your device.",
+                    retryable: false
+                )))
+                return .terminalFailure
+            }
+        }
         // If a refresh is already in flight, wait for its outcome instead of
         // returning false (which would drop the caller's user action).
         if let existing = refreshTask {
@@ -1057,12 +1079,14 @@ public final class HTTPTransport {
     // MARK: - Helpers
 
     private func applyAuth(_ request: inout URLRequest) {
-        if let token = bearerToken {
+        // The JWT access token is the sole auth credential — it serves as
+        // both authentication and identity (no separate X-Actor-Token).
+        if let accessToken = ActorTokenManager.getToken() {
+            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        } else if let token = bearerToken {
+            // Fallback to legacy bearer token for initial bootstrap before
+            // the first JWT is issued.
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
-        // Attach actor token when available for identity-bound requests.
-        if let actorToken = ActorTokenManager.getToken() {
-            request.setValue(actorToken, forHTTPHeaderField: "X-Actor-Token")
         }
     }
 

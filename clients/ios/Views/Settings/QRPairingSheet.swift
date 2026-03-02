@@ -401,16 +401,19 @@ struct QRPairingSheet: View {
                 phase = .error
                 return
             }
-            guard let actorToken = response["actorToken"] as? String, !actorToken.isEmpty else {
+            // Accept "accessToken" (new JWT field) or legacy "actorToken"
+            let accessToken = (response["accessToken"] as? String) ?? (response["actorToken"] as? String)
+            guard let accessToken, !accessToken.isEmpty else {
                 errorMessage = "Pairing succeeded but device identity token is missing. Update your Assistant and pair again."
-                failureReason = "Missing actorToken in approved pairing response"
+                failureReason = "Missing accessToken in approved pairing response"
                 phase = .error
                 return
             }
             let localLanUrl = response["localLanUrl"] as? String
             let featureFlagToken = response["featureFlagToken"] as? String
             let refreshToken = response["refreshToken"] as? String
-            let actorTokenExpiresAt = response["actorTokenExpiresAt"] as? Int
+            // Accept "accessTokenExpiresAt" (new) or legacy "actorTokenExpiresAt"
+            let accessTokenExpiresAt = (response["accessTokenExpiresAt"] as? Int) ?? (response["actorTokenExpiresAt"] as? Int)
             let refreshTokenExpiresAt = response["refreshTokenExpiresAt"] as? Int
             let refreshAfter = response["refreshAfter"] as? Int
             savePairingConfig(
@@ -419,9 +422,9 @@ struct QRPairingSheet: View {
                 hostId: payload.hostId,
                 localLanUrl: localLanUrl,
                 featureFlagToken: featureFlagToken,
-                actorToken: actorToken,
+                actorToken: accessToken,
                 refreshToken: refreshToken,
-                actorTokenExpiresAt: actorTokenExpiresAt,
+                actorTokenExpiresAt: accessTokenExpiresAt,
                 refreshTokenExpiresAt: refreshTokenExpiresAt,
                 refreshAfter: refreshAfter
             )
@@ -496,16 +499,19 @@ struct QRPairingSheet: View {
                         phase = .error
                         return
                     }
-                    guard let actorToken = json["actorToken"] as? String, !actorToken.isEmpty else {
+                    // Accept "accessToken" (new JWT field) or legacy "actorToken"
+                    let pollAccessToken = (json["accessToken"] as? String) ?? (json["actorToken"] as? String)
+                    guard let pollAccessToken, !pollAccessToken.isEmpty else {
                         errorMessage = "Pairing succeeded but device identity token is missing. Update your Assistant and pair again."
-                        failureReason = "Missing actorToken in approved pairing poll response"
+                        failureReason = "Missing accessToken in approved pairing poll response"
                         phase = .error
                         return
                     }
                     let localLanUrl = json["localLanUrl"] as? String
                     let featureFlagToken = json["featureFlagToken"] as? String
                     let refreshToken = json["refreshToken"] as? String
-                    let actorTokenExpiresAt = json["actorTokenExpiresAt"] as? Int
+                    // Accept "accessTokenExpiresAt" (new) or legacy "actorTokenExpiresAt"
+                    let pollAccessTokenExpiresAt = (json["accessTokenExpiresAt"] as? Int) ?? (json["actorTokenExpiresAt"] as? Int)
                     let refreshTokenExpiresAt = json["refreshTokenExpiresAt"] as? Int
                     let refreshAfter = json["refreshAfter"] as? Int
                     savePairingConfig(
@@ -514,9 +520,9 @@ struct QRPairingSheet: View {
                         hostId: payload.hostId,
                         localLanUrl: localLanUrl,
                         featureFlagToken: featureFlagToken,
-                        actorToken: actorToken,
+                        actorToken: pollAccessToken,
                         refreshToken: refreshToken,
-                        actorTokenExpiresAt: actorTokenExpiresAt,
+                        actorTokenExpiresAt: pollAccessTokenExpiresAt,
                         refreshTokenExpiresAt: refreshTokenExpiresAt,
                         refreshAfter: refreshAfter
                     )
@@ -555,8 +561,8 @@ struct QRPairingSheet: View {
         // Don't delete on absence — the server may not send featureFlagToken yet,
         // so a missing field shouldn't wipe a previously stored token.
 
-        // Persist the actor token and refresh credentials received during pairing
-        // so subsequent HTTP requests include the X-Actor-Token header immediately.
+        // Persist the JWT access token and refresh credentials received during pairing
+        // so subsequent HTTP requests include the Authorization: Bearer header immediately.
         // When re-pairing to an assistant that omits the token, clear the
         // previous value so the old credential is never sent to the new gateway.
         if let actorToken = actorToken, !actorToken.isEmpty,
@@ -588,10 +594,10 @@ struct QRPairingSheet: View {
         phase = .connecting
         clientProvider.rebuildClient()
 
-        // If the pairing response did not include an actor token, re-trigger
-        // the bootstrap loop so the device obtains one from the daemon now
+        // If the pairing response did not include an access token, re-trigger
+        // the credential loop so the device obtains one from the daemon now
         // that a valid gateway URL is configured. Without this, a fresh
-        // install that pairs in-session would lack an actor token until the
+        // install that pairs in-session would lack an access token until the
         // next app restart.
         if !ActorTokenManager.hasToken {
             if let appDelegate = UIApplication.shared.delegate as? AppDelegate {
