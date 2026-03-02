@@ -19,6 +19,8 @@ struct MessageListView: View {
     let onConfirmationAllow: (String) -> Void
     let onConfirmationDeny: (String) -> Void
     let onAlwaysAllow: (String, String, String, String) -> Void
+    /// Called when a temporary approval option is selected: (requestId, decision).
+    var onTemporaryAllow: ((String, String) -> Void)?
     let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
     /// Called when a guardian decision action button is clicked: (requestId, action).
     var onGuardianAction: ((String, String) -> Void)?
@@ -269,7 +271,8 @@ struct MessageListView: View {
                                     isKeyboardActive: confirmation.requestId == activePendingRequestId,
                                     onAllow: { onConfirmationAllow(confirmation.requestId) },
                                     onDeny: { onConfirmationDeny(confirmation.requestId) },
-                                    onAlwaysAllow: onAlwaysAllow
+                                    onAlwaysAllow: onAlwaysAllow,
+                                    onTemporaryAllow: onTemporaryAllow
                                 )
                                 .id(message.id)
                                 .transition(.opacity)
@@ -284,7 +287,8 @@ struct MessageListView: View {
                                         confirmation: confirmation,
                                         onAllow: { onConfirmationAllow(confirmation.requestId) },
                                         onDeny: { onConfirmationDeny(confirmation.requestId) },
-                                        onAlwaysAllow: onAlwaysAllow
+                                        onAlwaysAllow: onAlwaysAllow,
+                                        onTemporaryAllow: onTemporaryAllow
                                     )
                                     .id(message.id)
                                     .transition(.opacity)
