@@ -69,7 +69,10 @@ async function createDesktopAppFixture(options: FixtureOptions): Promise<Fixture
   }
 
   return {
-    teardown: async () => quitApp(appDisplayName),
+    teardown: async () => {
+      retireAssistant();
+      quitApp(appDisplayName);
+    },
   };
 }
 
@@ -87,7 +90,10 @@ async function createDesktopAppHatchedFixture(options: FixtureOptions): Promise<
   verifyAssistantHatched();
 
   return {
-    teardown: async () => quitApp(appDisplayName),
+    teardown: async () => {
+      retireAssistant();
+      quitApp(appDisplayName);
+    },
   };
 }
 
@@ -142,6 +148,28 @@ function verifyAssistantHatched(): void {
     throw new Error(
       `No hatched assistant found — vellum ps returned no assistant rows.\nOutput:\n${psOutput}`,
     );
+  }
+}
+
+function retireAssistant(): void {
+  try {
+    const psOutput = execSync("vellum ps", {
+      encoding: "utf-8",
+      timeout: 30_000,
+      shell: "/bin/bash",
+    });
+    const lines = psOutput
+      .split("\n")
+      .filter((l) => l.trim() && !l.includes("NAME") && !l.startsWith("  -"));
+    const assistantName = lines[0]?.trim().split(/\s{2,}/)[0];
+    if (assistantName) {
+      execSync(`vellum retire ${assistantName}`, {
+        timeout: 30_000,
+        shell: "/bin/bash",
+      });
+    }
+  } catch {
+    // vellum CLI may not be installed or no assistant to retire
   }
 }
 
