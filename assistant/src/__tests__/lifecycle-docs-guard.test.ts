@@ -168,7 +168,7 @@ describe('lifecycle docs guard', () => {
           try {
             const startLine = Math.max(1, lineNum - 10);
             const context = execSync(
-              `git show HEAD:'${filePath}' | sed -n '${startLine},${lineNum}p'`,
+              `sed -n '${startLine},${lineNum}p' '${filePath}'`,
               { encoding: 'utf-8', cwd: REPO_ROOT },
             );
 

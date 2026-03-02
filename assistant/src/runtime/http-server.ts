@@ -169,7 +169,7 @@ import {
   handlePairingRequest,
   handlePairingStatus,
 } from './routes/pairing-routes.js';
-import { handleAddSecret } from './routes/secret-routes.js';
+import { handleAddSecret, handleDeleteSecret } from './routes/secret-routes.js';
 import {
   handleAssignTwilioNumber,
   handleClearTwilioCredentials,
@@ -553,6 +553,12 @@ export class RuntimeHttpServer {
     if (path === '/v1/secrets' && req.method === 'POST') {
       try { return await handleAddSecret(req); } catch (err) {
         log.error({ err }, 'Runtime HTTP handler error adding secret');
+        return httpError('INTERNAL_ERROR', 'Internal server error', 500);
+      }
+    }
+    if (path === '/v1/secrets' && req.method === 'DELETE') {
+      try { return await handleDeleteSecret(req); } catch (err) {
+        log.error({ err }, 'Runtime HTTP handler error deleting secret');
         return httpError('INTERNAL_ERROR', 'Internal server error', 500);
       }
     }

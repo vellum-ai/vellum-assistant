@@ -1,7 +1,7 @@
 import { API_KEY_PROVIDERS, getConfig, invalidateConfigCache } from '../../config/loader.js';
 import { initializeProviders } from '../../providers/registry.js';
-import { setSecureKey } from '../../security/secure-keys.js';
-import { assertMetadataWritable, upsertCredentialMetadata } from '../../tools/credentials/metadata-store.js';
+import { deleteSecureKey, setSecureKey } from '../../security/secure-keys.js';
+import { assertMetadataWritable, deleteCredentialMetadata, upsertCredentialMetadata } from '../../tools/credentials/metadata-store.js';
 import { getLogger } from '../../util/logger.js';
 import { httpError } from '../http-errors.js';
 
@@ -63,6 +63,61 @@ export async function handleAddSecret(req: Request): Promise<Response> {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err, type, name }, 'Failed to add secret via HTTP');
+    return httpError('INTERNAL_ERROR', message, 500);
+  }
+}
+
+export async function handleDeleteSecret(req: Request): Promise<Response> {
+  const body = await req.json() as {
+    type?: string;
+    name?: string;
+  };
+
+  const { type, name } = body;
+
+  if (!type || typeof type !== 'string') {
+    return httpError('BAD_REQUEST', 'type is required', 400);
+  }
+  if (!name || typeof name !== 'string') {
+    return httpError('BAD_REQUEST', 'name is required', 400);
+  }
+
+  try {
+    if (type === 'api_key') {
+      if (!API_KEY_PROVIDERS.includes(name as typeof API_KEY_PROVIDERS[number])) {
+        return httpError('BAD_REQUEST', `Unknown API key provider: ${name}. Valid providers: ${API_KEY_PROVIDERS.join(', ')}`, 400);
+      }
+      const deleted = deleteSecureKey(name);
+      if (!deleted) {
+        return httpError('NOT_FOUND', `API key not found: ${name}`, 404);
+      }
+      invalidateConfigCache();
+      initializeProviders(getConfig());
+      log.info({ provider: name }, 'API key deleted via HTTP');
+      return Response.json({ success: true, type, name });
+    }
+
+    if (type === 'credential') {
+      const colonIdx = name.indexOf(':');
+      if (colonIdx < 1 || colonIdx === name.length - 1) {
+        return httpError('BAD_REQUEST', 'For credential type, name must be in "service:field" format (e.g. "github:api_token")', 400);
+      }
+      const service = name.slice(0, colonIdx);
+      const field = name.slice(colonIdx + 1);
+      const key = `credential:${service}:${field}`;
+      const deleted = deleteSecureKey(key);
+      if (!deleted) {
+        return httpError('NOT_FOUND', `Credential not found: ${name}`, 404);
+      }
+      deleteCredentialMetadata(service, field);
+      log.info({ service, field }, 'Credential deleted via HTTP');
+      return Response.json({ success: true, type, name });
+    }
+
+    return httpError('BAD_REQUEST', `Unknown secret type: ${type}. Valid types: api_key, credential`, 400);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err, type, name }, 'Failed to delete secret via HTTP');
     return httpError('INTERNAL_ERROR', message, 500);
   }
 }
