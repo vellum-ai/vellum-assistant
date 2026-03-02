@@ -69,8 +69,6 @@ struct VoiceSettingsView: View {
             }
 
             if pttEnabled {
-                Divider().background(VColor.surfaceBorder)
-
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     Text("Activation key")
                         .font(VFont.bodyMedium)
@@ -83,6 +81,7 @@ struct VoiceSettingsView: View {
                         selection: $activationKey,
                         style: .pill
                     )
+                    .frame(width: 360)
                 }
             }
         }
@@ -120,8 +119,6 @@ struct VoiceSettingsView: View {
             }
 
             if wakeWordEnabled {
-                Divider().background(VColor.surfaceBorder)
-
                 // Keyword
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     Text("Keyword")
@@ -148,8 +145,6 @@ struct VoiceSettingsView: View {
                     }
                 }
 
-                Divider().background(VColor.surfaceBorder)
-
                 // Conversation timeout
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
@@ -168,25 +163,23 @@ struct VoiceSettingsView: View {
                     .frame(width: 160)
                     .accessibilityLabel("Conversation timeout duration")
                 }
-            }
 
-            Divider().background(VColor.surfaceBorder)
+                // How it works steps
+                HStack(alignment: .top, spacing: VSpacing.md) {
+                    wakeWordStepCard(number: "1", title: "Say the keyword", description: "Speak your wake word when you\u{2019}re ready to talk.")
+                    wakeWordStepCard(number: "2", title: "Vellum starts listening", description: "A chime plays and your microphone activates.")
+                    wakeWordStepCard(number: "3", title: "Ask anything", description: "Speak naturally. Vellum responds when you pause.")
+                }
 
-            // How it works steps
-            HStack(alignment: .top, spacing: VSpacing.md) {
-                wakeWordStepCard(number: "1", title: "Say the keyword", description: "Speak your wake word when you\u{2019}re ready to talk.")
-                wakeWordStepCard(number: "2", title: "Vellum starts listening", description: "A chime plays and your microphone activates.")
-                wakeWordStepCard(number: "3", title: "Ask anything", description: "Speak naturally. Vellum responds when you pause.")
-            }
-
-            // Privacy note
-            HStack(spacing: VSpacing.xs) {
-                Image(systemName: "lock.fill")
-                    .font(.system(size: 10))
-                    .foregroundColor(VColor.textMuted)
-                Text("Uses on-device speech recognition \u{2014} no data leaves your Mac.")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                // Privacy note
+                HStack(spacing: VSpacing.xs) {
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 10))
+                        .foregroundColor(VColor.textMuted)
+                    Text("Uses on-device speech recognition \u{2014} no data leaves your Mac.")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                }
             }
         }
         .padding(VSpacing.lg)
