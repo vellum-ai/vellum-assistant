@@ -1,9 +1,11 @@
 /**
  * Tests for JWT credential service, hash-only storage,
- * guardian bootstrap endpoint idempotency, HTTP middleware strict
- * enforcement, and local IPC identity fallback.
+ * guardian bootstrap endpoint idempotency, and pairing flow.
+ *
+ * Legacy actor-token HMAC middleware tests have been removed --
+ * that middleware is replaced by the JWT auth middleware in
+ * runtime/auth/middleware.ts (tested in auth/middleware.test.ts).
  */
-import { createHmac, randomBytes } from 'node:crypto';
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -40,7 +42,6 @@ import {
 } from '../memory/guardian-bindings.js';
 import { hashToken, initAuthSigningKey } from '../runtime/auth/token-service.js';
 import { resetExternalAssistantIdCache } from '../runtime/auth/external-assistant-id.js';
-import { setLegacySigningKey } from '../runtime/middleware/actor-token.js';
 import {
   createActorTokenRecord,
   findActiveByDeviceBinding,
@@ -50,56 +51,21 @@ import {
 } from '../runtime/actor-token-store.js';
 import { ensureVellumGuardianBinding } from '../runtime/guardian-vellum-migration.js';
 import { resolveLocalIpcGuardianContext } from '../runtime/local-actor-identity.js';
-import {
-  type ActorTokenClaims,
-  isActorBoundGuardian,
-  isLocalFallbackBoundGuardian,
-  type ServerWithRequestIP,
-  verifyHttpActorToken,
-  verifyHttpActorTokenWithLocalFallback,
-} from '../runtime/middleware/actor-token.js';
 
 // ---------------------------------------------------------------------------
-// Test signing key + legacy HMAC token helpers
+// Test signing key
 // ---------------------------------------------------------------------------
 
 const TEST_KEY = Buffer.from('test-signing-key-32-bytes-long!!');
 
-/**
- * Mint a legacy HMAC actor token for testing the middleware verification.
- * Mirrors the format of the deleted actor-token-service.
- */
-function mintLegacyActorToken(params: {
-  assistantId: string;
-  platform: string;
-  deviceId: string;
-  guardianPrincipalId: string;
-  ttlMs?: number | null;
-}): { token: string; tokenHash: string; claims: ActorTokenClaims } {
-  const now = Date.now();
-  const DEFAULT_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-  const effectiveTtl = params.ttlMs === undefined ? DEFAULT_TTL_MS : params.ttlMs;
-  const claims: ActorTokenClaims = {
-    assistantId: params.assistantId,
-    platform: params.platform,
-    deviceId: params.deviceId,
-    guardianPrincipalId: params.guardianPrincipalId,
-    iat: now,
-    exp: effectiveTtl != null ? now + effectiveTtl : null,
-    jti: randomBytes(16).toString('hex'),
-  };
-
-  const payload = Buffer.from(JSON.stringify(claims), 'utf-8').toString('base64url');
-  const sig = createHmac('sha256', TEST_KEY).update(payload).digest();
-  const token = payload + '.' + sig.toString('base64url');
-  const tokenHash = hashToken(token);
-
-  return { token, tokenHash, claims };
-}
-
 // ---------------------------------------------------------------------------
-// Mock server helpers for loopback IP checks
+// Mock server helpers for loopback IP checks (used by bootstrap tests)
 // ---------------------------------------------------------------------------
+
+/** Bun server shape needed for requestIP. */
+type ServerWithRequestIP = {
+  requestIP(req: Request): { address: string; family: string; port: number } | null;
+};
 
 /** Creates a mock server that returns the given IP for any request. */
 function mockServer(address: string): ServerWithRequestIP {
@@ -108,18 +74,17 @@ function mockServer(address: string): ServerWithRequestIP {
   };
 }
 
-/** Mock loopback server — returns 127.0.0.1 for all requests. */
+/** Mock loopback server -- returns 127.0.0.1 for all requests. */
 const loopbackServer = mockServer('127.0.0.1');
 
-/** Mock non-loopback server — returns a LAN IP for all requests. */
+/** Mock non-loopback server -- returns a LAN IP for all requests. */
 const nonLoopbackServer = mockServer('192.168.1.50');
 
 initializeDb();
 
 beforeEach(() => {
-  // Initialize signing key for both JWT and legacy HMAC verification
+  // Initialize signing key for JWT verification
   initAuthSigningKey(TEST_KEY);
-  setLegacySigningKey(TEST_KEY);
   // Reset the external assistant ID cache so tests don't leak state
   resetExternalAssistantIdCache();
   // Clear DB state between tests.
@@ -359,193 +324,6 @@ describe('bootstrap endpoint idempotency', () => {
     expect(accessToken).toBeTruthy();
     // JWTs have 3 dot-separated parts
     expect(accessToken.split('.').length).toBe(3);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// HTTP middleware strict enforcement (legacy HMAC tokens)
-// ---------------------------------------------------------------------------
-
-describe('HTTP actor token middleware (strict enforcement)', () => {
-  test('rejects request without X-Actor-Token header', () => {
-    const req = new Request('http://localhost/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-    });
-
-    const result = verifyHttpActorToken(req);
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.status).toBe(401);
-      expect(result.message).toContain('Missing X-Actor-Token');
-    }
-  });
-
-  test('rejects request with invalid (tampered) token', () => {
-    const { token } = mintLegacyActorToken({
-      assistantId: 'self',
-      platform: 'macos',
-      deviceId: 'device-tamper',
-      guardianPrincipalId: 'principal-tamper',
-    });
-
-    const parts = token.split('.');
-    const tampered = parts[0] + 'XXXXXX.' + parts[1];
-
-    const req = new Request('http://localhost/v1/messages', {
-      method: 'POST',
-      headers: { 'X-Actor-Token': tampered },
-    });
-
-    const result = verifyHttpActorToken(req);
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.status).toBe(401);
-    }
-  });
-
-  test('rejects request with revoked token', () => {
-    const principalId = ensureVellumGuardianBinding('self');
-    const { token, tokenHash } = mintLegacyActorToken({
-      assistantId: 'self',
-      platform: 'macos',
-      deviceId: 'device-revoked',
-      guardianPrincipalId: principalId,
-    });
-
-    createActorTokenRecord({
-      tokenHash,
-      assistantId: 'self',
-      guardianPrincipalId: principalId,
-      hashedDeviceId: 'hashed-device-revoked',
-      platform: 'macos',
-      issuedAt: Date.now(),
-    });
-
-    revokeByTokenHash(tokenHash);
-
-    const req = new Request('http://localhost/v1/messages', {
-      method: 'POST',
-      headers: { 'X-Actor-Token': token },
-    });
-
-    const result = verifyHttpActorToken(req);
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.status).toBe(401);
-      expect(result.message).toContain('no longer active');
-    }
-  });
-
-  test('accepts request with valid active legacy token and resolves guardian context', () => {
-    const principalId = ensureVellumGuardianBinding('self');
-    const { token, tokenHash } = mintLegacyActorToken({
-      assistantId: 'self',
-      platform: 'macos',
-      deviceId: 'device-valid',
-      guardianPrincipalId: principalId,
-    });
-
-    createActorTokenRecord({
-      tokenHash,
-      assistantId: 'self',
-      guardianPrincipalId: principalId,
-      hashedDeviceId: 'hashed-device-valid',
-      platform: 'macos',
-      issuedAt: Date.now(),
-    });
-
-    const req = new Request('http://localhost/v1/messages', {
-      method: 'POST',
-      headers: { 'X-Actor-Token': token },
-    });
-
-    const result = verifyHttpActorToken(req);
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.claims.assistantId).toBe('self');
-      expect(result.claims.guardianPrincipalId).toBe(principalId);
-      expect(result.guardianContext).toBeTruthy();
-      expect(result.guardianContext.trustClass).toBe('guardian');
-    }
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Local IPC fallback (verifyHttpActorTokenWithLocalFallback)
-// ---------------------------------------------------------------------------
-
-describe('HTTP actor token local fallback', () => {
-  test('falls back to local IPC identity when no actor token and no forwarding header', () => {
-    ensureVellumGuardianBinding('self');
-
-    const req = new Request('http://localhost/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-    });
-
-    const result = verifyHttpActorTokenWithLocalFallback(req, loopbackServer);
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.guardianContext.trustClass).toBe('guardian');
-      if ('localFallback' in result) {
-        expect(result.localFallback).toBe(true);
-        expect(result.claims).toBeNull();
-      }
-    }
-  });
-
-  test('rejects gateway-proxied request without actor token (X-Forwarded-For present)', () => {
-    ensureVellumGuardianBinding('self');
-
-    const req = new Request('http://localhost/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Forwarded-For': '1.2.3.4',
-      },
-    });
-
-    const result = verifyHttpActorTokenWithLocalFallback(req, loopbackServer);
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.status).toBe(401);
-      expect(result.message).toContain('Proxied requests require actor identity');
-    }
-  });
-
-  test('uses strict verification when actor token is present even with X-Forwarded-For', () => {
-    const principalId = ensureVellumGuardianBinding('self');
-    const { token, tokenHash } = mintLegacyActorToken({
-      assistantId: 'self',
-      platform: 'ios',
-      deviceId: 'device-proxied',
-      guardianPrincipalId: principalId,
-    });
-
-    createActorTokenRecord({
-      tokenHash,
-      assistantId: 'self',
-      guardianPrincipalId: principalId,
-      hashedDeviceId: 'hashed-device-proxied',
-      platform: 'ios',
-      issuedAt: Date.now(),
-    });
-
-    const req = new Request('http://localhost/v1/messages', {
-      method: 'POST',
-      headers: {
-        'X-Actor-Token': token,
-        'X-Forwarded-For': '1.2.3.4',
-      },
-    });
-
-    const result = verifyHttpActorTokenWithLocalFallback(req, loopbackServer);
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.claims).not.toBeNull();
-      expect(result.guardianContext.trustClass).toBe('guardian');
-    }
   });
 });
 
@@ -808,89 +586,6 @@ describe('pairing credential flow', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Loopback IP check tests
-// ---------------------------------------------------------------------------
-
-describe('loopback IP check (verifyHttpActorTokenWithLocalFallback)', () => {
-  test('succeeds with mock server returning loopback IP', () => {
-    ensureVellumGuardianBinding('self');
-
-    const req = new Request('http://localhost/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-    });
-
-    const result = verifyHttpActorTokenWithLocalFallback(req, loopbackServer);
-    expect(result.ok).toBe(true);
-    if (result.ok && 'localFallback' in result) {
-      expect(result.localFallback).toBe(true);
-      expect(result.guardianContext.trustClass).toBe('guardian');
-    }
-  });
-
-  test('succeeds with mock server returning IPv6 loopback (::1)', () => {
-    ensureVellumGuardianBinding('self');
-
-    const req = new Request('http://localhost/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-    });
-
-    const ipv6LoopbackServer = mockServer('::1');
-    const result = verifyHttpActorTokenWithLocalFallback(req, ipv6LoopbackServer);
-    expect(result.ok).toBe(true);
-  });
-
-  test('succeeds with mock server returning IPv4-mapped IPv6 loopback', () => {
-    ensureVellumGuardianBinding('self');
-
-    const req = new Request('http://localhost/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-    });
-
-    const mappedLoopbackServer = mockServer('::ffff:127.0.0.1');
-    const result = verifyHttpActorTokenWithLocalFallback(req, mappedLoopbackServer);
-    expect(result.ok).toBe(true);
-  });
-
-  test('returns 401 with mock server returning non-loopback IP', () => {
-    ensureVellumGuardianBinding('self');
-
-    const req = new Request('http://localhost/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-    });
-
-    const result = verifyHttpActorTokenWithLocalFallback(req, nonLoopbackServer);
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.status).toBe(401);
-      expect(result.message).toContain('Non-loopback requests require actor identity');
-    }
-  });
-
-  test('returns 401 with X-Forwarded-For header present', () => {
-    ensureVellumGuardianBinding('self');
-
-    const req = new Request('http://localhost/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Forwarded-For': '10.0.0.1',
-      },
-    });
-
-    const result = verifyHttpActorTokenWithLocalFallback(req, loopbackServer);
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.status).toBe(401);
-      expect(result.message).toContain('Proxied requests require actor identity');
-    }
-  });
-});
-
-// ---------------------------------------------------------------------------
 // Bootstrap loopback guard tests
 // ---------------------------------------------------------------------------
 
@@ -939,64 +634,5 @@ describe('bootstrap loopback guard', () => {
 
     const res = await handleGuardianBootstrap(req, loopbackServer);
     expect(res.status).toBe(200);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Utility function tests (isActorBoundGuardian, isLocalFallbackBoundGuardian)
-// ---------------------------------------------------------------------------
-
-describe('utility functions', () => {
-  test('isActorBoundGuardian returns true when actor matches bound guardian', () => {
-    const principalId = ensureVellumGuardianBinding('self');
-    const claims: ActorTokenClaims = {
-      assistantId: 'self',
-      platform: 'macos',
-      deviceId: 'device-bound',
-      guardianPrincipalId: principalId,
-      iat: Date.now(),
-      exp: Date.now() + 86400000,
-      jti: 'test-jti',
-    };
-
-    expect(isActorBoundGuardian(claims)).toBe(true);
-  });
-
-  test('isActorBoundGuardian returns false for mismatched principal', () => {
-    ensureVellumGuardianBinding('self');
-    const claims: ActorTokenClaims = {
-      assistantId: 'self',
-      platform: 'macos',
-      deviceId: 'device-mismatch',
-      guardianPrincipalId: 'wrong-principal-id',
-      iat: Date.now(),
-      exp: Date.now() + 86400000,
-      jti: 'test-jti',
-    };
-
-    expect(isActorBoundGuardian(claims)).toBe(false);
-  });
-
-  test('isActorBoundGuardian returns false when no vellum binding exists', () => {
-    const claims: ActorTokenClaims = {
-      assistantId: 'self',
-      platform: 'macos',
-      deviceId: 'device-no-binding',
-      guardianPrincipalId: 'some-principal',
-      iat: Date.now(),
-      exp: Date.now() + 86400000,
-      jti: 'test-jti',
-    };
-
-    expect(isActorBoundGuardian(claims)).toBe(false);
-  });
-
-  test('isLocalFallbackBoundGuardian returns true when vellum binding exists', () => {
-    ensureVellumGuardianBinding('self');
-    expect(isLocalFallbackBoundGuardian()).toBe(true);
-  });
-
-  test('isLocalFallbackBoundGuardian returns true even without binding (pre-bootstrap fallback)', () => {
-    expect(isLocalFallbackBoundGuardian()).toBe(true);
   });
 });

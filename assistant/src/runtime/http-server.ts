@@ -27,7 +27,6 @@ import {
 import { parseChannelId } from '../channels/types.js';
 import {
   getGatewayInternalBaseUrl,
-  getRuntimeGatewayOriginSecret,
   hasUngatedHttpAuthDisabled,
   isHttpAuthDisabled,
 } from '../config/env.js';
@@ -43,6 +42,10 @@ import { assistantEventHub } from './assistant-event-hub.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from './assistant-scope.js';
 import { sweepFailedEvents } from './channel-retry-sweep.js';
 import { httpError } from './http-errors.js';
+// Auth
+import { authenticateRequest } from './auth/middleware.js';
+import { enforcePolicy, getPolicy } from './auth/route-policy.js';
+import type { AuthContext } from './auth/types.js';
 // Middleware
 import {
   extractBearerToken,
@@ -444,13 +447,24 @@ export class RuntimeHttpServer {
       return handlePairingStatus(url, this.pairingContext);
     }
 
-    // Require bearer token when configured
-    if (!isHttpAuthDisabled() && this.bearerToken) {
-      const token = extractBearerToken(req);
-      if (!token || !verifyBearerToken(token, this.bearerToken)) {
-        return httpError('UNAUTHORIZED', 'Unauthorized', 401);
-      }
+    // Guardian bootstrap and refresh endpoints — before JWT auth because
+    // bootstrap is the first endpoint called to obtain a JWT, and refresh
+    // needs to work when the access token is expired. Both have their own
+    // loopback/token validation.
+    if (path === '/v1/integrations/guardian/vellum/bootstrap' && req.method === 'POST') {
+      return await handleGuardianBootstrap(req, server);
     }
+    if (path === '/v1/integrations/guardian/vellum/refresh' && req.method === 'POST') {
+      return await handleGuardianRefresh(req);
+    }
+
+    // JWT bearer authentication — replaces the old shared-secret comparison.
+    // authenticateRequest handles dev bypass (DISABLE_HTTP_AUTH) internally.
+    const authResult = authenticateRequest(req);
+    if (!authResult.ok) {
+      return authResult.response;
+    }
+    const authContext = authResult.context;
 
     // Per-client-IP rate limiting for /v1/* endpoints. Authenticated requests
     // get a higher limit; unauthenticated requests get a lower limit to reduce
@@ -467,7 +481,7 @@ export class RuntimeHttpServer {
         return rateLimitResponse(result);
       }
       // Attach rate limit headers to the eventual response
-      const originalResponse = await this.handleAuthenticatedRequest(req, url, path, server);
+      const originalResponse = await this.handleAuthenticatedRequest(req, url, path, server, authContext);
       const headers = new Headers(originalResponse.headers);
       for (const [k, v] of Object.entries(rateLimitHeaders(result))) {
         headers.set(k, v);
@@ -479,13 +493,13 @@ export class RuntimeHttpServer {
       });
     }
 
-    return this.handleAuthenticatedRequest(req, url, path, server);
+    return this.handleAuthenticatedRequest(req, url, path, server, authContext);
   }
 
   /**
    * Handle requests that have already passed auth and rate limiting.
    */
-  private async handleAuthenticatedRequest(req: Request, url: URL, path: string, server: ReturnType<typeof Bun.serve>): Promise<Response> {
+  private async handleAuthenticatedRequest(req: Request, url: URL, path: string, server: ReturnType<typeof Bun.serve>, authContext: AuthContext): Promise<Response> {
     // Pairing registration (bearer-authenticated)
     if (path === '/v1/pairing/register' && req.method === 'POST') {
       return await handlePairingRegister(req, this.pairingContext);
@@ -546,7 +560,7 @@ export class RuntimeHttpServer {
     // Runtime routes: /v1/<endpoint>
     const routeMatch = path.match(/^\/v1\/(.+)$/);
     if (routeMatch) {
-      return this.dispatchEndpoint(routeMatch[1], req, url, server);
+      return this.dispatchEndpoint(routeMatch[1], req, url, server, authContext);
     }
 
     return httpError('NOT_FOUND', 'Not found', 404);
@@ -630,8 +644,18 @@ export class RuntimeHttpServer {
     req: Request,
     url: URL,
     server: ReturnType<typeof Bun.serve>,
+    authContext: AuthContext,
   ): Promise<Response> {
     const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
+
+    // Enforce route-level scope/principal policy before invoking any handler.
+    // Try method-specific key first (e.g. "messages:POST"); fall back to the
+    // plain endpoint key only when no method-specific policy is registered.
+    const methodKey = `${endpoint}:${req.method}`;
+    const policyKey = getPolicy(methodKey) ? methodKey : endpoint;
+    const policyDenied = enforcePolicy(policyKey, authContext);
+    if (policyDenied) return policyDenied;
+
     return withErrorHandling(endpoint, async () => {
       if (endpoint === 'health' && req.method === 'GET') return handleHealth();
       if (endpoint === 'debug' && req.method === 'GET') return handleDebug();
@@ -729,18 +753,18 @@ export class RuntimeHttpServer {
           persistAndProcessMessage: this.persistAndProcessMessage,
           sendMessageDeps: this.sendMessageDeps,
           approvalConversationGenerator: this.approvalConversationGenerator,
-        }, server);
+        }, authContext);
       }
 
       // Standalone approval endpoints — keyed by requestId, orthogonal to message sending
-      if (endpoint === 'confirm' && req.method === 'POST') return await handleConfirm(req, server);
-      if (endpoint === 'secret' && req.method === 'POST') return await handleSecret(req, server);
-      if (endpoint === 'trust-rules' && req.method === 'POST') return await handleTrustRule(req, server);
-      if (endpoint === 'pending-interactions' && req.method === 'GET') return handleListPendingInteractions(url, req, server);
+      if (endpoint === 'confirm' && req.method === 'POST') return await handleConfirm(req, authContext);
+      if (endpoint === 'secret' && req.method === 'POST') return await handleSecret(req, authContext);
+      if (endpoint === 'trust-rules' && req.method === 'POST') return await handleTrustRule(req, authContext);
+      if (endpoint === 'pending-interactions' && req.method === 'GET') return handleListPendingInteractions(url, authContext);
 
       // Guardian action endpoints — deterministic button-based decisions
-      if (endpoint === 'guardian-actions/pending' && req.method === 'GET') return handleGuardianActionsPending(req, server);
-      if (endpoint === 'guardian-actions/decision' && req.method === 'POST') return await handleGuardianActionDecision(req, server);
+      if (endpoint === 'guardian-actions/pending' && req.method === 'GET') return handleGuardianActionsPending(url, authContext);
+      if (endpoint === 'guardian-actions/decision' && req.method === 'POST') return await handleGuardianActionDecision(req, authContext);
 
       // Contacts
       if (endpoint === 'contacts' && req.method === 'GET') return handleListContacts(url);
@@ -782,9 +806,8 @@ export class RuntimeHttpServer {
       if (endpoint === 'integrations/guardian/outbound/resend' && req.method === 'POST') return await handleResendOutbound(req);
       if (endpoint === 'integrations/guardian/outbound/cancel' && req.method === 'POST') return await handleCancelOutbound(req);
 
-      // Guardian vellum channel bootstrap
-      if (endpoint === 'integrations/guardian/vellum/bootstrap' && req.method === 'POST') return await handleGuardianBootstrap(req, server);
-      if (endpoint === 'integrations/guardian/vellum/refresh' && req.method === 'POST') return await handleGuardianRefresh(req);
+      // Guardian vellum channel bootstrap and refresh are handled before
+      // JWT auth in routeRequest() — they are not dispatched here.
 
       // Integrations — Twilio config
       if (endpoint === 'integrations/twilio/config' && req.method === 'GET') return handleGetTwilioConfig();
@@ -833,8 +856,11 @@ export class RuntimeHttpServer {
       if (endpoint === 'channels/conversation' && req.method === 'DELETE') return await handleDeleteConversation(req, assistantId);
 
       if (endpoint === 'channels/inbound' && req.method === 'POST') {
-        const gatewayOriginSecret = getRuntimeGatewayOriginSecret();
-        return await handleChannelInbound(req, this.processMessage, this.bearerToken, assistantId, gatewayOriginSecret, this.approvalCopyGenerator, this.approvalConversationGenerator, this.guardianActionCopyGenerator, this.guardianFollowUpConversationGenerator);
+        // Route policy enforces svc_gateway principal type — replaces
+        // the old X-Gateway-Origin header check.
+        const policyDenied = enforcePolicy('channels/inbound', authContext);
+        if (policyDenied) return policyDenied;
+        return await handleChannelInbound(req, this.processMessage, this.bearerToken, assistantId, undefined, this.approvalCopyGenerator, this.approvalConversationGenerator, this.guardianActionCopyGenerator, this.guardianFollowUpConversationGenerator);
       }
 
       if (endpoint === 'channels/delivery-ack' && req.method === 'POST') return await handleChannelDeliveryAck(req);
@@ -854,8 +880,11 @@ export class RuntimeHttpServer {
         }
       }
 
-      // Internal Twilio forwarding endpoints (gateway -> runtime)
+      // Internal Twilio forwarding endpoints (gateway -> runtime).
+      // Route policy enforces svc_gateway principal type.
       if (endpoint === 'internal/twilio/voice-webhook' && req.method === 'POST') {
+        const policyDenied = enforcePolicy('internal/twilio/voice-webhook', authContext);
+        if (policyDenied) return policyDenied;
         const json = await req.json() as { params: Record<string, string>; originalUrl?: string };
         const formBody = new URLSearchParams(json.params).toString();
         const reconstructedUrl = json.originalUrl ?? req.url;
@@ -864,6 +893,8 @@ export class RuntimeHttpServer {
       }
 
       if (endpoint === 'internal/twilio/status' && req.method === 'POST') {
+        const policyDenied = enforcePolicy('internal/twilio/status', authContext);
+        if (policyDenied) return policyDenied;
         const json = await req.json() as { params: Record<string, string> };
         const formBody = new URLSearchParams(json.params).toString();
         const fakeReq = new Request(req.url, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: formBody });
@@ -871,6 +902,8 @@ export class RuntimeHttpServer {
       }
 
       if (endpoint === 'internal/twilio/connect-action' && req.method === 'POST') {
+        const policyDenied = enforcePolicy('internal/twilio/connect-action', authContext);
+        if (policyDenied) return policyDenied;
         const json = await req.json() as { params: Record<string, string> };
         const formBody = new URLSearchParams(json.params).toString();
         const fakeReq = new Request(req.url, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: formBody });
@@ -881,10 +914,12 @@ export class RuntimeHttpServer {
       if (endpoint === 'brain-graph' && req.method === 'GET') return handleGetBrainGraph();
       if (endpoint === 'brain-graph-ui' && req.method === 'GET') return handleServeBrainGraphUI(this.bearerToken);
       if (endpoint === 'home-base-ui' && req.method === 'GET') return handleServeHomeBaseUI(this.bearerToken);
-      if (endpoint === 'events' && req.method === 'GET') return handleSubscribeAssistantEvents(req, url, { server });
+      if (endpoint === 'events' && req.method === 'GET') return handleSubscribeAssistantEvents(req, url, { authContext });
 
       // Internal OAuth callback endpoint (gateway -> runtime)
       if (endpoint === 'internal/oauth/callback' && req.method === 'POST') {
+        const policyDenied = enforcePolicy('internal/oauth/callback', authContext);
+        if (policyDenied) return policyDenied;
         const json = await req.json() as { state: string; code?: string; error?: string };
         if (!json.state) return httpError('BAD_REQUEST', 'Missing state parameter', 400);
         if (json.error) {

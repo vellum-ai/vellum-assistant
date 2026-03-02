@@ -21,7 +21,11 @@ import { getLogger } from '../../util/logger.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
 import { mintCredentialPair } from '../auth/credential-service.js';
 import { httpError } from '../http-errors.js';
-import type { ServerWithRequestIP } from '../middleware/actor-token.js';
+
+/** Bun server shape needed for requestIP -- avoids importing the full Bun type. */
+type ServerWithRequestIP = {
+  requestIP(req: Request): { address: string; family: string; port: number } | null;
+};
 
 const log = getLogger('guardian-bootstrap');
 

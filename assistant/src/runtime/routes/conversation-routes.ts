@@ -25,7 +25,12 @@ import type { Provider } from '../../providers/types.js';
 import { getLogger } from '../../util/logger.js';
 import { buildAssistantEvent } from '../assistant-event.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
+import type { AuthContext } from '../auth/types.js';
 import { bridgeConfirmationRequestToGuardian } from '../confirmation-request-guardian-bridge.js';
+import {
+  resolveGuardianContext,
+  toGuardianRuntimeContext,
+} from '../guardian-context-resolver.js';
 import { routeGuardianReply } from '../guardian-reply-router.js';
 import { httpError } from '../http-errors.js';
 import type {
@@ -36,8 +41,6 @@ import type {
   RuntimeMessagePayload,
   SendMessageDeps,
 } from '../http-types.js';
-import { resolveLocalIpcGuardianContext } from '../local-actor-identity.js';
-import { type ServerWithRequestIP, verifyHttpActorTokenWithLocalFallback } from '../middleware/actor-token.js';
 import * as pendingInteractions from '../pending-interactions.js';
 
 const log = getLogger('conversation-routes');
@@ -413,7 +416,7 @@ export async function handleSendMessage(
     sendMessageDeps?: SendMessageDeps;
     approvalConversationGenerator?: ApprovalConversationGenerator;
   },
-  server: ServerWithRequestIP,
+  authContext: AuthContext,
 ): Promise<Response> {
   const body = await req.json() as {
     conversationKey?: string;
@@ -471,35 +474,27 @@ export async function handleSendMessage(
 
   // ── Queue-if-busy path (preferred when sendMessageDeps is wired) ────
   if (deps.sendMessageDeps) {
-    // Vellum HTTP requests prefer actor-token identity. When absent (e.g. CLI
-    // bearer-auth only), fall back to local IPC identity resolution so
-    // bearer-authenticated local clients are not rejected.
-    const actorVerification = sourceChannel === 'vellum' ? verifyHttpActorTokenWithLocalFallback(req, server) : null;
-    if (actorVerification && !actorVerification.ok) {
-      return httpError(
-        actorVerification.status === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN',
-        actorVerification.message,
-        actorVerification.status,
-      );
-    }
-
     const smDeps = deps.sendMessageDeps;
     const session = await smDeps.getOrCreateSession(mapping.conversationId);
-    // Resolve actor identity from the verified actor token. The token's
-    // guardianPrincipalId is matched against the vellum guardian binding
-    // through the standard trust pipeline.
-    if (actorVerification?.ok) {
-      session.setGuardianContext(actorVerification.guardianContext);
+
+    // Resolve guardian context from the AuthContext's actorPrincipalId.
+    // The JWT-verified principal is used as the sender identity through
+    // the same trust resolution pipeline that channel ingress uses.
+    if (authContext.actorPrincipalId) {
+      const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
+      const guardianCtx = resolveGuardianContext({
+        assistantId,
+        sourceChannel: 'vellum',
+        conversationExternalId: 'local',
+        actorExternalId: authContext.actorPrincipalId,
+      });
+      session.setGuardianContext(toGuardianRuntimeContext(sourceChannel, guardianCtx));
     } else {
-      // Non-vellum channels through the HTTP API are still local
-      // authenticated requests. Resolve guardian context via the local
-      // identity pathway (vellum binding lookup) to preserve guardian
-      // trust. Falls back to a minimal guardian context if no binding
-      // exists (pre-bootstrap).
-      session.setGuardianContext(
-        resolveLocalIpcGuardianContext(sourceChannel) ?? { trustClass: 'guardian', sourceChannel },
-      );
+      // Service principals (svc_gateway) or tokens without an actor ID
+      // get a minimal guardian context so downstream code has something.
+      session.setGuardianContext({ trustClass: 'guardian', sourceChannel });
     }
+
     const onEvent = makeHubPublisher(smDeps, mapping.conversationId, session);
     // Route server-authoritative state signals (confirmation_state_changed,
     // assistant_activity_state) to the SSE hub. Without this, these signals
@@ -512,14 +507,9 @@ export async function handleSendMessage(
       : [];
 
     // Resolve the verified actor's external user ID and principal for inline
-    // approval routing. Uses the guardianExternalUserId and guardianPrincipalId
-    // from the verified context (actor-token or local-fallback).
-    const verifiedActorExternalUserId = actorVerification?.ok
-      ? actorVerification.guardianContext.guardianExternalUserId
-      : session.guardianContext?.guardianExternalUserId;
-    const verifiedActorPrincipalId = actorVerification?.ok
-      ? actorVerification.guardianContext.guardianPrincipalId ?? undefined
-      : session.guardianContext?.guardianPrincipalId ?? undefined;
+    // approval routing from the session's guardian context.
+    const verifiedActorExternalUserId = session.guardianContext?.guardianExternalUserId;
+    const verifiedActorPrincipalId = session.guardianContext?.guardianPrincipalId ?? undefined;
 
     // Try to consume the message as a canonical guardian approval/rejection reply.
     // On failure, degrade to the existing queue/auto-deny path rather than
@@ -617,20 +607,19 @@ export async function handleSendMessage(
     return httpError('SERVICE_UNAVAILABLE', 'Message processing not configured', 503);
   }
 
-  // Require actor token for vellum channel requests on the legacy path too,
-  // with local IPC fallback for bearer-authenticated CLI clients.
-  const legacyActorVerification = sourceChannel === 'vellum' ? verifyHttpActorTokenWithLocalFallback(req, server) : null;
-  if (legacyActorVerification && !legacyActorVerification.ok) {
-    return httpError(
-      legacyActorVerification.status === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN',
-      legacyActorVerification.message,
-      legacyActorVerification.status,
-    );
+  // Resolve guardian context from AuthContext for the legacy path too.
+  let guardianContext: import('../../daemon/session-runtime-assembly.js').GuardianRuntimeContext;
+  if (authContext.actorPrincipalId) {
+    const legacyGuardianCtx = resolveGuardianContext({
+      assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
+      sourceChannel: 'vellum',
+      conversationExternalId: 'local',
+      actorExternalId: authContext.actorPrincipalId,
+    });
+    guardianContext = toGuardianRuntimeContext(sourceChannel, legacyGuardianCtx);
+  } else {
+    guardianContext = { trustClass: 'guardian' as const, sourceChannel };
   }
-
-  const guardianContext = legacyActorVerification?.ok
-    ? legacyActorVerification.guardianContext
-    : resolveLocalIpcGuardianContext(sourceChannel) ?? { trustClass: 'guardian' as const, sourceChannel };
 
   try {
     const result = await processor(
