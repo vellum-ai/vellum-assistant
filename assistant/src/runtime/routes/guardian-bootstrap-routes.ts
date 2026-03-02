@@ -13,6 +13,7 @@ import { createHash } from 'node:crypto';
 
 import { v4 as uuid } from 'uuid';
 
+import { isHttpAuthDisabled } from '../../config/env.js';
 import {
   createBinding,
   getActiveBinding,
@@ -74,15 +75,19 @@ const LOOPBACK_ADDRESSES = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
  * obtain actor tokens exclusively through the QR pairing flow.
  */
 export async function handleGuardianBootstrap(req: Request, server: ServerWithRequestIP): Promise<Response> {
-  // Reject proxied requests — bootstrap is local-only
-  if (req.headers.get('x-forwarded-for')) {
-    return httpError('FORBIDDEN', 'Bootstrap endpoint is local-only', 403);
-  }
+  // When HTTP auth is disabled (local Docker dev), skip the loopback and
+  // X-Forwarded-For guards — the peer IP will be the Docker bridge.
+  if (!isHttpAuthDisabled()) {
+    // Reject proxied requests — bootstrap is local-only
+    if (req.headers.get('x-forwarded-for')) {
+      return httpError('FORBIDDEN', 'Bootstrap endpoint is local-only', 403);
+    }
 
-  // Reject non-loopback peers
-  const peerIp = server.requestIP(req)?.address;
-  if (!peerIp || !LOOPBACK_ADDRESSES.has(peerIp)) {
-    return httpError('FORBIDDEN', 'Bootstrap endpoint is local-only', 403);
+    // Reject non-loopback peers
+    const peerIp = server.requestIP(req)?.address;
+    if (!peerIp || !LOOPBACK_ADDRESSES.has(peerIp)) {
+      return httpError('FORBIDDEN', 'Bootstrap endpoint is local-only', 403);
+    }
   }
 
   try {
@@ -94,7 +99,7 @@ export async function handleGuardianBootstrap(req: Request, server: ServerWithRe
       return httpError('BAD_REQUEST', 'Missing required fields: platform, deviceId', 400);
     }
 
-    if (platform !== 'macos' && platform !== 'cli') {
+    if (platform !== 'macos' && platform !== 'cli' && platform !== 'web') {
       return httpError('BAD_REQUEST', 'Invalid platform. Bootstrap is macOS/CLI-only; iOS uses QR pairing.', 400);
     }
 
