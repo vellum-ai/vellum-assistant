@@ -48,7 +48,7 @@ final class VoiceModeManager: ObservableObject {
     /// prematurely restart the 30s timer while the CU session is still running.
     private var conversationTimeoutPaused = false
     /// Permission request IDs currently being handled via voice.
-    private var pendingPermissionIds: [String] = []
+    var pendingPermissionIds: [String] = []
     /// Combine subscription to detect new confirmations in chat messages.
     private var messageCancellable: AnyCancellable?
     /// Combine subscription to pause/resume conversation timeout during tool execution.
@@ -413,7 +413,7 @@ final class VoiceModeManager: ObservableObject {
     ]
     private var lastPhraseIndex = -1
 
-    private func generatePermissionSummary(_ confirmations: [ToolConfirmationData]) -> String {
+    func generatePermissionSummary(_ confirmations: [ToolConfirmationData]) -> String {
         let descriptions = confirmations.map { describeAction($0) }
         let unique = Array(Set(descriptions))
 

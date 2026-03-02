@@ -5,7 +5,7 @@ Endpoint: `POST /v1/internal/managed-gateway/outbound-send/`
 Caller expectations:
 - caller is an internal Vellum-managed gateway client only
 - request body includes `route_id`, `assistant_id`, and `normalized_send`
-- caller retries only on transport-level failures; 4xx responses are terminal
+- caller retries on transport-level failures (network errors, timeouts) and 5xx HTTP responses; 4xx responses are terminal
 
 Authz boundary:
 - requires managed gateway internal auth middleware (`bearer` or `mtls`)

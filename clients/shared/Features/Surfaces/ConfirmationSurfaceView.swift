@@ -56,21 +56,30 @@ public struct ConfirmationSurfaceView: View {
         }
     }
 
+    /// Parse inline markdown (bold, italic, code) into an AttributedString.
+    private func inlineMarkdown(_ text: String) -> AttributedString {
+        let options = AttributedString.MarkdownParsingOptions(
+            interpretedSyntax: .inlineOnlyPreservingWhitespace
+        )
+        return (try? AttributedString(markdown: text, options: options))
+            ?? AttributedString(text)
+    }
+
     private var pendingContent: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             // Header with icon
-            HStack(spacing: VSpacing.md) {
+            HStack(alignment: .top, spacing: VSpacing.md) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.title2)
                     .foregroundStyle(data.destructive ? VColor.error : VColor.warning)
-                Text(data.message)
+                Text(inlineMarkdown(data.message))
                     .font(VFont.headline)
                     .foregroundColor(VColor.textPrimary)
             }
 
             // Detail text
             if let detail = data.detail {
-                Text(detail)
+                Text(inlineMarkdown(detail))
                     .font(VFont.body)
                     .foregroundColor(VColor.textSecondary)
             }

@@ -16,6 +16,21 @@ mock.module('../util/logger.js', () => ({
 }));
 
 // ---------------------------------------------------------------------------
+// Mock platform detection so tests can simulate non-macOS environments
+// where keychain backend selection is exercised.
+// ---------------------------------------------------------------------------
+
+let mockIsMacOS = false;
+
+mock.module('../util/platform.js', () => ({
+  isMacOS: () => mockIsMacOS,
+  isLinux: () => !mockIsMacOS,
+  isWindows: () => false,
+  getPlatformName: () => mockIsMacOS ? 'darwin' : 'linux',
+  getClipboardCommand: () => null,
+}));
+
+// ---------------------------------------------------------------------------
 // Keychain simulation via _overrideDeps — avoids process-global mock.module
 // for keychain.js which leaks into keychain.test.ts.
 // ---------------------------------------------------------------------------
@@ -88,6 +103,7 @@ describe('secure-keys', () => {
     // Clean state
     keychainAvailable = false;
     keychainFailAtRuntime = false;
+    mockIsMacOS = false;
     keychainStore.clear();
     _resetBackend();
     installKeychainDeps();
@@ -144,6 +160,17 @@ describe('secure-keys', () => {
       keychainAvailable = true;
       setSecureKey('test2', 'val2');
       expect(keychainStore.has('test2')).toBe(false);
+      expect(existsSync(STORE_PATH)).toBe(true);
+    });
+
+    test('uses encrypted store on macOS even when keychain is available', () => {
+      mockIsMacOS = true;
+      keychainAvailable = true;
+      _resetBackend();
+      setSecureKey('anthropic', 'sk-mac-test');
+      expect(getSecureKey('anthropic')).toBe('sk-mac-test');
+      // Should be in encrypted store, not keychain
+      expect(keychainStore.has('anthropic')).toBe(false);
       expect(existsSync(STORE_PATH)).toBe(true);
     });
   });

@@ -2,18 +2,27 @@
   "route_id": "9c13036a-11f9-4c70-8f48-39ca6e2b35b2",
   "assistant_id": "0f33135d-2457-4ffe-a284-dc484f47a6f7",
   "normalized_event": {
+    "version": "v1",
     "sourceChannel": "sms",
-    "source": {
-      "provider": "twilio",
-      "messageId": "SM123"
+    "receivedAt": "2026-03-01T00:00:00Z",
+    "message": {
+      "content": "Hello",
+      "conversationExternalId": "+15551239999",
+      "externalMessageId": "SM123"
     },
     "actor": {
       "actorExternalId": "+15551239999",
-      "actorDisplayName": "User"
+      "displayName": "User"
     },
-    "message": {
-      "content": "Hello",
-      "receivedAt": "2026-03-01T00:00:00Z"
+    "source": {
+      "updateId": "evt-abc-001",
+      "messageId": "SM123"
+    },
+    "raw": {
+      "MessageSid": "SM123",
+      "From": "+15551239999",
+      "To": "+15551230000",
+      "Body": "Hello"
     }
   }
 }

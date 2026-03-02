@@ -14,7 +14,7 @@ You are helping your user create Google Cloud OAuth credentials so the Gmail and
 
 Tell the user:
 - "I'll walk you through setting up Google Cloud so Vellum can connect to your Gmail and Google Calendar. The whole process takes a few minutes."
-- "I'll be automating the Google Cloud Console in the browser — you'll be able to see everything I'm doing."
+- "I'll be automating the Google Cloud Console in the browser, and you'll be able to see everything I'm doing."
 - "I'll ask for your approval before each major step, so nothing happens without your say-so."
 - "No sensitive credentials will be shown in the conversation."
 
@@ -31,11 +31,10 @@ Take a `browser_screenshot` to show the user what loaded, then take a `browser_s
 
 ## Step 2: Create or Select a Project
 
-**Ask for approval before proceeding.** Use `ui_show` with `surface_type: "confirmation"` and this message:
+**Ask for approval before proceeding.** Use `ui_show` with `surface_type: "confirmation"`. Set `message` to just the title, and `detail` to the body:
 
-> **Create a Google Cloud Project**
->
-> I'm about to create a new Google Cloud project called "Vellum Assistant". This is completely free and won't affect any of your existing projects. The project is just a container for the Gmail API credentials.
+- **message:** `Create a Google Cloud Project`
+- **detail:** `I'm about to create a new Google Cloud project called "Vellum Assistant". This is completely free and won't affect any of your existing projects. The project is just a container for the Gmail API credentials.`
 
 Wait for the user to approve. If they decline, explain that a project is required for OAuth credentials and offer to try again or cancel the setup.
 
@@ -45,7 +44,7 @@ Take a `browser_snapshot`. Fill in the project name form:
 - Use `browser_type` to set the project name to "Vellum Assistant"
 - Use `browser_click` to submit the "Create" button
 
-Wait a few seconds, then take a `browser_screenshot` to show the user what happened, and a `browser_snapshot` to confirm the project was created. If the project already exists, that's fine — navigate to its dashboard.
+Wait a few seconds, then take a `browser_screenshot` to show the user what happened, and a `browser_snapshot` to confirm the project was created. If the project already exists, that's fine, navigate to its dashboard.
 
 Tell the user: "Project created! Now let's enable the Gmail API."
 
@@ -53,18 +52,17 @@ Note the project ID from the URL or page content for subsequent steps.
 
 ## Step 3: Enable the Gmail and Calendar APIs
 
-**Ask for approval before proceeding.** Use `ui_show` with `surface_type: "confirmation"` and this message:
+**Ask for approval before proceeding.** Use `ui_show` with `surface_type: "confirmation"`. Set `message` to just the title, and `detail` to the body:
 
-> **Enable the Gmail and Calendar APIs**
->
-> I'm about to enable the Gmail API and Google Calendar API in your Google Cloud project. This allows Vellum to access your email and calendar — but only after you explicitly authorize it in a later step. Enabling the APIs alone doesn't grant any access.
+- **message:** `Enable the Gmail and Calendar APIs`
+- **detail:** `I'm about to enable the Gmail API and Google Calendar API in your Google Cloud project. This allows Vellum to access your email and calendar, but only after you explicitly authorize it in a later step. Enabling the APIs alone doesn't grant any access.`
 
 Wait for the user to approve. If they decline, explain that the APIs are required for email and calendar integration and offer to try again or cancel.
 
 Once approved, navigate to `https://console.cloud.google.com/apis/library/gmail.googleapis.com?project=PROJECT_ID` (substitute the actual project ID).
 
 Take a `browser_snapshot`:
-- **If the API is already enabled:** You'll see "API enabled" or a "Manage" button. Tell the user "Gmail API is already enabled — great!" and continue to enable Calendar API.
+- **If the API is already enabled:** You'll see "API enabled" or a "Manage" button. Tell the user "Gmail API is already enabled, great!" and continue to enable Calendar API.
 - **If not enabled:** Use `browser_click` on the "Enable" button.
 
 Wait a moment, then take a `browser_screenshot` to show the result and a `browser_snapshot` to confirm it shows as enabled.
@@ -72,7 +70,7 @@ Wait a moment, then take a `browser_screenshot` to show the result and a `browse
 Now navigate to `https://console.cloud.google.com/apis/library/calendar-json.googleapis.com?project=PROJECT_ID` to enable the Google Calendar API.
 
 Take a `browser_snapshot`:
-- **If the API is already enabled:** Tell the user "Google Calendar API is already enabled — great!" and skip to Step 4.
+- **If the API is already enabled:** Tell the user "Google Calendar API is already enabled, great!" and skip to Step 4.
 - **If not enabled:** Use `browser_click` on the "Enable" button.
 
 Wait a moment, then take a `browser_screenshot` to show the result.
@@ -81,18 +79,17 @@ Tell the user: "Gmail and Calendar APIs are enabled! Next, we need to set up an 
 
 ## Step 4: Configure the OAuth Consent Screen
 
-**Ask for approval before proceeding.** Use `ui_show` with `surface_type: "confirmation"` and this message:
+**Ask for approval before proceeding.** Use `ui_show` with `surface_type: "confirmation"`. Set `message` to just the title, and `detail` to the body:
 
-> **Configure OAuth Consent Screen**
->
-> I'm about to set up an OAuth consent screen for your project. This is the page Google shows when you authorize an app. I'll configure it with your email and the Gmail permissions Vellum needs (read, modify, and send emails). The app will start in "testing" mode — only you will be able to authorize it.
+- **message:** `Configure OAuth Consent Screen`
+- **detail:** `I'm about to set up an OAuth consent screen for your project. This is the page Google shows when you authorize an app. I'll configure it with your email and the Gmail permissions Vellum needs (read, modify, and send emails). The app will start in "testing" mode, and only you will be able to authorize it.`
 
 Wait for the user to approve. If they decline, explain that the consent screen is required for the OAuth flow and offer to try again or cancel.
 
 Once approved, navigate to `https://console.cloud.google.com/apis/credentials/consent?project=PROJECT_ID`.
 
 Take a `browser_snapshot` to check the current state:
-- **If consent screen is already configured:** Tell the user "Consent screen is already set up — skipping ahead!" and go to Step 5.
+- **If consent screen is already configured:** Tell the user "Consent screen is already set up, skipping ahead!" and go to Step 5.
 - **If a user type selection appears:** Select "External" and click "Create".
 
 Fill in the required fields on the consent screen form:
@@ -116,15 +113,14 @@ Use `browser_click` to proceed through each page of the wizard:
 
 Take a `browser_screenshot` after completing the wizard.
 
-Tell the user: "Consent screen is configured! Almost there — just need to create the credentials."
+Tell the user: "Consent screen is configured! Almost there, just need to create the credentials."
 
 ## Step 5: Create OAuth Credentials
 
-**Ask for approval before proceeding.** Use `ui_show` with `surface_type: "confirmation"` and this message:
+**Ask for approval before proceeding.** Use `ui_show` with `surface_type: "confirmation"`. Set `message` to just the title, and `detail` to the body:
 
-> **Create OAuth Credentials**
->
-> I'm about to create OAuth Desktop Application credentials for Vellum Assistant. This generates a client ID and secret that Vellum uses to initiate the authorization flow.
+- **message:** `Create OAuth Credentials`
+- **detail:** `I'm about to create OAuth Desktop Application credentials for Vellum Assistant. This generates a client ID and secret that Vellum uses to initiate the authorization flow.`
 
 Wait for the user to approve. If they decline, explain that credentials are the final step needed and offer to try again or cancel.
 
@@ -144,7 +140,7 @@ Use `browser_click` on the "Create" button.
 
 After creation, a dialog appears showing the client ID and client secret.
 
-Tell the user: "Credentials created! Please enter the values from the dialog below — I won't see what you type, they go directly to secure storage."
+Tell the user: "Credentials created! Please enter the values from the dialog below. I won't see what you type, they go directly to secure storage."
 
 Use `credential_store` to securely collect:
 
@@ -168,7 +164,7 @@ credential_store prompt:
 
 ## Step 7: Connect Gmail
 
-Tell the user: "Opening Google sign-in so you can authorize Vellum to access your Gmail. You'll see a Google consent page — just click 'Allow'."
+Tell the user: "Opening Google sign-in so you can authorize Vellum to access your Gmail. You'll see a Google consent page, just click 'Allow'."
 
 Use the `credential_store` tool to connect Gmail via OAuth2:
 
