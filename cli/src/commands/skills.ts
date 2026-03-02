@@ -247,7 +247,8 @@ function hasFlag(args: string[], flag: string): boolean {
 
 function resolveSkillsshCli(): string {
   const __dirname = dirname(fileURLToPath(import.meta.url));
-  const cliPath = join(
+  // Monorepo layout: cli/src/commands/ -> assistant/src/skills/
+  const monorepoPath = join(
     __dirname,
     "..",
     "..",
@@ -257,12 +258,21 @@ function resolveSkillsshCli(): string {
     "skills",
     "skillssh-cli.ts",
   );
-  if (!existsSync(cliPath)) {
-    throw new Error(
-      `skillssh-cli.ts not found at ${cliPath}. Is the assistant package available?`,
-    );
+  if (existsSync(monorepoPath)) return monorepoPath;
+
+  // Packaged layout: resolve from node_modules
+  try {
+    const _require = require("module").createRequire(import.meta.url);
+    const pkgPath = _require.resolve("vellum/package.json");
+    const packagedPath = join(dirname(pkgPath), "src", "skills", "skillssh-cli.ts");
+    if (existsSync(packagedPath)) return packagedPath;
+  } catch {
+    // Not available in packaged layout
   }
-  return cliPath;
+
+  throw new Error(
+    `skillssh-cli.ts not found. Is the assistant package available?`,
+  );
 }
 
 /**
@@ -347,8 +357,8 @@ export async function skills(): Promise<void> {
 
     case "search": {
       const subArgs = ["search"];
-      // Build a set of indices to skip: flag names and their values
-      const skipIndices = new Set<number>();
+      // Build a set of indices to skip: subcommand (index 0), flag names, and their values
+      const skipIndices = new Set<number>([0]);
       for (let i = 0; i < args.length; i++) {
         if (args[i] === "--limit") {
           skipIndices.add(i);
@@ -357,7 +367,7 @@ export async function skills(): Promise<void> {
           skipIndices.add(i);
         }
       }
-      const positional = args.filter((a, i) => !skipIndices.has(i) && a !== "search");
+      const positional = args.filter((_a, i) => !skipIndices.has(i));
       if (positional.length < 1) {
         console.error('Usage: vellum skills search "<query>" [--limit N] [--json]');
         process.exit(1);
@@ -376,7 +386,7 @@ export async function skills(): Promise<void> {
     }
 
     case "evaluate": {
-      const positional = args.filter((a) => !a.startsWith("--") && a !== "evaluate");
+      const positional = args.filter((a, i) => i !== 0 && !a.startsWith("--"));
       if (positional.length < 2) {
         console.error("Usage: vellum skills evaluate <source> <skillId> [--json]");
         process.exit(1);
@@ -389,7 +399,7 @@ export async function skills(): Promise<void> {
     }
 
     case "install": {
-      const positional = args.filter((a) => !a.startsWith("--") && a !== "install");
+      const positional = args.filter((a, i) => i !== 0 && !a.startsWith("--"));
 
       // Two positional args => skills.sh third-party install
       if (positional.length >= 2) {

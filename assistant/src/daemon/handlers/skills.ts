@@ -327,10 +327,25 @@ export async function handleSkillsInstall(
  */
 async function trySkillsShInstall(slug: string): Promise<{ success: boolean; namespacedId: string; error?: string }> {
   try {
+    const config = getConfig();
+    if (!config.skills.remoteProviders.skillssh.enabled) {
+      return { success: false, namespacedId: '', error: 'skills.sh provider is disabled in configuration' };
+    }
+
     const searchResult = await skillsshSearchWithAudit(slug, { limit: 5 });
     const match = searchResult.skills.find((s) => s.skillId === slug || s.id === slug);
     if (!match) {
       return { success: false, namespacedId: '', error: `No exact skills.sh match for "${slug}"` };
+    }
+
+    // Check the user-configured remote policy before proceeding
+    const { evaluateRemoteSkillInstall } = await import('../../skills/remote-skill-policy.js');
+    const policyDecision = evaluateRemoteSkillInstall(
+      { provider: 'skillssh', slug: match.id, audit: { risk: match.overallRisk } },
+      config.skills.remotePolicy,
+    );
+    if (!policyDecision.ok) {
+      return { success: false, namespacedId: '', error: `Blocked by remote policy: ${policyDecision.reason}` };
     }
 
     const decision = makeSecurityDecision(match.audit);
