@@ -1,25 +1,31 @@
 import Foundation
 
+enum TestStatus: String {
+    case critical
+    case stable
+    case experimental
+}
+
 struct TestCase {
     let name: String
     let filePath: String
     let fixture: String?
     let requiredEnv: [String]?
-    let experimental: Bool
+    let status: TestStatus?
     let rawContent: String
 }
 
 struct ParsedFrontmatter {
     let fixture: String?
     let requiredEnv: [String]?
-    let experimental: Bool
+    let status: TestStatus?
     let body: String
 }
 
 func parseFrontmatter(_ content: String) -> ParsedFrontmatter {
     // Match YAML frontmatter between --- delimiters
     guard let range = content.range(of: "^---\n([\\s\\S]*?)\n---\n([\\s\\S]*)$", options: .regularExpression) else {
-        return ParsedFrontmatter(fixture: nil, requiredEnv: nil, experimental: false, body: content)
+        return ParsedFrontmatter(fixture: nil, requiredEnv: nil, status: nil, body: content)
     }
 
     let matched = String(content[range])
@@ -51,7 +57,7 @@ func parseFrontmatter(_ content: String) -> ParsedFrontmatter {
 
     var fixture: String?
     var requiredEnv: [String]?
-    var experimental: Bool = false
+    var status: TestStatus?
     for line in frontmatterLines {
         let parts = line.split(separator: ":", maxSplits: 1)
         guard parts.count == 2 else { continue }
@@ -62,15 +68,15 @@ func parseFrontmatter(_ content: String) -> ParsedFrontmatter {
             fixture = value
         case "required_env":
             requiredEnv = value.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-        case "experimental":
-            experimental = value.lowercased() == "true"
+        case "status":
+            status = TestStatus(rawValue: value.lowercased())
         default:
             break
         }
     }
 
     let body = bodyLines.joined(separator: "\n")
-    return ParsedFrontmatter(fixture: fixture, requiredEnv: requiredEnv, experimental: experimental, body: body)
+    return ParsedFrontmatter(fixture: fixture, requiredEnv: requiredEnv, status: status, body: body)
 }
 
 func discoverTestCases(casesDir: String, filter: String?) -> [TestCase] {
@@ -95,7 +101,7 @@ func discoverTestCases(casesDir: String, filter: String?) -> [TestCase] {
             continue
         }
 
-        cases.append(TestCase(name: name, filePath: filePath, fixture: parsed.fixture, requiredEnv: parsed.requiredEnv, experimental: parsed.experimental, rawContent: rawContent))
+        cases.append(TestCase(name: name, filePath: filePath, fixture: parsed.fixture, requiredEnv: parsed.requiredEnv, status: parsed.status, rawContent: rawContent))
     }
 
     return cases
