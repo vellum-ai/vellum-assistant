@@ -187,7 +187,7 @@ cat > "$EXPORT_OPTIONS" <<PLIST
     <string>manual</string>
     <key>provisioningProfiles</key>
     <dict>
-        <key>com.vellum.vellum-assistant-ios</key>
+        <key>ai.vellum.assistant-ios</key>
         <string>Vellum Assistant iOS Distribution</string>
     </dict>
     <key>uploadSymbols</key>
