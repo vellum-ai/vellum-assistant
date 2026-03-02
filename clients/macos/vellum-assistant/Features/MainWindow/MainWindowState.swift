@@ -151,6 +151,7 @@ public final class MainWindowState: ObservableObject {
 
     /// Dismiss the current overlay (app, panel, etc.) and return to the persistent thread.
     func dismissOverlay() {
+        isAppChatOpen = false
         if let threadId = persistentThreadId {
             selection = .thread(threadId)
         } else {
@@ -195,6 +196,13 @@ public final class MainWindowState: ObservableObject {
         }
     }
 
+    /// Navigate directly to the Apps panel (always full-width, no toggle).
+    func showAppsPanel() {
+        isAppChatOpen = false
+        selection = .panel(.apps)
+        lastActivePanelString = String(describing: SidePanelType.apps)
+    }
+
     func refreshAPIKeyStatus(isConnected: Bool) {
         hasAPIKey = APIKeyManager.hasAnyKey() || isConnected
     }
@@ -207,6 +215,7 @@ public final class MainWindowState: ObservableObject {
     /// Reset all dynamic workspace state. Callers should also reset
     /// view-local state like `showSharePicker` separately.
     func closeDynamicPanel() {
+        isAppChatOpen = false
         selection = nil
         activeDynamicSurface = nil
         activeDynamicParsedSurface = nil
