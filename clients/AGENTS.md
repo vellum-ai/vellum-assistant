@@ -49,7 +49,7 @@
   - **Modifiers** — `Modifiers/` contains reusable view modifiers: `CardModifier`, `HoverEffect`, `PanelBackground`, `InlineWidgetCardModifier`.
   - **Gallery** — `Gallery/` is a live preview catalog of all components. Update it when adding new components.
 - Use the `V`-prefixed components (for example `VButton`, `VCard`, `VTextField`) rather than rolling custom equivalents.
-- Use design tokens (`VColor.*`, `VSpacing.*`, `VRadius.*`, `VTypography.*`, `VShadow.*`) instead of hardcoded values.
+- Use design tokens (`VColor.*`, `VSpacing.*`, `VRadius.*`, `VFont.*`, `VShadow.*`) instead of hardcoded values.
 
 ### Adding new shared components
 - If a needed component does not exist, add it to the appropriate `DesignSystem/` subdirectory (`Core/` for primitives, `Components/` for composed elements, `Modifiers/` for view modifiers).
