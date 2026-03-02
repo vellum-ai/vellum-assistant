@@ -1321,8 +1321,6 @@ jobs:
             --apiKey "${{ secrets.ASC_KEY_ID }}" \
             --apiIssuer "${{ secrets.ASC_ISSUER_ID }}"
 
-          rm -rf ~/.private_keys
-
       - name: Upload .ipa artifact
         uses: actions/upload-artifact@v4
         with:
@@ -1331,11 +1329,12 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Cleanup keychain
+      - name: Cleanup keychain and keys
         if: always()
         run: |
           KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
           security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
+          rm -rf ~/.private_keys 2>/dev/null || true
 
   ci-playwright:
     needs: [bump-and-tag, build-macos]
