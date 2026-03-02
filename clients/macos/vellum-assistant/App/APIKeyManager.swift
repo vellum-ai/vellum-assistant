@@ -69,14 +69,20 @@ enum APIKeyManager {
     }
 
     static func setKey(_ key: String, for provider: String) {
-        cliSetKey(service: service, account: provider, value: key)
-        setCachedValue(key, for: provider)
+        if cliSetKey(service: service, account: provider, value: key) {
+            setCachedValue(key, for: provider)
+        } else {
+            invalidateCachedValue(for: provider)
+        }
         notifyKeyDidChange()
     }
 
     static func deleteKey(for provider: String) {
-        cliDeleteKey(service: service, account: provider)
-        setCachedValue(nil, for: provider)
+        if cliDeleteKey(service: service, account: provider) {
+            setCachedValue(nil, for: provider)
+        } else {
+            invalidateCachedValue(for: provider)
+        }
         notifyKeyDidChange()
     }
 
@@ -102,6 +108,12 @@ enum APIKeyManager {
         readCache[provider] = CachedKeyRead(value: value, cachedAt: Date())
     }
 
+    private static func invalidateCachedValue(for provider: String) {
+        readCacheLock.lock()
+        defer { readCacheLock.unlock() }
+        readCache.removeValue(forKey: provider)
+    }
+
     // MARK: - CLI Helpers
 
     /// Read a generic password via `security find-generic-password`.
@@ -124,25 +136,37 @@ enum APIKeyManager {
     }
 
     /// Write a generic password via `security add-generic-password -U` (update if exists).
-    private static func cliSetKey(service: String, account: String, value: String) {
+    @discardableResult
+    private static func cliSetKey(service: String, account: String, value: String) -> Bool {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
         process.arguments = ["add-generic-password", "-s", service, "-a", account, "-w", value, "-U"]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
-        try? process.run()
-        process.waitUntilExit()
+        do {
+            try process.run()
+            process.waitUntilExit()
+            return process.terminationStatus == 0
+        } catch {
+            return false
+        }
     }
 
     /// Delete a generic password via `security delete-generic-password`.
-    private static func cliDeleteKey(service: String, account: String) {
+    @discardableResult
+    private static func cliDeleteKey(service: String, account: String) -> Bool {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
         process.arguments = ["delete-generic-password", "-s", service, "-a", account]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
-        try? process.run()
-        process.waitUntilExit()
+        do {
+            try process.run()
+            process.waitUntilExit()
+            return process.terminationStatus == 0
+        } catch {
+            return false
+        }
     }
 
     // MARK: - Migration
