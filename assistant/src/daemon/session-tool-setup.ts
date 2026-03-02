@@ -11,6 +11,7 @@ import type { PermissionPrompter } from '../permissions/prompter.js';
 import type { SecretPrompter } from '../permissions/secret-prompter.js';
 import { addRule, findHighestPriorityRule } from '../permissions/trust-store.js';
 import { isAllowDecision } from '../permissions/types.js';
+import { getEffectiveMode } from '../runtime/session-approval-overrides.js';
 import type { Message, ToolDefinition } from '../providers/types.js';
 import type { ToolExecutor } from '../tools/executor.js';
 import type { ToolExecutionResult, ToolLifecycleEventHandler } from '../tools/types.js';
@@ -163,6 +164,12 @@ export function createToolExecutor(
             decision: existingRule.decision === 'allow' ? 'allow' as const : 'deny' as const,
           };
         }
+        // Auto-approve sub-tool confirmations when a temporary approval
+        // override is active for this conversation (guardian only).
+        const guardianTrust = ctx.guardianContext?.trustClass ?? 'guardian';
+        if (guardianTrust === 'guardian' && getEffectiveMode(ctx.conversationId) !== null) {
+          return { decision: 'allow' as const };
+        }
         const allowlistOptions = [
           { label: `cc:${req.toolName}`, description: `Claude Code ${req.toolName}`, pattern: `cc:${req.toolName}` },
           { label: 'cc:*', description: 'All Claude Code sub-tools', pattern: 'cc:*' },
@@ -260,6 +267,13 @@ export function createProxyApprovalCallback(
     // blocking for the full permission timeout before auto-denying.
     if (ctx.hasNoClient) {
       return false;
+    }
+
+    // Auto-approve proxy network requests when a temporary approval
+    // override is active for this conversation (guardian only).
+    const proxyGuardianTrust = ctx.guardianContext?.trustClass ?? 'guardian';
+    if (proxyGuardianTrust === 'guardian' && getEffectiveMode(ctx.conversationId) !== null) {
+      return true;
     }
 
     const response = await prompter.prompt(
