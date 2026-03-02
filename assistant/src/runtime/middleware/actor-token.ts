@@ -26,6 +26,7 @@ import {
   toGuardianRuntimeContext,
 } from '../guardian-context-resolver.js';
 import { resolveLocalIpcGuardianContext } from '../local-actor-identity.js';
+import { isPrivateAddress } from './auth.js';
 
 const log = getLogger('actor-token-middleware');
 
@@ -147,9 +148,6 @@ export function isActorBoundGuardian(claims: ActorTokenClaims): boolean {
 // Bearer-auth fallback variants
 // ---------------------------------------------------------------------------
 
-/** Loopback addresses — used to gate the local identity fallback. */
-const LOOPBACK_ADDRESSES = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
-
 /** Bun server shape needed for requestIP — avoids importing the full Bun type. */
 export type ServerWithRequestIP = {
   requestIP(req: Request): { address: string; family: string; port: number } | null;
@@ -175,35 +173,40 @@ export type ActorTokenVerificationWithFallback =
  * Verify the actor token with fallback to local IPC identity resolution.
  *
  * When an actor token is present, the full verification pipeline runs.
- * When absent AND the request originates from a loopback address, the
- * request is treated as a trusted local client (e.g. CLI) and we fall
- * back to `resolveLocalIpcGuardianContext()` which produces the same
- * guardian context as the IPC pathway.
+ * When absent AND the request originates from a private network address
+ * (loopback or cluster-internal), the request is treated as a trusted
+ * client (e.g. CLI, Vembda/platform proxy) and we fall back to
+ * `resolveLocalIpcGuardianContext()` which produces the same guardian
+ * context as the IPC pathway.
  *
  * Two conditions must BOTH be met for the local fallback:
  * 1. No X-Forwarded-For header (rules out gateway-proxied requests).
- * 2. The peer remote address is a loopback address (rules out LAN/container
- *    connections when the runtime binds to 0.0.0.0).
+ * 2. The peer remote address is a private/internal network address
+ *    (loopback, RFC 1918, link-local, etc.), ruling out public internet
+ *    connections.
  *
  * The peer address is checked via `server.requestIP(req)`.
  *
- * --- CLI compatibility note ---
+ * --- CLI & platform proxy compatibility note ---
  *
- * The local fallback is an intentional CLI compatibility path, not a
+ * The local fallback is an intentional compatibility path, not a
  * security gap. The CLI currently sends only `Authorization: Bearer <token>`
- * without `X-Actor-Token`. This fallback allows the CLI to function until
- * it is migrated to actor tokens in a future milestone.
+ * without `X-Actor-Token`. The platform proxy path (Django → Vembda → pod)
+ * similarly uses bearer auth without actor tokens. This fallback allows
+ * both to function until they are migrated to actor tokens.
  *
  * The fallback is gated by three conditions that together ensure only
- * genuinely local connections receive guardian identity:
+ * trusted connections receive guardian identity:
  *   (1) Absence of X-Forwarded-For header — the gateway always injects
  *       this header when proxying, so its presence indicates a remote client.
- *   (2) Loopback origin check — verifies the peer IP is 127.0.0.1/::1,
- *       preventing LAN or container peers.
+ *   (2) Private network origin check — verifies the peer IP belongs to a
+ *       private/internal range (loopback, RFC 1918, link-local, etc.),
+ *       preventing public internet peers. This covers both direct local
+ *       connections (CLI) and cluster-internal peers (Vembda pods).
  *   (3) Valid bearer authentication — already enforced upstream by the
  *       HTTP server's auth gate before this function is called.
  *
- * Once the CLI adopts actor tokens, this fallback can be removed.
+ * Once all clients adopt actor tokens, this fallback can be removed.
  */
 export function verifyHttpActorTokenWithLocalFallback(
   req: Request,
@@ -231,23 +234,25 @@ export function verifyHttpActorTokenWithLocalFallback(
     };
   }
 
-  // Verify the peer address is actually loopback. This prevents LAN or
-  // container peers from receiving local guardian identity when the
-  // runtime binds to 0.0.0.0.
+  // Verify the peer address belongs to a private/internal network. This
+  // prevents public internet peers from receiving local guardian identity
+  // when the runtime binds to 0.0.0.0. Accepts loopback (CLI) and
+  // cluster-internal peers (Vembda/platform proxy pods).
   const peerIp = server.requestIP(req)?.address;
-  if (!peerIp || !LOOPBACK_ADDRESSES.has(peerIp)) {
-    log.warn({ peerIp }, 'Rejecting local identity fallback: peer is not loopback');
+  if (!peerIp || !isPrivateAddress(peerIp)) {
+    log.warn({ peerIp }, 'Rejecting local identity fallback: peer is not a private network address');
     return {
       ok: false,
       status: 401,
-      message: 'Missing X-Actor-Token header. Non-loopback requests require actor identity.',
+      message: 'Missing X-Actor-Token header. Non-private-network requests require actor identity.',
     };
   }
 
-  // No actor token, no forwarding header, and the peer is on loopback
-  // — this is a direct local connection that passed bearer auth at the
-  // HTTP server layer. Resolve identity the same way as IPC.
-  log.debug('No actor token present on direct local request; using local IPC identity fallback');
+  // No actor token, no forwarding header, and the peer is on a private
+  // network — this is a trusted connection (local CLI or cluster-internal
+  // platform proxy) that passed bearer auth at the HTTP server layer.
+  // Resolve identity the same way as IPC.
+  log.debug('No actor token present on private-network request; using local IPC identity fallback');
   const guardianContext = resolveLocalIpcGuardianContext('vellum');
   return {
     ok: true,
