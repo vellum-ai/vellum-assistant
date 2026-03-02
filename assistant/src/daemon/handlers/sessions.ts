@@ -119,6 +119,7 @@ function makeIpcEventSender(params: {
           allowlistOptions: event.allowlistOptions,
           scopeOptions: event.scopeOptions,
           persistentDecisionsAllowed: event.persistentDecisionsAllowed,
+          temporaryOptionsAvailable: event.temporaryOptionsAvailable,
         },
       });
 

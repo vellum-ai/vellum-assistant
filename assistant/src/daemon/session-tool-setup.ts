@@ -10,6 +10,7 @@ import { generateAllowlistOptions, generateScopeOptions, normalizeWebFetchUrl } 
 import type { PermissionPrompter } from '../permissions/prompter.js';
 import type { SecretPrompter } from '../permissions/secret-prompter.js';
 import { addRule, findHighestPriorityRule } from '../permissions/trust-store.js';
+import { isAllowDecision } from '../permissions/types.js';
 import type { Message, ToolDefinition } from '../providers/types.js';
 import type { ToolExecutor } from '../tools/executor.js';
 import type { ToolExecutionResult, ToolLifecycleEventHandler } from '../tools/types.js';
@@ -187,7 +188,7 @@ export function createToolExecutor(
           addRule('cc:' + req.toolName, response.selectedPattern, response.selectedScope, 'deny');
         }
         return {
-          decision: (response.decision === 'allow' || response.decision === 'always_allow' || response.decision === 'always_allow_high_risk') ? 'allow' as const : 'deny' as const,
+          decision: isAllowDecision(response.decision) ? 'allow' as const : 'deny' as const,
         };
       },
     });
@@ -283,9 +284,7 @@ export function createProxyApprovalCallback(
       addRule(toolName, response.selectedPattern, response.selectedScope, 'deny');
     }
 
-    return response.decision === 'allow'
-      || response.decision === 'always_allow'
-      || response.decision === 'always_allow_high_risk';
+    return isAllowDecision(response.decision);
   };
 }
 

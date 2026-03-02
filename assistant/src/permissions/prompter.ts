@@ -56,6 +56,7 @@ export class PermissionPrompter {
     executionTarget?: ExecutionTarget,
     persistentDecisionsAllowed?: boolean,
     signal?: AbortSignal,
+    temporaryOptionsAvailable?: Array<'allow_10m' | 'allow_thread'>,
   ): Promise<{
     decision: UserDecision;
     selectedPattern?: string;
@@ -101,6 +102,7 @@ export class PermissionPrompter {
         sessionId,
         executionTarget,
         persistentDecisionsAllowed: persistentDecisionsAllowed ?? true,
+        temporaryOptionsAvailable,
       });
 
       this.onStateChanged?.(requestId, 'pending', 'system');
