@@ -28,16 +28,10 @@ struct SettingsChannelsTab: View {
     @State private var twilioAuthTokenText = ""
     @State private var twilioSetupExpanded = false
 
-    // Twilio number picker (SMS card)
-    @State private var twilioNumberPickerExpanded = false
-
     // Twilio credential entry (Voice card)
     @State private var voiceAccountSidText = ""
     @State private var voiceAuthTokenText = ""
     @State private var voiceSetupExpanded = false
-
-    // Twilio number picker (Voice card)
-    @State private var voiceNumberPickerExpanded = false
 
     // Per-section save-in-progress (so saving one section doesn't affect the other)
     @State private var twilioSmsSaveInProgress = false
@@ -92,9 +86,9 @@ struct SettingsChannelsTab: View {
         .onChange(of: store.twilioHasCredentials) { _, hasCredentials in
             if !hasCredentials {
                 twilioSetupExpanded = false
-                twilioNumberPickerExpanded = false
                 voiceSetupExpanded = false
-                voiceNumberPickerExpanded = false
+            } else {
+                store.refreshTwilioNumbers()
             }
         }
         .alert("Regenerate Bearer Token", isPresented: $showingRegenerateConfirmation) {
@@ -550,23 +544,21 @@ struct SettingsChannelsTab: View {
             // Phone number row (only when credentials exist)
             if store.twilioHasCredentials {
                 Divider().background(VColor.surfaceBorder)
-
-                if twilioNumberPickerExpanded {
-                    twilioNumberPicker
-                } else {
-                    channelStatusRow(
-                        label: "Phone Number",
-                        icon: store.twilioPhoneNumber != nil ? "phone.fill" : "phone",
-                        iconColor: store.twilioPhoneNumber != nil ? VColor.success : VColor.textMuted,
-                        value: store.twilioPhoneNumber ?? "Not assigned",
-                        valueFont: VFont.mono,
-                        valueColor: store.twilioPhoneNumber != nil ? VColor.textPrimary : VColor.textMuted,
-                        action: .init(label: "Change", style: .secondary) {
-                            twilioNumberPickerExpanded = true
-                            if !store.twilioListInProgress {
-                                store.refreshTwilioNumbers()
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Phone Number")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                    VDropdown(
+                        placeholder: "Not Set",
+                        selection: Binding(
+                            get: { store.twilioPhoneNumber ?? "" },
+                            set: { newValue in
+                                if newValue.isEmpty { store.unassignTwilioNumber() }
+                                else { store.assignTwilioNumber(phoneNumber: newValue) }
                             }
-                        }
+                        ),
+                        options: store.twilioNumbers.map { (label: "\($0.phoneNumber)  \($0.friendlyName)", value: $0.phoneNumber) },
+                        emptyValue: ""
                     )
                 }
             }
@@ -626,23 +618,21 @@ struct SettingsChannelsTab: View {
             // Phone number row (only when credentials exist)
             if store.twilioHasCredentials {
                 Divider().background(VColor.surfaceBorder)
-
-                if voiceNumberPickerExpanded {
-                    voiceNumberPicker
-                } else {
-                    channelStatusRow(
-                        label: "Phone Number",
-                        icon: store.twilioPhoneNumber != nil ? "phone.fill" : "phone",
-                        iconColor: store.twilioPhoneNumber != nil ? VColor.success : VColor.textMuted,
-                        value: store.twilioPhoneNumber ?? "Not assigned",
-                        valueFont: VFont.mono,
-                        valueColor: store.twilioPhoneNumber != nil ? VColor.textPrimary : VColor.textMuted,
-                        action: .init(label: "Change", style: .secondary) {
-                            voiceNumberPickerExpanded = true
-                            if !store.twilioListInProgress {
-                                store.refreshTwilioNumbers()
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Phone Number")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                    VDropdown(
+                        placeholder: "Not Set",
+                        selection: Binding(
+                            get: { store.twilioPhoneNumber ?? "" },
+                            set: { newValue in
+                                if newValue.isEmpty { store.unassignTwilioNumber() }
+                                else { store.assignTwilioNumber(phoneNumber: newValue) }
                             }
-                        }
+                        ),
+                        options: store.twilioNumbers.map { (label: "\($0.phoneNumber)  \($0.friendlyName)", value: $0.phoneNumber) },
+                        emptyValue: ""
                     )
                 }
             }
@@ -724,67 +714,6 @@ struct SettingsChannelsTab: View {
         }
     }
 
-    // MARK: - Twilio Number Picker
-
-    private var twilioNumberPicker: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            HStack {
-                Text("Phone Number")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
-                Spacer()
-                VButton(label: "Cancel", style: .secondary, size: .large) {
-                    twilioNumberPickerExpanded = false
-                }
-            }
-
-            if store.twilioListInProgress {
-                HStack(spacing: VSpacing.sm) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Loading numbers...")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                }
-            } else if store.twilioNumbers.isEmpty {
-                Text("No phone numbers found on this Twilio account.")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
-            } else {
-                ForEach(store.twilioNumbers, id: \.phoneNumber) { number in
-                    let isCurrent = number.phoneNumber == store.twilioPhoneNumber
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(number.phoneNumber)
-                                .font(VFont.mono)
-                                .foregroundColor(VColor.textPrimary)
-                            Text(number.friendlyName)
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
-                        }
-                        Spacer()
-                        if isCurrent {
-                            HStack(spacing: VSpacing.xs) {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundColor(VColor.success)
-                                    .font(.system(size: 12))
-                                Text("Current")
-                                    .font(VFont.caption)
-                                    .foregroundColor(VColor.textSecondary)
-                            }
-                        } else {
-                            VButton(label: "Use", style: .secondary, size: .large) {
-                                store.assignTwilioNumber(phoneNumber: number.phoneNumber)
-                                twilioNumberPickerExpanded = false
-                            }
-                            .disabled(store.twilioSaveInProgress)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
     // MARK: - Voice Credential Entry
 
     private var voiceCredentialEntry: some View {
@@ -832,67 +761,6 @@ struct SettingsChannelsTab: View {
                         voiceSetupExpanded = false
                         voiceAccountSidText = ""
                         voiceAuthTokenText = ""
-                    }
-                }
-            }
-        }
-    }
-
-    // MARK: - Voice Number Picker
-
-    private var voiceNumberPicker: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            HStack {
-                Text("Phone Number")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
-                Spacer()
-                VButton(label: "Cancel", style: .secondary, size: .large) {
-                    voiceNumberPickerExpanded = false
-                }
-            }
-
-            if store.twilioListInProgress {
-                HStack(spacing: VSpacing.sm) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Loading numbers...")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                }
-            } else if store.twilioNumbers.isEmpty {
-                Text("No phone numbers found on this Twilio account.")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
-            } else {
-                ForEach(store.twilioNumbers, id: \.phoneNumber) { number in
-                    let isCurrent = number.phoneNumber == store.twilioPhoneNumber
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(number.phoneNumber)
-                                .font(VFont.mono)
-                                .foregroundColor(VColor.textPrimary)
-                            Text(number.friendlyName)
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
-                        }
-                        Spacer()
-                        if isCurrent {
-                            HStack(spacing: VSpacing.xs) {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundColor(VColor.success)
-                                    .font(.system(size: 12))
-                                Text("Current")
-                                    .font(VFont.caption)
-                                    .foregroundColor(VColor.textSecondary)
-                            }
-                        } else {
-                            VButton(label: "Use", style: .secondary, size: .large) {
-                                store.assignTwilioNumber(phoneNumber: number.phoneNumber)
-                                voiceNumberPickerExpanded = false
-                            }
-                            .disabled(store.twilioSaveInProgress)
-                        }
                     }
                 }
             }
@@ -1219,17 +1087,14 @@ struct SettingsChannelsTab: View {
             }
         }()
 
-        VStack(alignment: .leading, spacing: VSpacing.xs) {
-            HStack(spacing: VSpacing.sm) {
-                guardianLabel
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            guardianLabel
 
-                VInlineActionField(text: destinationBinding, placeholder: placeholder, actionLabel: "Send") {
-                    store.startOutboundGuardianVerification(channel: channel, destination: destination)
-                }
+            TextField(placeholder, text: destinationBinding)
+                .vInputStyle()
+                .font(VFont.body)
+                .foregroundColor(VColor.textPrimary)
                 .frame(maxWidth: 360)
-
-                Spacer()
-            }
 
             if channel == "telegram" {
                 HStack(spacing: 0) {
@@ -1251,13 +1116,16 @@ struct SettingsChannelsTab: View {
                         if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
                     }
                 }
-                .padding(.leading, labelColumnWidth + VSpacing.sm)
             } else if channel == "voice" || channel == "sms" {
                 Text("This is your personal phone number")
                     .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)
-                    .padding(.leading, labelColumnWidth + VSpacing.sm)
             }
+
+            VButton(label: "Send", style: .secondary, size: .large) {
+                store.startOutboundGuardianVerification(channel: channel, destination: destination)
+            }
+            .disabled(destination.isEmpty)
         }
     }
 

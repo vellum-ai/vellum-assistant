@@ -1222,6 +1222,19 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
+    func unassignTwilioNumber() {
+        twilioSaveInProgress = true
+        twilioError = nil
+        Task {
+            await performTwilioHTTPRequest(
+                method: "DELETE",
+                path: "/v1/integrations/twilio/numbers/assign",
+                applyPhoneNumber: true
+            )
+            twilioSaveInProgress = false
+        }
+    }
+
     func provisionTwilioNumber(areaCode: String?, country: String?) {
         let trimmedAreaCode = areaCode?.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedCountry = country?.trimmingCharacters(in: .whitespacesAndNewlines)
