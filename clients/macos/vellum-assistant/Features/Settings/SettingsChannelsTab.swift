@@ -39,6 +39,10 @@ struct SettingsChannelsTab: View {
     // Twilio number picker (Voice card)
     @State private var voiceNumberPickerExpanded = false
 
+    // Per-section save-in-progress (so saving one section doesn't affect the other)
+    @State private var twilioSmsSaveInProgress = false
+    @State private var twilioVoiceSaveInProgress = false
+
     // Slack channel credential entry
     @State private var slackChannelSetupExpanded = false
     @State private var slackChannelBotTokenInput = ""
@@ -695,17 +699,9 @@ struct SettingsChannelsTab: View {
 
     private var twilioCredentialEntry: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            HStack {
-                Text("Account SID and Auth Token")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
-                Spacer()
-                VButton(label: "Cancel", style: .secondary, size: .large) {
-                    twilioSetupExpanded = false
-                    twilioAccountSidText = ""
-                    twilioAuthTokenText = ""
-                }
-            }
+            Text("Account SID and Auth Token")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textSecondary)
 
             TextField("Account SID", text: $twilioAccountSidText)
                 .vInputStyle()
@@ -717,7 +713,7 @@ struct SettingsChannelsTab: View {
                 .font(VFont.body)
                 .foregroundColor(VColor.textPrimary)
 
-            if store.twilioSaveInProgress {
+            if twilioSmsSaveInProgress {
                 HStack(spacing: VSpacing.sm) {
                     ProgressView()
                         .controlSize(.small)
@@ -726,19 +722,28 @@ struct SettingsChannelsTab: View {
                         .foregroundColor(VColor.textSecondary)
                 }
             } else {
-                VButton(label: "Save Credentials", style: .secondary, size: .large) {
-                    store.saveTwilioCredentials(
-                        accountSid: twilioAccountSidText,
-                        authToken: twilioAuthTokenText
+                HStack(spacing: VSpacing.sm) {
+                    VButton(label: "Save Credentials", style: .secondary, size: .large) {
+                        twilioSmsSaveInProgress = true
+                        store.saveTwilioCredentials(
+                            accountSid: twilioAccountSidText,
+                            authToken: twilioAuthTokenText
+                        )
+                        twilioAccountSidText = ""
+                        twilioAuthTokenText = ""
+                        twilioSetupExpanded = false
+                        twilioSmsSaveInProgress = false
+                    }
+                    .disabled(
+                        twilioAccountSidText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                        twilioAuthTokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     )
-                    twilioAccountSidText = ""
-                    twilioAuthTokenText = ""
-                    twilioSetupExpanded = false
+                    VButton(label: "Cancel", style: .tertiary, size: .large) {
+                        twilioSetupExpanded = false
+                        twilioAccountSidText = ""
+                        twilioAuthTokenText = ""
+                    }
                 }
-                .disabled(
-                    twilioAccountSidText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                    twilioAuthTokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                )
             }
         }
     }
@@ -808,17 +813,9 @@ struct SettingsChannelsTab: View {
 
     private var voiceCredentialEntry: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            HStack {
-                Text("Account SID and Auth Token")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
-                Spacer()
-                VButton(label: "Cancel", style: .secondary, size: .large) {
-                    voiceSetupExpanded = false
-                    voiceAccountSidText = ""
-                    voiceAuthTokenText = ""
-                }
-            }
+            Text("Account SID and Auth Token")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textSecondary)
 
             TextField("Account SID", text: $voiceAccountSidText)
                 .vInputStyle()
@@ -830,7 +827,7 @@ struct SettingsChannelsTab: View {
                 .font(VFont.body)
                 .foregroundColor(VColor.textPrimary)
 
-            if store.twilioSaveInProgress {
+            if twilioVoiceSaveInProgress {
                 HStack(spacing: VSpacing.sm) {
                     ProgressView()
                         .controlSize(.small)
@@ -839,19 +836,28 @@ struct SettingsChannelsTab: View {
                         .foregroundColor(VColor.textSecondary)
                 }
             } else {
-                VButton(label: "Save Credentials", style: .secondary, size: .large) {
-                    store.saveTwilioCredentials(
-                        accountSid: voiceAccountSidText,
-                        authToken: voiceAuthTokenText
+                HStack(spacing: VSpacing.sm) {
+                    VButton(label: "Save Credentials", style: .secondary, size: .large) {
+                        twilioVoiceSaveInProgress = true
+                        store.saveTwilioCredentials(
+                            accountSid: voiceAccountSidText,
+                            authToken: voiceAuthTokenText
+                        )
+                        voiceAccountSidText = ""
+                        voiceAuthTokenText = ""
+                        voiceSetupExpanded = false
+                        twilioVoiceSaveInProgress = false
+                    }
+                    .disabled(
+                        voiceAccountSidText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                        voiceAuthTokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     )
-                    voiceAccountSidText = ""
-                    voiceAuthTokenText = ""
-                    voiceSetupExpanded = false
+                    VButton(label: "Cancel", style: .tertiary, size: .large) {
+                        voiceSetupExpanded = false
+                        voiceAccountSidText = ""
+                        voiceAuthTokenText = ""
+                    }
                 }
-                .disabled(
-                    voiceAccountSidText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                    voiceAuthTokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                )
             }
         }
     }
