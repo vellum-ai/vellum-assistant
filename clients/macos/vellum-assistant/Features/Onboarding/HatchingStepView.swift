@@ -30,6 +30,10 @@ struct HatchingStepView: View {
 
             logOutput
 
+            if state.hatchFailed {
+                backButton
+            }
+
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -94,18 +98,22 @@ struct HatchingStepView: View {
 
     // MARK: - Status Text
 
+    private var isCustomHardware: Bool {
+        state.cloudProvider == "customHardware"
+    }
+
     private var statusText: some View {
         VStack(spacing: VSpacing.sm) {
             if state.hatchFailed {
-                Text("Hatching failed")
+                Text(isCustomHardware ? "Pairing failed" : "Hatching failed")
                     .font(.system(size: 24, weight: .regular, design: .serif))
                     .foregroundColor(VColor.textPrimary)
             } else if state.hatchCompleted {
-                Text("Your assistant has hatched!")
+                Text(isCustomHardware ? "Your assistant is paired!" : "Your assistant has hatched!")
                     .font(.system(size: 24, weight: .regular, design: .serif))
                     .foregroundColor(VColor.textPrimary)
             } else {
-                Text("Hatching\u{2026}")
+                Text(isCustomHardware ? "Pairing\u{2026}" : "Hatching\u{2026}")
                     .font(.system(size: 24, weight: .regular, design: .serif))
                     .foregroundColor(VColor.textPrimary)
 
@@ -116,6 +124,28 @@ struct HatchingStepView: View {
                     .foregroundColor(VColor.textSecondary)
             }
         }
+    }
+
+    // MARK: - Back Button
+
+    private var backButton: some View {
+        Button(action: { goBack() }) {
+            Text("Back")
+                .font(.system(size: 13))
+                .foregroundColor(VColor.textMuted)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+        }
+        .padding(.top, VSpacing.xs)
+    }
+
+    private func goBack() {
+        state.isHatching = false
+        state.hatchFailed = false
+        state.hatchLogLines = []
+        hatchStarted = false
     }
 
     // MARK: - Log Output
@@ -176,9 +206,17 @@ struct HatchingStepView: View {
         }
     }
 
-    // MARK: - Hatching
+    // MARK: - Hatching / Pairing
 
     private func startHatching() {
+        if isCustomHardware {
+            startPairing()
+        } else {
+            startRemoteHatch()
+        }
+    }
+
+    private func startRemoteHatch() {
         let apiKey = APIKeyManager.getKey() ?? ""
 
         let config = AssistantCli.RemoteHatchConfig(
@@ -196,6 +234,27 @@ struct HatchingStepView: View {
         Task {
             do {
                 try await cliLauncher.runRemoteHatch(config: config) { line in
+                    Task { @MainActor in
+                        state.hatchLogLines.append(line)
+                        if !eggCracked && state.hatchLogLines.count > 3 {
+                            withAnimation(.spring(duration: 0.4)) {
+                                eggCracked = true
+                            }
+                        }
+                    }
+                }
+                state.hatchCompleted = true
+            } catch {
+                state.hatchLogLines.append("Error: \(error.localizedDescription)")
+                state.hatchFailed = true
+            }
+        }
+    }
+
+    private func startPairing() {
+        Task {
+            do {
+                try await cliLauncher.runPair(qrCodeImageData: state.customQRCodeImageData) { line in
                     Task { @MainActor in
                         state.hatchLogLines.append(line)
                         if !eggCracked && state.hatchLogLines.count > 3 {
