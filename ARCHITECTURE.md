@@ -17,6 +17,7 @@ This file is the cross-system architecture index. Detailed designs live in domai
 | Gateway SMS parity checklist | [`gateway/docs/sms-twilio-parity-checklist.md`](gateway/docs/sms-twilio-parity-checklist.md) |
 | Trusted contact access design | [`assistant/docs/trusted-contact-access.md`](assistant/docs/trusted-contact-access.md) |
 | Trusted contacts operator runbook | [`assistant/docs/runbook-trusted-contacts.md`](assistant/docs/runbook-trusted-contacts.md) |
+| A2A communications design | [`assistant/docs/architecture/a2a-communications.md`](assistant/docs/architecture/a2a-communications.md) |
 
 ## Cross-Cutting Invariants
 
