@@ -32,7 +32,10 @@ enum APIKeyManager {
 
     private static var readCache: [String: CachedKeyRead] = [:]
     private static let readCacheLock = NSLock()
-    private static let readCacheTTL: TimeInterval = 60
+    private static let readCacheHitTTL: TimeInterval = 60
+    /// Short TTL for misses so external writes (e.g. from the daemon) are picked up quickly
+    /// while still batching rapid sequential calls like hasAnyKey().
+    private static let readCacheMissTTL: TimeInterval = 5
 
     // MARK: - Anthropic (convenience wrappers for backward compatibility)
 
@@ -64,9 +67,7 @@ enum APIKeyManager {
             }
         }
         let value = cliGetKey(service: service, account: provider)
-        if value != nil {
-            setCachedValue(value, for: provider)
-        }
+        setCachedValue(value, for: provider)
         return value
     }
 
@@ -80,11 +81,8 @@ enum APIKeyManager {
     }
 
     static func deleteKey(for provider: String) {
-        if cliDeleteKey(service: service, account: provider) {
-            setCachedValue(nil, for: provider)
-        } else {
-            invalidateCachedValue(for: provider)
-        }
+        cliDeleteKey(service: service, account: provider)
+        invalidateCachedValue(for: provider)
         notifyKeyDidChange()
     }
 
@@ -96,7 +94,8 @@ enum APIKeyManager {
             return (false, nil)
         }
 
-        if Date().timeIntervalSince(entry.cachedAt) > readCacheTTL {
+        let ttl = entry.value != nil ? readCacheHitTTL : readCacheMissTTL
+        if Date().timeIntervalSince(entry.cachedAt) > ttl {
             readCache.removeValue(forKey: provider)
             return (false, nil)
         }
