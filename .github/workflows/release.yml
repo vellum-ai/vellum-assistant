@@ -387,15 +387,6 @@ jobs:
           echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
           echo "Display version: $DISPLAY_VERSION / Build version: $BUILD_VERSION"
 
-      - name: Cache SPM build artifacts
-        uses: actions/cache@v4
-        with:
-          path: clients/.build
-          key: macos-spm-${{ hashFiles('clients/Package.resolved') }}-${{ hashFiles('clients/**/*.swift') }}
-          restore-keys: |
-            macos-spm-${{ hashFiles('clients/Package.resolved') }}-
-            macos-spm-
-
       - name: Cache Bun dependencies
         uses: actions/cache@v4
         with:
@@ -422,7 +413,6 @@ jobs:
           BUILD_VERSION="${{ steps.version.outputs.build_version }}" \
           SU_PUBLIC_ED_KEY="${{ secrets.SPARKLE_ED_PUBLIC_KEY }}" \
           SIGN_IDENTITY="Developer ID Application" \
-          SKIP_CLEAN=1 \
           ./build.sh release
 
           APP_PATH="dist/Vellum.app"
