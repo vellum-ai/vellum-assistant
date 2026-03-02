@@ -428,6 +428,7 @@ export class Session {
   }
 
   dispose(): void {
+    approvalOverrides.clearMode(this.conversationId);
     disposeSession(this);
   }
 
