@@ -559,18 +559,8 @@ struct SettingsChannelsTab: View {
             } else if twilioSetupExpanded {
                 twilioCredentialEntry
             } else {
-                VStack(alignment: .leading, spacing: VSpacing.lg) {
-                    HStack(spacing: VSpacing.sm) {
-                        Image(systemName: "exclamationmark.triangle")
-                            .foregroundColor(VColor.warning)
-                            .font(.system(size: 12))
-                        Text("Not configured")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                    }
-                    VButton(label: "Set Up", style: .secondary, size: .large) {
-                        twilioSetupExpanded = true
-                    }
+                VButton(label: "Set Up", style: .secondary, size: .large) {
+                    twilioSetupExpanded = true
                 }
             }
 
@@ -648,18 +638,8 @@ struct SettingsChannelsTab: View {
             } else if voiceSetupExpanded {
                 voiceCredentialEntry
             } else {
-                VStack(alignment: .leading, spacing: VSpacing.lg) {
-                    HStack(spacing: VSpacing.sm) {
-                        Image(systemName: "exclamationmark.triangle")
-                            .foregroundColor(VColor.warning)
-                            .font(.system(size: 12))
-                        Text("Not configured")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                    }
-                    VButton(label: "Set Up", style: .secondary, size: .large) {
-                        voiceSetupExpanded = true
-                    }
+                VButton(label: "Set Up", style: .secondary, size: .large) {
+                    voiceSetupExpanded = true
                 }
             }
 
