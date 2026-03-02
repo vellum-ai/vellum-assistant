@@ -2804,7 +2804,7 @@ describe('NL approval routing via destination-scoped canonical requests', () => 
       guardianExternalUserId: guardianUserId,
       guardianDeliveryChatId: guardianChatId,
 
-      guardianPrincipalId: 'guardianUserId',
+      guardianPrincipalId: guardianUserId,
     });
 
     // Create canonical tool_approval request WITHOUT guardianExternalUserId
@@ -2862,7 +2862,7 @@ describe('NL approval routing via destination-scoped canonical requests', () => 
       guardianExternalUserId: guardianUserId,
       guardianDeliveryChatId: differentChatId,
 
-      guardianPrincipalId: 'guardianUserId',
+      guardianPrincipalId: guardianUserId,
     });
 
     // Create canonical pending_question WITHOUT guardianExternalUserId
