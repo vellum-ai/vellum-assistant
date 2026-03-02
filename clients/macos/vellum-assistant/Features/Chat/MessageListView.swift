@@ -60,6 +60,9 @@ struct MessageListView: View {
     /// Guards the pagination sentinel against re-entry during the brief window
     /// between Task launch and the first `await` (before isLoadingMoreMessages is set).
     @State private var isPaginationInFlight: Bool = false
+    /// Suppresses bottom auto-scroll for the ~32ms layout window after pagination
+    /// restores scroll position, preventing a jump back to the bottom.
+    @State private var isSuppressingBottomScroll: Bool = false
 
     /// The subset of messages actually shown, honoring the pagination window.
     private var visibleMessages: [ChatMessage] {
@@ -198,9 +201,13 @@ struct MessageListView: View {
                                     defer { isPaginationInFlight = false }
                                     let hadMore = await loadPreviousMessagePage?() ?? false
                                     if hadMore, let id = anchorId {
+                                        // Suppress bottom auto-scroll for the brief layout window so the
+                                        // restored anchor position is not immediately overridden.
+                                        isSuppressingBottomScroll = true
                                         // Wait ~2 frames for SwiftUI to complete layout before restoring position.
                                         try? await Task.sleep(nanoseconds: 32_000_000)
                                         proxy.scrollTo(id, anchor: .top)
+                                        isSuppressingBottomScroll = false
                                     }
                                 }
                             }
@@ -430,7 +437,7 @@ struct MessageListView: View {
                 }
             }
             .onChange(of: streamingScrollTrigger) {
-                if isNearBottom && !isLoadingMoreMessages {
+                if isNearBottom && !isSuppressingBottomScroll {
                     // Throttle pattern: fire immediately then suppress for 200ms.
                     // Unlike debounce (cancel+recreate), this guarantees scrolls
                     // execute during active streaming, not only after the last token.
@@ -457,7 +464,7 @@ struct MessageListView: View {
                 }
             }
             .onChange(of: messages.count) {
-                if isNearBottom && !isLoadingMoreMessages {
+                if isNearBottom && !isSuppressingBottomScroll {
                     withAnimation(VAnimation.fast) {
                         proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
                     }
