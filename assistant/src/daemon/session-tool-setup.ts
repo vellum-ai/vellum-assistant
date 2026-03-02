@@ -110,7 +110,7 @@ export function createToolExecutor(
       assistantId: ctx.assistantId,
       requestId: ctx.currentRequestId,
       taskRunId: ctx.taskRunId,
-      guardianTrustClass: ctx.guardianContext?.trustClass,
+      guardianTrustClass: ctx.guardianContext?.trustClass ?? 'guardian',
       executionChannel: ctx.guardianContext?.sourceChannel,
       callSessionId: ctx.callSessionId,
       requesterExternalUserId: ctx.guardianContext?.requesterExternalUserId,

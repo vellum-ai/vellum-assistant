@@ -286,11 +286,11 @@ describe('ToolApprovalHandler / pre-exec gate grant check', () => {
     expect(result.allowed).toBe(true);
   });
 
-  test('undefined actor role (desktop) bypasses grant check', async () => {
+  test('guardian actor role (desktop) bypasses grant check', async () => {
     const toolName = 'bash';
     const input = { command: 'deploy' };
 
-    const context = makeContext({ guardianTrustClass: undefined });
+    const context = makeContext({ guardianTrustClass: 'guardian' });
     const result = await handler.checkPreExecutionGates(
       toolName, input, context, 'host', 'high', Date.now(), emitLifecycleEvent,
     );
