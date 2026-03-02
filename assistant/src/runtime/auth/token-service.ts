@@ -77,12 +77,6 @@ function getSigningKey(): Buffer {
  * Initialize the auth signing key. Called at daemon startup with a key
  * loaded from disk via loadOrCreateSigningKey(), or by tests with a
  * deterministic key.
- *
- * Callers that also need legacy HMAC actor-token verification should
- * separately call `setLegacySigningKey()` from the middleware module
- * with the same key — this is done by lifecycle.ts at startup and by
- * test setup. We avoid importing the middleware here to prevent a
- * circular dependency (token-service -> middleware -> token-service).
  */
 export function initAuthSigningKey(key: Buffer): void {
   _authSigningKey = key;

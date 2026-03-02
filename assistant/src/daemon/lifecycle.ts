@@ -38,7 +38,6 @@ import { migrateToWorkspaceLayout } from '../migrations/workspace-layout.js';
 import { emitNotificationSignal, registerBroadcastFn } from '../notifications/emit-signal.js';
 import { initAuthSigningKey, loadOrCreateSigningKey } from '../runtime/auth/token-service.js';
 import { assistantEventHub } from '../runtime/assistant-event-hub.js';
-import { setLegacySigningKey } from '../runtime/middleware/actor-token.js';
 import { ensureVellumGuardianBinding } from '../runtime/guardian-vellum-migration.js';
 import { RuntimeHttpServer } from '../runtime/http-server.js';
 import { startScheduler } from '../schedule/scheduler.js';
@@ -136,11 +135,9 @@ export async function runDaemon(): Promise<void> {
 
     // Load (or generate + persist) the auth signing key so tokens survive
     // daemon restarts. Must happen after ensureDataDir() creates the
-    // protected directory. setLegacySigningKey enables the middleware to
-    // verify legacy HMAC actor tokens during the transition period.
+    // protected directory.
     const signingKey = loadOrCreateSigningKey();
     initAuthSigningKey(signingKey);
-    setLegacySigningKey(signingKey);
 
     log.info('Daemon startup: migrations complete');
 
