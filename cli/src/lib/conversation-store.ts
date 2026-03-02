@@ -254,21 +254,25 @@ export function listConversations(limit = 50): ConversationRow[] {
  *
  * Conversations with a `sourceKey` that already exists in `conversation_keys`
  * are silently skipped (idempotent re-import).
+ *
+ * Each conversation is imported atomically: if any write fails the entire
+ * conversation is rolled back, preventing partial data and duplicate-key
+ * collisions on retry.
  */
 export function importConversations(
   conversations: ImportableConversation[],
 ): ImportResult {
+  const db = getDb();
   let importedCount = 0;
   let skippedCount = 0;
   let messageCount = 0;
 
-  for (const conv of conversations) {
-    // Deduplication check
+  const importOne = db.transaction((conv: ImportableConversation) => {
+    // Deduplication check (inside the transaction for isolation)
     if (conv.sourceKey) {
       const existing = findConversationKey(conv.sourceKey);
       if (existing) {
-        skippedCount++;
-        continue;
+        return false;
       }
     }
 
@@ -286,12 +290,29 @@ export function importConversations(
       addMessage(conversation.id, msg.role, content, msg.createdAt);
     }
 
+    // Restore the intended updatedAt — addMessage overwrites it with each
+    // message's timestamp, which may not reflect the conversation's true
+    // last-updated time.
+    db.prepare(`UPDATE conversations SET updated_at = ? WHERE id = ?`).run(
+      conv.updatedAt,
+      conversation.id,
+    );
+
     if (conv.sourceKey) {
       createConversationKey(conv.sourceKey, conversation.id);
     }
 
-    importedCount++;
-    messageCount += conv.messages.length;
+    return conv.messages.length;
+  });
+
+  for (const conv of conversations) {
+    const result = importOne(conv);
+    if (result === false) {
+      skippedCount++;
+    } else {
+      importedCount++;
+      messageCount += result;
+    }
   }
 
   return { importedCount, skippedCount, messageCount };
