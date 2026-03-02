@@ -1312,9 +1312,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                 let lockfileExists = self.lockfileHasAssistants()
                 var gatewayHealthy = false
                 if lockfileExists {
-                    for _ in 0..<3 {
-                        if await isGatewayHealthy() { gatewayHealthy = true; break }
-                        try? await Task.sleep(nanoseconds: 1_000_000_000)
+                    if isFirstLaunch {
+                        // Retry window: gateway may still be starting from onboarding hatch
+                        for _ in 0..<3 {
+                            if await isGatewayHealthy() { gatewayHealthy = true; break }
+                            try? await Task.sleep(nanoseconds: 1_000_000_000)
+                        }
+                    } else {
+                        // Non-first-launch: single check, no retry delay
+                        gatewayHealthy = await isGatewayHealthy()
                     }
                 }
 
