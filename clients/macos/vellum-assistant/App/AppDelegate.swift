@@ -1326,10 +1326,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                     // creates a lockfile entry. On subsequent launches, daemonOnly: true
                     // prevents duplicates.
                     let needsLockfileEntry = isFirstLaunch && !lockfileExists
-                    // When lockfile exists but gateway is unhealthy, force a full hatch
-                    // (daemonOnly: false) so the CLI runs startGateway() to recover.
-                    let needsGatewayRecovery = lockfileExists && !gatewayHealthy
-                    let daemonOnly = !needsLockfileEntry && !needsGatewayRecovery
+                    let daemonOnly = !needsLockfileEntry
                     do {
                         try await assistantCli.hatch(daemonOnly: daemonOnly)
                     } catch {
