@@ -6,10 +6,40 @@ import type { Command } from 'commander';
 
 import { loadRawConfig, saveRawConfig } from '../config/loader.js';
 import type { McpConfig, McpServerConfig } from '../config/mcp-schema.js';
+import { McpClient } from '../mcp/client.js';
 import { deleteMcpOAuthCredentials, McpOAuthProvider } from '../mcp/mcp-oauth-provider.js';
 import { getCliLogger } from '../util/logger.js';
 
 const log = getCliLogger('cli');
+
+const HEALTH_CHECK_TIMEOUT_MS = 10_000;
+
+async function checkServerHealth(serverId: string, config: McpServerConfig): Promise<string> {
+  const client = new McpClient(serverId, { quiet: true });
+  try {
+    await Promise.race([
+      client.connect(config.transport),
+      new Promise<never>((_, reject) => {
+        const t = setTimeout(() => reject(new Error('timeout')), HEALTH_CHECK_TIMEOUT_MS);
+        if (typeof t === 'object' && 'unref' in t) t.unref();
+      }),
+    ]);
+
+    if (!client.isConnected) {
+      return '! Needs authentication';
+    }
+
+    await client.disconnect();
+    return '\u2713 Connected';
+  } catch (err) {
+    try { await client.disconnect(); } catch { /* ignore */ }
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes('timeout')) {
+      return '\u2717 Timed out';
+    }
+    return `\u2717 Error: ${message}`;
+  }
+}
 
 export function registerMcpCommand(program: Command): void {
   const mcp = program.command('mcp').description('Manage MCP (Model Context Protocol) servers');
@@ -18,7 +48,7 @@ export function registerMcpCommand(program: Command): void {
     .command('list')
     .description('List configured MCP servers and their status')
     .option('--json', 'Output as JSON')
-    .action((opts: { json?: boolean }) => {
+    .action(async (opts: { json?: boolean }) => {
       const raw = loadRawConfig();
       const mcpConfig = raw.mcp as Partial<McpConfig> | undefined;
       const servers = mcpConfig?.servers ?? {};
@@ -42,6 +72,8 @@ export function registerMcpCommand(program: Command): void {
       }
 
       log.info(`${entries.length} MCP server(s) configured:\n`);
+
+      let didHealthCheck = false;
       for (const [id, cfg] of entries) {
         if (!cfg || typeof cfg !== 'object') {
           log.info(`  ${id} (invalid config — skipped)\n`);
@@ -50,7 +82,14 @@ export function registerMcpCommand(program: Command): void {
         const enabled = cfg.enabled !== false;
         const transport = cfg.transport;
         const risk = cfg.defaultRiskLevel ?? 'high';
-        const status = enabled ? '✓ enabled' : '✗ disabled';
+
+        let status: string;
+        if (!enabled) {
+          status = '✗ disabled';
+        } else {
+          status = await checkServerHealth(id, cfg);
+          didHealthCheck = true;
+        }
 
         log.info(`  ${id}`);
         log.info(`    Status:    ${status}`);
@@ -65,6 +104,9 @@ export function registerMcpCommand(program: Command): void {
         if (cfg.blockedTools) log.info(`    Blocked:   ${cfg.blockedTools.join(', ')}`);
         log.info('');
       }
+
+      // Health checks may leave MCP transports alive — force exit
+      if (didHealthCheck) process.exit(0);
     });
 
   mcp
