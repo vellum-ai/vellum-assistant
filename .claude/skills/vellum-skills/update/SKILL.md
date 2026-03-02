@@ -1,3 +1,9 @@
+---
+name: update
+description: >
+  Pull latest from main, restart the backend daemon, verify gateway health, rebuild/launch the macOS app, and print a startup summary.
+---
+
 # Update — Pull Latest and Restart Vellum
 
 Pull the latest changes from main, rebuild/launch the macOS app (which manages its own daemon and gateway lifecycle).
