@@ -4,8 +4,6 @@
  * go through the browser's authenticated session with Cloudflare tokens intact.
  */
 
-import { ProviderError, RateLimitError } from './shared/errors.js';
-import { truncate } from './shared/truncate.js';
 import {
   CREATE_ORDER_FROM_CART_QUERY,
   DETAILED_CART_QUERY,
@@ -20,12 +18,11 @@ import {
   SEARCH_QUERY,
   STORE_PAGE_QUERY,
   UPDATE_CART_ITEM_QUERY,
-} from './queries.js';
-import { loadCapturedQueries } from './query-extractor.js';
-import {
-  type DoorDashSession,
-  loadSession,
-} from './session.js';
+} from "./queries.js";
+import { loadCapturedQueries } from "./query-extractor.js";
+import { type DoorDashSession, loadSession } from "./session.js";
+import { ProviderError, RateLimitError } from "./shared/errors.js";
+import { truncate } from "./shared/truncate.js";
 import type {
   DDCart,
   DDCreateOrderResult,
@@ -42,12 +39,12 @@ import type {
   DDRetailStorePageFeed,
   DDSearchClickData,
   DDStorepageFeed,
-} from './types.js';
+} from "./types.js";
 
 export { RateLimitError };
 
-const GRAPHQL_BASE = 'https://www.doordash.com/graphql';
-const CDP_BASE = 'http://localhost:9222';
+const GRAPHQL_BASE = "https://www.doordash.com/graphql";
+const CDP_BASE = "http://localhost:9222";
 
 /**
  * Returns a captured query if one exists for the given operation name,
@@ -67,14 +64,14 @@ interface GraphQLResponse<T = unknown> {
 export class SessionExpiredError extends Error {
   constructor(reason: string) {
     super(reason);
-    this.name = 'SessionExpiredError';
+    this.name = "SessionExpiredError";
   }
 }
 
 function requireSession(): DoorDashSession {
   const session = loadSession();
   if (!session) {
-    throw new SessionExpiredError('No DoorDash session found.');
+    throw new SessionExpiredError("No DoorDash session found.");
   }
   return session;
 }
@@ -85,16 +82,24 @@ function requireSession(): DoorDashSession {
 async function findDoordashTab(): Promise<string> {
   const res = await fetch(`${CDP_BASE}/json/list`).catch(() => null);
   if (!res?.ok) {
-    throw new SessionExpiredError('Chrome CDP not available. Run `vellum doordash refresh` first.');
+    throw new SessionExpiredError(
+      "Chrome CDP not available. Run `vellum doordash refresh` first.",
+    );
   }
-  const targets = (await res.json()) as Array<{ type: string; url: string; webSocketDebuggerUrl: string }>;
+  const targets = (await res.json()) as Array<{
+    type: string;
+    url: string;
+    webSocketDebuggerUrl: string;
+  }>;
   // Prefer a tab already on doordash.com
   const ddTab = targets.find(
-    t => t.type === 'page' && t.url.includes('doordash.com'),
+    (t) => t.type === "page" && t.url.includes("doordash.com"),
   );
-  const tab = ddTab ?? targets.find(t => t.type === 'page');
+  const tab = ddTab ?? targets.find((t) => t.type === "page");
   if (!tab?.webSocketDebuggerUrl) {
-    throw new SessionExpiredError('No Chrome tab available for DoorDash requests.');
+    throw new SessionExpiredError(
+      "No Chrome tab available for DoorDash requests.",
+    );
   }
   return tab.webSocketDebuggerUrl;
 }
@@ -103,14 +108,18 @@ async function findDoordashTab(): Promise<string> {
  * Execute a fetch() call inside Chrome's page context via CDP Runtime.evaluate.
  * This ensures the request uses the browser's cookies and Cloudflare clearance.
  */
-async function cdpFetch(wsUrl: string, url: string, body: string): Promise<unknown> {
+async function cdpFetch(
+  wsUrl: string,
+  url: string,
+  body: string,
+): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(wsUrl);
     const id = 1;
 
     const timeout = setTimeout(() => {
       ws.close();
-      reject(new Error('CDP fetch timed out after 30s'));
+      reject(new Error("CDP fetch timed out after 30s"));
     }, 30000);
 
     ws.onopen = () => {
@@ -142,20 +151,24 @@ async function cdpFetch(wsUrl: string, url: string, body: string): Promise<unkno
         })()
       `;
 
-      ws.send(JSON.stringify({
-        id,
-        method: 'Runtime.evaluate',
-        params: {
-          expression: fetchScript,
-          awaitPromise: true,
-          returnByValue: true,
-        },
-      }));
+      ws.send(
+        JSON.stringify({
+          id,
+          method: "Runtime.evaluate",
+          params: {
+            expression: fetchScript,
+            awaitPromise: true,
+            returnByValue: true,
+          },
+        }),
+      );
     };
 
     ws.onmessage = (event) => {
       try {
-        const msg = JSON.parse(typeof event.data === 'string' ? event.data : '');
+        const msg = JSON.parse(
+          typeof event.data === "string" ? event.data : "",
+        );
         if (msg.id === id) {
           clearTimeout(timeout);
           ws.close();
@@ -167,18 +180,23 @@ async function cdpFetch(wsUrl: string, url: string, body: string): Promise<unkno
 
           const value = msg.result?.result?.value;
           if (!value) {
-            reject(new Error('Empty CDP response'));
+            reject(new Error("Empty CDP response"));
             return;
           }
 
-          const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+          const parsed = typeof value === "string" ? JSON.parse(value) : value;
           if (parsed.__error) {
             if (parsed.__status === 401) {
-              reject(new SessionExpiredError('DoorDash session has expired.'));
+              reject(new SessionExpiredError("DoorDash session has expired."));
             } else if (parsed.__status === 403) {
-              reject(new RateLimitError('DoorDash rate limit hit (HTTP 403).'));
+              reject(new RateLimitError("DoorDash rate limit hit (HTTP 403)."));
             } else {
-              reject(new Error(parsed.__message ?? `HTTP ${parsed.__status}: ${parsed.__body ?? ''}`));
+              reject(
+                new Error(
+                  parsed.__message ??
+                    `HTTP ${parsed.__status}: ${parsed.__body ?? ""}`,
+                ),
+              );
             }
             return;
           }
@@ -193,7 +211,7 @@ async function cdpFetch(wsUrl: string, url: string, body: string): Promise<unkno
 
     ws.onerror = () => {
       clearTimeout(timeout);
-      reject(new SessionExpiredError('CDP connection failed.'));
+      reject(new SessionExpiredError("CDP connection failed."));
     };
   });
 }
@@ -219,7 +237,7 @@ async function graphql<T = unknown>(
     const now = Date.now();
     const elapsed = now - lastRequestTime;
     if (lastRequestTime > 0 && elapsed < 2000) {
-      await new Promise(r => setTimeout(r, 2000 - elapsed));
+      await new Promise((r) => setTimeout(r, 2000 - elapsed));
     }
 
     try {
@@ -227,11 +245,19 @@ async function graphql<T = unknown>(
       const json = (await cdpFetch(wsUrl, url, body)) as GraphQLResponse<T>;
 
       if (json.errors?.length) {
-        const msgs = json.errors.map(e => e.message || JSON.stringify(e)).join('; ');
-        throw new ProviderError(`Unexpected response from DoorDash API: ${msgs}`, 'doordash');
+        const msgs = json.errors
+          .map((e) => e.message || JSON.stringify(e))
+          .join("; ");
+        throw new ProviderError(
+          `Unexpected response from DoorDash API: ${msgs}`,
+          "doordash",
+        );
       }
       if (!json.data) {
-        throw new ProviderError('Unexpected response format from DoorDash API', 'doordash');
+        throw new ProviderError(
+          "Unexpected response format from DoorDash API",
+          "doordash",
+        );
       }
       return json.data;
     } catch (err) {
@@ -240,7 +266,7 @@ async function graphql<T = unknown>(
         process.stderr.write(
           `[doordash] Rate limited, retrying in ${delay / 1000}s... (attempt ${attempt + 1}/${backoffSchedule.length})\n`,
         );
-        await new Promise(r => setTimeout(r, delay));
+        await new Promise((r) => setTimeout(r, delay));
         continue;
       }
       throw err;
@@ -264,8 +290,8 @@ export interface SearchResult {
 
 export async function search(query: string): Promise<SearchResult[]> {
   const data = await graphql<{ autocompleteFacetFeed: DDFacetFeed }>(
-    'autocompleteFacetFeed',
-    getQuery('autocompleteFacetFeed', SEARCH_QUERY),
+    "autocompleteFacetFeed",
+    getQuery("autocompleteFacetFeed", SEARCH_QUERY),
     { query, serializedBundleGlobalSearchContext: null },
   );
   return extractSearchResults(data.autocompleteFacetFeed);
@@ -275,21 +301,24 @@ export async function search(query: string): Promise<SearchResult[]> {
  * Search for items/stores using the home page feed with a filter query.
  * This works for convenience/retail stores that don't expose menus through storepageFeed.
  */
-export async function searchItems(query: string, opts?: { debug?: boolean }): Promise<SearchResult[]> {
+export async function searchItems(
+  query: string,
+  opts?: { debug?: boolean },
+): Promise<SearchResult[]> {
   const data = await graphql<{ homePageFacetFeed: DDFacetFeed }>(
-    'homePageFacetFeed',
-    getQuery('homePageFacetFeed', HOME_PAGE_QUERY),
+    "homePageFacetFeed",
+    getQuery("homePageFacetFeed", HOME_PAGE_QUERY),
     {
       cursor: null,
       filterQuery: query,
       displayHeader: false,
       isDebug: false,
-      cuisineFilterVerticalIds: '',
+      cuisineFilterVerticalIds: "",
     },
   );
   if (opts?.debug) {
     process.stderr.write(
-      `[debug] homePageFacetFeed raw: ${truncate(JSON.stringify(data.homePageFacetFeed), 3000, '')}\n`,
+      `[debug] homePageFacetFeed raw: ${truncate(JSON.stringify(data.homePageFacetFeed), 3000, "")}\n`,
     );
   }
   return extractSearchResults(data.homePageFacetFeed);
@@ -299,22 +328,26 @@ export async function searchItems(query: string, opts?: { debug?: boolean }): Pr
  * Search for items within a specific retail/convenience store.
  * Uses the retailSearch API (convenienceSearchQuery).
  */
-export async function retailSearch(storeId: string, query: string, opts?: { limit?: number }): Promise<{
+export async function retailSearch(
+  storeId: string,
+  query: string,
+  opts?: { limit?: number },
+): Promise<{
   items: MenuItem[];
   totalCount: number;
   suggestedKeyword?: string;
 }> {
   const data = await graphql<{ retailSearch: DDRetailSearchResult }>(
-    'convenienceSearchQuery',
-    getQuery('convenienceSearchQuery', RETAIL_SEARCH_QUERY),
+    "convenienceSearchQuery",
+    getQuery("convenienceSearchQuery", RETAIL_SEARCH_QUERY),
     {
       input: {
         query,
         storeId,
         disableSpellCheck: false,
         limit: opts?.limit ?? 30,
-        origin: 'RETAIL_SEARCH',
-        filterQuery: '',
+        origin: "RETAIL_SEARCH",
+        filterQuery: "",
         cursor: null,
         aggregateStoreIds: [],
         isDebug: false,
@@ -336,16 +369,18 @@ export async function retailSearch(storeId: string, query: string, opts?: { limi
       const price = itemData.price;
       const image = custom.image;
       items.push({
-        id: String(itemData.item_id ?? ''),
-        name: String(itemData.item_name ?? ''),
+        id: String(itemData.item_id ?? ""),
+        name: String(itemData.item_name ?? ""),
         description: itemData.description,
         price: price?.display_string,
         imageUrl: image?.remote?.uri,
-        storeId: String(itemData.store_id ?? ''),
-        menuId: String(itemData.menu_id ?? ''),
+        storeId: String(itemData.store_id ?? ""),
+        menuId: String(itemData.menu_id ?? ""),
         unitAmount: price?.unit_amount,
       });
-    } catch { /* skip malformed entries */ }
+    } catch {
+      /* skip malformed entries */
+    }
   }
 
   return {
@@ -388,16 +423,16 @@ export async function getStoreMenu(
   opts?: { debug?: boolean },
 ): Promise<StoreInfo> {
   const data = await graphql<{ storepageFeed: DDStorepageFeed }>(
-    'storepageFeed',
-    getQuery('storepageFeed', STORE_PAGE_QUERY),
+    "storepageFeed",
+    getQuery("storepageFeed", STORE_PAGE_QUERY),
     {
       storeId,
       menuId: menuId ?? null,
       isMerchantPreview: false,
-      fulfillmentType: 'Delivery',
+      fulfillmentType: "Delivery",
       cursor: null,
       scheduledTime: null,
-      entryPoint: 'HomePage',
+      entryPoint: "HomePage",
     },
   );
   const feed = data.storepageFeed;
@@ -407,9 +442,9 @@ export async function getStoreMenu(
   if (opts?.debug) {
     const menuBook = feed.menuBook;
     process.stderr.write(
-      `[debug] storepageFeed keys: ${Object.keys(feed).join(', ')}\n` +
-      `[debug] itemLists count: ${rawItemLists.length}, carousels count: ${rawCarousels.length}\n` +
-      `[debug] menuBook: ${truncate(JSON.stringify(menuBook), 2000, '')}\n`,
+      `[debug] storepageFeed keys: ${Object.keys(feed).join(", ")}\n` +
+        `[debug] itemLists count: ${rawItemLists.length}, carousels count: ${rawCarousels.length}\n` +
+        `[debug] menuBook: ${truncate(JSON.stringify(menuBook), 2000, "")}\n`,
     );
   }
 
@@ -419,7 +454,9 @@ export async function getStoreMenu(
   // (convenience/pharmacy stores use a different API)
   if (info.items.length === 0 && info.categories.length === 0) {
     if (opts?.debug) {
-      process.stderr.write('[debug] No items from storepageFeed, trying retailStorePageFeed...\n');
+      process.stderr.write(
+        "[debug] No items from storepageFeed, trying retailStorePageFeed...\n",
+      );
     }
     return getRetailStoreMenu(storeId, opts);
   }
@@ -436,11 +473,11 @@ export async function getRetailStoreMenu(
   opts?: { debug?: boolean },
 ): Promise<StoreInfo> {
   const data = await graphql<{ retailStorePageFeed: DDRetailStorePageFeed }>(
-    'storeFeed',
-    getQuery('storeFeed', RETAIL_STORE_FEED_QUERY),
+    "storeFeed",
+    getQuery("storeFeed", RETAIL_STORE_FEED_QUERY),
     {
       storeId,
-      attrSrc: 'store',
+      attrSrc: "store",
       cursor: null,
       enableDebug: false,
     },
@@ -451,10 +488,10 @@ export async function getRetailStoreMenu(
     const collections = feed.collections ?? [];
     const page = feed.page;
     process.stderr.write(
-      `[debug] retailStorePageFeed keys: ${Object.keys(feed).join(', ')}\n` +
-      `[debug] l1Categories count: ${l1Cats.length}, collections count: ${collections.length}\n` +
-      `[debug] page: ${truncate(JSON.stringify(page), 500, '')}\n` +
-      `[debug] collections sample: ${truncate(JSON.stringify(collections.slice(0, 2)), 2000, '')}\n`,
+      `[debug] retailStorePageFeed keys: ${Object.keys(feed).join(", ")}\n` +
+        `[debug] l1Categories count: ${l1Cats.length}, collections count: ${collections.length}\n` +
+        `[debug] page: ${truncate(JSON.stringify(page), 500, "")}\n` +
+        `[debug] collections sample: ${truncate(JSON.stringify(collections.slice(0, 2)), 2000, "")}\n`,
     );
   }
   return extractRetailStoreInfo(data.retailStorePageFeed);
@@ -505,15 +542,15 @@ export async function getItemDetails(
   itemId: string,
 ): Promise<ItemDetails> {
   const data = await graphql<{ itemPage: DDItemPage }>(
-    'itemPage',
-    getQuery('itemPage', ITEM_PAGE_QUERY),
+    "itemPage",
+    getQuery("itemPage", ITEM_PAGE_QUERY),
     {
       storeId,
       itemId,
       isMerchantPreview: false,
       isNested: false,
       shouldFetchPresetCarousels: false,
-      fulfillmentType: 'Delivery',
+      fulfillmentType: "Delivery",
       shouldFetchStoreLiteData: false,
     },
   );
@@ -548,38 +585,38 @@ export async function addToCart(opts: {
 }): Promise<CartSummary> {
   // Use updateCartItemV2 — DoorDash now uses this for both adding and updating cart items
   const data = await graphql<{ updateCartItemV2: DDCart }>(
-    'updateCartItem',
-    getQuery('updateCartItem', UPDATE_CART_ITEM_QUERY),
+    "updateCartItem",
+    getQuery("updateCartItem", UPDATE_CART_ITEM_QUERY),
     {
       updateCartItemApiParams: {
-        cartId: opts.cartId ?? '',
-        cartItemId: '',
+        cartId: opts.cartId ?? "",
+        cartItemId: "",
         itemId: opts.itemId,
         itemName: opts.itemName,
-        itemDescription: opts.itemDescription ?? '',
-        currency: 'USD',
+        itemDescription: opts.itemDescription ?? "",
+        currency: "USD",
         quantity: opts.quantity ?? 1,
         unitPrice: opts.unitPrice,
         storeId: opts.storeId,
         menuId: opts.menuId,
-        creatorId: '',
-        nestedOptions: opts.nestedOptions ?? '[]',
-        specialInstructions: opts.specialInstructions ?? '',
-        substitutionPreference: 'contact',
+        creatorId: "",
+        nestedOptions: opts.nestedOptions ?? "[]",
+        specialInstructions: opts.specialInstructions ?? "",
+        substitutionPreference: "contact",
         purchaseTypeOptions: {
-          purchaseType: 'PURCHASE_TYPE_UNIT',
-          unit: 'qty',
-          estimatedPricingDescription: '',
+          purchaseType: "PURCHASE_TYPE_UNIT",
+          unit: "qty",
+          estimatedPricingDescription: "",
           continuousQuantity: 0,
         },
         isAdsItem: false,
         isBundle: false,
-        bundleType: 'BUNDLE_TYPE_UNSPECIFIED',
+        bundleType: "BUNDLE_TYPE_UNSPECIFIED",
         cartFilter: null,
       },
       fulfillmentContext: {
         shouldUpdateFulfillment: false,
-        fulfillmentType: 'Delivery',
+        fulfillmentType: "Delivery",
       },
       returnCartFromOrderService: false,
       shouldKeepOnlyOneActiveCart: false,
@@ -593,8 +630,8 @@ export async function removeFromCart(
   itemId: string,
 ): Promise<CartSummary> {
   const data = await graphql<{ removeCartItemV2: DDCart }>(
-    'removeCartItem',
-    getQuery('removeCartItem', REMOVE_CART_ITEM_QUERY),
+    "removeCartItem",
+    getQuery("removeCartItem", REMOVE_CART_ITEM_QUERY),
     {
       cartId,
       itemId,
@@ -609,8 +646,8 @@ export async function removeFromCart(
 
 export async function viewCart(cartId: string): Promise<CartSummary> {
   const data = await graphql<{ orderCart: DDCart }>(
-    'detailedCartItems',
-    getQuery('detailedCartItems', DETAILED_CART_QUERY),
+    "detailedCartItems",
+    getQuery("detailedCartItems", DETAILED_CART_QUERY),
     { orderCartId: cartId, isCardPayment: true },
   );
   return extractCartSummary(data.orderCart);
@@ -628,13 +665,13 @@ export async function listCarts(storeId?: string): Promise<CartSummary[]> {
   };
   if (storeId) {
     input.cartContextFilter = {
-      experienceCase: 'MULTI_CART_EXPERIENCE_CONTEXT',
+      experienceCase: "MULTI_CART_EXPERIENCE_CONTEXT",
       multiCartExperienceContext: { storeId },
     };
   }
   const data = await graphql<{ listCarts: DDCart[] }>(
-    'listCarts',
-    getQuery('listCarts', LIST_CARTS_QUERY),
+    "listCarts",
+    getQuery("listCarts", LIST_CARTS_QUERY),
     { input },
   );
   return (data.listCarts ?? []).map(extractCartSummary);
@@ -653,13 +690,13 @@ export async function getDropoffOptions(
 ): Promise<DropoffOption[]> {
   const data = await graphql<{
     dropoffOptions: DDDropoffOption[];
-  }>('dropoffOptions', getQuery('dropoffOptions', DROPOFF_OPTIONS_QUERY), {
+  }>("dropoffOptions", getQuery("dropoffOptions", DROPOFF_OPTIONS_QUERY), {
     cartId,
     addressId: addressId ?? null,
   });
-  return (data.dropoffOptions ?? []).map(o => ({
+  return (data.dropoffOptions ?? []).map((o) => ({
     id: String(o.id),
-    displayString: String(o.displayString ?? ''),
+    displayString: String(o.displayString ?? ""),
     isDefault: Boolean(o.isDefault),
     isEnabled: Boolean(o.isEnabled),
   }));
@@ -675,20 +712,20 @@ export interface PaymentMethod {
 
 export async function getPaymentMethods(): Promise<PaymentMethod[]> {
   const data = await graphql<{ getPaymentMethodList: DDPaymentMethod[] }>(
-    'paymentMethodQuery',
-    getQuery('paymentMethodQuery', PAYMENT_METHODS_QUERY),
+    "paymentMethodQuery",
+    getQuery("paymentMethodQuery", PAYMENT_METHODS_QUERY),
     {
-      country: 'US',
+      country: "US",
       usePaymentConfigQuery: true,
       usePaymentConfigQueryV2: true,
     },
   );
-  return (data.getPaymentMethodList ?? []).map(p => ({
-    id: String(p.id ?? ''),
-    type: String(p.type ?? ''),
-    last4: String(p.last4 ?? ''),
+  return (data.getPaymentMethodList ?? []).map((p) => ({
+    id: String(p.id ?? ""),
+    type: String(p.type ?? ""),
+    last4: String(p.last4 ?? ""),
     isDefault: Boolean(p.isDefault),
-    uuid: String(p.paymentMethodUuid ?? p.uuid ?? ''),
+    uuid: String(p.paymentMethodUuid ?? p.uuid ?? ""),
   }));
 }
 
@@ -709,26 +746,36 @@ export async function placeOrder(opts: {
 }): Promise<PlaceOrderResult> {
   // If no payment method specified, use the default one
   let pmUuid = opts.paymentMethodUuid;
-  let pmType = opts.paymentMethodType ?? 'Card';
+  let pmType = opts.paymentMethodType ?? "Card";
   if (!pmUuid) {
     const methods = await getPaymentMethods();
-    const defaultMethod = methods.find(m => m.isDefault) ?? methods[0];
+    const defaultMethod = methods.find((m) => m.isDefault) ?? methods[0];
     if (!defaultMethod) {
-      throw new ProviderError('No payment method found. Add a payment method in the DoorDash app first.', 'doordash');
+      throw new ProviderError(
+        "No payment method found. Add a payment method in the DoorDash app first.",
+        "doordash",
+      );
     }
     pmUuid = defaultMethod.uuid;
     // defaultMethod.type is the card brand (e.g. "Visa"), not the PaymentMethodType enum
-    pmType = 'Card';
+    pmType = "Card";
   }
 
   // Build dropoff preferences
   const dropoffPreferences = opts.dropoffOptionId
-    ? JSON.stringify([{ typename: 'DropoffPreference', option_id: opts.dropoffOptionId, is_default: true, instructions: '' }])
-    : '[]';
+    ? JSON.stringify([
+        {
+          typename: "DropoffPreference",
+          option_id: opts.dropoffOptionId,
+          is_default: true,
+          instructions: "",
+        },
+      ])
+    : "[]";
 
   const data = await graphql<{ createOrderFromCart: DDCreateOrderResult }>(
-    'createOrderFromCart',
-    getQuery('createOrderFromCart', CREATE_ORDER_FROM_CART_QUERY),
+    "createOrderFromCart",
+    getQuery("createOrderFromCart", CREATE_ORDER_FROM_CART_QUERY),
     {
       cartId: opts.cartId,
       storeId: opts.storeId,
@@ -736,28 +783,28 @@ export async function placeOrder(opts: {
       sosDeliveryFee: 0,
       isPickupOrder: false,
       verifiedAgeRequirement: false,
-      deliveryTime: 'ASAP',
+      deliveryTime: "ASAP",
       menuOptions: null,
-      attributionData: '{}',
+      attributionData: "{}",
       fulfillsOwnDeliveries: false,
       teamId: null,
       budgetId: null,
       giftOptions: null,
       recipientShippingDetails: null,
-      tipAmounts: [{ tipRecipient: 'DASHER', amount: opts.tipAmount ?? 0 }],
+      tipAmounts: [{ tipRecipient: "DASHER", amount: opts.tipAmount ?? 0 }],
       paymentMethod: null,
-      deliveryOptionType: opts.deliveryOptionType ?? 'STANDARD',
+      deliveryOptionType: opts.deliveryOptionType ?? "STANDARD",
       workOrderOptions: null,
       isCardPayment: true,
       clientFraudContext: null,
-      programId: '',
-      membershipId: '',
+      programId: "",
+      membershipId: "",
       dropoffPreferences,
       monitoringContext: { isGroup: false },
       routineReorderDetails: {},
       supplementalPaymentDetailsList: [],
       shouldApplyCredits: true,
-      dasherPickupInstructions: '',
+      dasherPickupInstructions: "",
       paymentMethodUuid: pmUuid,
       paymentMethodType: pmType,
       deviceTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -765,8 +812,8 @@ export async function placeOrder(opts: {
   );
 
   return {
-    cartId: String(data.createOrderFromCart.cartId ?? ''),
-    orderUuid: String(data.createOrderFromCart.orderUuid ?? ''),
+    cartId: String(data.createOrderFromCart.cartId ?? ""),
+    orderUuid: String(data.createOrderFromCart.orderUuid ?? ""),
   };
 }
 
@@ -774,7 +821,9 @@ export async function placeOrder(opts: {
 // Response extraction helpers
 // ---------------------------------------------------------------------------
 
-function extractSearchResults(feed: DDFacetFeed | null | undefined): SearchResult[] {
+function extractSearchResults(
+  feed: DDFacetFeed | null | undefined,
+): SearchResult[] {
   const results: SearchResult[] = [];
   if (!feed) return results;
   const bodies = feed.body ?? [];
@@ -789,18 +838,20 @@ function extractSearchResults(feed: DDFacetFeed | null | undefined): SearchResul
       if (events?.click?.data) {
         try {
           const clickData = JSON.parse(events.click.data) as DDSearchClickData;
-          storeId = String(clickData.store_id ?? clickData.storeId ?? '');
-        } catch { /* ignore */ }
+          storeId = String(clickData.store_id ?? clickData.storeId ?? "");
+        } catch {
+          /* ignore */
+        }
       }
       // Fall back to parsing from the item ID (format: "row.search-result:STORE_ID:INDEX")
       if (!storeId) {
-        const idStr = String(item.id ?? '');
+        const idStr = String(item.id ?? "");
         const match = idStr.match(/search-result:(\d+)/);
         if (match) storeId = match[1];
       }
       if (text?.title) {
         results.push({
-          id: String(item.id ?? ''),
+          id: String(item.id ?? ""),
           name: text.title,
           description: text.subtitle || text.description,
           imageUrl: images?.main?.uri,
@@ -822,18 +873,20 @@ function extractStoreInfo(feed: DDStorepageFeed): StoreInfo {
   const deliveryFee = header.deliveryFeeLayout;
   const deliveryTime = header.deliveryTimeLayout;
 
-  const categories = (menuBook.menuCategories ?? []).map((c: DDMenuCategory) => ({
-    id: String(c.id),
-    name: String(c.name),
-    numItems: Number(c.numItems ?? 0),
-  }));
+  const categories = (menuBook.menuCategories ?? []).map(
+    (c: DDMenuCategory) => ({
+      id: String(c.id),
+      name: String(c.name),
+      numItems: Number(c.numItems ?? 0),
+    }),
+  );
 
   const items: MenuItem[] = [];
   for (const list of itemLists) {
     for (const item of list.items ?? []) {
       items.push({
         id: String(item.id),
-        name: String(item.name ?? ''),
+        name: String(item.name ?? ""),
         description: item.description,
         price: item.displayPrice,
         imageUrl: item.imageUrl,
@@ -848,7 +901,7 @@ function extractStoreInfo(feed: DDStorepageFeed): StoreInfo {
     for (const item of carousel.items ?? []) {
       items.push({
         id: String(item.id),
-        name: String(item.name ?? ''),
+        name: String(item.name ?? ""),
         description: item.description,
         price: item.displayPrice,
         imageUrl: item.imgUrl,
@@ -857,8 +910,8 @@ function extractStoreInfo(feed: DDStorepageFeed): StoreInfo {
   }
 
   return {
-    id: String(header.id ?? ''),
-    name: String(header.name ?? ''),
+    id: String(header.id ?? ""),
+    name: String(header.name ?? ""),
     description: header.description,
     address: address?.displayAddress,
     rating: ratings?.averageRating,
@@ -871,14 +924,16 @@ function extractStoreInfo(feed: DDStorepageFeed): StoreInfo {
   };
 }
 
-function extractNestedOptions(extrasList: DDNestedExtra[]): ItemDetails['options'][number]['choices'][number]['nestedOptions'] {
-  return extrasList.map(nested => ({
+function extractNestedOptions(
+  extrasList: DDNestedExtra[],
+): ItemDetails["options"][number]["choices"][number]["nestedOptions"] {
+  return extrasList.map((nested) => ({
     id: String(nested.id),
-    name: String(nested.name ?? ''),
+    name: String(nested.name ?? ""),
     required: !nested.isOptional,
-    choices: (nested.options ?? []).map(o => ({
+    choices: (nested.options ?? []).map((o) => ({
       id: String(o.id),
-      name: String(o.name ?? ''),
+      name: String(o.name ?? ""),
       price: o.displayString,
     })),
   }));
@@ -890,8 +945,8 @@ function extractItemDetails(page: DDItemPage): ItemDetails {
   const itemPreferences = page.itemPreferences;
 
   const result: ItemDetails = {
-    id: String(header.id ?? ''),
-    name: String(header.name ?? ''),
+    id: String(header.id ?? ""),
+    name: String(header.name ?? ""),
     description: header.description,
     price: header.displayString,
     unitAmount: header.unitAmount,
@@ -900,9 +955,9 @@ function extractItemDetails(page: DDItemPage): ItemDetails {
     menuId: header.menuId,
     options: optionLists.map((ol: DDOptionList) => {
       const choices = (ol.options ?? []).map((o: DDOptionChoice) => {
-        const choice: ItemDetails['options'][number]['choices'][number] = {
+        const choice: ItemDetails["options"][number]["choices"][number] = {
           id: String(o.id),
-          name: String(o.name ?? ''),
+          name: String(o.name ?? ""),
           price: o.displayString,
           unitAmount: o.unitAmount,
           defaultQuantity: o.defaultQuantity,
@@ -916,7 +971,7 @@ function extractItemDetails(page: DDItemPage): ItemDetails {
 
       return {
         id: String(ol.id),
-        name: String(ol.name ?? ''),
+        name: String(ol.name ?? ""),
         required: !ol.isOptional,
         minSelections: ol.minNumOptions,
         maxSelections: ol.maxNumOptions,
@@ -947,7 +1002,7 @@ function extractRetailStoreInfo(feed: DDRetailStorePageFeed): StoreInfo {
   const l1Categories = feed.l1Categories ?? [];
   const collections = feed.collections ?? [];
 
-  const categories = l1Categories.map(c => ({
+  const categories = l1Categories.map((c) => ({
     id: String(c.id),
     name: String(c.name),
     numItems: Number(c.numItems ?? 0),
@@ -961,7 +1016,7 @@ function extractRetailStoreInfo(feed: DDRetailStorePageFeed): StoreInfo {
       const price = item.price;
       items.push({
         id: String(item.id),
-        name: String(item.name ?? ''),
+        name: String(item.name ?? ""),
         description: item.description,
         price: price?.displayString ?? item.displayPrice,
         imageUrl: item.imageUrl ?? item.imgUrl,
@@ -973,8 +1028,8 @@ function extractRetailStoreInfo(feed: DDRetailStorePageFeed): StoreInfo {
   const address = storeHeader.address;
 
   return {
-    id: String(storeDetails.id ?? ''),
-    name: String(storeHeader.name ?? storeDetails.name ?? ''),
+    id: String(storeDetails.id ?? ""),
+    name: String(storeHeader.name ?? storeDetails.name ?? ""),
     description: storeHeader.description,
     address: address?.displayAddress,
     rating: ratings?.averageRating,
@@ -992,13 +1047,13 @@ function extractCartSummary(cart: DDCart): CartSummary {
   const restaurant = cart.restaurant ?? {};
   const orders = cart.orders ?? [];
 
-  const items: CartSummary['items'] = [];
+  const items: CartSummary["items"] = [];
   for (const order of orders) {
     for (const oi of order.orderItems ?? []) {
       const item = oi.item ?? {};
       items.push({
-        id: String(oi.id ?? ''),
-        name: String(item.name ?? ''),
+        id: String(oi.id ?? ""),
+        name: String(item.name ?? ""),
         quantity: Number(oi.quantity ?? 1),
         price: oi.priceDisplayString,
       });
@@ -1006,7 +1061,7 @@ function extractCartSummary(cart: DDCart): CartSummary {
   }
 
   return {
-    cartId: String(cart.id ?? ''),
+    cartId: String(cart.id ?? ""),
     storeName: restaurant.name,
     storeId: restaurant.id,
     subtotal: cart.subtotal,

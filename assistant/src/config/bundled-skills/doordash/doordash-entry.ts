@@ -10,13 +10,13 @@
  * and use it as the root so `doordash status` works directly.
  */
 
-import { Command } from 'commander';
+import { Command } from "commander";
 
-import { registerDoordashCommand } from './doordash-cli.js';
+import { registerDoordashCommand } from "./doordash-cli.js";
 
 // Register into a throwaway parent, then extract the nested command
 const wrapper = new Command();
 registerDoordashCommand(wrapper);
-const dd = wrapper.commands.find((c) => c.name() === 'doordash');
-if (!dd) throw new Error('doordash command not registered');
+const dd = wrapper.commands.find((c) => c.name() === "doordash");
+if (!dd) throw new Error("doordash command not registered");
 dd.parse();

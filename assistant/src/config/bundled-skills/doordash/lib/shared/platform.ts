@@ -3,32 +3,32 @@
  * Subset of assistant/src/util/platform.ts — kept minimal.
  */
 
-import { existsSync, readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 function getRootDir(): string {
   const base = process.env.BASE_DATA_DIR?.trim();
-  return join(base || homedir(), '.vellum');
+  return join(base || homedir(), ".vellum");
 }
 
 export function getDataDir(): string {
-  return join(getRootDir(), 'workspace', 'data');
+  return join(getRootDir(), "workspace", "data");
 }
 
 export function getSocketPath(): string {
   const override = process.env.VELLUM_DAEMON_SOCKET?.trim();
   if (override) {
-    if (override === '~') return homedir();
-    if (override.startsWith('~/')) return join(homedir(), override.slice(2));
+    if (override === "~") return homedir();
+    if (override.startsWith("~/")) return join(homedir(), override.slice(2));
     return override;
   }
-  return join(getRootDir(), 'vellum.sock');
+  return join(getRootDir(), "vellum.sock");
 }
 
 export function readSessionToken(): string | null {
   try {
-    return readFileSync(join(getRootDir(), 'session-token'), 'utf-8').trim();
+    return readFileSync(join(getRootDir(), "session-token"), "utf-8").trim();
   } catch {
     return null;
   }

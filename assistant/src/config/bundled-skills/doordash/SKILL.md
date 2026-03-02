@@ -2,7 +2,14 @@
 name: "DoorDash"
 description: "Order food, groceries, and convenience items from DoorDash using the built-in CLI integration"
 user-invocable: true
-metadata: {"vellum": {"emoji": "\uD83C\uDF55", "cli": {"command": "doordash", "entry": "doordash-entry.ts"}}}
+metadata:
+  {
+    "vellum":
+      {
+        "emoji": "\uD83C\uDF55",
+        "cli": { "command": "doordash", "entry": "doordash-entry.ts" },
+      },
+  }
 ---
 
 You can order food from DoorDash for the user using the `doordash` CLI.
@@ -115,6 +122,7 @@ You can also extract options from an existing recording with `doordash inspect <
    - Milk (required, min:1, max:1): Whole (id:201), Oat (id:202, +$0.70), Almond (id:203, +$0.70)
    - Extras (optional, min:0, max:5): Extra Shot (id:301, +$0.90), Vanilla Syrup (id:302, +$0.60)
 4. Construct options JSON and add to cart:
+
 ```
 doordash cart add --store-id <id> --menu-id <id> --item-id <id> --item-name "Latte" --unit-price 550 --options '[{"optionId":"size-group-id","optionChoiceId":"103","quantity":1,"nestedOptions":[]},{"optionId":"milk-group-id","optionChoiceId":"202","quantity":1,"nestedOptions":[]},{"optionId":"extras-group-id","optionChoiceId":"301","quantity":1,"nestedOptions":[]}]' --special-instructions "Extra hot" --json
 ```
