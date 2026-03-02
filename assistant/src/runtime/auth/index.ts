@@ -7,6 +7,9 @@
 
 export { buildAuthContext } from './context.js';
 export type { BuildAuthContextResult } from './context.js';
+export { mintCredentialPair, rotateCredentials } from './credential-service.js';
+export type { CredentialPairResult, RefreshErrorCode, RotateResult } from './credential-service.js';
+export { getExternalAssistantId, resetExternalAssistantIdCache } from './external-assistant-id.js';
 export { CURRENT_POLICY_EPOCH, isStaleEpoch } from './policy.js';
 export { hasAllScopes, hasScope, resolveScopeProfile } from './scopes.js';
 export { parseSub } from './subject.js';
