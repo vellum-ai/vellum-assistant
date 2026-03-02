@@ -127,7 +127,7 @@ In addition to persistent trust rules (`always_allow` / `always_deny`), the appr
 
 **Session-scoped, in-memory only:** Overrides are keyed by `conversationId` and stored in an in-memory `Map` inside `session-approval-overrides.ts`. They do not survive daemon restarts, which is intentional — temporary approvals should not outlive the session that created them.
 
-**Integration with the permission pipeline:** The tool-approval handler (`src/tools/tool-approval-handler.ts`) checks for an active temporary override via `getEffectiveMode()` before prompting the user. If an active override exists for the current conversation, the confirmation is auto-approved without surfacing a prompt. This check runs after persistent trust rules, so a persistent `deny` rule still takes precedence.
+**Integration with the permission pipeline:** The permission checker (`src/tools/permission-checker.ts`) checks for an active temporary override via `getEffectiveMode()` before prompting the user. If an active override exists for the current conversation, the confirmation is auto-approved without surfacing a prompt. This check runs after persistent trust rules, so a persistent `deny` rule still takes precedence.
 
 **No persistent side effects:** Temporary modes do not write to `trust.json` or create persistent trust rules. They are purely ephemeral. The `buildDecisionActions()` function in `guardian-decision-types.ts` controls whether temporary options (`allow_10m`, `allow_thread`) are surfaced in the approval prompt UI, gated by the `temporaryOptionsAvailable` flag.
 
