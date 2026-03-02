@@ -1,7 +1,5 @@
-import { randomBytes } from "node:crypto";
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
-import { join, dirname } from "node:path";
-import { homedir } from "node:os";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { getLogger, type LogFileConfig } from "./logger.js";
 import { getRootDir, readKeychainCredential, readCredential, readTwilioCredentials, readWhatsAppCredentials, readSlackChannelCredentials } from "./credential-reader.js";
 
@@ -23,13 +21,8 @@ export type GatewayConfig = {
   maxWebhookPayloadBytes: number;
   port: number;
   routingEntries: RoutingEntry[];
-  /** Bearer token sent to the assistant runtime on gateway-to-runtime calls. */
-  runtimeBearerToken: string | undefined;
-  /** Dedicated secret for the X-Gateway-Origin proof header. Falls back to runtimeBearerToken when not set. */
-  runtimeGatewayOriginSecret: string | undefined;
   runtimeInitialBackoffMs: number;
   runtimeMaxRetries: number;
-  runtimeProxyBearerToken: string | undefined;
   runtimeProxyEnabled: boolean;
   runtimeProxyRequireAuth: boolean;
   runtimeTimeoutMs: number;
@@ -90,8 +83,6 @@ export type GatewayConfig = {
   slackDeliverAuthBypass: boolean;
   /** When true, trust X-Forwarded-For for client IP resolution (set when behind a reverse proxy). */
   trustProxy: boolean;
-  /** Dedicated token for authenticating PATCH /v1/feature-flags/* requests (distinct from runtimeBearerToken). */
-  featureFlagToken?: string | undefined;
 };
 
 function parseRoutingJson(raw: string): RoutingEntry[] {
@@ -121,68 +112,6 @@ function parseRoutingJson(raw: string): RoutingEntry[] {
     }
   }
   return entries;
-}
-
-function readHttpTokenFile(): string | null {
-  const tokenPath = process.env.VELLUM_HTTP_TOKEN_PATH
-    ?? join(process.env.BASE_DATA_DIR?.trim() || homedir(), ".vellum", "http-token");
-  try {
-    return readFileSync(tokenPath, "utf-8").trim() || null;
-  } catch {
-    return null;
-  }
-}
-
-function getFeatureFlagTokenPath(): string {
-  return process.env.FEATURE_FLAG_TOKEN_PATH
-    ?? join(process.env.BASE_DATA_DIR?.trim() || homedir(), ".vellum", "feature-flag-token");
-}
-
-/**
- * Read the feature-flag token from file, generating a new one if the file
- * doesn't exist. This follows the same pattern as http-token but uses a
- * separate file so the two tokens are independently revocable.
- */
-/** Force-generate a fresh feature-flag token, overwriting any existing file. */
-function regenerateFeatureFlagToken(): string | null {
-  const tokenPath = getFeatureFlagTokenPath();
-  try {
-    const dir = dirname(tokenPath);
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
-    }
-    const token = randomBytes(32).toString("hex");
-    writeFileSync(tokenPath, token + "\n", { mode: 0o600 });
-    log.info({ path: tokenPath }, "Regenerated feature-flag token to resolve collision");
-    return token;
-  } catch (err) {
-    log.warn({ err, path: tokenPath }, "Failed to regenerate feature-flag token file");
-    return null;
-  }
-}
-
-function readOrGenerateFeatureFlagToken(): string | null {
-  const tokenPath = getFeatureFlagTokenPath();
-  try {
-    const existing = readFileSync(tokenPath, "utf-8").trim();
-    if (existing) return existing;
-  } catch {
-    // File doesn't exist — generate below
-  }
-
-  try {
-    const dir = dirname(tokenPath);
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
-    }
-    const token = randomBytes(32).toString("hex");
-    writeFileSync(tokenPath, token + "\n", { mode: 0o600 });
-    log.info({ path: tokenPath }, "Generated new feature-flag token");
-    return token;
-  } catch (err) {
-    log.warn({ err, path: tokenPath }, "Failed to generate feature-flag token file");
-    return null;
-  }
 }
 
 export function loadConfig(): GatewayConfig {
@@ -241,43 +170,6 @@ export function loadConfig(): GatewayConfig {
     );
   }
   const runtimeProxyRequireAuth = proxyRequireAuthRaw !== "false";
-
-  // Gateway -> runtime auth should use the same daemon-issued token source as
-  // runtime-proxy auth, unless explicitly overridden by env vars.
-  const runtimeTokenFromFile = readHttpTokenFile() || undefined;
-  const runtimeBearerToken =
-    process.env.RUNTIME_BEARER_TOKEN || runtimeTokenFromFile;
-
-  const runtimeProxyBearerToken =
-    process.env.RUNTIME_PROXY_BEARER_TOKEN || runtimeTokenFromFile;
-
-  // Dedicated gateway-origin secret. Falls back to runtimeBearerToken for
-  // backward compatibility so existing deployments continue working.
-  const runtimeGatewayOriginSecret =
-    process.env.RUNTIME_GATEWAY_ORIGIN_SECRET || runtimeBearerToken;
-
-  // Dedicated feature-flag client token: env var takes precedence, then file
-  // (auto-generated on first run). Intentionally separate from runtimeBearerToken
-  // so PATCH /v1/feature-flags/* can reject the runtime token.
-  let featureFlagToken: string | undefined =
-    process.env.FEATURE_FLAG_TOKEN || readOrGenerateFeatureFlagToken() || undefined;
-
-  // Guard: if the feature-flag token collides with the runtime bearer token,
-  // the PATCH auth split is unenforceable. Regenerate the feature-flag token
-  // unless it was explicitly pinned via env var.
-  if (featureFlagToken && runtimeBearerToken && featureFlagToken === runtimeBearerToken) {
-    if (process.env.FEATURE_FLAG_TOKEN) {
-      log.warn("FEATURE_FLAG_TOKEN equals RUNTIME_BEARER_TOKEN — PATCH auth split is degraded");
-    } else {
-      log.warn("Feature-flag token collides with runtime bearer token — regenerating");
-      const newToken = regenerateFeatureFlagToken();
-      if (newToken) {
-        featureFlagToken = newToken;
-      } else {
-        log.error("Failed to regenerate feature-flag token; PATCH auth split is degraded");
-      }
-    }
-  }
 
   const MAX_TIMEOUT_MS = 2_147_483_647; // 2^31 - 1, max safe setTimeout delay
 
@@ -347,12 +239,6 @@ export function loadConfig(): GatewayConfig {
   const maxAttachmentConcurrency = Number(process.env.GATEWAY_MAX_ATTACHMENT_CONCURRENCY || "3");
   if (!Number.isInteger(maxAttachmentConcurrency) || maxAttachmentConcurrency < 1) {
     throw new Error("GATEWAY_MAX_ATTACHMENT_CONCURRENCY must be a positive integer");
-  }
-
-  if (runtimeProxyEnabled && runtimeProxyRequireAuth && !runtimeProxyBearerToken) {
-    throw new Error(
-      "RUNTIME_PROXY_BEARER_TOKEN is required when proxy is enabled with auth required",
-    );
   }
 
   // Twilio credentials: env var > credential store (keychain / encrypted file)
@@ -545,7 +431,6 @@ export function loadConfig(): GatewayConfig {
       hasSlackChannelAppToken: !!slackChannelAppToken,
       slackDeliverAuthBypass,
       trustProxy,
-      hasFeatureFlagToken: !!featureFlagToken,
     },
     "Configuration loaded",
   );
@@ -560,11 +445,8 @@ export function loadConfig(): GatewayConfig {
     maxWebhookPayloadBytes,
     port,
     routingEntries,
-    runtimeBearerToken,
-    runtimeGatewayOriginSecret,
     runtimeInitialBackoffMs,
     runtimeMaxRetries,
-    runtimeProxyBearerToken,
     runtimeProxyEnabled,
     runtimeProxyRequireAuth,
     runtimeTimeoutMs,
@@ -596,7 +478,6 @@ export function loadConfig(): GatewayConfig {
     slackChannelAppToken,
     slackDeliverAuthBypass,
     trustProxy,
-    featureFlagToken,
   };
 }
 

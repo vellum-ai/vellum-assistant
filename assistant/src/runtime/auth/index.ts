@@ -22,6 +22,7 @@ export {
   hashToken,
   initAuthSigningKey,
   loadOrCreateSigningKey,
+  mintDaemonDeliveryToken,
   mintToken,
   verifyToken,
 } from './token-service.js';
