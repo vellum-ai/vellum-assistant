@@ -435,6 +435,29 @@ describe('state machine — expired sessions', () => {
     if (result.ok) throw new Error('unreachable');
     expect(result.reason).toBe('expired');
   });
+
+  test('rejects transition to active when verified session has expired', () => {
+    const now = Date.now();
+    const code = generateVerificationCode();
+    const codeHash = hashHandshakeSecret(code);
+
+    // Build up to verified state
+    const session = createHandshakeSession();
+    const s1 = transitionToAwaitingApproval(session, 'peer', now);
+    if (!s1.ok) throw new Error('unreachable');
+    const s2 = transitionToAwaitingVerification(s1.session, codeHash, now);
+    if (!s2.ok) throw new Error('unreachable');
+    const s3 = transitionToVerified(s2.session, hashHandshakeSecret(code), 'peer', now);
+    if (!s3.ok) throw new Error('unreachable');
+    expect(s3.session.state).toBe('verified');
+
+    // Advance time past the session's TTL
+    const afterExpiry = s3.session.expiresAt + 1;
+    const result = transitionToActive(s3.session, afterExpiry);
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('unreachable');
+    expect(result.reason).toBe('expired');
+  });
 });
 
 // ---------------------------------------------------------------------------

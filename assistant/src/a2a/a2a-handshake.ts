@@ -335,6 +335,10 @@ export function transitionToActive(
 ): TransitionResult {
   const currentTime = now ?? Date.now();
 
+  if (isSessionExpired(session, currentTime)) {
+    return { ok: false, reason: 'expired' };
+  }
+
   if (session.state !== 'verified') {
     return { ok: false, reason: 'invalid_transition' };
   }
