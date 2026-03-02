@@ -12,6 +12,7 @@ import { and, desc, eq } from 'drizzle-orm';
 
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
 import { getDb } from '../memory/db.js';
+import { rawChanges } from '../memory/raw-query.js';
 import { a2aPeerConnections } from '../memory/schema.js';
 
 // ---------------------------------------------------------------------------
@@ -225,27 +226,17 @@ export function updateConnectionStatus(
     .where(and(...conditions))
     .run();
 
-  // Re-read to confirm the update took effect
+  // Use affected-row count to determine if the conditional update applied.
+  // This is reliable even at millisecond precision, unlike timestamp comparison.
+  if (rawChanges() === 0) return null;
+
   const updated = db
     .select()
     .from(a2aPeerConnections)
     .where(eq(a2aPeerConnections.id, connectionId))
     .get();
 
-  if (!updated) return null;
-
-  // CAS check: if we expected a specific status but the row's status didn't change,
-  // then the CAS failed (concurrent update or wrong expected status).
-  if (expectedCurrentStatus && updated.status !== newStatus) {
-    return null;
-  }
-
-  // Also check updatedAt to confirm our write landed
-  if (updated.updatedAt !== now) {
-    return null;
-  }
-
-  return rowToConnection(updated);
+  return updated ? rowToConnection(updated) : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -324,10 +315,9 @@ export function updateConnectionCredentials(
 export function deleteConnection(connectionId: string): boolean {
   const db = getDb();
 
-  const result = db
-    .delete(a2aPeerConnections)
+  db.delete(a2aPeerConnections)
     .where(eq(a2aPeerConnections.id, connectionId))
     .run();
 
-  return result.changes > 0;
+  return rawChanges() > 0;
 }
