@@ -560,9 +560,10 @@ struct SettingsChannelsTab: View {
                                 else { store.assignTwilioNumber(phoneNumber: newValue) }
                             }
                         ),
-                        options: store.twilioNumbers.map { (label: "\($0.phoneNumber)  \($0.friendlyName)", value: $0.phoneNumber) },
+                        options: [(label: "Not Set", value: "")] + store.twilioNumbers.map { (label: $0.friendlyName, value: $0.phoneNumber) },
                         emptyValue: ""
                     )
+                    .frame(maxWidth: 360)
                 }
             }
 
@@ -634,9 +635,10 @@ struct SettingsChannelsTab: View {
                                 else { store.assignTwilioNumber(phoneNumber: newValue) }
                             }
                         ),
-                        options: store.twilioNumbers.map { (label: "\($0.phoneNumber)  \($0.friendlyName)", value: $0.phoneNumber) },
+                        options: [(label: "Not Set", value: "")] + store.twilioNumbers.map { (label: $0.friendlyName, value: $0.phoneNumber) },
                         emptyValue: ""
                     )
+                    .frame(maxWidth: 360)
                 }
             }
 
