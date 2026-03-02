@@ -56,6 +56,7 @@ public final class HTTPTransport {
     public private(set) var bearerToken: String?
     private let conversationKey: String
     private let sourceChannel: String
+    let transportMetadata: TransportMetadata
 
     private static var defaultSourceChannel: String {
         return "vellum"
@@ -126,12 +127,13 @@ public final class HTTPTransport {
 
     // MARK: - Init
 
-    init(baseURL: String, bearerToken: String?, conversationKey: String) {
+    init(baseURL: String, bearerToken: String?, conversationKey: String, transportMetadata: TransportMetadata = .defaultLocal) {
         // Strip trailing slash for clean URL construction
         self.baseURL = baseURL.hasSuffix("/") ? String(baseURL.dropLast()) : baseURL
         self.bearerToken = bearerToken
         self.conversationKey = conversationKey
         self.sourceChannel = Self.defaultSourceChannel
+        self.transportMetadata = transportMetadata
     }
 
     // MARK: - Connect (health check driven)
