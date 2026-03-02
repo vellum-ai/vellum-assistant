@@ -781,10 +781,8 @@ struct MainWindowView: View {
             }
         }
         .onChange(of: sidebar.isHoveredThread) { _, newValue in
-            // Cancel pending archive when the user hovers a *different* thread.
-            // Skip clearing when newValue is nil (e.g. menu dismissal triggers
-            // a momentary hover-leave) so the Confirm button stays visible.
-            if let pending = sidebar.threadPendingDeletion, let newValue, newValue != pending {
+            // Cancel pending archive when hover leaves the row or moves to a different thread.
+            if let pending = sidebar.threadPendingDeletion, newValue != pending {
                 sidebar.threadPendingDeletion = nil
             }
         }
@@ -814,47 +812,62 @@ struct MainWindowView: View {
         // Button captures mouse-down and prevents drag initiation on macOS.
         Group {
             HStack(spacing: VSpacing.xs) {
-                // Leading icon: interaction state > idle fallback (unread dot > pin > spacer).
-                // The interactive pin button is in .overlay(alignment: .leading) below
-                // to avoid nesting a Button inside this outer Button's label.
-                // When hovered, the amber dot swaps to the pin icon (and back on hover-out).
-                switch interactionState {
-                case .processing:
-                    VBusyIndicator()
-                        .frame(width: 20, height: 20)
-                case .waitingForInput:
-                    Image(systemName: "exclamationmark.circle.fill")
-                        .font(.system(size: 12))
-                        .foregroundColor(VColor.warning)
-                        .frame(width: 20, height: 20)
-                case .error:
-                    if !isHovered {
+                // Leading 20×20 slot: single render path.
+                // Hovered → interactive pin button; not hovered → status indicator.
+                if isHovered {
+                    Button {
+                        withAnimation(VAnimation.standard) {
+                            if thread.isPinned {
+                                threadManager.unpinThread(id: thread.id)
+                            } else {
+                                threadManager.pinThread(id: thread.id)
+                            }
+                        }
+                    } label: {
+                        Image(systemName: thread.isPinned ? "pin.fill" : "pin")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(thread.isPinned ? VColor.textMuted : VColor.textSecondary)
+                            .rotationEffect(.degrees(-45))
+                            .frame(width: 20, height: 20)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .transition(.opacity)
+                    .accessibilityLabel(thread.isPinned ? "Unpin \(thread.title)" : "Pin \(thread.title)")
+                } else {
+                    switch interactionState {
+                    case .processing:
+                        VBusyIndicator()
+                            .frame(width: 20, height: 20)
+                    case .waitingForInput:
+                        Image(systemName: "exclamationmark.circle.fill")
+                            .font(.system(size: 12))
+                            .foregroundColor(VColor.warning)
+                            .frame(width: 20, height: 20)
+                    case .error:
                         Image(systemName: "exclamationmark.circle.fill")
                             .font(.system(size: 12))
                             .foregroundColor(VColor.error)
                             .frame(width: 20, height: 20)
                             .transition(.opacity)
-                    } else {
-                        Color.clear
-                            .frame(width: 20, height: 20)
-                    }
-                case .idle:
-                    if thread.hasUnseenLatestAssistantMessage && !isHovered {
-                        Circle()
-                            .fill(Color(hex: 0xE86B40))
-                            .frame(width: 6, height: 6)
-                            .frame(width: 20, height: 20)
-                            .transition(.opacity)
-                    } else if !isHovered && thread.isPinned {
-                        Image(systemName: "pin.fill")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(VColor.textMuted)
-                            .rotationEffect(.degrees(-45))
-                            .frame(width: 20, height: 20)
-                            .transition(.opacity)
-                    } else {
-                        Color.clear
-                            .frame(width: 20, height: 20)
+                    case .idle:
+                        if thread.hasUnseenLatestAssistantMessage {
+                            Circle()
+                                .fill(Color(hex: 0xE86B40))
+                                .frame(width: 6, height: 6)
+                                .frame(width: 20, height: 20)
+                                .transition(.opacity)
+                        } else if thread.isPinned {
+                            Image(systemName: "pin.fill")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(VColor.textMuted)
+                                .rotationEffect(.degrees(-45))
+                                .frame(width: 20, height: 20)
+                                .transition(.opacity)
+                        } else {
+                            Color.clear
+                                .frame(width: 20, height: 20)
+                        }
                     }
                 }
                 if thread.kind == .private {
@@ -895,29 +908,6 @@ struct MainWindowView: View {
         .accessibilityLabel("Thread: \(thread.title)")
         .accessibilityAction(.default) {
             selectThread(thread)
-        }
-        .overlay(alignment: .leading) {
-            if isHovered {
-                Button {
-                    withAnimation(VAnimation.standard) {
-                        if thread.isPinned {
-                            threadManager.unpinThread(id: thread.id)
-                        } else {
-                            threadManager.pinThread(id: thread.id)
-                        }
-                    }
-                } label: {
-                    Image(systemName: thread.isPinned ? "pin.fill" : "pin")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(thread.isPinned ? VColor.textMuted : VColor.textSecondary)
-                        .rotationEffect(.degrees(-45))
-                        .frame(width: 20, height: 20)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .padding(.leading, VSpacing.xs)
-                .accessibilityLabel(thread.isPinned ? "Unpin \(thread.title)" : "Pin \(thread.title)")
-            }
         }
         .overlay(alignment: .trailing) {
             if sidebar.threadPendingDeletion == thread.id {
