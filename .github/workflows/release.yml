@@ -405,8 +405,9 @@ jobs:
           path: /tmp/swift-x86_64
           retention-days: 1
 
+  # Original production build — unchanged, runs the full sequential build.
   build-macos:
-    needs: [bump-and-tag, build-swift-arm64, build-swift-x86_64]
+    needs: bump-and-tag
     runs-on: macos-14
     timeout-minutes: 30
     defaults:
@@ -454,34 +455,6 @@ jobs:
           echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
           echo "Display version: $DISPLAY_VERSION / Build version: $BUILD_VERSION"
 
-      - name: Download Swift build (arm64)
-        uses: actions/download-artifact@v4
-        with:
-          name: swift-build-arm64
-          path: clients/macos/swift-arm64
-
-      - name: Download Swift build (x86_64)
-        uses: actions/download-artifact@v4
-        with:
-          name: swift-build-x86_64
-          path: clients/macos/swift-x86_64
-
-      - name: Create universal binary
-        run: |
-          mkdir -p prebuilt-bin
-          lipo -create swift-arm64/vellum-assistant swift-x86_64/vellum-assistant \
-            -output prebuilt-bin/vellum-assistant
-          # Copy Sparkle framework and resource bundles from arm64 build
-          if [ -d swift-arm64/Sparkle.framework ]; then
-            cp -R swift-arm64/Sparkle.framework prebuilt-bin/
-          fi
-          for bundle in swift-arm64/*.bundle; do
-            [ -d "$bundle" ] && cp -R "$bundle" prebuilt-bin/
-          done
-          echo "Universal binary created:"
-          file prebuilt-bin/vellum-assistant
-          lipo -info prebuilt-bin/vellum-assistant
-
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
         with:
@@ -498,7 +471,6 @@ jobs:
           BUILD_VERSION="${{ steps.version.outputs.build_version }}" \
           SU_PUBLIC_ED_KEY="${{ secrets.SPARKLE_ED_PUBLIC_KEY }}" \
           SIGN_IDENTITY="Developer ID Application" \
-          PREBUILT_BIN_PATH="$(pwd)/prebuilt-bin" \
           ./build.sh release
 
           APP_PATH="dist/Vellum.app"
@@ -508,7 +480,7 @@ jobs:
 
       - name: Free disk space
         run: |
-          rm -rf swift-arm64 swift-x86_64 prebuilt-bin daemon-bin cli-bin gateway-bin
+          rm -rf .build daemon-bin cli-bin gateway-bin
           rm -rf ../../assistant/node_modules ../../cli/node_modules ../../gateway/node_modules
           rm -rf ~/Library/Developer/Xcode/DerivedData 2>/dev/null || true
           rm -rf ~/Library/Caches/org.swift.swiftpm 2>/dev/null || true
@@ -693,6 +665,134 @@ jobs:
             clients/macos/dist/appcast.xml
           if-no-files-found: error
           retention-days: 1
+
+      - name: Cleanup keychain
+        if: always()
+        run: |
+          KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
+          security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
+
+  # Experimental split-arch build — runs in parallel with the production build-macos
+  # job to validate the parallel architecture approach. Produces a separate artifact
+  # (split-arch-build) that is NOT used by the release job. Compare this artifact
+  # with the production build to verify correctness before switching over.
+  build-macos-split-arch:
+    needs: [bump-and-tag, build-swift-arm64, build-swift-x86_64]
+    runs-on: macos-14
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: clients/macos
+    env:
+      KEYCHAIN_NAME: build-split.keychain
+      KEYCHAIN_PASSWORD: temporary-ci-password
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: "v${{ needs.bump-and-tag.outputs.version }}"
+
+      - name: Select Xcode 16.2
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+
+      - name: Import code-signing certificate
+        run: |
+          KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          echo "${{ secrets.CERTIFICATE_P12 }}" | base64 -D > /tmp/certificate.p12
+          security import /tmp/certificate.p12 \
+            -k "$KEYCHAIN_PATH" \
+            -P "${{ secrets.CERTIFICATE_PASSWORD }}" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security
+          rm /tmp/certificate.p12
+
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
+          security default-keychain -s "$KEYCHAIN_PATH"
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+
+      - name: Set version
+        id: version
+        run: |
+          DISPLAY_VERSION="${{ needs.bump-and-tag.outputs.version }}"
+          BUILD_VERSION=$(date -u +%Y%m%d%H%M)
+          echo "display_version=$DISPLAY_VERSION" >> "$GITHUB_OUTPUT"
+          echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Download Swift build (arm64)
+        uses: actions/download-artifact@v4
+        with:
+          name: swift-build-arm64
+          path: clients/macos/swift-arm64
+
+      - name: Download Swift build (x86_64)
+        uses: actions/download-artifact@v4
+        with:
+          name: swift-build-x86_64
+          path: clients/macos/swift-x86_64
+
+      - name: Create universal binary
+        run: |
+          mkdir -p prebuilt-bin
+          lipo -create swift-arm64/vellum-assistant swift-x86_64/vellum-assistant \
+            -output prebuilt-bin/vellum-assistant
+          # Copy Sparkle framework and resource bundles from arm64 build
+          if [ -d swift-arm64/Sparkle.framework ]; then
+            cp -R swift-arm64/Sparkle.framework prebuilt-bin/
+          fi
+          for bundle in swift-arm64/*.bundle; do
+            [ -d "$bundle" ] && cp -R "$bundle" prebuilt-bin/
+          done
+          echo "Universal binary created:"
+          file prebuilt-bin/vellum-assistant
+          lipo -info prebuilt-bin/vellum-assistant
+          # Also verify Sparkle framework architectures
+          if [ -d prebuilt-bin/Sparkle.framework ]; then
+            SPARKLE_BIN=$(find prebuilt-bin/Sparkle.framework -name Sparkle -type f | head -1)
+            if [ -n "$SPARKLE_BIN" ]; then
+              echo "Sparkle framework architectures:"
+              lipo -info "$SPARKLE_BIN"
+            fi
+          fi
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Build binaries
+        run: |
+          DISPLAY_VERSION="${{ steps.version.outputs.display_version }}" \
+          ./build.sh binaries --universal
+
+      - name: Build release .app
+        run: |
+          DISPLAY_VERSION="${{ steps.version.outputs.display_version }}" \
+          BUILD_VERSION="${{ steps.version.outputs.build_version }}" \
+          SU_PUBLIC_ED_KEY="${{ secrets.SPARKLE_ED_PUBLIC_KEY }}" \
+          SIGN_IDENTITY="Developer ID Application" \
+          PREBUILT_BIN_PATH="$(pwd)/prebuilt-bin" \
+          ./build.sh release
+
+          APP_PATH="dist/Vellum.app"
+          ls -la "$APP_PATH"
+          codesign --verify --deep --strict "$APP_PATH"
+          echo "Code signature verified"
+
+          # Verify the main executable is truly universal
+          echo "Main executable architectures:"
+          lipo -info "$APP_PATH/Contents/MacOS/Vellum"
+
+      - name: Upload split-arch build
+        uses: actions/upload-artifact@v4
+        with:
+          name: split-arch-build
+          path: clients/macos/dist/Vellum.app
+          retention-days: 7
 
       - name: Cleanup keychain
         if: always()
