@@ -57,11 +57,20 @@ describe('trust-context guards', () => {
     ).toBeDefined();
 
     expect(
-      principalLine!.includes('string | null'),
-      'guardianPrincipalId must not be typed as `string | null` in GuardianRuntimeContext. ' +
+      principalLine!.includes('string | null') || principalLine!.includes('null | string'),
+      'guardianPrincipalId must not be typed as nullable in GuardianRuntimeContext. ' +
         'Use `guardianPrincipalId?: string` (optional, non-nullable) instead. ' +
         `Found: "${principalLine!.trim()}"`,
     ).toBe(false);
+
+    // The field must remain optional (has `?`) — channels where no guardian
+    // principal exists should be able to omit it.
+    expect(
+      /guardianPrincipalId\s*\?/.test(principalLine!),
+      'guardianPrincipalId must remain optional (`?:`) in GuardianRuntimeContext. ' +
+        'Channels without a guardian principal need to omit this field. ' +
+        `Found: "${principalLine!.trim()}"`,
+    ).toBe(true);
   });
 
   // -----------------------------------------------------------------------
@@ -172,8 +181,8 @@ describe('trust-context guards', () => {
 
     // Must be `guardianPrincipalId: string` — not optional, not nullable
     expect(
-      principalLine!.includes('string | null'),
-      'guardianPrincipalId must not be typed as `string | null` in GuardianBinding. ' +
+      principalLine!.includes('string | null') || principalLine!.includes('null | string'),
+      'guardianPrincipalId must not be typed as nullable in GuardianBinding. ' +
         `Found: "${principalLine!.trim()}"`,
     ).toBe(false);
 
