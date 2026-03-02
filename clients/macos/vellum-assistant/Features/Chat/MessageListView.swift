@@ -506,8 +506,8 @@ struct MessageListView: View {
                     // A new pending confirmation just appeared. Resign first
                     // responder from the composer so the confirmation bubble's
                     // key monitor can intercept Tab/Enter/Escape immediately.
-                    // Only mark as handled after a successful resign so the
-                    // next render cycle can retry when the window is inactive.
+                    // Only mark as handled after a successful resign so
+                    // didBecomeKeyNotification can retry when the window is inactive.
                     if let window = NSApp.keyWindow,
                        let responder = window.firstResponder as? NSTextView,
                        responder.isEditable {
@@ -518,6 +518,16 @@ struct MessageListView: View {
                     lastAutoFocusedRequestId = nil
                 }
                 #endif
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
+                if let requestId = currentPendingRequestId, lastAutoFocusedRequestId != requestId,
+                   let window = notification.object as? NSWindow,
+                   window === NSApp.keyWindow,
+                   let responder = window.firstResponder as? NSTextView,
+                   responder.isEditable {
+                    window.makeFirstResponder(nil)
+                    lastAutoFocusedRequestId = requestId
+                }
             }
             .onReceive(TaskProgressOverlayManager.shared.$activeSurfaceId) { newId in
                 activeSurfaceId = newId
