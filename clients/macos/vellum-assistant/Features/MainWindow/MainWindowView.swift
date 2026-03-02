@@ -396,9 +396,10 @@ struct MainWindowView: View {
                     .transition(.opacity)
                 }
             }
-            .onChange(of: threadManager.activeThreadId) {
-                // Deactivate voice mode when switching threads
-                if voiceModeManager.state != .off {
+            .onChange(of: threadManager.activeThreadId) { oldId, newId in
+                // Deactivate voice mode on a real thread switch (UUID → different UUID),
+                // but not on draft promotion (nil → UUID) which happens on first send.
+                if let oldId, oldId != newId, voiceModeManager.state != .off {
                     voiceModeManager.deactivate()
                 }
             }

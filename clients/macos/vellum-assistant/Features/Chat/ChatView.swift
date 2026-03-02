@@ -106,8 +106,7 @@ struct ChatView: View {
         let attachments: CGFloat = pendingAttachments.isEmpty ? 0 : 48
         let error: CGFloat = (sessionError == nil && errorText != nil) ? 36 : 0
         let sessionErrorToast: CGFloat = sessionError != nil ? 52 : 0
-        let voiceBar: CGFloat = (voiceModeManager.map { $0.state != .off } ?? false) ? 50 : 0
-        return base + attachments + error + sessionErrorToast + voiceBar
+        return base + attachments + error + sessionErrorToast
     }
 
     var body: some View {

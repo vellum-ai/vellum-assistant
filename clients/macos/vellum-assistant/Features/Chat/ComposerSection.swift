@@ -92,18 +92,13 @@ struct ComposerSection: View {
                 onPaste: onPaste,
                 onFileDrop: onFileDrop,
                 onMicrophoneToggle: onMicrophoneToggle,
+                voiceModeManager: voiceModeManager,
+                voiceService: voiceService,
+                onEndVoiceMode: onEndVoiceMode,
                 placeholderText: "What would you like to do?",
                 editorContentHeight: $editorContentHeight,
                 isComposerExpanded: $isComposerExpanded
             )
-
-            if let voiceModeManager, let voiceService, voiceModeManager.state != .off {
-                VoiceModeBar(
-                    manager: voiceModeManager,
-                    voiceService: voiceService,
-                    onEnd: { onEndVoiceMode?() }
-                )
-            }
         }
         .background(
             LinearGradient(
