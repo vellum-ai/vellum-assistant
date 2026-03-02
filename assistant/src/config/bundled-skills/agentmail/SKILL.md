@@ -38,7 +38,7 @@ Use `credential_store` with:
 - label: `AgentMail API Key`
 - description: `Get your API key from console.agentmail.to`
 - placeholder: `am_us_...`
-- allowed_tools: `["host_bash"]`
+- allowed_tools: `["bash"]`
 - usage_description: `AgentMail email operations via vellum CLI`
 
 After the credential is stored, retry `vellum email status --json` to confirm it works.
