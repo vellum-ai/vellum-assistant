@@ -261,12 +261,11 @@ struct VoiceSettingsView: View {
                     }
 
                     HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Connect", style: .secondary, size: .large) {
+                        VButton(label: "Connect", style: .secondary, size: .large, isDisabled: elevenLabsKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
                             store.saveElevenLabsKey(elevenLabsKeyText)
                             elevenLabsKeyText = ""
                             ttsSetupExpanded = false
                         }
-                        .disabled(elevenLabsKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         VButton(label: "Cancel", style: .tertiary, size: .large) {
                             ttsSetupExpanded = false
                             elevenLabsKeyText = ""
