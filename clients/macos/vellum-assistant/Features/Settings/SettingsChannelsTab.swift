@@ -76,6 +76,9 @@ struct SettingsChannelsTab: View {
             store.refreshChannelGuardianStatus(channel: "slack")
             store.refreshTelegramApprovedMembers()
             store.fetchSlackChannelConfig()
+            if store.twilioHasCredentials {
+                store.refreshTwilioNumbers()
+            }
             Task {
                 await loadSmsFeatureFlag()
                 if isSmsFeatureEnabled {
