@@ -1,5 +1,5 @@
 ---
-fixture: desktop-app
+fixture: desktop-app-hatched
 ---
 
 # Privacy & Boundaries
