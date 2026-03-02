@@ -82,6 +82,17 @@ export function initAuthSigningKey(key: Buffer): void {
   _authSigningKey = key;
 }
 
+/**
+ * Check whether the auth signing key has been initialized.
+ *
+ * Useful for out-of-process contexts (CLI) that may run without
+ * daemon startup, where callers need to decide whether they can
+ * mint JWTs or must fall back to the legacy shared-secret token.
+ */
+export function isSigningKeyInitialized(): boolean {
+  return _authSigningKey !== null;
+}
+
 // ---------------------------------------------------------------------------
 // Base64url helpers
 // ---------------------------------------------------------------------------

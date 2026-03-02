@@ -260,8 +260,18 @@ const PARAMETERIZED_ROUTE_PATTERNS: Array<{ re: RegExp; policyBase: string }> = 
  *
  * For example, `calls/abc123` becomes `calls`, and
  * `attachments/abc123/content` becomes `attachments/content`.
+ *
+ * If the raw endpoint already has a direct policy registered (either
+ * bare or with a method qualifier), normalization is skipped. This
+ * prevents literal sub-routes like `calls/start` from being
+ * incorrectly collapsed to `calls`.
  */
-function normalizeEndpointForPolicy(endpoint: string): string {
+function normalizeEndpointForPolicy(endpoint: string, method: string): string {
+  // If the exact endpoint (with or without method) has a direct policy, don't normalize
+  if (getPolicy(`${endpoint}:${method}`) || getPolicy(endpoint)) {
+    return endpoint;
+  }
+
   for (const { re, policyBase } of PARAMETERIZED_ROUTE_PATTERNS) {
     const match = endpoint.match(re);
     if (match) {
@@ -725,7 +735,7 @@ export class RuntimeHttpServer {
     // Normalize parameterized endpoints to their base policy key so that
     // routes like `calls/abc123` match the registered key `calls` and
     // `attachments/abc123/content` matches `attachments/content`.
-    const normalizedEndpoint = normalizeEndpointForPolicy(endpoint);
+    const normalizedEndpoint = normalizeEndpointForPolicy(endpoint, req.method);
 
     // Enforce route-level scope/principal policy before invoking any handler.
     // Try method-specific key first (e.g. "messages:POST"); fall back to the
