@@ -64,7 +64,9 @@ enum APIKeyManager {
             }
         }
         let value = cliGetKey(service: service, account: provider)
-        setCachedValue(value, for: provider)
+        if value != nil {
+            setCachedValue(value, for: provider)
+        }
         return value
     }
 
