@@ -283,6 +283,8 @@ export function mintCanonicalRequestGrant(params: {
 /** Valid actions for canonical guardian decisions. */
 const VALID_CANONICAL_ACTIONS: ReadonlySet<ApprovalAction> = new Set([
   'approve_once',
+  'approve_10m',
+  'approve_thread',
   'approve_always',
   'reject',
 ]);

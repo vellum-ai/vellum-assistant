@@ -62,6 +62,8 @@ const APPROVAL_CONVERSATION_TOOL_SCHEMA = {
 const VALID_DISPOSITIONS: ReadonlySet<string> = new Set([
   'keep_pending',
   'approve_once',
+  'approve_10m',
+  'approve_thread',
   'approve_always',
   'reject',
 ]);

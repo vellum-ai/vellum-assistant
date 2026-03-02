@@ -30,16 +30,18 @@ const WHATSAPP_MAX_BUTTONS = 3;
 
 /**
  * Select up to WHATSAPP_MAX_BUTTONS actions for WhatsApp interactive buttons.
- * When there are more actions than the cap allows, this ensures the reject
- * action is always included alongside the highest-priority approve variants.
+ * When there are more actions than the cap allows, this ensures that `reject`
+ * and `approve_always` are always preserved (they are the most important
+ * decisions), with remaining slots filled by other approve variants in order.
  */
 function selectWhatsAppButtons(actions: Array<{ id: string; label: string }>): Array<{ id: string; label: string }> {
   if (actions.length <= WHATSAPP_MAX_BUTTONS) return actions;
-  const reject = actions.find(a => a.id === 'reject');
-  const nonReject = actions.filter(a => a.id !== 'reject');
-  const slotsForApprove = reject ? WHATSAPP_MAX_BUTTONS - 1 : WHATSAPP_MAX_BUTTONS;
-  const selected = nonReject.slice(0, slotsForApprove);
-  if (reject) selected.push(reject);
+
+  // Always preserve reject and approve_always when present
+  const pinned = actions.filter(a => a.id === 'reject' || a.id === 'approve_always');
+  const rest = actions.filter(a => a.id !== 'reject' && a.id !== 'approve_always');
+  const slotsForRest = WHATSAPP_MAX_BUTTONS - pinned.length;
+  const selected = [...rest.slice(0, slotsForRest), ...pinned];
   return selected;
 }
 
