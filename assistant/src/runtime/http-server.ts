@@ -866,8 +866,7 @@ export class RuntimeHttpServer {
       if (endpoint === 'channels/conversation' && req.method === 'DELETE') return await handleDeleteConversation(req, assistantId);
 
       if (endpoint === 'channels/inbound' && req.method === 'POST') {
-        // Route policy enforces svc_gateway principal type — replaces
-        // the old X-Gateway-Origin header check.
+        // Route policy enforces svc_gateway principal type.
         const policyDenied = enforcePolicy('channels/inbound', authContext);
         if (policyDenied) return policyDenied;
         return await handleChannelInbound(req, this.processMessage, assistantId, this.approvalCopyGenerator, this.approvalConversationGenerator, this.guardianActionCopyGenerator, this.guardianFollowUpConversationGenerator);

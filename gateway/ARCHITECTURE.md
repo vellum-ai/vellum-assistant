@@ -53,12 +53,12 @@ The gateway exposes a REST API for reading and mutating assistant feature flags.
 
 **Token separation (authentication boundary):**
 
-The assistant feature flags API uses a dedicated token (the **feature-flag token**) stored at `~/.vellum/feature-flag-token`, separate from the **runtime token** (`~/.vellum/http-token`). This separation ensures that clients with feature-flag access cannot access runtime endpoints, and vice versa.
+The assistant feature flags API uses a dedicated feature-flag token stored at `~/.vellum/feature-flag-token`, separate from JWT auth tokens. This separation ensures that clients with feature-flag access cannot access runtime endpoints, and vice versa.
 
 | Operation | Accepted tokens |
 |-----------|----------------|
-| `GET /v1/feature-flags` | Runtime bearer token OR feature-flag token |
-| `PATCH /v1/feature-flags/:key` | Feature-flag token ONLY (runtime token is explicitly rejected) |
+| `GET /v1/feature-flags` | JWT bearer token OR feature-flag token |
+| `PATCH /v1/feature-flags/:key` | Feature-flag token ONLY (JWT bearer tokens are explicitly rejected) |
 
 The feature-flag token is auto-generated on first gateway startup if the file does not exist. The gateway watches the token file for changes and hot-reloads without restart.
 
@@ -90,12 +90,12 @@ Guardian verification endpoints are exposed directly by the gateway and forwarde
 | POST | `/v1/integrations/guardian/outbound/cancel` |
 | POST | `/v1/integrations/guardian/vellum/refresh` |
 
-The `/vellum/refresh` endpoint is the only public ingress for rotating actor + refresh token credentials. Clients must call this through the gateway; the runtime endpoint is not directly exposed. The gateway validates the caller's bearer token and forwards to the runtime, which handles refresh token validation, rotation, and replay detection (see [`assistant/ARCHITECTURE.md`](../assistant/ARCHITECTURE.md) for refresh token lifecycle details).
+The `/vellum/refresh` endpoint is the only public ingress for rotating JWT access + refresh token credentials. Clients must call this through the gateway; the runtime endpoint is not directly exposed. The gateway validates the caller's JWT and forwards to the runtime, which handles refresh token validation, rotation, and replay detection (see [`assistant/ARCHITECTURE.md`](../assistant/ARCHITECTURE.md) for the JWT auth lifecycle).
 
 **Authentication boundary:**
 
-- Gateway validates caller bearer auth against the runtime token.
-- Gateway forwards requests to runtime with the runtime bearer token and `X-Gateway-Origin` proof header.
+- Gateway validates the caller's JWT bearer token.
+- Gateway forwards requests to runtime with a minted JWT (`gateway_service_v1` scope profile).
 - Upstream 4xx/5xx responses are passed through, while connection errors return `502` and timeouts return `504`.
 
 **Key source files:**
@@ -103,7 +103,7 @@ The `/vellum/refresh` endpoint is the only public ingress for rotating actor + r
 | File | Purpose |
 |------|---------|
 | `gateway/src/http/routes/guardian-control-plane-proxy.ts` | Guardian control-plane proxy handlers and upstream forwarding |
-| `gateway/src/index.ts` | Route registration and bearer-auth enforcement for `/v1/integrations/guardian/*` |
+| `gateway/src/index.ts` | Route registration and JWT auth enforcement for `/v1/integrations/guardian/*` |
 
 ### Runtime Health Proxy
 
@@ -111,8 +111,8 @@ Runtime health is exposed directly by the gateway at `GET /v1/health` and forwar
 
 **Authentication boundary:**
 
-- Gateway validates caller bearer auth against the runtime token.
-- Gateway forwards the request to runtime with the runtime bearer token and `X-Gateway-Origin` proof header.
+- Gateway validates the caller's JWT bearer token.
+- Gateway forwards the request to runtime with a minted JWT (`gateway_service_v1` scope profile).
 - Upstream 4xx/5xx responses are passed through, while connection errors return `502` and timeouts return `504`.
 
 **Key source files:**
@@ -147,8 +147,8 @@ Telegram integration setup/config endpoints and ingress members/invites endpoint
 
 **Authentication boundary:**
 
-- Gateway validates caller bearer auth against the runtime token.
-- Gateway forwards requests to runtime with the runtime bearer token and `X-Gateway-Origin` proof header.
+- Gateway validates the caller's JWT bearer token.
+- Gateway forwards requests to runtime with a minted JWT (`gateway_ingress_v1` or `gateway_service_v1` scope profile).
 - Upstream 4xx/5xx responses are passed through, while connection errors return `502` and timeouts return `504`.
 
 **Key source files:**
@@ -183,8 +183,8 @@ Twilio integration setup/config endpoints are exposed directly by the gateway an
 
 **Authentication boundary:**
 
-- Gateway validates caller bearer auth against the runtime token.
-- Gateway forwards requests to runtime with the runtime bearer token and `X-Gateway-Origin` proof header.
+- Gateway validates the caller's JWT bearer token.
+- Gateway forwards requests to runtime with a minted JWT (`gateway_ingress_v1` or `gateway_service_v1` scope profile).
 - Upstream 4xx/5xx responses are passed through, while connection errors return `502` and timeouts return `504`.
 
 **Key source files:**
@@ -207,8 +207,8 @@ Channel readiness endpoints are exposed directly by the gateway and forwarded to
 
 **Authentication boundary:**
 
-- Gateway validates caller bearer auth against the runtime token.
-- Gateway forwards requests to runtime with the runtime bearer token and `X-Gateway-Origin` proof header.
+- Gateway validates the caller's JWT bearer token.
+- Gateway forwards requests to runtime with a minted JWT (`gateway_ingress_v1` or `gateway_service_v1` scope profile).
 - Upstream 4xx/5xx responses are passed through, while connection errors return `502` and timeouts return `504`.
 
 **Key source files:**
