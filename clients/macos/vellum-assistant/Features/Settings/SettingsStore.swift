@@ -1223,16 +1223,9 @@ public final class SettingsStore: ObservableObject {
     }
 
     func unassignTwilioNumber() {
-        // Optimistically clear locally so the UI responds immediately.
         twilioPhoneNumber = nil
         twilioError = nil
-        Task {
-            await performTwilioHTTPRequest(
-                method: "DELETE",
-                path: "/v1/integrations/twilio/numbers/assign",
-                applyPhoneNumber: true
-            )
-        }
+        twilioWarning = nil
     }
 
     func provisionTwilioNumber(areaCode: String?, country: String?) {
