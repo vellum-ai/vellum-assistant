@@ -22,7 +22,8 @@ import { getActiveBinding } from '../../memory/guardian-bindings.js';
 import { getLogger } from '../../util/logger.js';
 import { findActiveByTokenHash } from '../actor-token-store.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
-import { hashToken } from '../auth/token-service.js';
+import { parseSub } from '../auth/subject.js';
+import { hashToken, verifyToken } from '../auth/token-service.js';
 import {
   resolveGuardianContext,
   toGuardianRuntimeContext,
@@ -149,12 +150,17 @@ export function extractActorToken(req: Request): string | null {
 /**
  * Verify the X-Actor-Token header and resolve a guardian runtime context.
  *
- * Steps:
- * 1. Extract the header value.
- * 2. Verify HMAC signature and expiration (legacy token format).
- * 3. Check the token hash is active in the actor-token store.
- * 4. Resolve a guardian context through the standard trust pipeline using
- *    the claims' guardianPrincipalId as the sender identity.
+ * Supports two token formats:
+ * - **JWT (3 dot-separated parts)**: Verified via `verifyToken()` with
+ *   audience `vellum-gateway` (clients present edge tokens to the runtime
+ *   via the X-Actor-Token header). The `sub` claim is parsed to extract
+ *   `guardianPrincipalId`.
+ * - **Legacy HMAC (2 dot-separated parts)**: Verified via
+ *   `verifyLegacyActorToken()` using the shared signing key.
+ *
+ * After format-specific verification, both paths check the token hash
+ * against the active store (revocation check) and resolve a guardian
+ * runtime context through the standard trust pipeline.
  *
  * Returns an ok result with claims and guardianContext, or an error with
  * the HTTP status code and message to return.
@@ -169,24 +175,79 @@ export function verifyHttpActorToken(req: Request): ActorTokenVerification {
     };
   }
 
-  if (!_legacySigningKey) {
-    log.error('Legacy signing key not set — cannot verify actor tokens');
-    return {
-      ok: false,
-      status: 500,
-      message: 'Server configuration error: signing key not initialized',
-    };
-  }
+  // Determine token format by counting dot-separated parts.
+  // JWT tokens have 3 parts (header.payload.signature), legacy HMAC tokens
+  // have 2 parts (base64url-claims.base64url-sig).
+  const dotCount = rawToken.split('.').length - 1;
+  const isJwt = dotCount === 2;
 
-  // Structural + signature verification
-  const verifyResult = verifyLegacyActorToken(rawToken, _legacySigningKey);
-  if (!verifyResult.ok) {
-    log.warn({ reason: verifyResult.reason }, 'Actor token verification failed');
-    return {
-      ok: false,
-      status: 401,
-      message: `Invalid actor token: ${verifyResult.reason}`,
+  let claims: ActorTokenClaims;
+
+  if (isJwt) {
+    // --- JWT verification path ---
+    const jwtResult = verifyToken(rawToken, 'vellum-gateway');
+    if (!jwtResult.ok) {
+      log.warn({ reason: jwtResult.reason }, 'JWT actor token verification failed');
+      return {
+        ok: false,
+        status: 401,
+        message: `Invalid actor token: ${jwtResult.reason}`,
+      };
+    }
+
+    // Extract guardianPrincipalId from the sub claim
+    // (format: actor:<assistantId>:<guardianPrincipalId>)
+    const subResult = parseSub(jwtResult.claims.sub);
+    if (!subResult.ok) {
+      log.warn({ reason: subResult.reason }, 'JWT actor token has unparseable sub claim');
+      return {
+        ok: false,
+        status: 401,
+        message: `Invalid actor token: bad sub claim — ${subResult.reason}`,
+      };
+    }
+
+    if (!subResult.actorPrincipalId) {
+      log.warn({ sub: jwtResult.claims.sub }, 'JWT actor token sub claim missing actorPrincipalId');
+      return {
+        ok: false,
+        status: 401,
+        message: 'Invalid actor token: sub claim does not contain an actor principal ID',
+      };
+    }
+
+    // Construct ActorTokenClaims-compatible object for downstream consumers
+    claims = {
+      assistantId: subResult.assistantId,
+      platform: 'vellum',
+      deviceId: '',
+      guardianPrincipalId: subResult.actorPrincipalId,
+      iat: jwtResult.claims.iat ?? Math.floor(Date.now() / 1000),
+      exp: jwtResult.claims.exp,
+      jti: jwtResult.claims.jti ?? '',
     };
+  } else {
+    // --- Legacy HMAC verification path ---
+    if (!_legacySigningKey) {
+      log.error('Legacy signing key not set — cannot verify actor tokens');
+      return {
+        ok: false,
+        status: 500,
+        message: 'Server configuration error: signing key not initialized',
+      };
+    }
+
+    const verifyResult = verifyLegacyActorToken(rawToken, _legacySigningKey);
+    if (!verifyResult.ok) {
+      log.warn({ reason: verifyResult.reason }, 'Legacy actor token verification failed');
+      return {
+        ok: false,
+        status: 401,
+        message: `Invalid actor token: ${verifyResult.reason}`,
+      };
+    }
+
+    claims = verifyResult.claims;
   }
 
   // Check the token is active in the store (not revoked)
@@ -200,8 +261,6 @@ export function verifyHttpActorToken(req: Request): ActorTokenVerification {
       message: 'Actor token is no longer active',
     };
   }
-
-  const { claims } = verifyResult;
 
   // Resolve guardian context through the shared trust pipeline.
   // The guardianPrincipalId from the token is used as the sender identity,

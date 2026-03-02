@@ -23,7 +23,8 @@ let cached: string | null = null;
  *
  * Resolution order:
  *   1. Cached in-memory value (populated on first call)
- *   2. First entry in lockfile assistants array → assistantId
+ *   2. Most recently hatched entry in lockfile assistants array
+ *      (sorted by `hatchedAt` descending) → assistantId
  *   3. Fallback: 'self'
  */
 export function getExternalAssistantId(): string {
@@ -35,10 +36,20 @@ export function getExternalAssistantId(): string {
     const lockData = readLockfile();
     if (lockData) {
       const assistants = lockData.assistants as Array<Record<string, unknown>> | undefined;
-      if (assistants && assistants.length > 0 && typeof assistants[0].assistantId === 'string') {
-        cached = assistants[0].assistantId;
-        log.info({ externalAssistantId: cached }, 'Resolved external assistant ID from lockfile');
-        return cached;
+      if (assistants && assistants.length > 0) {
+        // Sort by hatchedAt descending to use the most recent entry,
+        // matching the pattern used elsewhere in the codebase.
+        const sorted = [...assistants].sort((a, b) => {
+          const dateA = new Date((a.hatchedAt as string) || 0).getTime();
+          const dateB = new Date((b.hatchedAt as string) || 0).getTime();
+          return dateB - dateA;
+        });
+        const latest = sorted[0];
+        if (typeof latest.assistantId === 'string') {
+          cached = latest.assistantId;
+          log.info({ externalAssistantId: cached }, 'Resolved external assistant ID from lockfile');
+          return cached;
+        }
       }
     }
   } catch (err) {
