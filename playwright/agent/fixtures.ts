@@ -129,9 +129,9 @@ function logVellumPs(): void {
 /**
  * Ensures the `vellum` CLI is available on PATH.
  *
- * The install script places the binary in ~/.bun/bin and writes a
- * sourceable env file to ~/.config/vellum/env. We add ~/.bun/bin
- * to the current process PATH so child_process calls can find it.
+ * Adds ~/.bun/bin to the current process PATH so child_process calls
+ * can find binaries installed via bun. If `vellum` is still not
+ * found, installs it globally via `bun install -g vellum@latest`.
  */
 function ensureVellumInPath(): void {
   const home = process.env.HOME ?? "/root";
@@ -142,15 +142,45 @@ function ensureVellumInPath(): void {
     process.env.PATH = `${bunBin}:${process.env.PATH ?? ""}`;
   }
 
+  // Check if vellum is already available
   try {
     execSync("vellum --version", {
       encoding: "utf-8",
       timeout: 10_000,
       shell: "/bin/bash",
+      env: process.env,
+    });
+    return;
+  } catch {
+    // Not found — try installing below
+  }
+
+  // Install vellum globally via bun
+  try {
+    execSync("bun install -g vellum@latest", {
+      stdio: "inherit",
+      timeout: 60_000,
+      shell: "/bin/bash",
+      env: process.env,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `Failed to install vellum CLI via bun: ${message}`,
+    );
+  }
+
+  // Verify it's now available
+  try {
+    execSync("vellum --version", {
+      encoding: "utf-8",
+      timeout: 10_000,
+      shell: "/bin/bash",
+      env: process.env,
     });
   } catch {
     throw new Error(
-      `vellum CLI not found on PATH. Run install.sh first or ensure ~/.bun/bin is on PATH.`,
+      `vellum CLI not found on PATH after installation. Ensure bun is available and ~/.bun/bin is on PATH.`,
     );
   }
 }

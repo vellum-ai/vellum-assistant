@@ -58,16 +58,37 @@ private func createDesktopAppHatchedFixture(appDisplayName: String) throws -> Fi
 
 // MARK: - Shared Helpers
 
-/// Ensures the `vellum` CLI is available on PATH by adding ~/.bun/bin.
+/// Ensures the `vellum` CLI is available on PATH.
+///
+/// Adds ~/.bun/bin to the process PATH so child processes can find
+/// binaries installed via bun. If `vellum` is still not found,
+/// installs it globally via `bun install -g vellum@latest`.
 private func ensureVellumInPath() {
     let home = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()
     let bunBin = (home as NSString).appendingPathComponent(".bun/bin")
 
-    var env = ProcessInfo.processInfo.environment
-    let currentPath = env["PATH"] ?? ""
+    let currentPath = ProcessInfo.processInfo.environment["PATH"] ?? ""
     if !currentPath.contains(bunBin) {
         setenv("PATH", "\(bunBin):\(currentPath)", 1)
     }
+
+    // Check if vellum is already available
+    let check = Process()
+    check.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+    check.arguments = ["vellum", "--version"]
+    check.standardOutput = FileHandle.nullDevice
+    check.standardError = FileHandle.nullDevice
+    if let _ = try? check.run() {
+        check.waitUntilExit()
+        if check.terminationStatus == 0 { return }
+    }
+
+    // Install vellum globally via bun
+    let install = Process()
+    install.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+    install.arguments = ["bun", "install", "-g", "vellum@latest"]
+    try? install.run()
+    install.waitUntilExit()
 }
 
 /// Ensures an assistant is hatched. Checks `vellum ps` and runs
