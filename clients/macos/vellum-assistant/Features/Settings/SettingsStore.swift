@@ -1748,6 +1748,12 @@ public final class SettingsStore: ObservableObject {
                 if self.voiceGuardianError == nil {
                     self.voiceGuardianError = "Timed out waiting for verification instructions. Try again."
                 }
+            case "slack":
+                self.slackGuardianVerificationInProgress = false
+                self.slackGuardianInstruction = nil
+                if self.slackGuardianError == nil {
+                    self.slackGuardianError = "Timed out waiting for verification instructions. Try again."
+                }
             default:
                 break
             }

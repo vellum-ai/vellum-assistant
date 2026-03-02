@@ -74,7 +74,16 @@ export function normalizeSlackDirectMessage(
   // user is required for routing
   if (!event.user) return null;
 
-  const routing = resolveAssistant(config, event.channel, event.user);
+  // DMs are always directed at the bot, so use the default assistant even
+  // when the DM channel ID (D...) isn't in the routing table. This ensures
+  // guardian verification replies aren't silently dropped.
+  let routing = resolveAssistant(config, event.channel, event.user);
+  if (isRejection(routing) && config.defaultAssistantId) {
+    routing = {
+      assistantId: config.defaultAssistantId,
+      routeSource: "default" as const,
+    };
+  }
   if (isRejection(routing)) {
     return null;
   }
