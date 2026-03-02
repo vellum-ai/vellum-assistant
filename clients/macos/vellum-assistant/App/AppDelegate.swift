@@ -531,17 +531,23 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                     // Remote assistants don't run a local gateway, so skip the check.
                     let gatewayOk = isCurrentAssistantRemote || (await isGatewayHealthy())
                     if !gatewayOk {
+                        // Gateway is unhealthy but daemon is connected. Record for
+                        // diagnostics but proceed anyway — the gateway being down
+                        // only affects external ingress (Twilio, OAuth), not core
+                        // assistant functionality. Blocking here causes a deadlock
+                        // when the lockfile-exists fallback hatches with daemonOnly.
                         bootstrapFailureKind = .gatewayUnhealthy
+                        log.warning("Gateway unhealthy during bootstrap retry but daemon is connected — proceeding anyway (some features like Twilio/OAuth ingress may be unavailable)")
                     } else {
                         log.info("Daemon connected during bootstrap retry — proceeding to wake-up send")
-                        transitionBootstrap(to: .pendingWakeupSend)
-                        dismissBootstrapInterstitialWindow()
-                        await performRetriableWakeUpSend()
-                        if !Task.isCancelled {
-                            bootstrapRetryTask = nil
-                        }
-                        return
                     }
+                    transitionBootstrap(to: .pendingWakeupSend)
+                    dismissBootstrapInterstitialWindow()
+                    await performRetriableWakeUpSend()
+                    if !Task.isCancelled {
+                        bootstrapRetryTask = nil
+                    }
+                    return
                 }
 
                 // If the daemon socket doesn't exist, the daemon process
@@ -559,9 +565,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                 }
 
                 // Attempt a connection if not already connected or in progress.
-                // The gateway-unhealthy fallthrough above should not trigger a
-                // reconnect — tearing down a healthy daemon connection just
-                // because the gateway isn't ready yet causes unnecessary churn.
                 if !daemonClient.isConnected && !daemonClient.isConnecting {
                     do {
                         try await daemonClient.connect()
@@ -582,17 +585,21 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                     // Remote assistants don't run a local gateway, so skip the check.
                     let gatewayOk = isCurrentAssistantRemote || (await isGatewayHealthy())
                     if !gatewayOk {
+                        // Same rationale as the check above: gateway health is a
+                        // warning, not a gate. Blocking here deadlocks when hatch
+                        // ran with daemonOnly (lockfile-exists fallback).
                         bootstrapFailureKind = .gatewayUnhealthy
+                        log.warning("Gateway unhealthy after bootstrap retry connect but daemon is connected — proceeding anyway (some features like Twilio/OAuth ingress may be unavailable)")
                     } else {
                         log.info("Daemon connected after bootstrap retry connect — proceeding to wake-up send")
-                        transitionBootstrap(to: .pendingWakeupSend)
-                        dismissBootstrapInterstitialWindow()
-                        await performRetriableWakeUpSend()
-                        if !Task.isCancelled {
-                            bootstrapRetryTask = nil
-                        }
-                        return
                     }
+                    transitionBootstrap(to: .pendingWakeupSend)
+                    dismissBootstrapInterstitialWindow()
+                    await performRetriableWakeUpSend()
+                    if !Task.isCancelled {
+                        bootstrapRetryTask = nil
+                    }
+                    return
                 }
 
                 // Surface diagnostics so the user isn't staring at a
