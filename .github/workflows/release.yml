@@ -453,7 +453,6 @@ jobs:
       fail-fast: false
       matrix:
         environment: [dev, production]
-        platform_target: [nonprod, prod]
     environment: ${{ matrix.environment }}
     steps:
       - name: Checkout
@@ -488,7 +487,7 @@ jobs:
       - name: Resolve platform credentials
         id: platform-creds
         run: |
-          if [ "${{ matrix.platform_target }}" = "nonprod" ]; then
+          if [ "${{ matrix.environment }}" = "dev" ]; then
             echo "api_url=${{ secrets.NONPROD_PLATFORM_API_URL }}" >> "$GITHUB_OUTPUT"
             echo "api_key=${{ secrets.NONPROD_PLATFORM_INTERNAL_SERVICE_API_KEY }}" >> "$GITHUB_OUTPUT"
           else
@@ -532,7 +531,7 @@ jobs:
               }
             }')
 
-          echo "Registering release v${VERSION} with platform (${{ matrix.environment }} / ${{ matrix.platform_target }})..."
+          echo "Registering release v${VERSION} with platform (${{ matrix.environment }})..."
           HTTP_STATUS=$(curl -s -o /tmp/response.json -w "%{http_code}" \
             -X POST "${{ steps.platform-creds.outputs.api_url }}/v1/internal/assistant-image-releases/" \
             -H "Content-Type: application/json" \
@@ -549,7 +548,7 @@ jobs:
 
       - name: Summary
         run: |
-          echo "## Release Registered (${{ matrix.environment }} / ${{ matrix.platform_target }})" >> $GITHUB_STEP_SUMMARY
+          echo "## Release Registered (${{ matrix.environment }})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** \`${{ needs.bump-and-tag.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
 
