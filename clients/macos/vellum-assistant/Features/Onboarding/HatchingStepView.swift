@@ -131,7 +131,7 @@ struct HatchingStepView: View {
     }
 
     private var wobbleEgg: some View {
-        Text(state.hatchFailed ? "\u{1F480}" : eggCracked ? "\u{1F423}" : "\u{1F95A}")
+        Text(state.hatchFailed ? "\u{1FAE0}" : eggCracked ? "\u{1F423}" : "\u{1F95A}")
             .font(.system(size: 72))
             .rotationEffect(.degrees(wobbleAngle))
             .scaleEffect(eggCracked ? 1.1 : 1.0)
@@ -197,26 +197,15 @@ struct HatchingStepView: View {
 
     private var failureButtons: some View {
         VStack(spacing: VSpacing.sm) {
-            Button(action: { retryHatch() }) {
-                Text("Try Again")
-                    .font(.system(size: 13))
-                    .foregroundColor(VColor.textSecondary)
-            }
-            .buttonStyle(.plain)
-            .onHover { hovering in
-                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+            OnboardingButton(title: "Try Again", style: .primary) {
+                retryHatch()
             }
 
-            Button(action: { goBack() }) {
-                Text("Go Back")
-                    .font(.system(size: 13))
-                    .foregroundColor(VColor.textMuted)
-            }
-            .buttonStyle(.plain)
-            .onHover { hovering in
-                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+            OnboardingButton(title: "Go Back", style: .tertiary) {
+                goBack()
             }
         }
+        .frame(maxWidth: 280)
         .padding(.top, VSpacing.xs)
     }
 
