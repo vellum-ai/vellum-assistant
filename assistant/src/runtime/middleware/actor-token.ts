@@ -1,7 +1,7 @@
 /**
  * Actor-token verification middleware for HTTP routes.
  *
- * Extracts the X-Actor-Token header, verifies the HMAC signature,
+ * Extracts the X-Actor-Token header, verifies the token (JWT or legacy HMAC),
  * checks that the token is active in the store, and returns the
  * verified claims and resolved guardian runtime context.
  *
@@ -14,13 +14,15 @@
  * guardian context pathway when no actor token is present.
  */
 
+import { createHmac, timingSafeEqual } from 'node:crypto';
+
 import type { ChannelId } from '../../channels/types.js';
 import type { GuardianRuntimeContext } from '../../daemon/session-runtime-assembly.js';
 import { getActiveBinding } from '../../memory/guardian-bindings.js';
 import { getLogger } from '../../util/logger.js';
-import { type ActorTokenClaims, hashToken, verifyActorToken } from '../actor-token-service.js';
 import { findActiveByTokenHash } from '../actor-token-store.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
+import { hashToken } from '../auth/token-service.js';
 import {
   resolveGuardianContext,
   toGuardianRuntimeContext,
@@ -28,6 +30,89 @@ import {
 import { resolveLocalIpcGuardianContext } from '../local-actor-identity.js';
 
 const log = getLogger('actor-token-middleware');
+
+// ---------------------------------------------------------------------------
+// Legacy HMAC actor token types & verification
+// ---------------------------------------------------------------------------
+
+/**
+ * Claims embedded in legacy HMAC actor tokens (pre-JWT). Retained for
+ * backward compatibility during the transition period.
+ */
+export interface ActorTokenClaims {
+  assistantId: string;
+  platform: string;
+  deviceId: string;
+  guardianPrincipalId: string;
+  iat: number;
+  exp: number | null;
+  jti: string;
+}
+
+type LegacyVerifyResult =
+  | { ok: true; claims: ActorTokenClaims }
+  | { ok: false; reason: string };
+
+/**
+ * Verify a legacy HMAC-signed actor token. Uses the same signing key
+ * as the new JWT system (shared via initAuthSigningKey at startup).
+ *
+ * Token format: base64url(JSON claims) + '.' + base64url(HMAC-SHA256 sig)
+ */
+function verifyLegacyActorToken(token: string, signingKey: Buffer): LegacyVerifyResult {
+  const dotIndex = token.indexOf('.');
+  if (dotIndex < 0) {
+    return { ok: false, reason: 'malformed_token' };
+  }
+
+  // Legacy tokens have exactly 1 dot; JWTs have 2. If there's a second dot
+  // this isn't a legacy token.
+  if (token.indexOf('.', dotIndex + 1) >= 0) {
+    return { ok: false, reason: 'not_legacy_token' };
+  }
+
+  const payload = token.slice(0, dotIndex);
+  const sigPart = token.slice(dotIndex + 1);
+
+  const expectedSig = createHmac('sha256', signingKey)
+    .update(payload)
+    .digest();
+  const actualSig = Buffer.from(sigPart, 'base64url');
+
+  if (expectedSig.length !== actualSig.length) {
+    return { ok: false, reason: 'invalid_signature' };
+  }
+
+  if (!timingSafeEqual(expectedSig, actualSig)) {
+    return { ok: false, reason: 'invalid_signature' };
+  }
+
+  let claims: ActorTokenClaims;
+  try {
+    const decoded = Buffer.from(payload, 'base64url').toString('utf-8');
+    claims = JSON.parse(decoded) as ActorTokenClaims;
+  } catch {
+    return { ok: false, reason: 'malformed_claims' };
+  }
+
+  if (claims.exp != null && Date.now() > claims.exp) {
+    return { ok: false, reason: 'token_expired' };
+  }
+
+  return { ok: true, claims };
+}
+
+// We import initAuthSigningKey indirectly — the signing key is set at startup
+// and we need it for legacy verification. We expose a module-level setter.
+let _legacySigningKey: Buffer | null = null;
+
+/**
+ * Set the signing key for legacy HMAC token verification.
+ * Called by initAuthSigningKey in the auth module at startup.
+ */
+export function setLegacySigningKey(key: Buffer): void {
+  _legacySigningKey = key;
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -66,7 +151,7 @@ export function extractActorToken(req: Request): string | null {
  *
  * Steps:
  * 1. Extract the header value.
- * 2. Verify HMAC signature and expiration.
+ * 2. Verify HMAC signature and expiration (legacy token format).
  * 3. Check the token hash is active in the actor-token store.
  * 4. Resolve a guardian context through the standard trust pipeline using
  *    the claims' guardianPrincipalId as the sender identity.
@@ -84,8 +169,17 @@ export function verifyHttpActorToken(req: Request): ActorTokenVerification {
     };
   }
 
+  if (!_legacySigningKey) {
+    log.error('Legacy signing key not set — cannot verify actor tokens');
+    return {
+      ok: false,
+      status: 500,
+      message: 'Server configuration error: signing key not initialized',
+    };
+  }
+
   // Structural + signature verification
-  const verifyResult = verifyActorToken(rawToken);
+  const verifyResult = verifyLegacyActorToken(rawToken, _legacySigningKey);
   if (!verifyResult.ok) {
     log.warn({ reason: verifyResult.reason }, 'Actor token verification failed');
     return {

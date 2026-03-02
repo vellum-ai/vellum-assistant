@@ -36,9 +36,9 @@ import { rotateToolInvocations } from '../memory/tool-usage-store.js';
 import { migrateToDataLayout } from '../migrations/data-layout.js';
 import { migrateToWorkspaceLayout } from '../migrations/workspace-layout.js';
 import { emitNotificationSignal, registerBroadcastFn } from '../notifications/emit-signal.js';
-import { loadOrCreateSigningKey } from '../runtime/actor-token-service.js';
-import { initAuthSigningKey } from '../runtime/auth/token-service.js';
+import { initAuthSigningKey, loadOrCreateSigningKey } from '../runtime/auth/token-service.js';
 import { assistantEventHub } from '../runtime/assistant-event-hub.js';
+import { setLegacySigningKey } from '../runtime/middleware/actor-token.js';
 import { ensureVellumGuardianBinding } from '../runtime/guardian-vellum-migration.js';
 import { RuntimeHttpServer } from '../runtime/http-server.js';
 import { startScheduler } from '../schedule/scheduler.js';
@@ -134,10 +134,13 @@ export async function runDaemon(): Promise<void> {
     chmodSync(httpTokenPath, 0o600);
     log.info('Daemon startup: bearer token written');
 
-    // Load (or generate + persist) the actor-token signing key so tokens
-    // survive daemon restarts. Must happen after ensureDataDir() creates
-    // the protected directory.
-    initAuthSigningKey(loadOrCreateSigningKey());
+    // Load (or generate + persist) the auth signing key so tokens survive
+    // daemon restarts. Must happen after ensureDataDir() creates the
+    // protected directory. setLegacySigningKey enables the middleware to
+    // verify legacy HMAC actor tokens during the transition period.
+    const signingKey = loadOrCreateSigningKey();
+    initAuthSigningKey(signingKey);
+    setLegacySigningKey(signingKey);
 
     log.info('Daemon startup: migrations complete');
 

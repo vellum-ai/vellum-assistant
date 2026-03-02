@@ -6,7 +6,7 @@
  */
 
 import { getLogger } from '../../util/logger.js';
-import { rotateCredentials } from '../actor-refresh-token-service.js';
+import { rotateCredentials } from '../auth/credential-service.js';
 import { httpError } from '../http-errors.js';
 
 const log = getLogger('guardian-refresh');
@@ -15,7 +15,7 @@ const log = getLogger('guardian-refresh');
  * Handle POST /v1/integrations/guardian/vellum/refresh
  *
  * Body: { platform: 'ios' | 'macos', deviceId: string, refreshToken: string }
- * Returns: { guardianPrincipalId, actorToken, actorTokenExpiresAt, refreshToken, refreshTokenExpiresAt, refreshAfter }
+ * Returns: { guardianPrincipalId, accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt, refreshAfter }
  */
 export async function handleGuardianRefresh(req: Request): Promise<Response> {
   try {

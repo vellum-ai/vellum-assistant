@@ -1,8 +1,9 @@
 /**
- * Tests for actor-token mint/verify service, hash-only storage,
+ * Tests for JWT credential service, hash-only storage,
  * guardian bootstrap endpoint idempotency, HTTP middleware strict
  * enforcement, and local IPC identity fallback.
  */
+import { createHmac, randomBytes } from 'node:crypto';
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -16,6 +17,7 @@ mock.module('../util/platform.js', () => ({
   getDataDir: () => testDir,
   getDbPath: () => join(testDir, 'test.db'),
   normalizeAssistantId: (id: string) => id === 'self' ? 'self' : id,
+  readLockfile: () => null,
   isMacOS: () => process.platform === 'darwin',
   isLinux: () => process.platform === 'linux',
   isWindows: () => process.platform === 'win32',
@@ -36,12 +38,9 @@ import {
   createBinding,
   getActiveBinding,
 } from '../memory/guardian-bindings.js';
-import {
-  hashToken,
-  initSigningKey,
-  mintActorToken,
-  verifyActorToken,
-} from '../runtime/actor-token-service.js';
+import { hashToken, initAuthSigningKey } from '../runtime/auth/token-service.js';
+import { resetExternalAssistantIdCache } from '../runtime/auth/external-assistant-id.js';
+import { setLegacySigningKey } from '../runtime/middleware/actor-token.js';
 import {
   createActorTokenRecord,
   findActiveByDeviceBinding,
@@ -52,12 +51,51 @@ import {
 import { ensureVellumGuardianBinding } from '../runtime/guardian-vellum-migration.js';
 import { resolveLocalIpcGuardianContext } from '../runtime/local-actor-identity.js';
 import {
+  type ActorTokenClaims,
   isActorBoundGuardian,
   isLocalFallbackBoundGuardian,
   type ServerWithRequestIP,
   verifyHttpActorToken,
   verifyHttpActorTokenWithLocalFallback,
 } from '../runtime/middleware/actor-token.js';
+
+// ---------------------------------------------------------------------------
+// Test signing key + legacy HMAC token helpers
+// ---------------------------------------------------------------------------
+
+const TEST_KEY = Buffer.from('test-signing-key-32-bytes-long!!');
+
+/**
+ * Mint a legacy HMAC actor token for testing the middleware verification.
+ * Mirrors the format of the deleted actor-token-service.
+ */
+function mintLegacyActorToken(params: {
+  assistantId: string;
+  platform: string;
+  deviceId: string;
+  guardianPrincipalId: string;
+  ttlMs?: number | null;
+}): { token: string; tokenHash: string; claims: ActorTokenClaims } {
+  const now = Date.now();
+  const DEFAULT_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+  const effectiveTtl = params.ttlMs === undefined ? DEFAULT_TTL_MS : params.ttlMs;
+  const claims: ActorTokenClaims = {
+    assistantId: params.assistantId,
+    platform: params.platform,
+    deviceId: params.deviceId,
+    guardianPrincipalId: params.guardianPrincipalId,
+    iat: now,
+    exp: effectiveTtl != null ? now + effectiveTtl : null,
+    jti: randomBytes(16).toString('hex'),
+  };
+
+  const payload = Buffer.from(JSON.stringify(claims), 'utf-8').toString('base64url');
+  const sig = createHmac('sha256', TEST_KEY).update(payload).digest();
+  const token = payload + '.' + sig.toString('base64url');
+  const tokenHash = hashToken(token);
+
+  return { token, tokenHash, claims };
+}
 
 // ---------------------------------------------------------------------------
 // Mock server helpers for loopback IP checks
@@ -79,11 +117,12 @@ const nonLoopbackServer = mockServer('192.168.1.50');
 initializeDb();
 
 beforeEach(() => {
-  // Reset the signing key to a deterministic value for reproducibility
-  initSigningKey(Buffer.from('test-signing-key-32-bytes-long!!'));
-  // Clear DB state between tests. resetDb closes the connection; initializeDb
-  // re-opens it and ensures tables exist. We then truncate tables that carry
-  // state across tests so each test starts from a clean slate.
+  // Initialize signing key for both JWT and legacy HMAC verification
+  initAuthSigningKey(TEST_KEY);
+  setLegacySigningKey(TEST_KEY);
+  // Reset the external assistant ID cache so tests don't leak state
+  resetExternalAssistantIdCache();
+  // Clear DB state between tests.
   resetDb();
   initializeDb();
   const db = getSqlite();
@@ -96,135 +135,12 @@ afterAll(() => {
 });
 
 // ---------------------------------------------------------------------------
-// Actor token mint/verify
-// ---------------------------------------------------------------------------
-
-describe('actor-token mint/verify', () => {
-  test('mint returns token, hash, and claims with default 30-day TTL', () => {
-    const result = mintActorToken({
-      assistantId: 'self',
-      platform: 'macos',
-      deviceId: 'device-123',
-      guardianPrincipalId: 'principal-abc',
-    });
-
-    expect(result.token).toBeTruthy();
-    expect(result.tokenHash).toBeTruthy();
-    expect(result.claims.assistantId).toBe('self');
-    expect(result.claims.platform).toBe('macos');
-    expect(result.claims.deviceId).toBe('device-123');
-    expect(result.claims.guardianPrincipalId).toBe('principal-abc');
-    expect(result.claims.iat).toBeGreaterThan(0);
-    // Default TTL is 30 days
-    expect(result.claims.exp).not.toBeNull();
-    const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
-    expect(result.claims.exp! - result.claims.iat).toBe(thirtyDaysMs);
-    expect(result.claims.jti).toBeTruthy();
-  });
-
-  test('mint returns non-expiring token when ttlMs is explicitly null', () => {
-    const result = mintActorToken({
-      assistantId: 'self',
-      platform: 'macos',
-      deviceId: 'device-no-exp',
-      guardianPrincipalId: 'principal-no-exp',
-      ttlMs: null,
-    });
-
-    expect(result.claims.exp).toBeNull();
-  });
-
-  test('verify succeeds for valid token', () => {
-    const { token } = mintActorToken({
-      assistantId: 'self',
-      platform: 'ios',
-      deviceId: 'device-456',
-      guardianPrincipalId: 'principal-def',
-    });
-
-    const result = verifyActorToken(token);
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.claims.assistantId).toBe('self');
-      expect(result.claims.platform).toBe('ios');
-    }
-  });
-
-  test('verify fails for tampered token', () => {
-    const { token } = mintActorToken({
-      assistantId: 'self',
-      platform: 'macos',
-      deviceId: 'device-789',
-      guardianPrincipalId: 'principal-ghi',
-    });
-
-    // Tamper with the payload
-    const parts = token.split('.');
-    const tampered = parts[0] + 'X' + '.' + parts[1];
-    const result = verifyActorToken(tampered);
-    expect(result.ok).toBe(false);
-  });
-
-  test('verify fails for malformed token', () => {
-    const result = verifyActorToken('not-a-valid-token');
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.reason).toBe('malformed_token');
-    }
-  });
-
-  test('verify fails for expired token', () => {
-    const { token } = mintActorToken({
-      assistantId: 'self',
-      platform: 'macos',
-      deviceId: 'device-exp',
-      guardianPrincipalId: 'principal-exp',
-      ttlMs: -1000, // Already expired
-    });
-
-    const result = verifyActorToken(token);
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.reason).toBe('token_expired');
-    }
-  });
-
-  test('hashToken produces consistent SHA-256 hex', () => {
-    const hash1 = hashToken('test-token');
-    const hash2 = hashToken('test-token');
-    expect(hash1).toBe(hash2);
-    expect(hash1.length).toBe(64); // SHA-256 hex = 64 chars
-  });
-
-  test('different tokens produce different hashes', () => {
-    const { token: t1 } = mintActorToken({
-      assistantId: 'self',
-      platform: 'macos',
-      deviceId: 'dev1',
-      guardianPrincipalId: 'p1',
-    });
-    const { token: t2 } = mintActorToken({
-      assistantId: 'self',
-      platform: 'macos',
-      deviceId: 'dev2',
-      guardianPrincipalId: 'p2',
-    });
-    expect(hashToken(t1)).not.toBe(hashToken(t2));
-  });
-});
-
-// ---------------------------------------------------------------------------
 // Hash-only storage
 // ---------------------------------------------------------------------------
 
 describe('actor-token store (hash-only)', () => {
   test('createActorTokenRecord stores hash, never raw token', () => {
-    const { tokenHash } = mintActorToken({
-      assistantId: 'self',
-      platform: 'macos',
-      deviceId: 'dev-store',
-      guardianPrincipalId: 'principal-store',
-    });
+    const tokenHash = hashToken('test-token-for-store');
 
     const record = createActorTokenRecord({
       tokenHash,
@@ -237,19 +153,13 @@ describe('actor-token store (hash-only)', () => {
 
     expect(record.tokenHash).toBe(tokenHash);
     expect(record.status).toBe('active');
-    // Verify the record can be found by hash
     const found = findActiveByTokenHash(tokenHash);
     expect(found).not.toBeNull();
     expect(found!.tokenHash).toBe(tokenHash);
   });
 
   test('findActiveByDeviceBinding returns matching record', () => {
-    const { tokenHash } = mintActorToken({
-      assistantId: 'self',
-      platform: 'ios',
-      deviceId: 'dev-bind',
-      guardianPrincipalId: 'principal-bind',
-    });
+    const tokenHash = hashToken('test-token-for-binding');
 
     createActorTokenRecord({
       tokenHash,
@@ -266,12 +176,7 @@ describe('actor-token store (hash-only)', () => {
   });
 
   test('revokeByDeviceBinding marks tokens as revoked', () => {
-    const { tokenHash } = mintActorToken({
-      assistantId: 'self',
-      platform: 'macos',
-      deviceId: 'dev-revoke',
-      guardianPrincipalId: 'principal-revoke',
-    });
+    const tokenHash = hashToken('test-token-for-revoke');
 
     createActorTokenRecord({
       tokenHash,
@@ -285,18 +190,12 @@ describe('actor-token store (hash-only)', () => {
     const count = revokeByDeviceBinding('self', 'principal-revoke', 'hashed-dev-revoke');
     expect(count).toBe(1);
 
-    // Should no longer be found as active
     const found = findActiveByTokenHash(tokenHash);
     expect(found).toBeNull();
   });
 
   test('revokeByTokenHash revokes a single token', () => {
-    const { tokenHash } = mintActorToken({
-      assistantId: 'self',
-      platform: 'macos',
-      deviceId: 'dev-single',
-      guardianPrincipalId: 'principal-single',
-    });
+    const tokenHash = hashToken('test-token-for-single-revoke');
 
     createActorTokenRecord({
       tokenHash,
@@ -334,7 +233,6 @@ describe('guardian vellum migration', () => {
   });
 
   test('ensureVellumGuardianBinding preserves existing bindings for other channels', () => {
-    // Create a telegram binding
     createBinding({
       assistantId: 'self',
       channel: 'telegram',
@@ -343,15 +241,12 @@ describe('guardian vellum migration', () => {
       verifiedVia: 'challenge',
     });
 
-    // Now backfill vellum
     ensureVellumGuardianBinding('self');
 
-    // Telegram binding should still exist
     const tgBinding = getActiveBinding('self', 'telegram');
     expect(tgBinding).not.toBeNull();
     expect(tgBinding!.guardianExternalUserId).toBe('tg-user-123');
 
-    // Vellum binding should also exist
     const vBinding = getActiveBinding('self', 'vellum');
     expect(vBinding).not.toBeNull();
   });
@@ -363,8 +258,6 @@ describe('guardian vellum migration', () => {
 
 describe('bootstrap endpoint idempotency', () => {
   test('calling bootstrap twice returns same guardianPrincipalId', async () => {
-    // We test the logic used by the bootstrap route handler directly
-    // rather than spinning up a full HTTP server.
     const { handleGuardianBootstrap } = await import('../runtime/routes/guardian-bootstrap-routes.js');
 
     const req1 = new Request('http://localhost/v1/integrations/guardian/vellum/bootstrap', {
@@ -377,7 +270,7 @@ describe('bootstrap endpoint idempotency', () => {
     expect(res1.status).toBe(200);
     const body1 = await res1.json() as Record<string, unknown>;
     expect(body1.guardianPrincipalId).toBeTruthy();
-    expect(body1.actorToken).toBeTruthy();
+    expect(body1.accessToken).toBeTruthy();
     expect(body1.isNew).toBe(true);
 
     // Second call with same device
@@ -391,9 +284,9 @@ describe('bootstrap endpoint idempotency', () => {
     expect(res2.status).toBe(200);
     const body2 = await res2.json() as Record<string, unknown>;
     expect(body2.guardianPrincipalId).toBe(body1.guardianPrincipalId);
-    expect(body2.actorToken).toBeTruthy();
+    expect(body2.accessToken).toBeTruthy();
     // New token minted (previous revoked), but same principal
-    expect(body2.actorToken).not.toBe(body1.actorToken);
+    expect(body2.accessToken).not.toBe(body1.accessToken);
     expect(body2.isNew).toBe(false);
   });
 
@@ -446,12 +339,30 @@ describe('bootstrap endpoint idempotency', () => {
 
     // Same principal, different tokens
     expect(body2.guardianPrincipalId).toBe(body1.guardianPrincipalId);
-    expect(body2.actorToken).not.toBe(body1.actorToken);
+    expect(body2.accessToken).not.toBe(body1.accessToken);
+  });
+
+  test('bootstrap access token is a 3-part JWT', async () => {
+    const { handleGuardianBootstrap } = await import('../runtime/routes/guardian-bootstrap-routes.js');
+
+    const req = new Request('http://localhost/v1/integrations/guardian/vellum/bootstrap', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ platform: 'macos', deviceId: 'test-device-jwt' }),
+    });
+
+    const res = await handleGuardianBootstrap(req, loopbackServer);
+    expect(res.status).toBe(200);
+    const body = await res.json() as Record<string, unknown>;
+    const accessToken = body.accessToken as string;
+    expect(accessToken).toBeTruthy();
+    // JWTs have 3 dot-separated parts
+    expect(accessToken.split('.').length).toBe(3);
   });
 });
 
 // ---------------------------------------------------------------------------
-// HTTP middleware strict enforcement
+// HTTP middleware strict enforcement (legacy HMAC tokens)
 // ---------------------------------------------------------------------------
 
 describe('HTTP actor token middleware (strict enforcement)', () => {
@@ -470,7 +381,7 @@ describe('HTTP actor token middleware (strict enforcement)', () => {
   });
 
   test('rejects request with invalid (tampered) token', () => {
-    const { token } = mintActorToken({
+    const { token } = mintLegacyActorToken({
       assistantId: 'self',
       platform: 'macos',
       deviceId: 'device-tamper',
@@ -494,7 +405,7 @@ describe('HTTP actor token middleware (strict enforcement)', () => {
 
   test('rejects request with revoked token', () => {
     const principalId = ensureVellumGuardianBinding('self');
-    const { token, tokenHash } = mintActorToken({
+    const { token, tokenHash } = mintLegacyActorToken({
       assistantId: 'self',
       platform: 'macos',
       deviceId: 'device-revoked',
@@ -510,7 +421,6 @@ describe('HTTP actor token middleware (strict enforcement)', () => {
       issuedAt: Date.now(),
     });
 
-    // Revoke the token
     revokeByTokenHash(tokenHash);
 
     const req = new Request('http://localhost/v1/messages', {
@@ -526,9 +436,9 @@ describe('HTTP actor token middleware (strict enforcement)', () => {
     }
   });
 
-  test('accepts request with valid active token and resolves guardian context', () => {
+  test('accepts request with valid active legacy token and resolves guardian context', () => {
     const principalId = ensureVellumGuardianBinding('self');
-    const { token, tokenHash } = mintActorToken({
+    const { token, tokenHash } = mintLegacyActorToken({
       assistantId: 'self',
       platform: 'macos',
       deviceId: 'device-valid',
@@ -577,7 +487,6 @@ describe('HTTP actor token local fallback', () => {
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.guardianContext.trustClass).toBe('guardian');
-      // localFallback should be true when claims are null
       if ('localFallback' in result) {
         expect(result.localFallback).toBe(true);
         expect(result.claims).toBeNull();
@@ -606,7 +515,7 @@ describe('HTTP actor token local fallback', () => {
 
   test('uses strict verification when actor token is present even with X-Forwarded-For', () => {
     const principalId = ensureVellumGuardianBinding('self');
-    const { token, tokenHash } = mintActorToken({
+    const { token, tokenHash } = mintLegacyActorToken({
       assistantId: 'self',
       platform: 'ios',
       deviceId: 'device-proxied',
@@ -653,9 +562,6 @@ describe('resolveLocalIpcGuardianContext', () => {
   });
 
   test('returns guardian context with principal when no vellum binding exists (pre-bootstrap self-heal)', () => {
-    // No binding created — fresh DB state. Pre-bootstrap path self-heals
-    // by creating a vellum binding, then resolves through the shared pipeline
-    // with correct field names (conversationExternalId, actorExternalId).
     const ctx = resolveLocalIpcGuardianContext();
     expect(ctx.trustClass).toBe('guardian');
     expect(ctx.sourceChannel).toBe('vellum');
@@ -673,9 +579,8 @@ describe('resolveLocalIpcGuardianContext', () => {
 // Pairing actor-token flow
 // ---------------------------------------------------------------------------
 
-describe('pairing actor-token flow', () => {
-  test('mintPairingActorToken returns actor token in approved pairing status poll', async () => {
-    // Set up a vellum guardian binding (required for pairing token mint)
+describe('pairing credential flow', () => {
+  test('mintPairingCredentials returns access token in approved pairing status poll', async () => {
     ensureVellumGuardianBinding('self');
 
     const { PairingStore } = await import('../daemon/pairing-store.js');
@@ -688,7 +593,6 @@ describe('pairing actor-token flow', () => {
     const pairingSecret = 'test-secret-123';
     const bearerToken = 'test-bearer';
 
-    // Register a pairing request
     store.register({
       pairingRequestId,
       pairingSecret,
@@ -702,7 +606,6 @@ describe('pairing actor-token flow', () => {
       pairingBroadcast: () => {},
     };
 
-    // iOS initiates pairing
     const pairReq = new Request('http://localhost/v1/pairing/request', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -719,22 +622,20 @@ describe('pairing actor-token flow', () => {
     const pairBody = await pairRes.json() as Record<string, unknown>;
     expect(pairBody.status).toBe('pending');
 
-    // macOS approves the pairing
     store.approve(pairingRequestId, bearerToken);
 
-    // iOS polls for status — should get approved with actor token
     const statusUrl = new URL(`http://localhost/v1/pairing/status?id=${pairingRequestId}&secret=${pairingSecret}`);
     const statusRes = handlePairingStatus(statusUrl, ctx);
     expect(statusRes.status).toBe(200);
     const statusBody = await statusRes.json() as Record<string, unknown>;
     expect(statusBody.status).toBe('approved');
-    expect(statusBody.actorToken).toBeTruthy();
+    expect(statusBody.accessToken).toBeTruthy();
     expect(statusBody.bearerToken).toBe(bearerToken);
 
     store.stop();
   });
 
-  test('approved actor token is available within 5 min TTL window', async () => {
+  test('approved access token is available within 5 min TTL window', async () => {
     ensureVellumGuardianBinding('self');
 
     const { PairingStore } = await import('../daemon/pairing-store.js');
@@ -760,7 +661,6 @@ describe('pairing actor-token flow', () => {
       pairingBroadcast: () => {},
     };
 
-    // iOS initiates pairing
     const pairReq = new Request('http://localhost/v1/pairing/request', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -775,17 +675,15 @@ describe('pairing actor-token flow', () => {
     await handlePairingRequest(pairReq, ctx);
     store.approve(pairingRequestId, bearerToken);
 
-    // First poll — mints the token
     const statusUrl = new URL(`http://localhost/v1/pairing/status?id=${pairingRequestId}&secret=${pairingSecret}`);
     const firstRes = handlePairingStatus(statusUrl, ctx);
     const firstBody = await firstRes.json() as Record<string, unknown>;
-    const firstToken = firstBody.actorToken as string;
+    const firstToken = firstBody.accessToken as string;
     expect(firstToken).toBeTruthy();
 
-    // Second poll — same token from cache
     const secondRes = handlePairingStatus(statusUrl, ctx);
     const secondBody = await secondRes.json() as Record<string, unknown>;
-    expect(secondBody.actorToken).toBe(firstToken);
+    expect(secondBody.accessToken).toBe(firstToken);
 
     store.stop();
   });
@@ -821,7 +719,6 @@ describe('pairing actor-token flow', () => {
       pairingBroadcast: () => {},
     };
 
-    // iOS initiates pairing so the request is device-bound
     const pairReq = new Request('http://localhost/v1/pairing/request', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -836,11 +733,9 @@ describe('pairing actor-token flow', () => {
     const pairRes = await handlePairingRequest(pairReq, ctx);
     expect(pairRes.status).toBe(200);
 
-    // macOS approves, then transient in-memory pairing state is lost (e.g. restart)
     store.approve(pairingRequestId, bearerToken);
     cleanupPairingState(pairingRequestId);
 
-    // Poll includes deviceId so token mint can recover from persisted hashedDeviceId
     const statusUrl = new URL(
       `http://localhost/v1/pairing/status?id=${pairingRequestId}&secret=${pairingSecret}&deviceId=${encodeURIComponent(deviceId)}`,
     );
@@ -849,7 +744,7 @@ describe('pairing actor-token flow', () => {
     const statusBody = await statusRes.json() as Record<string, unknown>;
 
     expect(statusBody.status).toBe('approved');
-    expect(statusBody.actorToken).toBeTruthy();
+    expect(statusBody.accessToken).toBeTruthy();
     expect(statusBody.bearerToken).toBe(bearerToken);
 
     store.stop();
@@ -895,8 +790,6 @@ describe('pairing actor-token flow', () => {
     await handlePairingRequest(pairReq, ctx);
     store.approve(pairingRequestId, bearerToken);
 
-    // Fire two status polls simultaneously — both synchronous so they
-    // should not double-mint
     const statusUrl = new URL(`http://localhost/v1/pairing/status?id=${pairingRequestId}&secret=${pairingSecret}`);
     const res1 = handlePairingStatus(statusUrl, ctx);
     const res2 = handlePairingStatus(statusUrl, ctx);
@@ -904,12 +797,10 @@ describe('pairing actor-token flow', () => {
     const body1 = await res1.json() as Record<string, unknown>;
     const body2 = await res2.json() as Record<string, unknown>;
 
-    // Both should succeed and return the same token (second sees the cached token)
     expect(body1.status).toBe('approved');
     expect(body2.status).toBe('approved');
-    expect(body1.actorToken).toBeTruthy();
-    // The second poll should return the same cached token
-    expect(body2.actorToken).toBe(body1.actorToken);
+    expect(body1.accessToken).toBeTruthy();
+    expect(body2.accessToken).toBe(body1.accessToken);
 
     store.stop();
   });
@@ -1057,35 +948,44 @@ describe('bootstrap loopback guard', () => {
 describe('utility functions', () => {
   test('isActorBoundGuardian returns true when actor matches bound guardian', () => {
     const principalId = ensureVellumGuardianBinding('self');
-    const { claims } = mintActorToken({
+    const claims: ActorTokenClaims = {
       assistantId: 'self',
       platform: 'macos',
       deviceId: 'device-bound',
       guardianPrincipalId: principalId,
-    });
+      iat: Date.now(),
+      exp: Date.now() + 86400000,
+      jti: 'test-jti',
+    };
 
     expect(isActorBoundGuardian(claims)).toBe(true);
   });
 
   test('isActorBoundGuardian returns false for mismatched principal', () => {
     ensureVellumGuardianBinding('self');
-    const { claims } = mintActorToken({
+    const claims: ActorTokenClaims = {
       assistantId: 'self',
       platform: 'macos',
       deviceId: 'device-mismatch',
       guardianPrincipalId: 'wrong-principal-id',
-    });
+      iat: Date.now(),
+      exp: Date.now() + 86400000,
+      jti: 'test-jti',
+    };
 
     expect(isActorBoundGuardian(claims)).toBe(false);
   });
 
   test('isActorBoundGuardian returns false when no vellum binding exists', () => {
-    const { claims } = mintActorToken({
+    const claims: ActorTokenClaims = {
       assistantId: 'self',
       platform: 'macos',
       deviceId: 'device-no-binding',
       guardianPrincipalId: 'some-principal',
-    });
+      iat: Date.now(),
+      exp: Date.now() + 86400000,
+      jti: 'test-jti',
+    };
 
     expect(isActorBoundGuardian(claims)).toBe(false);
   });
@@ -1096,7 +996,6 @@ describe('utility functions', () => {
   });
 
   test('isLocalFallbackBoundGuardian returns true even without binding (pre-bootstrap fallback)', () => {
-    // No binding — local user is inherently the guardian of their own machine
     expect(isLocalFallbackBoundGuardian()).toBe(true);
   });
 });

@@ -2,24 +2,69 @@
  * JWT token service for the single-header auth system.
  *
  * Mints and verifies standard JWTs (header.payload.signature) using
- * HMAC-SHA256. Reuses signing key infrastructure from the existing
- * actor-token-service to avoid duplication during the transition period.
+ * HMAC-SHA256. Owns the signing key lifecycle (load/create/persist).
  */
 
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { dirname, join } from 'node:path';
 
+import { getLogger } from '../../util/logger.js';
+import { getRootDir } from '../../util/platform.js';
 import { isStaleEpoch } from './policy.js';
 import type { ScopeProfile, TokenAudience, TokenClaims } from './types.js';
 
-// Re-export loadOrCreateSigningKey so callers can load/persist the key
-// without importing from two places during the transition.
-export { loadOrCreateSigningKey } from '../actor-token-service.js';
+const log = getLogger('token-service');
 
 // ---------------------------------------------------------------------------
-// Internal: signing key access
+// Signing key management
 // ---------------------------------------------------------------------------
 
-import { initSigningKey as _initLegacyKey } from '../actor-token-service.js';
+let _authSigningKey: Buffer | null = null;
+
+/**
+ * Path to the persisted signing key file.
+ * Stored in the protected directory alongside other sensitive material.
+ */
+function getSigningKeyPath(): string {
+  return join(getRootDir(), 'protected', 'actor-token-signing-key');
+}
+
+/**
+ * Load a signing key from disk or generate and persist a new one.
+ * Uses atomic-write + chmod 0o600 for safe persistence.
+ */
+export function loadOrCreateSigningKey(): Buffer {
+  const keyPath = getSigningKeyPath();
+
+  // Try to load existing key
+  if (existsSync(keyPath)) {
+    try {
+      const raw = readFileSync(keyPath);
+      if (raw.length === 32) {
+        log.info('Auth signing key loaded from disk');
+        return raw;
+      }
+      log.warn('Signing key file has unexpected length, regenerating');
+    } catch (err) {
+      log.warn({ err }, 'Failed to read signing key file, regenerating');
+    }
+  }
+
+  // Generate and persist a new key
+  const newKey = randomBytes(32);
+  const dir = dirname(keyPath);
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+  }
+  const tmpPath = keyPath + '.tmp.' + process.pid;
+  writeFileSync(tmpPath, newKey, { mode: 0o600 });
+  renameSync(tmpPath, keyPath);
+  chmodSync(keyPath, 0o600);
+
+  log.info('Auth signing key generated and persisted');
+  return newKey;
+}
 
 function getSigningKey(): Buffer {
   if (!_authSigningKey) {
@@ -28,18 +73,19 @@ function getSigningKey(): Buffer {
   return _authSigningKey;
 }
 
-let _authSigningKey: Buffer | null = null;
-
 /**
- * Single initialization entry point for the auth signing key. Sets both
- * the new auth module key and the legacy actor-token-service key so that
- * both token systems share the same material. Callers should use this
- * instead of importing initSigningKey from actor-token-service directly.
+ * Initialize the auth signing key. Called at daemon startup with a key
+ * loaded from disk via loadOrCreateSigningKey(), or by tests with a
+ * deterministic key.
+ *
+ * Callers that also need legacy HMAC actor-token verification should
+ * separately call `setLegacySigningKey()` from the middleware module
+ * with the same key — this is done by lifecycle.ts at startup and by
+ * test setup. We avoid importing the middleware here to prevent a
+ * circular dependency (token-service -> middleware -> token-service).
  */
 export function initAuthSigningKey(key: Buffer): void {
   _authSigningKey = key;
-  // Keep the legacy actor-token-service key in sync during the transition
-  _initLegacyKey(key);
 }
 
 // ---------------------------------------------------------------------------

@@ -3,10 +3,10 @@
  *
  * Idempotent bootstrap endpoint for the vellum guardian channel.
  * Creates or confirms a guardianPrincipalId and channel='vellum'
- * guardian binding, then mints and returns an actor token bound
- * to (assistantId, guardianPrincipalId, deviceId).
+ * guardian binding, then mints and returns a JWT access token bound
+ * to (assistantId, guardianPrincipalId) with a paired refresh token.
  *
- * Only the hashed token is persisted.
+ * Only the hashed tokens are persisted.
  */
 
 import { createHash } from 'node:crypto';
@@ -18,8 +18,8 @@ import {
   getActiveBinding,
 } from '../../memory/guardian-bindings.js';
 import { getLogger } from '../../util/logger.js';
-import { mintCredentialPair } from '../actor-refresh-token-service.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
+import { mintCredentialPair } from '../auth/credential-service.js';
 import { httpError } from '../http-errors.js';
 import type { ServerWithRequestIP } from '../middleware/actor-token.js';
 
@@ -68,7 +68,7 @@ const LOOPBACK_ADDRESSES = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
  * Handle POST /v1/integrations/guardian/vellum/bootstrap
  *
  * Body: { platform: 'macos', deviceId: string }
- * Returns: { guardianPrincipalId, actorToken, isNew }
+ * Returns: { guardianPrincipalId, accessToken, isNew }
  *
  * This endpoint is loopback-only (macOS local use only). iOS devices
  * obtain actor tokens exclusively through the QR pairing flow.
@@ -118,8 +118,8 @@ export async function handleGuardianBootstrap(req: Request, server: ServerWithRe
 
     return Response.json({
       guardianPrincipalId,
-      actorToken: credentials.actorToken,
-      actorTokenExpiresAt: credentials.actorTokenExpiresAt,
+      accessToken: credentials.accessToken,
+      accessTokenExpiresAt: credentials.accessTokenExpiresAt,
       refreshToken: credentials.refreshToken,
       refreshTokenExpiresAt: credentials.refreshTokenExpiresAt,
       refreshAfter: credentials.refreshAfter,
