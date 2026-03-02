@@ -89,22 +89,26 @@ final class VoiceInputManager {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            guard let self else { return }
-            self.lastAppSwitchTime = Date()
-            self.holdTask?.cancel()
-            self.holdTask = nil
-            self.otherKeyPressedDuringHold = false
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.lastAppSwitchTime = Date()
+                self.holdTask?.cancel()
+                self.holdTask = nil
+                self.otherKeyPressedDuringHold = false
+            }
         }
         let resignObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didResignActiveNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            guard let self else { return }
-            self.lastAppSwitchTime = Date()
-            self.holdTask?.cancel()
-            self.holdTask = nil
-            self.otherKeyPressedDuringHold = false
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.lastAppSwitchTime = Date()
+                self.holdTask?.cancel()
+                self.holdTask = nil
+                self.otherKeyPressedDuringHold = false
+            }
         }
         appSwitchObservers = [workspaceObserver, resignObserver]
 
