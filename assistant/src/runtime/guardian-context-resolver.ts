@@ -24,8 +24,8 @@ export interface GuardianContext {
   trustClass: ActorTrustClass;
   guardianChatId?: string;
   guardianExternalUserId?: string;
-  /** Canonical principal ID from the guardian binding. Nullable for backward compatibility — M5 will make this required. */
-  guardianPrincipalId?: string | null;
+  /** Canonical principal ID from the guardian binding. */
+  guardianPrincipalId?: string;
   requesterIdentifier?: string;
   requesterDisplayName?: string;
   requesterSenderDisplayName?: string;

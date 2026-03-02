@@ -35,8 +35,8 @@ export interface ActorTrustContext {
     guardianExternalUserId: string;
     guardianDeliveryChatId: string | null;
   } | null;
-  /** Canonical principal ID from the guardian binding. Nullable for backward compatibility — M5 will make this required. */
-  guardianPrincipalId?: string | null;
+  /** Canonical principal ID from the guardian binding. */
+  guardianPrincipalId?: string;
   /** Ingress member record, if any, for this sender. */
   memberRecord: IngressMember | null;
   /** Trust classification. */
