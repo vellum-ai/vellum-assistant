@@ -639,7 +639,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             return "Waiting for network services\u{2026}"
 
         case .authFailed:
-            if elapsed > 30 {
+            if elapsed > 60 {
                 return "Authentication issue. You may need to re-pair your assistant."
             }
             return "Authenticating\u{2026}"
