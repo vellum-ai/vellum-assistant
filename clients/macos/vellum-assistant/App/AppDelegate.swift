@@ -529,7 +529,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                 if daemonClient.isConnected {
                     // Daemon is connected — check gateway health before proceeding.
                     // Remote assistants don't run a local gateway, so skip the check.
-                    let gatewayOk = isCurrentAssistantRemote || (await isGatewayHealthy())
+                    let gatewayHealthy = await isGatewayHealthy()
+                    let gatewayOk = isCurrentAssistantRemote || gatewayHealthy
                     if !gatewayOk {
                         // Gateway is unhealthy but daemon is connected. Record for
                         // diagnostics but proceed anyway — the gateway being down
@@ -583,7 +584,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                 if daemonClient.isConnected {
                     // Connected — verify gateway health before proceeding.
                     // Remote assistants don't run a local gateway, so skip the check.
-                    let gatewayOk = isCurrentAssistantRemote || (await isGatewayHealthy())
+                    let gatewayHealthy = await isGatewayHealthy()
+                    let gatewayOk = isCurrentAssistantRemote || gatewayHealthy
                     if !gatewayOk {
                         // Same rationale as the check above: gateway health is a
                         // warning, not a gate. Blocking here deadlocks when hatch
