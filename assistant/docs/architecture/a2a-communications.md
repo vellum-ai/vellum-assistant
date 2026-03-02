@@ -234,7 +234,7 @@ A2AConnectionService
 | `redeemInvite` | `{ token: string, peerGatewayUrl: string }` | `{ ok: true, connectionRequestId: string }` | `{ ok: false, reason: 'invalid_or_expired' \| 'already_redeemed' }` |
 | `initiateConnection` | `{ redemptionId: string, peerInfo: PeerInfo, protocolVersion: string, capabilities: string[] }` | `{ ok: true, connectionId: string }` | `{ ok: false, reason: 'not_found' \| 'expired' \| 'version_mismatch' }` |
 | `approveConnection` | `{ requestId: string }` | `{ ok: true }` | `{ ok: false, reason: 'not_found' \| 'already_resolved' \| 'identity_mismatch' }` |
-| `submitVerificationCode` | `{ connectionId: string, code: string }` | `{ ok: true }` | `{ ok: false, reason: 'invalid_code' \| 'expired' \| 'max_attempts' }` |
+| `submitVerificationCode` | `{ connectionId: string, code: string }` | `{ ok: true }` | `{ ok: false, reason: 'invalid_code' \| 'expired' \| 'max_attempts' \| 'already_resolved' }` |
 | `revokeConnection` | `{ connectionId: string }` | `{ ok: true }` | `{ ok: false, reason: 'not_found' }` |
 | `listConnections` | `{ status?: string }` | `{ connections: PeerConnection[] }` | -- (always succeeds, returns empty array) |
 
@@ -289,6 +289,15 @@ All outbound A2A requests must pass through target URL validation before any net
 
 - **HTTPS required** for all public/routable addresses.
 - **HTTP permitted** only when `LocalAddressValidator.isLocalAddress()` returns true (RFC 1918, loopback, etc.), matching the existing iOS pairing behavior.
+
+### Design rationale: HTTP for local addresses
+
+Permitting HTTP for `LocalAddressValidator.isLocalAddress()` targets (RFC 1918, loopback) is an intentional design decision, not an oversight:
+
+1. **Local development requires HTTP.** Vellum assistants in development run on local machines without TLS certificates. Requiring HTTPS for `localhost` or `192.168.x.x` would make local A2A development impossible without certificate infrastructure.
+2. **Shared validator with iOS LAN pairing.** `LocalAddressValidator.isLocalAddress()` is the same validator used by the iOS LAN pairing flow (`LocalAddressValidator.isLocalAddress()` in the Swift client). This code path is battle-tested in production for LAN HTTP pairing.
+3. **The always-deny list targets specific SSRF vectors, not all private IPs.** The deny list below blocks the highest-risk private-network SSRF targets: cloud metadata endpoints (169.254.x.x / fe80::/10), the daemon runtime port (7821 on any address), and self-connection loops. General RFC 1918 addresses are intentionally allowed because peer assistants legitimately run on LAN hosts.
+4. **Production hardening is operator-configurable.** In production deployments where the gateway has access to sensitive private networks, operators can layer additional network-level restrictions (firewall rules, egress policies) on top of this application-level validation. The A2A target validator is the inner defense; network policy is the outer defense.
 
 ### Always-deny list
 
