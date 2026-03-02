@@ -37,6 +37,9 @@ struct ComposerSection: View {
     var isLearnMode: Bool = false
     var networkEntryCount: Int = 0
     var idleHint: Bool = false
+    var voiceModeManager: VoiceModeManager? = nil
+    var voiceService: OpenAIVoiceService? = nil
+    var onEndVoiceMode: (() -> Void)? = nil
     @Binding var editorContentHeight: CGFloat
     @Binding var isComposerExpanded: Bool
 
@@ -93,6 +96,14 @@ struct ComposerSection: View {
                 editorContentHeight: $editorContentHeight,
                 isComposerExpanded: $isComposerExpanded
             )
+
+            if let voiceModeManager, let voiceService, voiceModeManager.state != .off {
+                VoiceModeBar(
+                    manager: voiceModeManager,
+                    voiceService: voiceService,
+                    onEnd: { onEndVoiceMode?() }
+                )
+            }
         }
         .background(
             LinearGradient(

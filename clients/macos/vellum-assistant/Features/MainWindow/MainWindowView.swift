@@ -296,14 +296,12 @@ struct MainWindowView: View {
     private func toggleVoiceMode() {
         if voiceModeManager.state != .off {
             voiceModeManager.deactivate()
-            windowState.selection = nil
         } else {
             // Ensure a thread exists
             if threadManager.activeViewModel == nil {
                 threadManager.enterDraftMode()
             }
-            windowState.selection = .panel(.voiceMode)
-            // Activate directly — voiceInput was set on VoiceModeManager at MainWindow creation
+            // Activate directly — voice bar appears automatically via ComposerSection
             if let viewModel = threadManager.activeViewModel {
                 voiceModeManager.activate(chatViewModel: viewModel, settingsStore: settingsStore)
                 voiceModeManager.startListening()
@@ -350,7 +348,7 @@ struct MainWindowView: View {
         switch windowState.selection {
         case .appEditing:
             return true
-        case .panel(let panelType) where panelType != .voiceMode && panelType != .documentEditor:
+        case .panel(let panelType) where panelType != .documentEditor:
             return isAppChatOpen
         default:
             return false
@@ -398,14 +396,13 @@ struct MainWindowView: View {
                     .transition(.opacity)
                 }
             }
-            .onChange(of: windowState.selection) { oldSelection, newSelection in
-                // Deactivate voice mode when navigating away from the voice panel
-                if case .panel(.voiceMode) = oldSelection, voiceModeManager.state != .off {
-                    if case .panel(.voiceMode) = newSelection {} else {
-                        voiceModeManager.deactivate()
-                    }
+            .onChange(of: threadManager.activeThreadId) {
+                // Deactivate voice mode when switching threads
+                if voiceModeManager.state != .off {
+                    voiceModeManager.deactivate()
                 }
-
+            }
+            .onChange(of: windowState.selection) { oldSelection, newSelection in
                 // When selection transitions to .thread, ensure ThreadManager is synced
                 // so chat content targets the correct thread (e.g. after dismissOverlay).
                 // Guard against archived threads: if the thread was archived while an

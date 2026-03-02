@@ -67,6 +67,9 @@ struct ChatView: View {
     var dismissedDocumentSurfaceIds: Set<String> = []
     var onDismissDocumentWidget: ((String) -> Void)?
     var connectionDiagnosticHint: String? = nil
+    var voiceModeManager: VoiceModeManager? = nil
+    var voiceService: OpenAIVoiceService? = nil
+    var onEndVoiceMode: (() -> Void)? = nil
     var threadId: UUID?
 
     // MARK: - Pagination
@@ -103,7 +106,8 @@ struct ChatView: View {
         let attachments: CGFloat = pendingAttachments.isEmpty ? 0 : 48
         let error: CGFloat = (sessionError == nil && errorText != nil) ? 36 : 0
         let sessionErrorToast: CGFloat = sessionError != nil ? 52 : 0
-        return base + attachments + error + sessionErrorToast
+        let voiceBar: CGFloat = (voiceModeManager.map { $0.state != .off } ?? false) ? 50 : 0
+        return base + attachments + error + sessionErrorToast + voiceBar
     }
 
     var body: some View {
@@ -257,6 +261,9 @@ struct ChatView: View {
                             isLearnMode: isLearnMode,
                             networkEntryCount: networkEntryCount,
                             idleHint: idleHint,
+                            voiceModeManager: voiceModeManager,
+                            voiceService: voiceService,
+                            onEndVoiceMode: onEndVoiceMode,
                             editorContentHeight: $editorContentHeight,
                             isComposerExpanded: $isComposerExpanded
                         )

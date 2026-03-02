@@ -74,15 +74,6 @@ extension MainWindowView {
             sidebarView
         case .avatarCustomization:
             AvatarCustomizationPanel(onClose: { windowState.selection = .panel(windowState.avatarCustomizationReturnPanel) })
-        case .voiceMode:
-            VoiceModePanel(
-                manager: voiceModeManager,
-                voiceService: voiceModeManager.voiceService,
-                onClose: {
-                    voiceModeManager.deactivate()
-                    windowState.selection = nil
-                }
-            )
         case .apps:
             AppsGridView(
                 appListManager: appListManager,
@@ -339,16 +330,6 @@ extension MainWindowView {
                         )
                     }
                 )
-            } else if panelType == .voiceMode {
-                // Voice mode: split view with chat on left, voice panel on right
-                VSplitView(
-                    panelWidth: $sidePanelWidth,
-                    showPanel: true,
-                    main: { chatView },
-                    panel: {
-                        nativePanelView(.voiceMode)
-                    }
-                )
             } else if isAppChatOpen {
                 // Split view: chat (left) + panel (right)
                 let contentWidth = Double(geometry.size.width) / zoomManager.zoomLevel - Double(VSpacing.sm)
@@ -433,6 +414,11 @@ extension MainWindowView {
                     settingsStore: settingsStore,
                     onMicrophoneToggle: onMicrophoneToggle,
                     isTemporaryChat: activeThread?.kind == .private,
+                    voiceModeManager: voiceModeManager,
+                    voiceService: voiceModeManager.voiceService,
+                    onEndVoiceMode: {
+                        voiceModeManager.deactivate()
+                    },
                     threadId: threadManager.activeThreadId
                 )
                 .environment(\.conversationZoomScale, conversationZoomManager.zoomLevel)
@@ -616,6 +602,9 @@ struct ActiveChatViewWrapper: View {
     @ObservedObject var settingsStore: SettingsStore
     let onMicrophoneToggle: () -> Void
     var isTemporaryChat: Bool = false
+    var voiceModeManager: VoiceModeManager? = nil
+    var voiceService: OpenAIVoiceService? = nil
+    var onEndVoiceMode: (() -> Void)? = nil
     var threadId: UUID?
 
     /// Reads the persisted bootstrap state so the chat view can suppress
@@ -729,6 +718,9 @@ struct ActiveChatViewWrapper: View {
             dismissedDocumentSurfaceIds: viewModel.dismissedDocumentSurfaceIds,
             onDismissDocumentWidget: { viewModel.dismissDocumentSurface(id: $0) },
             connectionDiagnosticHint: viewModel.connectionDiagnosticHint,
+            voiceModeManager: voiceModeManager,
+            voiceService: voiceService,
+            onEndVoiceMode: onEndVoiceMode,
             threadId: threadId,
             displayedMessageCount: viewModel.displayedMessageCount,
             hasMoreMessages: viewModel.hasMoreMessages,
