@@ -169,6 +169,11 @@ struct ChatContentView: View {
                                 // No streaming text or active tool call yet — show typing dots
                                 HStack {
                                     TypingIndicatorView()
+                                    if let statusText = viewModel.assistantStatusText, !statusText.isEmpty {
+                                        Text(statusText)
+                                            .font(VFont.caption)
+                                            .foregroundColor(VColor.textSecondary)
+                                    }
                                     Spacer()
                                 }
                                 .padding(.horizontal, VSpacing.lg)

@@ -386,8 +386,10 @@ public struct IPCAssistantActivityState: Codable, Sendable {
     /// Active user request when available.
     public let requestId: String?
     public let reason: String
+    /// Human-readable description of what the assistant is currently doing.
+    public let statusText: String?
 
-    public init(type: String, sessionId: String, activityVersion: Int, phase: String, anchor: String, requestId: String? = nil, reason: String) {
+    public init(type: String, sessionId: String, activityVersion: Int, phase: String, anchor: String, requestId: String? = nil, reason: String, statusText: String? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.activityVersion = activityVersion
@@ -395,6 +397,7 @@ public struct IPCAssistantActivityState: Codable, Sendable {
         self.anchor = anchor
         self.requestId = requestId
         self.reason = reason
+        self.statusText = statusText
     }
 }
 
