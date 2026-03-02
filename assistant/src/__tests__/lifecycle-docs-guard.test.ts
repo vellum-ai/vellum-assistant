@@ -79,9 +79,9 @@ describe('lifecycle docs guard', () => {
       },
       {
         file: 'AGENTS.md',
-        pattern: 'vellum',
+        pattern: 'vellum ps\\|vellum sleep\\|vellum wake',
         description:
-          'AGENTS.md should mention vellum in the /update command description',
+          'AGENTS.md should mention vellum ps, vellum sleep, or vellum wake in the /update command description',
       },
     ];
 
@@ -156,27 +156,35 @@ describe('lifecycle docs guard', () => {
           continue;
         }
 
-        // Check if this occurrence is inside a <details> section or
-        // a "Development" / "raw bun commands" context by examining
-        // surrounding lines. We use git grep -B10 to get context.
-        try {
-          const context = execSync(
-            `git grep -B10 '${pattern}' -- '${filePath}'`,
-            { encoding: 'utf-8', cwd: REPO_ROOT },
-          );
+        // Check if this specific occurrence is inside a <details> section or
+        // a "Development" / "raw bun commands" context by examining only the
+        // 10 lines before this match. We extract the line number from the
+        // grep output (format "filePath:lineNum:content") and use sed to
+        // get a targeted range, so each match is evaluated independently.
+        const parts = line.split(':');
+        const lineNum = parseInt(parts[1], 10);
 
-          const contextLower = context.toLowerCase();
-          const isInDetails = contextLower.includes('<details>');
-          const isDevContext =
-            contextLower.includes('development:') ||
-            contextLower.includes('low-level development') ||
-            contextLower.includes('raw bun commands');
+        if (!Number.isNaN(lineNum)) {
+          try {
+            const startLine = Math.max(1, lineNum - 10);
+            const context = execSync(
+              `git show HEAD:'${filePath}' | sed -n '${startLine},${lineNum}p'`,
+              { encoding: 'utf-8', cwd: REPO_ROOT },
+            );
 
-          if (isInDetails || isDevContext) {
-            continue;
+            const contextLower = context.toLowerCase();
+            const isInDetails = contextLower.includes('<details>');
+            const isDevContext =
+              contextLower.includes('development:') ||
+              contextLower.includes('low-level development') ||
+              contextLower.includes('raw bun commands');
+
+            if (isInDetails || isDevContext) {
+              continue;
+            }
+          } catch {
+            // If context extraction fails, treat as a violation
           }
-        } catch {
-          // If context grep fails, treat as a violation
         }
 
         violations.push(`${filePath}: contains "${label}" as primary instruction`);
