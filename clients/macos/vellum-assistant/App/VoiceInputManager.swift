@@ -277,6 +277,23 @@ final class VoiceInputManager {
         holdTask = nil
     }
 
+    // MARK: - Hold Detection Logic (extracted for testability)
+
+    /// Pure decision function: should recording begin after the hold timer fires?
+    /// Extracted from the hold detection closure so it can be unit-tested without NSEvent mocking.
+    func shouldStartRecording(
+        activationKeyPressed: Bool,
+        otherKeyPressed: Bool,
+        timeSinceAppSwitch: TimeInterval,
+        isAlreadyRecording: Bool
+    ) -> Bool {
+        guard activationKeyPressed else { return false }
+        guard !otherKeyPressed else { return false }
+        guard timeSinceAppSwitch > 0.5 else { return false }
+        guard !isAlreadyRecording else { return false }
+        return true
+    }
+
     // MARK: - Recording
 
     private func beginRecording() {
