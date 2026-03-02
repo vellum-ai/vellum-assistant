@@ -106,6 +106,14 @@ function verifyAppExists(appDisplayName: string): void {
   if (!existsSync(appPath)) {
     throw new Error(`Built macOS app not found at: ${appPath}`);
   }
+
+  // Restore execute permissions on all binaries inside the app bundle.
+  // CI artifact extraction (zip/unzip) strips the +x bit from Mach-O
+  // binaries, which prevents the app and its helpers from launching.
+  const macosDir = path.join(appPath, "Contents", "MacOS");
+  if (existsSync(macosDir)) {
+    execSync(`chmod +x ${JSON.stringify(macosDir)}/*`);
+  }
 }
 
 function logVellumPs(): void {
@@ -139,9 +147,6 @@ function ensureVellumInPath(appDisplayName: string): void {
   if (!existsSync(cliBinary)) {
     throw new Error(`Bundled CLI not found at: ${cliBinary}`);
   }
-
-  // Ensure the binary is executable (may lose +x when extracted from CI artifacts)
-  execSync(`chmod +x ${JSON.stringify(cliBinary)}`);
 
   // Create a temp bin dir with a `vellum` symlink pointing to the bundled CLI
   const tmpBin = path.join(__dirname, "../.vellum-bin");

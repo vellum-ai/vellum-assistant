@@ -22,6 +22,11 @@ private func createDesktopAppFixture(appDisplayName: String) throws -> FixtureCo
         throw FixtureError.appNotFound(resolvedPath)
     }
 
+    // Restore execute permissions on all binaries inside the app bundle.
+    // CI artifact extraction (zip/unzip) strips the +x bit from Mach-O
+    // binaries, which prevents the app and its helpers from launching.
+    restoreAppPermissions(appPath: resolvedPath)
+
     // Clear previous onboarding state
     let clearDefaults = Process()
     clearDefaults.executableURL = URL(fileURLWithPath: "/usr/bin/defaults")
@@ -47,6 +52,7 @@ private func createDesktopAppHatchedFixture(appDisplayName: String) throws -> Fi
         throw FixtureError.appNotFound(resolvedPath)
     }
 
+    restoreAppPermissions(appPath: resolvedPath)
     try ensureVellumInPath(appDisplayName: appDisplayName)
     try ensureAssistantHatched()
 
@@ -69,9 +75,6 @@ private func ensureVellumInPath(appDisplayName: String) throws {
     guard FileManager.default.fileExists(atPath: cliBinary) else {
         throw FixtureError.appNotFound("Bundled CLI not found at: \(cliBinary)")
     }
-
-    // Ensure the binary is executable (may lose +x when extracted from CI artifacts)
-    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: cliBinary)
 
     // Create a temp bin dir with a `vellum` symlink pointing to the bundled CLI
     let cwd = FileManager.default.currentDirectoryPath
@@ -138,6 +141,20 @@ private func ensureAssistantHatched() throws {
     guard hatch.terminationStatus == 0 else {
         throw FixtureError.noHatchedAssistant("vellum hatch exited with status \(hatch.terminationStatus)")
     }
+}
+
+/// Restores execute permissions on all binaries inside the app bundle.
+/// CI artifact extraction (zip/unzip) strips the +x bit from Mach-O binaries.
+private func restoreAppPermissions(appPath: String) {
+    let macosDir = (appPath as NSString).appendingPathComponent("Contents/MacOS")
+    guard FileManager.default.fileExists(atPath: macosDir) else { return }
+    let chmod = Process()
+    chmod.executableURL = URL(fileURLWithPath: "/bin/chmod")
+    chmod.arguments = ["+x"] + (try? FileManager.default.contentsOfDirectory(atPath: macosDir).map {
+        (macosDir as NSString).appendingPathComponent($0)
+    } ?? [])
+    try? chmod.run()
+    chmod.waitUntilExit()
 }
 
 private func resolveAppPath(appDisplayName: String) -> String {
