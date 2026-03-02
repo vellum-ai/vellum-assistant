@@ -10,6 +10,7 @@
  */
 import { getConversationByKey } from '../../memory/conversation-key-store.js';
 import { addRule } from '../../permissions/trust-store.js';
+import type { UserDecision } from '../../permissions/types.js';
 import { getTool } from '../../tools/registry.js';
 import { getLogger } from '../../util/logger.js';
 import { httpError } from '../http-errors.js';
@@ -85,8 +86,9 @@ export async function handleConfirm(req: Request, server: ServerWithRequestIP): 
     return httpError('BAD_REQUEST', 'requestId is required', 400);
   }
 
-  if (decision !== 'allow' && decision !== 'deny') {
-    return httpError('BAD_REQUEST', 'decision must be "allow" or "deny"', 400);
+  const validConfirmDecisions = ['allow', 'allow_10m', 'allow_thread', 'deny'];
+  if (typeof decision !== 'string' || !validConfirmDecisions.includes(decision)) {
+    return httpError('BAD_REQUEST', `decision must be one of: ${validConfirmDecisions.join(', ')}`, 400);
   }
 
   const interaction = pendingInteractions.resolve(requestId);
@@ -94,7 +96,7 @@ export async function handleConfirm(req: Request, server: ServerWithRequestIP): 
     return httpError('NOT_FOUND', 'No pending interaction found for this requestId', 404);
   }
 
-  interaction.session.handleConfirmationResponse(requestId, decision, undefined, undefined, undefined, {
+  interaction.session.handleConfirmationResponse(requestId, decision as UserDecision, undefined, undefined, undefined, {
     source: 'button',
   });
   return Response.json({ accepted: true });
@@ -273,6 +275,7 @@ export function handleListPendingInteractions(url: URL, req: Request, server: Se
           })),
           scopeOptions: confirmation.confirmationDetails?.scopeOptions,
           persistentDecisionsAllowed: confirmation.confirmationDetails?.persistentDecisionsAllowed,
+          temporaryOptionsAvailable: confirmation.confirmationDetails?.temporaryOptionsAvailable,
         }
       : null,
     pendingSecret: secret

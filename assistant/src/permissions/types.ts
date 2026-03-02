@@ -16,7 +16,7 @@ export interface TrustRule {
   allowHighRisk?: boolean;
 }
 
-export type UserDecision = 'allow' | 'always_allow' | 'always_allow_high_risk' | 'deny' | 'always_deny';
+export type UserDecision = 'allow' | 'allow_10m' | 'allow_thread' | 'always_allow' | 'always_allow_high_risk' | 'deny' | 'always_deny';
 
 export interface PermissionCheckResult {
   decision: 'allow' | 'deny' | 'prompt';
