@@ -116,8 +116,16 @@ export class PermissionChecker {
         // skip the interactive prompt and auto-approve. Only applies to
         // guardian actors — untrusted actors cannot leverage this to bypass
         // guardian-required gates (those are enforced in pre-execution gates).
+        // Proxied bash commands require per-invocation approval and must not
+        // be auto-approved by a temporary override — they are excluded here
+        // by requiring persistent decisions to be allowed.
+        const persistentDecisionsAllowedForOverride = !(
+          name === 'bash'
+          && input.network_mode === 'proxied'
+        );
         if (
           context.guardianTrustClass === 'guardian'
+          && persistentDecisionsAllowedForOverride
           && getEffectiveMode(context.conversationId) !== null
         ) {
           log.info(
