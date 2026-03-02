@@ -66,6 +66,17 @@ enum BootstrapState: String {
     case complete = "complete"
 }
 
+/// Categorises the most recent bootstrap failure so diagnostic messages
+/// can be specific rather than generic escalating text.
+private enum BootstrapFailureKind {
+    case socketMissing
+    case daemonNotRunning
+    case connectionRefused
+    case gatewayUnhealthy
+    case authFailed
+    case unknown
+}
+
 /// Carbon event handler for the Quick Input hotkey (Cmd+Shift+/).
 /// Must be a free function because Carbon callbacks are C function pointers.
 private func quickInputHotKeyHandler(
@@ -156,6 +167,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     private var bootstrapInterstitialWindow: NSWindow?
     /// Active task for the bootstrap retry coordinator. Cancelled on dismiss.
     private var bootstrapRetryTask: Task<Void, Never>?
+    /// Tracks the most recent failure kind during bootstrap retries so that
+    /// diagnostic messages reflect the actual problem, not generic escalating text.
+    private var bootstrapFailureKind: BootstrapFailureKind = .unknown
     /// Background task that retries actor-token bootstrap until success.
     private var actorTokenBootstrapTask: Task<Void, Never>?
     /// Tracks file paths of .vellumapp bundles awaiting daemon responses (FIFO).
@@ -508,26 +522,24 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
         bootstrapRetryTask = Task {
             while !Task.isCancelled {
-                if daemonClient.isConnected {
-                    log.info("Daemon connected during bootstrap retry — proceeding to wake-up send")
-                    transitionBootstrap(to: .pendingWakeupSend)
-                    dismissBootstrapInterstitialWindow()
-                    await performRetriableWakeUpSend()
-                    // Only nil out if we're still the active task (no new coordinator was started)
-                    if !Task.isCancelled {
-                        bootstrapRetryTask = nil
-                    }
-                    return
-                }
+                // Reset so the displayed message always reflects the most
+                // recent failure, not a stale one from a previous iteration.
+                bootstrapFailureKind = .unknown
 
-                // Surface escalating diagnostics so the user isn't staring
-                // at a spinner with no context.
-                let elapsed = CFAbsoluteTimeGetCurrent() - retryStart
-                if elapsed > 30 {
-                    updateBootstrapInterstitial(
-                        errorMessage: bootstrapDiagnosticMessage(elapsed: elapsed),
-                        isRetrying: true
-                    )
+                if daemonClient.isConnected {
+                    // Daemon is connected — check gateway health before proceeding
+                    if !(await isGatewayHealthy()) {
+                        bootstrapFailureKind = .gatewayUnhealthy
+                    } else {
+                        log.info("Daemon connected during bootstrap retry — proceeding to wake-up send")
+                        transitionBootstrap(to: .pendingWakeupSend)
+                        dismissBootstrapInterstitialWindow()
+                        await performRetriableWakeUpSend()
+                        if !Task.isCancelled {
+                            bootstrapRetryTask = nil
+                        }
+                        return
+                    }
                 }
 
                 // If the daemon socket doesn't exist, the daemon process
@@ -535,7 +547,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                 // so we don't loop forever on connect-only retries.
                 let socketPath = DaemonClient.resolveSocketPath()
                 if !FileManager.default.fileExists(atPath: socketPath) {
+                    bootstrapFailureKind = .socketMissing
                     log.info("Daemon socket missing during bootstrap retry — re-attempting hatch")
+                    try? await assistantCli.hatch(daemonOnly: true)
+                } else if !DaemonClient.isDaemonProcessAlive() {
+                    bootstrapFailureKind = .daemonNotRunning
+                    log.info("Daemon process not alive during bootstrap retry — re-attempting hatch")
                     try? await assistantCli.hatch(daemonOnly: true)
                 }
 
@@ -544,20 +561,37 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                     do {
                         try await daemonClient.connect()
                     } catch {
+                        if bootstrapFailureKind == .unknown {
+                            bootstrapFailureKind = .connectionRefused
+                        }
                         log.error("Bootstrap retry connect attempt failed: \(error)")
                     }
                 }
 
                 if daemonClient.isConnected {
-                    log.info("Daemon connected after bootstrap retry connect — proceeding to wake-up send")
-                    transitionBootstrap(to: .pendingWakeupSend)
-                    dismissBootstrapInterstitialWindow()
-                    await performRetriableWakeUpSend()
-                    // Only nil out if we're still the active task (no new coordinator was started)
-                    if !Task.isCancelled {
-                        bootstrapRetryTask = nil
+                    // Connected — verify gateway health before proceeding
+                    if !(await isGatewayHealthy()) {
+                        bootstrapFailureKind = .gatewayUnhealthy
+                    } else {
+                        log.info("Daemon connected after bootstrap retry connect — proceeding to wake-up send")
+                        transitionBootstrap(to: .pendingWakeupSend)
+                        dismissBootstrapInterstitialWindow()
+                        await performRetriableWakeUpSend()
+                        if !Task.isCancelled {
+                            bootstrapRetryTask = nil
+                        }
+                        return
                     }
-                    return
+                }
+
+                // Surface diagnostics so the user isn't staring at a
+                // spinner with no context.
+                let elapsed = CFAbsoluteTimeGetCurrent() - retryStart
+                if elapsed > 30 {
+                    updateBootstrapInterstitial(
+                        errorMessage: bootstrapDiagnosticMessage(elapsed: elapsed),
+                        isRetrying: true
+                    )
                 }
 
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
@@ -565,19 +599,52 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         }
     }
 
-    /// Returns a user-facing diagnostic message based on how long the bootstrap
-    /// retry has been running. Messages escalate in specificity over time.
+    /// Returns a user-facing diagnostic message based on the current failure
+    /// kind and how long the bootstrap retry has been running.
     private func bootstrapDiagnosticMessage(elapsed: CFAbsoluteTime) -> String {
-        if elapsed > 120 {
-            return "Your assistant is taking unusually long to start. "
-                + "Try quitting the app (\u{2318}Q) and reopening it. "
-                + "If the issue persists, retire and re-hatch your assistant."
-        } else if elapsed > 60 {
-            return "This is taking longer than expected. "
-                + "A background process may have crashed. "
-                + "The app will keep retrying automatically."
-        } else {
-            return "Still working on it \u{2014} this can take a minute on first launch."
+        switch bootstrapFailureKind {
+        case .socketMissing:
+            if elapsed > 60 {
+                return "Assistant files are missing. Try quitting (\u{2318}Q) and reopening."
+            }
+            return "Restarting your assistant\u{2026}"
+
+        case .daemonNotRunning:
+            if elapsed > 60 {
+                return "Unable to restart assistant. Try quitting (\u{2318}Q) and reopening."
+            }
+            return "Assistant process stopped \u{2014} restarting\u{2026}"
+
+        case .connectionRefused:
+            if elapsed > 60 {
+                return "Connection keeps failing. Try quitting (\u{2318}Q) and reopening."
+            }
+            return "Connecting to your assistant\u{2026}"
+
+        case .gatewayUnhealthy:
+            if elapsed > 60 {
+                return "Network services are not responding. Try quitting (\u{2318}Q) and reopening."
+            }
+            return "Waiting for network services\u{2026}"
+
+        case .authFailed:
+            if elapsed > 30 {
+                return "Authentication issue. You may need to re-pair your assistant."
+            }
+            return "Authenticating\u{2026}"
+
+        case .unknown:
+            if elapsed > 120 {
+                return "Your assistant is taking unusually long to start. "
+                    + "Try quitting the app (\u{2318}Q) and reopening it. "
+                    + "If the issue persists, retire and re-hatch your assistant."
+            } else if elapsed > 60 {
+                return "This is taking longer than expected. "
+                    + "A background process may have crashed. "
+                    + "The app will keep retrying automatically."
+            } else {
+                return "Still working on it \u{2014} this can take a minute on first launch."
+            }
         }
     }
 
