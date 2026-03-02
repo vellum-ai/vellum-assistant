@@ -38,8 +38,8 @@ export interface GuardianRuntimeContext {
   trustClass: 'guardian' | 'trusted_contact' | 'unknown';
   guardianChatId?: string;
   guardianExternalUserId?: string;
-  /** Canonical principal ID for the guardian binding. Nullable for backward compatibility — M5 will make this required. */
-  guardianPrincipalId?: string | null;
+  /** Canonical principal ID for the guardian binding. */
+  guardianPrincipalId?: string;
   requesterIdentifier?: string;
   requesterDisplayName?: string;
   requesterSenderDisplayName?: string;
