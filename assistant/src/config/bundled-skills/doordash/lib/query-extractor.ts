@@ -6,11 +6,11 @@
  * Captured queries are saved to ~/.vellum/workspace/data/doordash/captured-queries.json
  */
 
-import { existsSync,mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
-import type { SessionRecording } from './shared/recording-types.js';
-import { getDataDir } from './shared/platform.js';
+import { getDataDir } from "./shared/platform.js";
+import type { SessionRecording } from "./shared/recording-types.js";
 
 export interface CapturedQuery {
   operationName: string;
@@ -20,7 +20,7 @@ export interface CapturedQuery {
 }
 
 function getCapturedQueriesPath(): string {
-  return join(getDataDir(), 'doordash', 'captured-queries.json');
+  return join(getDataDir(), "doordash", "captured-queries.json");
 }
 
 /**
@@ -33,7 +33,7 @@ export function extractQueries(recording: SessionRecording): CapturedQuery[] {
 
   for (const entry of recording.networkEntries) {
     const url = entry.request.url;
-    if (!url.includes('/graphql/') && !url.includes('/graphql?')) continue;
+    if (!url.includes("/graphql/") && !url.includes("/graphql?")) continue;
     if (!entry.request.postData) continue;
 
     try {
@@ -74,8 +74,8 @@ export function saveQueries(queries: CapturedQuery[]): string {
   }
 
   const filePath = getCapturedQueriesPath();
-  mkdirSync(join(filePath, '..'), { recursive: true });
-  writeFileSync(filePath, JSON.stringify(existing, null, 2), 'utf-8');
+  mkdirSync(join(filePath, ".."), { recursive: true });
+  writeFileSync(filePath, JSON.stringify(existing, null, 2), "utf-8");
   return filePath;
 }
 
@@ -86,7 +86,7 @@ export function loadCapturedQueries(): Record<string, CapturedQuery> {
   const filePath = getCapturedQueriesPath();
   if (!existsSync(filePath)) return {};
   try {
-    const data = readFileSync(filePath, 'utf-8');
+    const data = readFileSync(filePath, "utf-8");
     return JSON.parse(data) as Record<string, CapturedQuery>;
   } catch {
     return {};

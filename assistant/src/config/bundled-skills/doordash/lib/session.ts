@@ -3,12 +3,21 @@
  * Stores/loads auth cookies from a recording or manual login.
  */
 
-import { existsSync, mkdirSync, readFileSync, unlinkSync,writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { join } from "node:path";
 
-import type { ExtractedCredential, SessionRecording } from './shared/recording-types.js';
-import { ConfigError } from './shared/errors.js';
-import { getDataDir } from './shared/platform.js';
+import { ConfigError } from "./shared/errors.js";
+import { getDataDir } from "./shared/platform.js";
+import type {
+  ExtractedCredential,
+  SessionRecording,
+} from "./shared/recording-types.js";
 
 export interface DoorDashSession {
   cookies: ExtractedCredential[];
@@ -17,18 +26,18 @@ export interface DoorDashSession {
 }
 
 function getSessionDir(): string {
-  return join(getDataDir(), 'doordash');
+  return join(getDataDir(), "doordash");
 }
 
 function getSessionPath(): string {
-  return join(getSessionDir(), 'session.json');
+  return join(getSessionDir(), "session.json");
 }
 
 export function loadSession(): DoorDashSession | null {
   const path = getSessionPath();
   if (!existsSync(path)) return null;
   try {
-    return JSON.parse(readFileSync(path, 'utf-8')) as DoorDashSession;
+    return JSON.parse(readFileSync(path, "utf-8")) as DoorDashSession;
   } catch {
     return null;
   }
@@ -54,9 +63,11 @@ export function importFromRecording(recordingPath: string): DoorDashSession {
   if (!existsSync(recordingPath)) {
     throw new ConfigError(`Recording not found: ${recordingPath}`);
   }
-  const recording = JSON.parse(readFileSync(recordingPath, 'utf-8')) as SessionRecording;
+  const recording = JSON.parse(
+    readFileSync(recordingPath, "utf-8"),
+  ) as SessionRecording;
   if (!recording.cookies?.length) {
-    throw new ConfigError('Recording contains no cookies');
+    throw new ConfigError("Recording contains no cookies");
   }
   const session: DoorDashSession = {
     cookies: recording.cookies,
@@ -71,14 +82,12 @@ export function importFromRecording(recordingPath: string): DoorDashSession {
  * Build a Cookie header string from the session.
  */
 export function getCookieHeader(session: DoorDashSession): string {
-  return session.cookies
-    .map(c => `${c.name}=${c.value}`)
-    .join('; ');
+  return session.cookies.map((c) => `${c.name}=${c.value}`).join("; ");
 }
 
 /**
  * Get the CSRF token from session cookies.
  */
 export function getCsrfToken(session: DoorDashSession): string | undefined {
-  return session.cookies.find(c => c.name === 'csrf_token')?.value;
+  return session.cookies.find((c) => c.name === "csrf_token")?.value;
 }

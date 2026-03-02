@@ -4,17 +4,17 @@
  */
 
 export function serialize(msg: Record<string, unknown>): string {
-  return JSON.stringify(msg) + '\n';
+  return JSON.stringify(msg) + "\n";
 }
 
 export function createMessageParser() {
-  let buffer = '';
+  let buffer = "";
 
   return {
     feed(data: string): Array<Record<string, unknown>> {
       buffer += data;
-      const lines = buffer.split('\n');
-      buffer = lines.pop() ?? '';
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
       const results: Array<Record<string, unknown>> = [];
       for (const line of lines) {
         const trimmed = line.trim();
