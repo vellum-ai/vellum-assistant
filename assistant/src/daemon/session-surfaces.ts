@@ -528,13 +528,15 @@ export function buildCompletionSummary(surfaceType: string | undefined, actionId
   }
   if (surfaceType === 'list' && data) {
     const selectedIds = data.selectedIds as string[] | undefined;
-    if (selectedIds?.length === 1) return `Selected: ${selectedIds[0]}`;
-    if (selectedIds?.length) return `Selected ${selectedIds.length} items`;
+    const actionSuffix = actionId ? ` (action: ${actionId})` : '';
+    if (selectedIds?.length === 1) return `Selected: ${selectedIds[0]}${actionSuffix}`;
+    if (selectedIds?.length) return `Selected ${selectedIds.length} items${actionSuffix}`;
   }
   if (surfaceType === 'table' && data) {
     const selectedIds = data.selectedIds as string[] | undefined;
-    if (selectedIds?.length === 1) return `Selected 1 row`;
-    if (selectedIds?.length) return `Selected ${selectedIds.length} rows`;
+    const actionSuffix = actionId ? ` (action: ${actionId})` : '';
+    if (selectedIds?.length === 1) return `Selected 1 row${actionSuffix}`;
+    if (selectedIds?.length) return `Selected ${selectedIds.length} rows${actionSuffix}`;
   }
   return actionId.charAt(0).toUpperCase() + actionId.slice(1);
 }
