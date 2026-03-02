@@ -1223,7 +1223,8 @@ public final class SettingsStore: ObservableObject {
     }
 
     func unassignTwilioNumber() {
-        twilioSaveInProgress = true
+        // Optimistically clear locally so the UI responds immediately.
+        twilioPhoneNumber = nil
         twilioError = nil
         Task {
             await performTwilioHTTPRequest(
@@ -1231,7 +1232,6 @@ public final class SettingsStore: ObservableObject {
                 path: "/v1/integrations/twilio/numbers/assign",
                 applyPhoneNumber: true
             )
-            twilioSaveInProgress = false
         }
     }
 
