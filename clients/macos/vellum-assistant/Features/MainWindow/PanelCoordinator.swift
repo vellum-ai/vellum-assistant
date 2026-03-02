@@ -180,7 +180,7 @@ extension MainWindowView {
             if let surface = windowState.activeDynamicParsedSurface,
                case .dynamicPage(let dpData) = surface.data {
                 dynamicWorkspaceView(surface: surface, data: dpData)
-                    .background(VColor.backgroundSubtle)
+                    .background(VColor.background)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
             } else {
                 // Loading state while waiting for daemon to send surface data
@@ -220,8 +220,7 @@ extension MainWindowView {
                     },
                     panel: {
                         dynamicWorkspaceView(surface: surface, data: dpData)
-                            .background(adaptiveColor(light: Moss._100, dark: Moss._900))
-                            .clipShape(UnevenRoundedRectangle(topLeadingRadius: VRadius.xl, bottomLeadingRadius: VRadius.xl))
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
                     }
                 )
             } else {
@@ -799,6 +798,15 @@ struct DynamicWorkspaceWrapper: View {
     @State private var showVersionHistory = false
     @State private var publishUrlCopied = false
 
+    /// Corner radius for the WKWebView clipping container, matched to the SwiftUI clipShape.
+    private var webViewCornerRadius: CGFloat { VRadius.lg }
+
+    /// Which corners to round — all corners for both standalone and split editing
+    /// since each panel is individually rounded in its own container.
+    private var webViewMaskedCorners: CACornerMask {
+        [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+    }
+
     var body: some View {
         ZStack {
             if showVersionHistory, let appId = data.appId {
@@ -852,7 +860,9 @@ struct DynamicWorkspaceWrapper: View {
                     surfaceManager.onLinkOpen?(url, metadata)
                 },
                 topContentInset: 56,
-                bottomContentInset: 0
+                bottomContentInset: 0,
+                cornerRadius: webViewCornerRadius,
+                maskedCorners: webViewMaskedCorners
             )
 
             VStack(spacing: 0) {
