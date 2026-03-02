@@ -35,6 +35,8 @@ vellum ps
 vellum sleep
 ```
 
+> **Note:** `vellum wake` requires a hatched assistant. Run `vellum hatch local` first, or launch the macOS app which handles hatching automatically.
+
 ### `hatch`
 
 Provision a new assistant instance and bootstrap the Vellum runtime on it.

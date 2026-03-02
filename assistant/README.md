@@ -68,6 +68,8 @@ vellum ps      # list assistants and per-assistant process status
 vellum sleep   # stop daemon + gateway (directory-agnostic)
 ```
 
+> **Note:** `vellum wake` requires a hatched assistant. Run `vellum hatch local` first, or launch the macOS app which handles hatching automatically.
+
 ### Development: raw bun commands
 
 For low-level development (e.g., working on the daemon itself):
