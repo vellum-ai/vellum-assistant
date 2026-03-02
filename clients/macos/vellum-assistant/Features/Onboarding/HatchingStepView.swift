@@ -169,20 +169,6 @@ struct HatchingStepView: View {
                 Text(isCustomHardware ? "Pairing\u{2026}" : "Hatching\u{2026}")
                     .font(.system(size: 24, weight: .regular, design: .serif))
                     .foregroundColor(VColor.textPrimary)
-
-                if isLocalFlow {
-                    Text("Setting up your assistant")
-                        .font(.system(size: 14))
-                        .foregroundColor(VColor.textSecondary)
-                } else if isCustomHardware {
-                    Text("Setting up your assistant")
-                        .font(.system(size: 14))
-                        .foregroundColor(VColor.textSecondary)
-                } else {
-                    Text("Setting up your assistant on \(state.cloudProvider.uppercased())")
-                        .font(.system(size: 14))
-                        .foregroundColor(VColor.textSecondary)
-                }
             }
         }
     }
