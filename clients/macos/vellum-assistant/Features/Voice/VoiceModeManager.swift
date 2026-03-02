@@ -230,7 +230,8 @@ final class VoiceModeManager: ObservableObject {
         errorMessage = ""
         state = .listening
         guard voiceService.startRecording() else {
-            errorMessage = "Speech recognition unavailable"
+            log.error("Voice mode: startRecording() failed — mic may not be available yet")
+            errorMessage = "Microphone not ready. Try again."
             state = .idle
             return
         }
