@@ -45,19 +45,19 @@ final class VoiceTranscriptionWindow {
 
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight),
-            styleMask: [.titled, .nonactivatingPanel, .utilityWindow, .hudWindow],
+            styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
 
         panel.contentViewController = hostingController
+        panel.isFloatingPanel = true
         panel.level = .floating
-        panel.titleVisibility = .hidden
-        panel.titlebarAppearsTransparent = true
-        panel.alphaValue = 0.95
+        panel.hasShadow = true
+        panel.backgroundColor = .clear
+        panel.isOpaque = false
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary]
-        panel.backgroundColor = .clear
 
         // Position top-right corner of screen
         if let screen = NSScreen.main {
