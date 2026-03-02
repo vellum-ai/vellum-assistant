@@ -977,7 +977,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
         hasSetupDaemon = false
         setupDaemonClient()
-        ensureActorCredentials()
+
+        // Actor credential bootstrap uses runtime bearer flows that don't
+        // exist in managed mode — identity comes from the platform session.
+        if !isCurrentAssistantManaged {
+            ensureActorCredentials()
+        }
     }
 
     @objc func performRetire() {
