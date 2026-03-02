@@ -8,6 +8,7 @@ import VellumAssistantShared
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "VoiceInput")
 
+
 /// Determines how voice transcriptions are routed after speech recognition completes.
 enum VoiceInputMode {
     case conversation  // existing behavior — transcription goes to chat
@@ -111,7 +112,24 @@ final class VoiceInputManager {
                 self.otherKeyPressedDuringHold = false
             }
         }
-        appSwitchObservers = [workspaceObserver, resignObserver]
+        // Cancel hold when the user switches Spaces (ctrl+arrow, ctrl+number, etc.).
+        // didActivateApplicationNotification only fires when the frontmost app changes,
+        // which doesn't happen when switching to an empty space or one with the same app.
+        // activeSpaceDidChangeNotification fires on every Spaces switch.
+        let spaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.activeSpaceDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.lastAppSwitchTime = Date()
+                self.holdTask?.cancel()
+                self.holdTask = nil
+                self.otherKeyPressedDuringHold = false
+            }
+        }
+        appSwitchObservers = [workspaceObserver, resignObserver, spaceObserver]
 
         // Wire the dictation response callback to insert text and manage the overlay
         if onDictationResponse == nil {
@@ -216,6 +234,7 @@ final class VoiceInputManager {
             }
             return event
         }
+
     }
 
     private func handleFlagsChanged(_ event: NSEvent) {
@@ -236,16 +255,39 @@ final class VoiceInputManager {
             // Skip if an app switch happened recently — this Fn/Ctrl press is likely
             // from a system keyboard shortcut (Cmd+Tab, Ctrl+arrows) used to switch apps.
             guard Date().timeIntervalSince(lastAppSwitchTime) > 0.5 else { return }
-            holdTask = Task { [weak self] in
-                try? await Task.sleep(nanoseconds: Self.holdDelay)
+            // Snapshot every key that is physically held right now (includes the
+            // activation key itself). During the hold we only cancel if a NEW key
+            // appears — one that wasn't already down at activation time. This avoids
+            // any hardcoded list of modifier key codes or layout assumptions.
+            var activationSnapshot = Set<CGKeyCode>()
+            for code in CGKeyCode(0)...CGKeyCode(127) {
+                if CGEventSource.keyState(.combinedSessionState, key: code) {
+                    activationSnapshot.insert(code)
+                }
+            }
+            holdTask = Task { [weak self, activationSnapshot] in
+                // Poll every 25ms for 300ms total (12 polls).
+                // CGEventSource.keyState reads hardware state directly, catching
+                // keys consumed by system shortcuts before NSEvent monitors see them.
+                let pollIntervalNs: UInt64 = 25_000_000
+                let numPolls = Int(Self.holdDelay / pollIntervalNs)
+                for _ in 0..<numPolls {
+                    try? await Task.sleep(nanoseconds: pollIntervalNs)
+                    guard !Task.isCancelled else { return }
+                    guard let self = self else { return }
+                    guard !self.otherKeyPressedDuringHold else { return }
+                    guard Date().timeIntervalSince(self.lastAppSwitchTime) > 0.5 else { return }
+                    // Cancel if any key not present at activation time is now held.
+                    for code in CGKeyCode(0)...CGKeyCode(127) {
+                        if !activationSnapshot.contains(code) &&
+                            CGEventSource.keyState(.combinedSessionState, key: code) {
+                            return
+                        }
+                    }
+                }
                 guard !Task.isCancelled else { return }
                 guard let self = self else { return }
-                // Don't start recording if any key was pressed during hold (Control+C, etc.)
                 guard !self.otherKeyPressedDuringHold else { return }
-                // Also verify no non-modifier key is physically held right now.
-                // This catches system shortcuts (e.g. ctrl+arrow for desktop switching)
-                // that macOS intercepts before keyDown events reach our global monitor.
-                guard !Self.isAnyNonModifierKeyPhysicallyHeld() else { return }
                 guard Date().timeIntervalSince(self.lastAppSwitchTime) > 0.5 else { return }
                 // Capture frontmost app context before recording starts so the daemon
                 // knows where to insert the cleaned-up text after dictation completes.
@@ -283,24 +325,6 @@ final class VoiceInputManager {
     }
 
     // MARK: - Recording
-
-    /// Returns true if any non-modifier key is physically held down at this moment.
-    /// Uses CGEventSource.keyState which reads directly from hardware, bypassing NSEvent
-    /// delivery — this catches system-intercepted shortcuts (e.g. ctrl+arrow for desktop
-    /// switching) that macOS consumes before our global keyDown monitor receives them.
-    private static func isAnyNonModifierKeyPhysicallyHeld() -> Bool {
-        // Key codes for modifier keys — exclude these from the check.
-        // 54, 55: right/left Command; 56, 60: right/left Shift; 57: Caps Lock
-        // 58, 61: right/left Option; 59, 62: right/left Control; 63: Fn
-        let modifierKeyCodes: Set<CGKeyCode> = [54, 55, 56, 57, 58, 59, 60, 61, 62, 63]
-        for keyCode in CGKeyCode(0)...CGKeyCode(126) {
-            if !modifierKeyCodes.contains(keyCode) &&
-                CGEventSource.keyState(.combinedSessionState, key: keyCode) {
-                return true
-            }
-        }
-        return false
-    }
 
     private func beginRecording() {
         guard let speechRecognizer = speechRecognizer, speechRecognizer.isAvailable else {
