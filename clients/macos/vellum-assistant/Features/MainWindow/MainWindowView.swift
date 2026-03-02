@@ -1087,48 +1087,17 @@ struct MainWindowView: View {
 
     // MARK: - Pinned App Helpers
 
-    /// A pinned app row for the expanded sidebar — small icon + app name.
+    /// A pinned app row — delegates layout to `SidebarPrimaryRow` for both
+    /// expanded and collapsed modes, then adds app-specific context menu and drag.
     @ViewBuilder
-    private func sidebarPinnedAppRow(_ app: AppListManager.AppItem) -> some View {
-        Button(action: {
+    private func sidebarPinnedAppRow(_ app: AppListManager.AppItem, isExpanded: Bool = true) -> some View {
+        SidebarPrimaryRow(
+            icon: app.sfSymbol ?? "square.grid.2x2",
+            label: app.name,
+            isActive: isAppSurfaceActive(appId: app.id),
+            isExpanded: isExpanded
+        ) {
             openAppInWorkspace(app: app)
-        }) {
-            HStack(spacing: VSpacing.xs) {
-                Image(systemName: app.sfSymbol ?? "square.grid.2x2")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._400))
-                    .frame(width: 20)
-                Text(app.name)
-                    .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.textPrimary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Spacer()
-            }
-            .padding(.leading, VSpacing.xs)
-            .padding(.trailing, VSpacing.sm)
-            .padding(.vertical, VSpacing.sm)
-            .background(
-                isAppSurfaceActive(appId: app.id)
-                    ? adaptiveColor(light: Moss._100, dark: Moss._700)
-                    : sidebar.isHoveredApp == app.id
-                        ? adaptiveColor(light: Moss._100, dark: Moss._700).opacity(0.5)
-                        : Color.clear
-            )
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-            .contentShape(Rectangle())
-            .animation(VAnimation.fast, value: sidebar.isHoveredApp == app.id)
-        }
-        .buttonStyle(.plain)
-        .padding(.horizontal, VSpacing.sm)
-        .onHover { hovering in
-            if hovering {
-                sidebar.isHoveredApp = app.id
-                NSCursor.pointingHand.push()
-            } else {
-                if sidebar.isHoveredApp == app.id { sidebar.isHoveredApp = nil }
-                NSCursor.pop()
-            }
         }
         .contextMenu {
             Button(app.isPinned ? "Unpin" : "Pin to Top") {
@@ -1147,59 +1116,6 @@ struct MainWindowView: View {
             }
         }
         .draggable(app.id)
-    }
-
-    /// A pinned app icon button for the collapsed sidebar.
-    @ViewBuilder
-    private func sidebarPinnedAppIcon(_ app: AppListManager.AppItem) -> some View {
-        Button(action: {
-            openAppInWorkspace(app: app)
-        }) {
-            Image(systemName: app.sfSymbol ?? "square.grid.2x2")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundColor(adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._400))
-                .frame(width: 18)
-                .padding(.vertical, VSpacing.sm)
-                .frame(maxWidth: .infinity)
-                .background(
-                    isAppSurfaceActive(appId: app.id)
-                        ? adaptiveColor(light: Color(hex: 0xD4DFD0), dark: Moss._700)
-                        : sidebar.isHoveredApp == app.id
-                            ? adaptiveColor(light: Color(hex: 0xD4DFD0), dark: Moss._700).opacity(0.5)
-                            : Color.clear
-                )
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .padding(.horizontal, VSpacing.xs)
-        .help(app.name)
-        .accessibilityLabel(app.name)
-        .onHover { hovering in
-            if hovering {
-                sidebar.isHoveredApp = app.id
-                NSCursor.pointingHand.push()
-            } else {
-                if sidebar.isHoveredApp == app.id { sidebar.isHoveredApp = nil }
-                NSCursor.pop()
-            }
-        }
-        .contextMenu {
-            Button(app.isPinned ? "Unpin" : "Pin to Top") {
-                if app.isPinned {
-                    appListManager.unpinApp(id: app.id)
-                } else {
-                    appListManager.pinApp(id: app.id)
-                }
-            }
-            Button("Open") {
-                openAppInWorkspace(app: app)
-            }
-            Divider()
-            Button("Remove from Recents", role: .destructive) {
-                appListManager.removeApp(id: app.id)
-            }
-        }
     }
 
     @ViewBuilder
@@ -1410,7 +1326,7 @@ struct MainWindowView: View {
             if !appListManager.pinnedApps.isEmpty {
                 VStack(spacing: VSpacing.sm) {
                     ForEach(appListManager.pinnedApps) { app in
-                        sidebarPinnedAppIcon(app)
+                        sidebarPinnedAppRow(app, isExpanded: false)
                     }
                 }
 
@@ -1578,85 +1494,6 @@ struct MainWindowView: View {
         }
     }
 
-    @ViewBuilder
-    private func sidebarAppItem(_ app: AppListManager.AppItem) -> some View {
-        Button(action: {
-            openAppInWorkspace(app: app)
-        }) {
-            HStack(spacing: VSpacing.sm) {
-                Text(app.name)
-                    .font(.system(size: 13))
-                    .foregroundColor(VColor.textPrimary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, VSpacing.sm)
-            .padding(.vertical, VSpacing.sm)
-            .background(sidebar.isHoveredApp == app.id ? VColor.hoverOverlay.opacity(0.08) : Color.clear)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .overlay(alignment: .trailing) {
-            if sidebar.isHoveredApp == app.id {
-                Button {
-                    if app.isPinned {
-                        appListManager.unpinApp(id: app.id)
-                    } else {
-                        appListManager.pinApp(id: app.id)
-                    }
-                } label: {
-                    Image(systemName: app.isPinned ? "pin.fill" : "pin")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundColor(app.isPinned ? VColor.textMuted : VColor.textSecondary)
-                        .rotationEffect(.degrees(-45))
-                        .frame(width: 20, height: 20)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(app.isPinned ? "Unpin \(app.name)" : "Pin \(app.name)")
-                .padding(.trailing, VSpacing.xs)
-            } else if app.isPinned {
-                Image(systemName: "pin.fill")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(VColor.textMuted)
-                    .rotationEffect(.degrees(-45))
-                    .frame(width: 20, height: 20)
-                    .padding(.trailing, VSpacing.xs)
-            }
-        }
-        .padding(.horizontal, VSpacing.sm)
-        .onHover { hovering in
-            if hovering {
-                sidebar.isHoveredApp = app.id
-                NSCursor.pointingHand.push()
-            } else {
-                if sidebar.isHoveredApp == app.id {
-                    sidebar.isHoveredApp = nil
-                }
-                NSCursor.pop()
-            }
-        }
-        .contextMenu {
-            Button(app.isPinned ? "Unpin" : "Pin to Top") {
-                if app.isPinned {
-                    appListManager.unpinApp(id: app.id)
-                } else {
-                    appListManager.pinApp(id: app.id)
-                }
-            }
-            Button("Open") {
-                openAppInWorkspace(app: app)
-            }
-            Divider()
-            Button("Remove from Recents", role: .destructive) {
-                appListManager.removeApp(id: app.id)
-            }
-        }
-        .draggable(app.id)
-    }
-
     // MARK: - App View Helpers
 
     /// Check if a given appId matches the currently active workspace surface.
@@ -1711,7 +1548,10 @@ struct ZoomIndicatorView: View {
     }
 }
 
-private struct SidebarNavRow: View {
+/// Unified sidebar row used by both nav items and pinned apps.
+/// Handles expanded (icon + label) and collapsed (icon-only) modes
+/// with consistent spacing, backgrounds, and hover behavior.
+private struct SidebarPrimaryRow: View {
     let icon: String
     let label: String
     var isActive: Bool = false
@@ -1729,7 +1569,8 @@ private struct SidebarNavRow: View {
                 Text(label)
                     .font(VFont.bodyMedium)
                     .foregroundColor(VColor.textPrimary)
-                    .fixedSize()
+                    .lineLimit(1)
+                    .truncationMode(.tail)
                     .frame(width: isExpanded ? nil : 0, alignment: .leading)
                     .clipped()
                     .opacity(isExpanded ? 1 : 0)
@@ -1756,6 +1597,9 @@ private struct SidebarNavRow: View {
         }
     }
 }
+
+/// Convenience alias — existing callsites use `SidebarNavRow`.
+private typealias SidebarNavRow = SidebarPrimaryRow
 
 private struct SidebarThreadsHeader: View {
     let hasUnseenThreads: Bool
