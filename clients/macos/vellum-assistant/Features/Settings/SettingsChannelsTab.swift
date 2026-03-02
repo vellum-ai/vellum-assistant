@@ -178,12 +178,10 @@ struct SettingsChannelsTab: View {
                     .accessibilityLabel("Copy bearer token")
                     .help("Copy token")
 
-                    // Regenerate button
-                    Button("Regenerate") {
-                        showingRegenerateConfirmation = true
-                    }
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.accent)
+                }
+
+                VButton(label: "Regenerate", style: .tertiary, size: .large) {
+                    showingRegenerateConfirmation = true
                 }
             }
         }
@@ -292,18 +290,8 @@ struct SettingsChannelsTab: View {
             } else if telegramSetupExpanded {
                 telegramCredentialEntry
             } else {
-                VStack(alignment: .leading, spacing: VSpacing.lg) {
-                    HStack(spacing: VSpacing.sm) {
-                        Image(systemName: "exclamationmark.triangle")
-                            .foregroundColor(VColor.warning)
-                            .font(.system(size: 12))
-                        Text("Not configured")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                    }
-                    VButton(label: "Set Up", style: .secondary, size: .large) {
-                        telegramSetupExpanded = true
-                    }
+                VButton(label: "Set Up", style: .secondary, size: .large) {
+                    telegramSetupExpanded = true
                 }
             }
 
@@ -466,18 +454,8 @@ struct SettingsChannelsTab: View {
             } else if slackChannelSetupExpanded {
                 slackChannelCredentialEntry
             } else {
-                VStack(alignment: .leading, spacing: VSpacing.lg) {
-                    HStack(spacing: VSpacing.sm) {
-                        Image(systemName: "exclamationmark.triangle")
-                            .foregroundColor(VColor.warning)
-                            .font(.system(size: 12))
-                        Text("Not configured")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                    }
-                    VButton(label: "Set Up", style: .secondary, size: .large) {
-                        slackChannelSetupExpanded = true
-                    }
+                VButton(label: "Set Up", style: .secondary, size: .large) {
+                    slackChannelSetupExpanded = true
                 }
             }
 
@@ -1630,16 +1608,6 @@ struct SettingsChannelsTab: View {
 
     // MARK: - Mobile Card (Pairing + Approved Devices)
 
-    private var mobilePairingLabel: some View {
-        HStack(spacing: VSpacing.xs) {
-            Text("Device Pairing")
-            VInfoTooltip("Scan a QR code with the iOS app to pair your phone with this Mac.")
-        }
-        .font(VFont.caption)
-        .foregroundColor(VColor.textSecondary)
-        .frame(width: labelColumnWidth, alignment: .leading)
-    }
-
     private var mobileCard: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
@@ -1652,15 +1620,7 @@ struct SettingsChannelsTab: View {
             }
 
             // Connected devices — shown as status rows (mirrors Telegram bot / Twilio phone rows)
-            if store.approvedDevices.isEmpty {
-                channelStatusRow(
-                    label: "Device",
-                    icon: "iphone",
-                    iconColor: VColor.textMuted,
-                    value: "No devices paired",
-                    valueColor: VColor.textMuted
-                )
-            } else {
+            if !store.approvedDevices.isEmpty {
                 ForEach(store.approvedDevices, id: \.hashedDeviceId) { device in
                     channelStatusRow(
                         label: "Device",
@@ -1672,9 +1632,8 @@ struct SettingsChannelsTab: View {
                         }
                     )
                 }
+                Divider().background(VColor.surfaceBorder)
             }
-
-            Divider().background(VColor.surfaceBorder)
 
             // Device pairing row — mirrors Guardian Verification row layout
             mobilePairingRow
@@ -1722,7 +1681,6 @@ struct SettingsChannelsTab: View {
 
         if store.isRegeneratingToken {
             HStack(spacing: VSpacing.sm) {
-                mobilePairingLabel
                 ProgressView()
                     .controlSize(.small)
                 Text("Restarting daemon\u{2026}")
@@ -1731,7 +1689,6 @@ struct SettingsChannelsTab: View {
             }
         } else if !hasGateway {
             HStack(spacing: VSpacing.sm) {
-                mobilePairingLabel
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundColor(VColor.warning)
                     .font(.system(size: 12))
@@ -1742,7 +1699,6 @@ struct SettingsChannelsTab: View {
         } else if !hasToken {
             VStack(alignment: .leading, spacing: VSpacing.sm) {
                 HStack(spacing: VSpacing.sm) {
-                    mobilePairingLabel
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundColor(VColor.warning)
                         .font(.system(size: 12))
@@ -1755,13 +1711,8 @@ struct SettingsChannelsTab: View {
                 }
             }
         } else {
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
-                HStack(spacing: VSpacing.sm) {
-                    mobilePairingLabel
-                }
-                VButton(label: "Pair Device", leftIcon: "qrcode", style: .primary, size: .large) {
-                    showingPairingQR = true
-                }
+            VButton(label: "Pair Device", leftIcon: "qrcode", style: .primary, size: .large) {
+                showingPairingQR = true
             }
         }
     }
