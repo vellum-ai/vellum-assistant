@@ -50,6 +50,8 @@ enum APIKeyManager {
     // MARK: - Generic provider access
 
     static func getKey(for provider: String) -> String? {
+        migrateCliToNativeIfNeeded()
+
         let cached = cachedValue(for: provider)
         if cached.hit { return cached.value }
 
@@ -232,7 +234,7 @@ enum APIKeyManager {
     @discardableResult
     private static func migrateIfNeeded() -> String? {
         // Skip if new entry already exists — return the value we just read
-        if let existing = cliGetKey(service: service, account: "anthropic") { return existing }
+        if let existing = nativeGetKey(service: service, account: "anthropic") { return existing }
 
         // Read from legacy entry (uses Security.framework since the old entry was created with SecItemAdd)
         let legacyQuery: [String: Any] = [
@@ -247,8 +249,8 @@ enum APIKeyManager {
               let data = result as? Data,
               let key = String(data: data, encoding: .utf8) else { return nil }
 
-        // Write to new entry via CLI (no ACL restrictions)
-        cliSetKey(service: service, account: "anthropic", value: key)
+        // Write to new entry via native SecItem API (prompt-free)
+        nativeSetKey(service: service, account: "anthropic", value: key)
 
         // Delete legacy entry
         let deleteQuery: [String: Any] = [
@@ -259,6 +261,27 @@ enum APIKeyManager {
         SecItemDelete(deleteQuery as CFDictionary)
 
         return key
+    }
+
+    /// One-time migration from CLI-created keychain items to native SecItem entries.
+    /// CLI-created items are owned by `/usr/bin/security` and trigger macOS authorization
+    /// prompts; native entries are owned by the app and are prompt-free.
+    private static func migrateCliToNativeIfNeeded() {
+        guard !UserDefaults.standard.bool(forKey: "keychain-native-migration-done") else { return }
+
+        let providers = [
+            "anthropic", "openai", "gemini", "fireworks",
+            "brave", "perplexity", "elevenlabs", "openrouter", "ollama"
+        ]
+
+        for provider in providers {
+            if let value = cliGetKey(service: service, account: provider) {
+                nativeSetKey(service: service, account: provider, value: value)
+                cliDeleteKey(service: service, account: provider)
+            }
+        }
+
+        UserDefaults.standard.set(true, forKey: "keychain-native-migration-done")
     }
 
     private static func notifyKeyDidChange() {
