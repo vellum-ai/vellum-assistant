@@ -99,14 +99,14 @@ export async function sweepFailedEvents(
     const assistantId = typeof payload.assistantId === 'string'
       ? payload.assistantId
       : undefined;
-    const guardianContext = parseGuardianRuntimeContext(payload.guardianCtx);
+    const parsedGuardianContext = parseGuardianRuntimeContext(payload.guardianCtx);
 
     // If the stored payload had guardian context data but it couldn't be parsed
     // into a valid canonical shape (e.g., legacy actorRole-only payloads without
     // trustClass), fail the event deterministically rather than processing it
     // without guardian context. Without this check, the downstream default of
     // `guardianTrustClass ?? 'guardian'` would silently escalate privileges.
-    if (payload.guardianCtx && !guardianContext) {
+    if (payload.guardianCtx && !parsedGuardianContext) {
       log.warn(
         { eventId: event.id },
         'Stored guardianCtx could not be parsed into canonical form; marking event as failed to prevent privilege escalation',
@@ -117,6 +117,16 @@ export async function sweepFailedEvents(
       );
       continue;
     }
+
+    // When guardianCtx is entirely absent (pre-guardian events or events stored
+    // before trust context was added), synthesize an explicit 'unknown' context.
+    // This ensures replay never proceeds without an explicit trust classification
+    // — downstream defaults like `guardianTrustClass ?? 'guardian'` would
+    // otherwise grant guardian-level tool access to unclassified events.
+    const guardianContext: GuardianRuntimeContext = parsedGuardianContext ?? {
+      sourceChannel,
+      trustClass: 'unknown',
+    };
 
     const metadataHintsRaw = sourceMetadata?.hints;
     const metadataHints = Array.isArray(metadataHintsRaw)
@@ -139,9 +149,7 @@ export async function sweepFailedEvents(
           },
           assistantId,
           guardianContext,
-          isInteractive: guardianContext
-            ? resolveRoutingStateFromRuntime(guardianContext).promptWaitingAllowed
-            : false,
+          isInteractive: resolveRoutingStateFromRuntime(guardianContext).promptWaitingAllowed,
         },
         sourceChannel,
         sourceInterface,

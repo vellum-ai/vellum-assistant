@@ -234,7 +234,7 @@ describe('channel-retry-sweep', () => {
     expect(row?.processingStatus).toBe('failed');
   });
 
-  test('rejects payloads with missing guardianCtx entirely', async () => {
+  test('synthesizes unknown trust context when guardianCtx is missing', async () => {
     const inbound = channelDeliveryStore.recordInbound('telegram', 'chat-no-ctx', 'msg-no-ctx');
     channelDeliveryStore.storePayload(inbound.eventId, {
       content: 'retry me',
@@ -253,14 +253,14 @@ describe('channel-retry-sweep', () => {
       .run();
 
     let capturedOptions: {
-      guardianContext?: { trustClass?: string } | undefined;
+      guardianContext?: { trustClass?: string; sourceChannel?: string };
       isInteractive?: boolean;
     } | undefined;
 
     await sweepFailedEvents(
       async (conversationId, _content, _attachmentIds, options) => {
         capturedOptions = options as {
-          guardianContext?: { trustClass?: string } | undefined;
+          guardianContext?: { trustClass?: string; sourceChannel?: string };
           isInteractive?: boolean;
         };
         const messageId = 'message-no-ctx';
@@ -276,7 +276,10 @@ describe('channel-retry-sweep', () => {
       undefined,
     );
 
-    expect(capturedOptions?.guardianContext).toBeUndefined();
+    // When guardianCtx is absent, the sweep synthesizes an explicit 'unknown'
+    // trust context to prevent downstream defaults from granting guardian trust.
+    expect(capturedOptions?.guardianContext?.trustClass).toBe('unknown');
+    expect(capturedOptions?.guardianContext?.sourceChannel).toBe('telegram');
     expect(capturedOptions?.isInteractive).toBe(false);
   });
 });

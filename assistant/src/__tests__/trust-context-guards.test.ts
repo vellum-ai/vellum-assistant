@@ -145,7 +145,30 @@ describe('trust-context guards', () => {
   });
 
   // -----------------------------------------------------------------------
-  // (d) guardianPrincipalId is non-null in GuardianBinding
+  // (d) Retry sweep never passes undefined guardianContext to processMessage
+  // -----------------------------------------------------------------------
+
+  it('retry sweep always provides an explicit guardianContext (never undefined)', () => {
+    const source = readFileSync(
+      join(srcDir, 'runtime', 'channel-retry-sweep.ts'),
+      'utf-8',
+    );
+
+    // The sweep must synthesize a trust context when guardianCtx is absent,
+    // so `guardianContext` should never be conditionally undefined at the
+    // processMessage callsite. Look for the pattern that ensures this:
+    // a `const guardianContext: GuardianRuntimeContext = parsedGuardianContext ?? {`
+    // fallback that synthesizes trustClass: 'unknown'.
+    expect(
+      source.includes("trustClass: 'unknown'"),
+      'The retry sweep must synthesize an explicit `trustClass: \'unknown\'` context ' +
+        'when guardianCtx is absent from stored payloads. This prevents downstream ' +
+        'defaults from granting implicit guardian trust on replay.',
+    ).toBe(true);
+  });
+
+  // -----------------------------------------------------------------------
+  // (e) guardianPrincipalId is non-null in GuardianBinding
   // -----------------------------------------------------------------------
 
   it('guardianPrincipalId is typed as string (non-null) in GuardianBinding', () => {
