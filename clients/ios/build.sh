@@ -12,9 +12,10 @@ set -euo pipefail
 #   ./build.sh clean        Remove build artifacts
 #
 # Environment variables (for CI):
-#   DEVELOPMENT_TEAM  Apple team ID (required for release)
-#   DISPLAY_VERSION   Override CFBundleShortVersionString (default: from Package.swift)
-#   BUILD_VERSION     Override CFBundleVersion (default: 1)
+#   DEVELOPMENT_TEAM          Apple team ID (required for release)
+#   DISPLAY_VERSION           Override CFBundleShortVersionString (default: from Package.swift)
+#   BUILD_VERSION             Override CFBundleVersion (default: 1)
+#   PROVISIONING_PROFILE_NAME Override provisioning profile name (default: Vellum Assistant iOS Distribution)
 #
 # Prerequisites:
 #   xcodegen (brew install xcodegen) — the xcodeproj is generated on-the-fly
@@ -54,6 +55,7 @@ BUILD_VERSION="${BUILD_VERSION:-1}"
 
 # Signing
 DEVELOPMENT_TEAM="${DEVELOPMENT_TEAM:-}"
+PROVISIONING_PROFILE_NAME="${PROVISIONING_PROFILE_NAME:-Vellum Assistant iOS Distribution}"
 
 CMD="${1:-build}"
 
@@ -146,7 +148,7 @@ xcodebuild archive \
     DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
     CODE_SIGN_STYLE=Manual \
     CODE_SIGN_IDENTITY="Apple Distribution" \
-    PROVISIONING_PROFILE_SPECIFIER="Vellum Assistant iOS Distribution" \
+    PROVISIONING_PROFILE_SPECIFIER="$PROVISIONING_PROFILE_NAME" \
     MARKETING_VERSION="$DISPLAY_VERSION" \
     CURRENT_PROJECT_VERSION="$BUILD_VERSION"
 
@@ -188,7 +190,7 @@ cat > "$EXPORT_OPTIONS" <<PLIST
     <key>provisioningProfiles</key>
     <dict>
         <key>ai.vellum.assistant-ios</key>
-        <string>Vellum Assistant iOS Distribution</string>
+        <string>$PROVISIONING_PROFILE_NAME</string>
     </dict>
     <key>uploadSymbols</key>
     <true/>
