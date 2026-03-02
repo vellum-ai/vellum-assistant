@@ -282,6 +282,14 @@ jobs:
           SOURCES=$(printf "${IMAGE}@sha256:%s " *)
           docker buildx imagetools create $TAG_ARGS $SOURCES
 
+      - name: Export image metadata
+        id: meta
+        run: |
+          echo "repository=${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ASSISTANT_IMAGE_NAME }}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${{ needs.bump-and-tag.outputs.version }}" >> "$GITHUB_OUTPUT"
+          echo "sha=${{ steps.release-sha.outputs.sha }}" >> "$GITHUB_OUTPUT"
+          echo "digest=${{ steps.build.outputs.digest }}" >> "$GITHUB_OUTPUT"
+
       - name: Summary
         run: |
           echo "## Assistant Image Published (${{ matrix.environment }})" >> $GITHUB_STEP_SUMMARY
@@ -423,6 +431,14 @@ jobs:
           SOURCES=$(printf "${IMAGE}@sha256:%s " *)
           docker buildx imagetools create $TAG_ARGS $SOURCES
 
+      - name: Export image metadata
+        id: meta
+        run: |
+          echo "repository=${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GATEWAY_IMAGE_NAME }}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${{ needs.bump-and-tag.outputs.version }}" >> "$GITHUB_OUTPUT"
+          echo "sha=${{ steps.release-sha.outputs.sha }}" >> "$GITHUB_OUTPUT"
+          echo "digest=${{ steps.build.outputs.digest }}" >> "$GITHUB_OUTPUT"
+
       - name: Summary
         run: |
           echo "## Gateway Image Published (${{ matrix.environment }})" >> $GITHUB_STEP_SUMMARY
@@ -430,6 +446,78 @@ jobs:
           echo "**Environment:** \`${{ matrix.environment }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** \`${{ needs.bump-and-tag.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**SHA tag:** \`${{ steps.release-sha.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
+
+  register-release:
+    needs: [bump-and-tag, push-assistant-manifest, push-gateway-manifest]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [dev, production]
+    environment: ${{ matrix.environment }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: "v${{ needs.bump-and-tag.outputs.version }}"
+
+      - name: Get release SHA
+        id: release-sha
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Register release with platform
+        run: |
+          VERSION="${{ needs.bump-and-tag.outputs.version }}"
+          SHA="${{ steps.release-sha.outputs.sha }}"
+          ASSISTANT_REPO="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ASSISTANT_IMAGE_NAME }}"
+          GATEWAY_REPO="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GATEWAY_IMAGE_NAME }}"
+
+          PAYLOAD=$(jq -n \
+            --arg version "$VERSION" \
+            --arg released_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg assistant_repo "$ASSISTANT_REPO" \
+            --arg assistant_tag "v${VERSION}" \
+            --arg assistant_sha "$SHA" \
+            --arg gateway_repo "$GATEWAY_REPO" \
+            --arg gateway_tag "v${VERSION}" \
+            --arg gateway_sha "$SHA" \
+            '{
+              version: $version,
+              released_at: $released_at,
+              is_stable: false,
+              assistant_image: {
+                repository: $assistant_repo,
+                tag: $assistant_tag,
+                sha: $assistant_sha
+              },
+              gateway_image: {
+                repository: $gateway_repo,
+                tag: $gateway_tag,
+                sha: $gateway_sha
+              }
+            }')
+
+          echo "Registering release v${VERSION} with platform (${{ matrix.environment }})..."
+          HTTP_STATUS=$(curl -s -o /tmp/response.json -w "%{http_code}" \
+            -X POST "${{ secrets.PLATFORM_API_URL }}/v1/internal/assistant-image-releases/" \
+            -H "Content-Type: application/json" \
+            -H "X-Internal-Service-Api-Key: ${{ secrets.PLATFORM_INTERNAL_SERVICE_API_KEY }}" \
+            -d "$PAYLOAD")
+
+          echo "HTTP Status: $HTTP_STATUS"
+          cat /tmp/response.json
+
+          if [ "$HTTP_STATUS" -lt 200 ] || [ "$HTTP_STATUS" -ge 300 ]; then
+            echo "::error::Release registration failed with HTTP $HTTP_STATUS"
+            exit 1
+          fi
+
+      - name: Summary
+        run: |
+          echo "## Release Registered (${{ matrix.environment }})" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** \`${{ needs.bump-and-tag.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
 
   publish-npm:
     needs: bump-and-tag
@@ -971,7 +1059,7 @@ jobs:
           security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
 
   release:
-    needs: [bump-and-tag, publish-npm, publish-meta, build-macos, push-assistant-manifest, push-gateway-manifest, ci-cli, ci-gateway, ci-assistant, ci-playwright]
+    needs: [bump-and-tag, publish-npm, publish-meta, build-macos, push-assistant-manifest, push-gateway-manifest, register-release, ci-cli, ci-gateway, ci-assistant, ci-playwright]
     if: ${{ !cancelled() && needs.bump-and-tag.result == 'success' && needs.publish-npm.result == 'success' && needs.publish-meta.result == 'success' && needs.build-macos.result == 'success' && needs.ci-cli.result == 'success' && needs.ci-gateway.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -1338,7 +1426,7 @@ jobs:
 
   notify:
     if: always() && !cancelled()
-    needs: [bump-and-tag, publish-npm, publish-meta, build-macos, build-ios, push-assistant-manifest, push-gateway-manifest, release, update-platform, ci-assistant, ci-cli, ci-gateway, ci-playwright]
+    needs: [bump-and-tag, publish-npm, publish-meta, build-macos, build-ios, push-assistant-manifest, push-gateway-manifest, register-release, release, update-platform, ci-assistant, ci-cli, ci-gateway, ci-playwright]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     continue-on-error: true
@@ -1366,6 +1454,7 @@ jobs:
             "${{ needs.build-macos.result }}" \
             "${{ needs.push-assistant-manifest.result }}" \
             "${{ needs.push-gateway-manifest.result }}" \
+            "${{ needs.register-release.result }}" \
             "${{ needs.release.result }}" \
             "${{ needs.update-platform.result }}" \
             "${{ needs.ci-cli.result }}" \
@@ -1395,6 +1484,7 @@ jobs:
           I=$(ci_icon "${{ needs.build-ios.outputs.actual_result }}")
           AI=$(ci_icon "${{ needs.push-assistant-manifest.result }}")
           GI=$(ci_icon "${{ needs.push-gateway-manifest.result }}")
+          RR=$(ci_icon "${{ needs.register-release.result }}")
 
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           PLAYWRIGHT_LINE=""
@@ -1402,7 +1492,7 @@ jobs:
             PLAYWRIGHT_LINE=" (<${RUN_URL}#artifacts|view report>)"
           fi
 
-          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s gateway\n• %s playwright%s\n• %s desktop\n• %s ios\n• %s assistant-docker\n• %s gateway-docker' "$A" "$C" "$G" "$P" "$PLAYWRIGHT_LINE" "$D" "$I" "$AI" "$GI")
+          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s gateway\n• %s playwright%s\n• %s desktop\n• %s ios\n• %s assistant-docker\n• %s gateway-docker\n• %s register-release' "$A" "$C" "$G" "$P" "$PLAYWRIGHT_LINE" "$D" "$I" "$AI" "$GI" "$RR")
           META_LINE=$(printf '*Version:* `%s`\n*Triggered by:* %s' "$VERSION" "${{ github.actor }}")
 
           # Fetch release notes from GitHub release
