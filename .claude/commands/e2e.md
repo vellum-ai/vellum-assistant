@@ -1,9 +1,3 @@
----
-name: e2e
-description: >
-  Run end-to-end tests via the CI workflow.
----
-
 Run end-to-end tests via the CI workflow.
 
 The user may pass `$ARGUMENTS` to filter to a specific test case by name (e.g., `hello-world`, `phone-setup`). If not provided, infer options from context (see below).
