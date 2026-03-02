@@ -30,7 +30,7 @@ enum VoiceServiceError: Error, LocalizedError {
 /// Voice service: SFSpeechRecognizer STT (on-device) + TTS (ElevenLabs REST API).
 /// Records audio, detects silence, transcribes via SFSpeechRecognizer, speaks via ElevenLabs.
 @MainActor
-final class OpenAIVoiceService: ObservableObject {
+final class OpenAIVoiceService: ObservableObject, VoiceServiceProtocol {
     @Published var amplitude: Float = 0
     @Published var speakingAmplitude: Float = 0
     @Published var livePartialText: String = ""

@@ -194,7 +194,19 @@ The macOS app is a frontend — all inference (chat, computer-use sessions, ambi
 **You must start the daemon before using the app.** Without it, the app will connect but get no responses.
 
 ```bash
-# Start the daemon (from the repo root)
+# Recommended: use the vellum CLI (starts daemon + gateway)
+vellum wake
+
+# Check process status
+vellum ps
+
+# Stop everything
+vellum sleep
+```
+
+For low-level development, you can also start the daemon directly:
+
+```bash
 cd assistant && bun run src/index.ts daemon start
 ```
 

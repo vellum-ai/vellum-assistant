@@ -2090,7 +2090,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                     accessibilityDescription: "Vellum"
                 )
                 let quickInputActive = self?.quickInputWindow?.isVisible ?? false
-                if !mainWindowActive && !hasActiveConvo && !quickInputActive {
+                let isDictation = self?.voiceInput?.currentMode == .dictation
+                if !mainWindowActive && !hasActiveConvo && !quickInputActive && !isDictation {
                     let window = VoiceTranscriptionWindow()
                     window.show()
                     self?.voiceTranscriptionWindow = window

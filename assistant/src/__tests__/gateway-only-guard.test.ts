@@ -26,7 +26,7 @@ const ALLOWLIST = new Set([
   'clients/shared/IPC/DaemonClient.swift',
   'clients/macos/vellum-assistant/App/AppDelegate.swift',
   'clients/macos/vellum-assistant/Features/Settings/SettingsConnectTab.swift',
-  '.claude/commands/update.md', // daemon health check script
+  '.claude/skills/update/SKILL.md', // daemon health check script
 
   // --- Documentation and comments that mention the port for explanatory purposes ---
   'AGENTS.md', // documents the gateway-only rule itself

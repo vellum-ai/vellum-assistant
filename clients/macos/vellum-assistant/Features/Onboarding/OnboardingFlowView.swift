@@ -42,12 +42,15 @@ struct OnboardingFlowView: View {
                 VStack(spacing: 0) {
                     Spacer()
 
-                    Image("VellyLogo")
-                        .resizable()
-                        .interpolation(.none)
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: 128, height: 128)
-                        .padding(.bottom, VSpacing.xxl)
+                    if let iconPath = ResourceBundle.bundle.path(forResource: "vellum-app-icon", ofType: "png"),
+                       let nsImage = NSImage(contentsOfFile: iconPath) {
+                        Image(nsImage: nsImage)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: 96, height: 96)
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+                            .padding(.bottom, VSpacing.lg)
+                    }
 
                     // Step content — Group flattens into parent VStack so
                     // the inner Spacer flexes with the top Spacer above.

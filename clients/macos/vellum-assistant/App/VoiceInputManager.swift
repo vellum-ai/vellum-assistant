@@ -1,11 +1,13 @@
 import Foundation
 import AppKit
+import CoreGraphics
 import Speech
 import AVFoundation
 import os
 import VellumAssistantShared
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "VoiceInput")
+
 
 /// Determines how voice transcriptions are routed after speech recognition completes.
 enum VoiceInputMode {
@@ -24,7 +26,7 @@ final class VoiceInputManager {
     var currentMode: VoiceInputMode = .dictation
 
     /// Daemon client used to send dictation requests in `.dictation` mode.
-    var daemonClient: DaemonClient?
+    var daemonClient: (any DaemonClientProtocol)?
 
     /// Called when the daemon returns a dictation response (cleaned-up text + action plan).
     var onDictationResponse: ((IPCDictationResponse) -> Void)?
@@ -34,7 +36,7 @@ final class VoiceInputManager {
     var onActionModeTriggered: ((String) -> Void)?
 
     /// Context captured at activation time, describing the frontmost app state.
-    private var currentDictationContext: DictationContext?
+    var currentDictationContext: DictationContext?
 
     /// Floating overlay showing dictation state (recording/processing/done).
     private let overlayWindow = DictationOverlayWindow()
@@ -44,7 +46,7 @@ final class VoiceInputManager {
 
     /// True after a dictation request has been sent to the daemon and we're awaiting a response.
     /// Used by `stopRecording()` to decide whether the overlay should stay visible.
-    private var awaitingDaemonResponse = false
+    private(set) var awaitingDaemonResponse = false
 
     /// Whether the microphone is currently recording for PTT/dictation.
     private(set) var isRecording = false
@@ -110,7 +112,24 @@ final class VoiceInputManager {
                 self.otherKeyPressedDuringHold = false
             }
         }
-        appSwitchObservers = [workspaceObserver, resignObserver]
+        // Cancel hold when the user switches Spaces (ctrl+arrow, ctrl+number, etc.).
+        // didActivateApplicationNotification only fires when the frontmost app changes,
+        // which doesn't happen when switching to an empty space or one with the same app.
+        // activeSpaceDidChangeNotification fires on every Spaces switch.
+        let spaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.activeSpaceDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.lastAppSwitchTime = Date()
+                self.holdTask?.cancel()
+                self.holdTask = nil
+                self.otherKeyPressedDuringHold = false
+            }
+        }
+        appSwitchObservers = [workspaceObserver, resignObserver, spaceObserver]
 
         // Wire the dictation response callback to insert text and manage the overlay
         if onDictationResponse == nil {
@@ -215,6 +234,7 @@ final class VoiceInputManager {
             }
             return event
         }
+
     }
 
     private func handleFlagsChanged(_ event: NSEvent) {
@@ -235,13 +255,44 @@ final class VoiceInputManager {
             // Skip if an app switch happened recently — this Fn/Ctrl press is likely
             // from a system keyboard shortcut (Cmd+Tab, Ctrl+arrows) used to switch apps.
             guard Date().timeIntervalSince(lastAppSwitchTime) > 0.5 else { return }
-            holdTask = Task { [weak self] in
-                try? await Task.sleep(nanoseconds: Self.holdDelay)
+            // Snapshot every key that is physically held right now (includes the
+            // activation key itself). During the hold we only cancel if a NEW key
+            // appears — one that wasn't already down at activation time. This avoids
+            // any hardcoded list of modifier key codes or layout assumptions.
+            var activationSnapshot = Set<CGKeyCode>()
+            for code in CGKeyCode(0)...CGKeyCode(127) {
+                if CGEventSource.keyState(.combinedSessionState, key: code) {
+                    activationSnapshot.insert(code)
+                }
+            }
+            holdTask = Task { [weak self, activationSnapshot] in
+                // Poll every 25ms for 300ms total (12 polls).
+                // CGEventSource.keyState reads hardware state directly, catching
+                // keys consumed by system shortcuts before NSEvent monitors see them.
+                let pollIntervalNs: UInt64 = 25_000_000
+                let numPolls = Int(Self.holdDelay / pollIntervalNs)
+                for _ in 0..<numPolls {
+                    try? await Task.sleep(nanoseconds: pollIntervalNs)
+                    guard !Task.isCancelled else { return }
+                    guard let self = self else { return }
+                    guard !self.otherKeyPressedDuringHold else { return }
+                    guard Date().timeIntervalSince(self.lastAppSwitchTime) > 0.5 else { return }
+                    // Cancel if any key not present at activation time is now held.
+                    for code in CGKeyCode(0)...CGKeyCode(127) {
+                        if !activationSnapshot.contains(code) &&
+                            CGEventSource.keyState(.combinedSessionState, key: code) {
+                            return
+                        }
+                    }
+                }
                 guard !Task.isCancelled else { return }
                 guard let self = self else { return }
-                // Don't start recording if any key was pressed during hold (Control+C, etc.)
-                guard !self.otherKeyPressedDuringHold else { return }
-                guard Date().timeIntervalSince(self.lastAppSwitchTime) > 0.5 else { return }
+                guard self.shouldStartRecording(
+                    activationKeyPressed: true,
+                    otherKeyPressed: self.otherKeyPressedDuringHold,
+                    timeSinceAppSwitch: Date().timeIntervalSince(self.lastAppSwitchTime),
+                    isAlreadyRecording: self.isRecording
+                ) else { return }
                 // Capture frontmost app context before recording starts so the daemon
                 // knows where to insert the cleaned-up text after dictation completes.
                 if self.currentMode == .dictation {
@@ -275,6 +326,23 @@ final class VoiceInputManager {
         otherKeyPressedDuringHold = true
         holdTask?.cancel()
         holdTask = nil
+    }
+
+    // MARK: - Hold Detection Logic (extracted for testability)
+
+    /// Pure decision function: should recording begin after the hold timer fires?
+    /// Extracted from the hold detection closure so it can be unit-tested without NSEvent mocking.
+    func shouldStartRecording(
+        activationKeyPressed: Bool,
+        otherKeyPressed: Bool,
+        timeSinceAppSwitch: TimeInterval,
+        isAlreadyRecording: Bool
+    ) -> Bool {
+        guard activationKeyPressed else { return false }
+        guard !otherKeyPressed else { return false }
+        guard timeSinceAppSwitch > 0.5 else { return false }
+        guard !isAlreadyRecording else { return false }
+        return true
     }
 
     // MARK: - Recording
@@ -483,7 +551,7 @@ final class VoiceInputManager {
     }
 
     /// Routes a final transcription based on the current mode.
-    private func handleFinalTranscription(_ text: String) {
+    func handleFinalTranscription(_ text: String) {
         switch currentMode {
         case .conversation:
             onTranscription?(text)

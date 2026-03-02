@@ -12,11 +12,7 @@ extension Notification.Name {
     static let identityChanged = Notification.Name("identityChanged")
 }
 
-/// Manages API keys in the macOS login keychain.
-///
-/// Uses the `security` CLI tool for writes so entries are created without
-/// per-application ACLs — this lets the daemon (which also uses the `security`
-/// CLI) read the same keychain item.
+/// Manages API keys in the macOS login keychain via native SecItem* APIs.
 enum APIKeyManager {
     /// Shared with the daemon (keychain.ts uses service "vellum-assistant", account = provider name).
     private static let service = "vellum-assistant"
@@ -24,6 +20,18 @@ enum APIKeyManager {
     // Legacy keychain entry (pre-daemon era). Migrated on first access.
     private static let legacyService = "com.vellum-assistant.anthropic-api-key"
     private static let legacyAccount = "anthropic-api-key"
+
+    private struct CachedKeyRead {
+        let value: String?
+        let cachedAt: Date
+    }
+
+    private static var readCache: [String: CachedKeyRead] = [:]
+    private static let readCacheLock = NSLock()
+    private static let readCacheHitTTL: TimeInterval = 60
+    /// Short TTL for misses so external writes (e.g. from the daemon) are picked up quickly
+    /// while still batching rapid sequential calls like hasAnyKey().
+    private static let readCacheMissTTL: TimeInterval = 5
 
     // MARK: - Anthropic (convenience wrappers for backward compatibility)
 
@@ -42,23 +50,123 @@ enum APIKeyManager {
     // MARK: - Generic provider access
 
     static func getKey(for provider: String) -> String? {
+        let cached = cachedValue(for: provider)
+        if cached.hit { return cached.value }
+
         if provider == "anthropic" {
             // migrateIfNeeded returns the key if it was already read during
             // the migration check, avoiding a redundant security CLI spawn
             // (each spawn triggers a macOS keychain authorization prompt).
-            if let cached = migrateIfNeeded() { return cached }
+            if let migrated = migrateIfNeeded() {
+                setCachedValue(migrated, for: provider)
+                return migrated
+            }
         }
-        return cliGetKey(service: service, account: provider)
+        let value = nativeGetKey(service: service, account: provider)
+        setCachedValue(value, for: provider)
+        return value
     }
 
     static func setKey(_ key: String, for provider: String) {
-        cliSetKey(service: service, account: provider, value: key)
+        if nativeSetKey(service: service, account: provider, value: key) {
+            setCachedValue(key, for: provider)
+        } else {
+            invalidateCachedValue(for: provider)
+        }
         notifyKeyDidChange()
     }
 
     static func deleteKey(for provider: String) {
-        cliDeleteKey(service: service, account: provider)
+        nativeDeleteKey(service: service, account: provider)
+        invalidateCachedValue(for: provider)
         notifyKeyDidChange()
+    }
+
+    private static func cachedValue(for provider: String) -> (hit: Bool, value: String?) {
+        readCacheLock.lock()
+        defer { readCacheLock.unlock() }
+
+        guard let entry = readCache[provider] else {
+            return (false, nil)
+        }
+
+        let ttl = entry.value != nil ? readCacheHitTTL : readCacheMissTTL
+        if Date().timeIntervalSince(entry.cachedAt) > ttl {
+            readCache.removeValue(forKey: provider)
+            return (false, nil)
+        }
+
+        return (true, entry.value)
+    }
+
+    private static func setCachedValue(_ value: String?, for provider: String) {
+        readCacheLock.lock()
+        defer { readCacheLock.unlock() }
+        readCache[provider] = CachedKeyRead(value: value, cachedAt: Date())
+    }
+
+    private static func invalidateCachedValue(for provider: String) {
+        readCacheLock.lock()
+        defer { readCacheLock.unlock() }
+        readCache.removeValue(forKey: provider)
+    }
+
+    // MARK: - Native Keychain (SecItem)
+
+    /// Read a generic password via `SecItemCopyMatching`.
+    private static func nativeGetKey(service: String, account: String) -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess,
+              let data = result as? Data,
+              let value = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        return value
+    }
+
+    /// Write a generic password via `SecItemAdd` (deletes existing first).
+    @discardableResult
+    private static func nativeSetKey(service: String, account: String, value: String) -> Bool {
+        guard let data = value.data(using: .utf8) else { return false }
+
+        // Delete existing entry (ignore status since it may not exist)
+        let deleteQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
+        ]
+        SecItemDelete(deleteQuery as CFDictionary)
+
+        // Add new entry
+        let addQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlocked
+        ]
+        let status = SecItemAdd(addQuery as CFDictionary, nil)
+        return status == errSecSuccess
+    }
+
+    /// Delete a generic password via `SecItemDelete`.
+    @discardableResult
+    private static func nativeDeleteKey(service: String, account: String) -> Bool {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
+        ]
+        let status = SecItemDelete(query as CFDictionary)
+        return status == errSecSuccess || status == errSecItemNotFound
     }
 
     // MARK: - CLI Helpers
@@ -83,25 +191,37 @@ enum APIKeyManager {
     }
 
     /// Write a generic password via `security add-generic-password -U` (update if exists).
-    private static func cliSetKey(service: String, account: String, value: String) {
+    @discardableResult
+    private static func cliSetKey(service: String, account: String, value: String) -> Bool {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
         process.arguments = ["add-generic-password", "-s", service, "-a", account, "-w", value, "-U"]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
-        try? process.run()
-        process.waitUntilExit()
+        do {
+            try process.run()
+            process.waitUntilExit()
+            return process.terminationStatus == 0
+        } catch {
+            return false
+        }
     }
 
     /// Delete a generic password via `security delete-generic-password`.
-    private static func cliDeleteKey(service: String, account: String) {
+    @discardableResult
+    private static func cliDeleteKey(service: String, account: String) -> Bool {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
         process.arguments = ["delete-generic-password", "-s", service, "-a", account]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
-        try? process.run()
-        process.waitUntilExit()
+        do {
+            try process.run()
+            process.waitUntilExit()
+            return process.terminationStatus == 0
+        } catch {
+            return false
+        }
     }
 
     // MARK: - Migration
