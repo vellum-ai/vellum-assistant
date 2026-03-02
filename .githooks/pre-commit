@@ -649,7 +649,7 @@ for DIR in "${DIRS_TO_CHECK[@]}"; do
             echo -e "${RED}Prettier formatting issues found in ${DIR}/!${NC}"
             echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
             echo ""
-            echo "Run: cd ${DIR} && bun run format"
+            echo "Run: cd ${DIR} && bunx prettier --write ${REL_FILES[*]}"
             echo "Then stage the fixed files and commit again."
             exit 1
         fi
