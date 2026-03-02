@@ -11,23 +11,28 @@
  * message indicating which skill and file diverged.
  */
 
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { join, resolve } from "node:path";
 
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Paths
 // ---------------------------------------------------------------------------
 
-const ASSISTANT_DIR = resolve(__dirname, '..', '..');
-const REPO_ROOT = resolve(ASSISTANT_DIR, '..');
+const ASSISTANT_DIR = resolve(__dirname, "..", "..");
+const REPO_ROOT = resolve(ASSISTANT_DIR, "..");
 
-const EMBEDDED_SKILLS_DIR = join(ASSISTANT_DIR, 'src', 'config', 'vellum-skills');
-const TOPLEVEL_SKILLS_DIR = join(REPO_ROOT, 'skills');
+const EMBEDDED_SKILLS_DIR = join(
+  ASSISTANT_DIR,
+  "src",
+  "config",
+  "vellum-skills",
+);
+const TOPLEVEL_SKILLS_DIR = join(REPO_ROOT, "skills");
 
-const EMBEDDED_CATALOG = join(EMBEDDED_SKILLS_DIR, 'catalog.json');
-const TOPLEVEL_CATALOG = join(TOPLEVEL_SKILLS_DIR, 'catalog.json');
+const EMBEDDED_CATALOG = join(EMBEDDED_SKILLS_DIR, "catalog.json");
+const TOPLEVEL_CATALOG = join(TOPLEVEL_SKILLS_DIR, "catalog.json");
 
 // ---------------------------------------------------------------------------
 // Skills that exist only in the top-level `skills/` directory and have no
@@ -35,13 +40,7 @@ const TOPLEVEL_CATALOG = join(TOPLEVEL_SKILLS_DIR, 'catalog.json');
 // community/third-party skills maintained outside the assistant runtime.
 // ---------------------------------------------------------------------------
 
-const TOPLEVEL_ONLY_SKILLS = new Set([
-  'doordash',
-  'google-oauth-setup',
-  'notion',
-  'notion-oauth-setup',
-  'oauth-setup',
-]);
+const TOPLEVEL_ONLY_SKILLS = new Set(["doordash"]);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -81,16 +80,16 @@ function findSharedSkills(): string[] {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('Skill mirror parity — embedded ↔ top-level', () => {
+describe("Skill mirror parity — embedded ↔ top-level", () => {
   const sharedSkills = findSharedSkills();
 
-  test('at least one shared skill exists (sanity check)', () => {
+  test("at least one shared skill exists (sanity check)", () => {
     expect(sharedSkills.length).toBeGreaterThan(0);
   });
 
   // ── Every top-level skill must have an embedded source ──────────────────
 
-  test('every top-level skill directory has a corresponding embedded directory', () => {
+  test("every top-level skill directory has a corresponding embedded directory", () => {
     const embedded = new Set(listSkillDirs(EMBEDDED_SKILLS_DIR));
     const toplevel = listSkillDirs(TOPLEVEL_SKILLS_DIR);
 
@@ -105,8 +104,8 @@ describe('Skill mirror parity — embedded ↔ top-level', () => {
 
   for (const skillId of sharedSkills) {
     test(`${skillId}/SKILL.md content matches between embedded and top-level`, () => {
-      const embeddedPath = join(EMBEDDED_SKILLS_DIR, skillId, 'SKILL.md');
-      const toplevelPath = join(TOPLEVEL_SKILLS_DIR, skillId, 'SKILL.md');
+      const embeddedPath = join(EMBEDDED_SKILLS_DIR, skillId, "SKILL.md");
+      const toplevelPath = join(TOPLEVEL_SKILLS_DIR, skillId, "SKILL.md");
 
       const embeddedExists = existsSync(embeddedPath);
       const toplevelExists = existsSync(toplevelPath);
@@ -117,14 +116,12 @@ describe('Skill mirror parity — embedded ↔ top-level', () => {
       }
 
       // If one exists but not the other, that is a drift violation
-      expect(embeddedExists).toBe(
-        toplevelExists,
-      );
+      expect(embeddedExists).toBe(toplevelExists);
 
       if (!embeddedExists || !toplevelExists) return;
 
-      const embeddedContent = readFileSync(embeddedPath, 'utf-8');
-      const toplevelContent = readFileSync(toplevelPath, 'utf-8');
+      const embeddedContent = readFileSync(embeddedPath, "utf-8");
+      const toplevelContent = readFileSync(toplevelPath, "utf-8");
 
       expect(embeddedContent).toBe(toplevelContent);
     });
@@ -132,12 +129,19 @@ describe('Skill mirror parity — embedded ↔ top-level', () => {
 
   // ── Every top-level catalog entry must have an embedded source ──────────
 
-  test('every top-level catalog entry exists in the embedded catalog', () => {
-    expect(existsSync(EMBEDDED_CATALOG)).toBe(true);
-    expect(existsSync(TOPLEVEL_CATALOG)).toBe(true);
+  test("every top-level catalog entry exists in the embedded catalog", () => {
+    // Top-level catalog was removed during bundled-skills consolidation.
+    // Skip when it no longer exists.
+    if (!existsSync(TOPLEVEL_CATALOG)) return;
 
-    const embeddedCatalog: Catalog = JSON.parse(readFileSync(EMBEDDED_CATALOG, 'utf-8'));
-    const toplevelCatalog: Catalog = JSON.parse(readFileSync(TOPLEVEL_CATALOG, 'utf-8'));
+    expect(existsSync(EMBEDDED_CATALOG)).toBe(true);
+
+    const embeddedCatalog: Catalog = JSON.parse(
+      readFileSync(EMBEDDED_CATALOG, "utf-8"),
+    );
+    const toplevelCatalog: Catalog = JSON.parse(
+      readFileSync(TOPLEVEL_CATALOG, "utf-8"),
+    );
 
     const embeddedIds = new Set(embeddedCatalog.skills.map((s) => s.id));
     const toplevelIds = toplevelCatalog.skills.map((s) => s.id);
@@ -151,18 +155,27 @@ describe('Skill mirror parity — embedded ↔ top-level', () => {
 
   // ── Catalog entry parity for shared skills ──────────────────────────────
 
-  test('catalog.json entries match for all shared skills', () => {
-    expect(existsSync(EMBEDDED_CATALOG)).toBe(true);
-    expect(existsSync(TOPLEVEL_CATALOG)).toBe(true);
+  test("catalog.json entries match for all shared skills", () => {
+    // Top-level catalog was removed during bundled-skills consolidation.
+    // Skip when it no longer exists.
+    if (!existsSync(TOPLEVEL_CATALOG)) return;
 
-    const embeddedCatalog: Catalog = JSON.parse(readFileSync(EMBEDDED_CATALOG, 'utf-8'));
-    const toplevelCatalog: Catalog = JSON.parse(readFileSync(TOPLEVEL_CATALOG, 'utf-8'));
+    expect(existsSync(EMBEDDED_CATALOG)).toBe(true);
+
+    const embeddedCatalog: Catalog = JSON.parse(
+      readFileSync(EMBEDDED_CATALOG, "utf-8"),
+    );
+    const toplevelCatalog: Catalog = JSON.parse(
+      readFileSync(TOPLEVEL_CATALOG, "utf-8"),
+    );
 
     const embeddedMap = new Map(embeddedCatalog.skills.map((s) => [s.id, s]));
     const toplevelMap = new Map(toplevelCatalog.skills.map((s) => [s.id, s]));
 
     // Only compare entries that exist in both catalogs
-    const sharedIds = [...embeddedMap.keys()].filter((id) => toplevelMap.has(id));
+    const sharedIds = [...embeddedMap.keys()].filter((id) =>
+      toplevelMap.has(id),
+    );
 
     expect(sharedIds.length).toBeGreaterThan(0);
 
