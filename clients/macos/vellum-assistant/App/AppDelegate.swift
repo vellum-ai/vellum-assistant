@@ -213,6 +213,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     /// When true, local daemon hatching is skipped.
     private var isCurrentAssistantRemote = false
 
+    /// Whether the current assistant is platform-managed (cloud == "vellum").
+    /// When true, actor credential bootstrap is skipped since identity is
+    /// derived from the platform session, not local actor tokens.
+    private var isCurrentAssistantManaged = false
+
     @AppStorage("themePreference") private var themePreference: String = "system"
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
@@ -374,7 +379,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         // Ensure actor credentials are present. On first launch this performs
         // initial bootstrap; on subsequent launches it schedules proactive
         // refresh when the access token nears expiry.
-        ensureActorCredentials()
+        // Skipped in managed mode where actor identity is derived from the
+        // platform session, not local actor tokens.
+        if !isCurrentAssistantManaged {
+            ensureActorCredentials()
+        }
 
         if isFirstLaunch {
             // Enter the bootstrap state machine. The sequence is:
@@ -554,15 +563,18 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                 // If the daemon socket doesn't exist, the daemon process
                 // likely isn't running (e.g. hatch failed). Re-attempt hatch
                 // so we don't loop forever on connect-only retries.
-                let socketPath = DaemonClient.resolveSocketPath()
-                if !FileManager.default.fileExists(atPath: socketPath) {
-                    bootstrapFailureKind = .socketMissing
-                    log.info("Daemon socket missing during bootstrap retry — re-attempting hatch")
-                    try? await assistantCli.hatch(daemonOnly: true)
-                } else if !DaemonClient.isDaemonProcessAlive() {
-                    bootstrapFailureKind = .daemonNotRunning
-                    log.info("Daemon process not alive during bootstrap retry — re-attempting hatch")
-                    try? await assistantCli.hatch(daemonOnly: true)
+                // Managed mode skips local hatch — the platform hosts the daemon.
+                if !isCurrentAssistantManaged {
+                    let socketPath = DaemonClient.resolveSocketPath()
+                    if !FileManager.default.fileExists(atPath: socketPath) {
+                        bootstrapFailureKind = .socketMissing
+                        log.info("Daemon socket missing during bootstrap retry — re-attempting hatch")
+                        try? await assistantCli.hatch(daemonOnly: true)
+                    } else if !DaemonClient.isDaemonProcessAlive() {
+                        bootstrapFailureKind = .daemonNotRunning
+                        log.info("Daemon process not alive during bootstrap retry — re-attempting hatch")
+                        try? await assistantCli.hatch(daemonOnly: true)
+                    }
                 }
 
                 // Attempt a connection if not already connected or in progress.
@@ -1142,11 +1154,34 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     }
 
     /// Configure the daemon client's transport based on the lockfile assistant.
-    /// Remote assistants (cloud != "local") use HTTP+SSE via the gateway URL.
+    /// Managed assistants (cloud == "vellum") use platform proxy with session token auth.
+    /// Other remote assistants (cloud != "local") use HTTP+SSE via the gateway URL.
     /// Local assistants use the default Unix domain socket, unless the
     /// `localHttpEnabled` flag redirects them to the daemon's runtime HTTP server.
     private func configureDaemonTransport(for assistant: LockfileAssistant?) {
         isCurrentAssistantRemote = assistant?.isRemote ?? false
+        isCurrentAssistantManaged = assistant?.isManaged ?? false
+
+        // Managed assistant: use platform proxy URLs with session token auth.
+        if let assistant, assistant.isManaged {
+            let platformBaseURL = AuthService.shared.baseURL
+            let metadata = TransportMetadata(
+                routeMode: .platformAssistantProxy,
+                authMode: .sessionToken,
+                platformAssistantId: assistant.assistantId
+            )
+            let config = DaemonConfig(
+                transport: .http(
+                    baseURL: platformBaseURL,
+                    bearerToken: nil,
+                    conversationKey: assistant.assistantId
+                ),
+                transportMetadata: metadata
+            )
+            services.reconfigureDaemonClient(config: config)
+            log.info("Configured managed transport for assistant \(assistant.assistantId) via platform at \(platformBaseURL, privacy: .public)")
+            return
+        }
 
         guard let assistant, assistant.isRemote, let runtimeUrl = assistant.runtimeUrl else {
             // Local assistant or no assistant.
