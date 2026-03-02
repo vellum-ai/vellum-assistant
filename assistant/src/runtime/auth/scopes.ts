@@ -32,8 +32,11 @@ const PROFILE_SCOPES: Record<ScopeProfile, ReadonlySet<Scope>> = {
     'internal.write',
   ]),
   gateway_service_v1: new Set<Scope>([
+    'chat.write',
     'settings.read',
     'settings.write',
+    'attachments.read',
+    'attachments.write',
     'internal.write',
   ]),
   ipc_v1: new Set<Scope>([
