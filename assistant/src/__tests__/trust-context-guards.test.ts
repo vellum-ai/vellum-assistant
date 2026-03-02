@@ -1,0 +1,186 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+import { describe, expect, it } from 'bun:test';
+
+/**
+ * Guard tests for the canonical trust-context model.
+ *
+ * These tests prevent reintroduction of removed compatibility patterns
+ * by scanning source files for type invariants:
+ *
+ *  (a) guardianPrincipalId in GuardianRuntimeContext must be `?: string`
+ *      (optional string), NOT `string | null`.
+ *  (b) guardianTrustClass in ToolContext must be a required field (no `?`).
+ *  (c) The channel retry sweep parser must not reference `actorRole`.
+ *  (d) guardianPrincipalId in GuardianBinding must be `string` (non-null,
+ *      non-optional).
+ */
+
+const srcDir = join(import.meta.dir, '..');
+
+describe('trust-context guards', () => {
+  // -----------------------------------------------------------------------
+  // (a) No `string | null` for guardianPrincipalId in runtime types
+  // -----------------------------------------------------------------------
+
+  it('guardianPrincipalId is not typed as string | null in GuardianRuntimeContext', () => {
+    const source = readFileSync(
+      join(srcDir, 'daemon', 'session-runtime-assembly.ts'),
+      'utf-8',
+    );
+
+    // Extract the GuardianRuntimeContext interface block
+    const ifaceStart = source.indexOf('export interface GuardianRuntimeContext');
+    expect(ifaceStart).toBeGreaterThan(-1);
+
+    const blockStart = source.indexOf('{', ifaceStart);
+    let braceDepth = 0;
+    let blockEnd = blockStart;
+    for (let i = blockStart; i < source.length; i++) {
+      if (source[i] === '{') braceDepth++;
+      if (source[i] === '}') braceDepth--;
+      if (braceDepth === 0) {
+        blockEnd = i + 1;
+        break;
+      }
+    }
+    const block = source.slice(blockStart, blockEnd);
+
+    // guardianPrincipalId should NOT be typed as `string | null`
+    const principalLine = block.split('\n').find((l) =>
+      l.includes('guardianPrincipalId'),
+    );
+    expect(
+      principalLine,
+      'Expected to find guardianPrincipalId in GuardianRuntimeContext',
+    ).toBeDefined();
+
+    expect(
+      principalLine!.includes('string | null'),
+      'guardianPrincipalId must not be typed as `string | null` in GuardianRuntimeContext. ' +
+        'Use `guardianPrincipalId?: string` (optional, non-nullable) instead. ' +
+        `Found: "${principalLine!.trim()}"`,
+    ).toBe(false);
+  });
+
+  // -----------------------------------------------------------------------
+  // (b) guardianTrustClass is required in ToolContext
+  // -----------------------------------------------------------------------
+
+  it('guardianTrustClass is a required field in ToolContext', () => {
+    const source = readFileSync(
+      join(srcDir, 'tools', 'types.ts'),
+      'utf-8',
+    );
+
+    // Extract the ToolContext interface block
+    const ifaceStart = source.indexOf('export interface ToolContext');
+    expect(ifaceStart).toBeGreaterThan(-1);
+
+    const blockStart = source.indexOf('{', ifaceStart);
+    let braceDepth = 0;
+    let blockEnd = blockStart;
+    for (let i = blockStart; i < source.length; i++) {
+      if (source[i] === '{') braceDepth++;
+      if (source[i] === '}') braceDepth--;
+      if (braceDepth === 0) {
+        blockEnd = i + 1;
+        break;
+      }
+    }
+    const block = source.slice(blockStart, blockEnd);
+
+    const trustLine = block.split('\n').find((l) =>
+      l.includes('guardianTrustClass'),
+    );
+    expect(
+      trustLine,
+      'Expected to find guardianTrustClass in ToolContext',
+    ).toBeDefined();
+
+    // The field must NOT have a `?` before the colon — it must be required.
+    expect(
+      /guardianTrustClass\s*\?/.test(trustLine!),
+      'guardianTrustClass must be a required field in ToolContext (no `?`). ' +
+        'Explicit trust gates must not be optional — every tool execution ' +
+        `must carry a trust classification. Found: "${trustLine!.trim()}"`,
+    ).toBe(false);
+  });
+
+  // -----------------------------------------------------------------------
+  // (c) No actorRole fallback in channel retry sweep parser
+  // -----------------------------------------------------------------------
+
+  it('channel retry sweep parser does not reference actorRole', () => {
+    const source = readFileSync(
+      join(srcDir, 'runtime', 'channel-retry-sweep.ts'),
+      'utf-8',
+    );
+
+    // The parseGuardianRuntimeContext function must use strict trustClass
+    // parsing only — no legacy actorRole fallback.
+    const parserStart = source.indexOf('function parseGuardianRuntimeContext');
+    expect(parserStart).toBeGreaterThan(-1);
+
+    // Find the end of the function (next function-level declaration or EOF)
+    const parserBody = source.slice(parserStart);
+    const nextFn = parserBody.indexOf('\nexport ', 1);
+    const parserSource = nextFn > 0 ? parserBody.slice(0, nextFn) : parserBody;
+
+    expect(
+      parserSource.includes('actorRole'),
+      'parseGuardianRuntimeContext must not reference `actorRole`. ' +
+        'The retry sweep uses strict `trustClass` parsing — no legacy actorRole fallback.',
+    ).toBe(false);
+  });
+
+  // -----------------------------------------------------------------------
+  // (d) guardianPrincipalId is non-null in GuardianBinding
+  // -----------------------------------------------------------------------
+
+  it('guardianPrincipalId is typed as string (non-null) in GuardianBinding', () => {
+    const source = readFileSync(
+      join(srcDir, 'memory', 'guardian-bindings.ts'),
+      'utf-8',
+    );
+
+    // Extract the GuardianBinding interface block
+    const ifaceStart = source.indexOf('export interface GuardianBinding');
+    expect(ifaceStart).toBeGreaterThan(-1);
+
+    const blockStart = source.indexOf('{', ifaceStart);
+    let braceDepth = 0;
+    let blockEnd = blockStart;
+    for (let i = blockStart; i < source.length; i++) {
+      if (source[i] === '{') braceDepth++;
+      if (source[i] === '}') braceDepth--;
+      if (braceDepth === 0) {
+        blockEnd = i + 1;
+        break;
+      }
+    }
+    const block = source.slice(blockStart, blockEnd);
+
+    const principalLine = block.split('\n').find((l) =>
+      l.includes('guardianPrincipalId'),
+    );
+    expect(
+      principalLine,
+      'Expected to find guardianPrincipalId in GuardianBinding',
+    ).toBeDefined();
+
+    // Must be `guardianPrincipalId: string` — not optional, not nullable
+    expect(
+      principalLine!.includes('string | null'),
+      'guardianPrincipalId must not be typed as `string | null` in GuardianBinding. ' +
+        `Found: "${principalLine!.trim()}"`,
+    ).toBe(false);
+
+    expect(
+      /guardianPrincipalId\s*\?/.test(principalLine!),
+      'guardianPrincipalId must not be optional in GuardianBinding. ' +
+        `Found: "${principalLine!.trim()}"`,
+    ).toBe(false);
+  });
+});
