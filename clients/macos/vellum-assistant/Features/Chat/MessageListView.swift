@@ -209,8 +209,10 @@ struct MessageListView: View {
                                         // Suppress bottom auto-scroll for the brief layout window so the
                                         // restored anchor position is not immediately overridden.
                                         isSuppressingBottomScroll = true
-                                        // Wait ~2 frames for SwiftUI to complete layout before restoring position.
-                                        try? await Task.sleep(nanoseconds: 32_000_000)
+                                        // Wait ~6 frames for SwiftUI to complete layout before restoring position.
+                                        // 100ms gives video embed cards (which animate height over 0.25s) enough
+                                        // time to settle so the scroll restoration lands at the right position.
+                                        try? await Task.sleep(nanoseconds: 100_000_000)
                                         proxy.scrollTo(id, anchor: .top)
                                         log.debug("Scroll restored to anchor \(id)")
                                         isSuppressingBottomScroll = false
