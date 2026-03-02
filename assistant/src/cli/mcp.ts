@@ -202,6 +202,16 @@ export function registerMcpCommand(program: Command): void {
         return;
       }
 
+      // Validate URL early so we fail fast before starting the callback server
+      let serverUrl: URL;
+      try {
+        serverUrl = new URL(transport.url);
+      } catch {
+        log.error(`Invalid URL for MCP server "${name}": ${transport.url}`);
+        process.exitCode = 1;
+        return;
+      }
+
       const provider = new McpOAuthProvider(name, transport.url, /* interactive */ true);
       // Clear stale client_info and discovery — the callback server uses a random port,
       // so any previously cached client_info has a mismatched redirect_uri.
@@ -213,7 +223,7 @@ export function registerMcpCommand(program: Command): void {
       const OAUTH_TIMEOUT_MS = 150_000; // 2.5 min for browser interaction
       const TransportClass = transport.type === 'sse' ? SSEClientTransport : StreamableHTTPClientTransport;
       const mcpTransport = new TransportClass(
-        new URL(transport.url),
+        serverUrl,
         {
           authProvider: provider,
           requestInit: transport.headers ? { headers: transport.headers } : undefined,
