@@ -1153,11 +1153,12 @@ public final class SettingsStore: ObservableObject {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.timeoutInterval = 30
-        if let token = endpoint.bearerToken, !token.isEmpty {
+        // Use the JWT access token as the sole Authorization bearer.
+        // Falls back to the legacy runtime bearer token if no JWT is available.
+        if let accessToken = ActorTokenManager.getToken(), !accessToken.isEmpty {
+            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        } else if let token = endpoint.bearerToken, !token.isEmpty {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
-        if let actorToken = ActorTokenManager.getToken() {
-            request.setValue(actorToken, forHTTPHeaderField: "X-Actor-Token")
         }
         if let body {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
