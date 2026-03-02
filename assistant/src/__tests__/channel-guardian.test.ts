@@ -160,6 +160,7 @@ describe('guardian binding CRUD', () => {
       channel: 'telegram',
       guardianExternalUserId: 'user-42',
       guardianDeliveryChatId: 'chat-42',
+      guardianPrincipalId: 'user-42',
     });
 
     expect(binding.id).toBeDefined();
@@ -180,6 +181,7 @@ describe('guardian binding CRUD', () => {
       channel: 'telegram',
       guardianExternalUserId: 'user-42',
       guardianDeliveryChatId: 'chat-42',
+      guardianPrincipalId: 'user-42',
     });
 
     const found = getActiveBinding('asst-1', 'telegram');
@@ -198,6 +200,7 @@ describe('guardian binding CRUD', () => {
       channel: 'telegram',
       guardianExternalUserId: 'user-42',
       guardianDeliveryChatId: 'chat-42',
+      guardianPrincipalId: 'user-42',
     });
 
     const found = getActiveBinding('asst-2', 'telegram');
@@ -210,6 +213,7 @@ describe('guardian binding CRUD', () => {
       channel: 'telegram',
       guardianExternalUserId: 'user-42',
       guardianDeliveryChatId: 'chat-42',
+      guardianPrincipalId: 'user-42',
     });
 
     const found = getActiveBinding('asst-1', 'slack');
@@ -222,6 +226,7 @@ describe('guardian binding CRUD', () => {
       channel: 'telegram',
       guardianExternalUserId: 'user-42',
       guardianDeliveryChatId: 'chat-42',
+      guardianPrincipalId: 'user-42',
     });
 
     const result = revokeBinding('asst-1', 'telegram');
@@ -242,12 +247,14 @@ describe('guardian binding CRUD', () => {
       channel: 'telegram',
       guardianExternalUserId: 'user-42',
       guardianDeliveryChatId: 'chat-42',
+      guardianPrincipalId: 'user-42',
     });
     createBinding({
       assistantId: 'asst-1',
       channel: 'slack',
       guardianExternalUserId: 'user-99',
       guardianDeliveryChatId: 'chat-99',
+      guardianPrincipalId: 'user-99',
     });
 
     revokeBinding('asst-1', 'telegram');
@@ -581,6 +588,7 @@ describe('guardian service challenge validation', () => {
       channel: 'telegram',
       guardianExternalUserId: 'old-user',
       guardianDeliveryChatId: 'old-chat',
+      guardianPrincipalId: 'old-user',
     });
 
     const oldBinding = getActiveBinding('asst-1', 'telegram');
@@ -617,6 +625,7 @@ describe('guardian identity check', () => {
       channel: 'telegram',
       guardianExternalUserId: 'user-42',
       guardianDeliveryChatId: 'chat-42',
+      guardianPrincipalId: 'user-42',
     });
 
     expect(isGuardian('asst-1', 'telegram', 'user-42')).toBe(true);
@@ -628,6 +637,7 @@ describe('guardian identity check', () => {
       channel: 'telegram',
       guardianExternalUserId: 'user-42',
       guardianDeliveryChatId: 'chat-42',
+      guardianPrincipalId: 'user-42',
     });
 
     expect(isGuardian('asst-1', 'telegram', 'user-99')).toBe(false);
@@ -643,6 +653,7 @@ describe('guardian identity check', () => {
       channel: 'telegram',
       guardianExternalUserId: 'user-42',
       guardianDeliveryChatId: 'chat-42',
+      guardianPrincipalId: 'user-42',
     });
 
     revokeBinding('asst-1', 'telegram');
@@ -656,6 +667,7 @@ describe('guardian identity check', () => {
       channel: 'telegram',
       guardianExternalUserId: 'user-42',
       guardianDeliveryChatId: 'chat-42',
+      guardianPrincipalId: 'user-42',
     });
 
     const binding = getGuardianBinding('asst-1', 'telegram');
@@ -674,6 +686,7 @@ describe('guardian identity check', () => {
       channel: 'sms',
       guardianExternalUserId: 'phone-user-1',
       guardianDeliveryChatId: 'sms-chat-1',
+      guardianPrincipalId: 'phone-user-1',
     });
 
     expect(isGuardian('asst-1', 'sms', 'phone-user-1')).toBe(true);
@@ -688,6 +701,7 @@ describe('guardian identity check', () => {
       channel: 'telegram',
       guardianExternalUserId: 'user-42',
       guardianDeliveryChatId: 'chat-42',
+      guardianPrincipalId: 'user-42',
     });
 
     const result = serviceRevokeBinding('asst-1', 'telegram');
@@ -1128,6 +1142,7 @@ describe('assistant-scoped guardian resolution', () => {
       channel: 'telegram',
       guardianExternalUserId: 'user-alpha',
       guardianDeliveryChatId: 'chat-alpha',
+      guardianPrincipalId: 'user-alpha',
     });
     // Create guardian binding for asst-B on telegram with a different user
     createBinding({
@@ -1135,6 +1150,7 @@ describe('assistant-scoped guardian resolution', () => {
       channel: 'telegram',
       guardianExternalUserId: 'user-beta',
       guardianDeliveryChatId: 'chat-beta',
+      guardianPrincipalId: 'user-beta',
     });
 
     // user-alpha is guardian for asst-A but not asst-B
@@ -1152,12 +1168,14 @@ describe('assistant-scoped guardian resolution', () => {
       channel: 'telegram',
       guardianExternalUserId: 'user-alpha',
       guardianDeliveryChatId: 'chat-alpha',
+      guardianPrincipalId: 'user-alpha',
     });
     createBinding({
       assistantId: 'asst-B',
       channel: 'telegram',
       guardianExternalUserId: 'user-beta',
       guardianDeliveryChatId: 'chat-beta',
+      guardianPrincipalId: 'user-beta',
     });
 
     const bindingA = getGuardianBinding('asst-A', 'telegram');
@@ -1175,12 +1193,14 @@ describe('assistant-scoped guardian resolution', () => {
       channel: 'telegram',
       guardianExternalUserId: 'user-alpha',
       guardianDeliveryChatId: 'chat-alpha',
+      guardianPrincipalId: 'user-alpha',
     });
     createBinding({
       assistantId: 'asst-B',
       channel: 'telegram',
       guardianExternalUserId: 'user-beta',
       guardianDeliveryChatId: 'chat-beta',
+      guardianPrincipalId: 'user-beta',
     });
 
     serviceRevokeBinding('asst-A', 'telegram');
@@ -1375,6 +1395,7 @@ describe('IPC handler channel-aware guardian status', () => {
       channel: 'telegram',
       guardianExternalUserId: 'user-42',
       guardianDeliveryChatId: 'chat-42',
+      guardianPrincipalId: 'user-42',
     });
 
     const { ctx, lastResponse } = createMockCtx();
@@ -1402,6 +1423,7 @@ describe('IPC handler channel-aware guardian status', () => {
       channel: 'telegram',
       guardianExternalUserId: 'user-43',
       guardianDeliveryChatId: 'chat-43',
+      guardianPrincipalId: 'user-43',
       metadataJson: JSON.stringify({ username: 'guardian_handle', displayName: 'Guardian Name' }),
     });
 
@@ -1673,6 +1695,7 @@ describe('voice guardian challenge validation', () => {
       channel: 'voice',
       guardianExternalUserId: 'old-voice-user',
       guardianDeliveryChatId: 'old-voice-chat',
+      guardianPrincipalId: 'old-voice-user',
     });
 
     const oldBinding = getActiveBinding('asst-1', 'voice');
@@ -1708,6 +1731,7 @@ describe('voice guardian identity and revocation', () => {
       channel: 'voice',
       guardianExternalUserId: 'voice-user-1',
       guardianDeliveryChatId: 'voice-chat-1',
+      guardianPrincipalId: 'voice-user-1',
     });
 
     expect(isGuardian('asst-1', 'voice', 'voice-user-1')).toBe(true);
@@ -1722,6 +1746,7 @@ describe('voice guardian identity and revocation', () => {
       channel: 'voice',
       guardianExternalUserId: 'voice-user-1',
       guardianDeliveryChatId: 'voice-chat-1',
+      guardianPrincipalId: 'voice-user-1',
     });
 
     const binding = getGuardianBinding('asst-1', 'voice');
@@ -1736,6 +1761,7 @@ describe('voice guardian identity and revocation', () => {
       channel: 'voice',
       guardianExternalUserId: 'voice-user-1',
       guardianDeliveryChatId: 'voice-chat-1',
+      guardianPrincipalId: 'voice-user-1',
     });
 
     const result = serviceRevokeBinding('asst-1', 'voice');
@@ -1749,12 +1775,14 @@ describe('voice guardian identity and revocation', () => {
       channel: 'voice',
       guardianExternalUserId: 'voice-user-1',
       guardianDeliveryChatId: 'voice-chat-1',
+      guardianPrincipalId: 'voice-user-1',
     });
     createBinding({
       assistantId: 'asst-1',
       channel: 'telegram',
       guardianExternalUserId: 'tg-user-1',
       guardianDeliveryChatId: 'tg-chat-1',
+      guardianPrincipalId: 'tg-user-1',
     });
 
     serviceRevokeBinding('asst-1', 'voice');
@@ -1946,6 +1974,7 @@ describe('IPC handler voice guardian verification', () => {
       channel: 'voice',
       guardianExternalUserId: 'voice-user-1',
       guardianDeliveryChatId: 'voice-chat-1',
+      guardianPrincipalId: 'voice-user-1',
     });
 
     const { ctx, lastResponse } = createMockCtx();
@@ -1972,6 +2001,7 @@ describe('IPC handler voice guardian verification', () => {
       channel: 'voice',
       guardianExternalUserId: 'voice-user-1',
       guardianDeliveryChatId: 'voice-chat-1',
+      guardianPrincipalId: 'voice-user-1',
     });
 
     const { ctx, lastResponse } = createMockCtx();
@@ -1998,12 +2028,14 @@ describe('IPC handler voice guardian verification', () => {
       channel: 'voice',
       guardianExternalUserId: 'voice-user-1',
       guardianDeliveryChatId: 'voice-chat-1',
+      guardianPrincipalId: 'voice-user-1',
     });
     createBinding({
       assistantId: 'self',
       channel: 'telegram',
       guardianExternalUserId: 'tg-user-1',
       guardianDeliveryChatId: 'tg-chat-1',
+      guardianPrincipalId: 'tg-user-1',
     });
 
     const { ctx } = createMockCtx();
@@ -2504,6 +2536,7 @@ describe('outbound SMS verification', () => {
       channel: 'sms',
       guardianExternalUserId: '+15551234567',
       guardianDeliveryChatId: 'sms-chat-1',
+      guardianPrincipalId: '+15551234567',
     });
 
     const { ctx, lastResponse } = createMockCtx();
@@ -2530,6 +2563,7 @@ describe('outbound SMS verification', () => {
       channel: 'sms',
       guardianExternalUserId: '+15551234567',
       guardianDeliveryChatId: 'sms-chat-1',
+      guardianPrincipalId: '+15551234567',
     });
 
     const { ctx, lastResponse } = createMockCtx();
@@ -2957,6 +2991,7 @@ describe('outbound Telegram verification', () => {
       channel: 'telegram',
       guardianExternalUserId: 'user-42',
       guardianDeliveryChatId: 'chat-42',
+      guardianPrincipalId: 'user-42',
     });
 
     const { ctx, lastResponse } = createMockCtx();
@@ -3413,6 +3448,7 @@ describe('outbound voice verification', () => {
       channel: 'voice',
       guardianExternalUserId: '+15551234567',
       guardianDeliveryChatId: '+15551234567',
+      guardianPrincipalId: '+15551234567',
     });
 
     const { ctx, lastResponse } = createMockCtx();

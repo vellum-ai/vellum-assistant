@@ -234,6 +234,7 @@ describe('inbound-message-handler trusted-contact interactivity', () => {
       channel: 'telegram',
       guardianExternalUserId: 'guardian-user-for-tc',
       guardianDeliveryChatId: 'guardian-chat-for-tc',
+      guardianPrincipalId: 'guardian-user-for-tc',
     });
 
     const processCalls: Array<{ options?: Record<string, unknown> }> = [];
@@ -318,6 +319,7 @@ describe('inbound-message-handler trusted-contact interactivity', () => {
       channel: 'telegram',
       guardianExternalUserId: 'telegram-user-default',
       guardianDeliveryChatId: 'chat-123',
+      guardianPrincipalId: 'telegram-user-default',
     });
 
     const processCalls: Array<{ options?: Record<string, unknown> }> = [];

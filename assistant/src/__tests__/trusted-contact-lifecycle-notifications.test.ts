@@ -161,6 +161,7 @@ describe('trusted contact lifecycle notification signals', () => {
       channel: 'telegram',
       guardianExternalUserId: 'guardian-user-789',
       guardianDeliveryChatId: 'guardian-chat-789',
+      guardianPrincipalId: 'guardian-user-789',
     });
     upsertMember({
       assistantId: 'self',
@@ -236,6 +237,7 @@ describe('trusted contact lifecycle notification signals', () => {
       channel: 'telegram',
       guardianExternalUserId: 'guardian-user-789',
       guardianDeliveryChatId: 'guardian-chat-789',
+      guardianPrincipalId: 'guardian-user-789',
     });
     upsertMember({
       assistantId: 'self',
@@ -310,6 +312,7 @@ describe('trusted contact lifecycle notification signals', () => {
       channel: 'telegram',
       guardianExternalUserId: 'guardian-user-789',
       guardianDeliveryChatId: 'guardian-chat-789',
+      guardianPrincipalId: 'guardian-user-789',
     });
     upsertMember({
       assistantId: 'self',
@@ -373,6 +376,7 @@ describe('trusted contact activated notification signal', () => {
       channel: 'telegram',
       guardianExternalUserId: 'guardian-user-789',
       guardianDeliveryChatId: 'guardian-chat-789',
+      guardianPrincipalId: 'guardian-user-789',
     });
 
     // Create an identity-bound outbound session (simulates M3 approval flow)
@@ -425,6 +429,7 @@ describe('trusted contact activated notification signal', () => {
       channel: 'telegram',
       guardianExternalUserId: 'guardian-user-789',
       guardianDeliveryChatId: 'guardian-chat-789',
+      guardianPrincipalId: 'guardian-user-789',
     });
 
     upsertMember({
@@ -506,6 +511,7 @@ describe('trusted contact activated notification signal', () => {
       channel: 'telegram',
       guardianExternalUserId: 'guardian-user-789',
       guardianDeliveryChatId: 'guardian-chat-789',
+      guardianPrincipalId: 'guardian-user-789',
     });
 
     const session = createOutboundSession({

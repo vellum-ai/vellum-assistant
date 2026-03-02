@@ -246,6 +246,7 @@ describe('inbound callback metadata triggers decision handling', () => {
       channel: 'telegram',
       guardianExternalUserId: 'telegram-user-default',
       guardianDeliveryChatId: 'chat-123',
+      guardianPrincipalId: 'telegram-user-default',
     });
   });
 
@@ -321,6 +322,7 @@ describe('inbound text matching approval phrases triggers decision handling', ()
       channel: 'telegram',
       guardianExternalUserId: 'telegram-user-default',
       guardianDeliveryChatId: 'chat-123',
+      guardianPrincipalId: 'telegram-user-default',
     });
   });
 
@@ -384,6 +386,7 @@ describe('non-decision messages during pending approval (legacy fallback)', () =
       channel: 'telegram',
       guardianExternalUserId: 'telegram-user-default',
       guardianDeliveryChatId: 'chat-123',
+      guardianPrincipalId: 'telegram-user-default',
     });
   });
 
@@ -458,6 +461,7 @@ describe('empty content with callbackData bypasses validation', () => {
       channel: 'telegram',
       guardianExternalUserId: 'telegram-user-default',
       guardianDeliveryChatId: 'chat-123',
+      guardianPrincipalId: 'telegram-user-default',
     });
   });
 
@@ -551,6 +555,7 @@ describe('callback requestId validation', () => {
       channel: 'telegram',
       guardianExternalUserId: 'telegram-user-default',
       guardianDeliveryChatId: 'chat-123',
+      guardianPrincipalId: 'telegram-user-default',
     });
   });
 
@@ -651,6 +656,7 @@ describe('no immediate reply after approval decision', () => {
       channel: 'telegram',
       guardianExternalUserId: 'telegram-user-default',
       guardianDeliveryChatId: 'chat-123',
+      guardianPrincipalId: 'telegram-user-default',
     });
   });
 
@@ -773,6 +779,7 @@ describe('SMS channel approval decisions', () => {
       channel: 'sms',
       guardianExternalUserId: 'sms-user-default',
       guardianDeliveryChatId: 'sms-chat-123',
+      guardianPrincipalId: 'sms-user-default',
     });
   });
 
@@ -1026,6 +1033,7 @@ describe('guardian decision scoping — multiple pending approvals', () => {
       channel: 'telegram',
       guardianExternalUserId: 'guardian-scope-user',
       guardianDeliveryChatId: 'guardian-scope-chat',
+      guardianPrincipalId: 'guardian-scope-user',
     });
 
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
@@ -1099,6 +1107,7 @@ describe('ambiguous plain-text decision with multiple pending requests', () => {
       channel: 'telegram',
       guardianExternalUserId: 'guardian-ambig-user',
       guardianDeliveryChatId: 'guardian-ambig-chat',
+      guardianPrincipalId: 'guardian-ambig-user',
     });
 
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
@@ -1548,6 +1557,7 @@ describe('conversational approval engine — standard path', () => {
       channel: 'telegram',
       guardianExternalUserId: 'telegram-user-default',
       guardianDeliveryChatId: 'chat-123',
+      guardianPrincipalId: 'telegram-user-default',
     });
   });
 
@@ -1717,6 +1727,7 @@ describe('guardian conversational approval via conversation engine', () => {
       channel: 'telegram',
       guardianExternalUserId: 'guardian-conv-user',
       guardianDeliveryChatId: 'guardian-conv-chat',
+      guardianPrincipalId: 'guardian-conv-user',
     });
 
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
@@ -1781,6 +1792,7 @@ describe('guardian conversational approval via conversation engine', () => {
       channel: 'telegram',
       guardianExternalUserId: 'guardian-nlp-user',
       guardianDeliveryChatId: 'guardian-nlp-chat',
+      guardianPrincipalId: 'guardian-nlp-user',
     });
 
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
@@ -1843,6 +1855,7 @@ describe('guardian conversational approval via conversation engine', () => {
       channel: 'telegram',
       guardianExternalUserId: 'guardian-dg-user',
       guardianDeliveryChatId: 'guardian-dg-chat',
+      guardianPrincipalId: 'guardian-dg-user',
     });
 
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
@@ -1892,6 +1905,7 @@ describe('guardian conversational approval via conversation engine', () => {
       channel: 'telegram',
       guardianExternalUserId: 'guardian-multi-user',
       guardianDeliveryChatId: 'guardian-multi-chat',
+      guardianPrincipalId: 'guardian-multi-user',
     });
 
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
@@ -1981,6 +1995,7 @@ describe('keep_pending remains conversational — standard path', () => {
       channel: 'telegram',
       guardianExternalUserId: 'telegram-user-default',
       guardianDeliveryChatId: 'chat-123',
+      guardianPrincipalId: 'telegram-user-default',
     });
   });
 
@@ -2029,6 +2044,7 @@ describe('keep_pending remains conversational — guardian path', () => {
       channel: 'telegram',
       guardianExternalUserId: 'guardian-user-fb',
       guardianDeliveryChatId: 'guardian-chat-fb',
+      guardianPrincipalId: 'guardian-user-fb',
     });
 
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
@@ -2091,6 +2107,7 @@ describe('requester cancel of guardian-gated pending request', () => {
       channel: 'telegram',
       guardianExternalUserId: 'guardian-cancel',
       guardianDeliveryChatId: 'guardian-cancel-chat',
+      guardianPrincipalId: 'guardian-cancel',
     });
   });
 
@@ -2346,6 +2363,7 @@ describe('engine decision race condition — standard path', () => {
       channel: 'telegram',
       guardianExternalUserId: 'telegram-user-default',
       guardianDeliveryChatId: 'chat-123',
+      guardianPrincipalId: 'telegram-user-default',
     });
   });
 
@@ -2407,6 +2425,7 @@ describe('engine decision race condition — guardian path', () => {
       channel: 'telegram',
       guardianExternalUserId: 'guardian-race-user',
       guardianDeliveryChatId: 'guardian-race-chat',
+      guardianPrincipalId: 'guardian-race-user',
     });
 
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
@@ -2482,12 +2501,14 @@ describe('non-decision status reply for different channels', () => {
       channel: 'telegram',
       guardianExternalUserId: 'telegram-user-default',
       guardianDeliveryChatId: 'chat-123',
+      guardianPrincipalId: 'telegram-user-default',
     });
     createBinding({
       assistantId: 'self',
       channel: 'sms',
       guardianExternalUserId: 'telegram-user-default',
       guardianDeliveryChatId: 'chat-123',
+      guardianPrincipalId: 'telegram-user-default',
     });
   });
 
@@ -2572,6 +2593,7 @@ describe('background channel processing approval prompts', () => {
       channel: 'telegram',
       guardianExternalUserId: 'telegram-user-default',
       guardianDeliveryChatId: 'chat-123',
+      guardianPrincipalId: 'telegram-user-default',
     });
 
     const deliverPromptSpy = spyOn(gatewayClient, 'deliverApprovalPrompt').mockResolvedValue(undefined);
@@ -2625,6 +2647,7 @@ describe('background channel processing approval prompts', () => {
       channel: 'telegram',
       guardianExternalUserId: '  telegram-user-default  ',
       guardianDeliveryChatId: 'chat-123',
+      guardianPrincipalId: '  telegram-user-default  ',
     });
 
     const deliverPromptSpy = spyOn(gatewayClient, 'deliverApprovalPrompt').mockResolvedValue(undefined);
@@ -2676,6 +2699,7 @@ describe('background channel processing approval prompts', () => {
       channel: 'telegram',
       guardianExternalUserId: 'guardian-user-other',
       guardianDeliveryChatId: 'guardian-chat-other',
+      guardianPrincipalId: 'guardian-user-other',
     });
 
     const processCalls: Array<{ options?: Record<string, unknown> }> = [];
@@ -2779,6 +2803,8 @@ describe('NL approval routing via destination-scoped canonical requests', () => 
       channel: 'telegram',
       guardianExternalUserId: guardianUserId,
       guardianDeliveryChatId: guardianChatId,
+
+      guardianPrincipalId: 'guardianUserId',
     });
 
     // Create canonical tool_approval request WITHOUT guardianExternalUserId
@@ -2835,6 +2861,8 @@ describe('NL approval routing via destination-scoped canonical requests', () => 
       channel: 'telegram',
       guardianExternalUserId: guardianUserId,
       guardianDeliveryChatId: differentChatId,
+
+      guardianPrincipalId: 'guardianUserId',
     });
 
     // Create canonical pending_question WITHOUT guardianExternalUserId
@@ -2890,6 +2918,7 @@ describe('trusted-contact self-approval blocked before guardian approval row exi
       channel: 'telegram',
       guardianExternalUserId: 'guardian-tc-selfapproval',
       guardianDeliveryChatId: 'guardian-tc-selfapproval-chat',
+      guardianPrincipalId: 'guardian-tc-selfapproval',
     });
   });
 
