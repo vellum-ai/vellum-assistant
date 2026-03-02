@@ -222,8 +222,8 @@ export function verifyHttpActorToken(req: Request): ActorTokenVerification {
       platform: 'vellum',
       deviceId: '',
       guardianPrincipalId: subResult.actorPrincipalId,
-      iat: jwtResult.claims.iat ?? Math.floor(Date.now() / 1000),
-      exp: jwtResult.claims.exp,
+      iat: (jwtResult.claims.iat ?? Math.floor(Date.now() / 1000)) * 1000,
+      exp: jwtResult.claims.exp * 1000,
       jti: jwtResult.claims.jti ?? '',
     };
   } else {
