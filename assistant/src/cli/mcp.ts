@@ -161,9 +161,11 @@ export function registerMcpCommand(program: Command): void {
       }
 
       const provider = new McpOAuthProvider(name, transport.url, /* interactive */ true);
-      // Clear all stale credentials — the callback server uses a random port,
-      // so any previously cached client_info/tokens have a mismatched redirect_uri.
-      await provider.invalidateCredentials('all');
+      // Clear stale client_info and discovery — the callback server uses a random port,
+      // so any previously cached client_info has a mismatched redirect_uri.
+      // Preserve tokens so they survive if this auth attempt fails.
+      await provider.invalidateCredentials('client');
+      await provider.invalidateCredentials('discovery');
       const { codePromise } = await provider.startCallbackServer();
 
       const OAUTH_TIMEOUT_MS = 150_000; // 2.5 min for browser interaction
@@ -200,14 +202,18 @@ export function registerMcpCommand(program: Command): void {
       log.info('Waiting for authorization in browser... (press Ctrl+C to cancel)');
 
       let code: string;
+      let oauthTimer: ReturnType<typeof setTimeout> | undefined;
       try {
         code = await Promise.race([
           codePromise,
-          new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error('OAuth authorization timed out after 2.5 minutes')), OAUTH_TIMEOUT_MS),
-          ),
+          new Promise<never>((_, reject) => {
+            oauthTimer = setTimeout(() => reject(new Error('OAuth authorization timed out after 2.5 minutes')), OAUTH_TIMEOUT_MS);
+            if (typeof oauthTimer === 'object' && 'unref' in oauthTimer) oauthTimer.unref();
+          }),
         ]);
+        clearTimeout(oauthTimer);
       } catch (err) {
+        clearTimeout(oauthTimer);
         provider.stopCallbackServer();
         try { await client.close(); } catch { /* ignore */ }
         const message = err instanceof Error ? err.message : String(err);

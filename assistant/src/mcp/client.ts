@@ -1,3 +1,4 @@
+import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
@@ -73,11 +74,20 @@ export class McpClient {
       this.transport = null;
 
       if (isHttpTransport) {
-        // For HTTP transports, any connection failure may be auth-related.
-        // Skip silently — user can run `vellum mcp auth <name>` to authenticate.
-        log.info({ serverId: this.serverId, err }, 'MCP server connection failed — may need authentication');
-        console.log(`[MCP] Server "${this.serverId}" is not available. Run "vellum mcp auth ${this.serverId}" if it requires authentication.`);
-        return;
+        const isAuthError = err instanceof UnauthorizedError
+          || (err instanceof Error && /\b(401|403|unauthorized|forbidden)\b/i.test(err.message));
+
+        if (isAuthError) {
+          // Auth-related — user can run `vellum mcp auth <name>` to authenticate.
+          log.info({ serverId: this.serverId, err }, 'MCP server requires authentication');
+          console.log(`[MCP] Server "${this.serverId}" requires authentication. Run "vellum mcp auth ${this.serverId}" to authenticate.`);
+          return;
+        }
+
+        // Non-auth error (DNS, TLS, timeout, etc.) — log and re-throw
+        log.error({ serverId: this.serverId, err }, 'MCP server connection failed');
+        console.error(`[MCP] Server "${this.serverId}" connection failed: ${err instanceof Error ? err.message : err}`);
+        throw err;
       }
 
       throw err;

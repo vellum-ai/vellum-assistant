@@ -152,10 +152,16 @@ export class McpOAuthProvider implements OAuthClientProvider {
 
     try {
       const { execFile } = await import('node:child_process');
+      const onError = (err: Error | null) => {
+        if (err) {
+          log.warn({ err }, 'Failed to open browser');
+          console.log(`[MCP] Please open this URL in your browser:\n${url}`);
+        }
+      };
       if (isMacOS()) {
-        execFile('open', [url]);
+        execFile('open', [url], onError);
       } else if (isLinux()) {
-        execFile('xdg-open', [url]);
+        execFile('xdg-open', [url], onError);
       } else {
         log.warn('Unsupported platform for browser open — please visit the URL manually');
         console.log(`[MCP] Please open this URL in your browser:\n${url}`);
