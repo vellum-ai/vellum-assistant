@@ -100,6 +100,23 @@ export async function sweepFailedEvents(
       : undefined;
     const guardianContext = parseGuardianRuntimeContext(payload.guardianCtx);
 
+    // If the stored payload had guardian context data but it couldn't be parsed
+    // into a valid canonical shape (e.g., legacy actorRole-only payloads without
+    // trustClass), fail the event deterministically rather than processing it
+    // without guardian context. Without this check, the downstream default of
+    // `guardianTrustClass ?? 'guardian'` would silently escalate privileges.
+    if (payload.guardianCtx && !guardianContext) {
+      log.warn(
+        { eventId: event.id },
+        'Stored guardianCtx could not be parsed into canonical form; marking event as failed to prevent privilege escalation',
+      );
+      channelDeliveryStore.recordProcessingFailure(
+        event.id,
+        new Error('Unparseable guardian context in stored payload — refusing to process without trust classification'),
+      );
+      continue;
+    }
+
     const metadataHintsRaw = sourceMetadata?.hints;
     const metadataHints = Array.isArray(metadataHintsRaw)
       ? metadataHintsRaw.filter((h): h is string => typeof h === 'string' && h.trim().length > 0)

@@ -161,7 +161,7 @@ describe('channel-retry-sweep', () => {
     }
   });
 
-  test('rejects legacy payloads with only actorRole (no trustClass)', async () => {
+  test('marks legacy payloads with only actorRole (no trustClass) as failed', async () => {
     const actorRoles: Array<'guardian' | 'non-guardian' | 'unverified_channel'> = [
       'guardian',
       'non-guardian',
@@ -170,18 +170,12 @@ describe('channel-retry-sweep', () => {
 
     for (const actorRole of actorRoles) {
       resetTables();
-      seedFailedEventWithActorRoleOnly(actorRole);
-      let capturedOptions: {
-        guardianContext?: { trustClass?: string } | undefined;
-        isInteractive?: boolean;
-      } | undefined;
+      const eventId = seedFailedEventWithActorRoleOnly(actorRole);
+      let processMessageCalled = false;
 
       await sweepFailedEvents(
-        async (conversationId, _content, _attachmentIds, options) => {
-          capturedOptions = options as {
-            guardianContext?: { trustClass?: string } | undefined;
-            isInteractive?: boolean;
-          };
+        async (conversationId, _content, _attachmentIds, _options) => {
+          processMessageCalled = true;
           const messageId = `message-legacy-${actorRole}`;
           const db = getDb();
           db.insert(messages).values({
@@ -196,27 +190,25 @@ describe('channel-retry-sweep', () => {
         undefined,
       );
 
-      // parseGuardianRuntimeContext rejects payloads without a valid trustClass,
-      // so guardianContext is undefined and isInteractive falls back to false
-      expect(capturedOptions?.guardianContext).toBeUndefined();
-      expect(capturedOptions?.isInteractive).toBe(false);
+      // Legacy payloads with guardianCtx that can't be parsed into canonical form
+      // must be marked as failed to prevent privilege escalation — processMessage
+      // should never be called.
+      expect(processMessageCalled).toBe(false);
+
+      const db = getDb();
+      const row = db.select().from(channelInboundEvents).where(eq(channelInboundEvents.id, eventId)).get();
+      expect(row?.processingStatus).toBe('failed');
     }
   });
 
-  test('rejects payloads with invalid trustClass values', async () => {
+  test('marks payloads with invalid trustClass values as failed', async () => {
     resetTables();
     const eventId = seedFailedEventWithTrustClass('invalid_value');
-    let capturedOptions: {
-      guardianContext?: { trustClass?: string } | undefined;
-      isInteractive?: boolean;
-    } | undefined;
+    let processMessageCalled = false;
 
     await sweepFailedEvents(
-      async (conversationId, _content, _attachmentIds, options) => {
-        capturedOptions = options as {
-          guardianContext?: { trustClass?: string } | undefined;
-          isInteractive?: boolean;
-        };
+      async (conversationId, _content, _attachmentIds, _options) => {
+        processMessageCalled = true;
         const messageId = 'message-invalid';
         const db = getDb();
         db.insert(messages).values({
@@ -231,9 +223,13 @@ describe('channel-retry-sweep', () => {
       undefined,
     );
 
-    // guardianContext should be undefined since the trustClass is invalid
-    expect(capturedOptions?.guardianContext).toBeUndefined();
-    expect(capturedOptions?.isInteractive).toBe(false);
+    // guardianCtx was present but couldn't be parsed (invalid trustClass),
+    // so the event must be failed rather than processed without trust context.
+    expect(processMessageCalled).toBe(false);
+
+    const db = getDb();
+    const row = db.select().from(channelInboundEvents).where(eq(channelInboundEvents.id, eventId)).get();
+    expect(row?.processingStatus).toBe('failed');
   });
 
   test('rejects payloads with missing guardianCtx entirely', async () => {
