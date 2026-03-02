@@ -458,7 +458,7 @@ struct ScrollWheelDetector: NSViewRepresentable {
                     if let scrollView = coordinator.findEnclosingScrollView() {
                         let clipBounds = scrollView.contentView.bounds
                         let docHeight = scrollView.documentView?.frame.height ?? 0
-                        if docHeight - clipBounds.maxY >= 50 {
+                        if docHeight - clipBounds.maxY >= 20 {
                             coordinator.onScrollUp?()
                         }
                     } else {
@@ -473,7 +473,7 @@ struct ScrollWheelDetector: NSViewRepresentable {
                     if let scrollView = coordinator.findEnclosingScrollView() {
                         let clipBounds = scrollView.contentView.bounds
                         let docHeight = scrollView.documentView?.frame.height ?? 0
-                        if docHeight - clipBounds.maxY < 50 {
+                        if docHeight - clipBounds.maxY < 20 {
                             coordinator.onScrollToBottom?()
                         }
                     }
