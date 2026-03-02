@@ -181,15 +181,18 @@ jobs:
         working-directory: clients/macos
         env:
           DMG_PATH: build/vellum-assistant-pr-${{ github.event.pull_request.number }}.dmg
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
         run: |
           mkdir -p ~/.private_keys
-          echo "${{ secrets.ASC_KEY_P8 }}" > ~/.private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8
+          echo "$ASC_KEY_P8" > ~/.private_keys/AuthKey_${ASC_KEY_ID}.p8
 
           echo "Submitting DMG for notarization..."
           NOTARIZE_OUTPUT=$(xcrun notarytool submit "$DMG_PATH" \
-            --key ~/.private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8 \
-            --key-id "${{ secrets.ASC_KEY_ID }}" \
-            --issuer "${{ secrets.ASC_ISSUER_ID }}" \
+            --key ~/.private_keys/AuthKey_${ASC_KEY_ID}.p8 \
+            --key-id "$ASC_KEY_ID" \
+            --issuer "$ASC_ISSUER_ID" \
             --wait \
             --timeout 30m \
             2>&1) || NOTARIZE_FAILED=true
@@ -203,9 +206,9 @@ jobs:
             if [ -n "$SUBMISSION_ID" ]; then
               echo "Fetching notarization log for submission $SUBMISSION_ID..."
               xcrun notarytool log "$SUBMISSION_ID" \
-                --key ~/.private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8 \
-                --key-id "${{ secrets.ASC_KEY_ID }}" \
-                --issuer "${{ secrets.ASC_ISSUER_ID }}" \
+                --key ~/.private_keys/AuthKey_${ASC_KEY_ID}.p8 \
+                --key-id "$ASC_KEY_ID" \
+                --issuer "$ASC_ISSUER_ID" \
                 || echo "::warning::Could not fetch notarization log"
             fi
             exit 1
