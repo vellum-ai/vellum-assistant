@@ -725,6 +725,9 @@ jobs:
         run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
 
       - name: Import code-signing certificate
+        env:
+          CERT_P12: ${{ secrets.DIST_CERTIFICATE_P12 }}
+          CERT_PASSWORD: ${{ secrets.DIST_CERTIFICATE_PASSWORD }}
         run: |
           KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
 
@@ -732,10 +735,10 @@ jobs:
           security set-keychain-settings -lut 3600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
-          echo "${{ secrets.DIST_CERTIFICATE_P12 }}" | base64 -D > /tmp/certificate.p12
+          echo "$CERT_P12" | base64 -D > /tmp/certificate.p12
           security import /tmp/certificate.p12 \
             -k "$KEYCHAIN_PATH" \
-            -P "${{ secrets.DIST_CERTIFICATE_PASSWORD }}" \
+            -P "$CERT_PASSWORD" \
             -T /usr/bin/codesign \
             -T /usr/bin/security
           rm /tmp/certificate.p12
@@ -842,15 +845,19 @@ jobs:
           echo "DMG signature verified"
 
       - name: Notarize DMG
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
         run: |
           mkdir -p ~/.private_keys
-          echo "${{ secrets.ASC_KEY_P8 }}" > ~/.private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8
+          echo "$ASC_KEY_P8" > ~/.private_keys/AuthKey_${ASC_KEY_ID}.p8
 
           echo "Submitting DMG for notarization..."
           NOTARIZE_OUTPUT=$(xcrun notarytool submit "$DMG_PATH" \
-            --key ~/.private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8 \
-            --key-id "${{ secrets.ASC_KEY_ID }}" \
-            --issuer "${{ secrets.ASC_ISSUER_ID }}" \
+            --key ~/.private_keys/AuthKey_${ASC_KEY_ID}.p8 \
+            --key-id "$ASC_KEY_ID" \
+            --issuer "$ASC_ISSUER_ID" \
             --wait \
             --timeout 30m \
             2>&1) || NOTARIZE_FAILED=true
@@ -864,9 +871,9 @@ jobs:
             if [ -n "$SUBMISSION_ID" ]; then
               echo "Fetching notarization log for submission $SUBMISSION_ID..."
               xcrun notarytool log "$SUBMISSION_ID" \
-                --key ~/.private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8 \
-                --key-id "${{ secrets.ASC_KEY_ID }}" \
-                --issuer "${{ secrets.ASC_ISSUER_ID }}" \
+                --key ~/.private_keys/AuthKey_${ASC_KEY_ID}.p8 \
+                --key-id "$ASC_KEY_ID" \
+                --issuer "$ASC_ISSUER_ID" \
                 || echo "::warning::Could not fetch notarization log"
             fi
             exit 1
@@ -998,6 +1005,9 @@ jobs:
         run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
 
       - name: Import code-signing certificate
+        env:
+          CERT_P12: ${{ secrets.DIST_CERTIFICATE_P12 }}
+          CERT_PASSWORD: ${{ secrets.DIST_CERTIFICATE_PASSWORD }}
         run: |
           KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
 
@@ -1005,10 +1015,10 @@ jobs:
           security set-keychain-settings -lut 3600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
-          echo "${{ secrets.DIST_CERTIFICATE_P12 }}" | base64 -D > /tmp/certificate.p12
+          echo "$CERT_P12" | base64 -D > /tmp/certificate.p12
           security import /tmp/certificate.p12 \
             -k "$KEYCHAIN_PATH" \
-            -P "${{ secrets.DIST_CERTIFICATE_PASSWORD }}" \
+            -P "$CERT_PASSWORD" \
             -T /usr/bin/codesign \
             -T /usr/bin/security
           rm /tmp/certificate.p12
@@ -1378,6 +1388,9 @@ jobs:
         run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
 
       - name: Import code-signing certificate
+        env:
+          CERT_P12: ${{ secrets.DIST_CERTIFICATE_P12 }}
+          CERT_PASSWORD: ${{ secrets.DIST_CERTIFICATE_PASSWORD }}
         run: |
           KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
 
@@ -1385,10 +1398,10 @@ jobs:
           security set-keychain-settings -lut 3600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
-          echo "${{ secrets.DIST_CERTIFICATE_P12 }}" | base64 -D > /tmp/ios-certificate.p12
+          echo "$CERT_P12" | base64 -D > /tmp/ios-certificate.p12
           security import /tmp/ios-certificate.p12 \
             -k "$KEYCHAIN_PATH" \
-            -P "${{ secrets.DIST_CERTIFICATE_PASSWORD }}" \
+            -P "$CERT_PASSWORD" \
             -T /usr/bin/codesign \
             -T /usr/bin/security
           rm /tmp/ios-certificate.p12
@@ -1399,12 +1412,12 @@ jobs:
           security find-identity -v -p codesigning "$KEYCHAIN_PATH"
 
       - name: Install provisioning profile
+        env:
+          PROVISIONING_PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }}
         run: |
-          # Required secret:
-          #   IOS_PROVISIONING_PROFILE — Base64-encoded App Store Distribution provisioning profile
           PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
           mkdir -p "$PROFILE_DIR"
-          echo "${{ secrets.IOS_PROVISIONING_PROFILE }}" | base64 -D > "$PROFILE_DIR/ios_distribution.mobileprovision"
+          echo "$PROVISIONING_PROFILE" | base64 -D > "$PROFILE_DIR/ios_distribution.mobileprovision"
           echo "Provisioning profile installed"
 
       - name: Set version
@@ -1431,21 +1444,21 @@ jobs:
           ./build.sh release
 
       - name: Upload to TestFlight
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
         run: |
-          # Required secrets:
-          #   ASC_KEY_ID    — App Store Connect API Key ID
-          #   ASC_ISSUER_ID — App Store Connect API Issuer ID
-          #   ASC_KEY_P8    — App Store Connect API private key (.p8 contents)
           mkdir -p ~/.private_keys
-          echo "${{ secrets.ASC_KEY_P8 }}" > ~/.private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8
+          echo "$ASC_KEY_P8" > ~/.private_keys/AuthKey_${ASC_KEY_ID}.p8
 
           IPA_FILE=$(find clients/ios/dist/export -name "*.ipa" -maxdepth 1 | head -1)
           echo "Uploading $IPA_FILE to TestFlight..."
           xcrun altool --upload-app \
             -f "$IPA_FILE" \
             --type ios \
-            --apiKey "${{ secrets.ASC_KEY_ID }}" \
-            --apiIssuer "${{ secrets.ASC_ISSUER_ID }}"
+            --apiKey "$ASC_KEY_ID" \
+            --apiIssuer "$ASC_ISSUER_ID"
 
       - name: Upload .ipa artifact
         uses: actions/upload-artifact@v4
