@@ -16,7 +16,6 @@ final class WakeWordCoordinator: ObservableObject {
     private let audioMonitor: AlwaysOnAudioMonitor
     private let voiceModeManager: VoiceModeManager
     private let threadManager: ThreadManager
-    private let windowState: MainWindowState
     private weak var voiceInputManager: VoiceInputManager?
 
     /// When a wake word fires before the app is fully initialized,
@@ -39,13 +38,11 @@ final class WakeWordCoordinator: ObservableObject {
         audioMonitor: AlwaysOnAudioMonitor,
         voiceModeManager: VoiceModeManager,
         threadManager: ThreadManager,
-        windowState: MainWindowState,
         voiceInputManager: VoiceInputManager? = nil
     ) {
         self.audioMonitor = audioMonitor
         self.voiceModeManager = voiceModeManager
         self.threadManager = threadManager
-        self.windowState = windowState
         self.voiceInputManager = voiceInputManager
 
         setupWakeWordHandler()
@@ -123,12 +120,10 @@ final class WakeWordCoordinator: ObservableObject {
             return
         }
 
-        // 4. Show voice mode panel and activate (same as the UI button)
-        windowState.selection = .panel(.voiceMode)
+        // 4. Activate voice mode (voice bar appears automatically via ComposerSection)
         voiceModeManager.activate(chatViewModel: chatViewModel)
         guard voiceModeManager.state != .off else {
             log.warning("Voice mode activation failed — resuming wake word listening")
-            windowState.selection = nil
             audioMonitor.startMonitoring()
             return
         }

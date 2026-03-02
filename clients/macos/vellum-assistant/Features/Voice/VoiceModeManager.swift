@@ -15,6 +15,7 @@ final class VoiceModeManager: ObservableObject {
         didSet { handleStateTransition(from: oldValue, to: state) }
     }
     @Published var partialTranscription: String = ""
+    @Published var liveTranscription: String = ""
     @Published var errorMessage: String = ""
     /// Set to true when deactivation was triggered by the conversation timeout
     /// (as opposed to manual deactivation). WakeWordCoordinator uses this to
@@ -47,6 +48,8 @@ final class VoiceModeManager: ObservableObject {
     private var messageCancellable: AnyCancellable?
     /// Combine subscription to pause/resume conversation timeout during tool execution.
     private var isThinkingCancellable: AnyCancellable?
+    /// Combine subscription forwarding live partial transcription from the voice service.
+    private var liveTranscriptionCancellable: AnyCancellable?
 
     nonisolated init() {
         self.voiceService = OpenAIVoiceService()
@@ -132,6 +135,14 @@ final class VoiceModeManager: ObservableObject {
                 }
             }
 
+        // Forward live partial transcription when listening
+        liveTranscriptionCancellable = voiceService.$livePartialText
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] text in
+                guard let self, self.state == .listening else { return }
+                self.liveTranscription = text
+            }
+
         // Pre-warm audio engine so first recording starts instantly
         voiceService.prewarmEngine()
 
@@ -187,12 +198,15 @@ final class VoiceModeManager: ObservableObject {
         messageCancellable = nil
         isThinkingCancellable?.cancel()
         isThinkingCancellable = nil
+        liveTranscriptionCancellable?.cancel()
+        liveTranscriptionCancellable = nil
         pendingPermissionIds = []
 
         chatViewModel = nil
         settingsStore = nil
         state = .off
         partialTranscription = ""
+        liveTranscription = ""
         log.info("Voice mode deactivated")
     }
 
@@ -212,6 +226,7 @@ final class VoiceModeManager: ObservableObject {
     func startListening() {
         guard state == .idle else { return }
         partialTranscription = ""
+        liveTranscription = ""
         errorMessage = ""
         state = .listening
         guard voiceService.startRecording() else {

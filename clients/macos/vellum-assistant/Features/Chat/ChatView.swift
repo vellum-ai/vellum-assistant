@@ -67,6 +67,9 @@ struct ChatView: View {
     var dismissedDocumentSurfaceIds: Set<String> = []
     var onDismissDocumentWidget: ((String) -> Void)?
     var connectionDiagnosticHint: String? = nil
+    var voiceModeManager: VoiceModeManager? = nil
+    var voiceService: OpenAIVoiceService? = nil
+    var onEndVoiceMode: (() -> Void)? = nil
     var threadId: UUID?
 
     // MARK: - Pagination
@@ -257,6 +260,9 @@ struct ChatView: View {
                             isLearnMode: isLearnMode,
                             networkEntryCount: networkEntryCount,
                             idleHint: idleHint,
+                            voiceModeManager: voiceModeManager,
+                            voiceService: voiceService,
+                            onEndVoiceMode: onEndVoiceMode,
                             editorContentHeight: $editorContentHeight,
                             isComposerExpanded: $isComposerExpanded
                         )
