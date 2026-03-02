@@ -30,9 +30,16 @@ const EXCHANGE_TOKEN_TTL_SECONDS = 60;
  * Validate a JWT edge token intended for the gateway (aud=vellum-gateway).
  *
  * Returns the verified claims on success, or a structured error on failure.
+ * Pass `allowExpired: true` to accept expired-but-otherwise-valid tokens
+ * (signature, audience, and policy epoch are still checked). This is used
+ * by the refresh endpoint so clients can obtain new credentials even after
+ * the access token has expired.
  */
-export function validateEdgeToken(token: string): VerifyResult {
-  return verifyToken(token, 'vellum-gateway');
+export function validateEdgeToken(
+  token: string,
+  opts?: { allowExpired?: boolean },
+): VerifyResult {
+  return verifyToken(token, 'vellum-gateway', opts);
 }
 
 // ---------------------------------------------------------------------------

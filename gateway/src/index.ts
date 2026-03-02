@@ -485,9 +485,23 @@ function main() {
       }
 
       // ── Guardian vellum refresh proxy ──
+      // Accept expired-but-otherwise-valid JWTs on the refresh path.
+      // The refresh endpoint's purpose is to obtain a new access token,
+      // so rejecting expired tokens here would create a deadlock once
+      // the JWT expires. Signature, audience, and policy epoch are still
+      // verified — only the expiration check is relaxed.
       if (url.pathname === "/v1/integrations/guardian/vellum/refresh" && req.method === "POST") {
-        const authError = requireEdgeAuth();
-        if (authError) return authError;
+        const authHeader = tracedReq.headers.get("authorization");
+        if (!authHeader || !authHeader.toLowerCase().startsWith("bearer ")) {
+          authRateLimiter.recordFailure(getClientIp(req, svr, config.trustProxy));
+          return Response.json({ error: "Unauthorized" }, { status: 401 });
+        }
+        const token = authHeader.slice(7);
+        const result = validateEdgeToken(token, { allowExpired: true });
+        if (!result.ok) {
+          authRateLimiter.recordFailure(getClientIp(req, svr, config.trustProxy));
+          return Response.json({ error: "Unauthorized" }, { status: 401 });
+        }
         return guardianControlPlaneProxy.handleGuardianRefresh(tracedReq);
       }
 

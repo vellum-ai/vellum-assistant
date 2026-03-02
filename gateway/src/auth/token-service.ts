@@ -139,7 +139,11 @@ export function mintToken(params: {
 // Verify
 // ---------------------------------------------------------------------------
 
-export function verifyToken(token: string, expectedAud: TokenAudience): VerifyResult {
+export function verifyToken(
+  token: string,
+  expectedAud: TokenAudience,
+  opts?: { allowExpired?: boolean },
+): VerifyResult {
   const parts = token.split('.');
   if (parts.length !== 3) {
     return { ok: false, reason: 'malformed_token: expected 3 dot-separated parts' };
@@ -174,7 +178,7 @@ export function verifyToken(token: string, expectedAud: TokenAudience): VerifyRe
   }
 
   const nowSeconds = Math.floor(Date.now() / 1000);
-  if (claims.exp <= nowSeconds) {
+  if (!opts?.allowExpired && claims.exp <= nowSeconds) {
     return { ok: false, reason: 'token_expired' };
   }
 
