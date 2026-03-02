@@ -169,9 +169,10 @@ function ensureVellumInPath(appDisplayName: string): void {
       shell: "/bin/bash",
       env: process.env,
     });
-  } catch {
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
     throw new Error(
-      `vellum CLI not working after symlinking bundled binary from ${cliBinary}`,
+      `vellum CLI not working after symlinking bundled binary from ${cliBinary}: ${message}`,
     );
   }
 }
