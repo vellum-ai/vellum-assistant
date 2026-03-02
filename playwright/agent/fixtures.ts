@@ -17,9 +17,15 @@ export interface FixtureContext {
   teardown: () => Promise<void>;
 }
 
+export interface FixtureOptions {
+  /** Playwright parallel worker index (0-based). Used to isolate app instances, defaults domains, etc. */
+  workerIndex?: number;
+}
+
 // ── Fixture Registry ────────────────────────────────────────────────
 
-type FixtureFactory = () => Promise<FixtureContext>;
+
+type FixtureFactory = (options: FixtureOptions) => Promise<FixtureContext>;
 
 const FIXTURE_REGISTRY: Record<string, FixtureFactory> = {
   "desktop-app": createDesktopAppFixture,
@@ -27,7 +33,24 @@ const FIXTURE_REGISTRY: Record<string, FixtureFactory> = {
 
 // ── Fixture Implementations ─────────────────────────────────────────
 
-async function createDesktopAppFixture(): Promise<FixtureContext> {
+/**
+ * Returns a worker-specific UserDefaults domain suffix.
+ * Worker 0 uses the default domain; workers 1+ append "-wN".
+ *
+ * NOTE: This only isolates the `defaults` CLI calls made during fixture
+ * setup/teardown. The app itself still reads its compiled bundle identifier.
+ * True per-worker isolation requires either:
+ *   (a) building N app copies with distinct bundle IDs, or
+ *   (b) passing the domain via a launch argument the app respects.
+ * See the PR description for the full analysis.
+ */
+function defaultsDomain(workerIndex: number): string {
+  const base = "com.vellum.vellum-assistant";
+  return workerIndex === 0 ? base : `${base}-w${workerIndex}`;
+}
+
+async function createDesktopAppFixture(options: FixtureOptions): Promise<FixtureContext> {
+  const workerIndex = options.workerIndex ?? 0;
   const appDir = path.resolve(__dirname, "../../clients/macos/dist");
   const appDisplayName = process.env.APP_DISPLAY_NAME ?? "Vellum";
   const appPath = path.join(appDir, `${appDisplayName}.app`);
@@ -56,8 +79,9 @@ async function createDesktopAppFixture(): Promise<FixtureContext> {
   }
 
   // Clear any previous onboarding state
+  const domain = defaultsDomain(workerIndex);
   try {
-    execSync("defaults delete com.vellum.vellum-assistant", {
+    execSync(`defaults delete ${domain}`, {
       encoding: "utf-8",
       timeout: 5_000,
     });
@@ -82,12 +106,12 @@ async function createDesktopAppFixture(): Promise<FixtureContext> {
 
 // ── Public API ──────────────────────────────────────────────────────
 
-export async function setupFixture(fixtureName: string): Promise<FixtureContext> {
+export async function setupFixture(fixtureName: string, options: FixtureOptions = {}): Promise<FixtureContext> {
   const factory = FIXTURE_REGISTRY[fixtureName];
   if (!factory) {
     throw new Error(
       `Unknown fixture: "${fixtureName}". Available fixtures: ${Object.keys(FIXTURE_REGISTRY).join(", ")}`,
     );
   }
-  return factory();
+  return factory(options);
 }

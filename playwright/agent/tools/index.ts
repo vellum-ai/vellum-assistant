@@ -55,10 +55,11 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = TOOLS.map((t) => t.definition)
 
 // ── Dispatcher ──────────────────────────────────────────────────────
 
-export function createToolExecutor(screenshotDir: string) {
+export function createToolExecutor(screenshotDir: string, workerIndex: number = 0) {
   const context: ToolContext = {
     screenshotDir,
     screenshotCounter: { value: 0 },
+    workerIndex,
   };
 
   return async function executeTool(
