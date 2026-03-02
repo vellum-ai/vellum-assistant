@@ -1,8 +1,6 @@
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { dirname, join } from "node:path";
 
+import { loadRawConfig, saveRawConfig } from "./config";
 import { GATEWAY_PORT } from "./constants";
 
 const NGROK_API_URL = "http://127.0.0.1:4040/api/tunnels";
@@ -125,40 +123,9 @@ export async function waitForNgrokUrl(
 }
 
 /**
- * Read the workspace config.json file.
- */
-function getConfigPath(): string {
-  const baseDir =
-    process.env.BASE_DATA_DIR?.trim() || homedir();
-  return join(baseDir, ".vellum", "workspace", "config.json");
-}
-
-function loadRawConfig(): Record<string, unknown> {
-  const configPath = getConfigPath();
-  if (!existsSync(configPath)) return {};
-  try {
-    return JSON.parse(readFileSync(configPath, "utf-8")) as Record<
-      string,
-      unknown
-    >;
-  } catch {
-    return {};
-  }
-}
-
-function saveRawConfig(config: Record<string, unknown>): void {
-  const configPath = getConfigPath();
-  const dir = dirname(configPath);
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
-  }
-  writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
-}
-
-/**
  * Persist a public ingress URL to the workspace config and enable ingress.
  */
-export function saveIngressUrl(publicUrl: string): void {
+function saveIngressUrl(publicUrl: string): void {
   const config = loadRawConfig();
   const ingress = (config.ingress ?? {}) as Record<string, unknown>;
   ingress.publicBaseUrl = publicUrl;
@@ -170,7 +137,7 @@ export function saveIngressUrl(publicUrl: string): void {
 /**
  * Clear the ingress public base URL from the workspace config.
  */
-export function clearIngressUrl(): void {
+function clearIngressUrl(): void {
   const config = loadRawConfig();
   const ingress = (config.ingress ?? {}) as Record<string, unknown>;
   delete ingress.publicBaseUrl;
@@ -179,8 +146,118 @@ export function clearIngressUrl(): void {
 }
 
 /**
- * Return the gateway port to tunnel to.
+ * Run the ngrok tunnel workflow: check installation, find or start a tunnel,
+ * save the public URL to config, and block until exit or signal.
  */
-export function getGatewayPort(): number {
-  return GATEWAY_PORT;
+export async function runNgrokTunnel(): Promise<void> {
+  const version = getNgrokVersion();
+  if (!version) {
+    console.error("Error: ngrok is not installed.");
+    console.error("");
+    console.error("Install ngrok:");
+    console.error("  macOS:  brew install ngrok/ngrok/ngrok");
+    console.error("  Linux:  sudo snap install ngrok");
+    console.error("");
+    console.error(
+      "Then authenticate: ngrok config add-authtoken <your-token>",
+    );
+    console.error(
+      "  Get your token at: https://dashboard.ngrok.com/get-started/your-authtoken",
+    );
+    process.exit(1);
+  }
+
+  console.log(`Using ${version}`);
+
+  const port = GATEWAY_PORT;
+
+  // Check for an existing ngrok tunnel pointing at the gateway
+  const existingUrl = await findExistingTunnel(port);
+  if (existingUrl) {
+    console.log(`Found existing ngrok tunnel: ${existingUrl}`);
+    saveIngressUrl(existingUrl);
+    console.log("Ingress URL saved to config.");
+    console.log("");
+    console.log(
+      "Tunnel is already running. Press Ctrl+C to detach (tunnel stays active).",
+    );
+
+    // Block until SIGINT/SIGTERM
+    await new Promise<void>((resolve) => {
+      process.on("SIGINT", () => resolve());
+      process.on("SIGTERM", () => resolve());
+    });
+    return;
+  }
+
+  console.log(`Starting ngrok tunnel to localhost:${port}...`);
+
+  let publicUrl: string | undefined;
+
+  const ngrokProcess = startNgrokProcess(port);
+
+  const cleanup = () => {
+    if (!ngrokProcess.killed) {
+      ngrokProcess.kill("SIGTERM");
+    }
+    if (publicUrl) {
+      console.log("\nClearing ingress URL from config...");
+      clearIngressUrl();
+    }
+  };
+
+  process.on("SIGINT", () => {
+    cleanup();
+    process.exit(0);
+  });
+  process.on("SIGTERM", () => {
+    cleanup();
+    process.exit(0);
+  });
+
+  ngrokProcess.on("error", (err: Error) => {
+    console.error(`ngrok process error: ${err.message}`);
+    process.exit(1);
+  });
+
+  ngrokProcess.on("exit", (code: number | null) => {
+    if (code !== null && code !== 0) {
+      console.error(`ngrok exited with code ${code}.`);
+      console.error(
+        "Check that ngrok is authenticated: ngrok config add-authtoken <token>",
+      );
+      process.exit(1);
+    }
+  });
+
+  // Pipe ngrok stdout/stderr to console for visibility
+  ngrokProcess.stdout?.on("data", (data: Buffer) => {
+    const line = data.toString().trim();
+    if (line) console.log(`[ngrok] ${line}`);
+  });
+  ngrokProcess.stderr?.on("data", (data: Buffer) => {
+    const line = data.toString().trim();
+    if (line) console.error(`[ngrok] ${line}`);
+  });
+
+  try {
+    publicUrl = await waitForNgrokUrl();
+  } catch (err) {
+    cleanup();
+    throw err;
+  }
+
+  console.log("");
+  console.log(`Tunnel established: ${publicUrl}`);
+  console.log(`Forwarding to:     localhost:${port}`);
+
+  saveIngressUrl(publicUrl);
+  console.log("Ingress URL saved to config.");
+  console.log("");
+  console.log("Press Ctrl+C to stop the tunnel and clear the ingress URL.");
+
+  // Keep running until the ngrok process exits or we receive a signal
+  await new Promise<void>((resolve) => {
+    ngrokProcess.on("exit", () => resolve());
+  });
 }
