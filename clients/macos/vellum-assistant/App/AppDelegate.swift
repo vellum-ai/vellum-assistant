@@ -1305,23 +1305,41 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
         Task {
             if !isCurrentAssistantRemote {
-                // On first launch post-onboarding, use daemonOnly: false so the CLI
-                // creates a lockfile entry. On subsequent launches, daemonOnly: true
-                // prevents duplicates.
-                let needsLockfileEntry = isFirstLaunch && !self.lockfileHasAssistants()
-                do {
-                    try await assistantCli.hatch(daemonOnly: !needsLockfileEntry)
-                } catch {
-                    log.error("Failed to hatch assistant during daemon setup: \(error)")
-                    if needsLockfileEntry {
-                        log.info("Full hatch failed on first launch — retrying daemon-only as fallback")
-                        try? await assistantCli.hatch(daemonOnly: true)
+                // If the hatching step already started the gateway (e.g. `vellum-cli hatch --remote local`),
+                // skip the CLI hatch to avoid spawning a duplicate gateway process.
+                // Require BOTH lockfile and healthy gateway — a stale lockfile with an unhealthy
+                // gateway falls through to the normal hatch path.
+                let lockfileExists = self.lockfileHasAssistants()
+                var gatewayHealthy = false
+                if lockfileExists {
+                    for _ in 0..<3 {
+                        if await isGatewayHealthy() { gatewayHealthy = true; break }
+                        try? await Task.sleep(nanoseconds: 1_000_000_000)
                     }
                 }
-                if needsLockfileEntry {
-                    _ = self.loadAssistantFromLockfile()
+
+                if lockfileExists && gatewayHealthy {
+                    log.info("Lockfile and gateway already present — skipping CLI hatch to avoid duplicate gateway")
+                    assistantCli.startMonitoring()
+                } else {
+                    // On first launch post-onboarding, use daemonOnly: false so the CLI
+                    // creates a lockfile entry. On subsequent launches, daemonOnly: true
+                    // prevents duplicates.
+                    let needsLockfileEntry = isFirstLaunch && !lockfileExists
+                    do {
+                        try await assistantCli.hatch(daemonOnly: !needsLockfileEntry)
+                    } catch {
+                        log.error("Failed to hatch assistant during daemon setup: \(error)")
+                        if needsLockfileEntry {
+                            log.info("Full hatch failed on first launch — retrying daemon-only as fallback")
+                            try? await assistantCli.hatch(daemonOnly: true)
+                        }
+                    }
+                    if needsLockfileEntry {
+                        _ = self.loadAssistantFromLockfile()
+                    }
+                    assistantCli.startMonitoring()
                 }
-                assistantCli.startMonitoring()
             }
             // Skip connect if the bootstrap retry coordinator already connected
             // or has a connect in flight (hatch can take a long time; the
@@ -2196,6 +2214,24 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             return false
         }
         return !assistants.isEmpty
+    }
+
+    /// Check whether the local gateway is healthy by hitting its /healthz endpoint.
+    /// Reads port from GATEWAY_PORT env var (default 7830) to match local.ts runtime behavior.
+    private func isGatewayHealthy() async -> Bool {
+        let port = ProcessInfo.processInfo.environment["GATEWAY_PORT"] ?? "7830"
+        guard let url = URL(string: "http://localhost:\(port)/healthz") else { return false }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 2
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            if let http = response as? HTTPURLResponse, http.statusCode == 200 {
+                return true
+            }
+        } catch {
+            // Gateway not reachable — not healthy
+        }
+        return false
     }
 
     /// Remove a specific assistant entry from the lockfile. Used after a
