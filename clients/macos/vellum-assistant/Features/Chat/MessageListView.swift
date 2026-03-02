@@ -455,7 +455,7 @@ struct MessageListView: View {
                     // execute during active streaming, not only after the last token.
                     if scrollDebounceTask == nil {
                         scrollDebounceTask = Task {
-                            defer { scrollDebounceTask = nil }
+                            defer { if !Task.isCancelled { scrollDebounceTask = nil } }
                             guard isNearBottom && !isSuppressingBottomScroll else { return }
                             withAnimation(VAnimation.fast) {
                                 proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
