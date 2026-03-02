@@ -37,6 +37,9 @@ struct ComposerSection: View {
     var isLearnMode: Bool = false
     var networkEntryCount: Int = 0
     var idleHint: Bool = false
+    var voiceModeManager: VoiceModeManager? = nil
+    var voiceService: OpenAIVoiceService? = nil
+    var onEndVoiceMode: (() -> Void)? = nil
     @Binding var editorContentHeight: CGFloat
     @Binding var isComposerExpanded: Bool
 
@@ -89,6 +92,9 @@ struct ComposerSection: View {
                 onPaste: onPaste,
                 onFileDrop: onFileDrop,
                 onMicrophoneToggle: onMicrophoneToggle,
+                voiceModeManager: voiceModeManager,
+                voiceService: voiceService,
+                onEndVoiceMode: onEndVoiceMode,
                 placeholderText: "What would you like to do?",
                 editorContentHeight: $editorContentHeight,
                 isComposerExpanded: $isComposerExpanded

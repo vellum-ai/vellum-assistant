@@ -2133,7 +2133,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             audioMonitor: audioMonitor,
             voiceModeManager: mainWindow.voiceModeManager,
             threadManager: mainWindow.threadManager,
-            windowState: mainWindow.windowState,
             voiceInputManager: voiceInput
         )
 
