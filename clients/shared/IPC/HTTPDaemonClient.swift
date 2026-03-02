@@ -136,6 +136,90 @@ public final class HTTPTransport {
         self.transportMetadata = transportMetadata
     }
 
+    // MARK: - Endpoint Builder
+
+    /// All HTTP endpoints used by the transport, centralized for consistent
+    /// URL construction. Query parameters that are integral to the endpoint
+    /// identity are modelled as associated values.
+    enum Endpoint {
+        case healthz
+        case events(conversationKey: String)
+        case sendMessage
+        case getMessages(conversationId: String?)
+        case conversations(limit: Int, offset: Int)
+        case confirm
+        case secret
+        case guardianActionsPending(conversationId: String)
+        case guardianActionsDecision
+        case conversationsSeen
+        case identity
+        case featureFlags
+        case featureFlagUpdate(key: String)
+    }
+
+    /// Build a URL for the given endpoint using the current route mode.
+    /// Returns nil if the URL string is malformed.
+    private func buildURL(for endpoint: Endpoint) -> URL? {
+        let path: String
+        let query: String?
+
+        switch endpoint {
+        case .healthz:
+            path = "/healthz"
+            query = nil
+        case .events(let conversationKey):
+            path = "/v1/events"
+            let encoded = conversationKey.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? conversationKey
+            query = "conversationKey=\(encoded)"
+        case .sendMessage:
+            path = "/v1/messages"
+            query = nil
+        case .getMessages(let conversationId):
+            path = "/v1/messages"
+            if let id = conversationId {
+                let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? id
+                query = "conversationId=\(encoded)"
+            } else {
+                query = nil
+            }
+        case .conversations(let limit, let offset):
+            path = "/v1/conversations"
+            query = "limit=\(limit)&offset=\(offset)"
+        case .confirm:
+            path = "/v1/confirm"
+            query = nil
+        case .secret:
+            path = "/v1/secret"
+            query = nil
+        case .guardianActionsPending(let conversationId):
+            path = "/v1/guardian-actions/pending"
+            let encoded = conversationId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? conversationId
+            query = "conversationId=\(encoded)"
+        case .guardianActionsDecision:
+            path = "/v1/guardian-actions/decision"
+            query = nil
+        case .conversationsSeen:
+            path = "/v1/conversations/seen"
+            query = nil
+        case .identity:
+            path = "/v1/identity"
+            query = nil
+        case .featureFlags:
+            path = "/v1/feature-flags"
+            query = nil
+        case .featureFlagUpdate(let key):
+            let encoded = key.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? key
+            path = "/v1/feature-flags/\(encoded)"
+            query = nil
+        }
+
+        var urlString = "\(baseURL)\(path)"
+        if let query {
+            urlString += "?\(query)"
+        }
+        return URL(string: urlString)
+    }
+
     // MARK: - Connect (health check driven)
 
     /// Verify reachability via health check and start periodic health monitoring.
@@ -160,7 +244,9 @@ public final class HTTPTransport {
 
     /// Run a single health check against the gateway.
     private func performHealthCheck() async throws {
-        let healthURL = URL(string: "\(baseURL)/healthz")!
+        guard let healthURL = buildURL(for: .healthz) else {
+            throw HTTPTransportError.invalidURL
+        }
         var healthReq = URLRequest(url: healthURL)
         healthReq.timeoutInterval = 10
         applyAuth(&healthReq)
@@ -230,9 +316,8 @@ public final class HTTPTransport {
     private func startSSEStream() {
         sseTask?.cancel()
 
-        let urlString = "\(baseURL)/v1/events?conversationKey=\(conversationKey.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? conversationKey)"
-        guard let url = URL(string: urlString) else {
-            log.error("Invalid SSE URL: \(urlString)")
+        guard let url = buildURL(for: .events(conversationKey: self.conversationKey)) else {
+            log.error("Invalid SSE URL for conversationKey: \(self.conversationKey)")
             return
         }
 
@@ -258,7 +343,7 @@ public final class HTTPTransport {
                 }
 
                 self.setSSEConnected(true)
-                log.info("SSE stream connected to \(urlString, privacy: .public)")
+                log.info("SSE stream connected to \(url.absoluteString, privacy: .public)")
 
                 var dataBuffer = ""
 
@@ -359,7 +444,7 @@ public final class HTTPTransport {
     // MARK: - HTTP Endpoints
 
     private func sendMessage(content: String?, sessionId: String, isRetry: Bool = false) async {
-        guard let url = URL(string: "\(baseURL)/v1/messages") else { return }
+        guard let url = buildURL(for: .sendMessage) else { return }
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -421,7 +506,7 @@ public final class HTTPTransport {
     }
 
     private func sendDecision(requestId: String, decision: String, isRetry: Bool = false) async {
-        guard let url = URL(string: "\(baseURL)/v1/confirm") else { return }
+        guard let url = buildURL(for: .confirm) else { return }
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -458,7 +543,7 @@ public final class HTTPTransport {
     }
 
     private func sendSecret(requestId: String, value: String?, isRetry: Bool = false) async {
-        guard let url = URL(string: "\(baseURL)/v1/secret") else { return }
+        guard let url = buildURL(for: .secret) else { return }
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -495,8 +580,7 @@ public final class HTTPTransport {
     }
 
     private func fetchGuardianActionsPending(conversationId: String, isRetry: Bool = false) async {
-        let encoded = conversationId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? conversationId
-        guard let url = URL(string: "\(baseURL)/v1/guardian-actions/pending?conversationId=\(encoded)") else { return }
+        guard let url = buildURL(for: .guardianActionsPending(conversationId: conversationId)) else { return }
 
         var request = URLRequest(url: url)
         applyAuth(&request)
@@ -535,7 +619,7 @@ public final class HTTPTransport {
     }
 
     private func submitGuardianActionDecision(requestId: String, action: String, conversationId: String?, isRetry: Bool = false) async {
-        guard let url = URL(string: "\(baseURL)/v1/guardian-actions/decision") else { return }
+        guard let url = buildURL(for: .guardianActionsDecision) else { return }
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -615,7 +699,7 @@ public final class HTTPTransport {
     }
 
     private func sendConversationSeen(_ signal: IPCConversationSeenSignal, isRetry: Bool = false) async {
-        guard let url = URL(string: "\(baseURL)/v1/conversations/seen") else { return }
+        guard let url = buildURL(for: .conversationsSeen) else { return }
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -659,7 +743,7 @@ public final class HTTPTransport {
     }
 
     private func fetchSessionList(offset: Int = 0, limit: Int = 50, isRetry: Bool = false) async {
-        guard let url = URL(string: "\(baseURL)/v1/conversations?limit=\(limit)&offset=\(offset)") else { return }
+        guard let url = buildURL(for: .conversations(limit: limit, offset: offset)) else { return }
 
         var request = URLRequest(url: url)
         applyAuth(&request)
@@ -698,9 +782,7 @@ public final class HTTPTransport {
     }
 
     private func fetchHistory(sessionId: String, isRetry: Bool = false) async {
-        let encoded = sessionId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? sessionId
-        let urlString = "\(baseURL)/v1/messages?conversationId=\(encoded)"
-        guard let url = URL(string: urlString) else { return }
+        guard let url = buildURL(for: .getMessages(conversationId: sessionId)) else { return }
 
         var request = URLRequest(url: url)
         applyAuth(&request)
@@ -776,7 +858,7 @@ public final class HTTPTransport {
 
     /// Fetch all feature flags from the gateway's GET /v1/feature-flags endpoint.
     func getFeatureFlags(featureFlagToken: String) async throws -> [DaemonClient.AssistantFeatureFlag] {
-        guard let url = URL(string: "\(baseURL)/v1/feature-flags") else {
+        guard let url = buildURL(for: .featureFlags) else {
             throw HTTPTransportError.invalidURL
         }
 
@@ -813,8 +895,7 @@ public final class HTTPTransport {
     /// Toggle a feature flag via the gateway's PATCH endpoint.
     /// Uses the dedicated feature-flag token (not the runtime bearer token) for auth.
     func setFeatureFlag(key: String, enabled: Bool, featureFlagToken: String) async throws {
-        let encoded = key.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? key
-        guard let url = URL(string: "\(baseURL)/v1/feature-flags/\(encoded)") else {
+        guard let url = buildURL(for: .featureFlagUpdate(key: key)) else {
             throw HTTPTransportError.invalidURL
         }
 
@@ -848,7 +929,7 @@ public final class HTTPTransport {
 
     /// Fetch all assistant feature flags from the gateway's `GET /v1/feature-flags` endpoint.
     func fetchAssistantFeatureFlags(featureFlagToken: String) async throws -> [DaemonClient.AssistantFeatureFlagEntry] {
-        guard let url = URL(string: "\(baseURL)/v1/feature-flags") else {
+        guard let url = buildURL(for: .featureFlags) else {
             throw HTTPTransportError.invalidURL
         }
 
@@ -885,7 +966,7 @@ public final class HTTPTransport {
 
     /// Fetch identity info from the remote daemon's `GET /v1/identity` endpoint.
     func fetchRemoteIdentity() async -> RemoteIdentityInfo? {
-        guard let url = URL(string: "\(baseURL)/v1/identity") else { return nil }
+        guard let url = buildURL(for: .identity) else { return nil }
 
         var request = URLRequest(url: url)
         request.timeoutInterval = 10
