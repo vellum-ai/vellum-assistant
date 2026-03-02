@@ -850,6 +850,7 @@ export class DaemonServer {
     const resolvedInterface = resolveTurnInterface(sourceInterface);
     session.setAssistantId(options?.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID);
     session.setGuardianContext(options?.guardianContext ?? null);
+    session.setAuthContext(options?.authContext ?? null);
     await session.ensureActorScopedHistory();
     session.setChannelCapabilities(resolveChannelCapabilities(sourceChannel, sourceInterface));
     session.setCommandIntent(options?.commandIntent ?? null);
