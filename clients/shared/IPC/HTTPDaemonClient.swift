@@ -964,17 +964,25 @@ public final class HTTPTransport {
     /// already emitted `.authenticationRequired` which is the correct final user-facing state.
     /// On `.transientFailure`, callers may emit a generic error (refresh will retry on next 401).
     ///
-    /// When the server returns 401 with `{ "code": "refresh_required" }`, the client
-    /// attempts a credential refresh and retries once. Other 401 bodies are treated
-    /// as terminal auth failures.
+    /// When the server returns 401 with `{ "error": { "code": "refresh_required" } }`,
+    /// the client attempts a credential refresh and retries once. Other 401 bodies
+    /// are treated as terminal auth failures.
     private func handleAuthenticationFailureAsync(responseData: Data? = nil) async -> AuthRefreshResult {
         // Parse the 401 body to determine if this is a refreshable error.
-        // If the body contains `{ "code": "refresh_required" }`, attempt refresh.
-        // If it contains a different code, treat as terminal.
+        // The server's auth middleware returns errors in a standard envelope:
+        //   { "error": { "code": "refresh_required", "message": "..." } }
+        // We also accept a top-level "code" for forward compatibility.
         if let data = responseData,
-           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let code = json["code"] as? String {
-            if code != "refresh_required" {
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            // Server returns { error: { code: "...", message: "..." } }
+            let code: String? = {
+                if let errorObj = json["error"] as? [String: Any] {
+                    return errorObj["code"] as? String
+                }
+                // Also accept top-level { code: "..." } for forward-compat
+                return json["code"] as? String
+            }()
+            if let code, code != "refresh_required" {
                 // Non-refreshable 401 — terminal failure
                 log.error("Non-refreshable 401 code: \(code) — re-auth required")
                 self.onMessage?(.sessionError(SessionErrorMessage(
