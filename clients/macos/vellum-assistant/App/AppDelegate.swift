@@ -527,8 +527,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                 bootstrapFailureKind = .unknown
 
                 if daemonClient.isConnected {
-                    // Daemon is connected — check gateway health before proceeding
-                    if !(await isGatewayHealthy()) {
+                    // Daemon is connected — check gateway health before proceeding.
+                    // Remote assistants don't run a local gateway, so skip the check.
+                    let gatewayOk = isCurrentAssistantRemote || (await isGatewayHealthy())
+                    if !gatewayOk {
                         bootstrapFailureKind = .gatewayUnhealthy
                     } else {
                         log.info("Daemon connected during bootstrap retry — proceeding to wake-up send")
@@ -556,8 +558,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                     try? await assistantCli.hatch(daemonOnly: true)
                 }
 
-                // Attempt a connection if not already in progress
-                if !daemonClient.isConnecting {
+                // Attempt a connection if not already connected or in progress.
+                // The gateway-unhealthy fallthrough above should not trigger a
+                // reconnect — tearing down a healthy daemon connection just
+                // because the gateway isn't ready yet causes unnecessary churn.
+                if !daemonClient.isConnected && !daemonClient.isConnecting {
                     do {
                         try await daemonClient.connect()
                     } catch {
@@ -569,8 +574,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                 }
 
                 if daemonClient.isConnected {
-                    // Connected — verify gateway health before proceeding
-                    if !(await isGatewayHealthy()) {
+                    // Connected — verify gateway health before proceeding.
+                    // Remote assistants don't run a local gateway, so skip the check.
+                    let gatewayOk = isCurrentAssistantRemote || (await isGatewayHealthy())
+                    if !gatewayOk {
                         bootstrapFailureKind = .gatewayUnhealthy
                     } else {
                         log.info("Daemon connected after bootstrap retry connect — proceeding to wake-up send")
