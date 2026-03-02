@@ -256,12 +256,12 @@
     /* Brain silhouette animation — gentle breathing glow */
     @keyframes brain-breathe {
       0%, 100% {
-        opacity: 0.35;
-        filter: drop-shadow(0 0 4px rgba(138, 91, 224, 0.2));
+        opacity: 0.50;
+        filter: drop-shadow(0 0 6px rgba(138, 91, 224, 0.35));
       }
       50% {
-        opacity: 0.75;
-        filter: drop-shadow(0 0 12px rgba(138, 91, 224, 0.55));
+        opacity: 0.90;
+        filter: drop-shadow(0 0 18px rgba(138, 91, 224, 0.70));
       }
     }
 
@@ -745,7 +745,7 @@
 
       var brainG = svg.append('g').attr('class', 'brain-silhouette');
 
-      // Left lobe outline (organic blob via cubic bezier)
+      // ── Lobe outline paths (organic cubic bezier blobs) ────────
       var leftPath = [
         'M', cx - 4, cy + lh * 0.42,
         'C', cx - 4, cy + lh * 0.55, lx - lw * 0.55, cy + lh * 0.55, lx - lw * 0.55, cy + lh * 0.2,
@@ -755,7 +755,6 @@
         'Z'
       ].join(' ');
 
-      // Right lobe outline
       var rightPath = [
         'M', cx + 4, cy + rh * 0.42,
         'C', cx + 4, cy + rh * 0.55, rx + rw * 0.55, cy + rh * 0.55, rx + rw * 0.55, cy + rh * 0.2,
@@ -765,61 +764,140 @@
         'Z'
       ].join(' ');
 
-      // Draw fills
+      // ── ClipPaths so colored fills stay inside the lobe shapes ──
+      var defs = svg.select('defs');
+      if (defs.empty()) defs = svg.insert('defs', ':first-child');
+      defs.selectAll('#brain-clip-left,#brain-clip-right').remove();
+      defs.append('clipPath').attr('id', 'brain-clip-left')
+        .append('path').attr('d', leftPath);
+      defs.append('clipPath').attr('id', 'brain-clip-right')
+        .append('path').attr('d', rightPath);
+
+      // Bounding box shared by both lobes (for clipped rects)
+      var yTop   = cy - lh * 0.62;
+      var yBot   = cy + lh * 0.55;
+      var totalH = yBot - yTop;
+      var xPad   = 50; // oversize rects — clipping handles the edges
+
+      // ── Colored lobe bands ─────────────────────────────────────
+      // Left hemisphere (Analytical / Planning): top=Frontal → bottom=Limbic
+      var leftBands = [
+        { frac: [0,    0.30], col: '#0891b2', op: 0.58 }, // Frontal      — cyan
+        { frac: [0.30, 0.41], col: '#d97706', op: 0.52 }, // Motor strip  — amber
+        { frac: [0.41, 0.72], col: '#7c3aed', op: 0.55 }, // Parietal     — violet
+        { frac: [0.72, 1.00], col: '#db2777', op: 0.52 }, // Limbic/Occip — pink
+      ];
+      // Right hemisphere (Creative / Social): mirrored palette
+      var rightBands = [
+        { frac: [0,    0.30], col: '#059669', op: 0.58 }, // Frontal      — emerald
+        { frac: [0.30, 0.41], col: '#d97706', op: 0.52 }, // Motor strip  — amber
+        { frac: [0.41, 0.72], col: '#7c3aed', op: 0.55 }, // Parietal     — violet
+        { frac: [0.72, 1.00], col: '#ea580c', op: 0.52 }, // Temporal     — orange
+      ];
+
+      function drawBands(clipId, bands, xMin, xMax) {
+        bands.forEach(function(b) {
+          var y0 = yTop + b.frac[0] * totalH;
+          var y1 = yTop + b.frac[1] * totalH;
+          brainG.append('rect')
+            .attr('x', xMin - xPad).attr('y', y0)
+            .attr('width',  xMax - xMin + xPad * 2)
+            .attr('height', y1 - y0 + 1)
+            .attr('fill', b.col)
+            .attr('fill-opacity', b.op)
+            .attr('clip-path', 'url(#' + clipId + ')');
+        });
+      }
+
+      var lxMin = lx - lw * 0.6, lxMax = cx - 4;
+      var rxMin = cx + 4,        rxMax = rx + rw * 0.6;
+      drawBands('brain-clip-left',  leftBands,  lxMin, lxMax);
+      drawBands('brain-clip-right', rightBands, rxMin, rxMax);
+
+      // ── Gyri texture — wavy lines clipped to each lobe ─────────
+      function drawGyri(clipId, xMin, xMax) {
+        var g = brainG.append('g').attr('clip-path', 'url(#' + clipId + ')');
+        var nLines = Math.round(totalH / 13);
+        for (var i = 0; i < nLines; i++) {
+          var baseY = yTop + (i + 0.5) * totalH / nLines;
+          var pts = [];
+          var steps = 22;
+          for (var j = 0; j <= steps; j++) {
+            var tx = xMin - xPad + j * (xMax - xMin + xPad * 2) / steps;
+            var wave = Math.sin(j * 1.2 + i * 2.3) * 5.5 + Math.sin(j * 2.8 + i * 1.7) * 2.5;
+            pts.push([tx, baseY + wave]);
+          }
+          var gen = d3.line()
+            .x(function(d) { return d[0]; })
+            .y(function(d) { return d[1]; })
+            .curve(d3.curveBasis);
+          g.append('path')
+            .attr('d', gen(pts))
+            .attr('fill', 'none')
+            .attr('stroke', 'rgba(255,255,255,0.13)')
+            .attr('stroke-width', 1.5);
+        }
+      }
+
+      drawGyri('brain-clip-left',  lxMin, lxMax);
+      drawGyri('brain-clip-right', rxMin, rxMax);
+
+      // ── Outlines drawn on top of fills + gyri ─────────────────
       brainG.append('path')
         .attr('d', leftPath)
-        .attr('fill', 'rgba(138, 91, 224, 0.04)')
-        .attr('stroke', 'rgba(138, 91, 224, 0.4)')
-        .attr('stroke-width', 1.5)
+        .attr('fill', 'none')
+        .attr('stroke', 'rgba(255,255,255,0.40)')
+        .attr('stroke-width', 2)
         .attr('class', 'brain-outline');
 
       brainG.append('path')
         .attr('d', rightPath)
-        .attr('fill', 'rgba(138, 91, 224, 0.04)')
-        .attr('stroke', 'rgba(138, 91, 224, 0.4)')
-        .attr('stroke-width', 1.5)
+        .attr('fill', 'none')
+        .attr('stroke', 'rgba(255,255,255,0.40)')
+        .attr('stroke-width', 2)
         .attr('class', 'brain-outline');
 
-      // Corpus callosum divider (dashed vertical line in center)
-      var ccTop = cy - lh * 0.28;
+      // Corpus callosum (midline divider)
+      var ccTop    = cy - lh * 0.28;
       var ccBottom = cy + lh * 0.35;
       brainG.append('line')
         .attr('x1', cx).attr('y1', ccTop)
         .attr('x2', cx).attr('y2', ccBottom)
-        .attr('stroke', 'rgba(138, 91, 224, 0.25)')
-        .attr('stroke-width', 1)
-        .attr('stroke-dasharray', '4,4');
+        .attr('stroke', 'rgba(255,255,255,0.22)')
+        .attr('stroke-width', 1.5)
+        .attr('stroke-dasharray', '5,4');
 
-      // Lobe labels
-      var labelStyle = {
+      // ── Colored region labels ───────────────────────────────────
+      var lblBase = {
         'font-family': "'DM Sans', sans-serif",
         'font-size': '10px',
-        'font-weight': '600',
-        'fill': 'rgba(148, 163, 184, 0.45)',
+        'font-weight': '700',
         'letter-spacing': '0.06em',
-        'text-transform': 'uppercase',
         'pointer-events': 'none',
-        'user-select': 'none'
+        'user-select': 'none',
       };
 
-      function addLabel(x, y, text) {
-        var t = brainG.append('text')
-          .attr('x', x).attr('y', y)
-          .attr('text-anchor', 'middle')
+      function addLabel(x, y, text, col) {
+        var g = brainG.append('g')
           .attr('class', 'lobe-label')
-          .text(text);
-        Object.keys(labelStyle).forEach(function(k) { t.attr(k, labelStyle[k]); });
+          .attr('transform', 'translate(' + x + ',' + y + ')');
+        g.append('circle').attr('r', 3.5).attr('cx', 0).attr('cy', -6)
+          .attr('fill', col).attr('opacity', 0.95);
+        var t = g.append('text')
+          .attr('text-anchor', 'middle').attr('dy', 10)
+          .attr('fill', 'rgba(226,232,240,0.85)').text(text);
+        Object.keys(lblBase).forEach(function(k) { t.attr(k, lblBase[k]); });
       }
 
-      addLabel(lx - lw * 0.15, cy + 5, 'Analytical');
-      addLabel(rx + rw * 0.15, cy + 5, 'Creative');
-      addLabel(lx - lw * 0.1, cy - lh * 0.32, 'Planning');
-      addLabel(rx + rw * 0.1, cy - rh * 0.32, 'Social');
-      addLabel(cx, cy + lh * 0.5, 'Memory');
+      addLabel(lx - lw * 0.10, cy - lh * 0.40, 'PLANNING',   '#0891b2');
+      addLabel(rx + rw * 0.10, cy - rh * 0.40, 'SOCIAL',     '#059669');
+      addLabel(lx - lw * 0.15, cy + 5,         'ANALYTICAL', '#7c3aed');
+      addLabel(rx + rw * 0.15, cy + 5,         'CREATIVE',   '#7c3aed');
+      addLabel(cx,             cy + lh * 0.50, 'MEMORY',     '#db2777');
 
       // Return brain bounds for use in bounding force
       return {
-        leftLobe: { cx: lx, cy: cy, rx: lw * 0.52, ry: lh * 0.52 },
+        leftLobe:  { cx: lx, cy: cy, rx: lw * 0.52, ry: lh * 0.52 },
         rightLobe: { cx: rx, cy: cy, rx: rw * 0.52, ry: rh * 0.52 },
         centerX: cx,
         centerY: cy,
@@ -1251,50 +1329,81 @@
     camera.position.z = 8;
 
     // ── Lights ───────────────────────────────────────────────────
-    scene.add(new THREE.AmbientLight(0xffffff, 0.4));
-    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.55);
     dirLight.position.set(10, 10, 10);
     scene.add(dirLight);
-    const pointLight = new THREE.PointLight(0x8a5be0, 1.5, 15);
-    pointLight.position.set(0, 3, 3);
-    scene.add(pointLight);
+    // Colored accent lights matching the 2D lobe palette
+    const ptCyan = new THREE.PointLight(0x0891b2, 2.2, 14);
+    ptCyan.position.set(-3, 5, 3);
+    scene.add(ptCyan);
+    const ptOrange = new THREE.PointLight(0xea580c, 1.8, 14);
+    ptOrange.position.set(3, -5, 2);
+    scene.add(ptOrange);
+    const ptViolet = new THREE.PointLight(0x7c3aed, 1.4, 12);
+    ptViolet.position.set(0, 0, 6);
+    scene.add(ptViolet);
 
-    // ── Brain mesh ───────────────────────────────────────────────
-    const brainGeo = new THREE.SphereGeometry(2.5, 64, 64);
+    // ── Brain mesh — colorful vertex-colored lobes ───────────────
+    const brainGeo = new THREE.SphereGeometry(2.5, 96, 96);
 
-    // Deform to brain-like shape
+    // Region colors matching the 2D lobe palette (by normalized y/z position)
+    const LOBE_COLORS_3D = [
+      { color: new THREE.Color('#0891b2'), test: (nx,ny)     => ny >  0.55 },                   // Frontal   — cyan
+      { color: new THREE.Color('#d97706'), test: (nx,ny)     => ny >  0.25 && ny <= 0.55 },     // Motor     — amber
+      { color: new THREE.Color('#7c3aed'), test: (nx,ny)     => ny > -0.25 && ny <= 0.25 },     // Parietal  — violet
+      { color: new THREE.Color('#db2777'), test: (nx,ny,nz)  => ny <= -0.25 && nz < 0 },        // Occipital — pink
+      { color: new THREE.Color('#ea580c'), test: (nx,ny,nz)  => ny <= -0.25 && nz >= 0 },       // Temporal  — orange
+    ];
+
+    // Deform to brain-like shape + assign vertex colors
     const positions = brainGeo.attributes.position;
+    const vColors   = new Float32Array(positions.count * 3);
     for (let i = 0; i < positions.count; i++) {
       const x = positions.getX(i), y = positions.getY(i), z = positions.getZ(i);
-      const noise = 0.3 * Math.sin(3 * x) * Math.cos(3 * y) + 0.1 * Math.sin(7 * z);
-      const scale = 1 + noise;
-      positions.setXYZ(i, x * scale, y * scale, z * scale);
+      const noise = 0.28 * Math.sin(3.1 * x) * Math.cos(3.1 * y)
+                  + 0.12 * Math.sin(7.3 * z) * Math.cos(2.1 * x)
+                  + 0.06 * Math.sin(5.5 * y);
+      const sc = 1 + noise;
+      positions.setXYZ(i, x * sc, y * sc, z * sc);
+
+      // Vertex color by lobe region
+      const nx = x / 2.5, ny = y / 2.5, nz = z / 2.5;
+      let col = new THREE.Color('#7c3aed'); // default — violet
+      for (const r of LOBE_COLORS_3D) {
+        if (r.test(nx, ny, nz)) { col = r.color; break; }
+      }
+      vColors[i * 3]     = col.r;
+      vColors[i * 3 + 1] = col.g;
+      vColors[i * 3 + 2] = col.b;
     }
     brainGeo.computeVertexNormals();
+    brainGeo.setAttribute('color', new THREE.Float32BufferAttribute(vColors, 3));
 
     // Scale based on knowledge count
     const rawScale = 0.5 + Math.log10(Math.max(totalKnowledgeCount, 1)) * 0.5;
     const brainScale = Math.min(rawScale, 2.0);
 
-    // Wireframe shell (outer visual)
-    const wireMat = new THREE.MeshBasicMaterial({
-      color: 0x8a5be0,
-      wireframe: true,
+    // Solid vertex-colored brain (main visual — like the colorful 3D image)
+    const brainMat = new THREE.MeshPhongMaterial({
+      vertexColors: true,
       transparent: true,
-      opacity: 0.25,
+      opacity: 0.88,
+      shininess: 60,
+      specular: new THREE.Color(0x333333),
     });
-    const brainMesh = new THREE.Mesh(brainGeo, wireMat);
+    const brainMesh = new THREE.Mesh(brainGeo, brainMat);
     brainMesh.scale.setScalar(brainScale);
     scene.add(brainMesh);
 
-    // Solid inner fill (BackSide for depth effect)
-    const solidMat = new THREE.MeshPhongMaterial({
-      color: 0x321669,
+    // Subtle wireframe overlay (gyri definition)
+    const wireMat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      wireframe: true,
       transparent: true,
-      opacity: 0.15,
-      side: THREE.BackSide,
+      opacity: 0.05,
     });
-    const solidMesh = new THREE.Mesh(brainGeo, solidMat);
+    const solidMesh = new THREE.Mesh(brainGeo, wireMat);
     solidMesh.scale.setScalar(brainScale);
     scene.add(solidMesh);
 
