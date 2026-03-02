@@ -1798,12 +1798,12 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   gap: var(--v-spacing-xxs);
   background: var(--v-surface);
   border: 1px solid var(--v-surface-border);
-  border-radius: var(--v-radius-pill);
+  border-radius: var(--v-radius-md);
   padding: var(--v-spacing-xxs);
 }
 .v-pill-toggle {
   padding: var(--v-spacing-xs) var(--v-spacing-md);
-  border-radius: var(--v-radius-pill);
+  border-radius: var(--v-radius-md);
   border: none;
   background: none;
   font-size: var(--v-font-size-sm);
@@ -1830,7 +1830,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 }
 .v-chip {
   padding: var(--v-spacing-xs) var(--v-spacing-md);
-  border-radius: var(--v-radius-pill);
+  border-radius: var(--v-radius-md);
   border: 1px solid var(--v-surface-border);
   background: var(--v-surface);
   font-size: var(--v-font-size-sm);

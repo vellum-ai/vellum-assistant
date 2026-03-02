@@ -313,7 +313,7 @@ document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
   display: inline-flex; align-items: center; gap: var(--v-spacing-xs);
   padding: var(--v-spacing-xs) var(--v-spacing-md);
   background: var(--v-surface); border: 1px solid var(--v-surface-border);
-  border-radius: var(--v-radius-pill); font-size: var(--v-font-size-xs);
+  border-radius: var(--v-radius-md); font-size: var(--v-font-size-xs);
   font-weight: 600; color: var(--v-text-secondary);
 }
 .trust-pill.accent {
@@ -384,11 +384,11 @@ document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
 .pill-toggles {
   display: inline-flex; gap: var(--v-spacing-xxs);
   background: var(--v-surface); border: 1px solid var(--v-surface-border);
-  border-radius: var(--v-radius-pill); padding: var(--v-spacing-xxs);
+  border-radius: var(--v-radius-md); padding: var(--v-spacing-xxs);
 }
 .pill-toggle {
   padding: var(--v-spacing-xs) var(--v-spacing-md);
-  border-radius: var(--v-radius-pill); border: none; background: none;
+  border-radius: var(--v-radius-md); border: none; background: none;
   font-size: var(--v-font-size-sm); font-weight: 500; color: var(--v-text-secondary);
   cursor: pointer; transition: all var(--v-duration-fast);
 }
@@ -422,7 +422,7 @@ document.querySelectorAll('.pill-toggles').forEach(group => {
 .chip-group { display: flex; flex-wrap: wrap; gap: var(--v-spacing-xs); }
 .chip {
   padding: var(--v-spacing-xs) var(--v-spacing-md);
-  border-radius: var(--v-radius-pill); border: 1px solid var(--v-surface-border);
+  border-radius: var(--v-radius-md); border: 1px solid var(--v-surface-border);
   background: var(--v-surface); font-size: var(--v-font-size-sm);
   color: var(--v-text-secondary); cursor: pointer; transition: all var(--v-duration-fast);
 }
@@ -1054,7 +1054,7 @@ async function handleBulk(action) {
   body { margin: 0; padding: 0; background: linear-gradient(-45deg, #0f172a, #1e1b4b, #172554); min-height: 100vh; }
   .v-slideshow { border-radius: 0; min-height: 100vh; }
   .accent-word { color: var(--v-accent); }
-  .trust-pill { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 999px; font-size: 13px; font-weight: 500; background: color-mix(in srgb, var(--v-surface) 60%, transparent); border: 1px solid var(--v-surface-border); color: var(--v-text-secondary); margin-top: var(--v-spacing-lg); }
+  .trust-pill { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 8px; font-size: 13px; font-weight: 500; background: color-mix(in srgb, var(--v-surface) 60%, transparent); border: 1px solid var(--v-surface-border); color: var(--v-text-secondary); margin-top: var(--v-spacing-lg); }
   .trust-pill.accent { border-color: color-mix(in srgb, var(--v-accent) 30%, transparent); color: var(--v-accent); }
   .v-slide-list li { font-size: 15px; line-height: 1.7; }
   .v-slide-columns h3 { margin: 0 0 var(--v-spacing-sm); color: var(--v-text); font-size: var(--v-font-size-lg); }
