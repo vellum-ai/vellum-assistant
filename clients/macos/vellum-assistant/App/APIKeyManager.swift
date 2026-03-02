@@ -12,6 +12,7 @@ extension Notification.Name {
     static let identityChanged = Notification.Name("identityChanged")
     static let pinAppToHomebase = Notification.Name("MainWindow.pinAppToHomebase")
     static let appPreviewImageCaptured = Notification.Name("MainWindow.appPreviewImageCaptured")
+    static let requestAppPreview = Notification.Name("MainWindow.requestAppPreview")
 }
 
 /// Manages API keys in the macOS login keychain via native SecItem* APIs.

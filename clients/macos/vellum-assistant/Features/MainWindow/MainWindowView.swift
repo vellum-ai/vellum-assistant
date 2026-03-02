@@ -768,6 +768,25 @@ struct MainWindowView: View {
                 windowState.activeDynamicParsedSurface = updated
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .requestAppPreview)) { notification in
+            guard let appId = notification.userInfo?["appId"] as? String else { return }
+            let stream = daemonClient.subscribe()
+            do { try daemonClient.sendAppPreview(appId: appId) } catch { return }
+            Task { @MainActor in
+                for await message in stream {
+                    if case .appPreviewResponse(let response) = message,
+                       response.appId == appId,
+                       let base64 = response.preview, !base64.isEmpty {
+                        NotificationCenter.default.post(
+                            name: .appPreviewImageCaptured,
+                            object: nil,
+                            userInfo: ["appId": appId, "previewImage": base64]
+                        )
+                        return
+                    }
+                }
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .dismissDynamicWorkspace)) { notification in
             // If a specific surfaceId was dismissed, only clear if it matches.
             if let surfaceId = notification.userInfo?["surfaceId"] as? String {
