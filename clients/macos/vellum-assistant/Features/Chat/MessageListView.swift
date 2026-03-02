@@ -68,6 +68,10 @@ struct MessageListView: View {
     /// Suppresses bottom auto-scroll for the ~32ms layout window after pagination
     /// restores scroll position, preventing a jump back to the bottom.
     @State private var isSuppressingBottomScroll: Bool = false
+    /// Tracks the last pending confirmation request ID that triggered an
+    /// auto-focus handoff. Used to detect nil→non-nil transitions so we
+    /// resign first responder exactly once per new confirmation appearance.
+    @State private var lastAutoFocusedRequestId: String?
 
     /// The subset of messages actually shown, honoring the pagination window.
     private var visibleMessages: [ChatMessage] {
@@ -76,6 +80,12 @@ struct MessageListView: View {
         // return everything so new incoming messages don't collapse visible history.
         guard displayedMessageCount < all.count else { return all }
         return Array(all.suffix(displayedMessageCount))
+    }
+
+    /// The active pending confirmation request ID, derived from the visible
+    /// messages. Used by onChange to detect new confirmation appearances.
+    private var currentPendingRequestId: String? {
+        PendingConfirmationFocusSelector.activeRequestId(from: visibleMessages)
     }
 
     /// Triggers auto-scroll when the last message's text length changes (e.g. during streaming).
@@ -489,6 +499,23 @@ struct MessageListView: View {
                     proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
                 }
                 // When mid-scroll, do nothing — let SwiftUI handle the text reflow naturally.
+            }
+            .onChange(of: currentPendingRequestId) {
+                #if os(macOS)
+                if let requestId = currentPendingRequestId, lastAutoFocusedRequestId != requestId {
+                    // A new pending confirmation just appeared. Resign first
+                    // responder from the composer so the confirmation bubble's
+                    // key monitor can intercept Tab/Enter/Escape immediately.
+                    lastAutoFocusedRequestId = requestId
+                    if let window = NSApp.keyWindow,
+                       let responder = window.firstResponder as? NSTextView,
+                       responder.isEditable {
+                        window.makeFirstResponder(nil)
+                    }
+                } else if currentPendingRequestId == nil {
+                    lastAutoFocusedRequestId = nil
+                }
+                #endif
             }
             .onReceive(TaskProgressOverlayManager.shared.$activeSurfaceId) { newId in
                 activeSurfaceId = newId
