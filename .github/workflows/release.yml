@@ -288,7 +288,6 @@ jobs:
           echo "repository=${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ASSISTANT_IMAGE_NAME }}" >> "$GITHUB_OUTPUT"
           echo "tag=v${{ needs.bump-and-tag.outputs.version }}" >> "$GITHUB_OUTPUT"
           echo "sha=${{ steps.release-sha.outputs.sha }}" >> "$GITHUB_OUTPUT"
-          echo "digest=${{ steps.build.outputs.digest }}" >> "$GITHUB_OUTPUT"
 
       - name: Summary
         run: |
@@ -437,7 +436,6 @@ jobs:
           echo "repository=${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GATEWAY_IMAGE_NAME }}" >> "$GITHUB_OUTPUT"
           echo "tag=v${{ needs.bump-and-tag.outputs.version }}" >> "$GITHUB_OUTPUT"
           echo "sha=${{ steps.release-sha.outputs.sha }}" >> "$GITHUB_OUTPUT"
-          echo "digest=${{ steps.build.outputs.digest }}" >> "$GITHUB_OUTPUT"
 
       - name: Summary
         run: |
@@ -455,7 +453,7 @@ jobs:
       fail-fast: false
       matrix:
         environment: [dev, production]
-        platform_target: [prod, nonprod]
+        platform_target: [nonprod, prod]
     environment: ${{ matrix.environment }}
     steps:
       - name: Checkout
@@ -466,6 +464,26 @@ jobs:
       - name: Get release SHA
         id: release-sha
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Download assistant amd64 digest
+        uses: actions/download-artifact@v4
+        with:
+          name: assistant-digests-${{ matrix.environment }}-linux-amd64
+          path: /tmp/assistant-digest
+
+      - name: Download gateway amd64 digest
+        uses: actions/download-artifact@v4
+        with:
+          name: gateway-digests-${{ matrix.environment }}-linux-amd64
+          path: /tmp/gateway-digest
+
+      - name: Extract amd64 digests
+        id: digests
+        run: |
+          ASSISTANT_DIGEST="sha256:$(ls /tmp/assistant-digest/)"
+          GATEWAY_DIGEST="sha256:$(ls /tmp/gateway-digest/)"
+          echo "assistant_digest=${ASSISTANT_DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "gateway_digest=${GATEWAY_DIGEST}" >> "$GITHUB_OUTPUT"
 
       - name: Resolve platform credentials
         id: platform-creds
@@ -491,9 +509,11 @@ jobs:
             --arg assistant_repo "$ASSISTANT_REPO" \
             --arg assistant_tag "v${VERSION}" \
             --arg assistant_sha "$SHA" \
+            --arg assistant_digest "${{ steps.digests.outputs.assistant_digest }}" \
             --arg gateway_repo "$GATEWAY_REPO" \
             --arg gateway_tag "v${VERSION}" \
             --arg gateway_sha "$SHA" \
+            --arg gateway_digest "${{ steps.digests.outputs.gateway_digest }}" \
             '{
               version: $version,
               released_at: $released_at,
@@ -501,12 +521,14 @@ jobs:
               assistant_image: {
                 repository: $assistant_repo,
                 tag: $assistant_tag,
-                sha: $assistant_sha
+                sha: $assistant_sha,
+                digest: $assistant_digest
               },
               gateway_image: {
                 repository: $gateway_repo,
                 tag: $gateway_tag,
-                sha: $gateway_sha
+                sha: $gateway_sha,
+                digest: $gateway_digest
               }
             }')
 
