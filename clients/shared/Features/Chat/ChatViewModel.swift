@@ -327,11 +327,6 @@ public final class ChatViewModel: ObservableObject {
     public var onVoiceTextDelta: ((String) -> Void)?
     /// When true, messages are prefixed with a concise-response instruction for voice conversations.
     public var isVoiceModeActive: Bool = false
-    /// Context prefix captured by VoiceModeManager describing the user's frontmost app.
-    /// Injected into the daemon-bound text (not rawText) alongside the voice instruction
-    /// prefix, then cleared after send. This avoids leaking context into chat bubbles
-    /// and thread auto-titles.
-    public var pendingVoiceContextPrefix: String?
     var pendingUserAttachments: [IPCAttachment]?
     /// Stores the last user message that failed to send, enabling retry.
     private(set) var lastFailedMessageText: String?
@@ -914,11 +909,7 @@ public final class ChatViewModel: ObservableObject {
 
     public func sendMessage() {
         let rawText = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let voiceContextPrefix = pendingVoiceContextPrefix ?? ""
-        pendingVoiceContextPrefix = nil
-        let text = isVoiceModeActive
-            ? "[Voice conversation — keep spoken responses brief (2-3 sentences) but fully complete the task using any tools needed. Do not give up early. Proactively use tools to fulfill requests rather than describing how. When interacting with macOS apps (Messages, Contacts, Calendar, Reminders, Notes, Mail, etc.), always use osascript with AppleScript — never query databases directly or use sqlite3. Prefer CLI tools and background automation (osascript/AppleScript) over foreground computer use, which takes over the user's screen.]\n\n\(voiceContextPrefix)\(rawText)"
-            : rawText
+        let text = rawText
         let hasAttachments = !pendingAttachments.isEmpty
         let hasSkillInvocation = pendingSkillInvocation != nil
         guard !text.isEmpty || hasAttachments || hasSkillInvocation else { return }
@@ -2012,17 +2003,6 @@ public final class ChatViewModel: ObservableObject {
         self.suggestion = nil
     }
 
-    /// Strip the voice mode instruction prefix from user messages so it
-    /// doesn't clutter the chat when conversations are reloaded from history.
-    private static let voicePrefixPattern = /^\[Voice conversation\s—[^\]]*\]\n\n/
-
-    private func stripVoicePrefix(_ text: String) -> String {
-        if let match = text.prefixMatch(of: Self.voicePrefixPattern) {
-            return String(text[match.range.upperBound...])
-        }
-        return text
-    }
-
     /// Populate messages from history data returned by the daemon.
     /// If the user hasn't sent any messages yet, replaces messages entirely.
     /// If the user already sent messages (late history_response), prepends
@@ -2142,8 +2122,7 @@ public final class ChatViewModel: ObservableObject {
             if item.text.isEmpty && toolCalls.isEmpty && attachments.isEmpty && inlineSurfaces.isEmpty { continue }
             let timestamp = Date(timeIntervalSince1970: TimeInterval(item.timestamp) / 1000.0)
 
-            // Strip voice mode instruction prefix from user messages
-            let displayText = role == .user ? stripVoicePrefix(item.text) : item.text
+            let displayText = item.text
 
             // Use the database message ID if available (for matching surfaces)
             var chatMsg: ChatMessage
