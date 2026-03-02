@@ -8,7 +8,7 @@ on:
         required: false
         type: string
       run_experimental:
-        description: 'Run experimental tests (tests marked with experimental: true in front matter).'
+        description: 'Run experimental tests (tests marked with status: experimental in front matter).'
         required: false
         type: boolean
         default: false
