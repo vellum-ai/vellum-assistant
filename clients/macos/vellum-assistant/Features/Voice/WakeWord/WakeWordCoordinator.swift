@@ -117,7 +117,11 @@ final class WakeWordCoordinator: ObservableObject {
         audioMonitor.stopMonitoring()
 
         // 3. Ensure we have an active ChatViewModel (create a new thread if needed)
-        let chatViewModel = ensureChatViewModel()
+        guard let chatViewModel = ensureChatViewModel() else {
+            log.error("Wake word activation failed — no ChatViewModel available, resuming wake word listening")
+            audioMonitor.startMonitoring()
+            return
+        }
 
         // 4. Show voice mode panel and activate (same as the UI button)
         windowState.selection = .panel(.voiceMode)
@@ -133,14 +137,13 @@ final class WakeWordCoordinator: ObservableObject {
     }
 
     /// Returns the active ChatViewModel, creating a new thread if none exists.
-    private func ensureChatViewModel() -> ChatViewModel {
+    private func ensureChatViewModel() -> ChatViewModel? {
         if let existing = threadManager.activeViewModel {
             return existing
         }
         // No active thread — create one, which sets it as active
         threadManager.createThread()
-        // activeViewModel should now be set after createThread
-        return threadManager.activeViewModel!
+        return threadManager.activeViewModel
     }
 
     // MARK: - PTT Recording Observation
