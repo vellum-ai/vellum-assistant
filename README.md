@@ -94,7 +94,18 @@ See [.githooks/README.md](./.githooks/README.md) for more details about availabl
 <details>
 <summary><b>Assistant Runtime</b></summary>
 
-The assistant runtime lives in `/assistant`.
+The assistant runtime lives in `/assistant`. The recommended way to start it is via the `vellum` CLI:
+
+```bash
+vellum wake    # starts daemon + gateway from current checkout
+vellum ps      # check process status
+vellum sleep   # stop daemon + gateway
+```
+
+<details>
+<summary>Development: raw bun commands</summary>
+
+For low-level development (e.g., working on the daemon itself):
 
 ```bash
 cd assistant
@@ -103,6 +114,8 @@ bun run src/index.ts daemon start
 ```
 
 > **Note:** Some dependencies (`agentmail`, `@pydantic/logfire-node`) are optional at runtime but required for full `tsc --noEmit` type-checking to pass. They are installed automatically by `bun install`.
+
+</details>
 
 </details>
 
