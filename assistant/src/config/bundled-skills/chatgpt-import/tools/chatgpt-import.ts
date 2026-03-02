@@ -1,49 +1,56 @@
-import { existsSync, readFileSync, mkdirSync } from 'node:fs';
-import { join } from 'node:path';
-import { homedir } from 'node:os';
-import { Database } from 'bun:sqlite';
-import { drizzle } from 'drizzle-orm/bun-sqlite';
-import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core';
-import { eq } from 'drizzle-orm';
-import { v4 as uuid } from 'uuid';
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { inflateRawSync } from "node:zlib";
 
-import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
+import { Database } from "bun:sqlite";
+import { eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/bun-sqlite";
+import { integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { v4 as uuid } from "uuid";
+
+import type {
+  ToolContext,
+  ToolExecutionResult,
+} from "../../../../tools/types.js";
 
 // -- Inline schema (only the tables this tool touches) --
 
-const conversations = sqliteTable('conversations', {
-  id: text('id').primaryKey(),
-  title: text('title'),
-  createdAt: integer('created_at').notNull(),
-  updatedAt: integer('updated_at').notNull(),
-  totalInputTokens: integer('total_input_tokens').notNull().default(0),
-  totalOutputTokens: integer('total_output_tokens').notNull().default(0),
-  totalEstimatedCost: real('total_estimated_cost').notNull().default(0),
-  contextSummary: text('context_summary'),
-  contextCompactedMessageCount: integer('context_compacted_message_count').notNull().default(0),
-  contextCompactedAt: integer('context_compacted_at'),
-  threadType: text('thread_type').notNull().default('standard'),
-  memoryScopeId: text('memory_scope_id').notNull().default('default'),
+const conversations = sqliteTable("conversations", {
+  id: text("id").primaryKey(),
+  title: text("title"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+  totalInputTokens: integer("total_input_tokens").notNull().default(0),
+  totalOutputTokens: integer("total_output_tokens").notNull().default(0),
+  totalEstimatedCost: real("total_estimated_cost").notNull().default(0),
+  contextSummary: text("context_summary"),
+  contextCompactedMessageCount: integer("context_compacted_message_count")
+    .notNull()
+    .default(0),
+  contextCompactedAt: integer("context_compacted_at"),
+  threadType: text("thread_type").notNull().default("standard"),
+  memoryScopeId: text("memory_scope_id").notNull().default("default"),
 });
 
-const messagesTable = sqliteTable('messages', {
-  id: text('id').primaryKey(),
-  conversationId: text('conversation_id')
+const messagesTable = sqliteTable("messages", {
+  id: text("id").primaryKey(),
+  conversationId: text("conversation_id")
     .notNull()
     .references(() => conversations.id),
-  role: text('role').notNull(),
-  content: text('content').notNull(),
-  createdAt: integer('created_at').notNull(),
-  metadata: text('metadata'),
+  role: text("role").notNull(),
+  content: text("content").notNull(),
+  createdAt: integer("created_at").notNull(),
+  metadata: text("metadata"),
 });
 
-const conversationKeys = sqliteTable('conversation_keys', {
-  id: text('id').primaryKey(),
-  conversationKey: text('conversation_key').notNull(),
-  conversationId: text('conversation_id')
+const conversationKeys = sqliteTable("conversation_keys", {
+  id: text("id").primaryKey(),
+  conversationKey: text("conversation_key").notNull(),
+  conversationId: text("conversation_id")
     .notNull()
-    .references(() => conversations.id, { onDelete: 'cascade' }),
-  createdAt: integer('created_at').notNull(),
+    .references(() => conversations.id, { onDelete: "cascade" }),
+  createdAt: integer("created_at").notNull(),
 });
 
 // -- Inline DB access --
@@ -52,7 +59,7 @@ const schema = { conversations, messages: messagesTable, conversationKeys };
 
 function getDbPath(): string {
   const baseDir = process.env.BASE_DATA_DIR?.trim() || homedir();
-  return join(baseDir, '.vellum', 'workspace', 'data', 'db', 'assistant.db');
+  return join(baseDir, ".vellum", "workspace", "data", "db", "assistant.db");
 }
 
 let db: ReturnType<typeof drizzle<typeof schema>> | null = null;
@@ -60,11 +67,11 @@ let db: ReturnType<typeof drizzle<typeof schema>> | null = null;
 function getDb() {
   if (!db) {
     const dbPath = getDbPath();
-    const dbDir = join(dbPath, '..');
+    const dbDir = join(dbPath, "..");
     mkdirSync(dbDir, { recursive: true });
     const sqlite = new Database(dbPath);
-    sqlite.exec('PRAGMA journal_mode=WAL');
-    sqlite.exec('PRAGMA foreign_keys = ON');
+    sqlite.exec("PRAGMA journal_mode=WAL");
+    sqlite.exec("PRAGMA foreign_keys = ON");
     db = drizzle(sqlite, { schema });
   }
   return db;
@@ -94,8 +101,8 @@ function createConversation(title: string) {
     contextSummary: null as string | null,
     contextCompactedMessageCount: 0,
     contextCompactedAt: null as number | null,
-    threadType: 'standard' as const,
-    memoryScopeId: 'default',
+    threadType: "standard" as const,
+    memoryScopeId: "default",
   };
   database.insert(conversations).values(conversation).run();
   return conversation;
@@ -170,11 +177,15 @@ export async function run(
   const filePath = input.file_path as string;
 
   if (!filePath) {
-    return { content: 'Error: file_path is required', isError: true };
+    return { content: "Error: file_path is required", isError: true };
   }
 
-  if (!filePath.endsWith('.zip')) {
-    return { content: 'Error: Only ZIP files are accepted. Please provide the ChatGPT export ZIP file.', isError: true };
+  if (!filePath.endsWith(".zip")) {
+    return {
+      content:
+        "Error: Only ZIP files are accepted. Please provide the ChatGPT export ZIP file.",
+      isError: true,
+    };
   }
 
   if (!existsSync(filePath)) {
@@ -192,7 +203,10 @@ export async function run(
   }
 
   if (imported.length === 0) {
-    return { content: 'No conversations found in the export file.', isError: false };
+    return {
+      content: "No conversations found in the export file.",
+      isError: false,
+    };
   }
 
   const database = getDb();
@@ -221,7 +235,8 @@ export async function run(
     }
 
     // Override timestamps to match ChatGPT originals
-    database.update(conversations)
+    database
+      .update(conversations)
       .set({ createdAt: conv.createdAt, updatedAt: conv.updatedAt })
       .where(eq(conversations.id, conversation.id))
       .run();
@@ -235,13 +250,15 @@ export async function run(
       .all();
 
     for (let i = 0; i < dbMessages.length && i < conv.messages.length; i++) {
-      database.update(messagesTable)
+      database
+        .update(messagesTable)
         .set({ createdAt: conv.messages[i].createdAt })
         .where(eq(messagesTable.id, dbMessages[i].id))
         .run();
     }
 
-    database.insert(conversationKeys)
+    database
+      .insert(conversationKeys)
       .values({
         id: uuid(),
         conversationKey: convKey,
@@ -254,11 +271,13 @@ export async function run(
     messageCount += conv.messages.length;
   }
 
-  const lines = [`Imported ${importedCount} conversation(s) with ${messageCount} message(s).`];
+  const lines = [
+    `Imported ${importedCount} conversation(s) with ${messageCount} message(s).`,
+  ];
   if (skippedCount > 0) {
     lines.push(`Skipped ${skippedCount} already-imported conversation(s).`);
   }
-  return { content: lines.join('\n'), isError: false };
+  return { content: lines.join("\n"), isError: false };
 }
 
 // -- Parser --
@@ -268,7 +287,7 @@ function parseChatGPTExport(zipPath: string): ImportedConversation[] {
 
   const raw = JSON.parse(jsonContent);
   if (!Array.isArray(raw)) {
-    throw new Error('Expected conversations.json to contain a JSON array');
+    throw new Error("Expected conversations.json to contain a JSON array");
   }
 
   const results: ImportedConversation[] = [];
@@ -281,7 +300,9 @@ function parseChatGPTExport(zipPath: string): ImportedConversation[] {
   return results;
 }
 
-function parseConversation(conv: ChatGPTConversation): ImportedConversation | null {
+function parseConversation(
+  conv: ChatGPTConversation,
+): ImportedConversation | null {
   const { mapping, current_node } = conv;
   if (!mapping || !current_node || !mapping[current_node]) return null;
 
@@ -301,15 +322,17 @@ function parseConversation(conv: ChatGPTConversation): ImportedConversation | nu
 
     const { author, content, create_time } = node.message;
     const role = author?.role;
-    if (role !== 'user' && role !== 'assistant') continue;
+    if (role !== "user" && role !== "assistant") continue;
 
     const text = extractText(content);
     if (!text) continue;
 
     messages.push({
       role,
-      content: [{ type: 'text', text }],
-      createdAt: create_time ? Math.round(create_time * 1000) : Math.round(conv.create_time * 1000),
+      content: [{ type: "text", text }],
+      createdAt: create_time
+        ? Math.round(create_time * 1000)
+        : Math.round(conv.create_time * 1000),
     });
   }
 
@@ -317,7 +340,7 @@ function parseConversation(conv: ChatGPTConversation): ImportedConversation | nu
 
   return {
     sourceId: conv.id ?? `${conv.title}-${conv.create_time}`,
-    title: conv.title || 'Untitled',
+    title: conv.title || "Untitled",
     createdAt: Math.round(conv.create_time * 1000),
     updatedAt: Math.round(conv.update_time * 1000),
     messages,
@@ -325,8 +348,10 @@ function parseConversation(conv: ChatGPTConversation): ImportedConversation | nu
 }
 
 function extractText(content: ChatGPTContent): string {
-  if (!content?.parts) return '';
-  return content.parts.filter((p): p is string => typeof p === 'string').join('');
+  if (!content?.parts) return "";
+  return content.parts
+    .filter((p): p is string => typeof p === "string")
+    .join("");
 }
 
 // -- ZIP extraction --
@@ -337,13 +362,20 @@ function extractConversationsJsonFromZip(zipPath: string): string {
   // Find end of central directory record (EOCD signature: 0x06054b50)
   let eocdOffset = -1;
   for (let i = buffer.length - 22; i >= 0; i--) {
-    if (buffer[i] === 0x50 && buffer[i + 1] === 0x4b && buffer[i + 2] === 0x05 && buffer[i + 3] === 0x06) {
+    if (
+      buffer[i] === 0x50 &&
+      buffer[i + 1] === 0x4b &&
+      buffer[i + 2] === 0x05 &&
+      buffer[i + 3] === 0x06
+    ) {
       eocdOffset = i;
       break;
     }
   }
   if (eocdOffset === -1) {
-    throw new Error('Invalid ZIP file: could not find end of central directory');
+    throw new Error(
+      "Invalid ZIP file: could not find end of central directory",
+    );
   }
 
   const centralDirOffset = buffer.readUInt32LE(eocdOffset + 16);
@@ -352,8 +384,13 @@ function extractConversationsJsonFromZip(zipPath: string): string {
   // Walk central directory to find conversations.json
   let offset = centralDirOffset;
   for (let i = 0; i < centralDirEntries; i++) {
-    if (buffer[offset] !== 0x50 || buffer[offset + 1] !== 0x4b || buffer[offset + 2] !== 0x01 || buffer[offset + 3] !== 0x02) {
-      throw new Error('Invalid ZIP central directory entry');
+    if (
+      buffer[offset] !== 0x50 ||
+      buffer[offset + 1] !== 0x4b ||
+      buffer[offset + 2] !== 0x01 ||
+      buffer[offset + 3] !== 0x02
+    ) {
+      throw new Error("Invalid ZIP central directory entry");
     }
 
     const cdCompressedSize = buffer.readUInt32LE(offset + 20);
@@ -361,26 +398,41 @@ function extractConversationsJsonFromZip(zipPath: string): string {
     const extraLength = buffer.readUInt16LE(offset + 30);
     const commentLength = buffer.readUInt16LE(offset + 32);
     const localHeaderOffset = buffer.readUInt32LE(offset + 42);
-    const fileName = buffer.subarray(offset + 46, offset + 46 + fileNameLength).toString('utf-8');
+    const fileName = buffer
+      .subarray(offset + 46, offset + 46 + fileNameLength)
+      .toString("utf-8");
 
-    if (fileName === 'conversations.json' || fileName.endsWith('/conversations.json')) {
+    if (
+      fileName === "conversations.json" ||
+      fileName.endsWith("/conversations.json")
+    ) {
       return extractLocalFile(buffer, localHeaderOffset, cdCompressedSize);
     }
 
     offset += 46 + fileNameLength + extraLength + commentLength;
   }
 
-  throw new Error('conversations.json not found in ZIP file');
+  throw new Error("conversations.json not found in ZIP file");
 }
 
-function extractLocalFile(buffer: Buffer, offset: number, cdCompressedSize: number): string {
-  if (buffer[offset] !== 0x50 || buffer[offset + 1] !== 0x4b || buffer[offset + 2] !== 0x03 || buffer[offset + 3] !== 0x04) {
-    throw new Error('Invalid ZIP local file header');
+function extractLocalFile(
+  buffer: Buffer,
+  offset: number,
+  cdCompressedSize: number,
+): string {
+  if (
+    buffer[offset] !== 0x50 ||
+    buffer[offset + 1] !== 0x4b ||
+    buffer[offset + 2] !== 0x03 ||
+    buffer[offset + 3] !== 0x04
+  ) {
+    throw new Error("Invalid ZIP local file header");
   }
 
   const compressionMethod = buffer.readUInt16LE(offset + 8);
   const localCompressedSize = buffer.readUInt32LE(offset + 18);
-  const compressedSize = cdCompressedSize > 0 ? cdCompressedSize : localCompressedSize;
+  const compressedSize =
+    cdCompressedSize > 0 ? cdCompressedSize : localCompressedSize;
   const fileNameLength = buffer.readUInt16LE(offset + 26);
   const extraLength = buffer.readUInt16LE(offset + 28);
 
@@ -388,11 +440,9 @@ function extractLocalFile(buffer: Buffer, offset: number, cdCompressedSize: numb
   const fileData = buffer.subarray(dataOffset, dataOffset + compressedSize);
 
   if (compressionMethod === 0) {
-    return fileData.toString('utf-8');
+    return fileData.toString("utf-8");
   } else if (compressionMethod === 8) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { inflateRawSync } = require('node:zlib') as typeof import('node:zlib');
-    return inflateRawSync(fileData).toString('utf-8');
+    return inflateRawSync(fileData).toString("utf-8");
   } else {
     throw new Error(`Unsupported ZIP compression method: ${compressionMethod}`);
   }
