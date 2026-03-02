@@ -37,10 +37,7 @@ public struct VTab: View {
     }
 
     private var cornerRadius: CGFloat {
-        switch style {
-        case .pill, .flat: return VRadius.pill
-        case .rectangular: return VRadius.md
-        }
+        return VRadius.md
     }
 
     public var body: some View {
