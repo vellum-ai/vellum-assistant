@@ -1092,7 +1092,7 @@ struct SettingsChannelsTab: View {
             }
         }()
 
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
             guardianLabel
 
             TextField(placeholder, text: destinationBinding)
