@@ -133,6 +133,8 @@ export interface SurfaceSessionContext {
   lastSurfaceAction: Map<string, { actionId: string; data?: Record<string, unknown> }>;
   surfaceState: Map<string, { surfaceType: SurfaceType; data: SurfaceData; title?: string }>;
   surfaceUndoStacks: Map<string, string[]>;
+  /** Request IDs that originated from surface action button clicks (not regular user messages). */
+  surfaceActionRequestIds: Set<string>;
   currentTurnSurfaces: Array<{
     surfaceId: string;
     surfaceType: SurfaceType;
@@ -405,6 +407,7 @@ export function handleSurfaceAction(ctx: SurfaceSessionContext, surfaceId: strin
   const content = prompt || fallbackContent;
 
   const requestId = uuid();
+  ctx.surfaceActionRequestIds.add(requestId);
   const onEvent = (msg: ServerMessage) => ctx.sendToClient(msg);
 
   // Echo the user's prompt to the client so it appears in the chat UI
@@ -604,6 +607,7 @@ export async function surfaceProxyResolver(
         message: 'File upload dialog displayed and the user can see it. The uploaded file data will arrive as a follow-up message. Do not output any waiting message — just stop here.',
       }),
       isError: false,
+      yieldToUser: true,
     };
   }
 
@@ -664,6 +668,7 @@ export async function surfaceProxyResolver(
           message: 'Surface displayed and the user can see it. Their response will arrive as a follow-up message. Do not output any waiting message — just stop here.',
         }),
         isError: false,
+        yieldToUser: true,
       };
     }
     return { content: JSON.stringify({ surfaceId }), isError: false };

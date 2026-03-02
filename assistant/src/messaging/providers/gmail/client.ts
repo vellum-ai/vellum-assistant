@@ -33,6 +33,7 @@ export class GmailApiError extends Error {
 
 const MAX_RETRIES = 3;
 const INITIAL_BACKOFF_MS = 1000;
+const REQUEST_TIMEOUT_MS = 30_000;
 
 function isRetryable(status: number): boolean {
   return status === 429 || (status >= 500 && status < 600);
@@ -57,6 +58,7 @@ async function request<T>(token: string, path: string, options?: GmailRequestOpt
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     const resp = await fetch(url, {
       ...options,
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       headers: {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',

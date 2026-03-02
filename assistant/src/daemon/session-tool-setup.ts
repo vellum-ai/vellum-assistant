@@ -113,6 +113,7 @@ export function createToolExecutor(
       guardianTrustClass: ctx.guardianContext?.trustClass ?? 'guardian',
       executionChannel: ctx.guardianContext?.sourceChannel,
       callSessionId: ctx.callSessionId,
+      triggeredBySurfaceAction: ctx.surfaceActionRequestIds?.has(ctx.currentRequestId ?? '') ?? false,
       requesterExternalUserId: ctx.guardianContext?.requesterExternalUserId,
       requesterChatId: ctx.guardianContext?.requesterChatId,
       onOutput,

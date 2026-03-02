@@ -70,6 +70,7 @@ export interface AbortContext {
   prompter: PermissionPrompter;
   secretPrompter: SecretPrompter;
   pendingSurfaceActions: Map<string, { surfaceType: SurfaceType }>;
+  surfaceActionRequestIds: Set<string>;
   surfaceState: Map<string, { surfaceType: SurfaceType; data: SurfaceData; title?: string }>;
   readonly queue: MessageQueue;
 }
@@ -159,6 +160,7 @@ export function abortSession(ctx: AbortContext): void {
     ctx.prompter.dispose();
     ctx.secretPrompter.dispose();
     ctx.pendingSurfaceActions.clear();
+    ctx.surfaceActionRequestIds.clear();
     ctx.surfaceState.clear();
     unregisterWatchNotifiers(ctx.conversationId);
     for (const queued of ctx.queue) {
@@ -186,6 +188,7 @@ export function disposeSession(ctx: DisposeContext): void {
   ctx.surfaceUndoStacks.clear();
   ctx.currentTurnSurfaces = [];
   ctx.pendingSurfaceActions.clear();
+  ctx.surfaceActionRequestIds.clear();
   ctx.surfaceState.clear();
   ctx.lastSurfaceAction.clear();
   ctx.workspaceTopLevelContext = null;

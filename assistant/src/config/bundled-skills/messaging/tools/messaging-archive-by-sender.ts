@@ -1,7 +1,11 @@
 import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
 import { err, ok, resolveProvider, withProviderToken } from './shared.js';
 
-export async function run(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
+export async function run(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
+  if (!context.triggeredBySurfaceAction) {
+    return err('This tool requires user confirmation via a surface action. Present results in a selection table with action buttons and wait for the user to click before proceeding.');
+  }
+
   const platform = input.platform as string | undefined;
   const query = input.query as string;
 

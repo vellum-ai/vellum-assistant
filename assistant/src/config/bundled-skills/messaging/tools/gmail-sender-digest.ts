@@ -4,8 +4,8 @@ import { withValidToken } from '../../../../security/token-manager.js';
 import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
 import { err,ok } from './shared.js';
 
-const MAX_MESSAGES_CAP = 2000;
-const MAX_IDS_PER_SENDER = 2000;
+const MAX_MESSAGES_CAP = 500;
+const MAX_IDS_PER_SENDER = 500;
 const MAX_SAMPLE_SUBJECTS = 3;
 
 interface SenderAggregation {
@@ -36,7 +36,7 @@ function parseFrom(from: string): { displayName: string; email: string } {
 
 export async function run(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
   const query = (input.query as string) ?? 'category:promotions newer_than:90d';
-  const maxMessages = Math.min((input.max_messages as number) ?? 2000, MAX_MESSAGES_CAP);
+  const maxMessages = Math.min((input.max_messages as number) ?? 500, MAX_MESSAGES_CAP);
   const maxSenders = (input.max_senders as number) ?? 30;
 
   try {

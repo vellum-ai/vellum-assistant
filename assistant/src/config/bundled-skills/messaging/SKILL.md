@@ -268,7 +268,7 @@ Use `messaging_analyze_activity` to classify channels or conversations by activi
 
 When a user asks to declutter, clean up, or organize their email — start scanning immediately. Don't ask what kind of cleanup they want or request permission to read their inbox. Go straight to scanning — but once results are ready, always show them via `ui_show` and let the user choose actions before archiving or unsubscribing.
 
-**CRITICAL**: Never call `gmail_batch_archive`, `gmail_unsubscribe`, or `messaging_archive_by_sender` unless the user has clicked an action button on the table for that specific batch. Each batch of results requires its own explicit user confirmation via the table UI. If the user says "keep going" or "keep decluttering," that means scan and present a new table — NOT auto-archive. Previous batch approvals do not carry forward.
+**CRITICAL**: Never call `gmail_batch_archive`, `gmail_archive_by_query`, `gmail_unsubscribe`, or `messaging_archive_by_sender` unless the user has clicked an action button on the table for that specific batch. Each batch of results requires its own explicit user confirmation via the table UI. If the user says "keep going" or "keep decluttering," that means scan and present a new table — NOT auto-archive. Previous batch approvals do not carry forward.
 
 ### Provider Selection
 

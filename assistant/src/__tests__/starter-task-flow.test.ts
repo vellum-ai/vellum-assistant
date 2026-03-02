@@ -46,6 +46,7 @@ function makeContext(): SurfaceSessionContext {
     lastSurfaceAction: new Map<string, { actionId: string; data?: Record<string, unknown> }>(),
     surfaceState: new Map(),
     surfaceUndoStacks: new Map(),
+    surfaceActionRequestIds: new Set<string>(),
     currentTurnSurfaces: [],
     isProcessing: () => false,
     enqueueMessage: () => ({ queued: false, requestId: 'req-1' }),

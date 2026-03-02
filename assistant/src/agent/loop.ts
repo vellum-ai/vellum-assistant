@@ -65,14 +65,14 @@ export class AgentLoop {
   private tools: ToolDefinition[];
   private resolveTools: ((history: Message[]) => ToolDefinition[]) | null;
   private resolveSystemPrompt: ((history: Message[]) => ResolvedSystemPrompt) | null;
-  private toolExecutor: ((name: string, input: Record<string, unknown>, onOutput?: (chunk: string) => void) => Promise<{ content: string; isError: boolean; diff?: { filePath: string; oldContent: string; newContent: string; isNewFile: boolean }; status?: string; contentBlocks?: ContentBlock[]; sensitiveBindings?: SensitiveOutputBinding[] }>) | null;
+  private toolExecutor: ((name: string, input: Record<string, unknown>, onOutput?: (chunk: string) => void) => Promise<{ content: string; isError: boolean; diff?: { filePath: string; oldContent: string; newContent: string; isNewFile: boolean }; status?: string; contentBlocks?: ContentBlock[]; sensitiveBindings?: SensitiveOutputBinding[]; yieldToUser?: boolean }>) | null;
 
   constructor(
     provider: Provider,
     systemPrompt: string,
     config?: Partial<AgentLoopConfig>,
     tools?: ToolDefinition[],
-    toolExecutor?: (name: string, input: Record<string, unknown>, onOutput?: (chunk: string) => void) => Promise<{ content: string; isError: boolean; diff?: { filePath: string; oldContent: string; newContent: string; isNewFile: boolean }; status?: string; contentBlocks?: ContentBlock[]; sensitiveBindings?: SensitiveOutputBinding[] }>,
+    toolExecutor?: (name: string, input: Record<string, unknown>, onOutput?: (chunk: string) => void) => Promise<{ content: string; isError: boolean; diff?: { filePath: string; oldContent: string; newContent: string; isNewFile: boolean }; status?: string; contentBlocks?: ContentBlock[]; sensitiveBindings?: SensitiveOutputBinding[]; yieldToUser?: boolean }>,
     resolveTools?: (history: Message[]) => ToolDefinition[],
     resolveSystemPrompt?: (history: Message[]) => ResolvedSystemPrompt,
   ) {
@@ -475,6 +475,13 @@ export class AgentLoop {
 
         // If cancelled during execution, push completed results and stop
         if (signal?.aborted) {
+          history.push({ role: 'user', content: resultBlocks });
+          break;
+        }
+
+        // If any tool result requests yielding to the user (e.g. interactive
+        // surface awaiting a button click), push results and stop the loop.
+        if (toolResults.some(({ result }) => result.yieldToUser)) {
           history.push({ role: 'user', content: resultBlocks });
           break;
         }

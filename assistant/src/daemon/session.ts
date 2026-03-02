@@ -146,6 +146,7 @@ export class Session {
   /** @internal */ voiceCallControlPrompt?: string;
   /** @internal */ assistantId?: string;
   /** @internal */ commandIntent?: { type: string; payload?: string; languageCode?: string };
+  /** @internal */ surfaceActionRequestIds = new Set<string>();
   /** @internal */ pendingSurfaceActions = new Map<string, { surfaceType: SurfaceType }>();
   /** @internal */ lastSurfaceAction = new Map<string, { actionId: string; data?: Record<string, unknown> }>();
   /** @internal */ surfaceState = new Map<string, { surfaceType: SurfaceType; data: SurfaceData; title?: string }>();
@@ -205,7 +206,7 @@ export class Session {
       if (state === 'pending') {
         this.emitActivityState('awaiting_confirmation', 'confirmation_requested', 'assistant_turn');
       } else if (state === 'timed_out') {
-        this.emitActivityState('thinking', 'confirmation_resolved', 'assistant_turn');
+        this.emitActivityState('thinking', 'confirmation_resolved', 'assistant_turn', undefined, 'Resuming after timeout');
       }
     });
     this.secretPrompter = new SecretPrompter(sendToClient);
@@ -520,7 +521,7 @@ export class Session {
       ...(emissionContext?.causedByRequestId ? { causedByRequestId: emissionContext.causedByRequestId } : {}),
       ...(emissionContext?.decisionText ? { decisionText: emissionContext.decisionText } : {}),
     });
-    this.emitActivityState('thinking', 'confirmation_resolved', 'assistant_turn');
+    this.emitActivityState('thinking', 'confirmation_resolved', 'assistant_turn', undefined, 'Resuming after approval');
   }
 
   handleSecretResponse(requestId: string, value?: string, delivery?: 'store' | 'transient_send'): void {
@@ -540,6 +541,7 @@ export class Session {
     reason: AssistantActivityState['reason'],
     anchor: AssistantActivityState['anchor'] = 'assistant_turn',
     requestId?: string,
+    statusText?: string,
   ): void {
     this.activityVersion++;
     const msg: ServerMessage = {
@@ -550,6 +552,7 @@ export class Session {
       anchor,
       requestId,
       reason,
+      ...(statusText ? { statusText } : {}),
     } as ServerMessage;
     this.sendToClient(msg);
     this.onStateSignal?.(msg);
