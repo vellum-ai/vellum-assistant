@@ -1,4 +1,5 @@
 import { findAssistantByName, loadLatestAssistant } from "../lib/assistant-config";
+import { runNgrokTunnel } from "../lib/ngrok";
 
 const VALID_PROVIDERS = ["vellum", "ngrok", "cloudflare", "tailscale"] as const;
 type TunnelProvider = (typeof VALID_PROVIDERS)[number];
@@ -74,6 +75,11 @@ export async function tunnel(): Promise<void> {
       );
     }
     process.exit(1);
+  }
+
+  if (provider === "ngrok") {
+    await runNgrokTunnel();
+    return;
   }
 
   throw new Error(
