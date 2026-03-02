@@ -1489,7 +1489,6 @@ jobs:
             "${{ needs.build-macos.result }}" \
             "${{ needs.push-assistant-manifest.result }}" \
             "${{ needs.push-gateway-manifest.result }}" \
-            "${{ needs.register-release.result }}" \
             "${{ needs.release.result }}" \
             "${{ needs.update-platform.result }}" \
             "${{ needs.ci-cli.result }}" \
