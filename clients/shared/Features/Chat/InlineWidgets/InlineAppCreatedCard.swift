@@ -70,7 +70,7 @@ struct InlineAppCreatedCard: View {
                 }
 
                 if isPinned {
-                    VButton(label: "Pinned", leftIcon: "checkmark", style: .success, size: .small, isDisabled: true) {}
+                    VButton(label: "Pinned", leftIcon: "checkmark", style: .success, size: .small) {}
                 } else {
                     VButton(label: "Pin to Homebase", leftIcon: "pin.fill", style: .outlined, size: .small) {
                         isPinned = true
