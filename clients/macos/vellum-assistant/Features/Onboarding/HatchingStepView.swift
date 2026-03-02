@@ -22,6 +22,7 @@ struct HatchingStepView: View {
     @State private var progressMessageTimer: Timer?
     @State private var showTimeEstimate = false
     @State private var cliFinished = false
+    @State private var failureReason: String?
 
     private static let progressMessages = [
         "Getting things ready\u{2026}",
@@ -155,6 +156,11 @@ struct HatchingStepView: View {
                 Text("Something went wrong")
                     .font(.system(size: 24, weight: .regular, design: .serif))
                     .foregroundColor(VColor.textPrimary)
+                if let reason = failureReason {
+                    Text(reason)
+                        .font(.system(size: 14))
+                        .foregroundColor(VColor.textSecondary)
+                }
             } else if state.hatchCompleted {
                 Text(isCustomHardware ? "Your assistant is paired!" : "Your assistant has hatched!")
                     .font(.system(size: 24, weight: .regular, design: .serif))
@@ -233,11 +239,13 @@ struct HatchingStepView: View {
         state.hatchFailed = false
         state.hatchLogLines = []
         hatchStarted = false
+        failureReason = nil
     }
 
     private func retryHatch() {
         state.hatchFailed = false
         state.hatchLogLines = []
+        failureReason = nil
         eggCracked = false
         crackTime = nil
         cliFinished = false
@@ -374,6 +382,7 @@ struct HatchingStepView: View {
                 handleHatchSuccess()
             } catch {
                 state.hatchLogLines.append("Error: \(error.localizedDescription)")
+                failureReason = friendlyErrorMessage(from: error)
                 state.hatchFailed = true
             }
         }
@@ -390,8 +399,28 @@ struct HatchingStepView: View {
                 handleHatchSuccess()
             } catch {
                 state.hatchLogLines.append("Error: \(error.localizedDescription)")
+                failureReason = friendlyErrorMessage(from: error)
                 state.hatchFailed = true
             }
+        }
+    }
+
+    // MARK: - Error Mapping
+
+    private func friendlyErrorMessage(from error: Error) -> String {
+        let desc = error.localizedDescription.lowercased()
+        if desc.contains("connection refused") || desc.contains("econnrefused") {
+            return "Could not connect to your assistant"
+        } else if desc.contains("timed out") || desc.contains("timeout") {
+            return "Setup timed out \u{2014} please try again"
+        } else if desc.contains("no such file") || desc.contains("enoent") {
+            return "Assistant files could not be found"
+        } else if desc.contains("network") || desc.contains("internet") {
+            return "Network connection issue"
+        } else if desc.contains("permission") || desc.contains("eacces") {
+            return "Permission denied"
+        } else {
+            return error.localizedDescription
         }
     }
 }
