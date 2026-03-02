@@ -268,11 +268,11 @@ Use `messaging_analyze_activity` to classify channels or conversations by activi
 
 When a user asks to declutter, clean up, or organize their email — start scanning immediately. Don't ask what kind of cleanup they want or request permission to read their inbox. Go straight to scanning — but once results are ready, always show them via `ui_show` and let the user choose actions before archiving or unsubscribing.
 
-**CRITICAL**: Never call `gmail_archive_by_query`, `gmail_unsubscribe`, or `messaging_archive_by_sender` unless the user has clicked an action button on the table for that specific batch. Each batch of results requires its own explicit user confirmation via the table UI. If the user says "keep going" or "keep decluttering," that means scan and present a new table — NOT auto-archive. Previous batch approvals do not carry forward.
+**CRITICAL**: Never call `gmail_batch_archive`, `gmail_unsubscribe`, or `messaging_archive_by_sender` unless the user has clicked an action button on the table for that specific batch. Each batch of results requires its own explicit user confirmation via the table UI. If the user says "keep going" or "keep decluttering," that means scan and present a new table — NOT auto-archive. Previous batch approvals do not carry forward.
 
 ### Provider Selection
 
-- **Gmail connected**: Use the Gmail-specific tools (`gmail_sender_digest`, `gmail_archive_by_query`, `gmail_unsubscribe`, `gmail_filters`) — they have richer features like unsubscribe support and filter creation.
+- **Gmail connected**: Use the Gmail-specific tools (`gmail_sender_digest`, `gmail_batch_archive`, `gmail_unsubscribe`, `gmail_filters`) — they have richer features like unsubscribe support and filter creation.
 - **Non-Gmail email connected**: Use the generic tools (`messaging_sender_digest`, `messaging_archive_by_sender`) — they work with any provider that supports these operations. Skip unsubscribe and filter offers since they are Gmail-specific.
 - **Nothing connected**: Ask which email provider they use. If it's Gmail, go straight into the Gmail connection flow. For other providers, let the user know only Gmail is supported right now and offer to set up Gmail instead. Don't present a menu of options or explain what OAuth is.
 
@@ -303,7 +303,7 @@ When a user asks to declutter, clean up, or organize their email — start scann
 
 - **Zero results**: Tell the user "No newsletter emails found" and suggest broadening the query (e.g. removing the category filter or extending the date range)
 - **Unsubscribe failures**: Report per-sender success/failure; the existing `gmail_unsubscribe` tool handles edge cases
-- **Large sender counts**: The scan covers up to 2000 messages. If `has_more` is true for a sender, it means they had more messages than could be tracked — mention this to the user in the summary
+- **Large sender counts**: The scan covers up to 2000 messages. If `truncated` is true in the top-level response, the scan was capped and there are more matching emails beyond what was scanned — tell the user the cleanup was partial and offer to run another pass. If `has_more` is true for a sender, it means they had more messages than could be tracked — mention this to the user in the summary
 
 ## Batch Operations
 

@@ -43,6 +43,7 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
         senders,
         total_scanned: result.totalScanned,
         query_used: result.queryUsed,
+        ...(result.truncated ? { truncated: true } : {}),
         note: `message_count reflects emails found per sender within the ${result.totalScanned} messages scanned. Use the message_ids array with the archive tool to archive exactly these messages.`,
       }));
     });

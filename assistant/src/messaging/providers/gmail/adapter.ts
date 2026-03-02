@@ -202,6 +202,7 @@ export const gmailMessagingProvider: MessagingProvider = {
 
     const allMessageIds: string[] = [];
     let pageToken: string | undefined;
+    let truncated = false;
 
     while (allMessageIds.length < maxMessages) {
       const pageSize = Math.min(100, maxMessages - allMessageIds.length);
@@ -211,6 +212,11 @@ export const gmailMessagingProvider: MessagingProvider = {
       allMessageIds.push(...ids);
       pageToken = listResp.nextPageToken ?? undefined;
       if (!pageToken) break;
+    }
+
+    // If we stopped because we hit the cap but there were still more pages, flag truncation
+    if (allMessageIds.length >= maxMessages && pageToken) {
+      truncated = true;
     }
 
     if (allMessageIds.length === 0) {
@@ -283,7 +289,7 @@ export const gmailMessagingProvider: MessagingProvider = {
       hasMore: s.hasMore,
     }));
 
-    return { senders, totalScanned: allMessageIds.length, queryUsed: query };
+    return { senders, totalScanned: allMessageIds.length, queryUsed: query, ...(truncated ? { truncated } : {}) };
   },
 
   async archiveByQuery(token: string, query: string): Promise<ArchiveResult> {
