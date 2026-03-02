@@ -56,7 +56,7 @@ final class VoiceModeManager: ObservableObject {
     /// Combine subscription forwarding live partial transcription from the voice service.
     private var liveTranscriptionCancellable: AnyCancellable?
 
-    nonisolated init(voiceService: any VoiceServiceProtocol = OpenAIVoiceService()) {
+    init(voiceService: any VoiceServiceProtocol = OpenAIVoiceService()) {
         self.voiceService = voiceService
     }
 

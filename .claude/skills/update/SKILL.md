@@ -30,18 +30,19 @@ Pull the latest changes from main, use `vellum` lifecycle CLI to stop and restar
    vellum sleep || true
    ```
 
-   **Fallback only if sleep fails** (processes stubbornly remain):
+4. Verify stopped — run `vellum ps` and confirm no running processes. If `vellum ps` shows processes still running, run fallback cleanup to force-kill them:
+   ```bash
+   vellum ps
+   ```
+
+   **Fallback cleanup if `vellum ps` confirms processes are still running:**
    ```bash
    pkill -x "vellum-assistant" || true
    pkill -f "gateway/src/index" || true
    lsof -ti :7830 | xargs kill -9 2>/dev/null || true
    lsof -ti :7821 | xargs kill -9 2>/dev/null || true
    ```
-
-4. Verify stopped — run `vellum ps` and confirm no running processes. If processes remain, log a warning:
-   ```bash
-   vellum ps
-   ```
+   After fallback cleanup, run `vellum ps` again to confirm all processes are stopped.
 
 5. Switch to main and pull latest:
    ```bash

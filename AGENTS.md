@@ -8,7 +8,7 @@ Bun + TypeScript monorepo with multiple packages:
 - `gateway/` — Channel ingress gateway (Bun + TypeScript)
 - `clients/` — Client apps (macOS/iOS/etc). See `clients/AGENTS.md` and platform docs like `clients/macos/CLAUDE.md`.
 - `scripts/` — Utility scripts
-- `.claude/` — Claude Code slash commands and helper scripts (see `.claude/README.md`). Most commands are shared from [`claude-skills`](https://github.com/vellum-ai/claude-skills) via symlinks; repo-local commands live in `.claude/skills/vellum-skills/` as local skill files.
+- `.claude/` — Claude Code slash commands and helper scripts (see `.claude/README.md`). Most commands are shared from [`claude-skills`](https://github.com/vellum-ai/claude-skills) via symlinks; repo-local commands (`/update`, `/release`) live in `.claude/skills/<name>/` as local skill directories.
 
 ## Conventions
 
@@ -51,7 +51,7 @@ When your PR establishes a new mandatory pattern, convention, or architectural c
 
 ## Slash Commands — TLDR
 
-Most commands are shared from the [`claude-skills`](https://github.com/vellum-ai/claude-skills) repo via symlinks. Repo-local commands (`/update`, `/release`) live in `.claude/skills/vellum-skills/` as local skill files. After cloning, run `path/to/claude-skills/setup` to create the symlinks.
+Most commands are shared from the [`claude-skills`](https://github.com/vellum-ai/claude-skills) repo via symlinks. Repo-local commands (`/update`, `/release`) live in `.claude/skills/<name>/` as local skill directories. After cloning, run `path/to/claude-skills/setup` to create the symlinks.
 
 | Command | What it does |
 |---|---|
@@ -73,6 +73,7 @@ Most commands are shared from the [`claude-skills`](https://github.com/vellum-ai
 
 | `/update` | Pull latest from main, use `vellum ps/sleep/wake` to manage daemon and gateway lifecycle, rebuild/launch the macOS app, and print a startup summary. Uses `vellum sleep` (directory-agnostic global stop) to quiesce processes, then `vellum wake` (from current checkout) to restart. |
 
+**Lifecycle docs drift guard:** A guard test (`lifecycle-docs-guard.test.ts`) enforces that repo-local commands live in `.claude/skills/` (not `.claude/commands/`), key docs reference `vellum` CLI lifecycle commands, and stale daemon startup patterns (`bun run src/index.ts daemon start`) are not used as primary instructions outside dev-only contexts.
 
 ## Linear Ticket Hygiene
 
