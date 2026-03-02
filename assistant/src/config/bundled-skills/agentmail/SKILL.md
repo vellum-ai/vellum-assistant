@@ -8,9 +8,9 @@ metadata: {"vellum": {"emoji": "📬"}}
 ## How to run
 
 `vellum` is your own CLI binary — it is already installed and available on the PATH.
-Run all commands via `host_bash`. Do NOT attempt to install, build, or locate the CLI — just execute it directly.
+Run all commands via `bash`. Do NOT attempt to install, build, or locate the CLI — just execute it directly.
 
-Example: `host_bash("vellum email status --json")`
+Example: `bash("vellum email status --json")`
 
 Never use browser/computer-use unless user explicitly approves fallback.
 
@@ -20,7 +20,7 @@ This skill manages the **assistant's own** AgentMail address (`@agentmail.to`) �
 
 ## Rules
 
-- Always run `vellum email` commands via `host_bash` and parse JSON output.
+- Always run `vellum email` commands via `bash` and parse JSON output.
 - Always do `vellum email status --json` preflight first.
 - Prefer `draft create` before any send — never bypass draft flow.
 - Require explicit user confirmation before `draft approve-send --confirm`.
@@ -38,7 +38,7 @@ Use `credential_store` with:
 - label: `AgentMail API Key`
 - description: `Get your API key from console.agentmail.to`
 - placeholder: `am_us_...`
-- allowed_tools: `["host_bash"]`
+- allowed_tools: `["bash"]`
 - usage_description: `AgentMail email operations via vellum CLI`
 
 After the credential is stored, retry `vellum email status --json` to confirm it works.

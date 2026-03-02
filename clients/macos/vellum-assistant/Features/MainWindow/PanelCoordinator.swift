@@ -74,15 +74,6 @@ extension MainWindowView {
             sidebarView
         case .avatarCustomization:
             AvatarCustomizationPanel(onClose: { windowState.selection = .panel(windowState.avatarCustomizationReturnPanel) })
-        case .voiceMode:
-            VoiceModePanel(
-                manager: voiceModeManager,
-                voiceService: voiceModeManager.voiceService,
-                onClose: {
-                    voiceModeManager.deactivate()
-                    windowState.selection = nil
-                }
-            )
         case .apps:
             AppsGridView(
                 appListManager: appListManager,
@@ -189,7 +180,7 @@ extension MainWindowView {
             if let surface = windowState.activeDynamicParsedSurface,
                case .dynamicPage(let dpData) = surface.data {
                 dynamicWorkspaceView(surface: surface, data: dpData)
-                    .background(VColor.backgroundSubtle)
+                    .background(VColor.background)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
             } else {
                 // Loading state while waiting for daemon to send surface data
@@ -229,8 +220,7 @@ extension MainWindowView {
                     },
                     panel: {
                         dynamicWorkspaceView(surface: surface, data: dpData)
-                            .background(adaptiveColor(light: Moss._100, dark: Moss._900))
-                            .clipShape(UnevenRoundedRectangle(topLeadingRadius: VRadius.xl, bottomLeadingRadius: VRadius.xl))
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
                     }
                 )
             } else {
@@ -339,16 +329,6 @@ extension MainWindowView {
                         )
                     }
                 )
-            } else if panelType == .voiceMode {
-                // Voice mode: split view with chat on left, voice panel on right
-                VSplitView(
-                    panelWidth: $sidePanelWidth,
-                    showPanel: true,
-                    main: { chatView },
-                    panel: {
-                        nativePanelView(.voiceMode)
-                    }
-                )
             } else if isAppChatOpen {
                 // Split view: chat (left) + panel (right)
                 let contentWidth = Double(geometry.size.width) / zoomManager.zoomLevel - Double(VSpacing.sm)
@@ -433,6 +413,11 @@ extension MainWindowView {
                     settingsStore: settingsStore,
                     onMicrophoneToggle: onMicrophoneToggle,
                     isTemporaryChat: activeThread?.kind == .private,
+                    voiceModeManager: voiceModeManager,
+                    voiceService: voiceModeManager.voiceService,
+                    onEndVoiceMode: {
+                        voiceModeManager.deactivate()
+                    },
                     threadId: threadManager.activeThreadId
                 )
                 .environment(\.conversationZoomScale, conversationZoomManager.zoomLevel)
@@ -616,6 +601,9 @@ struct ActiveChatViewWrapper: View {
     @ObservedObject var settingsStore: SettingsStore
     let onMicrophoneToggle: () -> Void
     var isTemporaryChat: Bool = false
+    var voiceModeManager: VoiceModeManager? = nil
+    var voiceService: OpenAIVoiceService? = nil
+    var onEndVoiceMode: (() -> Void)? = nil
     var threadId: UUID?
 
     /// Reads the persisted bootstrap state so the chat view can suppress
@@ -729,6 +717,9 @@ struct ActiveChatViewWrapper: View {
             dismissedDocumentSurfaceIds: viewModel.dismissedDocumentSurfaceIds,
             onDismissDocumentWidget: { viewModel.dismissDocumentSurface(id: $0) },
             connectionDiagnosticHint: viewModel.connectionDiagnosticHint,
+            voiceModeManager: voiceModeManager,
+            voiceService: voiceService,
+            onEndVoiceMode: onEndVoiceMode,
             threadId: threadId,
             displayedMessageCount: viewModel.displayedMessageCount,
             hasMoreMessages: viewModel.hasMoreMessages,
@@ -807,6 +798,15 @@ struct DynamicWorkspaceWrapper: View {
     @State private var showVersionHistory = false
     @State private var publishUrlCopied = false
 
+    /// Corner radius for the WKWebView clipping container, matched to the SwiftUI clipShape.
+    private var webViewCornerRadius: CGFloat { VRadius.lg }
+
+    /// Which corners to round — all corners for both standalone and split editing
+    /// since each panel is individually rounded in its own container.
+    private var webViewMaskedCorners: CACornerMask {
+        [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+    }
+
     var body: some View {
         ZStack {
             if showVersionHistory, let appId = data.appId {
@@ -860,7 +860,9 @@ struct DynamicWorkspaceWrapper: View {
                     surfaceManager.onLinkOpen?(url, metadata)
                 },
                 topContentInset: 56,
-                bottomContentInset: 0
+                bottomContentInset: 0,
+                cornerRadius: webViewCornerRadius,
+                maskedCorners: webViewMaskedCorners
             )
 
             VStack(spacing: 0) {

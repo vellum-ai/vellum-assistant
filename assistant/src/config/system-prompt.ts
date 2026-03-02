@@ -410,7 +410,7 @@ function buildToolPermissionSection(): string {
     '',
     '### Always-Available Tools (No Approval Required)',
     '',
-    '- **file_read** on your workspace directory — You can freely read any file under your `.vellum` workspace at any time. Use this proactively to check files, load context, and inform your responses without asking.',
+    '- **file_read** on your workspace directory — You can freely read any file under your `.vellum` workspace at any time. Use this proactively to check files, load context, and inform your responses without asking. **Always use `file_read` for workspace files (IDENTITY.md, USER.md, SOUL.md, etc.), never `host_file_read`.**',
     '- **web_search** — You can search the web at any time without approval. Use this to look up documentation, current information, or anything you need.',
   ].join('\n');
 }
@@ -688,7 +688,7 @@ function buildConfigSection(): string {
   return [
     '## Configuration',
     `- **Active model**: \`${config.model}\` (provider: ${config.provider})`,
-    `${configPreamble} Key files you may read or edit include but are not limited to:`,
+    `${configPreamble} **Always use \`file_read\` and \`file_edit\` (not \`host_file_read\` / \`host_file_edit\`) for these files** — they are inside your sandbox working directory and do not require host access or user approval:`,
     '',
     '- `IDENTITY.md` — Your name, nature, personality, and emoji. Updated during the first-run ritual.',
     '- `SOUL.md` — Core principles, personality, and evolution guidance. Your behavioral foundation.',
@@ -722,6 +722,8 @@ function buildConfigSection(): string {
     '**IDENTITY.md** — update when:',
     '- They rename you or change your role',
     '- Your avatar appearance changes (update the `## Avatar` section with a description of the new look)',
+    '',
+    'When reading or updating workspace files, always use the sandbox tools (`file_read`, `file_edit`). Never use `host_file_read` or `host_file_edit` for workspace files — those are for host-only resources outside your workspace.',
     '',
     'When updating, read the file first, then make a targeted edit. Include all useful information, but don\'t bloat the files over time',
   ].join('\n');

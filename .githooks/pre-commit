@@ -636,7 +636,7 @@ for DIR in "${DIRS_TO_CHECK[@]}"; do
         for F in "${PRETTIER_FILES[@]}"; do
             REL_FILES+=("${F#$DIR/}")
         done
-        if ! (cd "$DIR" && "$BUN" run format:check "${REL_FILES[@]}") 2>&1; then
+        if ! (cd "$DIR" && "$BUN" x prettier --check "${REL_FILES[@]}") 2>&1; then
             echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
             echo -e "${RED}Prettier formatting issues found in ${DIR}/!${NC}"
             echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"

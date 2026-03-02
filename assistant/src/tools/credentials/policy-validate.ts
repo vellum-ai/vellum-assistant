@@ -8,6 +8,20 @@
 
 import type { CredentialPolicy, CredentialPolicyInput } from './policy-types.js';
 
+/**
+ * Host tools that must never appear in credential allowed_tools.
+ *
+ * Credentials should only be accessible from sandboxed tools, not from
+ * host-level tools that execute directly on the user's machine.
+ * Map each blocked tool to its safe sandboxed equivalent.
+ */
+const BLOCKED_HOST_TOOLS: ReadonlyMap<string, string> = new Map([
+  ['host_bash', 'bash'],
+  ['host_file_read', 'file_read'],
+  ['host_file_write', 'file_write'],
+  ['host_file_edit', 'file_edit'],
+]);
+
 export interface ValidationResult {
   valid: boolean;
   errors: string[];
@@ -29,6 +43,14 @@ export function validatePolicyInput(input: CredentialPolicyInput): ValidationRes
         const tool = input.allowed_tools[i];
         if (typeof tool !== 'string' || tool.trim().length === 0) {
           errors.push(`allowed_tools[${i}] must be a non-empty string`);
+        } else {
+          const replacement = BLOCKED_HOST_TOOLS.get(tool);
+          if (replacement !== undefined) {
+            errors.push(
+              `allowed_tools[${i}] "${tool}" is a host tool and cannot be used for credential access. ` +
+              `Use "${replacement}" instead.`,
+            );
+          }
         }
       }
     }

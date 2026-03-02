@@ -12,6 +12,9 @@ import SwiftUI
 /// We manually track the pre-zoom frame because `NSWindow.isZoomed` can be
 /// unreliable with `fullSizeContentView`, causing `zoom(nil)` not to toggle
 /// back to the previous size.
+/// Keep custom AppKit event/view subclasses actor-isolated so SwiftUI
+/// gesture callbacks always execute with main-executor context.
+@MainActor
 class TitleBarZoomableWindow: NSWindow {
     private var preZoomFrame: NSRect?
 
@@ -131,6 +134,7 @@ class TitleBarZoomableWindow: NSWindow {
 /// This prevents the transparent title bar from swallowing clicks intended for
 /// SwiftUI buttons (sidebar toggle, temporary-chat toggle) that sit in the
 /// title bar zone.
+@MainActor
 class NonDraggableHostingController<Content: View>: NSHostingController<Content> {
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -165,6 +169,7 @@ class NonDraggableHostingController<Content: View>: NSHostingController<Content>
 
 /// A plain NSView that returns `mouseDownCanMoveWindow = false`,
 /// preventing the transparent title bar from intercepting clicks.
+@MainActor
 private class NonDraggableContainerView: NSView {
     override var mouseDownCanMoveWindow: Bool { false }
 }

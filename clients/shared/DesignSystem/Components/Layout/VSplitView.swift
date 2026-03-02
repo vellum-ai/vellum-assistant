@@ -38,10 +38,8 @@ public struct VSplitView<Main: View, Panel: View>: View {
                         .frame(width: panelWidth)
                         .animation(nil, value: panelWidth)  // Disable animation on width changes
                         .background(VColor.backgroundSubtle)
-                        .overlay(alignment: .top) {
-                            VColor.surfaceBorder.frame(height: 1)
-                        }
-                        .padding(.bottom, VSpacing.xs)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+                        .padding([.bottom, .trailing], VSpacing.xs)
                         .transition(.move(edge: .trailing))
                 }
             }

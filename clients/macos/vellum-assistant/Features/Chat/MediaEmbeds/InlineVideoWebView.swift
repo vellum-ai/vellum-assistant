@@ -1,6 +1,20 @@
 import SwiftUI
 @preconcurrency import WebKit
 
+/// WKWebView subclass that forwards scroll-wheel events to the enclosing
+/// NSScrollView instead of consuming them internally.
+///
+/// By default, an active WKWebView swallows all scroll events — even when the
+/// web content itself isn't scrollable — which prevents the outer chat
+/// ScrollView from responding to trackpad/mouse-wheel input when the cursor
+/// is over an inline video embed. Forwarding to `nextResponder` passes the
+/// event up the AppKit responder chain to the enclosing NSScrollView.
+private class ScrollForwardingWebView: WKWebView {
+    override func scrollWheel(with event: NSEvent) {
+        nextResponder?.scrollWheel(with: event)
+    }
+}
+
 /// Isolated WKWebView wrapper for inline video embeds.
 ///
 /// Uses an ephemeral (non-persistent) data store so no cookies, local storage,
@@ -80,7 +94,7 @@ struct InlineVideoWebView: NSViewRepresentable {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .nonPersistent()
 
-        let webView = WKWebView(frame: .zero, configuration: config)
+        let webView = ScrollForwardingWebView(frame: .zero, configuration: config)
         webView.allowsLinkPreview = false
 
         return webView

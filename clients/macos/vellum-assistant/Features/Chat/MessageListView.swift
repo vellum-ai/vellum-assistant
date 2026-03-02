@@ -1,6 +1,9 @@
 import Combine
+import os
 import SwiftUI
 import VellumAssistantShared
+
+private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "MessageListView")
 
 struct MessageListView: View {
     let messages: [ChatMessage]
@@ -57,6 +60,12 @@ struct MessageListView: View {
     /// Observing the full TaskProgressOverlayManager would cause the entire
     /// message list to re-render on every frequent `data` progress tick.
     @State private var activeSurfaceId: String?
+    /// Guards the pagination sentinel against re-entry during the brief window
+    /// between Task launch and the first `await` (before isLoadingMoreMessages is set).
+    @State private var isPaginationInFlight: Bool = false
+    /// Suppresses bottom auto-scroll for the ~32ms layout window after pagination
+    /// restores scroll position, preventing a jump back to the bottom.
+    @State private var isSuppressingBottomScroll: Bool = false
 
     /// The subset of messages actually shown, honoring the pagination window.
     private var visibleMessages: [ChatMessage] {
@@ -188,11 +197,25 @@ struct MessageListView: View {
                             .frame(height: 1)
                             .id("page-load-trigger")
                             .onAppear {
+                                guard !isPaginationInFlight else { return }
+                                isPaginationInFlight = true
                                 let anchorId = visibleMessages.first?.id
+                                log.debug("Pagination triggered — anchorId: \(String(describing: anchorId))")
                                 Task {
+                                    defer { isPaginationInFlight = false }
                                     let hadMore = await loadPreviousMessagePage?() ?? false
+                                    log.debug("loadPreviousMessagePage returned hadMore=\(hadMore)")
                                     if hadMore, let id = anchorId {
+                                        // Suppress bottom auto-scroll for the brief layout window so the
+                                        // restored anchor position is not immediately overridden.
+                                        isSuppressingBottomScroll = true
+                                        // Wait ~6 frames for SwiftUI to complete layout before restoring position.
+                                        // 100ms gives video embed cards (which animate height over 0.25s) enough
+                                        // time to settle so the scroll restoration lands at the right position.
+                                        try? await Task.sleep(nanoseconds: 100_000_000)
                                         proxy.scrollTo(id, anchor: .top)
+                                        log.debug("Scroll restored to anchor \(id)")
+                                        isSuppressingBottomScroll = false
                                     }
                                 }
                             }
@@ -422,7 +445,7 @@ struct MessageListView: View {
                 }
             }
             .onChange(of: streamingScrollTrigger) {
-                if isNearBottom {
+                if isNearBottom && !isSuppressingBottomScroll {
                     // Throttle pattern: fire immediately then suppress for 200ms.
                     // Unlike debounce (cancel+recreate), this guarantees scrolls
                     // execute during active streaming, not only after the last token.
@@ -449,10 +472,12 @@ struct MessageListView: View {
                 }
             }
             .onChange(of: messages.count) {
-                if isNearBottom {
+                if isNearBottom && !isSuppressingBottomScroll {
                     withAnimation(VAnimation.fast) {
                         proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
                     }
+                } else if isSuppressingBottomScroll {
+                    log.debug("Auto-scroll suppressed (bottom-scroll suppression active)")
                 }
             }
             .onChange(of: conversationZoomScale) {

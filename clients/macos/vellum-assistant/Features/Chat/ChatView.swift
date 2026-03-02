@@ -67,6 +67,9 @@ struct ChatView: View {
     var dismissedDocumentSurfaceIds: Set<String> = []
     var onDismissDocumentWidget: ((String) -> Void)?
     var connectionDiagnosticHint: String? = nil
+    var voiceModeManager: VoiceModeManager? = nil
+    var voiceService: OpenAIVoiceService? = nil
+    var onEndVoiceMode: (() -> Void)? = nil
     var threadId: UUID?
 
     // MARK: - Pagination
@@ -257,6 +260,9 @@ struct ChatView: View {
                             isLearnMode: isLearnMode,
                             networkEntryCount: networkEntryCount,
                             idleHint: idleHint,
+                            voiceModeManager: voiceModeManager,
+                            voiceService: voiceService,
+                            onEndVoiceMode: onEndVoiceMode,
                             editorContentHeight: $editorContentHeight,
                             isComposerExpanded: $isComposerExpanded
                         )
@@ -452,7 +458,7 @@ struct ScrollWheelDetector: NSViewRepresentable {
                     if let scrollView = coordinator.findEnclosingScrollView() {
                         let clipBounds = scrollView.contentView.bounds
                         let docHeight = scrollView.documentView?.frame.height ?? 0
-                        if docHeight - clipBounds.maxY >= 50 {
+                        if docHeight - clipBounds.maxY >= 20 {
                             coordinator.onScrollUp?()
                         }
                     } else {
@@ -467,7 +473,7 @@ struct ScrollWheelDetector: NSViewRepresentable {
                     if let scrollView = coordinator.findEnclosingScrollView() {
                         let clipBounds = scrollView.contentView.bounds
                         let docHeight = scrollView.documentView?.frame.height ?? 0
-                        if docHeight - clipBounds.maxY < 50 {
+                        if docHeight - clipBounds.maxY < 20 {
                             coordinator.onScrollToBottom?()
                         }
                     }

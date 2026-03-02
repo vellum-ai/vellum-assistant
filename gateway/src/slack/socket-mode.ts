@@ -1,7 +1,13 @@
 import { getLogger } from "../logger.js";
 import { fetchImpl } from "../fetch.js";
 import type { GatewayConfig } from "../config.js";
-import { normalizeSlackAppMention, type SlackAppMentionEvent, type NormalizedSlackEvent } from "./normalize.js";
+import {
+  normalizeSlackAppMention,
+  normalizeSlackDirectMessage,
+  type SlackAppMentionEvent,
+  type SlackDirectMessageEvent,
+  type NormalizedSlackEvent,
+} from "./normalize.js";
 
 const log = getLogger("slack-socket-mode");
 
@@ -14,6 +20,8 @@ export type SlackSocketModeConfig = {
   appToken: string;
   botToken: string;
   gatewayConfig: GatewayConfig;
+  /** Bot's own Slack user ID, used to ignore the bot's own DMs. */
+  botUserId?: string;
 };
 
 /**
@@ -34,7 +42,10 @@ export class SlackSocketModeClient {
   private dedupMap = new Map<string, number>();
   private dedupCleanupTimer: ReturnType<typeof setInterval> | null = null;
 
-  constructor(config: SlackSocketModeConfig, onEvent: (event: NormalizedSlackEvent) => void) {
+  constructor(
+    config: SlackSocketModeConfig,
+    onEvent: (event: NormalizedSlackEvent) => void,
+  ) {
     this.config = config;
     this.onEvent = onEvent;
   }
@@ -43,6 +54,24 @@ export class SlackSocketModeClient {
     if (this.running) return;
     this.running = true;
     this.startDedupCleanup();
+
+    // Resolve bot user ID via auth.test so we can filter the bot's own DMs
+    if (!this.config.botUserId) {
+      try {
+        const resp = await fetchImpl("https://slack.com/api/auth.test", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${this.config.botToken}` },
+        });
+        const data = (await resp.json()) as { ok: boolean; user_id?: string };
+        if (data.ok && data.user_id) {
+          this.config.botUserId = data.user_id;
+          log.info({ botUserId: data.user_id }, "Resolved Slack bot user ID");
+        }
+      } catch (err) {
+        log.warn({ err }, "Failed to resolve bot user ID via auth.test");
+      }
+    }
+
     await this.connect();
   }
 
@@ -91,13 +120,19 @@ export class SlackSocketModeClient {
       });
 
       ws.addEventListener("close", (closeEvent) => {
-        log.info({ code: closeEvent.code, reason: closeEvent.reason }, "Slack Socket Mode disconnected");
+        log.info(
+          { code: closeEvent.code, reason: closeEvent.reason },
+          "Slack Socket Mode disconnected",
+        );
         this.ws = null;
         this.scheduleReconnect();
       });
 
       ws.addEventListener("error", (errorEvent) => {
-        log.error({ error: String(errorEvent) }, "Slack Socket Mode WebSocket error");
+        log.error(
+          { error: String(errorEvent) },
+          "Slack Socket Mode WebSocket error",
+        );
       });
     } catch (err) {
       log.error({ err }, "Failed to create WebSocket connection");
@@ -107,21 +142,30 @@ export class SlackSocketModeClient {
   }
 
   private async getWebSocketUrl(): Promise<string> {
-    const resp = await fetchImpl("https://slack.com/api/apps.connections.open", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${this.config.appToken}`,
-        "Content-Type": "application/x-www-form-urlencoded",
+    const resp = await fetchImpl(
+      "https://slack.com/api/apps.connections.open",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.config.appToken}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
       },
-    });
+    );
 
     if (!resp.ok) {
       throw new Error(`apps.connections.open HTTP ${resp.status}`);
     }
 
-    const data = (await resp.json()) as { ok: boolean; url?: string; error?: string };
+    const data = (await resp.json()) as {
+      ok: boolean;
+      url?: string;
+      error?: string;
+    };
     if (!data.ok || !data.url) {
-      throw new Error(`apps.connections.open failed: ${data.error ?? "unknown error"}`);
+      throw new Error(
+        `apps.connections.open failed: ${data.error ?? "unknown error"}`,
+      );
     }
 
     return data.url;
@@ -133,7 +177,7 @@ export class SlackSocketModeClient {
       type?: string;
       payload?: {
         event_id?: string;
-        event?: SlackAppMentionEvent;
+        event?: SlackAppMentionEvent | SlackDirectMessageEvent;
       };
       reason?: string;
     };
@@ -146,13 +190,20 @@ export class SlackSocketModeClient {
     }
 
     // ACK every envelope immediately
-    if (envelope.envelope_id && this.ws && this.ws.readyState === WebSocket.OPEN) {
+    if (
+      envelope.envelope_id &&
+      this.ws &&
+      this.ws.readyState === WebSocket.OPEN
+    ) {
       this.ws.send(JSON.stringify({ envelope_id: envelope.envelope_id }));
     }
 
     // Handle disconnect type: Slack asks us to reconnect
     if (envelope.type === "disconnect") {
-      log.info({ reason: envelope.reason }, "Slack requested disconnect, reconnecting");
+      log.info(
+        { reason: envelope.reason },
+        "Slack requested disconnect, reconnecting",
+      );
       if (this.ws) {
         try {
           this.ws.close(1000, "server requested disconnect");
@@ -173,8 +224,16 @@ export class SlackSocketModeClient {
     const eventPayload = envelope.payload;
     if (!eventPayload?.event || !eventPayload.event_id) return;
 
-    // Only process app_mention events in MVP
-    if (eventPayload.event.type !== "app_mention") return;
+    const event = eventPayload.event;
+    const dmEvent = event as SlackDirectMessageEvent;
+
+    // Process app_mention events and DM (message with channel_type: "im") events
+    if (
+      event.type !== "app_mention" &&
+      !(event.type === "message" && dmEvent.channel_type === "im")
+    ) {
+      return;
+    }
 
     // Deduplicate on event_id
     const eventId = eventPayload.event_id;
@@ -184,14 +243,25 @@ export class SlackSocketModeClient {
     }
     this.dedupMap.set(eventId, Date.now());
 
-    const normalized = normalizeSlackAppMention(
-      eventPayload.event,
-      eventId,
-      this.config.gatewayConfig,
-    );
+    let normalized: NormalizedSlackEvent | null;
+    if (event.type === "app_mention") {
+      normalized = normalizeSlackAppMention(
+        event as SlackAppMentionEvent,
+        eventId,
+        this.config.gatewayConfig,
+      );
+    } else {
+      normalized = normalizeSlackDirectMessage(
+        event as SlackDirectMessageEvent,
+        eventId,
+        this.config.gatewayConfig,
+        this.config.botUserId,
+      );
+    }
+
     if (!normalized) {
       log.info(
-        { eventId, channel: eventPayload.event.channel },
+        { eventId, channel: event.channel, type: event.type },
         "Slack event dropped by normalization/routing",
       );
       return;
@@ -212,7 +282,10 @@ export class SlackSocketModeClient {
     const jitter = Math.random() * backoff * 0.5;
     const delay = Math.round(backoff + jitter);
 
-    log.info({ attempt: this.reconnectAttempt, delayMs: delay }, "Scheduling Socket Mode reconnect");
+    log.info(
+      { attempt: this.reconnectAttempt, delayMs: delay },
+      "Scheduling Socket Mode reconnect",
+    );
     this.reconnectAttempt++;
 
     this.reconnectTimer = setTimeout(() => {

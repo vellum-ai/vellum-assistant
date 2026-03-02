@@ -46,7 +46,7 @@ In a multi-assistant environment (multiple assistants sharing the same daemon), 
 - `DELETE /v1/integrations/twilio/credentials` — Removes the globally stored Account SID and Auth Token. This affects all assistants.
 
 **Assistant-scoped actions** (use `assistantId` query parameter to scope phone number configuration per assistant):
-- `GET /v1/integrations/twilio/config` — Returns the phone number assigned to the specified assistant (falls back to the legacy global number if no per-assistant mapping exists).
+- `GET /v1/integrations/twilio/config` — Returns the phone number assigned to the specified assistant.
 - `POST /v1/integrations/twilio/numbers/assign` — Assigns a phone number to a specific assistant via the per-assistant mapping.
 - `POST /v1/integrations/twilio/numbers/provision` — Provisions a new number and assigns it to the specified assistant.
 - `GET /v1/integrations/twilio/numbers` — Lists all phone numbers on the shared Twilio account (uses global credentials).

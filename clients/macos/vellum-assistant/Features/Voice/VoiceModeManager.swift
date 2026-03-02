@@ -15,6 +15,7 @@ final class VoiceModeManager: ObservableObject {
         didSet { handleStateTransition(from: oldValue, to: state) }
     }
     @Published var partialTranscription: String = ""
+    @Published var liveTranscription: String = ""
     @Published var errorMessage: String = ""
     /// Set to true when deactivation was triggered by the conversation timeout
     /// (as opposed to manual deactivation). WakeWordCoordinator uses this to
@@ -47,6 +48,8 @@ final class VoiceModeManager: ObservableObject {
     private var messageCancellable: AnyCancellable?
     /// Combine subscription to pause/resume conversation timeout during tool execution.
     private var isThinkingCancellable: AnyCancellable?
+    /// Combine subscription forwarding live partial transcription from the voice service.
+    private var liveTranscriptionCancellable: AnyCancellable?
 
     nonisolated init() {
         self.voiceService = OpenAIVoiceService()
@@ -132,6 +135,14 @@ final class VoiceModeManager: ObservableObject {
                 }
             }
 
+        // Forward live partial transcription when listening
+        liveTranscriptionCancellable = voiceService.$livePartialText
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] text in
+                guard let self, self.state == .listening else { return }
+                self.liveTranscription = text
+            }
+
         // Pre-warm audio engine so first recording starts instantly
         voiceService.prewarmEngine()
 
@@ -187,12 +198,15 @@ final class VoiceModeManager: ObservableObject {
         messageCancellable = nil
         isThinkingCancellable?.cancel()
         isThinkingCancellable = nil
+        liveTranscriptionCancellable?.cancel()
+        liveTranscriptionCancellable = nil
         pendingPermissionIds = []
 
         chatViewModel = nil
         settingsStore = nil
         state = .off
         partialTranscription = ""
+        liveTranscription = ""
         log.info("Voice mode deactivated")
     }
 
@@ -212,6 +226,7 @@ final class VoiceModeManager: ObservableObject {
     func startListening() {
         guard state == .idle else { return }
         partialTranscription = ""
+        liveTranscription = ""
         errorMessage = ""
         state = .listening
         guard voiceService.startRecording() else {
@@ -241,10 +256,6 @@ final class VoiceModeManager: ObservableObject {
         voiceService.resetStreamingTTS()
 
         Task {
-            // Capture context on MainActor before awaiting transcription so it
-            // reflects the app the user was looking at when they spoke, not
-            // whatever app may be frontmost after the async wait completes.
-            let ctx = DictationContextCapture.capture()
             let text = await voiceService.stopRecordingAndGetTranscription()
             let trimmed = (text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -262,52 +273,11 @@ final class VoiceModeManager: ObservableObject {
 
             partialTranscription = trimmed
 
-            // Build the context prefix from captured app context. Sanitize
-            // attacker-controlled values (window titles, selected text) to
-            // prevent prompt injection and excessive length.
-            var contextPrefix = ""
-            if !ctx.appName.isEmpty {
-                var parts: [String] = ["app: \(ctx.appName)"]
-                if !ctx.windowTitle.isEmpty {
-                    let sanitizedTitle = Self.sanitize(ctx.windowTitle, maxLength: 200)
-                    if !sanitizedTitle.isEmpty {
-                        parts.append("window: \"\(sanitizedTitle)\"")
-                    }
-                }
-                if let selected = ctx.selectedText, !selected.isEmpty {
-                    let sanitizedSelected = Self.sanitize(selected, maxLength: 500)
-                    if !sanitizedSelected.isEmpty {
-                        parts.append("selected text: \"\(sanitizedSelected)\"")
-                    }
-                }
-                contextPrefix = "[User's current \(parts.joined(separator: ", "))]\n"
-            }
-
-            // Pass context via pendingVoiceContextPrefix so it's injected into
-            // the daemon-bound text only — not into inputText, which is used for
-            // chat bubble display and thread auto-titling.
             chatViewModel.pendingVoiceMessage = true
-            if !contextPrefix.isEmpty {
-                chatViewModel.pendingVoiceContextPrefix = contextPrefix
-            }
             chatViewModel.inputText = trimmed
             chatViewModel.sendMessage()
             log.info("Voice mode: sent transcription to chat via daemon")
         }
-    }
-
-    /// Sanitize attacker-controlled text (window titles, selected text) by
-    /// truncating to a maximum length and stripping bracket patterns like
-    /// `[...]` that could be confused with instruction markers.
-    private static func sanitize(_ input: String, maxLength: Int) -> String {
-        var result = String(input.prefix(maxLength))
-        // Strip bracket patterns that could look like instruction markers
-        result = result.replacingOccurrences(
-            of: "\\[.*?\\]",
-            with: "",
-            options: .regularExpression
-        )
-        return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // MARK: - Streaming TTS from daemon response
