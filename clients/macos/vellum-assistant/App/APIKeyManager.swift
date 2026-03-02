@@ -25,6 +25,15 @@ enum APIKeyManager {
     private static let legacyService = "com.vellum-assistant.anthropic-api-key"
     private static let legacyAccount = "anthropic-api-key"
 
+    private struct CachedKeyRead {
+        let value: String?
+        let cachedAt: Date
+    }
+
+    private static var readCache: [String: CachedKeyRead] = [:]
+    private static let readCacheLock = NSLock()
+    private static let readCacheTTL: TimeInterval = 60
+
     // MARK: - Anthropic (convenience wrappers for backward compatibility)
 
     static func getKey() -> String? { getKey(for: "anthropic") }
@@ -42,23 +51,55 @@ enum APIKeyManager {
     // MARK: - Generic provider access
 
     static func getKey(for provider: String) -> String? {
+        let cached = cachedValue(for: provider)
+        if cached.hit { return cached.value }
+
         if provider == "anthropic" {
             // migrateIfNeeded returns the key if it was already read during
             // the migration check, avoiding a redundant security CLI spawn
             // (each spawn triggers a macOS keychain authorization prompt).
-            if let cached = migrateIfNeeded() { return cached }
+            if let migrated = migrateIfNeeded() {
+                setCachedValue(migrated, for: provider)
+                return migrated
+            }
         }
-        return cliGetKey(service: service, account: provider)
+        let value = cliGetKey(service: service, account: provider)
+        setCachedValue(value, for: provider)
+        return value
     }
 
     static func setKey(_ key: String, for provider: String) {
         cliSetKey(service: service, account: provider, value: key)
+        setCachedValue(key, for: provider)
         notifyKeyDidChange()
     }
 
     static func deleteKey(for provider: String) {
         cliDeleteKey(service: service, account: provider)
+        setCachedValue(nil, for: provider)
         notifyKeyDidChange()
+    }
+
+    private static func cachedValue(for provider: String) -> (hit: Bool, value: String?) {
+        readCacheLock.lock()
+        defer { readCacheLock.unlock() }
+
+        guard let entry = readCache[provider] else {
+            return (false, nil)
+        }
+
+        if Date().timeIntervalSince(entry.cachedAt) > readCacheTTL {
+            readCache.removeValue(forKey: provider)
+            return (false, nil)
+        }
+
+        return (true, entry.value)
+    }
+
+    private static func setCachedValue(_ value: String?, for provider: String) {
+        readCacheLock.lock()
+        defer { readCacheLock.unlock() }
+        readCache[provider] = CachedKeyRead(value: value, cachedAt: Date())
     }
 
     // MARK: - CLI Helpers
