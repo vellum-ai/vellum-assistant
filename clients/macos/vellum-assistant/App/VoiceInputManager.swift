@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import CoreGraphics
 import Speech
 import AVFoundation
 import os
@@ -241,6 +242,10 @@ final class VoiceInputManager {
                 guard let self = self else { return }
                 // Don't start recording if any key was pressed during hold (Control+C, etc.)
                 guard !self.otherKeyPressedDuringHold else { return }
+                // Also verify no non-modifier key is physically held right now.
+                // This catches system shortcuts (e.g. ctrl+arrow for desktop switching)
+                // that macOS intercepts before keyDown events reach our global monitor.
+                guard !Self.isAnyNonModifierKeyPhysicallyHeld() else { return }
                 guard Date().timeIntervalSince(self.lastAppSwitchTime) > 0.5 else { return }
                 // Capture frontmost app context before recording starts so the daemon
                 // knows where to insert the cleaned-up text after dictation completes.
@@ -278,6 +283,24 @@ final class VoiceInputManager {
     }
 
     // MARK: - Recording
+
+    /// Returns true if any non-modifier key is physically held down at this moment.
+    /// Uses CGEventSource.keyState which reads directly from hardware, bypassing NSEvent
+    /// delivery — this catches system-intercepted shortcuts (e.g. ctrl+arrow for desktop
+    /// switching) that macOS consumes before our global keyDown monitor receives them.
+    private static func isAnyNonModifierKeyPhysicallyHeld() -> Bool {
+        // Key codes for modifier keys — exclude these from the check.
+        // 54, 55: right/left Command; 56, 60: right/left Shift; 57: Caps Lock
+        // 58, 61: right/left Option; 59, 62: right/left Control; 63: Fn
+        let modifierKeyCodes: Set<CGKeyCode> = [54, 55, 56, 57, 58, 59, 60, 61, 62, 63]
+        for keyCode in CGKeyCode(0)...CGKeyCode(126) {
+            if !modifierKeyCodes.contains(keyCode) &&
+                CGEventSource.keyState(.combinedSessionState, key: keyCode) {
+                return true
+            }
+        }
+        return false
+    }
 
     private func beginRecording() {
         guard let speechRecognizer = speechRecognizer, speechRecognizer.isAvailable else {
