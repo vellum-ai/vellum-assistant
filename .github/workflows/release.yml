@@ -162,6 +162,7 @@ jobs:
         platform:
           - linux/amd64
           - linux/arm64
+    environment: dev
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -223,6 +224,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
+    environment: dev
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -302,6 +304,7 @@ jobs:
         platform:
           - linux/amd64
           - linux/arm64
+    environment: dev
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -363,6 +366,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
+    environment: dev
     steps:
       - name: Checkout
         uses: actions/checkout@v4
