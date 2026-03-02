@@ -506,11 +506,13 @@ struct MessageListView: View {
                     // A new pending confirmation just appeared. Resign first
                     // responder from the composer so the confirmation bubble's
                     // key monitor can intercept Tab/Enter/Escape immediately.
-                    lastAutoFocusedRequestId = requestId
+                    // Only mark as handled after a successful resign so the
+                    // next render cycle can retry when the window is inactive.
                     if let window = NSApp.keyWindow,
                        let responder = window.firstResponder as? NSTextView,
                        responder.isEditable {
                         window.makeFirstResponder(nil)
+                        lastAutoFocusedRequestId = requestId
                     }
                 } else if currentPendingRequestId == nil {
                     lastAutoFocusedRequestId = nil
