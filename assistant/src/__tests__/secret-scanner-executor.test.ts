@@ -95,6 +95,7 @@ function makeContext(overrides?: Partial<{
     workingDir: '/tmp',
     sessionId: 'test-session',
     conversationId: 'test-conversation',
+    guardianTrustClass: 'guardian' as const,
     onToolLifecycleEvent: (event: ToolLifecycleEvent) => {
       auditListener(event);
       return overrides?.onToolLifecycleEvent?.(event);
@@ -313,6 +314,7 @@ describe('Secret scanner executor integration', () => {
       workingDir: '/tmp',
       sessionId: 'test-session',
       conversationId: 'test-conversation',
+      guardianTrustClass: 'guardian' as const,
     };
 
     const result = await executor.execute('file_read', {}, ctx);

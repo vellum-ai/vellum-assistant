@@ -16,7 +16,6 @@
 
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
-import type { ChannelId } from '../../channels/types.js';
 import type { GuardianRuntimeContext } from '../../daemon/session-runtime-assembly.js';
 import { getActiveBinding } from '../../memory/guardian-bindings.js';
 import { getLogger } from '../../util/logger.js';
@@ -24,10 +23,7 @@ import { findActiveByTokenHash } from '../actor-token-store.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
 import { parseSub } from '../auth/subject.js';
 import { hashToken, verifyToken } from '../auth/token-service.js';
-import {
-  resolveGuardianContext,
-  toGuardianRuntimeContext,
-} from '../guardian-context-resolver.js';
+import { resolveGuardianContext } from '../guardian-context-resolver.js';
 import { resolveLocalIpcGuardianContext } from '../local-actor-identity.js';
 
 const log = getLogger('actor-token-middleware');
@@ -273,12 +269,10 @@ export function verifyHttpActorToken(req: Request): ActorTokenVerification {
     actorExternalId: claims.guardianPrincipalId,
   });
 
-  const guardianContext = toGuardianRuntimeContext('vellum' as ChannelId, guardianCtx);
-
   return {
     ok: true,
     claims,
-    guardianContext,
+    guardianContext: guardianCtx,
   };
 }
 

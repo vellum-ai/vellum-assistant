@@ -1,5 +1,5 @@
 import { spawn } from "child_process";
-import { rmSync, writeFileSync } from "fs";
+import { renameSync, writeFileSync } from "fs";
 import { homedir } from "os";
 import { basename, dirname, join } from "path";
 
@@ -63,20 +63,37 @@ async function retireLocal(name: string, entry: AssistantEntry): Promise<void> {
     } catch {}
   }
 
-  // Archive ~/.vellum before deleting
+  // Move ~/.vellum out of the way so the path is immediately available for the
+  // next hatch, then kick off the tar archive in the background.
+  const archivePath = getArchivePath(name);
+  const metadataPath = getMetadataPath(name);
+  const stagingDir = `${archivePath}.staging`;
+
   try {
-    const archivePath = getArchivePath(name);
-    const metadataPath = getMetadataPath(name);
-    await exec("tar", ["czf", archivePath, "-C", dirname(vellumDir), basename(vellumDir)]);
-    writeFileSync(metadataPath, JSON.stringify(entry, null, 2) + "\n");
-    console.log(`📦 Archived to ${archivePath}`);
+    renameSync(vellumDir, stagingDir);
   } catch (err) {
-    console.warn(`⚠️  Failed to archive: ${err instanceof Error ? err.message : err}`);
-    console.warn("Proceeding with permanent deletion.");
+    console.warn(`⚠️  Failed to move ${vellumDir}: ${err instanceof Error ? err.message : err}`);
+    console.warn("Skipping archive.");
+    console.log("\u2705 Local instance retired.");
+    return;
   }
 
-  rmSync(vellumDir, { recursive: true, force: true });
+  writeFileSync(metadataPath, JSON.stringify(entry, null, 2) + "\n");
 
+  // Spawn tar + cleanup in the background and detach so the CLI can exit
+  // immediately. The staging directory is removed once the archive is written.
+  const tarCmd = [
+    `tar czf ${JSON.stringify(archivePath)} -C ${JSON.stringify(dirname(stagingDir))} ${JSON.stringify(basename(stagingDir))}`,
+    `rm -rf ${JSON.stringify(stagingDir)}`,
+  ].join(" && ");
+
+  const child = spawn("sh", ["-c", tarCmd], {
+    stdio: "ignore",
+    detached: true,
+  });
+  child.unref();
+
+  console.log(`📦 Archiving to ${archivePath} in the background.`);
   console.log("\u2705 Local instance retired.");
 }
 

@@ -285,6 +285,7 @@ describe('Telegram callback seen signals', () => {
       channel: 'telegram',
       guardianExternalUserId: 'telegram-user-default',
       guardianDeliveryChatId: 'chat-123',
+      guardianPrincipalId: 'telegram-user-default',
     });
 
     // Clear attention events from the init message

@@ -1277,6 +1277,7 @@ describe('relay-server', () => {
       channel: 'voice',
       guardianExternalUserId: '+15550001111',
       guardianDeliveryChatId: '+15550001111',
+      guardianPrincipalId: '+15550001111',
     });
 
     mockSendMessage.mockImplementation(createMockProviderResponse(['Hello there.']));
@@ -1313,6 +1314,7 @@ describe('relay-server', () => {
       channel: 'voice',
       guardianExternalUserId: '+15550009999',
       guardianDeliveryChatId: '+15550009999',
+      guardianPrincipalId: '+15550009999',
     });
     addTrustedVoiceContact('+15550002222', 'self');
 
@@ -1360,6 +1362,7 @@ describe('relay-server', () => {
       channel: 'voice',
       guardianExternalUserId: '+15550001111',
       guardianDeliveryChatId: '+15550001111',
+      guardianPrincipalId: '+15550001111',
     });
 
     mockSendMessage.mockImplementation(createMockProviderResponse(['Hello there.']));
@@ -1404,6 +1407,7 @@ describe('relay-server', () => {
       channel: 'telegram',
       guardianExternalUserId: 'tg-guardian-user',
       guardianDeliveryChatId: 'tg-guardian-chat',
+      guardianPrincipalId: 'tg-guardian-user',
     });
 
     // Number matches the configured owner number, but there is no active

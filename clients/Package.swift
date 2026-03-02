@@ -64,7 +64,8 @@ let package = Package(
                 .process("Resources/vellum-widgets.js"),
                 .process("Resources/vellum-edit-animator.js"),
                 .copy("Resources/editor"),
-                .process("Resources/initial-avatar.png")
+                .process("Resources/initial-avatar.png"),
+                .process("Resources/vellum-app-icon.png")
             ],
             linkerSettings: [
                 .linkedFramework("ApplicationServices"),

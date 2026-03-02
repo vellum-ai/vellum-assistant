@@ -34,7 +34,7 @@ export interface MemoryPrepareContext {
   conflictGate: ConflictGate;
   scopeId: string;
   includeDefaultFallback: boolean;
-  guardianTrustClass?: 'guardian' | 'trusted_contact' | 'unknown';
+  guardianTrustClass: 'guardian' | 'trusted_contact' | 'unknown';
   /** When false (e.g. scheduled tasks), skip conflict clarification prompts. */
   isInteractive?: boolean;
 }
@@ -64,7 +64,7 @@ export async function prepareMemoryContext(
   // Provenance-based trust gating: untrusted actors skip all memory operations
   // (recall, dynamic profile, conflict gate) to prevent untrusted content from
   // influencing memory-augmented responses.
-  const isTrustedActor = ctx.guardianTrustClass === 'guardian' || ctx.guardianTrustClass === undefined;
+  const isTrustedActor = ctx.guardianTrustClass === 'guardian';
 
   if (!isTrustedActor) {
     return {

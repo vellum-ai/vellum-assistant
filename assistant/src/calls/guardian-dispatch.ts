@@ -95,14 +95,14 @@ async function dispatchGuardianQuestionInner(params: GuardianDispatchParams): Pr
     // (the canonical assistant-level binding) so the request is attributed to
     // the assistant's guardian principal.
     let vellumBinding = getActiveBinding(assistantId, 'vellum');
-    let guardianPrincipalId = vellumBinding?.guardianPrincipalId ?? undefined;
+    let guardianPrincipalId = vellumBinding?.guardianPrincipalId;
 
-    // Self-heal: if the vellum binding is missing or lacks a principal,
-    // bootstrap it so the pending_question request can be attributed.
+    // Self-heal: if the vellum binding is missing, bootstrap it so
+    // the pending_question request can be attributed.
     if (!guardianPrincipalId) {
       log.info(
         { callSessionId, assistantId, hadBinding: !!vellumBinding },
-        'Vellum binding missing or lacks principal — self-healing for voice dispatch',
+        'Vellum binding missing — self-healing for voice dispatch',
       );
       const healedPrincipalId = ensureVellumGuardianBinding(assistantId);
       vellumBinding = getActiveBinding(assistantId, 'vellum');

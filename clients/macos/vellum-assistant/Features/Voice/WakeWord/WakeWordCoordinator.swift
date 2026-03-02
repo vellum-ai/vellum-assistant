@@ -29,6 +29,13 @@ final class WakeWordCoordinator: ObservableObject {
     /// Stored so it can be cancelled on rapid voice mode toggles, preventing
     /// stacked restart callbacks from queuing up via the old asyncAfter pattern.
     private var restartMonitorTask: Task<Void, Never>?
+    /// The in-flight activation task — stored so it can be cancelled if voice mode
+    /// is toggled off before the mic handoff completes.
+    private var activationTask: Task<Void, Never>?
+    /// True while the retry loop is calling deactivate() between attempts.
+    /// Prevents the `.off` state observer from cancelling the activation task
+    /// when the retry loop itself triggers the `.off` transition.
+    private var isRetryingActivation = false
 
     /// Cooldown after activation to prevent re-triggering from leftover audio.
     private var lastActivationTime: Date?
@@ -110,25 +117,54 @@ final class WakeWordCoordinator: ObservableObject {
         WakeWordFeedback.playActivationChime()
         activationWindow.show(state: .activated)
 
-        // 2. Pause the audio monitor (stop keyword listening to free the mic)
+        // 2. Capture the ChatViewModel NOW (before any async delay) so it matches
+        // the thread the user is currently looking at.
+        guard let chatViewModel = ensureChatViewModel() else {
+            log.error("Wake word activation failed — no ChatViewModel available")
+            return
+        }
+
+        // 3. Pause the audio monitor (stop keyword listening to free the mic)
         audioMonitor.stopMonitoring()
 
-        // 3. Ensure we have an active ChatViewModel (create a new thread if needed)
-        guard let chatViewModel = ensureChatViewModel() else {
-            log.error("Wake word activation failed — no ChatViewModel available, resuming wake word listening")
-            audioMonitor.startMonitoring()
-            return
-        }
+        // 4. Wait for the wake word engine's SFSpeechRecognitionTask to fully
+        // release, then activate voice mode. macOS only allows one recognition
+        // task per process, so we retry with backoff if the first attempt fails.
+        activationTask?.cancel()
+        activationTask = Task { @MainActor [weak self] in
+            let delays: [Duration] = [.milliseconds(200), .milliseconds(300), .milliseconds(500)]
+            for (attempt, delay) in delays.enumerated() {
+                try? await Task.sleep(for: delay)
+                guard let self, !Task.isCancelled else { return }
+                guard self.voiceModeManager.state == .off else { return }
 
-        // 4. Activate voice mode (voice bar appears automatically via ComposerSection)
-        voiceModeManager.activate(chatViewModel: chatViewModel)
-        guard voiceModeManager.state != .off else {
-            log.warning("Voice mode activation failed — resuming wake word listening")
-            audioMonitor.startMonitoring()
-            return
+                self.voiceModeManager.activate(chatViewModel: chatViewModel)
+                guard self.voiceModeManager.state != .off else {
+                    log.warning("Voice mode activation failed on attempt \(attempt + 1)")
+                    continue
+                }
+                self.activatedViaWakeWord = true
+                self.voiceModeManager.startListening()
+
+                // Verify recording actually started
+                if self.voiceModeManager.state == .listening {
+                    log.info("Voice mode activated via wake word (attempt \(attempt + 1))")
+                    return
+                }
+
+                // startListening() failed — tear down and retry. Set the flag so
+                // the .off state observer doesn't cancel this activation task.
+                log.warning("startListening() failed on attempt \(attempt + 1) — mic not ready yet")
+                self.isRetryingActivation = true
+                self.voiceModeManager.deactivate()
+                self.isRetryingActivation = false
+            }
+
+            // All attempts failed
+            guard let self else { return }
+            log.error("Voice mode activation failed after \(delays.count) attempts — resuming wake word listening")
+            self.audioMonitor.startMonitoring()
         }
-        activatedViaWakeWord = true
-        voiceModeManager.startListening()
     }
 
     /// Returns the active ChatViewModel, creating a new thread if none exists.
@@ -179,6 +215,12 @@ final class WakeWordCoordinator: ObservableObject {
             .sink { [weak self] newState in
                 guard let self else { return }
                 if newState == .off {
+                    // Cancel in-flight activation — but not when the retry loop
+                    // itself called deactivate() between attempts.
+                    if !self.isRetryingActivation {
+                        self.activationTask?.cancel()
+                        self.activationTask = nil
+                    }
                     // Only resume monitoring if wake word is enabled in settings
                     if UserDefaults.standard.bool(forKey: "wakeWordEnabled") {
                         log.info("Voice mode deactivated — resuming wake word listening after delay")

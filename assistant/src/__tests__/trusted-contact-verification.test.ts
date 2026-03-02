@@ -393,6 +393,7 @@ describe('trusted contact verification → member activation', () => {
       channel: 'telegram',
       guardianExternalUserId: 'guardian-user-original',
       guardianDeliveryChatId: 'guardian-chat-original',
+      guardianPrincipalId: 'guardian-user-original',
       verifiedVia: 'challenge',
       metadataJson: null,
     });

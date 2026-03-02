@@ -138,7 +138,7 @@ export interface ToolContext {
   /** Optional principal identifier propagated to sub-tool confirmation flows. */
   principal?: string;
   /** Inbound trust classification for the session — used by trust/policy gates. */
-  guardianTrustClass?: 'guardian' | 'trusted_contact' | 'unknown';
+  guardianTrustClass: 'guardian' | 'trusted_contact' | 'unknown';
   /** Channel through which the tool invocation originates (e.g. 'telegram', 'voice'). Used for scoped grant consumption. */
   executionChannel?: string;
   /** Voice/call session ID, if the invocation originates from a call. Used for scoped grant consumption. */

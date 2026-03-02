@@ -88,6 +88,7 @@ const dummyContext: ToolContext = {
   workingDir: '/tmp',
   sessionId: 'sess-test',
   conversationId: 'conv-test',
+  guardianTrustClass: 'guardian',
 };
 
 // ---------------------------------------------------------------------------
@@ -378,6 +379,7 @@ describe('AssetSearchTool visibility policy', () => {
       workingDir: '/tmp',
       sessionId: 'sess-test',
       conversationId: otherConv.id,
+      guardianTrustClass: 'guardian',
     };
 
     const result = await assetSearchTool.execute({}, context);
@@ -396,6 +398,7 @@ describe('AssetSearchTool visibility policy', () => {
       workingDir: '/tmp',
       sessionId: 'sess-test',
       conversationId: privateConv.id,
+      guardianTrustClass: 'guardian',
     };
 
     const result = await assetSearchTool.execute({}, context);
@@ -415,6 +418,7 @@ describe('AssetSearchTool visibility policy', () => {
       workingDir: '/tmp',
       sessionId: 'sess-test',
       conversationId: otherPrivateConv.id,
+      guardianTrustClass: 'guardian',
     };
 
     const result = await assetSearchTool.execute({}, context);
@@ -434,6 +438,7 @@ describe('AssetSearchTool visibility policy', () => {
       workingDir: '/tmp',
       sessionId: 'sess-test',
       conversationId: standardConv.id,
+      guardianTrustClass: 'guardian',
     };
 
     const result = await assetSearchTool.execute({}, context);
@@ -457,6 +462,7 @@ describe('AssetSearchTool visibility policy', () => {
       workingDir: '/tmp',
       sessionId: 'sess-test',
       conversationId: otherConv.id,
+      guardianTrustClass: 'guardian',
     };
 
     const result = await assetSearchTool.execute({}, context);
@@ -472,6 +478,7 @@ describe('AssetSearchTool visibility policy', () => {
       workingDir: '/tmp',
       sessionId: 'sess-test',
       conversationId: conv.id,
+      guardianTrustClass: 'guardian',
     };
 
     const result = await assetSearchTool.execute({}, context);

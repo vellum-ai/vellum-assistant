@@ -1,3 +1,9 @@
+---
+name: release
+description: >
+  Cut a new release by triggering the Release workflow via GitHub Actions workflow dispatch.
+---
+
 Cut a new release by triggering the Release workflow via GitHub Actions workflow dispatch.
 
 The user may pass `$ARGUMENTS` as the bump type: `patch`, `minor`, or `major`. If not provided, default to `patch`.
