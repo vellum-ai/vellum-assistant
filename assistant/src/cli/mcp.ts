@@ -12,15 +12,15 @@ import { getCliLogger } from '../util/logger.js';
 
 const log = getCliLogger('cli');
 
-const HEALTH_CHECK_TIMEOUT_MS = 10_000;
+export const HEALTH_CHECK_TIMEOUT_MS = 10_000;
 
-async function checkServerHealth(serverId: string, config: McpServerConfig): Promise<string> {
+export async function checkServerHealth(serverId: string, config: McpServerConfig, timeoutMs = HEALTH_CHECK_TIMEOUT_MS): Promise<string> {
   const client = new McpClient(serverId, { quiet: true });
   try {
     await Promise.race([
       client.connect(config.transport),
       new Promise<never>((_, reject) => {
-        const t = setTimeout(() => reject(new Error('timeout')), HEALTH_CHECK_TIMEOUT_MS);
+        const t = setTimeout(() => reject(new Error('timeout')), timeoutMs);
         if (typeof t === 'object' && 'unref' in t) t.unref();
       }),
     ]);
