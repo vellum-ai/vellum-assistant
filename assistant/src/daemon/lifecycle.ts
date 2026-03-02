@@ -1,47 +1,54 @@
-import { randomBytes } from 'node:crypto';
-import { chmodSync,readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { randomBytes } from "node:crypto";
+import { chmodSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
-import { config as dotenvConfig } from 'dotenv';
+import { config as dotenvConfig } from "dotenv";
 
-import { setPointerMessageProcessor } from '../calls/call-pointer-messages.js';
-import { reconcileCallsOnStartup } from '../calls/call-recovery.js';
-import { setRelayBroadcast } from '../calls/relay-server.js';
-import { TwilioConversationRelayProvider } from '../calls/twilio-provider.js';
-import { setVoiceBridgeDeps } from '../calls/voice-session-bridge.js';
-import { isAssistantFeatureFlagEnabled } from '../config/assistant-feature-flags.js';
+import { setPointerMessageProcessor } from "../calls/call-pointer-messages.js";
+import { reconcileCallsOnStartup } from "../calls/call-recovery.js";
+import { setRelayBroadcast } from "../calls/relay-server.js";
+import { TwilioConversationRelayProvider } from "../calls/twilio-provider.js";
+import { setVoiceBridgeDeps } from "../calls/voice-session-bridge.js";
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import {
   getQdrantUrlEnv,
   getRuntimeHttpHost,
   getRuntimeHttpPort,
   getRuntimeProxyBearerToken,
   validateEnv,
-} from '../config/env.js';
-import { loadConfig } from '../config/loader.js';
-import { ensurePromptFiles } from '../config/system-prompt.js';
-import { syncUpdateBulletinOnStartup } from '../config/update-bulletin.js';
-import { HeartbeatService } from '../heartbeat/heartbeat-service.js';
-import { getHookManager } from '../hooks/manager.js';
-import { installTemplates } from '../hooks/templates.js';
-import { closeSentry, initSentry } from '../instrument.js';
-import { initLogfire } from '../logfire.js';
-import { getMcpServerManager } from '../mcp/manager.js';
-import * as attachmentsStore from '../memory/attachments-store.js';
-import * as conversationStore from '../memory/conversation-store.js';
-import { initializeDb } from '../memory/db.js';
-import { startMemoryJobsWorker } from '../memory/jobs-worker.js';
-import { initQdrantClient } from '../memory/qdrant-client.js';
-import { QdrantManager } from '../memory/qdrant-manager.js';
-import { rotateToolInvocations } from '../memory/tool-usage-store.js';
-import { migrateToDataLayout } from '../migrations/data-layout.js';
-import { migrateToWorkspaceLayout } from '../migrations/workspace-layout.js';
-import { emitNotificationSignal, registerBroadcastFn } from '../notifications/emit-signal.js';
-import { initSigningKey, loadOrCreateSigningKey } from '../runtime/actor-token-service.js';
-import { assistantEventHub } from '../runtime/assistant-event-hub.js';
-import { ensureVellumGuardianBinding } from '../runtime/guardian-vellum-migration.js';
-import { RuntimeHttpServer } from '../runtime/http-server.js';
-import { startScheduler } from '../schedule/scheduler.js';
-import { getLogger, initLogger } from '../util/logger.js';
+} from "../config/env.js";
+import { loadConfig } from "../config/loader.js";
+import { ensurePromptFiles } from "../config/system-prompt.js";
+import { syncUpdateBulletinOnStartup } from "../config/update-bulletin.js";
+import { HeartbeatService } from "../heartbeat/heartbeat-service.js";
+import { getHookManager } from "../hooks/manager.js";
+import { installTemplates } from "../hooks/templates.js";
+import { closeSentry, initSentry } from "../instrument.js";
+import { initLogfire } from "../logfire.js";
+import { getMcpServerManager } from "../mcp/manager.js";
+import * as attachmentsStore from "../memory/attachments-store.js";
+import * as conversationStore from "../memory/conversation-store.js";
+import { initializeDb } from "../memory/db.js";
+import { startMemoryJobsWorker } from "../memory/jobs-worker.js";
+import { initQdrantClient } from "../memory/qdrant-client.js";
+import { QdrantManager } from "../memory/qdrant-manager.js";
+import { rotateToolInvocations } from "../memory/tool-usage-store.js";
+import { migrateToDataLayout } from "../migrations/data-layout.js";
+import { migrateToWorkspaceLayout } from "../migrations/workspace-layout.js";
+import {
+  emitNotificationSignal,
+  registerBroadcastFn,
+} from "../notifications/emit-signal.js";
+import {
+  initSigningKey,
+  loadOrCreateSigningKey,
+} from "../runtime/actor-token-service.js";
+import { assistantEventHub } from "../runtime/assistant-event-hub.js";
+import { ensureVellumGuardianBinding } from "../runtime/guardian-vellum-migration.js";
+import { RuntimeHttpServer } from "../runtime/http-server.js";
+import { startScheduler } from "../schedule/scheduler.js";
+import { migrateKeychainToEncrypted } from "../security/keychain-to-encrypted-migration.js";
+import { getLogger, initLogger } from "../util/logger.js";
 import {
   ensureDataDir,
   getHttpTokenPath,
@@ -49,24 +56,44 @@ import {
   getRootDir,
   getSocketPath,
   removeSocketFile,
-} from '../util/platform.js';
-import { listWorkItems, updateWorkItem } from '../work-items/work-item-store.js';
-import { WorkspaceHeartbeatService } from '../workspace/heartbeat-service.js';
-import { createApprovalConversationGenerator,createApprovalCopyGenerator } from './approval-generators.js';
-import { hasNoAuthOverride, hasUngatedNoAuthOverride } from './connection-policy.js';
-import { cleanupPidFile, cleanupPidFileIfOwner, writePid } from './daemon-control.js';
-import { createGuardianActionCopyGenerator, createGuardianFollowUpConversationGenerator } from './guardian-action-generators.js';
-import { initPairingHandlers } from './handlers/pairing.js';
-import { installCliLaunchers } from './install-cli-launchers.js';
-import type { ServerMessage } from './ipc-protocol.js';
-import { initializeProvidersAndTools, registerMessagingProviders,registerWatcherProviders } from './providers-setup.js';
-import { seedInterfaceFiles } from './seed-files.js';
-import { DaemonServer } from './server.js';
-import { initSlashPairingContext } from './session-slash.js';
-import { installShutdownHandlers } from './shutdown-handlers.js';
+} from "../util/platform.js";
+import {
+  listWorkItems,
+  updateWorkItem,
+} from "../work-items/work-item-store.js";
+import { WorkspaceHeartbeatService } from "../workspace/heartbeat-service.js";
+import {
+  createApprovalConversationGenerator,
+  createApprovalCopyGenerator,
+} from "./approval-generators.js";
+import {
+  hasNoAuthOverride,
+  hasUngatedNoAuthOverride,
+} from "./connection-policy.js";
+import {
+  cleanupPidFile,
+  cleanupPidFileIfOwner,
+  writePid,
+} from "./daemon-control.js";
+import {
+  createGuardianActionCopyGenerator,
+  createGuardianFollowUpConversationGenerator,
+} from "./guardian-action-generators.js";
+import { initPairingHandlers } from "./handlers/pairing.js";
+import { installCliLaunchers } from "./install-cli-launchers.js";
+import type { ServerMessage } from "./ipc-protocol.js";
+import {
+  initializeProvidersAndTools,
+  registerMessagingProviders,
+  registerWatcherProviders,
+} from "./providers-setup.js";
+import { seedInterfaceFiles } from "./seed-files.js";
+import { DaemonServer } from "./server.js";
+import { initSlashPairingContext } from "./session-slash.js";
+import { installShutdownHandlers } from "./shutdown-handlers.js";
 
 // Re-export public API so existing consumers don't need to change imports
-export type { StopResult } from './daemon-control.js';
+export type { StopResult } from "./daemon-control.js";
 export {
   cleanupPidFile,
   ensureDaemonRunning,
@@ -74,12 +101,12 @@ export {
   isDaemonRunning,
   startDaemon,
   stopDaemon,
-} from './daemon-control.js';
+} from "./daemon-control.js";
 
-const log = getLogger('lifecycle');
+const log = getLogger("lifecycle");
 
 function loadDotEnv(): void {
-  dotenvConfig({ path: join(getRootDir(), '.env'), quiet: true });
+  dotenvConfig({ path: join(getRootDir(), ".env"), quiet: true });
 }
 
 // Entry point for the daemon process itself
@@ -88,9 +115,13 @@ export async function runDaemon(): Promise<void> {
   validateEnv();
 
   if (hasUngatedNoAuthOverride()) {
-    log.warn('VELLUM_DAEMON_NOAUTH is set but VELLUM_UNSAFE_AUTH_BYPASS=1 is not — auth bypass is IGNORED and authentication remains enabled. Set VELLUM_UNSAFE_AUTH_BYPASS=1 to confirm the bypass.');
+    log.warn(
+      "VELLUM_DAEMON_NOAUTH is set but VELLUM_UNSAFE_AUTH_BYPASS=1 is not — auth bypass is IGNORED and authentication remains enabled. Set VELLUM_UNSAFE_AUTH_BYPASS=1 to confirm the bypass.",
+    );
   } else if (hasNoAuthOverride()) {
-    log.warn('VELLUM_DAEMON_NOAUTH is set — IPC authentication is DISABLED. This should only be used for development or SSH-forwarded sockets. Do not use in production.');
+    log.warn(
+      "VELLUM_DAEMON_NOAUTH is set — IPC authentication is DISABLED. This should only be used for development or SSH-forwarded sockets. Do not use in production.",
+    );
   }
 
   // Track whether the IPC socket has been created so we can clean it up
@@ -113,6 +144,10 @@ export async function runDaemon(): Promise<void> {
     migrateToWorkspaceLayout();
     ensureDataDir();
 
+    // Copy any existing macOS keychain secrets into the encrypted file store
+    // before config loads, so the new encrypted-store-first read path sees them.
+    migrateKeychainToEncrypted();
+
     // Resolve and write the bearer token as early as possible so the CLI
     // (which polls for this file during gateway startup) doesn't time out
     // waiting for Qdrant or other slow init steps to finish.
@@ -120,81 +155,102 @@ export async function runDaemon(): Promise<void> {
     let bearerToken = getRuntimeProxyBearerToken();
     if (!bearerToken) {
       try {
-        const existing = readFileSync(httpTokenPath, 'utf-8').trim();
+        const existing = readFileSync(httpTokenPath, "utf-8").trim();
         if (existing) bearerToken = existing;
       } catch {
         // File doesn't exist or can't be read — will generate below
       }
     }
     if (!bearerToken) {
-      bearerToken = randomBytes(32).toString('hex');
+      bearerToken = randomBytes(32).toString("hex");
     }
     writeFileSync(httpTokenPath, bearerToken, { mode: 0o600 });
     chmodSync(httpTokenPath, 0o600);
-    log.info('Daemon startup: bearer token written');
+    log.info("Daemon startup: bearer token written");
 
     // Load (or generate + persist) the actor-token signing key so tokens
     // survive daemon restarts. Must happen after ensureDataDir() creates
     // the protected directory.
     initSigningKey(loadOrCreateSigningKey());
 
-    log.info('Daemon startup: migrations complete');
+    log.info("Daemon startup: migrations complete");
 
     seedInterfaceFiles();
 
-    log.info('Daemon startup: installing templates and initializing DB');
+    log.info("Daemon startup: installing templates and initializing DB");
     installTemplates();
     ensurePromptFiles();
 
     try {
       installCliLaunchers();
     } catch (err) {
-      log.warn({ err }, 'CLI launcher installation failed — continuing startup');
+      log.warn(
+        { err },
+        "CLI launcher installation failed — continuing startup",
+      );
     }
     initializeDb();
-    log.info('Daemon startup: DB initialized');
+    log.info("Daemon startup: DB initialized");
 
     // Backfill vellum guardian binding for existing installations
     try {
-      ensureVellumGuardianBinding('self');
+      ensureVellumGuardianBinding("self");
     } catch (err) {
-      log.warn({ err }, 'Vellum guardian binding backfill failed — continuing startup');
+      log.warn(
+        { err },
+        "Vellum guardian binding backfill failed — continuing startup",
+      );
     }
 
     try {
       syncUpdateBulletinOnStartup();
     } catch (err) {
-      log.warn({ err }, 'Bulletin sync failed — continuing startup');
+      log.warn({ err }, "Bulletin sync failed — continuing startup");
     }
 
     // Recover orphaned work items that were left in 'running' state when the
     // daemon previously crashed or was killed mid-task.
-    const orphanedRunning = listWorkItems({ status: 'running' });
+    const orphanedRunning = listWorkItems({ status: "running" });
     if (orphanedRunning.length > 0) {
       for (const item of orphanedRunning) {
-        updateWorkItem(item.id, { status: 'failed', lastRunStatus: 'interrupted' });
-        log.info({ workItemId: item.id, title: item.title }, 'Recovered orphaned running work item → failed (interrupted)');
+        updateWorkItem(item.id, {
+          status: "failed",
+          lastRunStatus: "interrupted",
+        });
+        log.info(
+          { workItemId: item.id, title: item.title },
+          "Recovered orphaned running work item → failed (interrupted)",
+        );
       }
-      log.info({ count: orphanedRunning.length }, 'Recovered orphaned running work items');
+      log.info(
+        { count: orphanedRunning.length },
+        "Recovered orphaned running work items",
+      );
     }
 
     try {
       const twilioProvider = new TwilioConversationRelayProvider();
       await reconcileCallsOnStartup(twilioProvider, log);
     } catch (err) {
-      log.warn({ err }, 'Call recovery failed — continuing startup');
+      log.warn({ err }, "Call recovery failed — continuing startup");
     }
 
-    log.info('Daemon startup: loading config');
+    log.info("Daemon startup: loading config");
     const config = loadConfig();
 
     if (config.logFile.dir) {
-      initLogger({ dir: config.logFile.dir, retentionDays: config.logFile.retentionDays });
+      initLogger({
+        dir: config.logFile.dir,
+        retentionDays: config.logFile.retentionDays,
+      });
     }
 
     // If the user has opted out of crash reporting, stop Sentry from capturing
     // future events. Early-startup crashes before this point are still captured.
-    const collectUsageData = isAssistantFeatureFlagEnabled('feature_flags.collect-usage-data.enabled', config);
+    const collectUsageData = isAssistantFeatureFlagEnabled(
+      "feature_flags.collect-usage-data.enabled",
+      config,
+    );
     if (!collectUsageData) {
       await closeSentry();
     }
@@ -204,15 +260,15 @@ export async function runDaemon(): Promise<void> {
     // Start the IPC socket BEFORE Qdrant so that clients can connect
     // immediately. Qdrant startup can take 30+ seconds (binary download,
     // /readyz polling) which previously blocked the socket from appearing.
-    log.info('Daemon startup: starting DaemonServer (IPC socket)');
+    log.info("Daemon startup: starting DaemonServer (IPC socket)");
     const server = new DaemonServer();
     await server.start();
     socketCreated = true;
-    log.info('Daemon startup: DaemonServer started');
+    log.info("Daemon startup: DaemonServer started");
 
     // Initialize Qdrant vector store — non-fatal so the daemon stays up without it
     const qdrantUrl = getQdrantUrlEnv() || config.memory.qdrant.url;
-    log.info({ qdrantUrl }, 'Daemon startup: initializing Qdrant');
+    log.info({ qdrantUrl }, "Daemon startup: initializing Qdrant");
     const qdrantManager = new QdrantManager({ url: qdrantUrl });
     try {
       await qdrantManager.start();
@@ -223,12 +279,15 @@ export async function runDaemon(): Promise<void> {
         onDisk: config.memory.qdrant.onDisk,
         quantization: config.memory.qdrant.quantization,
       });
-      log.info('Qdrant vector store initialized');
+      log.info("Qdrant vector store initialized");
     } catch (err) {
-      log.warn({ err }, 'Qdrant failed to start — memory features will be unavailable');
+      log.warn(
+        { err },
+        "Qdrant failed to start — memory features will be unavailable",
+      );
     }
 
-    log.info('Daemon startup: starting memory worker');
+    log.info("Daemon startup: starting memory worker");
     const memoryWorker = startMemoryJobsWorker();
 
     registerWatcherProviders();
@@ -244,12 +303,12 @@ export async function runDaemon(): Promise<void> {
       },
       (reminder) => {
         void emitNotificationSignal({
-          sourceEventName: 'reminder.fired',
-          sourceChannel: 'scheduler',
+          sourceEventName: "reminder.fired",
+          sourceChannel: "scheduler",
           sourceSessionId: reminder.id,
           attentionHints: {
             requiresAction: true,
-            urgency: 'high',
+            urgency: "high",
             isAsyncBackground: false,
             visibleInSourceNow: false,
           },
@@ -265,12 +324,12 @@ export async function runDaemon(): Promise<void> {
       },
       (schedule) => {
         void emitNotificationSignal({
-          sourceEventName: 'schedule.complete',
-          sourceChannel: 'scheduler',
+          sourceEventName: "schedule.complete",
+          sourceChannel: "scheduler",
           sourceSessionId: schedule.id,
           attentionHints: {
             requiresAction: false,
-            urgency: 'medium',
+            urgency: "medium",
             isAsyncBackground: true,
             visibleInSourceNow: false,
           },
@@ -282,12 +341,12 @@ export async function runDaemon(): Promise<void> {
       },
       (notification) => {
         void emitNotificationSignal({
-          sourceEventName: 'watcher.notification',
-          sourceChannel: 'watcher',
+          sourceEventName: "watcher.notification",
+          sourceChannel: "watcher",
           sourceSessionId: `watcher-${Date.now()}`,
           attentionHints: {
             requiresAction: false,
-            urgency: 'low',
+            urgency: "low",
             isAsyncBackground: true,
             visibleInSourceNow: false,
           },
@@ -299,12 +358,12 @@ export async function runDaemon(): Promise<void> {
       },
       (params) => {
         void emitNotificationSignal({
-          sourceEventName: 'watcher.escalation',
-          sourceChannel: 'watcher',
+          sourceEventName: "watcher.escalation",
+          sourceChannel: "watcher",
           sourceSessionId: `watcher-escalation-${Date.now()}`,
           attentionHints: {
             requiresAction: true,
-            urgency: 'high',
+            urgency: "high",
             isAsyncBackground: false,
             visibleInSourceNow: false,
           },
@@ -320,7 +379,7 @@ export async function runDaemon(): Promise<void> {
     // to it) and optional REST API access. Defaults to port 7821.
     let runtimeHttp: RuntimeHttpServer | null = null;
     const httpPort = getRuntimeHttpPort();
-    log.info({ httpPort }, 'Daemon startup: starting runtime HTTP server');
+    log.info({ httpPort }, "Daemon startup: starting runtime HTTP server");
 
     const hostname = getRuntimeHttpHost();
 
@@ -328,15 +387,44 @@ export async function runDaemon(): Promise<void> {
       port: httpPort,
       hostname,
       bearerToken,
-      processMessage: (conversationId, content, attachmentIds, options, sourceChannel, sourceInterface) =>
-        server.processMessage(conversationId, content, attachmentIds, options, sourceChannel, sourceInterface),
-      persistAndProcessMessage: (conversationId, content, attachmentIds, options, sourceChannel, sourceInterface) =>
-        server.persistAndProcessMessage(conversationId, content, attachmentIds, options, sourceChannel, sourceInterface),
+      processMessage: (
+        conversationId,
+        content,
+        attachmentIds,
+        options,
+        sourceChannel,
+        sourceInterface,
+      ) =>
+        server.processMessage(
+          conversationId,
+          content,
+          attachmentIds,
+          options,
+          sourceChannel,
+          sourceInterface,
+        ),
+      persistAndProcessMessage: (
+        conversationId,
+        content,
+        attachmentIds,
+        options,
+        sourceChannel,
+        sourceInterface,
+      ) =>
+        server.persistAndProcessMessage(
+          conversationId,
+          content,
+          attachmentIds,
+          options,
+          sourceChannel,
+          sourceInterface,
+        ),
       interfacesDir: getInterfacesDir(),
       approvalCopyGenerator: createApprovalCopyGenerator(),
       approvalConversationGenerator: createApprovalConversationGenerator(),
       guardianActionCopyGenerator: createGuardianActionCopyGenerator(),
-      guardianFollowUpConversationGenerator: createGuardianFollowUpConversationGenerator(),
+      guardianFollowUpConversationGenerator:
+        createGuardianFollowUpConversationGenerator(),
       sendMessageDeps: {
         getOrCreateSession: (conversationId) =>
           server.getSessionForMessages(conversationId),
@@ -364,138 +452,174 @@ export async function runDaemon(): Promise<void> {
           data: a.dataBase64,
         })),
       deriveDefaultStrictSideEffects: (conversationId) => {
-        const threadType = conversationStore.getConversationThreadType(conversationId);
-        return threadType === 'private';
+        const threadType =
+          conversationStore.getConversationThreadType(conversationId);
+        return threadType === "private";
       },
     });
     try {
       await runtimeHttp.start();
       setRelayBroadcast((msg) => server.broadcast(msg));
-      setPointerMessageProcessor(async (conversationId, instruction, requiredFacts) => {
-        const session = await server.getSessionForMessages(conversationId);
+      setPointerMessageProcessor(
+        async (conversationId, instruction, requiredFacts) => {
+          const session = await server.getSessionForMessages(conversationId);
 
-        // Constrain pointer generation to a tool-disabled path so call-
-        // status events cannot trigger unintended side-effect tools.
-        // Incrementing toolsDisabledDepth causes the resolveTools callback
-        // to return an empty tool list, preventing the LLM from seeing or
-        // invoking any tools during the pointer agent loop.
-        //
-        // A depth counter (rather than a boolean) ensures that overlapping
-        // pointer requests on the same session don't clear each other's
-        // constraint — each caller increments on entry and decrements in
-        // its own finally block.
-        session.toolsDisabledDepth++;
-        try {
-          const messageId = await session.persistUserMessage(
-            instruction,
-            [],
-            undefined,
-            { pointerInstruction: true },
-            '[Call status event]',
-          );
-
-          // Helper: roll back persisted messages on failure, then reload
-          // in-memory history from the (now cleaned) DB. Reloading avoids
-          // stale-index issues when context compaction reassigns the
-          // messages array during runAgentLoop.
-          const rollback = async (extraMessageIds?: string[]) => {
-            try { conversationStore.deleteMessageById(messageId); } catch { /* best effort */ }
-            for (const id of extraMessageIds ?? []) {
-              try { conversationStore.deleteMessageById(id); } catch { /* best effort */ }
-            }
-            try { await session.loadFromDb(); } catch { /* best effort */ }
-          };
-
-          // Snapshot message IDs before the agent loop so we can diff
-          // afterwards to find exactly which messages this run created,
-          // avoiding positional heuristics that break under concurrency.
+          // Constrain pointer generation to a tool-disabled path so call-
+          // status events cannot trigger unintended side-effect tools.
+          // Incrementing toolsDisabledDepth causes the resolveTools callback
+          // to return an empty tool list, preventing the LLM from seeing or
+          // invoking any tools during the pointer agent loop.
           //
-          // Caveat: the diff captures *all* new messages in the
-          // conversation during the loop window, not just those from
-          // this specific agent loop.  If a concurrent pointer event
-          // falls back to a deterministic addMessage() while our loop
-          // is in flight, that message lands in our diff.  The race
-          // requires two pointer events for the same conversation
-          // within the agent loop window *and* this run must fail or
-          // fail fact-check — narrow enough to accept.  A future
-          // improvement could tag messages with a per-run correlation
-          // ID so rollback only targets its own output.
-          const preRunMessageIds = new Set(
-            conversationStore.getMessages(conversationId).map((m) => m.id),
-          );
+          // A depth counter (rather than a boolean) ensures that overlapping
+          // pointer requests on the same session don't clear each other's
+          // constraint — each caller increments on entry and decrements in
+          // its own finally block.
+          session.toolsDisabledDepth++;
+          try {
+            const messageId = await session.persistUserMessage(
+              instruction,
+              [],
+              undefined,
+              { pointerInstruction: true },
+              "[Call status event]",
+            );
 
-          let agentLoopError: string | undefined;
-          let generatedText = '';
-          await session.runAgentLoop(instruction, messageId, (msg) => {
-            if ('type' in msg && msg.type === 'assistant_text_delta' && 'text' in msg) {
-              generatedText += (msg as { text: string }).text;
-            }
-            if ('type' in msg && (msg.type === 'error' || msg.type === 'session_error')) {
-              agentLoopError = 'message' in msg
-                ? (msg as { message: string }).message
-                : 'userMessage' in msg
-                  ? (msg as { userMessage: string }).userMessage
-                  : 'Agent loop failed';
-            }
-          });
+            // Helper: roll back persisted messages on failure, then reload
+            // in-memory history from the (now cleaned) DB. Reloading avoids
+            // stale-index issues when context compaction reassigns the
+            // messages array during runAgentLoop.
+            const rollback = async (extraMessageIds?: string[]) => {
+              try {
+                conversationStore.deleteMessageById(messageId);
+              } catch {
+                /* best effort */
+              }
+              for (const id of extraMessageIds ?? []) {
+                try {
+                  conversationStore.deleteMessageById(id);
+                } catch {
+                  /* best effort */
+                }
+              }
+              try {
+                await session.loadFromDb();
+              } catch {
+                /* best effort */
+              }
+            };
 
-          // Identify messages created during this run by diffing against
-          // the pre-run snapshot. This captures all messages added to the
-          // conversation during the loop window, which may include messages
-          // from concurrent pointer events (see over-capture caveat above).
-          const postRunMessages = conversationStore.getMessages(conversationId);
-          const createdMessageIds = postRunMessages
-            .filter((m) => !preRunMessageIds.has(m.id) && m.id !== messageId)
-            .map((m) => m.id);
+            // Snapshot message IDs before the agent loop so we can diff
+            // afterwards to find exactly which messages this run created,
+            // avoiding positional heuristics that break under concurrency.
+            //
+            // Caveat: the diff captures *all* new messages in the
+            // conversation during the loop window, not just those from
+            // this specific agent loop.  If a concurrent pointer event
+            // falls back to a deterministic addMessage() while our loop
+            // is in flight, that message lands in our diff.  The race
+            // requires two pointer events for the same conversation
+            // within the agent loop window *and* this run must fail or
+            // fail fact-check — narrow enough to accept.  A future
+            // improvement could tag messages with a per-run correlation
+            // ID so rollback only targets its own output.
+            const preRunMessageIds = new Set(
+              conversationStore.getMessages(conversationId).map((m) => m.id),
+            );
 
-          if (agentLoopError) {
-            await rollback(createdMessageIds);
-            throw new Error(agentLoopError);
-          }
+            let agentLoopError: string | undefined;
+            let generatedText = "";
+            await session.runAgentLoop(instruction, messageId, (msg) => {
+              if (
+                "type" in msg &&
+                msg.type === "assistant_text_delta" &&
+                "text" in msg
+              ) {
+                generatedText += (msg as { text: string }).text;
+              }
+              if (
+                "type" in msg &&
+                (msg.type === "error" || msg.type === "session_error")
+              ) {
+                agentLoopError =
+                  "message" in msg
+                    ? (msg as { message: string }).message
+                    : "userMessage" in msg
+                      ? (msg as { userMessage: string }).userMessage
+                      : "Agent loop failed";
+              }
+            });
 
-          // Post-generation fact check: verify the assistant's response
-          // includes all required factual details (phone number, duration,
-          // outcome keyword, etc.). If the model omitted or rewrote them,
-          // remove both the instruction and generated messages and throw so
-          // the deterministic fallback fires.
-          //
-          // Validation uses text accumulated from assistant_text_delta
-          // events during the agent loop rather than a DB lookup, avoiding
-          // any positional ambiguity when concurrent pointer events
-          // interleave messages in the conversation.
-          if (requiredFacts && requiredFacts.length > 0) {
-            const missingFacts = requiredFacts.filter((fact) => !generatedText.includes(fact));
-            if (missingFacts.length > 0) {
-              log.warn(
-                { conversationId, missingFacts },
-                'Generated pointer text failed fact validation — falling back to deterministic',
-              );
+            // Identify messages created during this run by diffing against
+            // the pre-run snapshot. This captures all messages added to the
+            // conversation during the loop window, which may include messages
+            // from concurrent pointer events (see over-capture caveat above).
+            const postRunMessages =
+              conversationStore.getMessages(conversationId);
+            const createdMessageIds = postRunMessages
+              .filter((m) => !preRunMessageIds.has(m.id) && m.id !== messageId)
+              .map((m) => m.id);
+
+            if (agentLoopError) {
               await rollback(createdMessageIds);
-              throw new Error('Generated pointer text failed fact validation');
+              throw new Error(agentLoopError);
             }
+
+            // Post-generation fact check: verify the assistant's response
+            // includes all required factual details (phone number, duration,
+            // outcome keyword, etc.). If the model omitted or rewrote them,
+            // remove both the instruction and generated messages and throw so
+            // the deterministic fallback fires.
+            //
+            // Validation uses text accumulated from assistant_text_delta
+            // events during the agent loop rather than a DB lookup, avoiding
+            // any positional ambiguity when concurrent pointer events
+            // interleave messages in the conversation.
+            if (requiredFacts && requiredFacts.length > 0) {
+              const missingFacts = requiredFacts.filter(
+                (fact) => !generatedText.includes(fact),
+              );
+              if (missingFacts.length > 0) {
+                log.warn(
+                  { conversationId, missingFacts },
+                  "Generated pointer text failed fact validation — falling back to deterministic",
+                );
+                await rollback(createdMessageIds);
+                throw new Error(
+                  "Generated pointer text failed fact validation",
+                );
+              }
+            }
+          } finally {
+            // Restore tool availability so subsequent turns aren't affected.
+            session.toolsDisabledDepth--;
           }
-        } finally {
-          // Restore tool availability so subsequent turns aren't affected.
-          session.toolsDisabledDepth--;
-        }
-      });
-      runtimeHttp.setPairingBroadcast((msg) => server.broadcast(msg as ServerMessage));
+        },
+      );
+      runtimeHttp.setPairingBroadcast((msg) =>
+        server.broadcast(msg as ServerMessage),
+      );
       initPairingHandlers(runtimeHttp.getPairingStore(), bearerToken);
       initSlashPairingContext(runtimeHttp.getPairingStore());
       server.setHttpPort(httpPort);
-      log.info({ port: httpPort, hostname }, 'Daemon startup: runtime HTTP server listening');
+      log.info(
+        { port: httpPort, hostname },
+        "Daemon startup: runtime HTTP server listening",
+      );
     } catch (err) {
-      log.warn({ err, port: httpPort }, 'Failed to start runtime HTTP server, continuing without it');
+      log.warn(
+        { err, port: httpPort },
+        "Failed to start runtime HTTP server, continuing without it",
+      );
       runtimeHttp = null;
     }
 
     writePid(process.pid);
-    log.info({ pid: process.pid }, 'Daemon started');
+    log.info({ pid: process.pid }, "Daemon started");
 
     const hookManager = getHookManager();
     hookManager.watch();
 
-    void hookManager.trigger('daemon-start', {
+    void hookManager.trigger("daemon-start", {
       pid: process.pid,
       socketPath: getSocketPath(),
     });
@@ -504,18 +628,23 @@ export async function runDaemon(): Promise<void> {
     // If download fails, local embeddings gracefully fall back to cloud backends.
     void (async () => {
       try {
-        const { EmbeddingRuntimeManager } = await import('../memory/embedding-runtime-manager.js');
+        const { EmbeddingRuntimeManager } =
+          await import("../memory/embedding-runtime-manager.js");
         const runtimeManager = new EmbeddingRuntimeManager();
         if (!runtimeManager.isReady()) {
-          log.info('Downloading embedding runtime in background...');
+          log.info("Downloading embedding runtime in background...");
           await runtimeManager.ensureInstalled();
           // Reset the localBackendBroken flag so auto mode retries local embeddings
-          const { clearEmbeddingBackendCache } = await import('../memory/embedding-backend.js');
+          const { clearEmbeddingBackendCache } =
+            await import("../memory/embedding-backend.js");
           clearEmbeddingBackendCache();
-          log.info('Embedding runtime download complete');
+          log.info("Embedding runtime download complete");
         }
       } catch (err) {
-        log.warn({ err }, 'Embedding runtime download failed — local embeddings will use cloud fallback');
+        log.warn(
+          { err },
+          "Embedding runtime download failed — local embeddings will use cloud fallback",
+        );
       }
     })();
 
@@ -523,7 +652,7 @@ export async function runDaemon(): Promise<void> {
       try {
         rotateToolInvocations(config.auditLog.retentionDays);
       } catch (err) {
-        log.warn({ err }, 'Audit log rotation failed');
+        log.warn({ err }, "Audit log rotation failed");
       }
     }
 
@@ -538,13 +667,20 @@ export async function runDaemon(): Promise<void> {
     });
     heartbeat.start();
     server.setHeartbeatService(heartbeat);
-    log.info({ enabled: heartbeatConfig.enabled, intervalMs: heartbeatConfig.intervalMs }, 'Heartbeat service configured');
+    log.info(
+      {
+        enabled: heartbeatConfig.enabled,
+        intervalMs: heartbeatConfig.intervalMs,
+      },
+      "Heartbeat service configured",
+    );
 
     // Retrieve the MCP manager if MCP servers were configured.
     // The manager is a singleton created during initializeProvidersAndTools().
-    const mcpManager = config.mcp?.servers && Object.keys(config.mcp.servers).length > 0
-      ? getMcpServerManager()
-      : null;
+    const mcpManager =
+      config.mcp?.servers && Object.keys(config.mcp.servers).length > 0
+        ? getMcpServerManager()
+        : null;
 
     installShutdownHandlers({
       server,
@@ -559,7 +695,7 @@ export async function runDaemon(): Promise<void> {
       cleanupPidFile,
     });
   } catch (err) {
-    log.error({ err }, 'Daemon startup failed — cleaning up');
+    log.error({ err }, "Daemon startup failed — cleaning up");
     cleanupPidFileIfOwner(process.pid);
     if (socketCreated) {
       try {
