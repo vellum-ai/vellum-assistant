@@ -393,20 +393,14 @@ export function handleSurfaceAction(ctx: SurfaceSessionContext, surfaceId: strin
       ? data.prompt.trim()
       : '';
 
-  // Build a human-readable summary for confirmation surfaces so the LLM
-  // clearly understands the user's decision instead of parsing raw JSON.
-  let fallbackContent: string;
-  if (pending.surfaceType === 'confirmation') {
-    const summary = buildCompletionSummary('confirmation', actionId, data);
-    fallbackContent = `[User action on confirmation surface: ${summary}]`;
-  } else {
-    fallbackContent = JSON.stringify({
-      surfaceAction: true,
-      surfaceId,
-      surfaceType: pending.surfaceType,
-      actionId,
-      data: data ?? {},
-    });
+  // Build a human-readable summary so the LLM clearly understands the
+  // user's decision instead of parsing raw JSON.
+  const summary = buildCompletionSummary(pending.surfaceType, actionId, data);
+  let fallbackContent = `[User action on ${pending.surfaceType} surface: ${summary}]`;
+  // Append structured data so the LLM has access to IDs/values it needs
+  // to act on (e.g. selectedIds for archiving).
+  if (data && Object.keys(data).length > 0) {
+    fallbackContent += `\n\nAction data: ${JSON.stringify(data)}`;
   }
   const content = prompt || fallbackContent;
 
