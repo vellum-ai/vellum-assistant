@@ -725,6 +725,9 @@ jobs:
         run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
 
       - name: Import code-signing certificate
+        env:
+          CERT_P12: ${{ secrets.DIST_CERTIFICATE_P12 }}
+          CERT_PASSWORD: ${{ secrets.DIST_CERTIFICATE_PASSWORD }}
         run: |
           KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
 
@@ -732,10 +735,10 @@ jobs:
           security set-keychain-settings -lut 3600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
-          echo "${{ secrets.DIST_CERTIFICATE_P12 }}" | base64 -D > /tmp/certificate.p12
+          echo "$CERT_P12" | base64 -D > /tmp/certificate.p12
           security import /tmp/certificate.p12 \
             -k "$KEYCHAIN_PATH" \
-            -P "${{ secrets.DIST_CERTIFICATE_PASSWORD }}" \
+            -P "$CERT_PASSWORD" \
             -T /usr/bin/codesign \
             -T /usr/bin/security
           rm /tmp/certificate.p12
@@ -998,6 +1001,9 @@ jobs:
         run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
 
       - name: Import code-signing certificate
+        env:
+          CERT_P12: ${{ secrets.DIST_CERTIFICATE_P12 }}
+          CERT_PASSWORD: ${{ secrets.DIST_CERTIFICATE_PASSWORD }}
         run: |
           KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
 
@@ -1005,10 +1011,10 @@ jobs:
           security set-keychain-settings -lut 3600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
-          echo "${{ secrets.DIST_CERTIFICATE_P12 }}" | base64 -D > /tmp/certificate.p12
+          echo "$CERT_P12" | base64 -D > /tmp/certificate.p12
           security import /tmp/certificate.p12 \
             -k "$KEYCHAIN_PATH" \
-            -P "${{ secrets.DIST_CERTIFICATE_PASSWORD }}" \
+            -P "$CERT_PASSWORD" \
             -T /usr/bin/codesign \
             -T /usr/bin/security
           rm /tmp/certificate.p12
@@ -1378,6 +1384,9 @@ jobs:
         run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
 
       - name: Import code-signing certificate
+        env:
+          CERT_P12: ${{ secrets.DIST_CERTIFICATE_P12 }}
+          CERT_PASSWORD: ${{ secrets.DIST_CERTIFICATE_PASSWORD }}
         run: |
           KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
 
@@ -1385,10 +1394,10 @@ jobs:
           security set-keychain-settings -lut 3600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
-          echo "${{ secrets.DIST_CERTIFICATE_P12 }}" | base64 -D > /tmp/ios-certificate.p12
+          echo "$CERT_P12" | base64 -D > /tmp/ios-certificate.p12
           security import /tmp/ios-certificate.p12 \
             -k "$KEYCHAIN_PATH" \
-            -P "${{ secrets.DIST_CERTIFICATE_PASSWORD }}" \
+            -P "$CERT_PASSWORD" \
             -T /usr/bin/codesign \
             -T /usr/bin/security
           rm /tmp/ios-certificate.p12
