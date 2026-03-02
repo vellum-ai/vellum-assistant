@@ -7,6 +7,7 @@
  */
 
 import { getLogger } from '../util/logger.js';
+import { isMacOS } from '../util/platform.js';
 import * as encryptedStore from './encrypted-store.js';
 import * as keychain from './keychain.js';
 
@@ -20,6 +21,14 @@ let downgradedFromKeychain = false;
 function getBackend(): Backend {
   if (resolvedBackend !== undefined) return resolvedBackend;
 
+  // On macOS, skip keychain probing and use encrypted file storage directly
+  // to avoid repeated Keychain Access authorization prompts.
+  if (isMacOS()) {
+    log.debug('macOS detected, using encrypted file storage (skipping keychain)');
+    resolvedBackend = 'encrypted';
+    return resolvedBackend;
+  }
+
   if (keychain.isKeychainAvailable()) {
     log.debug('Using OS keychain for secure key storage');
     resolvedBackend = 'keychain';
@@ -32,6 +41,14 @@ function getBackend(): Backend {
 
 async function getBackendAsync(): Promise<Backend> {
   if (resolvedBackend !== undefined) return resolvedBackend;
+
+  // On macOS, skip keychain probing and use encrypted file storage directly
+  // to avoid repeated Keychain Access authorization prompts.
+  if (isMacOS()) {
+    log.debug('macOS detected, using encrypted file storage (skipping keychain)');
+    resolvedBackend = 'encrypted';
+    return resolvedBackend;
+  }
 
   if (await keychain.isKeychainAvailableAsync()) {
     log.debug('Using OS keychain for secure key storage');
