@@ -154,6 +154,7 @@ export function getConnectionByPeerAssistantId(peerAssistantId: string): A2APeer
         eq(a2aPeerConnections.peerAssistantId, peerAssistantId),
       ),
     )
+    .orderBy(desc(a2aPeerConnections.updatedAt))
     .get();
 
   return row ? rowToConnection(row) : null;
