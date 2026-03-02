@@ -33,11 +33,12 @@ dist
 
 # Shared claude-skills symlinks are gitignored; only repo-local skills are tracked.
 .claude/skills/*
-!.claude/skills/vellum-skills/
+!.claude/skills/update/
+!.claude/skills/release/
 
 # Shared claude-skills symlinks (managed by claude-skills/setup)
 # These are gitignored because they're symlinks to the shared repo.
-# Repo-local commands now live in .claude/skills/vellum-skills/.
+# Repo-local commands now live in .claude/skills/<name>/ as local skill directories.
 .claude/commands/*.md
 .claude/phases/
 .private/

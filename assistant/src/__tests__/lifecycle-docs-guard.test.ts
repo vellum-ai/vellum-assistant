@@ -8,7 +8,7 @@ import { describe, expect, it } from 'bun:test';
  * Guard test: prevent stale lifecycle instructions from being reintroduced
  * into documentation. The canonical lifecycle commands are `vellum wake`,
  * `vellum ps`, and `vellum sleep`. Repo-local slash commands live in
- * `.claude/skills/vellum-skills/`, not `.claude/commands/`.
+ * `.claude/skills/`, not `.claude/commands/`.
  *
  * See AGENTS.md for the conventions these tests enforce.
  */
@@ -28,12 +28,12 @@ describe('lifecycle docs guard', () => {
 
     if (violations.length > 0) {
       const message = [
-        'Found repo-local commands in .claude/commands/ — they should live in .claude/skills/vellum-skills/.',
+        'Found repo-local commands in .claude/commands/ — they should live in .claude/skills/.',
         '',
         'Stale files:',
         ...violations.map((f) => `  - ${f}`),
         '',
-        'Move them to .claude/skills/vellum-skills/<name>/SKILL.md instead.',
+        'Move them to .claude/skills/<name>/SKILL.md instead.',
       ].join('\n');
 
       expect(violations, message).toEqual([]);
@@ -41,8 +41,8 @@ describe('lifecycle docs guard', () => {
 
     // Verify the correct locations exist
     const expectedLocations = [
-      '.claude/skills/vellum-skills/update/SKILL.md',
-      '.claude/skills/vellum-skills/release/SKILL.md',
+      '.claude/skills/update/SKILL.md',
+      '.claude/skills/release/SKILL.md',
     ];
 
     const missing = expectedLocations.filter(
