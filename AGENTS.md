@@ -71,7 +71,7 @@ Most commands are shared from the [`claude-skills`](https://github.com/vellum-ai
 | `/safe-check-review [file]` | Check the active plan PR for review feedback from codex/devin/humans. Addresses requested changes, waits if reviews are pending. |
 | `/resume-plan [file]` | Merge the current plan PR, implement the next one, create it, and stop again. Repeats until the plan is complete. The PR body includes the full plan content for traceability. |
 
-| `/update` | Pull latest from main, restart the backend daemon, verify gateway health (fail fast on startup failure), rebuild/launch the macOS app, and print a startup summary. The default assistant is resolved from the lockfile by selecting the most recently hatched assistant (`hatchedAt` descending). |
+| `/update` | Pull latest from main, use `vellum ps/sleep/wake` to manage daemon and gateway lifecycle, rebuild/launch the macOS app, and print a startup summary. Uses `vellum sleep` (directory-agnostic global stop) to quiesce processes, then `vellum wake` (from current checkout) to restart. |
 
 
 ## Linear Ticket Hygiene
