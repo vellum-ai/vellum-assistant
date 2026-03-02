@@ -140,6 +140,9 @@ function ensureVellumInPath(appDisplayName: string): void {
     throw new Error(`Bundled CLI not found at: ${cliBinary}`);
   }
 
+  // Ensure the binary is executable (may lose +x when extracted from CI artifacts)
+  execSync(`chmod +x ${JSON.stringify(cliBinary)}`);
+
   // Create a temp bin dir with a `vellum` symlink pointing to the bundled CLI
   const tmpBin = path.join(__dirname, "../.vellum-bin");
   mkdirSync(tmpBin, { recursive: true });

@@ -70,6 +70,9 @@ private func ensureVellumInPath(appDisplayName: String) throws {
         throw FixtureError.appNotFound("Bundled CLI not found at: \(cliBinary)")
     }
 
+    // Ensure the binary is executable (may lose +x when extracted from CI artifacts)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: cliBinary)
+
     // Create a temp bin dir with a `vellum` symlink pointing to the bundled CLI
     let cwd = FileManager.default.currentDirectoryPath
     let tmpBin: String
