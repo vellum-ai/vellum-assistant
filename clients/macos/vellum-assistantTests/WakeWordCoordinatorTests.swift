@@ -123,12 +123,20 @@ final class WakeWordCoordinatorTests: XCTestCase {
         UserDefaults.standard.set(true, forKey: "wakeWordEnabled")
         coordinator.markReady()
 
-        // Simulate PTT recording by triggering the callback
-        voiceInputManager.onRecordingStateChanged?(true)
-        // We can't directly set isRecording without starting audio,
-        // but the coordinator checks voiceInputManager.isRecording
-        // The test verifies the guard path exists and the coordinator
-        // wires up the recording state observation correctly.
+        // VoiceInputManager.isRecording is private(set), so we can't set it
+        // directly. The coordinator checks voiceInputManager.isRecording in
+        // handleWakeWordDetected(). Since we can't simulate real audio recording
+        // in unit tests, we verify the inverse: when NOT recording, the wake word
+        // IS processed (audio monitor stops as part of activation flow).
+        audioMonitor.startMonitoring()
+        mockEngine.stopCalled = false
+
+        audioMonitor.onWakeWordDetected?()
+
+        // The coordinator should attempt activation (which stops the audio monitor)
+        // proving the PTT guard didn't block it when isRecording is false.
+        XCTAssertTrue(mockEngine.stopCalled,
+                      "Wake word should be processed when PTT is not recording")
     }
 
     // MARK: - Cooldown
@@ -165,9 +173,4 @@ final class WakeWordCoordinatorTests: XCTestCase {
         audioMonitor.stopMonitoring()
         XCTAssertFalse(mockEngine.stopCalled, "Should not call stop when not listening")
     }
-}
-
-// Expose the cooldown constant for testing
-extension WakeWordCoordinator {
-    static var activationCooldown: TimeInterval { 3.0 }
 }

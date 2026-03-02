@@ -78,15 +78,12 @@ final class SpeechWakeWordEngineTests: XCTestCase {
     // MARK: - Keyword Pattern Matching (via onWakeWordDetected callback)
 
     func testKeywordDetectedInTranscription() {
-        let engine = SpeechWakeWordEngine(keyword: "computer")
-        var detected = false
-        engine.onWakeWordDetected = { _ in detected = true }
-
-        // Use the internal method indirectly — we test the regex pattern behavior
-        // by verifying the engine's init compiled a valid pattern.
-        // Since checkForKeyword is private, we verify via the regex pattern logic.
+        // checkForKeyword is private, so we verify the regex pattern that the
+        // engine compiles from the keyword matches expected transcriptions.
         let pattern = try! Regex<Substring>("(?i)\\b\(NSRegularExpression.escapedPattern(for: "computer"))\\b")
         XCTAssertTrue("hey computer how are you".contains(pattern))
+        XCTAssertTrue("computer".contains(pattern))
+        XCTAssertFalse("hey how are you".contains(pattern))
     }
 
     func testKeywordMatchIsCaseInsensitive() {
