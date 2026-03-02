@@ -29,10 +29,10 @@ export const definition: Anthropic.Tool = {
 export async function execute(
   _page: Page,
   input: Record<string, unknown>,
-  _context: ToolContext,
+  context: ToolContext,
 ): Promise<ToolHandlerResult> {
   const script = input.script as string;
-  const scriptPath = "/tmp/pw-agent-applescript.scpt";
+  const scriptPath = `/tmp/pw-agent-applescript-w${context.workerIndex}.scpt`;
   try {
     writeFileSync(scriptPath, script, "utf-8");
     const output = execSync(`osascript ${scriptPath}`, {

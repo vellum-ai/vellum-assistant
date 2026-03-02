@@ -40,7 +40,7 @@ export const definition: Anthropic.Tool = {
 export async function execute(
   _page: Page,
   input: Record<string, unknown>,
-  _context: ToolContext,
+  context: ToolContext,
 ): Promise<ToolHandlerResult> {
   const envVar = input.env_var as string;
   const processName = input.process_name as string;
@@ -65,7 +65,7 @@ tell application "System Events"
 end tell
 `;
 
-  const scriptPath = "/tmp/pw-agent-type-env-var.scpt";
+  const scriptPath = `/tmp/pw-agent-type-env-var-w${context.workerIndex}.scpt`;
   try {
     writeFileSync(scriptPath, script, "utf-8");
     execSync(`osascript ${scriptPath}`, {

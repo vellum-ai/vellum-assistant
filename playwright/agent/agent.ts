@@ -67,6 +67,8 @@ export interface AgentOptions {
   screenshotDir: string;
   traceLogPath?: string;
   verbose?: boolean;
+  /** Playwright parallel worker index (0-based). Used to isolate temp files across workers. */
+  workerIndex?: number;
 }
 
 export async function runAgent(options: AgentOptions): Promise<TestResult> {
@@ -89,7 +91,7 @@ function traceLog(logPath: string | undefined, entry: string): void {
 }
 
 async function runAgentLoop(options: AgentOptions, signal: AbortSignal): Promise<TestResult> {
-  const { testContent, page, screenshotDir, traceLogPath, verbose = false } = options;
+  const { testContent, page, screenshotDir, traceLogPath, verbose = false, workerIndex = 0 } = options;
 
   // Initialize trace log
   if (traceLogPath) {
@@ -98,7 +100,7 @@ async function runAgentLoop(options: AgentOptions, signal: AbortSignal): Promise
     traceLog(traceLogPath, "Agent started");
   }
 
-  const executeTool = createToolExecutor(screenshotDir);
+  const executeTool = createToolExecutor(screenshotDir, workerIndex);
   const client = new Anthropic();
   const messages: Anthropic.MessageParam[] = [
     {
