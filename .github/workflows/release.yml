@@ -523,24 +523,30 @@ jobs:
           MAX_ATTEMPTS=3
 
           for attempt in $(seq 1 $MAX_ATTEMPTS); do
+            CURL_EXIT=0
             echo "Registering release v${VERSION} with platform (${{ matrix.environment }}) [attempt ${attempt}/${MAX_ATTEMPTS}]..."
             HTTP_STATUS=$(curl -s -o /tmp/response.json -w "%{http_code}" \
               -X POST "${{ steps.platform-creds.outputs.api_url }}/v1/internal/assistant-image-releases/" \
               -H "Content-Type: application/json" \
               -H "X-Internal-Service-Api-Key: ${{ steps.platform-creds.outputs.api_key }}" \
-              -d "$PAYLOAD")
+              -d "$PAYLOAD") || CURL_EXIT=$?
 
-            echo "HTTP Status: $HTTP_STATUS"
-            cat /tmp/response.json
+            if [ "${CURL_EXIT:-0}" -ne 0 ]; then
+              echo "::warning::curl transport error (exit code $CURL_EXIT) on attempt ${attempt}"
+              HTTP_STATUS="000"
+            else
+              echo "HTTP Status: $HTTP_STATUS"
+              cat /tmp/response.json
+            fi
 
-            if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
+            if [ "$HTTP_STATUS" -ge 200 ] 2>/dev/null && [ "$HTTP_STATUS" -lt 300 ] 2>/dev/null; then
               echo "Registration succeeded on attempt ${attempt}"
               exit 0
             fi
 
             if [ "$attempt" -lt "$MAX_ATTEMPTS" ]; then
               DELAY=${DELAYS[$((attempt - 1))]}
-              echo "::warning::Attempt ${attempt} failed with HTTP $HTTP_STATUS. Retrying in ${DELAY}s..."
+              echo "::warning::Attempt ${attempt} failed (HTTP $HTTP_STATUS). Retrying in ${DELAY}s..."
               sleep "$DELAY"
             else
               echo "::error::Release registration failed after ${MAX_ATTEMPTS} attempts (last HTTP $HTTP_STATUS)"
