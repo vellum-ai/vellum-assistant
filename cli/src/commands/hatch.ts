@@ -504,10 +504,39 @@ function installCLISymlink(): void {
   console.log(`   ⚠ Could not create symlink for vellum CLI (tried ${preferredPath} and ${fallbackPath})`);
 }
 
+async function waitForDaemonReady(runtimeUrl: string, bearerToken: string | undefined, timeoutMs = 15000): Promise<boolean> {
+  const start = Date.now();
+  const pollInterval = 1000;
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const res = await fetch(`${runtimeUrl}/v1/health`, {
+        method: "GET",
+        headers: bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {},
+        signal: AbortSignal.timeout(2000),
+      });
+      if (res.ok) return true;
+    } catch {
+      // Daemon not ready yet
+    }
+    await new Promise((r) => setTimeout(r, pollInterval));
+  }
+  return false;
+}
+
 async function displayPairingQRCode(runtimeUrl: string, bearerToken: string | undefined): Promise<void> {
   try {
     const pairingRequestId = randomUUID();
     const pairingSecret = randomBytes(32).toString("hex");
+
+    // The daemon's HTTP server may not be fully ready even though the gateway
+    // health check passed (the gateway is up, but the upstream daemon HTTP
+    // endpoint it proxies to may still be initializing). Poll the daemon's
+    // health endpoint through the gateway to ensure it's reachable.
+    const daemonReady = await waitForDaemonReady(runtimeUrl, bearerToken);
+    if (!daemonReady) {
+      console.warn("⚠ Daemon health check did not pass within 15s. Run `vellum pair` to try again.\n");
+      return;
+    }
 
     const registerRes = await fetch(`${runtimeUrl}/pairing/register`, {
       method: "POST",
