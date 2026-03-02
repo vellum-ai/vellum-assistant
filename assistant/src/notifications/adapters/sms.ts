@@ -15,7 +15,7 @@
 import { getGatewayInternalBaseUrl } from '../../config/env.js';
 import { deliverChannelReply } from '../../runtime/gateway-client.js';
 import { getLogger } from '../../util/logger.js';
-import { readHttpToken } from '../../util/platform.js';
+import { mintDaemonDeliveryToken } from '../../runtime/auth/token-service.js';
 import { nonEmpty } from '../copy-composer.js';
 import type {
   ChannelAdapter,
@@ -59,7 +59,7 @@ export class SmsAdapter implements ChannelAdapter {
       await deliverChannelReply(
         deliverUrl,
         { chatId: phoneNumber, text: messageText, assistantId: payload.assistantId },
-        readHttpToken() ?? undefined,
+        mintDaemonDeliveryToken(),
       );
 
       log.info(

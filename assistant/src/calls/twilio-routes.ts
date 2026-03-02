@@ -10,7 +10,7 @@ import { getCallWelcomeGreeting, getRuntimeProxyBearerToken } from '../config/en
 import { loadConfig } from '../config/loader.js';
 import { getTwilioRelayUrl } from '../inbound/public-ingress-urls.js';
 import { getLogger } from '../util/logger.js';
-import { readHttpToken } from '../util/platform.js';
+import { mintDaemonDeliveryToken } from '../runtime/auth/token-service.js';
 import { persistCallCompletionMessage } from './call-conversation-messages.js';
 import { createInboundVoiceSession } from './call-domain.js';
 import { logDeadLetterEvent } from './call-recovery.js';
@@ -264,7 +264,7 @@ function buildVoiceWebhookTwiml(
 
   // Use the same token resolution the gateway uses for runtimeProxyBearerToken:
   // env var override first, then the on-disk http-token file.
-  const relayToken = getRuntimeProxyBearerToken() ?? readHttpToken() ?? undefined;
+  const relayToken = getRuntimeProxyBearerToken() ?? mintDaemonDeliveryToken();
 
   // Propagate guardianVerificationSessionId as a TwiML <Parameter> for
   // observability. This is not the sole source of truth; the relay

@@ -222,6 +222,66 @@ const DEFAULT_HOSTNAME = '127.0.0.1';
 /** Global hard cap on request body size (50 MB). */
 const MAX_REQUEST_BODY_BYTES = 50 * 1024 * 1024;
 
+// ---------------------------------------------------------------------------
+// Parameterized endpoint normalization for policy lookup
+// ---------------------------------------------------------------------------
+
+/**
+ * Patterns that map parameterized URLs back to their policy registry keys.
+ * Order matters: more specific patterns must come before general ones so
+ * that e.g. `attachments/{id}/content` matches before `attachments/{id}`.
+ */
+const PARAMETERIZED_ROUTE_PATTERNS: Array<{ re: RegExp; policyBase: string }> = [
+  // calls/{id}/cancel, calls/{id}/answer, calls/{id}/instruction
+  { re: /^calls\/[^/]+\/(cancel|answer|instruction)$/, policyBase: 'calls/$1' },
+  // calls/{id} (GET status)
+  { re: /^calls\/[^/]+$/, policyBase: 'calls' },
+  // contacts/{id}
+  { re: /^contacts\/[^/]+$/, policyBase: 'contacts' },
+  // ingress/members/{id}/block
+  { re: /^ingress\/members\/[^/]+\/block$/, policyBase: 'ingress/members/block' },
+  // ingress/members/{id}
+  { re: /^ingress\/members\/[^/]+$/, policyBase: 'ingress/members' },
+  // ingress/invites/{id}
+  { re: /^ingress\/invites\/[^/]+$/, policyBase: 'ingress/invites' },
+  // integrations/twilio/sms/compliance/tollfree/{sid}
+  { re: /^integrations\/twilio\/sms\/compliance\/tollfree\/[^/]+$/, policyBase: 'integrations/twilio/sms/compliance/tollfree' },
+  // attachments/{id}/content
+  { re: /^attachments\/[^/]+\/content$/, policyBase: 'attachments/content' },
+  // attachments/{id}
+  { re: /^attachments\/[^/]+$/, policyBase: 'attachments' },
+  // interfaces/{path}
+  { re: /^interfaces\/.+$/, policyBase: 'interfaces' },
+];
+
+/**
+ * Strip parameterized segments from an endpoint string so it matches
+ * the base route name used in the policy registry.
+ *
+ * For example, `calls/abc123` becomes `calls`, and
+ * `attachments/abc123/content` becomes `attachments/content`.
+ *
+ * If the raw endpoint already has a direct policy registered (either
+ * bare or with a method qualifier), normalization is skipped. This
+ * prevents literal sub-routes like `calls/start` from being
+ * incorrectly collapsed to `calls`.
+ */
+function normalizeEndpointForPolicy(endpoint: string, method: string): string {
+  // If the exact endpoint (with or without method) has a direct policy, don't normalize
+  if (getPolicy(`${endpoint}:${method}`) || getPolicy(endpoint)) {
+    return endpoint;
+  }
+
+  for (const { re, policyBase } of PARAMETERIZED_ROUTE_PATTERNS) {
+    const match = endpoint.match(re);
+    if (match) {
+      // Support capture-group substitution (e.g. calls/$1 -> calls/cancel)
+      return policyBase.replace(/\$(\d+)/g, (_, idx) => match[Number(idx)] ?? '');
+    }
+  }
+  return endpoint;
+}
+
 export class RuntimeHttpServer {
   private server: ReturnType<typeof Bun.serve> | null = null;
   private port: number;
@@ -502,6 +562,8 @@ export class RuntimeHttpServer {
   private async handleAuthenticatedRequest(req: Request, url: URL, path: string, server: ReturnType<typeof Bun.serve>, authContext: AuthContext): Promise<Response> {
     // Pairing registration (bearer-authenticated)
     if (path === '/v1/pairing/register' && req.method === 'POST') {
+      const policyDenied = enforcePolicy('pairing/register', authContext);
+      if (policyDenied) return policyDenied;
       return await handlePairingRegister(req, this.pairingContext);
     }
 
@@ -518,6 +580,8 @@ export class RuntimeHttpServer {
 
     // Cloud sharing endpoints
     if (path === '/v1/apps/share' && req.method === 'POST') {
+      const policyDenied = enforcePolicy('apps/share', authContext);
+      if (policyDenied) return policyDenied;
       try { return await handleShareApp(req); } catch (err) {
         log.error({ err }, 'Runtime HTTP handler error sharing app');
         return httpError('INTERNAL_ERROR', 'Internal server error', 500);
@@ -528,12 +592,16 @@ export class RuntimeHttpServer {
     if (sharedTokenMatch) {
       const shareToken = sharedTokenMatch[1];
       if (req.method === 'GET') {
+        const policyDenied = enforcePolicy('apps/shared:GET', authContext);
+        if (policyDenied) return policyDenied;
         try { return handleDownloadSharedApp(shareToken); } catch (err) {
           log.error({ err, shareToken }, 'Runtime HTTP handler error downloading shared app');
           return httpError('INTERNAL_ERROR', 'Internal server error', 500);
         }
       }
       if (req.method === 'DELETE') {
+        const policyDenied = enforcePolicy('apps/shared:DELETE', authContext);
+        if (policyDenied) return policyDenied;
         try { return handleDeleteSharedApp(shareToken); } catch (err) {
           log.error({ err, shareToken }, 'Runtime HTTP handler error deleting shared app');
           return httpError('INTERNAL_ERROR', 'Internal server error', 500);
@@ -543,6 +611,8 @@ export class RuntimeHttpServer {
 
     const sharedMetadataMatch = path.match(/^\/v1\/apps\/shared\/([^/]+)\/metadata$/);
     if (sharedMetadataMatch && req.method === 'GET') {
+      const policyDenied = enforcePolicy('apps/shared/metadata', authContext);
+      if (policyDenied) return policyDenied;
       try { return handleGetSharedAppMetadata(sharedMetadataMatch[1]); } catch (err) {
         log.error({ err, shareToken: sharedMetadataMatch[1] }, 'Runtime HTTP handler error getting shared app metadata');
         return httpError('INTERNAL_ERROR', 'Internal server error', 500);
@@ -551,12 +621,16 @@ export class RuntimeHttpServer {
 
     // Secret management endpoint
     if (path === '/v1/secrets' && req.method === 'POST') {
+      const policyDenied = enforcePolicy('secrets', authContext);
+      if (policyDenied) return policyDenied;
       try { return await handleAddSecret(req); } catch (err) {
         log.error({ err }, 'Runtime HTTP handler error adding secret');
         return httpError('INTERNAL_ERROR', 'Internal server error', 500);
       }
     }
     if (path === '/v1/secrets' && req.method === 'DELETE') {
+      const policyDenied = enforcePolicy('secrets', authContext);
+      if (policyDenied) return policyDenied;
       try { return await handleDeleteSecret(req); } catch (err) {
         log.error({ err }, 'Runtime HTTP handler error deleting secret');
         return httpError('INTERNAL_ERROR', 'Internal server error', 500);
@@ -658,11 +732,16 @@ export class RuntimeHttpServer {
   ): Promise<Response> {
     const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
 
+    // Normalize parameterized endpoints to their base policy key so that
+    // routes like `calls/abc123` match the registered key `calls` and
+    // `attachments/abc123/content` matches `attachments/content`.
+    const normalizedEndpoint = normalizeEndpointForPolicy(endpoint, req.method);
+
     // Enforce route-level scope/principal policy before invoking any handler.
     // Try method-specific key first (e.g. "messages:POST"); fall back to the
     // plain endpoint key only when no method-specific policy is registered.
-    const methodKey = `${endpoint}:${req.method}`;
-    const policyKey = getPolicy(methodKey) ? methodKey : endpoint;
+    const methodKey = `${normalizedEndpoint}:${req.method}`;
+    const policyKey = getPolicy(methodKey) ? methodKey : normalizedEndpoint;
     const policyDenied = enforcePolicy(policyKey, authContext);
     if (policyDenied) return policyDenied;
 

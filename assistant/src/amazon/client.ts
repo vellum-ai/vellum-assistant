@@ -52,6 +52,7 @@ import type { ExtensionCommand, ExtensionResponse } from '../browser-extension-r
 import { extensionRelayServer } from '../browser-extension-relay/server.js';
 import { getGatewayInternalBaseUrl } from '../config/env.js';
 import type { ExtractedCredential } from '../tools/browser/network-recording-types.js';
+import { isSigningKeyInitialized, mintDaemonDeliveryToken } from '../runtime/auth/token-service.js';
 import { readHttpToken } from '../util/platform.js';
 import {
   type AmazonSession,
@@ -75,10 +76,12 @@ export async function sendRelayCommand(command: Record<string, unknown>): Promis
     return extensionRelayServer.sendCommand(command as Omit<ExtensionCommand, 'id'>);
   }
 
-  // Fall back to HTTP relay endpoint on the daemon
-  const token = readHttpToken();
+  // Fall back to HTTP relay endpoint on the daemon.
+  // In CLI (out-of-process) context the signing key may not be initialized,
+  // so fall back to the legacy shared-secret token from disk.
+  const token = isSigningKeyInitialized() ? mintDaemonDeliveryToken() : readHttpToken();
   if (!token) {
-    throw new Error('Browser extension relay is not connected and no HTTP token found. Is the daemon running?');
+    throw new Error('No auth token available — daemon may not be running');
   }
 
   const resp = await fetch(`${getGatewayInternalBaseUrl()}/v1/browser-relay/command`, {
