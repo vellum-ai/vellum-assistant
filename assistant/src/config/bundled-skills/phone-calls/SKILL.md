@@ -6,26 +6,7 @@ metadata: {"vellum": {"emoji": "📞", "requires": {"config": ["calls.enabled"]}
 includes: ["public-ingress"]
 ---
 
-You are helping the user set up and manage phone calls via Twilio. This skill covers the full lifecycle: Twilio account setup, credential storage, public ingress configuration, enabling the calls feature, placing outbound calls, receiving inbound calls, and monitoring live transcripts.
-
-## Prerequisites — Shared Twilio Setup
-
-Twilio credentials and phone number configuration are shared between voice calls and SMS messaging. If Twilio is not yet configured, install and load the **twilio-setup** skill first:
-
-- Call `vellum_skills_catalog` with `action: "install"`, `skill_id: "twilio-setup"`, and `overwrite: true` (so it succeeds even if already installed).
-- Then call `skill_load` with `skill: "twilio-setup"`.
-
-The twilio-setup skill handles credential storage, phone number provisioning/assignment, and public ingress setup. Once complete, return here to enable the calls feature and start making calls.
-
-Check if Twilio is already configured:
-
-```bash
-TOKEN=$(cat ~/.vellum/http-token)
-curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/config" \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-If `hasCredentials` is `true` and `phoneNumber` is set, skip directly to **Step 5: Enable Calls** below.
+You are helping the user set up and manage phone calls via Twilio. This skill covers enabling the calls feature, placing outbound calls, receiving inbound calls, and interacting with live calls. Twilio credential storage, phone number provisioning, and public ingress are handled by the **twilio-setup** skill.
 
 ## Overview
 
@@ -39,7 +20,7 @@ When a call is placed:
 2. Twilio connects to the gateway's voice webhook, which returns TwiML
 3. Twilio opens a ConversationRelay WebSocket for real-time voice streaming
 4. An LLM-driven orchestrator manages the conversation — receiving caller speech (transcribed by Deepgram), generating responses via Claude, and streaming text back for TTS playback
-5. The transcript is relayed live to the user's conversation thread
+5. The full transcript is stored in the database for later retrieval
 
 ### Inbound calls
 
@@ -61,9 +42,9 @@ You can keep using Twilio only — no changes needed. Enabling ElevenLabs can im
 
 The user's assistant gets its own personal phone number through Twilio. All implicit calls (without an explicit mode) always use this assistant number. Optionally, users can call from their own phone number if it's authorized with the Twilio account — this must be explicitly requested per call via `caller_identity_mode="user_number"`.
 
-## Step 1: Check Current Configuration
+## Step 1: Verify Twilio Setup
 
-First, check whether Twilio is already configured:
+Check whether Twilio credentials, phone number, and public ingress are already configured:
 
 ```bash
 TOKEN=$(cat ~/.vellum/http-token)
@@ -71,73 +52,20 @@ curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/config" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
-Also check calls feature status:
-
 ```bash
 vellum config get calls.enabled
 ```
 
-If the config response shows `hasCredentials: true` and `phoneNumber` is set, and `calls.enabled` is `true`, skip to the **Making Calls** section. If credentials are partially configured, skip to whichever step is still needed.
+If `hasCredentials` is `true`, `phoneNumber` is set, and `calls.enabled` is `true`, skip to the **Making Calls** section.
 
-## Step 2: Create a Twilio Account
+If Twilio is not yet configured, load the **twilio-setup** skill — it handles credential storage, phone number provisioning, and public ingress setup:
 
-If the user doesn't have a Twilio account yet, guide them through setup:
+- Call `vellum_skills_catalog` with `action: "install"`, `skill_id: "twilio-setup"`, and `overwrite: true`.
+- Then call `skill_load` with `skill: "twilio-setup"`.
 
-1. Tell the user: **"You'll need a Twilio account to make phone calls. Sign up at https://www.twilio.com/try-twilio — it's free to start and includes trial credit."**
-2. Once they have an account, they need two pieces of information:
-   - **Account SID** — found on the Twilio Console dashboard at https://console.twilio.com
-   - **Auth Token** — found on the same dashboard (click "Show" to reveal it)
+Once twilio-setup completes, return here to enable calls.
 
-Tell the user: **"The assistant will get its own personal phone number through Twilio — the number that shows up on caller ID when calls are placed."**
-
-## Step 3: Store Twilio Credentials
-
-**IMPORTANT — Secure credential collection only:** Never use credentials pasted in plaintext chat. Always collect credentials through the secure credential prompt flow:
-
-- Call `credential_store` with `action: "prompt"`, `service: "twilio"`, `field: "account_sid"`, `label: "Twilio Account SID"`, `description: "Enter your Account SID from the Twilio Console dashboard"`, and `placeholder: "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"`.
-- Call `credential_store` with `action: "prompt"`, `service: "twilio"`, `field: "auth_token"`, `label: "Twilio Auth Token"`, `description: "Enter your Auth Token from the Twilio Console dashboard"`, and `placeholder: "your_auth_token"`.
-
-After both credentials are collected, send them to the gateway:
-
-```bash
-TOKEN=$(cat ~/.vellum/http-token)
-curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/credentials" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"accountSid":"<value from credential_store for twilio/account_sid>","authToken":"<value from credential_store for twilio/auth_token>"}'
-```
-
-The endpoint validates the credentials against the Twilio API before storing them. If credentials are invalid, ask the user to re-enter via the secure prompt.
-
-**Important:** Credentials are stored in the OS keychain (macOS Keychain / Linux secret-service) or encrypted at rest. They are never logged or exposed in plaintext.
-
-## Step 4: Set Up Public Ingress
-
-Twilio needs a publicly reachable URL to send voice webhooks and establish the ConversationRelay WebSocket. The **public-ingress** skill handles this via ngrok.
-
-Check if ingress is already configured:
-
-```bash
-vellum config get ingress.publicBaseUrl
-vellum config get ingress.enabled
-```
-
-If not configured, load and run the public-ingress skill:
-
-```
-skill_load skill=public-ingress
-```
-
-Follow the public-ingress skill's instructions to set up the ngrok tunnel. Once complete, the gateway will be reachable at the configured `ingress.publicBaseUrl`.
-
-**Twilio needs these webhook endpoints (handled automatically by the gateway):**
-- Voice webhook: `{publicBaseUrl}/webhooks/twilio/voice`
-- Status callback: `{publicBaseUrl}/webhooks/twilio/status`
-- ConversationRelay WebSocket: `{publicBaseUrl}/webhooks/twilio/relay` (wss://)
-
-No manual Twilio webhook configuration is needed — the assistant registers webhook URLs dynamically when placing each call.
-
-## Step 5: Enable Calls
+## Step 2: Enable Calls
 
 Enable the calls feature:
 
@@ -150,7 +78,7 @@ Verify:
 vellum config get calls.enabled
 ```
 
-## Step 6: Verify Setup (Test Call)
+## Step 3: Verify Setup (Test Call)
 
 Before making real calls, offer a quick verification:
 
@@ -351,7 +279,7 @@ Once Twilio is configured and the assistant has a phone number, inbound calls wo
 3. The LLM-driven orchestrator answers in receptionist mode — greeting the caller warmly and asking how it can help
 4. The conversation proceeds naturally, with ASK_GUARDIAN dispatches to consult the user when needed
 
-No additional configuration is needed beyond the standard Twilio setup (Steps 1-5 above). As long as `calls.enabled` is `true` and the phone number has been provisioned/assigned, inbound calls are handled automatically.
+No additional configuration is needed beyond Twilio setup and `calls.enabled` being `true`. As long as the phone number has been provisioned/assigned, inbound calls are handled automatically.
 
 ### Guardian voice verification for inbound calls
 
@@ -361,31 +289,9 @@ Once a guardian binding exists for the voice channel, inbound callers may be pro
 
 This feature is separate from the outbound DTMF callee verification. It uses the channel guardian verification system rather than the per-call verification config.
 
-## Live Call Monitoring
+## Interacting with a Live Call
 
-### Showing the live transcript
-
-By default, always show the live transcript of the call as it happens. When a call is in progress:
-
-1. After placing the call with `call_start`, immediately begin polling with `call_status` to track the call state
-2. The system fires transcript notifications as the conversation unfolds — both caller speech and assistant responses appear in real time in the conversation thread
-3. Present each transcript entry clearly as it arrives:
-
-```
-📞 Call in progress...
-
-🗣️ Assistant: "Hi, I'm calling on behalf of John to make a dinner reservation for tonight."
-👤 Caller: "Sure, what time would you like?"
-🗣️ Assistant: "We'd like a table for two at 7pm, please."
-👤 Caller: "Let me check... yes, we have availability at 7pm."
-🗣️ Assistant: "Wonderful! The reservation would be under John Smith."
-```
-
-4. Continue monitoring until the call completes or fails
-
-### Interacting with a live call
-
-During an active call, the user can interact with the AI voice agent via the HTTP API endpoints:
+During an active call, the user can interact with the AI voice agent via the HTTP API endpoints. After placing a call with `call_start`, use `call_status` to poll the call state.
 
 #### Answering questions
 
@@ -424,7 +330,7 @@ When there is **no pending question** but the call is still active, the user can
 
 The instruction is injected into the AI voice agent's conversation context as high-priority input, and the agent adjusts its behavior accordingly.
 
-**Note:** Mid-call steering via the desktop chat thread is no longer supported. The desktop thread only receives pointer/status messages about the call. To steer a call, use the HTTP API endpoints directly.
+**Note:** Steering is done via the HTTP API, not the desktop chat thread. The desktop thread only receives pointer/status messages about the call.
 
 ### Call status values
 
@@ -585,18 +491,10 @@ vellum config set calls.disclosure.text "Just so you know, this is an assistant 
 vellum config set calls.userConsultTimeoutSeconds 300
 ```
 
-## Accepted Regressions
-
-The following behavioral changes were introduced with the cross-channel guardian architecture (voice-cross-guardian):
-
-- **No more mid-call steering via desktop chat.** The call bridge that routed desktop chat messages to the active call has been removed. The desktop chat thread only receives pointer/status messages about the call. To steer a call, use the HTTP API endpoints directly (`POST /v1/calls/:id/instruction`).
-- **No live transcript mirror in the initiating chat.** The initiating desktop conversation no longer receives a real-time mirror of the call transcript. The initiating chat only gets pointer/status messages (call started, call ended, question asked, etc.).
-- **Guardian questions are dispatched cross-channel.** Rather than appearing only in the initiating desktop thread, ASK_GUARDIAN questions are now dispatched to all configured guardian channels (mac desktop, Telegram, SMS) simultaneously. The first channel to respond wins.
-
 ## Troubleshooting
 
 ### "Twilio credentials not configured"
-Run Step 3 to store your Account SID and Auth Token via the secure credential prompt flow, or load the `twilio-setup` skill.
+Load the `twilio-setup` skill to store your Account SID and Auth Token.
 
 ### "Calls feature is disabled"
 Run `vellum config set calls.enabled true`.
