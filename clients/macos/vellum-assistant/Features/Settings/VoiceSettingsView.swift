@@ -129,7 +129,7 @@ struct VoiceSettingsView: View {
                 // Keyword
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     Text("Keyword")
-                        .font(VFont.bodyMedium)
+                        .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
 
                     TextField("Enter wake word or phrase", text: $wakeWordKeyword)
