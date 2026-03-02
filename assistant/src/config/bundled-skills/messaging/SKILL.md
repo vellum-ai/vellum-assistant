@@ -276,9 +276,9 @@ When a user asks to declutter, clean up, or organize their email — start scann
    - **Show a `task_progress` card** with one step per selected sender (e.g., "Archiving TechCrunch (247 emails)"). Update each step from `in_progress` → `completed` as each sender finishes.
    - When all senders are processed, set the progress card's `status: "completed"`.
 4. **Act on selection**: For each selected sender:
-   - Use `gmail_archive_by_query` (or `messaging_archive_by_sender` for non-Gmail) with the sender's `search_query` — this archives all matching messages in one call, regardless of volume
+   - Use `gmail_batch_archive` (or `messaging_archive_by_sender` for non-Gmail) with the sender's `message_ids` array — this archives exactly the messages that were scanned and counted
    - If Gmail and the action is "Archive & Unsubscribe" and `has_unsubscribe` is true, call `gmail_unsubscribe` with the sender's `newest_message_id`
-5. **Accurate summary**: Use the **actual counts returned by the archive tool**, not the scan counts from the digest. The scan is a sample; the archive is comprehensive. Format: "Cleaned up [total_archived] emails from [sender_count] senders." For Gmail, append: "Unsubscribed from [unsub_count]."
+5. **Accurate summary**: The scan counts are exact — the `message_count` shown in the table matches the number of `message_ids` that were archived. Format: "Cleaned up [total_archived] emails from [sender_count] senders." For Gmail, append: "Unsubscribed from [unsub_count]."
 6. **Ongoing protection offer (Gmail only)**: After reporting results, offer auto-archive filters:
    - "Want me to set up auto-archive filters so future emails from these senders skip your inbox?"
    - If yes, call `gmail_filters` with `action: "create"` for each sender with `from` set to the sender's email and `remove_label_ids: ["INBOX"]`.
@@ -288,7 +288,7 @@ When a user asks to declutter, clean up, or organize their email — start scann
 
 - **Zero results**: Tell the user "No newsletter emails found" and suggest broadening the query (e.g. removing the category filter or extending the date range)
 - **Unsubscribe failures**: Report per-sender success/failure; the existing `gmail_unsubscribe` tool handles edge cases
-- **Large sender counts**: The `has_more` flag indicates a sender had more messages than collected — `gmail_archive_by_query` handles this automatically via its own pagination
+- **Large sender counts**: The scan covers up to 2000 messages. If `has_more` is true for a sender, it means they had more messages than could be tracked — mention this to the user in the summary
 
 ## Batch Operations
 

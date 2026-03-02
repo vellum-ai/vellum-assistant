@@ -196,9 +196,9 @@ export const gmailMessagingProvider: MessagingProvider = {
   },
 
   async senderDigest(token: string, query: string, options?: { maxMessages?: number; maxSenders?: number }): Promise<SenderDigestResult> {
-    const maxMessages = Math.min(options?.maxMessages ?? 500, 2000);
+    const maxMessages = Math.min(options?.maxMessages ?? 2000, 2000);
     const maxSenders = options?.maxSenders ?? 30;
-    const maxIdsPerSender = 1000;
+    const maxIdsPerSender = 2000;
 
     const allMessageIds: string[] = [];
     let pageToken: string | undefined;

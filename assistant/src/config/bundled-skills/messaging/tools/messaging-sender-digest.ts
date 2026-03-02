@@ -43,7 +43,7 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
         senders,
         total_scanned: result.totalScanned,
         query_used: result.queryUsed,
-        note: `message_count reflects emails found per sender within the ${result.totalScanned} messages scanned. The archive tool may find additional messages beyond this sample.`,
+        note: `message_count reflects emails found per sender within the ${result.totalScanned} messages scanned. Use the message_ids array with the archive tool to archive exactly these messages.`,
       }));
     });
   } catch (e) {
