@@ -714,11 +714,14 @@ jobs:
 
       - name: Notarize DMG
         run: |
+          mkdir -p ~/.private_keys
+          echo "${{ secrets.ASC_KEY_P8 }}" > ~/.private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8
+
           echo "Submitting DMG for notarization..."
           NOTARIZE_OUTPUT=$(xcrun notarytool submit "$DMG_PATH" \
-            --apple-id "${{ secrets.APPLE_ID }}" \
-            --password "${{ secrets.APPLE_APP_PASSWORD }}" \
-            --team-id "${{ secrets.APPLE_TEAM_ID }}" \
+            --key ~/.private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8 \
+            --key-id "${{ secrets.ASC_KEY_ID }}" \
+            --issuer "${{ secrets.ASC_ISSUER_ID }}" \
             --wait \
             --timeout 30m \
             2>&1) || NOTARIZE_FAILED=true
@@ -732,9 +735,9 @@ jobs:
             if [ -n "$SUBMISSION_ID" ]; then
               echo "Fetching notarization log for submission $SUBMISSION_ID..."
               xcrun notarytool log "$SUBMISSION_ID" \
-                --apple-id "${{ secrets.APPLE_ID }}" \
-                --password "${{ secrets.APPLE_APP_PASSWORD }}" \
-                --team-id "${{ secrets.APPLE_TEAM_ID }}" \
+                --key ~/.private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8 \
+                --key-id "${{ secrets.ASC_KEY_ID }}" \
+                --issuer "${{ secrets.ASC_ISSUER_ID }}" \
                 || echo "::warning::Could not fetch notarization log"
             fi
             exit 1
@@ -836,11 +839,12 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-      - name: Cleanup keychain
+      - name: Cleanup keychain and keys
         if: always()
         run: |
           KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
           security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
+          rm -rf ~/.private_keys 2>/dev/null || true
 
   # Experimental split-arch build — runs in parallel with the production build-macos
   # job to validate the parallel architecture approach. Produces a separate artifact
