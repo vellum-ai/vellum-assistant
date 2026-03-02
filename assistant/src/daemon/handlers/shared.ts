@@ -12,6 +12,7 @@ import { estimateBase64Bytes } from '../assistant-attachments.js';
 import { ComputerUseSession } from '../computer-use-session.js';
 import type { ClientMessage, CuSessionCreate, ServerMessage, SessionTransportMetadata } from '../ipc-protocol.js';
 import { Session } from '../session.js';
+import type { AuthContext } from '../../runtime/auth/types.js';
 import type { GuardianRuntimeContext } from '../session-runtime-assembly.js';
 
 const log = getLogger('handlers');
@@ -105,6 +106,8 @@ export interface SessionCreateOptions {
   transport?: SessionTransportMetadata;
   assistantId?: string;
   guardianContext?: GuardianRuntimeContext;
+  /** Normalized auth context for the session (IPC or HTTP-derived). */
+  authContext?: AuthContext;
   /** Whether this turn can block on interactive approval prompts. */
   isInteractive?: boolean;
   memoryScopeId?: string;

@@ -50,7 +50,7 @@ import {
   revokeByTokenHash,
 } from '../runtime/actor-token-store.js';
 import { ensureVellumGuardianBinding } from '../runtime/guardian-vellum-migration.js';
-import { resolveLocalIpcGuardianContext } from '../runtime/local-actor-identity.js';
+import { resolveLocalIpcAuthContext, resolveLocalIpcGuardianContext } from '../runtime/local-actor-identity.js';
 
 // ---------------------------------------------------------------------------
 // Test signing key
@@ -351,6 +351,57 @@ describe('resolveLocalIpcGuardianContext', () => {
     ensureVellumGuardianBinding('self');
     const ctx = resolveLocalIpcGuardianContext('vellum');
     expect(ctx.sourceChannel).toBe('vellum');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Local IPC AuthContext resolution
+// ---------------------------------------------------------------------------
+
+describe('resolveLocalIpcAuthContext', () => {
+  test('returns AuthContext with ipc principal type', () => {
+    const ctx = resolveLocalIpcAuthContext('session-123');
+    expect(ctx.principalType).toBe('ipc');
+  });
+
+  test('subject follows ipc:self:<sessionId> pattern', () => {
+    const ctx = resolveLocalIpcAuthContext('session-abc');
+    expect(ctx.subject).toBe('ipc:self:session-abc');
+  });
+
+  test('assistantId is always self', () => {
+    const ctx = resolveLocalIpcAuthContext('session-123');
+    expect(ctx.assistantId).toBe('self');
+  });
+
+  test('uses ipc_v1 scope profile with ipc.all scope', () => {
+    const ctx = resolveLocalIpcAuthContext('session-123');
+    expect(ctx.scopeProfile).toBe('ipc_v1');
+    expect(ctx.scopes.has('ipc.all')).toBe(true);
+  });
+
+  test('enriches actorPrincipalId from vellum guardian binding when present', () => {
+    ensureVellumGuardianBinding('self');
+    const binding = getActiveBinding('self', 'vellum');
+    expect(binding).toBeTruthy();
+
+    const ctx = resolveLocalIpcAuthContext('session-123');
+    expect(ctx.actorPrincipalId).toBe(binding!.guardianExternalUserId);
+  });
+
+  test('actorPrincipalId is undefined when no vellum binding exists', () => {
+    // Reset DB to ensure no binding
+    resetDb();
+    initializeDb();
+
+    const ctx = resolveLocalIpcAuthContext('session-123');
+    // When no binding exists, actorPrincipalId is not set
+    expect(ctx.actorPrincipalId).toBeUndefined();
+  });
+
+  test('sessionId matches the provided argument', () => {
+    const ctx = resolveLocalIpcAuthContext('my-session');
+    expect(ctx.sessionId).toBe('my-session');
   });
 });
 

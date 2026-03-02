@@ -5,8 +5,12 @@
  */
 import * as net from 'node:net';
 
+import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
 import { buildAssistantEvent } from '../runtime/assistant-event.js';
 import { assistantEventHub } from '../runtime/assistant-event-hub.js';
+import { CURRENT_POLICY_EPOCH } from '../runtime/auth/policy.js';
+import { resolveScopeProfile } from '../runtime/auth/scopes.js';
+import type { AuthContext } from '../runtime/auth/types.js';
 import { getLogger } from '../util/logger.js';
 import { serialize, type ServerMessage } from './ipc-protocol.js';
 
@@ -76,6 +80,26 @@ export class IpcSender {
         log.warn({ err }, 'assistant-events hub subscriber threw during IPC send');
       });
   }
+}
+
+/**
+ * Build a synthetic AuthContext for an IPC session.
+ *
+ * IPC connections are local-only (Unix domain socket) and pre-authenticated
+ * via the daemon's file-system permission model. This produces the same
+ * AuthContext shape that HTTP routes receive from JWT verification, keeping
+ * downstream code transport-agnostic.
+ */
+export function buildIpcAuthContext(sessionId: string): AuthContext {
+  return {
+    subject: `ipc:self:${sessionId}`,
+    principalType: 'ipc',
+    assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
+    sessionId,
+    scopeProfile: 'ipc_v1',
+    scopes: resolveScopeProfile('ipc_v1'),
+    policyEpoch: CURRENT_POLICY_EPOCH,
+  };
 }
 
 /** Extract sessionId from a ServerMessage if present. */
