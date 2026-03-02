@@ -174,7 +174,7 @@ describe('authenticateRequest', () => {
     }
   });
 
-  test('returns 401 with refresh_required when policy epoch is stale', () => {
+  test('returns 401 with refresh_required when policy epoch is stale', async () => {
     // Mint a token with a very old policy epoch. The token service checks
     // isStaleEpoch which compares against CURRENT_POLICY_EPOCH.
     const token = mintValidToken({ policy_epoch: 0 });

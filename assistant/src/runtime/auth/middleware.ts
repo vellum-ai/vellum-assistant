@@ -68,8 +68,11 @@ export function authenticateRequest(req: Request): AuthenticateResult {
     return { ok: true, context: buildDevBypassContext() };
   }
 
+  const path = new URL(req.url).pathname;
+
   const rawToken = extractBearerToken(req);
   if (!rawToken) {
+    log.warn({ reason: 'missing_token', path }, 'Auth denied: missing Authorization header');
     return {
       ok: false,
       response: Response.json(
@@ -84,7 +87,7 @@ export function authenticateRequest(req: Request): AuthenticateResult {
   if (!verifyResult.ok) {
     // Stale policy epoch gets a specific error code so clients can refresh
     if (verifyResult.reason === 'stale_policy_epoch') {
-      log.warn('JWT rejected: stale policy epoch');
+      log.warn({ reason: 'stale_policy_epoch', path }, 'Auth denied: stale policy epoch');
       return {
         ok: false,
         response: Response.json(
@@ -94,7 +97,7 @@ export function authenticateRequest(req: Request): AuthenticateResult {
       };
     }
 
-    log.warn({ reason: verifyResult.reason }, 'JWT verification failed');
+    log.warn({ reason: verifyResult.reason, path }, 'Auth denied: JWT verification failed');
     return {
       ok: false,
       response: Response.json(
@@ -107,7 +110,10 @@ export function authenticateRequest(req: Request): AuthenticateResult {
   // Build normalized AuthContext from verified claims
   const contextResult = buildAuthContext(verifyResult.claims);
   if (!contextResult.ok) {
-    log.warn({ reason: contextResult.reason }, 'Failed to build AuthContext from JWT claims');
+    log.warn(
+      { reason: contextResult.reason, path, sub: verifyResult.claims.sub },
+      'Auth denied: invalid JWT claims',
+    );
     return {
       ok: false,
       response: Response.json(

@@ -4,9 +4,9 @@
  * These endpoints resolve pending confirmations, secrets, and trust rules
  * by requestId — orthogonal to message sending.
  *
- * All approval endpoints require a valid actor token via the X-Actor-Token
- * header (with local CLI fallback). Guardian decisions additionally verify
- * that the actor is the bound guardian.
+ * All approval endpoints require a valid JWT via the Authorization: Bearer
+ * header. Guardian decisions additionally verify that the actor is the
+ * bound guardian.
  */
 import { isHttpAuthDisabled } from '../../config/env.js';
 import { getConversationByKey } from '../../memory/conversation-key-store.js';

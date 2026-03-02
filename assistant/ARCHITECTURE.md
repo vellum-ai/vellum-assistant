@@ -22,58 +22,73 @@ This document owns assistant-runtime architecture details. The repo-level archit
 - Voice calls mirror the same prompt contract: `CallController` receives guardian context on setup and refreshes it immediately after successful voice challenge verification, so the first post-verification turn is grounded as `actor_role: guardian`.
 - Voice-specific behavior (DTMF/speech verification flow, relay state machine) remains voice-local; only actor-role resolution is shared.
 
-### Vellum Guardian Identity Model (Actor Tokens + Refresh Tokens)
+### Single-Header JWT Auth Model
 
-The vellum channel (macOS desktop, iOS, CLI) uses an identity-bound actor token system to authenticate guardian identity on HTTP routes. This replaces the previous implicit trust model where all local connections were assumed to be the guardian.
+All HTTP API requests use a single `Authorization: Bearer <jwt>` header for authentication. The JWT carries identity, permissions, and policy versioning in a unified token.
+
+**Token schema (JWT claims):**
+
+| Claim | Type | Description |
+|-------|------|-------------|
+| `iss` | `'vellum-auth'` | Issuer — always `vellum-auth` |
+| `aud` | `'vellum-daemon'` or `'vellum-gateway'` | Audience — which service the token targets |
+| `sub` | string | Subject — encodes principal type and identity (see patterns below) |
+| `scope_profile` | string | Named permission bundle (see profiles below) |
+| `exp` | number | Expiry timestamp (seconds since epoch) |
+| `policy_epoch` | number | Policy version — stale tokens are rejected with `refresh_required` |
+| `iat` | number | Issued-at timestamp |
+| `jti` | string | Unique token ID |
+
+**Subject patterns:**
+
+| Pattern | Principal Type | Description |
+|---------|---------------|-------------|
+| `actor:<assistantId>:<actorPrincipalId>` | `actor` | Desktop, iOS, or CLI client |
+| `svc:gateway:<assistantId>` | `svc_gateway` | Gateway service (ingress, webhooks) |
+| `ipc:<assistantId>:<sessionId>` | `ipc` | Internal IPC connections |
+| `svc:daemon:self` | n/a | Daemon self-identification (for internal use) |
+
+**Scope profiles:**
+
+| Profile | Scopes | Used by |
+|---------|--------|---------|
+| `actor_client_v1` | `chat.{read,write}`, `approval.{read,write}`, `settings.{read,write}`, `attachments.{read,write}`, `calls.{read,write}`, `feature_flags.{read,write}` | Desktop, iOS, CLI clients |
+| `gateway_ingress_v1` | `ingress.write`, `internal.write` | Gateway channel inbound + webhook forwarding |
+| `gateway_service_v1` | `settings.read`, `settings.write`, `internal.write` | Gateway service-to-daemon calls |
+| `ipc_v1` | `ipc.all` | Internal IPC connections |
 
 **Identity lifecycle:**
 
-1. **Startup migration** — On daemon start, `ensureVellumGuardianBinding()` (in `guardian-vellum-migration.ts`) backfills a `channel='vellum'` guardian binding with a stable `guardianPrincipalId` (format: `vellum-principal-<uuid>`). Existing installations get a binding with `verifiedVia: 'startup-migration'`; new installs get one via bootstrap. This migration is idempotent and preserves bindings for other channels (Telegram, SMS, etc.).
+1. **Bootstrap (loopback-only, macOS/CLI)** — On first launch, the client calls `POST /v1/integrations/guardian/vellum/bootstrap` with `{ platform, deviceId }`. The endpoint is loopback-only and mints a JWT access token + refresh token pair. Returns `{ guardianPrincipalId, accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt, refreshAfter, isNew }`.
 
-2. **Bootstrap (loopback-only, macOS) — initial issuance only** — On first launch (no existing actor token), the macOS client calls `POST /v1/integrations/guardian/vellum/bootstrap` with `{ platform: 'macos', deviceId }`. The endpoint is loopback-only: it rejects requests with `X-Forwarded-For` and verifies the peer IP is a loopback address (`127.0.0.1`, `::1`, `::ffff:127.0.0.1`). The endpoint ensures a vellum guardian principal exists, revokes any prior token for the same device binding, mints a new HMAC-SHA256 signed actor token with a 30-day TTL and a rotating refresh token, stores only the SHA-256 hashes, and returns `{ guardianPrincipalId, actorToken, actorTokenExpiresAt, refreshToken, refreshTokenExpiresAt, refreshAfter, isNew }`. Bootstrap is only used for initial credential issuance — ongoing renewal is handled exclusively by the refresh endpoint.
+2. **iOS pairing** — iOS devices obtain JWTs through the QR pairing flow. The pairing response includes `accessToken` and `refreshToken` credentials.
 
-3. **iOS pairing — initial issuance only** — iOS devices obtain actor tokens exclusively through the QR pairing flow. When an iOS device completes pairing, the pairing response includes an `actorToken` and `refreshToken` minted against the same vellum guardian principal. The pairing handler in `pairing-routes.ts` calls `mintPairingActorToken()` which looks up the vellum binding and mints a device-specific token pair. iOS does not call the bootstrap endpoint. Re-pairing is only needed if both the actor token and refresh token expire.
+3. **Refresh** — `POST /v1/integrations/guardian/vellum/refresh` accepts `{ refreshToken }` and returns a new access/refresh token pair. Single-use rotation with replay detection and family-based revocation.
 
-4. **IPC identity** — Local IPC connections (Unix domain socket from the macOS native app) do not send actor tokens. Instead, the daemon assigns a deterministic local actor identity via `resolveLocalIpcGuardianContext()` in `local-actor-identity.ts`. This looks up the vellum guardian binding and routes through the same `resolveGuardianContext` trust pipeline used by HTTP channel ingress. When no vellum binding exists yet (pre-bootstrap), a fallback guardian context is returned since the local macOS user is inherently the guardian of their own machine.
+4. **IPC identity** — Local IPC connections use `resolveLocalIpcGuardianContext()` for deterministic identity without tokens.
 
-**Actor token format:** `base64url(JSON claims) + '.' + base64url(HMAC-SHA256 signature)`. Claims include `assistantId`, `platform`, `deviceId`, `guardianPrincipalId`, `iat`, `exp` (30 days from issuance), and `jti`.
+**Route policy enforcement:** Every protected endpoint declares required scopes and allowed principal types in `src/runtime/auth/route-policy.ts`. The `enforcePolicy()` function checks the AuthContext against these requirements and returns 403 when access is denied. A guard test ensures every dispatched endpoint has a corresponding policy entry.
 
-**Hash-only storage:** Only the SHA-256 hex digest of the raw token is persisted in the `actor_token_records` table. Token verification recomputes the hash and looks it up in the store to check revocation status. Tokens are scoped to `(assistantId, guardianPrincipalId, hashedDeviceId)` with a one-active-per-device invariant.
+**Credential storage:** Only hashed tokens are persisted. Access token hashes go in `credential_records`; refresh token hashes in `refresh_token_records`. Raw tokens are returned once and never stored server-side.
 
-**Refresh token lifecycle:**
-
-Refresh tokens provide a rotating credential renewal mechanism that avoids re-bootstrap or re-pairing for ongoing sessions.
-
-- **Issuance:** A refresh token is minted alongside every actor token (during bootstrap or pairing). The response includes `refreshToken`, `refreshTokenExpiresAt`, and `refreshAfter` (the timestamp at which clients should proactively refresh, set to 80% of the actor token TTL).
-- **Dual expiry:** Each refresh token has a 365-day absolute expiry (from issuance) and a 90-day inactivity expiry (from last use). The effective expiry is the earlier of the two. Using a refresh token resets the inactivity window.
-- **Single-use rotation:** Each call to `POST /v1/integrations/guardian/vellum/refresh` consumes the presented refresh token and returns a new actor token + new refresh token pair. The old refresh token is marked as rotated and cannot be reused.
-- **Token family tracking:** Refresh tokens are grouped into families (one family per initial issuance chain). All tokens in a family share a `familyId`.
-- **Replay detection:** If a client presents a refresh token that has already been rotated (i.e., it was used once and a successor was issued), the server treats this as a potential token theft. The entire token family for that device is revoked, forcing re-bootstrap or re-pairing.
-- **Device binding:** Refresh tokens are bound to `(assistantId, guardianPrincipalId, hashedDeviceId)`. A refresh request from a different device binding is rejected.
-- **Hash-only storage:** Only the SHA-256 hex digest of the refresh token is stored in the `actor_refresh_token_records` table. The raw token is returned once and never persisted on the server.
-
-**Refresh endpoint:** `POST /v1/integrations/guardian/vellum/refresh` accepts `{ refreshToken }` in the request body. It validates the token hash, checks expiry and device binding, performs replay detection, rotates the token, mints a new actor token, and returns `{ actorToken, actorTokenExpiresAt, refreshToken, refreshTokenExpiresAt, refreshAfter }`. This endpoint is only reachable through the gateway (bearer-authenticated).
-
-**Signing key management:** A 32-byte random signing key is generated on first startup and persisted at `~/.vellum/protected/actor-token-signing-key` with `chmod 0o600`. The key is loaded on subsequent startups via `loadOrCreateSigningKey()`.
-
-**Strict HTTP enforcement:** Vellum-channel HTTP routes (POST /v1/messages, POST /v1/confirm, POST /v1/guardian-actions/decision, etc.) require a valid actor token via the `X-Actor-Token` header. The middleware in `middleware/actor-token.ts` verifies the HMAC signature, checks the token is active in the store, and resolves a guardian context through the standard trust pipeline. For backward compatibility with the CLI, requests without an actor token that originate from a loopback address (no `X-Forwarded-For` header) fall back to `resolveLocalIpcGuardianContext()`. Gateway-proxied requests (which carry `X-Forwarded-For`) without an actor token are rejected.
-
-**Notification scoping:** Guardian-sensitive notifications (e.g., approval requests, access request alerts) are annotated with `targetGuardianPrincipalId` so the notification pipeline can scope delivery to the correct guardian identity across devices.
+**Notification scoping:** Guardian-sensitive notifications are annotated with `targetGuardianPrincipalId` for identity-scoped delivery.
 
 **Key source files:**
 
 | File | Purpose |
 |------|---------|
-| `src/runtime/actor-token-service.ts` | HMAC-SHA256 mint/verify, signing key management, `hashToken` |
-| `src/runtime/actor-token-store.ts` | Hash-only persistence: create, find by hash/device binding, revoke |
-| `src/runtime/actor-refresh-token-service.ts` | Refresh token rotation, replay detection, family revocation |
-| `src/runtime/actor-refresh-token-store.ts` | Refresh token hash-only persistence: create, find, rotate, revoke by family |
-| `src/runtime/middleware/actor-token.ts` | HTTP middleware: `verifyHttpActorToken`, `verifyHttpActorTokenWithLocalFallback`, `isActorBoundGuardian` |
+| `src/runtime/auth/types.ts` | Core type definitions: `TokenClaims`, `AuthContext`, `ScopeProfile`, `Scope`, `PrincipalType` |
+| `src/runtime/auth/token-service.ts` | JWT signing, verification, and policy epoch management |
+| `src/runtime/auth/credential-service.ts` | Credential pair minting (access token + refresh token) |
+| `src/runtime/auth/scopes.ts` | Scope profile resolver (`resolveScopeProfile`) |
+| `src/runtime/auth/context.ts` | AuthContext builder from JWT claims |
+| `src/runtime/auth/subject.ts` | Subject string parser (`parseSub`) |
+| `src/runtime/auth/middleware.ts` | JWT bearer auth middleware (`authenticateRequest`) |
+| `src/runtime/auth/route-policy.ts` | Route-level scope/principal enforcement |
+| `src/runtime/routes/guardian-bootstrap-routes.ts` | `POST /v1/integrations/guardian/vellum/bootstrap` (initial JWT issuance) |
+| `src/runtime/routes/guardian-refresh-routes.ts` | `POST /v1/integrations/guardian/vellum/refresh` (token rotation) |
+| `src/runtime/routes/pairing-routes.ts` | JWT credential issuance in pairing flow |
 | `src/runtime/local-actor-identity.ts` | `resolveLocalIpcGuardianContext` — deterministic IPC identity |
-| `src/runtime/guardian-vellum-migration.ts` | `ensureVellumGuardianBinding` — startup binding backfill |
-| `src/runtime/routes/guardian-bootstrap-routes.ts` | `POST /v1/integrations/guardian/vellum/bootstrap` handler (initial issuance only) |
-| `src/runtime/routes/guardian-refresh-routes.ts` | `POST /v1/integrations/guardian/vellum/refresh` handler (token rotation) |
-| `src/runtime/routes/pairing-routes.ts` | `mintPairingActorToken` — actor token + refresh token in pairing response |
 | `src/memory/guardian-bindings.ts` | Guardian binding persistence (shared across all channels) |
 
 ### Channel-Agnostic Scoped Approval Grants
@@ -163,7 +178,7 @@ Guardian verification can be initiated through gateway HTTP endpoints (which for
 | `/v1/integrations/guardian/outbound/resend` | POST | Resend the verification code for an active session. Body: `{ channel, assistantId? }` |
 | `/v1/integrations/guardian/outbound/cancel` | POST | Cancel an active outbound verification session. Body: `{ channel, assistantId? }` |
 
-All endpoints are bearer-authenticated via the gateway token (`~/.vellum/http-token` in local setups). Skills and user-facing tooling should target the gateway URL (default `http://localhost:7830`), not the runtime port.
+All endpoints are JWT-authenticated via `Authorization: Bearer <jwt>`. Skills and user-facing tooling should target the gateway URL (default `http://localhost:7830`), not the runtime port.
 
 **Shared Business Logic:**
 
@@ -326,7 +341,7 @@ The Slack channel provides text-based messaging via Slack's Socket Mode API. Unl
 | `/v1/integrations/slack/channel/config` | POST | Validates and stores credentials. Body: `{ botToken?: string, appToken?: string }` |
 | `/v1/integrations/slack/channel/config` | DELETE | Clears all Slack channel credentials from secure storage and credential metadata |
 
-All endpoints are bearer-authenticated via the runtime HTTP token (`~/.vellum/http-token`).
+All endpoints are JWT-authenticated via `Authorization: Bearer <jwt>`.
 
 **Credential storage pattern:**
 
@@ -693,7 +708,7 @@ graph LR
     subgraph "~/.vellum/ (Root Files)"
         SOCK["vellum.sock<br/>Unix domain socket"]
         TRUST["protected/trust.json<br/>Tool permission rules"]
-        FF_TOKEN["feature-flag-token<br/>Dedicated auth for PATCH /v1/feature-flags"]
+        FF_TOKEN["feature-flag-token<br/>Client token for feature-flag API"]
     end
 
     subgraph "~/.vellum/workspace/ (Workspace Files)"

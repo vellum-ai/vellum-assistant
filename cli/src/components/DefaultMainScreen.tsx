@@ -135,15 +135,18 @@ async function runtimeRequest<T>(
   path: string,
   init?: RequestInit,
   bearerToken?: string,
-  actorToken?: string,
+  accessToken?: string,
 ): Promise<T> {
   const url = `${baseUrl}/v1/assistants/${assistantId}${path}`;
+  // Prefer the JWT access token (from bootstrap) over the shared-secret
+  // bearer token. The JWT carries identity claims and is the canonical
+  // auth mechanism in the single-header auth model.
+  const authToken = accessToken ?? bearerToken;
   const response = await fetch(url, {
     ...init,
     headers: {
       "Content-Type": "application/json",
-      ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
-      ...(actorToken ? { "X-Actor-Token": actorToken } : {}),
+      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
       ...(init?.headers as Record<string, string> | undefined),
     },
   });
@@ -179,7 +182,7 @@ async function checkHealthRuntime(baseUrl: string): Promise<HealthResponse> {
   return response.json() as Promise<HealthResponse>;
 }
 
-async function bootstrapActorToken(baseUrl: string, bearerToken?: string): Promise<string> {
+async function bootstrapAccessToken(baseUrl: string, bearerToken?: string): Promise<string> {
   if (!bearerToken) {
     throw new Error("Missing bearer token; cannot bootstrap actor identity");
   }
@@ -207,19 +210,19 @@ async function bootstrapActorToken(baseUrl: string, bearerToken?: string): Promi
     throw new Error("Invalid bootstrap response from gateway/runtime");
   }
 
-  const actorToken = (json as Record<string, unknown>).actorToken;
-  if (typeof actorToken !== "string" || actorToken.length === 0) {
+  const accessToken = (json as Record<string, unknown>).accessToken;
+  if (typeof accessToken !== "string" || accessToken.length === 0) {
     throw new Error("Invalid bootstrap response from gateway/runtime");
   }
 
-  return actorToken;
+  return accessToken;
 }
 
 async function pollMessages(
   baseUrl: string,
   assistantId: string,
   bearerToken?: string,
-  actorToken?: string,
+  accessToken?: string,
 ): Promise<ListMessagesResponse> {
   const params = new URLSearchParams({ conversationKey: assistantId });
   return runtimeRequest<ListMessagesResponse>(
@@ -228,7 +231,7 @@ async function pollMessages(
     `/messages?${params.toString()}`,
     undefined,
     bearerToken,
-    actorToken,
+    accessToken,
   );
 }
 
@@ -238,7 +241,7 @@ async function sendMessage(
   content: string,
   signal?: AbortSignal,
   bearerToken?: string,
-  actorToken?: string,
+  accessToken?: string,
 ): Promise<SendMessageResponse> {
   return runtimeRequest<SendMessageResponse>(
     baseUrl,
@@ -250,7 +253,7 @@ async function sendMessage(
       signal,
     },
     bearerToken,
-    actorToken,
+    accessToken,
   );
 }
 
@@ -260,7 +263,7 @@ async function submitDecision(
   requestId: string,
   decision: "allow" | "deny",
   bearerToken?: string,
-  actorToken?: string,
+  accessToken?: string,
 ): Promise<SubmitDecisionResponse> {
   return runtimeRequest<SubmitDecisionResponse>(
     baseUrl,
@@ -271,7 +274,7 @@ async function submitDecision(
       body: JSON.stringify({ requestId, decision }),
     },
     bearerToken,
-    actorToken,
+    accessToken,
   );
 }
 
@@ -283,7 +286,7 @@ async function addTrustRule(
   scope: string,
   decision: "allow" | "deny",
   bearerToken?: string,
-  actorToken?: string,
+  accessToken?: string,
 ): Promise<AddTrustRuleResponse> {
   return runtimeRequest<AddTrustRuleResponse>(
     baseUrl,
@@ -294,7 +297,7 @@ async function addTrustRule(
       body: JSON.stringify({ requestId, pattern, scope, decision }),
     },
     bearerToken,
-    actorToken,
+    accessToken,
   );
 }
 
@@ -302,7 +305,7 @@ async function pollPendingInteractions(
   baseUrl: string,
   assistantId: string,
   bearerToken?: string,
-  actorToken?: string,
+  accessToken?: string,
 ): Promise<PendingInteractionsResponse> {
   const params = new URLSearchParams({ conversationKey: assistantId });
   return runtimeRequest<PendingInteractionsResponse>(
@@ -311,7 +314,7 @@ async function pollPendingInteractions(
     `/pending-interactions?${params.toString()}`,
     undefined,
     bearerToken,
-    actorToken,
+    accessToken,
   );
 }
 
@@ -349,7 +352,7 @@ async function handleConfirmationPrompt(
   confirmation: PendingConfirmation,
   chatApp: ChatAppHandle,
   bearerToken?: string,
-  actorToken?: string,
+  accessToken?: string,
 ): Promise<void> {
   const preview = formatConfirmationPreview(confirmation.toolName, confirmation.input);
   const allowlistOptions = confirmation.allowlistOptions ?? [];
@@ -369,7 +372,7 @@ async function handleConfirmationPrompt(
   const index = await chatApp.showSelection("Tool Approval", options);
 
   if (index === 0) {
-    await submitDecision(baseUrl, assistantId, requestId, "allow", bearerToken, actorToken);
+    await submitDecision(baseUrl, assistantId, requestId, "allow", bearerToken, accessToken);
     chatApp.addStatus("\u2714 Allowed", "green");
     return;
   }
@@ -382,7 +385,7 @@ async function handleConfirmationPrompt(
       chatApp,
       "always_allow",
       bearerToken,
-      actorToken,
+      accessToken,
     );
     return;
   }
@@ -395,12 +398,12 @@ async function handleConfirmationPrompt(
       chatApp,
       "always_deny",
       bearerToken,
-      actorToken,
+      accessToken,
     );
     return;
   }
 
-  await submitDecision(baseUrl, assistantId, requestId, "deny", bearerToken, actorToken);
+  await submitDecision(baseUrl, assistantId, requestId, "deny", bearerToken, accessToken);
   chatApp.addStatus("\u2718 Denied", "yellow");
 }
 
@@ -412,7 +415,7 @@ async function handlePatternSelection(
   chatApp: ChatAppHandle,
   trustDecision: TrustDecision,
   bearerToken?: string,
-  actorToken?: string,
+  accessToken?: string,
 ): Promise<void> {
   const allowlistOptions = confirmation.allowlistOptions ?? [];
   const label = trustDecision === "always_deny" ? "Denylist" : "Allowlist";
@@ -431,12 +434,12 @@ async function handlePatternSelection(
       selectedPattern,
       trustDecision,
       bearerToken,
-      actorToken,
+      accessToken,
     );
     return;
   }
 
-  await submitDecision(baseUrl, assistantId, requestId, "deny", bearerToken, actorToken);
+  await submitDecision(baseUrl, assistantId, requestId, "deny", bearerToken, accessToken);
   chatApp.addStatus("\u2718 Denied", "yellow");
 }
 
@@ -449,7 +452,7 @@ async function handleScopeSelection(
   selectedPattern: string,
   trustDecision: TrustDecision,
   bearerToken?: string,
-  actorToken?: string,
+  accessToken?: string,
 ): Promise<void> {
   const scopeOptions = confirmation.scopeOptions ?? [];
   const label = trustDecision === "always_deny" ? "Denylist" : "Allowlist";
@@ -467,7 +470,7 @@ async function handleScopeSelection(
       scopeOptions[index].scope,
       ruleDecision,
       bearerToken,
-      actorToken,
+      accessToken,
     );
     await submitDecision(
       baseUrl,
@@ -475,7 +478,7 @@ async function handleScopeSelection(
       requestId,
       ruleDecision === "deny" ? "deny" : "allow",
       bearerToken,
-      actorToken,
+      accessToken,
     );
     const ruleLabel = trustDecision === "always_deny" ? "Denylisted" : "Allowlisted";
     const ruleColor = trustDecision === "always_deny" ? "yellow" : "green";
@@ -486,7 +489,7 @@ async function handleScopeSelection(
     return;
   }
 
-  await submitDecision(baseUrl, assistantId, requestId, "deny", bearerToken, actorToken);
+  await submitDecision(baseUrl, assistantId, requestId, "deny", bearerToken, accessToken);
   chatApp.addStatus("\u2718 Denied", "yellow");
 }
 
@@ -1081,7 +1084,7 @@ function ChatApp({
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const doctorSessionIdRef = useRef(randomUUID());
   const handleRef_ = useRef<ChatAppHandle | null>(null);
-  const actorTokenRef = useRef<string | undefined>(undefined);
+  const accessTokenRef = useRef<string | undefined>(undefined);
 
   const { stdout } = useStdout();
   const terminalRows = stdout.rows || DEFAULT_TERMINAL_ROWS;
@@ -1307,8 +1310,8 @@ function ChatApp({
 
     try {
       const health = await checkHealthRuntime(runtimeUrl);
-      if (!actorTokenRef.current) {
-        actorTokenRef.current = await bootstrapActorToken(runtimeUrl, bearerToken);
+      if (!accessTokenRef.current) {
+        accessTokenRef.current = await bootstrapAccessToken(runtimeUrl, bearerToken);
       }
       h.hideSpinner();
       h.updateHealthStatus(health.status);
@@ -1329,7 +1332,7 @@ function ChatApp({
           runtimeUrl,
           assistantId,
           bearerToken,
-          actorTokenRef.current,
+          accessTokenRef.current,
         );
         h.hideSpinner();
         if (historyResponse.messages.length > 0) {
@@ -1348,7 +1351,7 @@ function ChatApp({
             runtimeUrl,
             assistantId,
             bearerToken,
-            actorTokenRef.current,
+            accessTokenRef.current,
           );
           for (const msg of response.messages) {
             if (!seenMessageIdsRef.current.has(msg.id)) {
@@ -1632,7 +1635,7 @@ function ChatApp({
             trimmed,
             controller.signal,
             bearerToken,
-            actorTokenRef.current,
+            accessTokenRef.current,
           );
           clearTimeout(timeoutId);
           if (!sendResult.accepted) {
@@ -1662,7 +1665,7 @@ function ChatApp({
               runtimeUrl,
               assistantId,
               bearerToken,
-              actorTokenRef.current,
+              accessTokenRef.current,
             );
 
             if (pending.pendingConfirmation) {
@@ -1674,7 +1677,7 @@ function ChatApp({
                 pending.pendingConfirmation,
                 h,
                 bearerToken,
-                actorTokenRef.current,
+                accessTokenRef.current,
               );
               h.showSpinner("Working...");
               continue;
@@ -1693,7 +1696,7 @@ function ChatApp({
                     body: JSON.stringify({ requestId: secretRequestId, value, delivery }),
                   },
                   bearerToken,
-                  actorTokenRef.current,
+                  accessTokenRef.current,
                 );
               });
               h.showSpinner("Working...");
@@ -1709,7 +1712,7 @@ function ChatApp({
               runtimeUrl,
               assistantId,
               bearerToken,
-              actorTokenRef.current,
+              accessTokenRef.current,
             );
             for (const msg of pollResult.messages) {
               if (!seenMessageIdsRef.current.has(msg.id)) {

@@ -102,9 +102,8 @@ export async function handleChannelInbound(
   _guardianFollowUpConversationGenerator?: GuardianFollowUpConversationGenerator,
 ): Promise<Response> {
   // Gateway-origin proof is enforced by route-policy middleware (svc_gateway
-  // principal type required) before this handler runs. The old
-  // verifyGatewayOrigin/X-Gateway-Origin header check is removed — the
-  // exchange JWT itself proves gateway origin.
+  // principal type required) before this handler runs. The exchange JWT
+  // itself proves gateway origin.
 
   // Factory that mints a fresh short-lived JWT for each daemon-to-gateway
   // delivery callback. The JWT has a 60-second TTL, so long-running

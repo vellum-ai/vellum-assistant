@@ -1,8 +1,6 @@
 /**
  * Shared types, constants, and utilities used across channel route modules.
  */
-import { timingSafeEqual } from 'node:crypto';
-
 import type { ChannelId } from '../../channels/types.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
 import type {
@@ -16,44 +14,6 @@ export type { ActorTrustClass, DenialReason, GuardianContext } from '../guardian
 /** Canonicalize assistantId for channel ingress paths. */
 export function canonicalChannelAssistantId(_assistantId: string): string {
   return DAEMON_INTERNAL_ASSISTANT_ID;
-}
-
-// ---------------------------------------------------------------------------
-// Gateway-origin proof
-// ---------------------------------------------------------------------------
-
-/**
- * Header name used by the gateway to prove a request originated from it.
- * The gateway sends a dedicated gateway-origin secret (or the bearer token
- * as fallback). The runtime validates it using constant-time comparison.
- * Requests to `/channels/inbound` that lack a valid proof are rejected with 403.
- */
-export const GATEWAY_ORIGIN_HEADER = 'X-Gateway-Origin';
-
-/**
- * Validate that the request carries a valid gateway-origin proof.
- * Uses constant-time comparison to prevent timing attacks.
- *
- * The `gatewayOriginSecret` parameter is the dedicated secret configured
- * via `RUNTIME_GATEWAY_ORIGIN_SECRET`. When set, only this value is
- * accepted. When not set, the function falls back to `bearerToken` for
- * backward compatibility. When neither is configured (local dev), validation
- * is skipped entirely.
- */
-export function verifyGatewayOrigin(
-  req: Request,
-  bearerToken?: string,
-  gatewayOriginSecret?: string,
-): boolean {
-  // Determine the expected secret: prefer dedicated secret, fall back to bearer token
-  const expectedSecret = gatewayOriginSecret ?? bearerToken;
-  if (!expectedSecret) return true; // No shared secret configured — skip validation
-  const provided = req.headers.get(GATEWAY_ORIGIN_HEADER);
-  if (!provided) return false;
-  const a = Buffer.from(provided);
-  const b = Buffer.from(expectedSecret);
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(a, b);
 }
 
 // ---------------------------------------------------------------------------

@@ -231,7 +231,7 @@ for (const { endpoint, scopes } of ACTOR_ENDPOINTS) {
   });
 }
 
-// Channel inbound: gateway-only (replaces X-Gateway-Origin header check)
+// Channel inbound: gateway-only
 registerPolicy('channels/inbound', {
   requiredScopes: ['ingress.write'],
   allowedPrincipalTypes: ['svc_gateway'],
