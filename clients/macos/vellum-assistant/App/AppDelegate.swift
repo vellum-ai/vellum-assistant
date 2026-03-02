@@ -899,6 +899,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         }
 
         if let name = assistantName {
+            // Stop processes FIRST while PID files and lockfile entry still exist.
+            // retire() internally tries to stop them again, which is idempotent.
+            daemonClient.disconnect()
+            assistantCli.stop()
+
             do {
                 try await assistantCli.retire(name: name)
             } catch {
