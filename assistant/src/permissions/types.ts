@@ -16,7 +16,16 @@ export interface TrustRule {
   allowHighRisk?: boolean;
 }
 
-export type UserDecision = 'allow' | 'always_allow' | 'always_allow_high_risk' | 'deny' | 'always_deny';
+export type UserDecision = 'allow' | 'allow_10m' | 'allow_thread' | 'always_allow' | 'always_allow_high_risk' | 'deny' | 'always_deny';
+
+/** Returns true for any allow-variant decision. Centralizes the check to prevent omissions when new allow variants are added. */
+export function isAllowDecision(decision: UserDecision): boolean {
+  return decision === 'allow'
+    || decision === 'allow_10m'
+    || decision === 'allow_thread'
+    || decision === 'always_allow'
+    || decision === 'always_allow_high_risk';
+}
 
 export interface PermissionCheckResult {
   decision: 'allow' | 'deny' | 'prompt';

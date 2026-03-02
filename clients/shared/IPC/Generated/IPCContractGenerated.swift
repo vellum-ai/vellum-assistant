@@ -907,8 +907,10 @@ public struct IPCConfirmationRequest: Codable, Sendable {
     public let sessionId: String?
     /// When false, the client should hide "always allow" / trust-rule persistence affordances.
     public let persistentDecisionsAllowed: Bool?
+    /// Which temporary approval options the client should render (e.g. "Allow for 10 minutes", "Allow for this thread").
+    public let temporaryOptionsAvailable: [String]?
 
-    public init(type: String, requestId: String, toolName: String, input: [String: AnyCodable], riskLevel: String, executionTarget: String? = nil, allowlistOptions: [IPCConfirmationRequestAllowlistOption], scopeOptions: [IPCConfirmationRequestScopeOption], diff: IPCConfirmationRequestDiff? = nil, sandboxed: Bool? = nil, sessionId: String? = nil, persistentDecisionsAllowed: Bool? = nil) {
+    public init(type: String, requestId: String, toolName: String, input: [String: AnyCodable], riskLevel: String, executionTarget: String? = nil, allowlistOptions: [IPCConfirmationRequestAllowlistOption], scopeOptions: [IPCConfirmationRequestScopeOption], diff: IPCConfirmationRequestDiff? = nil, sandboxed: Bool? = nil, sessionId: String? = nil, persistentDecisionsAllowed: Bool? = nil, temporaryOptionsAvailable: [String]? = nil) {
         self.type = type
         self.requestId = requestId
         self.toolName = toolName
@@ -921,6 +923,7 @@ public struct IPCConfirmationRequest: Codable, Sendable {
         self.sandboxed = sandboxed
         self.sessionId = sessionId
         self.persistentDecisionsAllowed = persistentDecisionsAllowed
+        self.temporaryOptionsAvailable = temporaryOptionsAvailable
     }
 }
 

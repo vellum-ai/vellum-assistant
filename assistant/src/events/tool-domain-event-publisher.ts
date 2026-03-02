@@ -1,12 +1,7 @@
+import { isAllowDecision, type UserDecision } from '../permissions/types.js';
 import type { ToolLifecycleEventHandler } from '../tools/types.js';
 import type { EventBus } from './bus.js';
 import type { AssistantDomainEvents } from './domain-events.js';
-
-const allowDecisions = new Set(['allow', 'always_allow']);
-
-function isAllowDecision(decision: string): decision is 'allow' | 'always_allow' {
-  return allowDecisions.has(decision);
-}
 
 export function createToolDomainEventPublisher(
   eventBus: EventBus<AssistantDomainEvents>,
@@ -45,7 +40,7 @@ export function createToolDomainEventPublisher(
         });
         break;
       case 'executed':
-        if (isAllowDecision(event.decision)) {
+        if (isAllowDecision(event.decision as UserDecision)) {
           await eventBus.emit('tool.permission.decided', {
             conversationId: event.conversationId,
             sessionId: event.sessionId,
@@ -69,7 +64,7 @@ export function createToolDomainEventPublisher(
         });
         break;
       case 'error':
-        if (isAllowDecision(event.decision)) {
+        if (isAllowDecision(event.decision as UserDecision)) {
           await eventBus.emit('tool.permission.decided', {
             conversationId: event.conversationId,
             sessionId: event.sessionId,
