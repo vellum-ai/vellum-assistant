@@ -855,6 +855,11 @@ struct DynamicWorkspaceWrapper: View {
                 onSnapshotCaptured: data.appId != nil ? { [weak daemonClient] base64 in
                     guard let appId = data.appId else { return }
                     try? daemonClient?.sendAppUpdatePreview(appId: appId, preview: base64)
+                    NotificationCenter.default.post(
+                        name: .appPreviewImageCaptured,
+                        object: nil,
+                        userInfo: ["appId": appId, "previewImage": base64]
+                    )
                 } : nil,
                 onLinkOpen: { url, metadata in
                     surfaceManager.onLinkOpen?(url, metadata)

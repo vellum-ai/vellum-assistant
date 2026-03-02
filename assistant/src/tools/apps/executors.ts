@@ -125,7 +125,8 @@ export async function executeAppCreate(
 
   // Auto-open the app via the shared open-proxy helper
   if (autoOpen && proxyToolResolver) {
-    const extraInput = preview ? { preview } : undefined;
+    const createPreview = { ...(preview ?? {}), context: 'app_create' as const };
+    const extraInput = { preview: createPreview };
     const openResultText = await openAppViaSurface(app.id, proxyToolResolver, extraInput);
 
     // Determine whether the open succeeded by checking for the fallback text

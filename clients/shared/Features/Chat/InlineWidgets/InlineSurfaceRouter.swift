@@ -29,6 +29,14 @@ public struct InlineSurfaceRouter: View {
         return false
     }
 
+    private var isAppCreated: Bool {
+        #if os(macOS)
+        if case .dynamicPage(let data) = surface.data,
+           let preview = data.preview, preview.context == "app_create" { return true }
+        #endif
+        return false
+    }
+
     private var isDocumentPreview: Bool {
         if case .documentPreview = surface.data { return true }
         return false
@@ -56,8 +64,9 @@ public struct InlineSurfaceRouter: View {
                 onAction(surface.id, actionId, nil)
             }
             .frame(maxWidth: 540, alignment: .leading)
-        } else if isChipOnlySurface {
+        } else if isChipOnlySurface || isAppCreated {
             surfaceContent
+                .frame(maxWidth: isAppCreated ? 400 : nil, alignment: .leading)
         } else {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             // Template cards and dynamic page previews handle their own header
@@ -76,7 +85,7 @@ public struct InlineSurfaceRouter: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .inlineWidgetCard(interactive: isDynamicPreview || isDocumentPreview)
         .overlay(alignment: .topTrailing) {
-            if isDynamicPreview {
+            if isDynamicPreview && !isAppCreated {
                 Button {
                     if let ref = surface.surfaceRef {
                         NotificationCenter.default.post(
@@ -121,7 +130,7 @@ public struct InlineSurfaceRouter: View {
             }
         }
         // Consistent width for all widget cards; dynamic page previews and document previews are more compact.
-        .frame(maxWidth: isDynamicPreview || isDocumentPreview ? 350 : 540, alignment: .leading)
+        .frame(maxWidth: isAppCreated ? 400 : (isDynamicPreview || isDocumentPreview ? 350 : 540), alignment: .leading)
         }
         }
         .onChange(of: surface) { oldSurface, newSurface in
@@ -149,6 +158,47 @@ public struct InlineSurfaceRouter: View {
             }
         case .dynamicPage(let data):
             if let preview = data.preview {
+                #if os(macOS)
+                if preview.context == "app_create" {
+                    InlineAppCreatedCard(
+                        preview: preview,
+                        appId: data.appId,
+                        onOpenApp: {
+                            if let ref = surface.surfaceRef {
+                                NotificationCenter.default.post(
+                                    name: Notification.Name("MainWindow.openDynamicWorkspace"),
+                                    object: nil,
+                                    userInfo: ["surfaceRef": ref]
+                                )
+                            }
+                        },
+                        onPinToHomebase: {
+                            guard let appId = data.appId else { return }
+                            NotificationCenter.default.post(
+                                name: Notification.Name("MainWindow.pinAppToHomebase"),
+                                object: nil,
+                                userInfo: [
+                                    "appId": appId,
+                                    "name": preview.title,
+                                    "icon": preview.icon as Any,
+                                    "appType": data.appType as Any,
+                                    "description": preview.description as Any,
+                                ]
+                            )
+                        }
+                    )
+                } else {
+                    InlineDynamicPagePreview(preview: preview) {
+                        if let ref = surface.surfaceRef {
+                            NotificationCenter.default.post(
+                                name: Notification.Name("MainWindow.openDynamicWorkspace"),
+                                object: nil,
+                                userInfo: ["surfaceRef": ref]
+                            )
+                        }
+                    }
+                }
+                #else
                 InlineDynamicPagePreview(preview: preview) {
                     // Post notification to open (or re-open) the workspace
                     if let ref = surface.surfaceRef {
@@ -159,6 +209,7 @@ public struct InlineSurfaceRouter: View {
                         )
                     }
                 }
+                #endif
             } else {
                 // Still allow opening the workspace even without a preview card.
                 Button {

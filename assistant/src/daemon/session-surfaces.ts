@@ -4,7 +4,7 @@ import {
   findSeededHomeBaseApp,
   getPrebuiltHomeBasePreview,
 } from '../home-base/prebuilt/seed.js';
-import { getApp, updateApp } from '../memory/app-store.js';
+import { getApp, getAppPreview, updateApp } from '../memory/app-store.js';
 import type { ToolExecutionResult } from '../tools/types.js';
 import { getLogger } from '../util/logger.js';
 import { isPlainObject } from '../util/object.js';
@@ -772,11 +772,12 @@ export async function surfaceProxyResolver(
       // un-clickable fallback chip) after session restart.
       : { title: app.name, subtitle: app.description };
 
+    const storedPreview = getAppPreview(app.id);
     const surfaceData: DynamicPageSurfaceData = {
       html: app.htmlDefinition,
       appId: app.id,
       appType: app.appType,
-      preview: preview ?? defaultPreview,
+      preview: { ...defaultPreview, ...preview, ...(storedPreview ? { previewImage: storedPreview } : {}) },
     };
     const surfaceId = uuid();
     ctx.surfaceState.set(surfaceId, {
