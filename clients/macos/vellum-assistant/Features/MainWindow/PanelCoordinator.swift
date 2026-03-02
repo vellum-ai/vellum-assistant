@@ -315,53 +315,16 @@ extension MainWindowView {
                     .background(adaptiveColor(light: Moss._50, dark: Moss._950))
                 }
             } else if panelType == .apps {
-                if isAppChatOpen {
-                    // VSplitView: ChatView (left) + Apps grid (right)
-                    let contentWidth = Double(geometry.size.width) / zoomManager.zoomLevel - Double(VSpacing.sm)
-                    let effectiveWidth = Binding<Double>(
-                        get: { appPanelWidth > 0 ? appPanelWidth : contentWidth * 0.7 },
-                        set: { appPanelWidth = $0 }
-                    )
-                    VSplitView(
-                        panelWidth: effectiveWidth,
-                        showPanel: true,
-                        main: {
-                            chatView
-                        },
-                        panel: {
-                            AppsGridView(
-                                appListManager: appListManager,
-                                daemonClient: daemonClient,
-                                onOpenApp: { appId in
-                                    try? daemonClient.sendAppOpen(appId: appId)
-                                    windowState.selection = .app(appId)
-                                }
-                            )
-                            .background(adaptiveColor(light: Moss._100, dark: Moss._900))
-                            .clipShape(UnevenRoundedRectangle(topLeadingRadius: VRadius.xl, bottomLeadingRadius: VRadius.xl))
-                        }
-                    )
-                    .onAppear {
-                        if threadManager.activeViewModel == nil {
-                            if let firstThread = threadManager.visibleThreads.first {
-                                threadManager.selectThread(id: firstThread.id)
-                            } else {
-                                threadManager.createThread()
-                            }
-                        }
+                AppsGridView(
+                    appListManager: appListManager,
+                    daemonClient: daemonClient,
+                    onOpenApp: { appId in
+                        try? daemonClient.sendAppOpen(appId: appId)
+                        windowState.selection = .app(appId)
                     }
-                } else {
-                    AppsGridView(
-                        appListManager: appListManager,
-                        daemonClient: daemonClient,
-                        onOpenApp: { appId in
-                            try? daemonClient.sendAppOpen(appId: appId)
-                            windowState.selection = .app(appId)
-                        }
-                    )
-                    .overlay(alignment: .topTrailing) { panelDismissButton }
-                    .background(adaptiveColor(light: Moss._50, dark: Moss._950))
-                }
+                )
+                .overlay(alignment: .topTrailing) { panelDismissButton }
+                .background(adaptiveColor(light: Moss._50, dark: Moss._950))
             } else if panelType == .documentEditor {
                 let config = windowState.layoutConfig
                 VSplitView(

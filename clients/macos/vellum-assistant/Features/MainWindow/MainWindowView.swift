@@ -1226,7 +1226,7 @@ struct MainWindowView: View {
                 windowState.togglePanel(.intelligence)
             }
             SidebarNavRow(icon: "square.grid.2x2", label: "Things", isActive: windowState.activePanel == .apps) {
-                windowState.togglePanel(.apps)
+                windowState.showAppsPanel()
             }
 
             // Divider between nav items and threads
@@ -1423,7 +1423,7 @@ struct MainWindowView: View {
                 windowState.togglePanel(.intelligence)
             }
             SidebarNavRow(icon: "square.grid.2x2", label: "Things", isActive: windowState.activePanel == .apps, isExpanded: false) {
-                windowState.togglePanel(.apps)
+                windowState.showAppsPanel()
             }
 
             VColor.divider
