@@ -14,6 +14,7 @@
  * guardian context pathway when no actor token is present.
  */
 
+import { isHttpAuthDisabled } from '../../config/env.js';
 import type { GuardianRuntimeContext } from '../../daemon/session-runtime-assembly.js';
 import { getActiveBinding } from '../../memory/guardian-bindings.js';
 import { getLogger } from '../../util/logger.js';
@@ -210,32 +211,37 @@ export function verifyHttpActorTokenWithLocalFallback(
     return verifyHttpActorToken(req);
   }
 
-  // Gate the local fallback on provably-local origin. The gateway runtime
-  // proxy always injects X-Forwarded-For with the real client IP when
-  // forwarding requests. Direct local connections (CLI, macOS app) never
-  // set this header. If X-Forwarded-For is present, the request was
-  // proxied through the gateway on behalf of a potentially remote client
-  // and must not receive local guardian identity.
-  if (req.headers.get('x-forwarded-for')) {
-    log.warn('Rejecting local identity fallback: request has X-Forwarded-For (proxied through gateway)');
-    return {
-      ok: false,
-      status: 401,
-      message: 'Missing X-Actor-Token header. Proxied requests require actor identity.',
-    };
-  }
+  // When HTTP auth is disabled (local Docker dev), skip the loopback and
+  // X-Forwarded-For guards — the peer IP will be the Docker bridge
+  // (e.g. 172.17.0.1), not loopback.
+  if (!isHttpAuthDisabled()) {
+    // Gate the local fallback on provably-local origin. The gateway runtime
+    // proxy always injects X-Forwarded-For with the real client IP when
+    // forwarding requests. Direct local connections (CLI, macOS app) never
+    // set this header. If X-Forwarded-For is present, the request was
+    // proxied through the gateway on behalf of a potentially remote client
+    // and must not receive local guardian identity.
+    if (req.headers.get('x-forwarded-for')) {
+      log.warn('Rejecting local identity fallback: request has X-Forwarded-For (proxied through gateway)');
+      return {
+        ok: false,
+        status: 401,
+        message: 'Missing X-Actor-Token header. Proxied requests require actor identity.',
+      };
+    }
 
-  // Verify the peer address is actually loopback. This prevents LAN or
-  // container peers from receiving local guardian identity when the
-  // runtime binds to 0.0.0.0.
-  const peerIp = server.requestIP(req)?.address;
-  if (!peerIp || !LOOPBACK_ADDRESSES.has(peerIp)) {
-    log.warn({ peerIp }, 'Rejecting local identity fallback: peer is not loopback');
-    return {
-      ok: false,
-      status: 401,
-      message: 'Missing X-Actor-Token header. Non-loopback requests require actor identity.',
-    };
+    // Verify the peer address is actually loopback. This prevents LAN or
+    // container peers from receiving local guardian identity when the
+    // runtime binds to 0.0.0.0.
+    const peerIp = server.requestIP(req)?.address;
+    if (!peerIp || !LOOPBACK_ADDRESSES.has(peerIp)) {
+      log.warn({ peerIp }, 'Rejecting local identity fallback: peer is not loopback');
+      return {
+        ok: false,
+        status: 401,
+        message: 'Missing X-Actor-Token header. Non-loopback requests require actor identity.',
+      };
+    }
   }
 
   // No actor token, no forwarding header, and the peer is on loopback
