@@ -21,6 +21,28 @@ set -euo pipefail
 #   BUILD_VERSION     Override CFBundleVersion (default: 1)
 #   SIGN_IDENTITY     Override code signing identity
 
+# ---------------------------------------------------------------------------
+# swift_with_retry — run a swift command with retries for transient SPM
+# package-resolution failures (e.g. network timeouts downloading binary
+# artifacts). Retries up to MAX_ATTEMPTS times with a short delay.
+# ---------------------------------------------------------------------------
+swift_with_retry() {
+    local max_attempts="${SWIFT_RETRY_ATTEMPTS:-3}"
+    local attempt=1
+    while true; do
+        if "$@"; then
+            return 0
+        fi
+        if [ "$attempt" -ge "$max_attempts" ]; then
+            echo "ERROR: swift command failed after $max_attempts attempts: $*"
+            return 1
+        fi
+        echo "warning: swift command failed (attempt $attempt/$max_attempts), retrying in 10s..."
+        sleep 10
+        attempt=$((attempt + 1))
+    done
+}
+
 if [ -z "${DEVELOPER_DIR:-}" ]; then
     # Use xcode-select, but fall back to Xcode.app if it points to
     # CommandLineTools (which lacks PreviewsMacros needed for #Preview).
@@ -188,7 +210,7 @@ case "$CMD" in
     test)
         echo "Running tests..."
         set +e
-        TEST_OUTPUT=$(swift test --filter vellum_assistantTests 2>&1)
+        TEST_OUTPUT=$(swift_with_retry swift test --filter vellum_assistantTests 2>&1)
         TEST_EXIT=$?
         set -e
         echo "$TEST_OUTPUT"
@@ -213,7 +235,7 @@ case "$CMD" in
         ;;
     lint)
         echo "Linting (strict concurrency)..."
-        swift build --product "$APP_NAME" -Xswiftc -strict-concurrency=complete
+        swift_with_retry swift build --product "$APP_NAME" -Xswiftc -strict-concurrency=complete
         echo "Lint passed."
         exit 0
         ;;
@@ -269,7 +291,7 @@ else
     BIN_PATH=$(swift build $SWIFT_FLAGS --show-bin-path)
 
     # Then build (or use cached if nothing changed)
-    swift build $SWIFT_FLAGS
+    swift_with_retry swift build $SWIFT_FLAGS
 
     EXECUTABLE="$BIN_PATH/$APP_NAME"
 fi

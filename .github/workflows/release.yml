@@ -354,7 +354,16 @@ jobs:
 
       - name: Build Swift (arm64)
         working-directory: clients
-        run: swift build -c release --arch arm64 --product vellum-assistant
+        run: |
+          for attempt in 1 2 3; do
+            if swift build -c release --arch arm64 --product vellum-assistant; then
+              exit 0
+            fi
+            echo "warning: swift build failed (attempt $attempt/3), retrying in 10s..."
+            sleep 10
+          done
+          echo "ERROR: swift build failed after 3 attempts"
+          exit 1
 
       - name: Stage build artifacts
         working-directory: clients
@@ -390,7 +399,16 @@ jobs:
 
       - name: Build Swift (x86_64)
         working-directory: clients
-        run: swift build -c release --arch x86_64 --product vellum-assistant
+        run: |
+          for attempt in 1 2 3; do
+            if swift build -c release --arch x86_64 --product vellum-assistant; then
+              exit 0
+            fi
+            echo "warning: swift build failed (attempt $attempt/3), retrying in 10s..."
+            sleep 10
+          done
+          echo "ERROR: swift build failed after 3 attempts"
+          exit 1
 
       - name: Stage build artifacts
         working-directory: clients
