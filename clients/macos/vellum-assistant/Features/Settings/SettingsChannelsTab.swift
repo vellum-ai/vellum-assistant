@@ -723,7 +723,7 @@ struct SettingsChannelsTab: View {
                 }
             } else {
                 HStack(spacing: VSpacing.sm) {
-                    VButton(label: "Save Credentials", style: .secondary, size: .large) {
+                    VButton(label: "Connect", style: .secondary, size: .large) {
                         twilioSmsSaveInProgress = true
                         store.saveTwilioCredentials(
                             accountSid: twilioAccountSidText,
@@ -837,7 +837,7 @@ struct SettingsChannelsTab: View {
                 }
             } else {
                 HStack(spacing: VSpacing.sm) {
-                    VButton(label: "Save Credentials", style: .secondary, size: .large) {
+                    VButton(label: "Connect", style: .secondary, size: .large) {
                         twilioVoiceSaveInProgress = true
                         store.saveTwilioCredentials(
                             accountSid: voiceAccountSidText,
