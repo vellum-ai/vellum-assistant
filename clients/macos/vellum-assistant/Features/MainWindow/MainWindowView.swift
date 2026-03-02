@@ -1149,6 +1149,7 @@ struct MainWindowView: View {
             VColor.divider
                 .frame(height: 1)
                 .padding(.horizontal, VSpacing.md)
+                .padding(.vertical, VSpacing.sm)
 
             // MARK: Threads (scrollable)
             SidebarThreadsHeader(
