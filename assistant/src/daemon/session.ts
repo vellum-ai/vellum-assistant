@@ -500,6 +500,12 @@ export class Session {
       decisionText?: string;
     },
   ): void {
+    // Guard: only proceed if the confirmation is still pending. Stale or
+    // already-resolved requests must not activate overrides or emit events.
+    if (!this.prompter.hasPendingRequest(requestId)) {
+      return;
+    }
+
     this.prompter.resolveConfirmation(
       requestId,
       decision,
