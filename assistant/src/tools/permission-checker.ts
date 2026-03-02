@@ -288,13 +288,16 @@ export class PermissionChecker {
         // time-limited or thread-scoped override. Subsequent tool
         // invocations in this conversation will auto-approve without
         // prompting (checked above in the temporary override block).
-        if (response.decision === 'allow_10m') {
+        // Gated on persistentDecisionsAllowed so that proxied bash
+        // commands (which require per-invocation approval) cannot
+        // escalate into blanket auto-approval.
+        if (persistentDecisionsAllowed && response.decision === 'allow_10m') {
           setTimedMode(context.conversationId);
           log.info(
             { toolName: name, conversationId: context.conversationId },
             'Activated timed (10m) temporary approval mode',
           );
-        } else if (response.decision === 'allow_thread') {
+        } else if (persistentDecisionsAllowed && response.decision === 'allow_thread') {
           setThreadMode(context.conversationId);
           log.info(
             { toolName: name, conversationId: context.conversationId },
