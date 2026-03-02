@@ -279,18 +279,14 @@ struct SettingsChannelsTab: View {
 
             // Bot credential row
             if store.telegramHasBotToken {
-                channelStatusRow(
-                    label: "Bot",
-                    icon: "checkmark.circle.fill",
-                    iconColor: VColor.success,
-                    value: store.telegramBotUsername.map { "@\($0)" } ?? "Configured",
-                    valueURL: store.telegramBotUsername.flatMap { URL(string: "https://web.telegram.org/k/#@\($0)") },
-                    action: .init(label: "Clear", style: .secondary, disabled: store.telegramSaveInProgress) {
+                HStack(spacing: VSpacing.sm) {
+                    VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .large) {}
+                    VButton(label: "Disconnect", style: .danger, size: .large, isDisabled: store.telegramSaveInProgress) {
                         store.clearTelegramCredentials()
                         telegramBotTokenText = ""
                         telegramSetupExpanded = false
                     }
-                )
+                }
             } else if telegramSetupExpanded {
                 telegramCredentialEntry
             } else {
@@ -433,27 +429,15 @@ struct SettingsChannelsTab: View {
             }
 
             if store.slackChannelHasBotToken && store.slackChannelHasAppToken {
-                channelStatusRow(
-                    label: "Bot",
-                    icon: "checkmark.circle.fill",
-                    iconColor: VColor.success,
-                    value: {
-                        var parts: [String] = []
-                        if let username = store.slackChannelBotUsername {
-                            parts.append("@\(username)")
-                        }
-                        if let team = store.slackChannelTeamName {
-                            parts.append(team)
-                        }
-                        return parts.isEmpty ? "Configured" : parts.joined(separator: " — ")
-                    }(),
-                    action: .init(label: "Clear", style: .secondary, disabled: store.slackChannelSaveInProgress) {
+                HStack(spacing: VSpacing.sm) {
+                    VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .large) {}
+                    VButton(label: "Disconnect", style: .danger, size: .large, isDisabled: store.slackChannelSaveInProgress) {
                         store.clearSlackChannelConfig()
                         slackChannelBotTokenInput = ""
                         slackChannelAppTokenInput = ""
                         slackChannelSetupExpanded = false
                     }
-                )
+                }
             } else if slackChannelSetupExpanded {
                 slackChannelCredentialEntry
             } else {
@@ -549,15 +533,12 @@ struct SettingsChannelsTab: View {
 
             // Credentials row
             if store.twilioHasCredentials {
-                channelStatusRow(
-                    label: "Credentials",
-                    icon: "checkmark.circle.fill",
-                    iconColor: VColor.success,
-                    value: "Configured",
-                    action: .init(label: "Clear", style: .secondary, disabled: store.twilioSaveInProgress) {
+                HStack(spacing: VSpacing.sm) {
+                    VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .large) {}
+                    VButton(label: "Disconnect", style: .danger, size: .large, isDisabled: store.twilioSaveInProgress) {
                         store.clearTwilioCredentials()
                     }
-                )
+                }
             } else if twilioSetupExpanded {
                 twilioCredentialEntry
             } else {
@@ -628,15 +609,12 @@ struct SettingsChannelsTab: View {
 
             // Credentials row
             if store.twilioHasCredentials {
-                channelStatusRow(
-                    label: "Credentials",
-                    icon: "checkmark.circle.fill",
-                    iconColor: VColor.success,
-                    value: "Configured",
-                    action: .init(label: "Clear", style: .secondary, disabled: store.twilioSaveInProgress) {
+                HStack(spacing: VSpacing.sm) {
+                    VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .large) {}
+                    VButton(label: "Disconnect", style: .danger, size: .large, isDisabled: store.twilioSaveInProgress) {
                         store.clearTwilioCredentials()
                     }
-                )
+                }
             } else if voiceSetupExpanded {
                 voiceCredentialEntry
             } else {
