@@ -338,8 +338,75 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-  build-macos:
+  # Parallel Swift builds — each architecture compiles on its own runner,
+  # then build-macos merges them into a universal binary via lipo.
+  build-swift-arm64:
     needs: bump-and-tag
+    runs-on: macos-14
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: "v${{ needs.bump-and-tag.outputs.version }}"
+
+      - name: Select Xcode 16.2
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+
+      - name: Build Swift (arm64)
+        working-directory: clients
+        run: swift build -c release --arch arm64 --product vellum-assistant
+
+      - name: Stage build artifacts
+        working-directory: clients
+        run: |
+          BIN_PATH=$(swift build -c release --arch arm64 --product vellum-assistant --show-bin-path)
+          mkdir -p /tmp/swift-arm64
+          cp "$BIN_PATH/vellum-assistant" /tmp/swift-arm64/
+          # Copy Sparkle framework and resource bundles (needed for app assembly)
+          if [ -d "$BIN_PATH/Sparkle.framework" ]; then
+            cp -R "$BIN_PATH/Sparkle.framework" /tmp/swift-arm64/
+          fi
+          for bundle in "$BIN_PATH"/*.bundle; do
+            [ -d "$bundle" ] && cp -R "$bundle" /tmp/swift-arm64/
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: swift-build-arm64
+          path: /tmp/swift-arm64
+          retention-days: 1
+
+  build-swift-x86_64:
+    needs: bump-and-tag
+    runs-on: macos-14
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: "v${{ needs.bump-and-tag.outputs.version }}"
+
+      - name: Select Xcode 16.2
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+
+      - name: Build Swift (x86_64)
+        working-directory: clients
+        run: swift build -c release --arch x86_64 --product vellum-assistant
+
+      - name: Stage build artifacts
+        working-directory: clients
+        run: |
+          BIN_PATH=$(swift build -c release --arch x86_64 --product vellum-assistant --show-bin-path)
+          mkdir -p /tmp/swift-x86_64
+          cp "$BIN_PATH/vellum-assistant" /tmp/swift-x86_64/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: swift-build-x86_64
+          path: /tmp/swift-x86_64
+          retention-days: 1
+
+  build-macos:
+    needs: [bump-and-tag, build-swift-arm64, build-swift-x86_64]
     runs-on: macos-14
     timeout-minutes: 30
     defaults:
@@ -387,15 +454,33 @@ jobs:
           echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
           echo "Display version: $DISPLAY_VERSION / Build version: $BUILD_VERSION"
 
-      - name: Cache Bun dependencies
-        uses: actions/cache@v4
+      - name: Download Swift build (arm64)
+        uses: actions/download-artifact@v4
         with:
-          path: |
-            assistant/node_modules
-            cli/node_modules
-            gateway/node_modules
-          key: macos-bun-${{ hashFiles('assistant/bun.lock', 'cli/bun.lock', 'gateway/bun.lock') }}
-          restore-keys: macos-bun-
+          name: swift-build-arm64
+          path: clients/macos/swift-arm64
+
+      - name: Download Swift build (x86_64)
+        uses: actions/download-artifact@v4
+        with:
+          name: swift-build-x86_64
+          path: clients/macos/swift-x86_64
+
+      - name: Create universal binary
+        run: |
+          mkdir -p prebuilt-bin
+          lipo -create swift-arm64/vellum-assistant swift-x86_64/vellum-assistant \
+            -output prebuilt-bin/vellum-assistant
+          # Copy Sparkle framework and resource bundles from arm64 build
+          if [ -d swift-arm64/Sparkle.framework ]; then
+            cp -R swift-arm64/Sparkle.framework prebuilt-bin/
+          fi
+          for bundle in swift-arm64/*.bundle; do
+            [ -d "$bundle" ] && cp -R "$bundle" prebuilt-bin/
+          done
+          echo "Universal binary created:"
+          file prebuilt-bin/vellum-assistant
+          lipo -info prebuilt-bin/vellum-assistant
 
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
@@ -413,6 +498,7 @@ jobs:
           BUILD_VERSION="${{ steps.version.outputs.build_version }}" \
           SU_PUBLIC_ED_KEY="${{ secrets.SPARKLE_ED_PUBLIC_KEY }}" \
           SIGN_IDENTITY="Developer ID Application" \
+          PREBUILT_BIN_PATH="$(pwd)/prebuilt-bin" \
           ./build.sh release
 
           APP_PATH="dist/Vellum.app"
@@ -422,7 +508,7 @@ jobs:
 
       - name: Free disk space
         run: |
-          rm -rf .build daemon-bin cli-bin gateway-bin
+          rm -rf swift-arm64 swift-x86_64 prebuilt-bin daemon-bin cli-bin gateway-bin
           rm -rf ../../assistant/node_modules ../../cli/node_modules ../../gateway/node_modules
           rm -rf ~/Library/Developer/Xcode/DerivedData 2>/dev/null || true
           rm -rf ~/Library/Caches/org.swift.swiftpm 2>/dev/null || true

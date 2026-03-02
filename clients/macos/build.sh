@@ -241,7 +241,11 @@ SWIFT_FLAGS=""
 if [ "$CMD" = "release" ]; then
     CONFIG="release"
     SWIFT_FLAGS="-c release ${RELEASE_ARCH_FLAGS:---arch arm64 --arch x86_64}"
-    if [ "${SKIP_CLEAN:-}" = "1" ]; then
+    if [ -n "${PREBUILT_BIN_PATH:-}" ]; then
+        # Using prebuilt binaries from parallel CI jobs — only clean dist
+        echo "Release build: using prebuilt binaries, cleaning dist only..."
+        rm -rf "$SCRIPT_DIR/dist"
+    elif [ "${SKIP_CLEAN:-}" = "1" ]; then
         echo "Release build: skipping .build clean (SKIP_CLEAN=1, using cached artifacts)"
         rm -rf "$SCRIPT_DIR/dist"
     else
@@ -251,18 +255,24 @@ if [ "$CMD" = "release" ]; then
     fi
 fi
 
-# 1. Build with SPM
-echo "Building ($CONFIG)..."
-# Only build the macOS product — the shared Package.swift also contains an iOS
-# target that cannot compile on macOS (UIKit), so we must scope the build.
-SWIFT_FLAGS="$SWIFT_FLAGS --product $APP_NAME"
-# Get bin path first (fast, doesn't rebuild)
-BIN_PATH=$(swift build $SWIFT_FLAGS --show-bin-path)
+# 1. Build with SPM (or use prebuilt binaries if PREBUILT_BIN_PATH is set)
+if [ -n "${PREBUILT_BIN_PATH:-}" ]; then
+    echo "Using prebuilt binaries from $PREBUILT_BIN_PATH"
+    BIN_PATH="$(cd "$PREBUILT_BIN_PATH" && pwd)"
+    EXECUTABLE="$BIN_PATH/$APP_NAME"
+else
+    echo "Building ($CONFIG)..."
+    # Only build the macOS product — the shared Package.swift also contains an iOS
+    # target that cannot compile on macOS (UIKit), so we must scope the build.
+    SWIFT_FLAGS="$SWIFT_FLAGS --product $APP_NAME"
+    # Get bin path first (fast, doesn't rebuild)
+    BIN_PATH=$(swift build $SWIFT_FLAGS --show-bin-path)
 
-# Then build (or use cached if nothing changed)
-swift build $SWIFT_FLAGS
+    # Then build (or use cached if nothing changed)
+    swift build $SWIFT_FLAGS
 
-EXECUTABLE="$BIN_PATH/$APP_NAME"
+    EXECUTABLE="$BIN_PATH/$APP_NAME"
+fi
 
 if [ ! -f "$EXECUTABLE" ]; then
     echo "ERROR: executable not found at $EXECUTABLE"
