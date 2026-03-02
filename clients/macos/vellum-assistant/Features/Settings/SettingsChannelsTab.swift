@@ -381,16 +381,9 @@ struct SettingsChannelsTab: View {
 
     private var telegramCredentialEntry: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            HStack {
-                Text("Bot Token")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
-                Spacer()
-                VButton(label: "Cancel", style: .secondary, size: .large) {
-                    telegramSetupExpanded = false
-                    telegramBotTokenText = ""
-                }
-            }
+            Text("Bot Token")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textSecondary)
 
             SecureField("Telegram bot token", text: $telegramBotTokenText)
                 .vInputStyle()
@@ -410,12 +403,18 @@ struct SettingsChannelsTab: View {
                         .foregroundColor(VColor.textSecondary)
                 }
             } else {
-                VButton(label: "Save", style: .secondary, size: .large) {
-                    store.saveTelegramToken(botToken: telegramBotTokenText)
-                    telegramBotTokenText = ""
-                    telegramSetupExpanded = false
+                HStack(spacing: VSpacing.sm) {
+                    VButton(label: "Connect", style: .secondary, size: .large) {
+                        store.saveTelegramToken(botToken: telegramBotTokenText)
+                        telegramBotTokenText = ""
+                        telegramSetupExpanded = false
+                    }
+                    .disabled(telegramBotTokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    VButton(label: "Cancel", style: .tertiary, size: .large) {
+                        telegramSetupExpanded = false
+                        telegramBotTokenText = ""
+                    }
                 }
-                .disabled(telegramBotTokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
     }
@@ -484,17 +483,9 @@ struct SettingsChannelsTab: View {
 
     private var slackChannelCredentialEntry: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            HStack {
-                Text("Slack Credentials")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
-                Spacer()
-                VButton(label: "Cancel", style: .secondary, size: .large) {
-                    slackChannelSetupExpanded = false
-                    slackChannelBotTokenInput = ""
-                    slackChannelAppTokenInput = ""
-                }
-            }
+            Text("Slack Credentials")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textSecondary)
 
             SecureField("Bot Token (xoxb-...)", text: $slackChannelBotTokenInput)
                 .vInputStyle()
@@ -519,19 +510,26 @@ struct SettingsChannelsTab: View {
                         .foregroundColor(VColor.textSecondary)
                 }
             } else {
-                VButton(label: "Save", style: .secondary, size: .large) {
-                    store.saveSlackChannelConfig(
-                        botToken: slackChannelBotTokenInput,
-                        appToken: slackChannelAppTokenInput
+                HStack(spacing: VSpacing.sm) {
+                    VButton(label: "Connect", style: .secondary, size: .large) {
+                        store.saveSlackChannelConfig(
+                            botToken: slackChannelBotTokenInput,
+                            appToken: slackChannelAppTokenInput
+                        )
+                        slackChannelBotTokenInput = ""
+                        slackChannelAppTokenInput = ""
+                        slackChannelSetupExpanded = false
+                    }
+                    .disabled(
+                        slackChannelBotTokenInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        || slackChannelAppTokenInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     )
-                    slackChannelBotTokenInput = ""
-                    slackChannelAppTokenInput = ""
-                    slackChannelSetupExpanded = false
+                    VButton(label: "Cancel", style: .tertiary, size: .large) {
+                        slackChannelSetupExpanded = false
+                        slackChannelBotTokenInput = ""
+                        slackChannelAppTokenInput = ""
+                    }
                 }
-                .disabled(
-                    slackChannelBotTokenInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    || slackChannelAppTokenInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                )
             }
         }
     }
