@@ -47,6 +47,16 @@ function extractActorAuthorizationToken(authorizationHeader: string | null): str
   return token.length > 0 ? token : null;
 }
 
+async function isVellumMessageRequest(req: Request, upstreamPath: string): Promise<boolean> {
+  if (req.method !== "POST" || upstreamPath !== "/v1/messages") return false;
+  try {
+    const body = await req.clone().json() as { sourceChannel?: unknown };
+    return body.sourceChannel === "vellum";
+  } catch {
+    return false;
+  }
+}
+
 export function createRuntimeProxyHandler(config: GatewayConfig) {
   return async (req: Request, clientIp?: string): Promise<Response> => {
     const start = performance.now();
@@ -72,10 +82,15 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
       upstreamPath = `/v1/${assistantScopedMatch[1]}`;
     }
     const isActorRoute = isActorBoundRoute(req.method, upstreamPath);
-    const actorTokenFromAuthorization = extractActorAuthorizationToken(
-      req.headers.get("authorization"),
-    );
-    const hasActorAuthorization = isActorRoute && actorTokenFromAuthorization !== null;
+    const actorTokenFromAuthorization = extractActorAuthorizationToken(req.headers.get("authorization"));
+    let hasActorAuthorization = false;
+    if (isActorRoute && actorTokenFromAuthorization !== null) {
+      // /v1/messages only enforces actor identity for sourceChannel=vellum at
+      // runtime. Keep bearer auth required for non-vellum sends to avoid
+      // bypassing proxy auth with an arbitrary Actor token.
+      hasActorAuthorization = upstreamPath !== "/v1/messages"
+        || await isVellumMessageRequest(req, upstreamPath);
+    }
 
     if (config.runtimeProxyRequireAuth && req.method !== "OPTIONS" && !hasActorAuthorization) {
       if (!config.runtimeProxyBearerToken) {

@@ -135,6 +135,27 @@ describe("runtime proxy auth enforcement", () => {
     expect(res.status).toBe(200);
   });
 
+  test("auth required: rejects actor authorization for non-vellum /v1/messages", async () => {
+    mockUpstream();
+    const handler = createRuntimeProxyHandler(makeConfig());
+    const req = new Request("http://localhost:7830/v1/messages", {
+      method: "POST",
+      headers: {
+        authorization: "Actor actor-token-123",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        conversationKey: "conversation-key",
+        sourceChannel: "telegram",
+        interface: "macos",
+        content: "hello",
+      }),
+    });
+    const res = await handler(req);
+
+    expect(res.status).toBe(401);
+  });
+
   test("auth required: rejects actor authorization for non-actor route", async () => {
     mockUpstream();
     const handler = createRuntimeProxyHandler(makeConfig());
