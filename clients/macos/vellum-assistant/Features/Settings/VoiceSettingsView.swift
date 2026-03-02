@@ -119,6 +119,13 @@ struct VoiceSettingsView: View {
             }
 
             if wakeWordEnabled {
+                // How it works steps
+                HStack(alignment: .top, spacing: VSpacing.md) {
+                    wakeWordStepCard(number: "1", title: "Say the keyword", description: "Speak your wake word when you\u{2019}re ready to talk.")
+                    wakeWordStepCard(number: "2", title: "Vellum starts listening", description: "A chime plays and your microphone activates.")
+                    wakeWordStepCard(number: "3", title: "Ask anything", description: "Speak naturally. Vellum responds when you pause.")
+                }
+
                 // Keyword
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     Text("Keyword")
@@ -164,13 +171,6 @@ struct VoiceSettingsView: View {
                     .accessibilityLabel("Conversation timeout duration")
                 }
 
-                // How it works steps
-                HStack(alignment: .top, spacing: VSpacing.md) {
-                    wakeWordStepCard(number: "1", title: "Say the keyword", description: "Speak your wake word when you\u{2019}re ready to talk.")
-                    wakeWordStepCard(number: "2", title: "Vellum starts listening", description: "A chime plays and your microphone activates.")
-                    wakeWordStepCard(number: "3", title: "Ask anything", description: "Speak naturally. Vellum responds when you pause.")
-                }
-
                 // Privacy note
                 HStack(spacing: VSpacing.xs) {
                     Image(systemName: "lock.fill")
@@ -188,7 +188,7 @@ struct VoiceSettingsView: View {
     }
 
     private func wakeWordStepCard(number: String, title: String, description: String) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
             Text(number)
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundColor(VColor.success)
@@ -203,10 +203,11 @@ struct VoiceSettingsView: View {
                     .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)
                     .lineSpacing(1)
-                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(VSpacing.lg)
+        .vCard(background: VColor.surfaceSubtle)
     }
 
     private let timeoutOptions: [(label: String, value: Int)] = [
