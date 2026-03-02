@@ -283,7 +283,8 @@ struct APIKeyStepView: View {
             } else if userHostedEnabled {
                 state.isHatching = true
             } else {
-                state.advance()
+                state.cloudProvider = "local"
+                state.isHatching = true
             }
     }
 
