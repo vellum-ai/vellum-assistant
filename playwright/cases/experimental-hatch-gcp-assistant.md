@@ -1,6 +1,6 @@
 ---
 fixture: desktop-app
-status: critical
+status: experimental
 ---
 
 # Hatch Assistant on GCP

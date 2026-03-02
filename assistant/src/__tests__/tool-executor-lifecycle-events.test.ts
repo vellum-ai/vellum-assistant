@@ -138,6 +138,7 @@ function makeContext(events: ToolLifecycleEvent[]) {
     workingDir: '/tmp/project',
     sessionId: 'session-1',
     conversationId: 'conversation-1',
+    guardianTrustClass: 'guardian' as const,
     onToolLifecycleEvent: (event: ToolLifecycleEvent) => {
       events.push(event);
     },
@@ -424,6 +425,7 @@ describe('ToolExecutor lifecycle events', () => {
       workingDir: '/tmp/project',
       sessionId: 'session-1',
       conversationId: 'conversation-1',
+      guardianTrustClass: 'guardian',
       onToolLifecycleEvent: () => new Promise<void>(() => {}),
     });
 

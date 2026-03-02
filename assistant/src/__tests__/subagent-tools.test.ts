@@ -88,7 +88,7 @@ function injectSubagent(
 }
 
 function makeContext(sessionId: string, extras: Record<string, unknown> = {}) {
-  return { workingDir: '/tmp', sessionId, conversationId: 'conv-1', ...extras };
+  return { workingDir: '/tmp', sessionId, conversationId: 'conv-1', guardianTrustClass: 'guardian' as const, ...extras } as import('../tools/types.js').ToolContext;
 }
 
 // ── Tool definitions ────────────────────────────────────────────────

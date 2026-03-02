@@ -123,7 +123,7 @@ export function createOrReuseToolGrantRequest(
     requesterExternalUserId,
     requesterChatId: requesterChatId ?? undefined,
     guardianExternalUserId: binding.guardianExternalUserId,
-    guardianPrincipalId: binding.guardianPrincipalId ?? undefined,
+    guardianPrincipalId: binding.guardianPrincipalId,
     toolName,
     inputDigest,
     questionText,

@@ -1,17 +1,20 @@
 /**
  * Shared inbound trust resolution for channel actors.
  *
- * This module provides a compact route-level shape used by channel routes
- * while delegating canonical classification to the unified actor trust
- * resolver.
+ * GuardianContext is a type alias for GuardianRuntimeContext — the
+ * canonical runtime trust context used by sessions, tooling, and channel
+ * routes. This module re-exports the alias and provides routing-state
+ * helpers that operate on the canonical type.
+ *
+ * Trust resolution itself lives in actor-trust-resolver.ts; the resolved
+ * ActorTrustContext is converted to GuardianRuntimeContext via
+ * toGuardianRuntimeContextFromTrust.
  */
-import type { ChannelId } from '../channels/types.js';
 import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
-import { canonicalizeInboundIdentity } from '../util/canonicalize-identity.js';
 import {
-  type DenialReason,
   resolveActorTrust,
   type ResolveActorTrustInput,
+  toGuardianRuntimeContextFromTrust,
   type TrustClass,
 } from './actor-trust-resolver.js';
 export type { DenialReason } from './actor-trust-resolver.js';
@@ -19,50 +22,28 @@ export type { DenialReason } from './actor-trust-resolver.js';
 /** Trust classification used by route-level channel logic. */
 export type ActorTrustClass = TrustClass;
 
-/** Guardian actor context used by route-level approval logic. */
-export interface GuardianContext {
-  trustClass: ActorTrustClass;
-  guardianChatId?: string;
-  guardianExternalUserId?: string;
-  /** Canonical principal ID from the guardian binding. */
-  guardianPrincipalId?: string;
-  requesterIdentifier?: string;
-  requesterDisplayName?: string;
-  requesterSenderDisplayName?: string;
-  requesterMemberDisplayName?: string;
-  requesterExternalUserId?: string;
-  requesterChatId?: string;
-  memberStatus?: string;
-  memberPolicy?: string;
-  denialReason?: DenialReason;
-}
+/**
+ * GuardianContext is the canonical runtime trust context.
+ *
+ * Previously this was a separate interface with extra fields (memberStatus,
+ * memberPolicy). Those fields were only needed for InboundActorContext
+ * construction, which now sources them directly from ActorTrustContext.
+ * This alias unifies the two shapes and removes the redundant conversion
+ * layer.
+ */
+export type GuardianContext = GuardianRuntimeContext;
 
 export type ResolveGuardianContextInput = ResolveActorTrustInput;
 
 /**
  * Resolve route-level trust context from canonical identity state.
+ *
+ * Delegates to resolveActorTrust for classification, then converts to
+ * the canonical GuardianRuntimeContext via toGuardianRuntimeContextFromTrust.
  */
 export function resolveGuardianContext(input: ResolveGuardianContextInput): GuardianContext {
   const trust = resolveActorTrust(input);
-  const canonicalGuardianExternalUserId = trust.guardianBindingMatch?.guardianExternalUserId
-    ? canonicalizeInboundIdentity(input.sourceChannel, trust.guardianBindingMatch.guardianExternalUserId) ?? undefined
-    : undefined;
-  return {
-    trustClass: trust.trustClass,
-    guardianChatId: trust.guardianBindingMatch?.guardianDeliveryChatId ??
-      (trust.trustClass === 'guardian' ? input.conversationExternalId : undefined),
-    guardianExternalUserId: canonicalGuardianExternalUserId,
-    guardianPrincipalId: trust.guardianPrincipalId,
-    requesterIdentifier: trust.actorMetadata.identifier,
-    requesterDisplayName: trust.actorMetadata.displayName,
-    requesterSenderDisplayName: trust.actorMetadata.senderDisplayName,
-    requesterMemberDisplayName: trust.actorMetadata.memberDisplayName,
-    requesterExternalUserId: trust.canonicalSenderId ?? undefined,
-    requesterChatId: input.conversationExternalId,
-    memberStatus: trust.memberRecord?.status ?? undefined,
-    memberPolicy: trust.memberRecord?.policy ?? undefined,
-    denialReason: trust.denialReason,
-  };
+  return toGuardianRuntimeContextFromTrust(trust, input.conversationExternalId);
 }
 
 // ---------------------------------------------------------------------------
@@ -102,7 +83,7 @@ export interface RoutingState {
  * Trusted contacts are only interactive when a guardian binding exists
  * to receive approval notifications. Unknown actors are never interactive.
  */
-export function resolveRoutingState(ctx: GuardianContext): RoutingState {
+export function resolveRoutingState(ctx: Pick<GuardianRuntimeContext, 'trustClass' | 'guardianExternalUserId'>): RoutingState {
   const isGuardian = ctx.trustClass === 'guardian';
   const isTrustedContact = ctx.trustClass === 'trusted_contact';
 
@@ -141,25 +122,5 @@ export function resolveRoutingState(ctx: GuardianContext): RoutingState {
  * (the shape persisted in stored payloads and used by the retry sweep).
  */
 export function resolveRoutingStateFromRuntime(ctx: GuardianRuntimeContext): RoutingState {
-  return resolveRoutingState({
-    trustClass: ctx.trustClass,
-    guardianExternalUserId: ctx.guardianExternalUserId,
-  });
-}
-
-export function toGuardianRuntimeContext(sourceChannel: ChannelId, ctx: GuardianContext): GuardianRuntimeContext {
-  return {
-    sourceChannel,
-    trustClass: ctx.trustClass,
-    guardianChatId: ctx.guardianChatId,
-    guardianExternalUserId: ctx.guardianExternalUserId,
-    guardianPrincipalId: ctx.guardianPrincipalId,
-    requesterIdentifier: ctx.requesterIdentifier,
-    requesterDisplayName: ctx.requesterDisplayName,
-    requesterSenderDisplayName: ctx.requesterSenderDisplayName,
-    requesterMemberDisplayName: ctx.requesterMemberDisplayName,
-    requesterExternalUserId: ctx.requesterExternalUserId,
-    requesterChatId: ctx.requesterChatId,
-    denialReason: ctx.denialReason,
-  };
+  return resolveRoutingState(ctx);
 }

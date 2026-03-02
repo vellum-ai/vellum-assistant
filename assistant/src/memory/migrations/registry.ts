@@ -100,6 +100,12 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     version: 15,
     description: 'Backfill guardianPrincipalId for existing channel_guardian_bindings and canonical_guardian_requests rows, expire unresolvable pending requests',
   },
+  {
+    key: 'migration_guardian_principal_id_not_null_v1',
+    version: 16,
+    dependsOn: ['migration_backfill_guardian_principal_id_v3'],
+    description: 'Enforce NOT NULL on channel_guardian_bindings.guardian_principal_id after backfill',
+  },
 ];
 
 export interface MigrationValidationResult {

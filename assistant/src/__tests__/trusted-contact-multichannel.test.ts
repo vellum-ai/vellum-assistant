@@ -210,6 +210,7 @@ for (const config of CHANNEL_CONFIGS) {
         channel: config.channel,
         guardianExternalUserId: config.guardianExternalUserId,
         guardianDeliveryChatId: config.guardianChatId,
+        guardianPrincipalId: config.guardianExternalUserId,
       });
 
       const req = buildInboundRequest(config);

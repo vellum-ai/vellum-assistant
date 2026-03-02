@@ -26,7 +26,8 @@ struct ThinkingIndicatorView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(VColor.backgroundSubtle)
+        .background(VColor.surface)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
     }
 }
 
@@ -40,7 +41,7 @@ final class ThinkingIndicatorWindow {
 
         let panel = NSPanel(
             contentRect: NSRect(origin: .zero, size: hostingView.fittingSize),
-            styleMask: [.titled, .nonactivatingPanel, .utilityWindow, .hudWindow],
+            styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
@@ -48,12 +49,9 @@ final class ThinkingIndicatorWindow {
         panel.isFloatingPanel = true
         panel.level = .floating
         panel.isMovableByWindowBackground = true
-        panel.titleVisibility = .hidden
-        panel.titlebarAppearsTransparent = true
         panel.hasShadow = true
-        panel.backgroundColor = NSColor.clear
+        panel.backgroundColor = .clear
         panel.isOpaque = false
-        panel.alphaValue = 0.95
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary]
 

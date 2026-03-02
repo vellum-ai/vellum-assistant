@@ -15,16 +15,7 @@ const log = getLogger('runtime-http');
 function parseGuardianRuntimeContext(value: unknown): GuardianRuntimeContext | undefined {
   if (!value || typeof value !== 'object') return undefined;
   const raw = value as Record<string, unknown>;
-  const trustClass = raw.trustClass
-    ?? (
-      raw.actorRole === 'guardian'
-        ? 'guardian'
-        : raw.actorRole === 'non-guardian'
-          ? 'trusted_contact'
-          : raw.actorRole === 'unverified_channel'
-            ? 'unknown'
-            : undefined
-    );
+  const trustClass = raw.trustClass;
   if (
     trustClass !== 'guardian'
     && trustClass !== 'trusted_contact'
@@ -46,6 +37,7 @@ function parseGuardianRuntimeContext(value: unknown): GuardianRuntimeContext | u
     trustClass,
     guardianChatId: typeof raw.guardianChatId === 'string' ? raw.guardianChatId : undefined,
     guardianExternalUserId: typeof raw.guardianExternalUserId === 'string' ? raw.guardianExternalUserId : undefined,
+    guardianPrincipalId: typeof raw.guardianPrincipalId === 'string' ? raw.guardianPrincipalId : undefined,
     requesterIdentifier: typeof raw.requesterIdentifier === 'string' ? raw.requesterIdentifier : undefined,
     requesterDisplayName: typeof raw.requesterDisplayName === 'string' ? raw.requesterDisplayName : undefined,
     requesterSenderDisplayName: typeof raw.requesterSenderDisplayName === 'string' ? raw.requesterSenderDisplayName : undefined,
@@ -107,7 +99,34 @@ export async function sweepFailedEvents(
     const assistantId = typeof payload.assistantId === 'string'
       ? payload.assistantId
       : undefined;
-    const guardianContext = parseGuardianRuntimeContext(payload.guardianCtx);
+    const parsedGuardianContext = parseGuardianRuntimeContext(payload.guardianCtx);
+
+    // If the stored payload had guardian context data but it couldn't be parsed
+    // into a valid canonical shape (e.g., legacy actorRole-only payloads without
+    // trustClass), fail the event deterministically rather than processing it
+    // without guardian context. Without this check, the downstream default of
+    // `guardianTrustClass ?? 'guardian'` would silently escalate privileges.
+    if (payload.guardianCtx && !parsedGuardianContext) {
+      log.warn(
+        { eventId: event.id },
+        'Stored guardianCtx could not be parsed into canonical form; marking event as failed to prevent privilege escalation',
+      );
+      channelDeliveryStore.markRetryableFailure(
+        event.id,
+        'Unparseable guardian context in stored payload — refusing to process without trust classification',
+      );
+      continue;
+    }
+
+    // When guardianCtx is entirely absent (pre-guardian events or events stored
+    // before trust context was added), synthesize an explicit 'unknown' context.
+    // This ensures replay never proceeds without an explicit trust classification
+    // — downstream defaults like `guardianTrustClass ?? 'guardian'` would
+    // otherwise grant guardian-level tool access to unclassified events.
+    const guardianContext: GuardianRuntimeContext = parsedGuardianContext ?? {
+      sourceChannel,
+      trustClass: 'unknown',
+    };
 
     const metadataHintsRaw = sourceMetadata?.hints;
     const metadataHints = Array.isArray(metadataHintsRaw)
@@ -130,9 +149,7 @@ export async function sweepFailedEvents(
           },
           assistantId,
           guardianContext,
-          isInteractive: guardianContext
-            ? resolveRoutingStateFromRuntime(guardianContext).promptWaitingAllowed
-            : false,
+          isInteractive: resolveRoutingStateFromRuntime(guardianContext).promptWaitingAllowed,
         },
         sourceChannel,
         sourceInterface,

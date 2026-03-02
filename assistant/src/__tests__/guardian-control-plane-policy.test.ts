@@ -87,6 +87,7 @@ function makeContext(overrides?: Partial<ToolContext>): ToolContext {
     workingDir: '/tmp/project',
     sessionId: 'session-1',
     conversationId: 'conversation-1',
+    guardianTrustClass: 'guardian',
     ...overrides,
   };
 }
@@ -405,10 +406,10 @@ describe('enforceGuardianOnlyPolicy', () => {
     expect(result.reason).toBeUndefined();
   });
 
-  test('undefined actor role is NOT denied for guardian endpoint', () => {
+  test('guardian actor role is NOT denied for guardian endpoint (explicit)', () => {
     const result = enforceGuardianOnlyPolicy('bash', {
       command: 'curl http://localhost:3000/v1/integrations/guardian/outbound/start',
-    }, undefined);
+    }, 'guardian');
     expect(result.denied).toBe(false);
   });
 
@@ -477,12 +478,12 @@ describe('ToolExecutor guardian-only policy gate', () => {
     expect(result.content).toBe('ok');
   });
 
-  test('undefined guardianTrustClass is NOT blocked from guardian endpoint', async () => {
+  test('guardian trust class is NOT blocked from guardian endpoint (default)', async () => {
     const executor = new ToolExecutor(makePrompter());
     const result = await executor.execute(
       'bash',
       { command: 'curl http://localhost:3000/v1/integrations/guardian/status' },
-      makeContext(), // no guardianTrustClass set
+      makeContext(), // defaults to guardianTrustClass: 'guardian'
     );
     expect(result.isError).toBe(false);
     expect(result.content).toBe('ok');

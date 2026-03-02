@@ -125,6 +125,7 @@ function makeContext(overrides?: Partial<ToolContext>): ToolContext {
     workingDir: '/tmp/project',
     sessionId: 'session-integration',
     conversationId: 'conversation-integration',
+    guardianTrustClass: 'guardian',
     ...overrides,
   };
 }

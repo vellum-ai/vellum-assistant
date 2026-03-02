@@ -25,6 +25,18 @@ enum APIKeyManager {
     private static let legacyService = "com.vellum-assistant.anthropic-api-key"
     private static let legacyAccount = "anthropic-api-key"
 
+    private struct CachedKeyRead {
+        let value: String?
+        let cachedAt: Date
+    }
+
+    private static var readCache: [String: CachedKeyRead] = [:]
+    private static let readCacheLock = NSLock()
+    private static let readCacheHitTTL: TimeInterval = 60
+    /// Short TTL for misses so external writes (e.g. from the daemon) are picked up quickly
+    /// while still batching rapid sequential calls like hasAnyKey().
+    private static let readCacheMissTTL: TimeInterval = 5
+
     // MARK: - Anthropic (convenience wrappers for backward compatibility)
 
     static func getKey() -> String? { getKey(for: "anthropic") }
@@ -42,23 +54,65 @@ enum APIKeyManager {
     // MARK: - Generic provider access
 
     static func getKey(for provider: String) -> String? {
+        let cached = cachedValue(for: provider)
+        if cached.hit { return cached.value }
+
         if provider == "anthropic" {
             // migrateIfNeeded returns the key if it was already read during
             // the migration check, avoiding a redundant security CLI spawn
             // (each spawn triggers a macOS keychain authorization prompt).
-            if let cached = migrateIfNeeded() { return cached }
+            if let migrated = migrateIfNeeded() {
+                setCachedValue(migrated, for: provider)
+                return migrated
+            }
         }
-        return cliGetKey(service: service, account: provider)
+        let value = cliGetKey(service: service, account: provider)
+        setCachedValue(value, for: provider)
+        return value
     }
 
     static func setKey(_ key: String, for provider: String) {
-        cliSetKey(service: service, account: provider, value: key)
+        if cliSetKey(service: service, account: provider, value: key) {
+            setCachedValue(key, for: provider)
+        } else {
+            invalidateCachedValue(for: provider)
+        }
         notifyKeyDidChange()
     }
 
     static func deleteKey(for provider: String) {
         cliDeleteKey(service: service, account: provider)
+        invalidateCachedValue(for: provider)
         notifyKeyDidChange()
+    }
+
+    private static func cachedValue(for provider: String) -> (hit: Bool, value: String?) {
+        readCacheLock.lock()
+        defer { readCacheLock.unlock() }
+
+        guard let entry = readCache[provider] else {
+            return (false, nil)
+        }
+
+        let ttl = entry.value != nil ? readCacheHitTTL : readCacheMissTTL
+        if Date().timeIntervalSince(entry.cachedAt) > ttl {
+            readCache.removeValue(forKey: provider)
+            return (false, nil)
+        }
+
+        return (true, entry.value)
+    }
+
+    private static func setCachedValue(_ value: String?, for provider: String) {
+        readCacheLock.lock()
+        defer { readCacheLock.unlock() }
+        readCache[provider] = CachedKeyRead(value: value, cachedAt: Date())
+    }
+
+    private static func invalidateCachedValue(for provider: String) {
+        readCacheLock.lock()
+        defer { readCacheLock.unlock() }
+        readCache.removeValue(forKey: provider)
     }
 
     // MARK: - CLI Helpers
@@ -83,25 +137,37 @@ enum APIKeyManager {
     }
 
     /// Write a generic password via `security add-generic-password -U` (update if exists).
-    private static func cliSetKey(service: String, account: String, value: String) {
+    @discardableResult
+    private static func cliSetKey(service: String, account: String, value: String) -> Bool {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
         process.arguments = ["add-generic-password", "-s", service, "-a", account, "-w", value, "-U"]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
-        try? process.run()
-        process.waitUntilExit()
+        do {
+            try process.run()
+            process.waitUntilExit()
+            return process.terminationStatus == 0
+        } catch {
+            return false
+        }
     }
 
     /// Delete a generic password via `security delete-generic-password`.
-    private static func cliDeleteKey(service: String, account: String) {
+    @discardableResult
+    private static func cliDeleteKey(service: String, account: String) -> Bool {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
         process.arguments = ["delete-generic-password", "-s", service, "-a", account]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
-        try? process.run()
-        process.waitUntilExit()
+        do {
+            try process.run()
+            process.waitUntilExit()
+            return process.terminationStatus == 0
+        } catch {
+            return false
+        }
     }
 
     // MARK: - Migration

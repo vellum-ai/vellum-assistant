@@ -1,10 +1,45 @@
+import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Command } from 'commander';
 
 import { loadRawConfig, saveRawConfig } from '../config/loader.js';
 import type { McpConfig, McpServerConfig } from '../config/mcp-schema.js';
+import { McpClient } from '../mcp/client.js';
+import { deleteMcpOAuthCredentials, McpOAuthProvider } from '../mcp/mcp-oauth-provider.js';
 import { getCliLogger } from '../util/logger.js';
 
 const log = getCliLogger('cli');
+
+const HEALTH_CHECK_TIMEOUT_MS = 10_000;
+
+async function checkServerHealth(serverId: string, config: McpServerConfig): Promise<string> {
+  const client = new McpClient(serverId, { quiet: true });
+  try {
+    await Promise.race([
+      client.connect(config.transport),
+      new Promise<never>((_, reject) => {
+        const t = setTimeout(() => reject(new Error('timeout')), HEALTH_CHECK_TIMEOUT_MS);
+        if (typeof t === 'object' && 'unref' in t) t.unref();
+      }),
+    ]);
+
+    if (!client.isConnected) {
+      return '! Needs authentication';
+    }
+
+    await client.disconnect();
+    return '\u2713 Connected';
+  } catch (err) {
+    try { await client.disconnect(); } catch { /* ignore */ }
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes('timeout')) {
+      return '\u2717 Timed out';
+    }
+    return `\u2717 Error: ${message}`;
+  }
+}
 
 export function registerMcpCommand(program: Command): void {
   const mcp = program.command('mcp').description('Manage MCP (Model Context Protocol) servers');
@@ -13,7 +48,7 @@ export function registerMcpCommand(program: Command): void {
     .command('list')
     .description('List configured MCP servers and their status')
     .option('--json', 'Output as JSON')
-    .action((opts: { json?: boolean }) => {
+    .action(async (opts: { json?: boolean }) => {
       const raw = loadRawConfig();
       const mcpConfig = raw.mcp as Partial<McpConfig> | undefined;
       const servers = mcpConfig?.servers ?? {};
@@ -37,6 +72,8 @@ export function registerMcpCommand(program: Command): void {
       }
 
       log.info(`${entries.length} MCP server(s) configured:\n`);
+
+      let didHealthCheck = false;
       for (const [id, cfg] of entries) {
         if (!cfg || typeof cfg !== 'object') {
           log.info(`  ${id} (invalid config — skipped)\n`);
@@ -45,7 +82,14 @@ export function registerMcpCommand(program: Command): void {
         const enabled = cfg.enabled !== false;
         const transport = cfg.transport;
         const risk = cfg.defaultRiskLevel ?? 'high';
-        const status = enabled ? '✓ enabled' : '✗ disabled';
+
+        let status: string;
+        if (!enabled) {
+          status = '✗ disabled';
+        } else {
+          status = await checkServerHealth(id, cfg);
+          didHealthCheck = true;
+        }
 
         log.info(`  ${id}`);
         log.info(`    Status:    ${status}`);
@@ -60,6 +104,9 @@ export function registerMcpCommand(program: Command): void {
         if (cfg.blockedTools) log.info(`    Blocked:   ${cfg.blockedTools.join(', ')}`);
         log.info('');
       }
+
+      // Health checks may leave MCP transports alive — force exit
+      if (didHealthCheck) process.exit(0);
     });
 
   mcp
@@ -134,9 +181,131 @@ export function registerMcpCommand(program: Command): void {
     });
 
   mcp
+    .command('auth <name>')
+    .description('Authenticate with an MCP server via OAuth')
+    .action(async (name: string) => {
+      const raw = loadRawConfig();
+      const mcpConfig = raw.mcp as Partial<McpConfig> | undefined;
+      const servers = mcpConfig?.servers ?? {};
+      const serverConfig = (servers as Record<string, McpServerConfig>)[name];
+
+      if (!serverConfig) {
+        log.error(`MCP server "${name}" not found. Add it first with: vellum mcp add`);
+        process.exitCode = 1;
+        return;
+      }
+
+      const transport = serverConfig.transport;
+      if (transport.type !== 'sse' && transport.type !== 'streamable-http') {
+        log.error(`OAuth is only supported for sse/streamable-http transports (server "${name}" uses ${transport.type})`);
+        process.exitCode = 1;
+        return;
+      }
+
+      // Validate URL early so we fail fast before starting the callback server
+      let serverUrl: URL;
+      try {
+        serverUrl = new URL(transport.url);
+      } catch {
+        log.error(`Invalid URL for MCP server "${name}": ${transport.url}`);
+        process.exitCode = 1;
+        return;
+      }
+
+      const provider = new McpOAuthProvider(name, transport.url, /* interactive */ true);
+      // Clear stale client_info and discovery — the callback server uses a random port,
+      // so any previously cached client_info has a mismatched redirect_uri.
+      // Preserve tokens so they survive if this auth attempt fails.
+      await provider.invalidateCredentials('client');
+      await provider.invalidateCredentials('discovery');
+      const { codePromise } = await provider.startCallbackServer();
+
+      const OAUTH_TIMEOUT_MS = 150_000; // 2.5 min for browser interaction
+      const TransportClass = transport.type === 'sse' ? SSEClientTransport : StreamableHTTPClientTransport;
+      const mcpTransport = new TransportClass(
+        serverUrl,
+        {
+          authProvider: provider,
+          requestInit: transport.headers ? { headers: transport.headers } : undefined,
+        },
+      );
+
+      const client = new Client({ name: 'vellum-assistant', version: '1.0.0' });
+
+      try {
+        // Try connecting — if tokens are already cached, this succeeds immediately
+        await client.connect(mcpTransport);
+        provider.stopCallbackServer();
+        await client.close();
+        log.info(`Server "${name}" is already authenticated.`);
+        return;
+      } catch (err) {
+        if (!(err instanceof UnauthorizedError)) {
+          provider.stopCallbackServer();
+          try { await client.close(); } catch { /* ignore */ }
+          log.error(`Failed to connect to "${name}": ${err}`);
+          process.exitCode = 1;
+          return;
+        }
+      }
+
+      // UnauthorizedError — browser was opened by redirectToAuthorization().
+      // Wait for the user to complete the OAuth flow.
+      log.info('Waiting for authorization in browser... (press Ctrl+C to cancel)');
+
+      let code: string;
+      let oauthTimer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        code = await Promise.race([
+          codePromise,
+          new Promise<never>((_, reject) => {
+            oauthTimer = setTimeout(() => reject(new Error('OAuth authorization timed out after 2.5 minutes')), OAUTH_TIMEOUT_MS);
+            if (typeof oauthTimer === 'object' && 'unref' in oauthTimer) oauthTimer.unref();
+          }),
+        ]);
+        clearTimeout(oauthTimer);
+      } catch (err) {
+        clearTimeout(oauthTimer);
+        provider.stopCallbackServer();
+        try { await client.close(); } catch { /* ignore */ }
+        const message = err instanceof Error ? err.message : String(err);
+        if (message.includes('denied') || message.includes('cancelled')) {
+          log.error(`Authorization cancelled for "${name}".`);
+        } else if (message.includes('timed out')) {
+          log.error(`Authorization timed out for "${name}". Try again with: vellum mcp auth ${name}`);
+        } else {
+          log.error(`Authorization failed for "${name}": ${message}`);
+        }
+        process.exitCode = 1;
+        return;
+      }
+
+      log.info('Authorization received. Exchanging token...');
+
+      // Exchange auth code for tokens
+      try {
+        await mcpTransport.finishAuth(code);
+      } catch (err) {
+        provider.stopCallbackServer();
+        try { await client.close(); } catch { /* ignore */ }
+        log.error(`Token exchange failed for "${name}": ${err}`);
+        process.exitCode = 1;
+        return;
+      }
+
+      // Clean up transport/client so the process can exit
+      try { await client.close(); } catch { /* ignore */ }
+      provider.stopCallbackServer();
+
+      log.info(`Authentication successful for "${name}".`);
+      log.info('Restart the daemon for changes to take effect: vellum daemon restart');
+      process.exit(0);
+    });
+
+  mcp
     .command('remove <name>')
     .description('Remove an MCP server configuration')
-    .action((name: string) => {
+    .action(async (name: string) => {
       const raw = loadRawConfig();
       const mcpConfig = raw.mcp as Record<string, unknown> | undefined;
       const servers = mcpConfig?.servers as Record<string, unknown> | undefined;
@@ -145,6 +314,17 @@ export function registerMcpCommand(program: Command): void {
         log.error(`MCP server "${name}" not found.`);
         process.exitCode = 1;
         return;
+      }
+
+      // Best-effort cleanup of any OAuth credentials stored for this server
+      const serverConfig = servers[name] as Record<string, unknown>;
+      const transport = serverConfig?.transport as Record<string, unknown> | undefined;
+      if (transport?.type === 'sse' || transport?.type === 'streamable-http') {
+        try {
+          await deleteMcpOAuthCredentials(name);
+        } catch {
+          // Ignore — credentials may not exist
+        }
       }
 
       delete servers[name];

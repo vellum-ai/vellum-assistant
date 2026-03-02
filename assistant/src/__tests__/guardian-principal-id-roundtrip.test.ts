@@ -79,19 +79,20 @@ describe('guardianPrincipalId roundtrip', () => {
       expect(fetched!.guardianPrincipalId).toBe('principal-abc-def');
     });
 
-    test('creates binding without guardianPrincipalId (defaults to null)', () => {
+    test('guardianPrincipalId is always persisted (non-null)', () => {
       const binding = createBinding({
         assistantId: 'self',
         channel: 'sms',
         guardianExternalUserId: 'sms-user-456',
         guardianDeliveryChatId: 'sms-chat-456',
+        guardianPrincipalId: 'sms-user-456',
       });
 
-      expect(binding.guardianPrincipalId).toBeNull();
+      expect(binding.guardianPrincipalId).toBe('sms-user-456');
 
       const fetched = getActiveBinding('self', 'sms');
       expect(fetched).not.toBeNull();
-      expect(fetched!.guardianPrincipalId).toBeNull();
+      expect(fetched!.guardianPrincipalId).toBe('sms-user-456');
     });
   });
 

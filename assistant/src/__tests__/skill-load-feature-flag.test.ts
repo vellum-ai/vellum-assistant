@@ -81,6 +81,7 @@ async function executeSkillLoad(input: Record<string, unknown>): Promise<{ conte
     workingDir: '/tmp',
     sessionId: 'session-1',
     conversationId: 'conversation-1',
+    guardianTrustClass: 'guardian',
   });
   return { content: result.content, isError: result.isError };
 }

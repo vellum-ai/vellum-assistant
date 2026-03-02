@@ -203,6 +203,7 @@ describe("guardian binding CRUD", () => {
       assistantId: "asst-1",
       channel: "telegram",
       guardianExternalUserId: "user-42",
+      guardianPrincipalId: "user-42",
       guardianDeliveryChatId: "chat-42",
     });
 
@@ -223,6 +224,7 @@ describe("guardian binding CRUD", () => {
       assistantId: "asst-1",
       channel: "telegram",
       guardianExternalUserId: "user-42",
+      guardianPrincipalId: "user-42",
       guardianDeliveryChatId: "chat-42",
     });
 
@@ -241,6 +243,7 @@ describe("guardian binding CRUD", () => {
       assistantId: "asst-1",
       channel: "telegram",
       guardianExternalUserId: "user-42",
+      guardianPrincipalId: "user-42",
       guardianDeliveryChatId: "chat-42",
     });
 
@@ -253,6 +256,7 @@ describe("guardian binding CRUD", () => {
       assistantId: "asst-1",
       channel: "telegram",
       guardianExternalUserId: "user-42",
+      guardianPrincipalId: "user-42",
       guardianDeliveryChatId: "chat-42",
     });
 
@@ -265,6 +269,7 @@ describe("guardian binding CRUD", () => {
       assistantId: "asst-1",
       channel: "telegram",
       guardianExternalUserId: "user-42",
+      guardianPrincipalId: "user-42",
       guardianDeliveryChatId: "chat-42",
     });
 
@@ -285,12 +290,14 @@ describe("guardian binding CRUD", () => {
       assistantId: "asst-1",
       channel: "telegram",
       guardianExternalUserId: "user-42",
+      guardianPrincipalId: "user-42",
       guardianDeliveryChatId: "chat-42",
     });
     createBinding({
       assistantId: "asst-1",
       channel: "slack",
       guardianExternalUserId: "user-99",
+      guardianPrincipalId: "user-99",
       guardianDeliveryChatId: "chat-99",
     });
 
@@ -660,6 +667,7 @@ describe("guardian service challenge validation", () => {
       assistantId: "asst-1",
       channel: "telegram",
       guardianExternalUserId: "old-user",
+      guardianPrincipalId: "old-user",
       guardianDeliveryChatId: "old-chat",
     });
 
@@ -702,6 +710,7 @@ describe("guardian identity check", () => {
       assistantId: "asst-1",
       channel: "telegram",
       guardianExternalUserId: "user-42",
+      guardianPrincipalId: "user-42",
       guardianDeliveryChatId: "chat-42",
     });
 
@@ -713,6 +722,7 @@ describe("guardian identity check", () => {
       assistantId: "asst-1",
       channel: "telegram",
       guardianExternalUserId: "user-42",
+      guardianPrincipalId: "user-42",
       guardianDeliveryChatId: "chat-42",
     });
 
@@ -728,6 +738,7 @@ describe("guardian identity check", () => {
       assistantId: "asst-1",
       channel: "telegram",
       guardianExternalUserId: "user-42",
+      guardianPrincipalId: "user-42",
       guardianDeliveryChatId: "chat-42",
     });
 
@@ -741,6 +752,7 @@ describe("guardian identity check", () => {
       assistantId: "asst-1",
       channel: "telegram",
       guardianExternalUserId: "user-42",
+      guardianPrincipalId: "user-42",
       guardianDeliveryChatId: "chat-42",
     });
 
@@ -759,6 +771,7 @@ describe("guardian identity check", () => {
       assistantId: "asst-1",
       channel: "sms",
       guardianExternalUserId: "phone-user-1",
+      guardianPrincipalId: "phone-user-1",
       guardianDeliveryChatId: "sms-chat-1",
     });
 
@@ -773,6 +786,7 @@ describe("guardian identity check", () => {
       assistantId: "asst-1",
       channel: "telegram",
       guardianExternalUserId: "user-42",
+      guardianPrincipalId: "user-42",
       guardianDeliveryChatId: "chat-42",
     });
 
@@ -1342,6 +1356,7 @@ describe("assistant-scoped guardian resolution", () => {
       assistantId: "asst-A",
       channel: "telegram",
       guardianExternalUserId: "user-alpha",
+      guardianPrincipalId: "user-alpha",
       guardianDeliveryChatId: "chat-alpha",
     });
     // Create guardian binding for asst-B on telegram with a different user
@@ -1349,6 +1364,7 @@ describe("assistant-scoped guardian resolution", () => {
       assistantId: "asst-B",
       channel: "telegram",
       guardianExternalUserId: "user-beta",
+      guardianPrincipalId: "user-beta",
       guardianDeliveryChatId: "chat-beta",
     });
 
@@ -1366,12 +1382,14 @@ describe("assistant-scoped guardian resolution", () => {
       assistantId: "asst-A",
       channel: "telegram",
       guardianExternalUserId: "user-alpha",
+      guardianPrincipalId: "user-alpha",
       guardianDeliveryChatId: "chat-alpha",
     });
     createBinding({
       assistantId: "asst-B",
       channel: "telegram",
       guardianExternalUserId: "user-beta",
+      guardianPrincipalId: "user-beta",
       guardianDeliveryChatId: "chat-beta",
     });
 
@@ -1389,12 +1407,14 @@ describe("assistant-scoped guardian resolution", () => {
       assistantId: "asst-A",
       channel: "telegram",
       guardianExternalUserId: "user-alpha",
+      guardianPrincipalId: "user-alpha",
       guardianDeliveryChatId: "chat-alpha",
     });
     createBinding({
       assistantId: "asst-B",
       channel: "telegram",
       guardianExternalUserId: "user-beta",
+      guardianPrincipalId: "user-beta",
       guardianDeliveryChatId: "chat-beta",
     });
 
@@ -1615,6 +1635,7 @@ describe("IPC handler channel-aware guardian status", () => {
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "user-42",
+      guardianPrincipalId: "user-42",
       guardianDeliveryChatId: "chat-42",
     });
 
@@ -1642,6 +1663,7 @@ describe("IPC handler channel-aware guardian status", () => {
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "user-43",
+      guardianPrincipalId: "user-43",
       guardianDeliveryChatId: "chat-43",
       metadataJson: JSON.stringify({
         username: "guardian_handle",
@@ -1930,6 +1952,7 @@ describe("voice guardian challenge validation", () => {
       assistantId: "asst-1",
       channel: "voice",
       guardianExternalUserId: "old-voice-user",
+      guardianPrincipalId: "old-voice-user",
       guardianDeliveryChatId: "old-voice-chat",
     });
 
@@ -1971,6 +1994,7 @@ describe("voice guardian identity and revocation", () => {
       assistantId: "asst-1",
       channel: "voice",
       guardianExternalUserId: "voice-user-1",
+      guardianPrincipalId: "voice-user-1",
       guardianDeliveryChatId: "voice-chat-1",
     });
 
@@ -1985,6 +2009,7 @@ describe("voice guardian identity and revocation", () => {
       assistantId: "asst-1",
       channel: "voice",
       guardianExternalUserId: "voice-user-1",
+      guardianPrincipalId: "voice-user-1",
       guardianDeliveryChatId: "voice-chat-1",
     });
 
@@ -1999,6 +2024,7 @@ describe("voice guardian identity and revocation", () => {
       assistantId: "asst-1",
       channel: "voice",
       guardianExternalUserId: "voice-user-1",
+      guardianPrincipalId: "voice-user-1",
       guardianDeliveryChatId: "voice-chat-1",
     });
 
@@ -2012,12 +2038,14 @@ describe("voice guardian identity and revocation", () => {
       assistantId: "asst-1",
       channel: "voice",
       guardianExternalUserId: "voice-user-1",
+      guardianPrincipalId: "voice-user-1",
       guardianDeliveryChatId: "voice-chat-1",
     });
     createBinding({
       assistantId: "asst-1",
       channel: "telegram",
       guardianExternalUserId: "tg-user-1",
+      guardianPrincipalId: "tg-user-1",
       guardianDeliveryChatId: "tg-chat-1",
     });
 
@@ -2245,6 +2273,7 @@ describe("IPC handler voice guardian verification", () => {
       assistantId: "self",
       channel: "voice",
       guardianExternalUserId: "voice-user-1",
+      guardianPrincipalId: "voice-user-1",
       guardianDeliveryChatId: "voice-chat-1",
     });
 
@@ -2271,6 +2300,7 @@ describe("IPC handler voice guardian verification", () => {
       assistantId: "self",
       channel: "voice",
       guardianExternalUserId: "voice-user-1",
+      guardianPrincipalId: "voice-user-1",
       guardianDeliveryChatId: "voice-chat-1",
     });
 
@@ -2297,12 +2327,14 @@ describe("IPC handler voice guardian verification", () => {
       assistantId: "self",
       channel: "voice",
       guardianExternalUserId: "voice-user-1",
+      guardianPrincipalId: "voice-user-1",
       guardianDeliveryChatId: "voice-chat-1",
     });
     createBinding({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "tg-user-1",
+      guardianPrincipalId: "tg-user-1",
       guardianDeliveryChatId: "tg-chat-1",
     });
 
@@ -2861,6 +2893,7 @@ describe("outbound SMS verification", () => {
       assistantId: "self",
       channel: "sms",
       guardianExternalUserId: "+15551234567",
+      guardianPrincipalId: "+15551234567",
       guardianDeliveryChatId: "sms-chat-1",
     });
 
@@ -2887,6 +2920,7 @@ describe("outbound SMS verification", () => {
       assistantId: "self",
       channel: "sms",
       guardianExternalUserId: "+15551234567",
+      guardianPrincipalId: "+15551234567",
       guardianDeliveryChatId: "sms-chat-1",
     });
 
@@ -3399,6 +3433,7 @@ describe("outbound Telegram verification", () => {
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "user-42",
+      guardianPrincipalId: "user-42",
       guardianDeliveryChatId: "chat-42",
     });
 
@@ -3922,6 +3957,7 @@ describe("outbound voice verification", () => {
       assistantId: "self",
       channel: "voice",
       guardianExternalUserId: "+15551234567",
+      guardianPrincipalId: "+15551234567",
       guardianDeliveryChatId: "+15551234567",
     });
 

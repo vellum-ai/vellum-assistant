@@ -340,6 +340,7 @@ describe('guardian vellum migration', () => {
       channel: 'telegram',
       guardianExternalUserId: 'tg-user-123',
       guardianDeliveryChatId: 'tg-chat-456',
+      guardianPrincipalId: 'tg-user-123',
       verifiedVia: 'challenge',
     });
 

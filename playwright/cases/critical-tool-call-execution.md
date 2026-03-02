@@ -15,7 +15,8 @@ Verify that the assistant can execute tool calls correctly and return results to
 2. Ensure an assistant is hatched and active
 3. Send a message that triggers a permission-gated tool call (e.g. "List my files in ~/Downloads")
 4. Verify that the assistant outputs a context message before the tool call (explaining what it needs to do)
-5. Verify that an Allow / Don't Allow permission prompt appears below the assistant's message
+5. Wait a few seconds for the permission indicator to appear
+6. Verify that an Allow / Don't Allow permission prompt appears below the assistant's message
 6. Click "Allow"
 7. Verify that a visual indicator (spinner or progress state) is shown while the tool executes
 8. Wait for the tool to return a result

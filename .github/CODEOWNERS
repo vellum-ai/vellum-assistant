@@ -3,6 +3,12 @@ assistant/src/config/system-prompt.ts @awlevin @siddseethepalli @alex-nork
 assistant/src/config/computer-use-prompt.ts @awlevin @siddseethepalli @alex-nork
 assistant/src/config/templates/ @awlevin @siddseethepalli @alex-nork
 
+# Default identity/personality files
+assistant/src/config/templates/IDENTITY.md @awlevin @AnitaKirkovska
+assistant/src/config/templates/USER.md @awlevin @AnitaKirkovska
+assistant/src/config/templates/SOUL.md @awlevin @AnitaKirkovska
+assistant/src/config/templates/BOOTSTRAP.md @awlevin @AnitaKirkovska
+
 # Tool definitions and infrastructure
 assistant/src/tools/ @siddseethepalli
 

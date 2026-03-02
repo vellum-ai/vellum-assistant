@@ -69,6 +69,7 @@ const dummyContext: ToolContext = {
   workingDir: sandboxDir,
   sessionId: 'sess-test',
   conversationId: 'conv-test',
+  guardianTrustClass: 'guardian',
 };
 
 // ---------------------------------------------------------------------------
@@ -322,6 +323,7 @@ describe('AssetMaterializeTool visibility policy', () => {
       workingDir: sandboxDir,
       sessionId: 'sess-test',
       conversationId: otherConv.id,
+      guardianTrustClass: 'guardian',
     };
 
     const result = await assetMaterializeTool.execute(
@@ -344,6 +346,7 @@ describe('AssetMaterializeTool visibility policy', () => {
       workingDir: sandboxDir,
       sessionId: 'sess-test',
       conversationId: privateConv.id,
+      guardianTrustClass: 'guardian',
     };
 
     const result = await assetMaterializeTool.execute(
@@ -367,6 +370,7 @@ describe('AssetMaterializeTool visibility policy', () => {
       workingDir: sandboxDir,
       sessionId: 'sess-test',
       conversationId: otherConv.id,
+      guardianTrustClass: 'guardian',
     };
 
     const result = await assetMaterializeTool.execute(
@@ -391,6 +395,7 @@ describe('AssetMaterializeTool visibility policy', () => {
       workingDir: sandboxDir,
       sessionId: 'sess-test',
       conversationId: standardConv.id,
+      guardianTrustClass: 'guardian',
     };
 
     const result = await assetMaterializeTool.execute(
@@ -417,6 +422,7 @@ describe('AssetMaterializeTool visibility policy', () => {
       workingDir: sandboxDir,
       sessionId: 'sess-test',
       conversationId: privateConv2.id,
+      guardianTrustClass: 'guardian',
     };
 
     const result = await assetMaterializeTool.execute(
@@ -444,6 +450,7 @@ describe('AssetMaterializeTool visibility policy', () => {
       workingDir: sandboxDir,
       sessionId: 'sess-test',
       conversationId: otherConv.id,
+      guardianTrustClass: 'guardian',
     };
 
     const result = await assetMaterializeTool.execute(

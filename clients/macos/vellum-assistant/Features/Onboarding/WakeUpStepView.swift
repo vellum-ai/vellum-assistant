@@ -8,73 +8,63 @@ struct WakeUpStepView: View {
     /// Optional onboarding state. When nil the view works standalone (e.g. auth gate).
     var state: OnboardingState?
 
-    /// Optional auth manager for showing loading/error state on the Vellum card.
+    /// Optional auth manager for showing loading/error state on the login button.
     var authManager: AuthManager?
 
-    /// When true, disables all option cards (e.g. during 0.3s advance delay).
+    /// When true, disables all buttons (e.g. during 0.3s advance delay).
     var isAdvancing: Bool = false
 
     // Callbacks
     var onStartWithAPIKey: () -> Void = {}
     var onContinueWithVellum: () -> Void = {}
 
-    /// Whether to show the onboarding footer with progress dots.
-    var showFooter: Bool = true
-
     // MARK: - Private State
 
     @State private var showTitle = false
     @State private var showSubtext = false
     @State private var showButtons = false
+
     // MARK: - Body
 
     var body: some View {
         // Title
-        Text("Create your Vellum")
-            .font(.system(size: 32, weight: .regular, design: .serif))
+        Text("Welcome to Vellum")
+            .font(.system(size: 32, weight: .bold))
             .foregroundColor(VColor.textPrimary)
-            .textSelection(.enabled)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
-            .padding(.bottom, VSpacing.md)
+            .padding(.bottom, VSpacing.xs)
 
         // Subtitle
-        Text("The safest way to create your personal assistant.")
+        Text("The safest way to create your\npersonal assistant.")
             .font(.system(size: 16, design: .monospaced))
             .foregroundColor(VColor.textSecondary)
             .multilineTextAlignment(.center)
-            .textSelection(.enabled)
             .opacity(showSubtext ? 1 : 0)
             .offset(y: showSubtext ? 0 : 8)
+            .padding(.bottom, VSpacing.xxl)
 
-        // Question prompt
-        Text("How would you like to start?")
-            .font(.system(size: 16, weight: .medium, design: .monospaced))
-            .foregroundColor(VColor.textPrimary)
-            .textSelection(.enabled)
-            .opacity(showSubtext ? 1 : 0)
-            .offset(y: showSubtext ? 0 : 8)
-            .padding(.top, VSpacing.xxl)
-
-        // Option cards
-        VStack(spacing: VSpacing.lg) {
-            HStack(spacing: VSpacing.md) {
-                // Card 1: Own API Key
-                optionCard(
-                    title: "Own API Key",
-                    description: "When you already have a subscription to a model.",
-                    action: { onStartWithAPIKey() }
-                )
-
-                // Card 2: Vellum Account
-                optionCard(
-                    title: "Vellum Account",
-                    description: "Get 30 free credits starting with your Vellum Account without the need for your own model subscription.",
-                    isLoading: authManager?.isSubmitting == true,
-                    action: { onContinueWithVellum() }
-                )
+        // Buttons
+        VStack(spacing: VSpacing.md) {
+            if authManager?.isSubmitting == true {
+                HStack(spacing: VSpacing.sm) {
+                    ProgressView()
+                        .controlSize(.small)
+                        .progressViewStyle(.circular)
+                    Text("Signing in...")
+                        .font(VFont.monoMedium)
+                        .foregroundColor(VColor.textSecondary)
+                }
+                .frame(height: 36)
+            } else {
+                OnboardingButton(title: "Sign in", style: .primary) {
+                    onContinueWithVellum()
+                }
             }
-            .padding(.top, VSpacing.xl)
+
+            OnboardingButton(title: "Self-host", style: .tertiary) {
+                onStartWithAPIKey()
+            }
 
             // Auth error message
             if let error = authManager?.errorMessage {
@@ -82,11 +72,9 @@ struct WakeUpStepView: View {
                     .font(VFont.caption)
                     .foregroundColor(VColor.error)
                     .multilineTextAlignment(.center)
-                    .textSelection(.enabled)
             }
         }
-        .padding(.horizontal, VSpacing.xxl)
-        .padding(.bottom, VSpacing.lg)
+        .frame(maxWidth: 280)
         .opacity(showButtons ? 1 : 0)
         .offset(y: showButtons ? 0 : 12)
         .disabled(isAdvancing || authManager?.isSubmitting == true)
@@ -102,58 +90,12 @@ struct WakeUpStepView: View {
             }
         }
 
-        if showFooter {
-            OnboardingFooter(currentStep: state?.currentStep ?? 0)
-                .padding(.bottom, VSpacing.lg)
-        }
-    }
+        Spacer()
 
-    // MARK: - Option Card
-
-    @ViewBuilder
-    private func optionCard(
-        title: String,
-        description: String,
-        isLoading: Bool = false,
-        action: @escaping () -> Void
-    ) -> some View {
-        VStack(spacing: VSpacing.md) {
-            Text(title)
-                .font(.system(size: 16, weight: .bold, design: .monospaced))
-                .foregroundColor(VColor.textPrimary)
-
-            Text(description)
-                .font(.system(size: 13, design: .monospaced))
-                .foregroundColor(VColor.textMuted)
-                .lineSpacing(3)
-                .multilineTextAlignment(.center)
-
-            Spacer()
-
-            if isLoading {
-                HStack(spacing: VSpacing.sm) {
-                    ProgressView()
-                        .controlSize(.small)
-                        .progressViewStyle(.circular)
-                    Text("Signing in...")
-                        .font(VFont.monoMedium)
-                        .foregroundColor(VColor.textSecondary)
-                }
-            } else {
-                VButton(label: "Start", action: action)
-            }
-        }
-        .padding(.horizontal, VSpacing.md)
-        .padding(.vertical, VSpacing.xl)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(
-            RoundedRectangle(cornerRadius: VRadius.xl)
-                .fill(adaptiveColor(light: Stone._300.opacity(0.3), dark: Moss._700.opacity(0.4)))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.xl)
-                .strokeBorder(VColor.surfaceBorder, lineWidth: 1)
-        )
+        Text("\u{00A9} 2026 Vellum Inc.")
+            .font(VFont.monoSmall)
+            .foregroundStyle(VColor.textMuted.opacity(0.5))
+            .padding(.bottom, VSpacing.lg)
     }
 }
 

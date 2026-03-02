@@ -28,3 +28,15 @@ Each test case has a `status` field in its frontmatter:
 1. Set `status: experimental` in the test case frontmatter
 2. Merge to main — experimental tests won't run during releases
 3. Once validated, update the status to `critical` or `stable`
+
+## GitHub Actions Workflow
+
+Tests are run via the **"Run workflow"** button in GitHub Actions. The workflow runs from `Branch: main` by default and accepts the following inputs:
+
+| Input | Description |
+|---|---|
+| **Release version** | Release version to test (e.g. `1.2.3`). If set, downloads the DMG from `vellum-ai/velly` releases instead of building from source. |
+| **Run experimental tests** | Checkbox. When enabled, runs tests marked with `status: experimental` in front matter. |
+| **Single test case name** | Run a single test case by name (e.g. `hello-world`). If empty, runs all tests. |
+| **Use agent-xcode runner** | Checkbox. When enabled, uses the `agent-xcode` (AXUIElement) runner instead of the Playwright runner. |
+| **Number of parallel shards** | Number of parallel shards (macOS runners) to split tests across. Each shard gets its own isolated runner. |
