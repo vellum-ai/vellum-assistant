@@ -87,7 +87,7 @@ async function createDesktopAppHatchedFixture(options: FixtureOptions): Promise<
   const appDisplayName = process.env.APP_DISPLAY_NAME ?? "Vellum";
 
   verifyAppExists(appDisplayName);
-  ensureVellumInPath();
+  ensureVellumInPath(appDisplayName);
   ensureAssistantHatched();
 
   return {
@@ -127,50 +127,41 @@ function logVellumPs(): void {
 }
 
 /**
- * Ensures the `vellum` CLI is available on PATH.
- *
- * Adds ~/.bun/bin to the current process PATH so child_process calls
- * can find binaries installed via bun. If `vellum` is still not
- * found, installs it globally via `bun install -g vellum@latest`.
+ * Resolves the path to the bundled `vellum-cli` binary inside the
+ * desktop app and creates a `vellum` symlink in a temporary bin
+ * directory that is prepended to PATH. This ensures all subsequent
+ * `vellum` commands use the CLI that ships with the app under test.
  */
-function ensureVellumInPath(): void {
-  const home = process.env.HOME ?? "/root";
-  const bunBin = path.join(home, ".bun", "bin");
+function ensureVellumInPath(appDisplayName: string): void {
+  const appDir = path.resolve(__dirname, "../../clients/macos/dist");
+  const cliBinary = path.join(appDir, `${appDisplayName}.app`, "Contents", "MacOS", "vellum-cli");
 
-  // Add ~/.bun/bin to PATH if not already present
-  if (!process.env.PATH?.includes(bunBin)) {
-    process.env.PATH = `${bunBin}:${process.env.PATH ?? ""}`;
+  if (!existsSync(cliBinary)) {
+    throw new Error(`Bundled CLI not found at: ${cliBinary}`);
   }
 
-  // Check if vellum is already available
-  try {
-    execSync("vellum --version", {
-      encoding: "utf-8",
-      timeout: 10_000,
-      shell: "/bin/bash",
-      env: process.env,
-    });
-    return;
-  } catch {
-    // Not found — try installing below
-  }
+  // Create a temp bin dir with a `vellum` symlink pointing to the bundled CLI
+  const tmpBin = path.join(__dirname, "../.vellum-bin");
+  mkdirSync(tmpBin, { recursive: true });
+  const symlinkPath = path.join(tmpBin, "vellum");
 
-  // Install vellum globally via bun
   try {
-    execSync("bun install -g vellum@latest", {
-      stdio: "inherit",
-      timeout: 60_000,
-      shell: "/bin/bash",
-      env: process.env,
-    });
+    // Remove stale symlink if it exists
+    if (existsSync(symlinkPath)) {
+      execSync(`rm -f ${JSON.stringify(symlinkPath)}`);
+    }
+    execSync(`ln -s ${JSON.stringify(cliBinary)} ${JSON.stringify(symlinkPath)}`);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    throw new Error(
-      `Failed to install vellum CLI via bun: ${message}`,
-    );
+    throw new Error(`Failed to create vellum symlink: ${message}`);
   }
 
-  // Verify it's now available
+  // Prepend the temp bin dir to PATH
+  if (!process.env.PATH?.includes(tmpBin)) {
+    process.env.PATH = `${tmpBin}:${process.env.PATH ?? ""}`;
+  }
+
+  // Verify it works
   try {
     execSync("vellum --version", {
       encoding: "utf-8",
@@ -180,7 +171,7 @@ function ensureVellumInPath(): void {
     });
   } catch {
     throw new Error(
-      `vellum CLI not found on PATH after installation. Ensure bun is available and ~/.bun/bin is on PATH.`,
+      `vellum CLI not working after symlinking bundled binary from ${cliBinary}`,
     );
   }
 }

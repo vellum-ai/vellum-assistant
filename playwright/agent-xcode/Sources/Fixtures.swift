@@ -47,7 +47,7 @@ private func createDesktopAppHatchedFixture(appDisplayName: String) throws -> Fi
         throw FixtureError.appNotFound(resolvedPath)
     }
 
-    ensureVellumInPath()
+    try ensureVellumInPath(appDisplayName: appDisplayName)
     try ensureAssistantHatched()
 
     return FixtureContext(teardown: {
@@ -58,37 +58,42 @@ private func createDesktopAppHatchedFixture(appDisplayName: String) throws -> Fi
 
 // MARK: - Shared Helpers
 
-/// Ensures the `vellum` CLI is available on PATH.
-///
-/// Adds ~/.bun/bin to the process PATH so child processes can find
-/// binaries installed via bun. If `vellum` is still not found,
-/// installs it globally via `bun install -g vellum@latest`.
-private func ensureVellumInPath() {
-    let home = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()
-    let bunBin = (home as NSString).appendingPathComponent(".bun/bin")
+/// Resolves the bundled `vellum-cli` binary inside the desktop app
+/// and creates a `vellum` symlink in a temporary bin directory that
+/// is prepended to PATH. This ensures all subsequent `vellum`
+/// commands use the CLI that ships with the app under test.
+private func ensureVellumInPath(appDisplayName: String) throws {
+    let appPath = resolveAppPath(appDisplayName: appDisplayName)
+    let cliBinary = (appPath as NSString).appendingPathComponent("Contents/MacOS/vellum-cli")
 
+    guard FileManager.default.fileExists(atPath: cliBinary) else {
+        throw FixtureError.appNotFound("Bundled CLI not found at: \(cliBinary)")
+    }
+
+    // Create a temp bin dir with a `vellum` symlink pointing to the bundled CLI
+    let cwd = FileManager.default.currentDirectoryPath
+    let tmpBin: String
+    if cwd.contains("agent-xcode") {
+        tmpBin = (cwd as NSString).appendingPathComponent("../.vellum-bin")
+    } else {
+        tmpBin = (cwd as NSString).appendingPathComponent(".vellum-bin")
+    }
+    let resolvedTmpBin = (tmpBin as NSString).standardizingPath
+
+    try FileManager.default.createDirectory(atPath: resolvedTmpBin, withIntermediateDirectories: true)
+    let symlinkPath = (resolvedTmpBin as NSString).appendingPathComponent("vellum")
+
+    // Remove stale symlink if it exists
+    if FileManager.default.fileExists(atPath: symlinkPath) {
+        try? FileManager.default.removeItem(atPath: symlinkPath)
+    }
+    try FileManager.default.createSymbolicLink(atPath: symlinkPath, withDestinationPath: cliBinary)
+
+    // Prepend to PATH
     let currentPath = ProcessInfo.processInfo.environment["PATH"] ?? ""
-    if !currentPath.contains(bunBin) {
-        setenv("PATH", "\(bunBin):\(currentPath)", 1)
+    if !currentPath.contains(resolvedTmpBin) {
+        setenv("PATH", "\(resolvedTmpBin):\(currentPath)", 1)
     }
-
-    // Check if vellum is already available
-    let check = Process()
-    check.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-    check.arguments = ["vellum", "--version"]
-    check.standardOutput = FileHandle.nullDevice
-    check.standardError = FileHandle.nullDevice
-    if let _ = try? check.run() {
-        check.waitUntilExit()
-        if check.terminationStatus == 0 { return }
-    }
-
-    // Install vellum globally via bun
-    let install = Process()
-    install.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-    install.arguments = ["bun", "install", "-g", "vellum@latest"]
-    try? install.run()
-    install.waitUntilExit()
 }
 
 /// Ensures an assistant is hatched. Checks `vellum ps` and runs
