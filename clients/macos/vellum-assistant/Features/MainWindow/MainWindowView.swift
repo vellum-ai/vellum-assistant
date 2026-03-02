@@ -841,7 +841,7 @@ struct MainWindowView: View {
                             .transition(.opacity)
                     } else if isHovered || thread.isPinned {
                         Image(systemName: thread.isPinned ? "pin.fill" : "pin")
-                            .font(.system(size: 10, weight: .medium))
+                            .font(.system(size: 13, weight: .medium))
                             .foregroundColor(VColor.textMuted)
                             .rotationEffect(.degrees(-45))
                             .frame(width: 20, height: 20)
@@ -904,7 +904,7 @@ struct MainWindowView: View {
                     }
                 } label: {
                     Image(systemName: thread.isPinned ? "pin.fill" : "pin")
-                        .font(.system(size: 10, weight: .medium))
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundColor(thread.isPinned ? VColor.textMuted : VColor.textSecondary)
                         .rotationEffect(.degrees(-45))
                         .frame(width: 20, height: 20)
@@ -939,7 +939,7 @@ struct MainWindowView: View {
                     sidebar.threadPendingDeletion = thread.id
                 } label: {
                     Image(systemName: "archivebox")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundColor(VColor.textSecondary)
                         .frame(width: 20, height: 20)
                         .background(VColor.backgroundSubtle)
@@ -1111,11 +1111,11 @@ struct MainWindowView: View {
         Button(action: {
             openAppInWorkspace(app: app)
         }) {
-            HStack(spacing: VSpacing.sm) {
+            HStack(spacing: VSpacing.xs) {
                 Image(systemName: app.sfSymbol ?? "square.grid.2x2")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._400))
-                    .frame(width: VSpacing.xl)
+                    .frame(width: 20)
                 Text(app.name)
                     .font(VFont.bodyMedium)
                     .foregroundColor(VColor.textPrimary)
@@ -1123,18 +1123,19 @@ struct MainWindowView: View {
                     .truncationMode(.tail)
                 Spacer()
             }
-            .padding(.leading, VSpacing.md)
+            .padding(.leading, VSpacing.xs)
             .padding(.trailing, VSpacing.sm)
             .padding(.vertical, VSpacing.sm)
             .background(
                 isAppSurfaceActive(appId: app.id)
-                    ? adaptiveColor(light: Color(hex: 0xD4DFD0), dark: Moss._700)
+                    ? adaptiveColor(light: Moss._100, dark: Moss._700)
                     : sidebar.isHoveredApp == app.id
-                        ? adaptiveColor(light: Color(hex: 0xD4DFD0), dark: Moss._700).opacity(0.5)
+                        ? adaptiveColor(light: Moss._100, dark: Moss._700).opacity(0.5)
                         : Color.clear
             )
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .contentShape(Rectangle())
+            .animation(VAnimation.fast, value: sidebar.isHoveredApp == app.id)
         }
         .buttonStyle(.plain)
         .padding(.horizontal, VSpacing.sm)
@@ -1738,11 +1739,11 @@ private struct SidebarNavRow: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: isExpanded ? VSpacing.sm : 0) {
+            HStack(spacing: isExpanded ? VSpacing.xs : 0) {
                 Image(systemName: icon)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._400))
-                    .frame(width: VSpacing.xl)
+                    .frame(width: 20)
                 Text(label)
                     .font(VFont.bodyMedium)
                     .foregroundColor(VColor.textPrimary)
@@ -1755,13 +1756,14 @@ private struct SidebarNavRow: View {
                     Spacer()
                 }
             }
-            .padding(.leading, isExpanded ? VSpacing.md : 0)
+            .padding(.leading, isExpanded ? VSpacing.xs : 0)
             .padding(.trailing, isExpanded ? VSpacing.sm : 0)
             .padding(.vertical, VSpacing.sm)
             .frame(maxWidth: .infinity, alignment: isExpanded ? .leading : .center)
-            .background(isActive ? adaptiveColor(light: Color(hex: 0xD4DFD0), dark: Moss._700) : isHovered ? adaptiveColor(light: Color(hex: 0xD4DFD0), dark: Moss._700).opacity(0.5) : .clear)
+            .background(isActive ? adaptiveColor(light: Moss._100, dark: Moss._700) : isHovered ? adaptiveColor(light: Moss._100, dark: Moss._700).opacity(0.5) : .clear)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .contentShape(Rectangle())
+            .animation(VAnimation.fast, value: isHovered)
         }
         .buttonStyle(.plain)
         .padding(.horizontal, isExpanded ? VSpacing.sm : VSpacing.xs)
