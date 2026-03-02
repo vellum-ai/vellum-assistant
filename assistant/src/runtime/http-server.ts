@@ -44,7 +44,7 @@ import { sweepFailedEvents } from './channel-retry-sweep.js';
 import { httpError } from './http-errors.js';
 // Auth
 import { authenticateRequest } from './auth/middleware.js';
-import { enforcePolicy } from './auth/route-policy.js';
+import { enforcePolicy, getPolicy } from './auth/route-policy.js';
 import type { AuthContext } from './auth/types.js';
 // Middleware
 import {
@@ -647,6 +647,15 @@ export class RuntimeHttpServer {
     authContext: AuthContext,
   ): Promise<Response> {
     const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
+
+    // Enforce route-level scope/principal policy before invoking any handler.
+    // Try method-specific key first (e.g. "messages:POST"); fall back to the
+    // plain endpoint key only when no method-specific policy is registered.
+    const methodKey = `${endpoint}:${req.method}`;
+    const policyKey = getPolicy(methodKey) ? methodKey : endpoint;
+    const policyDenied = enforcePolicy(policyKey, authContext);
+    if (policyDenied) return policyDenied;
+
     return withErrorHandling(endpoint, async () => {
       if (endpoint === 'health' && req.method === 'GET') return handleHealth();
       if (endpoint === 'debug' && req.method === 'GET') return handleDebug();

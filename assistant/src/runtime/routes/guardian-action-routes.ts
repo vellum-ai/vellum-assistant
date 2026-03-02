@@ -14,6 +14,7 @@
 import {
   applyCanonicalGuardianDecision,
 } from '../../approvals/guardian-decision-primitive.js';
+import { isHttpAuthDisabled } from '../../config/env.js';
 import {
   type CanonicalGuardianRequest,
   getCanonicalGuardianRequest,
@@ -59,6 +60,11 @@ export function handleGuardianActionsPending(url: URL, _authContext: AuthContext
  * vellum channel. Returns an error Response if not, or null if allowed.
  */
 function requireBoundGuardian(authContext: AuthContext): Response | null {
+  // Dev bypass: when auth is disabled, skip guardian binding check
+  // (mirrors enforcePolicy dev bypass in route-policy.ts)
+  if (isHttpAuthDisabled()) {
+    return null;
+  }
   if (!authContext.actorPrincipalId) {
     return httpError('FORBIDDEN', 'Actor is not the bound guardian for this channel', 403);
   }

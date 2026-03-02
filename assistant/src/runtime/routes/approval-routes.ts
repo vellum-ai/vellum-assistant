@@ -8,6 +8,7 @@
  * header (with local CLI fallback). Guardian decisions additionally verify
  * that the actor is the bound guardian.
  */
+import { isHttpAuthDisabled } from '../../config/env.js';
 import { getConversationByKey } from '../../memory/conversation-key-store.js';
 import { getActiveBinding } from '../../memory/guardian-bindings.js';
 import { addRule } from '../../permissions/trust-store.js';
@@ -25,6 +26,11 @@ const log = getLogger('approval-routes');
  * Returns an error Response if not, or null if allowed.
  */
 function requireBoundGuardian(authContext: AuthContext): Response | null {
+  // Dev bypass: when auth is disabled, skip guardian binding check
+  // (mirrors enforcePolicy dev bypass in route-policy.ts)
+  if (isHttpAuthDisabled()) {
+    return null;
+  }
   if (!authContext.actorPrincipalId) {
     return httpError('FORBIDDEN', 'Actor is not the bound guardian for this channel', 403);
   }
