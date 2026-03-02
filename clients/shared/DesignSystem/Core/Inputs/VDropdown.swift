@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// A styled dropdown using a native macOS `Menu` rendered inside a styled container.
-/// The visual layer is drawn separately and the Menu is overlaid transparently on top.
+/// A styled dropdown that works on both macOS and iOS.
+/// macOS: uses NSPopUpButton for reliable click handling.
+/// iOS: uses SwiftUI Menu.
 public struct VDropdown<T: Hashable>: View {
     public let placeholder: String
     @Binding public var selection: T
@@ -29,6 +30,7 @@ public struct VDropdown<T: Hashable>: View {
     }
 
     public var body: some View {
+        #if os(macOS)
         VDropdownButton(
             label: selectedLabel,
             placeholder: placeholder,
@@ -37,8 +39,57 @@ public struct VDropdown<T: Hashable>: View {
         )
         .accessibilityLabel(selectedLabel ?? placeholder)
         .frame(maxWidth: .infinity)
+        #else
+        Menu {
+            ForEach(options, id: \.value) { option in
+                Button {
+                    selection = option.value
+                } label: {
+                    HStack {
+                        Text(option.label)
+                        if option.value == selection {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: VSpacing.md) {
+                Group {
+                    if let label = selectedLabel {
+                        Text(label)
+                            .foregroundColor(VColor.textPrimary)
+                    } else {
+                        Text(placeholder)
+                            .foregroundColor(VColor.textMuted)
+                    }
+                }
+                .font(VFont.body)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Image(systemName: "chevron.down")
+                    .foregroundColor(VColor.textMuted)
+                    .font(.system(size: 14))
+                    .accessibilityHidden(true)
+            }
+            .padding(VSpacing.md)
+            .background(VColor.inputBackground)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+            )
+        }
+        .accessibilityLabel(selectedLabel ?? placeholder)
+        .frame(maxWidth: .infinity)
+        #endif
     }
 }
+
+// MARK: - macOS NSPopUpButton Implementation
+
+#if os(macOS)
+import AppKit
 
 /// NSViewRepresentable that wraps an NSPopUpButton styled to match the design system.
 /// This avoids SwiftUI Menu hit-testing issues entirely.
@@ -128,6 +179,7 @@ private struct VDropdownButton<T: Hashable>: NSViewRepresentable {
         }
     }
 }
+#endif
 
 #if DEBUG
 struct VDropdown_Preview: PreviewProvider {
