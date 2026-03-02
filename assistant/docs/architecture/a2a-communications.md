@@ -230,12 +230,12 @@ A2AConnectionService
 
 | Method | Input | Output (success) | Output (failure) |
 |--------|-------|-------------------|-------------------|
-| `generateInvite` | `{ expiresInMs?, note? }` | `{ ok: true, inviteCode: string, inviteId: string }` | `{ ok: false, reason: 'generation_failed' }` |
+| `generateInvite` | `{ idempotencyKey?: string, expiresInMs?, note? }` | `{ ok: true, inviteCode: string, inviteId: string }` | `{ ok: false, reason: 'generation_failed' }` |
 | `redeemInvite` | `{ token: string, peerGatewayUrl: string, protocolVersion: string, capabilities: string[] }` | `{ ok: true, connectionRequestId: string }` | `{ ok: false, reason: 'invalid_or_expired' \| 'already_redeemed' \| 'version_mismatch' }` |
 | `initiateConnection` | `{ redemptionId: string, peerInfo: PeerInfo }` | `{ ok: true, connectionId: string }` | `{ ok: false, reason: 'not_found' \| 'expired' }` |
 | `approveConnection` | `{ requestId: string }` | `{ ok: true }` | `{ ok: false, reason: 'not_found' \| 'already_resolved' \| 'identity_mismatch' }` |
 | `submitVerificationCode` | `{ connectionId: string, code: string }` | `{ ok: true }` | `{ ok: false, reason: 'invalid_code' \| 'expired' \| 'max_attempts' }` |
-| `revokeConnection` | `{ connectionId: string }` | `{ ok: true }` | `{ ok: false, reason: 'not_found' \| 'already_revoked' }` |
+| `revokeConnection` | `{ connectionId: string }` | `{ ok: true }` | `{ ok: false, reason: 'not_found' }` |
 | `listConnections` | `{ status?: string }` | `{ connections: PeerConnection[] }` | -- (always succeeds, returns empty array) |
 
 ### Design principles
@@ -445,8 +445,8 @@ Every PR that implements part of the A2A communications system must meet these c
 
 ### Idempotency guarantees
 
-- **`generateInvite()`**: Idempotent per invite ID. Calling with the same parameters does not create duplicates.
+- **`generateInvite()`**: Idempotent per caller-supplied `idempotencyKey`. When a key is provided and an invite with that key already exists, the existing invite is returned instead of creating a duplicate. When no key is provided, a new invite is always created (fire-and-forget usage).
 - **`redeemInvite()`**: Not idempotent by design (one-time use), but the second call returns `{ ok: false, reason: 'already_redeemed' }` deterministically.
 - **`approveConnection()` / `submitVerificationCode()`**: CAS-based resolution. Concurrent calls race safely; exactly one wins and subsequent calls return `already_resolved`.
-- **`revokeConnection()`**: Idempotent. Revoking an already-revoked connection returns success.
+- **`revokeConnection()`**: Idempotent. Revoking an already-revoked connection is a no-op that returns `{ ok: true }`. Callers can safely retry after network failures without distinguishing first-revoke from repeat-revoke.
 - **All mutating endpoints must be safe to retry** after network failures. The caller should be able to retry without creating duplicate state or corrupting the connection lifecycle.
