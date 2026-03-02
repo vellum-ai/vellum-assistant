@@ -72,17 +72,12 @@ Pull the latest changes from main, use `vellum` lifecycle CLI to stop and restar
    cd clients/macos && VELLUM_GATEWAY_DIR="$REPO_ROOT/gateway" ./build.sh run &
    ```
 
-9. Verify fresh state — run `vellum ps` to confirm processes are running, then check health endpoints:
+9. Verify fresh state — run `vellum ps` to confirm processes are running:
    ```bash
    sleep 5
    echo ""
    echo "=== Startup Summary ==="
    vellum ps
-   echo ""
-   DAEMON_STATUS=$(curl -sS --max-time 2 http://127.0.0.1:7821/healthz 2>&1 || echo "NOT YET RUNNING (app will start daemon on first launch/hatch)")
-   GATEWAY_STATUS=$(curl -sS --max-time 2 http://127.0.0.1:7830/healthz 2>&1 || echo "NOT YET RUNNING (app will start gateway on first launch/hatch)")
-   echo "  Daemon health:  $DAEMON_STATUS"
-   echo "  Gateway health: $GATEWAY_STATUS"
    echo "======================="
    ```
 
