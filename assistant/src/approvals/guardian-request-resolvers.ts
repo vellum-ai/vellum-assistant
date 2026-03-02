@@ -25,7 +25,7 @@ import * as pendingInteractions from '../runtime/pending-interactions.js';
 import { getTool } from '../tools/registry.js';
 import { TC_GRANT_WAIT_MAX_MS } from '../tools/tool-approval-handler.js';
 import { getLogger } from '../util/logger.js';
-import { readHttpToken } from '../util/platform.js';
+import { mintDaemonDeliveryToken } from '../runtime/auth/token-service.js';
 
 const log = getLogger('guardian-request-resolvers');
 
@@ -313,7 +313,7 @@ const accessRequestResolver: GuardianRequestResolver = {
     const decidedByExternalUserId = ctx.actor.externalUserId ?? '';
     const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
     const desktopDeliverUrl = resolveDeliverCallbackUrlForChannel(channel);
-    const desktopBearerToken = readHttpToken() ?? undefined;
+    const desktopBearerToken = mintDaemonDeliveryToken();
 
     if (decision.action === 'reject') {
       log.info(

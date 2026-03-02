@@ -48,7 +48,7 @@
 import type { ExtensionCommand, ExtensionResponse } from '../browser-extension-relay/protocol.js';
 import { extensionRelayServer } from '../browser-extension-relay/server.js';
 import { getGatewayInternalBaseUrl } from '../config/env.js';
-import { readHttpToken } from '../util/platform.js';
+import { mintDaemonDeliveryToken } from '../runtime/auth/token-service.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -127,12 +127,7 @@ async function sendRelayCommand(command: Record<string, unknown>): Promise<Exten
   }
 
   // Fall back to HTTP relay endpoint on the daemon
-  const token = readHttpToken();
-  if (!token) {
-    throw new Error(
-      'Browser extension relay is not connected and no HTTP token found. Is the daemon running?',
-    );
-  }
+  const token = mintDaemonDeliveryToken();
 
   const resp = await fetch(`${getGatewayInternalBaseUrl()}/v1/browser-relay/command`, {
     method: 'POST',

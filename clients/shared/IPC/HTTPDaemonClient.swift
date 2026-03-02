@@ -1089,7 +1089,7 @@ public final class HTTPTransport {
     private func applyAuth(_ request: inout URLRequest) {
         // The JWT access token is the sole auth credential — it serves as
         // both authentication and identity.
-        if let accessToken = ActorTokenManager.getToken() {
+        if let accessToken = ActorTokenManager.getToken(), !accessToken.isEmpty {
             request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         } else if let token = bearerToken {
             // Fallback to legacy bearer token for initial bootstrap before
