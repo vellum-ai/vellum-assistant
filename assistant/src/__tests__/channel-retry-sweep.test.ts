@@ -61,6 +61,7 @@ function seedFailedEventWithTrustClass(
     guardianCtx: {
       trustClass,
       sourceChannel: 'telegram',
+      guardianPrincipalId: 'principal-1',
       requesterExternalUserId: 'user-1',
       requesterChatId: `chat-${trustClass}`,
       ...extra,
@@ -128,14 +129,14 @@ describe('channel-retry-sweep', () => {
       resetTables();
       const eventId = seedFailedEventWithTrustClass(c.trustClass);
       let capturedOptions: {
-        guardianContext?: { trustClass?: string };
+        guardianContext?: { trustClass?: string; guardianPrincipalId?: string };
         isInteractive?: boolean;
       } | undefined;
 
       await sweepFailedEvents(
         async (conversationId, _content, _attachmentIds, options) => {
           capturedOptions = options as {
-            guardianContext?: { trustClass?: string };
+            guardianContext?: { trustClass?: string; guardianPrincipalId?: string };
             isInteractive?: boolean;
           };
           const messageId = `message-${c.trustClass}`;
@@ -153,6 +154,7 @@ describe('channel-retry-sweep', () => {
       );
 
       expect(capturedOptions?.guardianContext?.trustClass).toBe(c.trustClass);
+      expect(capturedOptions?.guardianContext?.guardianPrincipalId).toBe('principal-1');
       expect(capturedOptions?.isInteractive).toBe(c.expectedInteractive);
 
       const db = getDb();

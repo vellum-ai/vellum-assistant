@@ -107,6 +107,49 @@ export function recordProcessingFailure(eventId: string, err: unknown): void {
   }
 }
 
+/**
+ * Mark an event as failed with a specific error message, bypassing error
+ * classification. Use this when the failure reason is known and the event
+ * should remain retryable (up to max attempts).
+ */
+export function markRetryableFailure(eventId: string, errorMessage: string): void {
+  const db = getDb();
+  const now = Date.now();
+
+  const row = db
+    .select({ attempts: channelInboundEvents.processingAttempts })
+    .from(channelInboundEvents)
+    .where(eq(channelInboundEvents.id, eventId))
+    .get();
+
+  const attempts = (row?.attempts ?? 0) + 1;
+
+  if (attempts >= RETRY_MAX_ATTEMPTS) {
+    db.update(channelInboundEvents)
+      .set({
+        processingStatus: 'dead_letter',
+        processingAttempts: attempts,
+        lastProcessingError: errorMessage,
+        retryAfter: null,
+        updatedAt: now,
+      })
+      .where(eq(channelInboundEvents.id, eventId))
+      .run();
+  } else {
+    const delay = retryDelayForAttempt(attempts);
+    db.update(channelInboundEvents)
+      .set({
+        processingStatus: 'failed',
+        processingAttempts: attempts,
+        lastProcessingError: errorMessage,
+        retryAfter: now + delay,
+        updatedAt: now,
+      })
+      .where(eq(channelInboundEvents.id, eventId))
+      .run();
+  }
+}
+
 /** Fetch events eligible for automatic retry (failed + past their backoff). */
 export function getRetryableEvents(limit = 20): Array<{
   id: string;

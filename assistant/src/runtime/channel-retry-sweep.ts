@@ -37,6 +37,7 @@ function parseGuardianRuntimeContext(value: unknown): GuardianRuntimeContext | u
     trustClass,
     guardianChatId: typeof raw.guardianChatId === 'string' ? raw.guardianChatId : undefined,
     guardianExternalUserId: typeof raw.guardianExternalUserId === 'string' ? raw.guardianExternalUserId : undefined,
+    guardianPrincipalId: typeof raw.guardianPrincipalId === 'string' ? raw.guardianPrincipalId : undefined,
     requesterIdentifier: typeof raw.requesterIdentifier === 'string' ? raw.requesterIdentifier : undefined,
     requesterDisplayName: typeof raw.requesterDisplayName === 'string' ? raw.requesterDisplayName : undefined,
     requesterSenderDisplayName: typeof raw.requesterSenderDisplayName === 'string' ? raw.requesterSenderDisplayName : undefined,
@@ -110,9 +111,9 @@ export async function sweepFailedEvents(
         { eventId: event.id },
         'Stored guardianCtx could not be parsed into canonical form; marking event as failed to prevent privilege escalation',
       );
-      channelDeliveryStore.recordProcessingFailure(
+      channelDeliveryStore.markRetryableFailure(
         event.id,
-        new Error('Unparseable guardian context in stored payload — refusing to process without trust classification'),
+        'Unparseable guardian context in stored payload — refusing to process without trust classification',
       );
       continue;
     }
