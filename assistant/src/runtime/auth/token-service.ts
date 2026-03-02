@@ -11,9 +11,9 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypt
 import { isStaleEpoch } from './policy.js';
 import type { ScopeProfile, TokenAudience, TokenClaims } from './types.js';
 
-// Re-export signing key management from the existing actor-token-service
-// so callers don't need to import from two places during the transition.
-export { initSigningKey, loadOrCreateSigningKey } from '../actor-token-service.js';
+// Re-export loadOrCreateSigningKey so callers can load/persist the key
+// without importing from two places during the transition.
+export { loadOrCreateSigningKey } from '../actor-token-service.js';
 
 // ---------------------------------------------------------------------------
 // Internal: signing key access
@@ -31,8 +31,10 @@ function getSigningKey(): Buffer {
 let _authSigningKey: Buffer | null = null;
 
 /**
- * Initialize the auth module's signing key. This should be called at startup
- * alongside the existing initSigningKey() call, or can be used independently.
+ * Single initialization entry point for the auth signing key. Sets both
+ * the new auth module key and the legacy actor-token-service key so that
+ * both token systems share the same material. Callers should use this
+ * instead of importing initSigningKey from actor-token-service directly.
  */
 export function initAuthSigningKey(key: Buffer): void {
   _authSigningKey = key;
