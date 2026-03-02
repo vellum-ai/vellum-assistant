@@ -2,7 +2,7 @@
 name: "SMS Setup"
 description: "Set up and troubleshoot SMS messaging with guided Twilio configuration, compliance, and verification"
 user-invocable: true
-metadata: {"vellum": {"emoji": "\ud83d\udce8"}}
+metadata: { "vellum": { "emoji": "\ud83d\udce8" } }
 ---
 
 You are helping your user set up SMS messaging. This skill orchestrates Twilio setup, SMS-specific compliance, and end-to-end testing through a conversational flow.
@@ -30,7 +30,7 @@ If SMS baseline is not ready (missing credentials, phone number, or ingress), lo
 skill_load skill=twilio-setup
 ```
 
-Tell the user: *"SMS needs Twilio configured first. I've loaded the Twilio setup guide — let's walk through it."*
+Tell the user: _"SMS needs Twilio configured first. I've loaded the Twilio setup guide — let's walk through it."_
 
 After twilio-setup completes, re-check readiness by calling the config endpoint again:
 
@@ -53,6 +53,7 @@ curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/sms/compliance" \
 ```
 
 Examine the compliance results:
+
 - If all checks pass, proceed to Step 4.
 - If compliance issues are found (e.g., toll-free verification needed), guide the user through the compliance flow.
 
@@ -71,18 +72,18 @@ The response includes a `compliance` object with `numberType`, `tollfreePhoneNum
 
 **Step 3b: Collect user information.** Collect the following from the user (assume individual/sole proprietor by default):
 
-| Field | `verificationParams` key | Notes |
-|---|---|---|
-| Name | `businessName` | Can be personal name |
-| Business type | `businessType` | Use `SOLE_PROPRIETOR` for individuals. Valid values: `PRIVATE_PROFIT`, `PUBLIC_PROFIT`, `SOLE_PROPRIETOR`, `NON_PROFIT`, `GOVERNMENT` |
-| Website | `businessWebsite` | LinkedIn or personal site is fine |
-| Notification email | `notificationEmail` | Where Twilio sends status updates |
-| Use case category | `useCaseCategories` | Array, e.g. `["ACCOUNT_NOTIFICATIONS"]` |
-| Use case summary | `useCaseSummary` | Plain English description |
-| Message volume | `messageVolume` | Must be one of: `10`, `100`, `1,000`, `10,000`, `100,000`, `250,000`, `500,000`, `750,000`, `1,000,000`, `5,000,000`, `10,000,000+` |
-| Sample message | `productionMessageSample` | A realistic example message |
-| Opt-in type | `optInType` | `VERBAL`, `WEB_FORM`, `PAPER_FORM`, `VIA_TEXT`, `MOBILE_QR_CODE` |
-| Opt-in image URL | `optInImageUrls` | Array of URLs showing opt-in mechanism (can be website URL) |
+| Field              | `verificationParams` key  | Notes                                                                                                                                 |
+| ------------------ | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Name               | `businessName`            | Can be personal name                                                                                                                  |
+| Business type      | `businessType`            | Use `SOLE_PROPRIETOR` for individuals. Valid values: `PRIVATE_PROFIT`, `PUBLIC_PROFIT`, `SOLE_PROPRIETOR`, `NON_PROFIT`, `GOVERNMENT` |
+| Website            | `businessWebsite`         | LinkedIn or personal site is fine                                                                                                     |
+| Notification email | `notificationEmail`       | Where Twilio sends status updates                                                                                                     |
+| Use case category  | `useCaseCategories`       | Array, e.g. `["ACCOUNT_NOTIFICATIONS"]`                                                                                               |
+| Use case summary   | `useCaseSummary`          | Plain English description                                                                                                             |
+| Message volume     | `messageVolume`           | Must be one of: `10`, `100`, `1,000`, `10,000`, `100,000`, `250,000`, `500,000`, `750,000`, `1,000,000`, `5,000,000`, `10,000,000+`   |
+| Sample message     | `productionMessageSample` | A realistic example message                                                                                                           |
+| Opt-in type        | `optInType`               | `VERBAL`, `WEB_FORM`, `PAPER_FORM`, `VIA_TEXT`, `MOBILE_QR_CODE`                                                                      |
+| Opt-in image URL   | `optInImageUrls`          | Array of URLs showing opt-in mechanism (can be website URL)                                                                           |
 
 The `tollfreePhoneNumberSid` is returned by the compliance status response in the `compliance` object. Use `compliance.tollfreePhoneNumberSid` from the Step 3a response as the value for `tollfreePhoneNumberSid` when submitting. Do NOT ask for EIN, business registration number, or business registration authority. Explain that Twilio labels some fields as "business" fields even for individual submitters.
 
@@ -140,6 +141,7 @@ curl -s -X DELETE "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/sms/complia
 After deletion, return to Step 3b to collect information and resubmit. Warn the user that deleting resets their position in the review queue.
 
 **Common errors:**
+
 - `"Customer profiles submitted with verifications must be either ISV Starters or Secondary Customer Profiles"` — The number is linked to a Primary Customer Profile in Trust Hub, which blocks toll-free verification. Tell the user and suggest they resolve the profile assignment in the Twilio Console.
 - Missing required fields — The endpoint validates and reports which fields are missing.
 - Invalid enum values — The endpoint validates `optInType`, `messageVolume`, and `useCaseCategories` and reports valid values.
@@ -152,19 +154,19 @@ After deletion, return to Step 3b to collect information and resubmit. Warn the 
 
 Now link the user's phone number as the trusted SMS guardian. Tell the user: "Now let's verify your guardian identity for SMS. This links your phone number as the trusted guardian for SMS messaging."
 
-Install and load the **guardian-verify-setup** skill to handle the verification flow:
+Load the **guardian-verify-setup** skill to handle the verification flow:
 
-- Call `vellum_skills_catalog` with `action: "install"` and `skill_id: "guardian-verify-setup"`.
-- Then call `skill_load` with `skill: "guardian-verify-setup"`.
+- Call `skill_load` with `skill_id: "guardian-verify-setup"` to load the dependency skill.
 
 When invoking the skill, indicate the channel is `sms`. The guardian-verify-setup skill manages the full outbound verification flow, including:
+
 - Collecting the user's phone number as the destination (accepts any common format -- the API normalizes to E.164)
 - Starting the outbound verification session via the gateway endpoint `POST /v1/integrations/guardian/outbound/start` with `channel: "sms"`
 - Sending a 6-digit code to the phone number that the user must reply with from the SMS channel
 - Checking guardian status to confirm the binding was created
 - Handling resend, cancel, and error cases
 
-Tell the user: *"I've loaded the guardian verification guide. It will walk you through linking your phone number as the trusted SMS guardian."*
+Tell the user: _"I've loaded the guardian verification guide. It will walk you through linking your phone number as the trusted SMS guardian."_
 
 **Note:** Guardian verification is optional but recommended. If the user declines or wants to skip, proceed to Step 4 without blocking.
 
@@ -172,7 +174,7 @@ Tell the user: *"I've loaded the guardian verification guide. It will walk you t
 
 Run a test SMS to verify end-to-end delivery:
 
-Tell the user: *"Let's send a test SMS to verify everything works. What phone number should I send the test to?"*
+Tell the user: _"Let's send a test SMS to verify everything works. What phone number should I send the test to?"_
 
 **Important:** If toll-free verification is pending (not yet approved), inform the user that test messages may be silently dropped by carriers even though Twilio accepts them. Offer to attempt the test anyway, but set expectations.
 
@@ -189,7 +191,8 @@ curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/sms/test" \
 ```
 
 Report the result honestly:
-- If the send succeeds: *"The message was accepted by Twilio. Note: 'accepted' means Twilio received it for delivery, not that it reached the handset yet. Delivery can take a few seconds to a few minutes. If verification is still pending, carriers may silently drop the message."*
+
+- If the send succeeds: _"The message was accepted by Twilio. Note: 'accepted' means Twilio received it for delivery, not that it reached the handset yet. Delivery can take a few seconds to a few minutes. If verification is still pending, carriers may silently drop the message."_
 - If the send fails: report the error and suggest troubleshooting steps
 
 ### SMS Diagnostics
@@ -209,7 +212,8 @@ This runs a comprehensive health diagnostic, checking channel readiness, complia
 After completing (or skipping) the test, present a clear summary:
 
 **If everything passed:**
-*"SMS is ready! Here's your setup status:"*
+_"SMS is ready! Here's your setup status:"_
+
 - Twilio credentials: configured
 - Phone number: {number}
 - Ingress: configured
@@ -217,17 +221,20 @@ After completing (or skipping) the test, present a clear summary:
 - Test send: {result}
 
 **If there are blockers:**
-*"SMS setup is partially complete. Here's what still needs attention:"*
+_"SMS setup is partially complete. Here's what still needs attention:"_
+
 - List each blocker with the specific next action
 
 ## Troubleshooting
 
 If the user returns to this skill after initial setup:
+
 1. Always start with Step 1 (readiness check) to assess current state
 2. Skip steps that are already complete
 3. Focus on the specific issue the user is experiencing
 
 Common issues:
+
 - **"Messages not delivering"** — Check compliance status (toll-free verification), verify the number isn't flagged
 - **"Twilio error on send"** — Check credentials, phone number assignment, and ingress
 - **"Trial account limitations"** — Explain that trial accounts can only send to verified numbers
