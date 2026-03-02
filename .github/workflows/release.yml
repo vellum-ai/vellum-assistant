@@ -455,6 +455,7 @@ jobs:
       fail-fast: false
       matrix:
         environment: [dev, production]
+        platform_target: [prod, nonprod]
     environment: ${{ matrix.environment }}
     steps:
       - name: Checkout
@@ -465,6 +466,17 @@ jobs:
       - name: Get release SHA
         id: release-sha
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve platform credentials
+        id: platform-creds
+        run: |
+          if [ "${{ matrix.platform_target }}" = "nonprod" ]; then
+            echo "api_url=${{ secrets.NONPROD_PLATFORM_API_URL }}" >> "$GITHUB_OUTPUT"
+            echo "api_key=${{ secrets.NONPROD_PLATFORM_INTERNAL_SERVICE_API_KEY }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "api_url=${{ secrets.PLATFORM_API_URL }}" >> "$GITHUB_OUTPUT"
+            echo "api_key=${{ secrets.PLATFORM_INTERNAL_SERVICE_API_KEY }}" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Register release with platform
         run: |
@@ -498,11 +510,11 @@ jobs:
               }
             }')
 
-          echo "Registering release v${VERSION} with platform (${{ matrix.environment }})..."
+          echo "Registering release v${VERSION} with platform (${{ matrix.environment }} / ${{ matrix.platform_target }})..."
           HTTP_STATUS=$(curl -s -o /tmp/response.json -w "%{http_code}" \
-            -X POST "${{ secrets.PLATFORM_API_URL }}/v1/internal/assistant-image-releases/" \
+            -X POST "${{ steps.platform-creds.outputs.api_url }}/v1/internal/assistant-image-releases/" \
             -H "Content-Type: application/json" \
-            -H "X-Internal-Service-Api-Key: ${{ secrets.PLATFORM_INTERNAL_SERVICE_API_KEY }}" \
+            -H "X-Internal-Service-Api-Key: ${{ steps.platform-creds.outputs.api_key }}" \
             -d "$PAYLOAD")
 
           echo "HTTP Status: $HTTP_STATUS"
@@ -515,7 +527,7 @@ jobs:
 
       - name: Summary
         run: |
-          echo "## Release Registered (${{ matrix.environment }})" >> $GITHUB_STEP_SUMMARY
+          echo "## Release Registered (${{ matrix.environment }} / ${{ matrix.platform_target }})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** \`${{ needs.bump-and-tag.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
 
