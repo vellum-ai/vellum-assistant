@@ -726,8 +726,8 @@ jobs:
 
       - name: Import code-signing certificate
         env:
-          CERT_P12: ${{ secrets.DIST_CERTIFICATE_P12 }}
-          CERT_PASSWORD: ${{ secrets.DIST_CERTIFICATE_PASSWORD }}
+          CERT_P12: ${{ secrets.DEVID_CERTIFICATE_P12 }}
+          CERT_PASSWORD: ${{ secrets.DEVID_CERTIFICATE_PASSWORD }}
         run: |
           KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
 
@@ -1006,8 +1006,8 @@ jobs:
 
       - name: Import code-signing certificate
         env:
-          CERT_P12: ${{ secrets.DIST_CERTIFICATE_P12 }}
-          CERT_PASSWORD: ${{ secrets.DIST_CERTIFICATE_PASSWORD }}
+          CERT_P12: ${{ secrets.DEVID_CERTIFICATE_P12 }}
+          CERT_PASSWORD: ${{ secrets.DEVID_CERTIFICATE_PASSWORD }}
         run: |
           KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
 
