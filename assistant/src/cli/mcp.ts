@@ -1,7 +1,12 @@
+import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Command } from 'commander';
 
 import { loadRawConfig, saveRawConfig } from '../config/loader.js';
 import type { McpConfig, McpServerConfig } from '../config/mcp-schema.js';
+import { deleteMcpOAuthCredentials, McpOAuthProvider } from '../mcp/mcp-oauth-provider.js';
 import { getCliLogger } from '../util/logger.js';
 
 const log = getCliLogger('cli');
@@ -134,9 +139,115 @@ export function registerMcpCommand(program: Command): void {
     });
 
   mcp
+    .command('auth <name>')
+    .description('Authenticate with an MCP server via OAuth')
+    .action(async (name: string) => {
+      const raw = loadRawConfig();
+      const mcpConfig = raw.mcp as Partial<McpConfig> | undefined;
+      const servers = mcpConfig?.servers ?? {};
+      const serverConfig = (servers as Record<string, McpServerConfig>)[name];
+
+      if (!serverConfig) {
+        log.error(`MCP server "${name}" not found. Add it first with: vellum mcp add`);
+        process.exitCode = 1;
+        return;
+      }
+
+      const transport = serverConfig.transport;
+      if (transport.type !== 'sse' && transport.type !== 'streamable-http') {
+        log.error(`OAuth is only supported for sse/streamable-http transports (server "${name}" uses ${transport.type})`);
+        process.exitCode = 1;
+        return;
+      }
+
+      const provider = new McpOAuthProvider(name, transport.url, /* interactive */ true);
+      // Clear all stale credentials — the callback server uses a random port,
+      // so any previously cached client_info/tokens have a mismatched redirect_uri.
+      await provider.invalidateCredentials('all');
+      const { codePromise } = await provider.startCallbackServer();
+
+      const OAUTH_TIMEOUT_MS = 150_000; // 2.5 min for browser interaction
+      const TransportClass = transport.type === 'sse' ? SSEClientTransport : StreamableHTTPClientTransport;
+      const mcpTransport = new TransportClass(
+        new URL(transport.url),
+        {
+          authProvider: provider,
+          requestInit: transport.headers ? { headers: transport.headers } : undefined,
+        },
+      );
+
+      const client = new Client({ name: 'vellum-assistant', version: '1.0.0' });
+
+      try {
+        // Try connecting — if tokens are already cached, this succeeds immediately
+        await client.connect(mcpTransport);
+        provider.stopCallbackServer();
+        await client.close();
+        log.info(`Server "${name}" is already authenticated.`);
+        return;
+      } catch (err) {
+        if (!(err instanceof UnauthorizedError)) {
+          provider.stopCallbackServer();
+          try { await client.close(); } catch { /* ignore */ }
+          log.error(`Failed to connect to "${name}": ${err}`);
+          process.exitCode = 1;
+          return;
+        }
+      }
+
+      // UnauthorizedError — browser was opened by redirectToAuthorization().
+      // Wait for the user to complete the OAuth flow.
+      log.info('Waiting for authorization in browser... (press Ctrl+C to cancel)');
+
+      let code: string;
+      try {
+        code = await Promise.race([
+          codePromise,
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('OAuth authorization timed out after 2.5 minutes')), OAUTH_TIMEOUT_MS),
+          ),
+        ]);
+      } catch (err) {
+        provider.stopCallbackServer();
+        try { await client.close(); } catch { /* ignore */ }
+        const message = err instanceof Error ? err.message : String(err);
+        if (message.includes('denied') || message.includes('cancelled')) {
+          log.error(`Authorization cancelled for "${name}".`);
+        } else if (message.includes('timed out')) {
+          log.error(`Authorization timed out for "${name}". Try again with: vellum mcp auth ${name}`);
+        } else {
+          log.error(`Authorization failed for "${name}": ${message}`);
+        }
+        process.exitCode = 1;
+        return;
+      }
+
+      log.info('Authorization received. Exchanging token...');
+
+      // Exchange auth code for tokens
+      try {
+        await mcpTransport.finishAuth(code);
+      } catch (err) {
+        provider.stopCallbackServer();
+        try { await client.close(); } catch { /* ignore */ }
+        log.error(`Token exchange failed for "${name}": ${err}`);
+        process.exitCode = 1;
+        return;
+      }
+
+      // Clean up transport/client so the process can exit
+      try { await client.close(); } catch { /* ignore */ }
+      provider.stopCallbackServer();
+
+      log.info(`Authentication successful for "${name}".`);
+      log.info('Restart the daemon for changes to take effect: vellum daemon restart');
+      process.exit(0);
+    });
+
+  mcp
     .command('remove <name>')
     .description('Remove an MCP server configuration')
-    .action((name: string) => {
+    .action(async (name: string) => {
       const raw = loadRawConfig();
       const mcpConfig = raw.mcp as Record<string, unknown> | undefined;
       const servers = mcpConfig?.servers as Record<string, unknown> | undefined;
@@ -145,6 +256,17 @@ export function registerMcpCommand(program: Command): void {
         log.error(`MCP server "${name}" not found.`);
         process.exitCode = 1;
         return;
+      }
+
+      // Best-effort cleanup of any OAuth credentials stored for this server
+      const serverConfig = servers[name] as Record<string, unknown>;
+      const transport = serverConfig?.transport as Record<string, unknown> | undefined;
+      if (transport?.type === 'sse' || transport?.type === 'streamable-http') {
+        try {
+          await deleteMcpOAuthCredentials(name);
+        } catch {
+          // Ignore — credentials may not exist
+        }
       }
 
       delete servers[name];

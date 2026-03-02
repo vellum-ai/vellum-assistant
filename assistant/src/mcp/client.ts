@@ -4,7 +4,9 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
 import type { McpTransport } from '../config/mcp-schema.js';
+import { getSecureKeyAsync } from '../security/secure-keys.js';
 import { getLogger } from '../util/logger.js';
+import { McpOAuthProvider } from './mcp-oauth-provider.js';
 
 const log = getLogger('mcp-client');
 
@@ -26,6 +28,11 @@ export class McpClient {
   private client: Client;
   private transport: StdioClientTransport | SSEClientTransport | StreamableHTTPClientTransport | null = null;
   private connected = false;
+  private oauthProvider: McpOAuthProvider | null = null;
+
+  get isConnected(): boolean {
+    return this.connected;
+  }
 
   constructor(serverId: string) {
     this.serverId = serverId;
@@ -38,8 +45,22 @@ export class McpClient {
   async connect(transportConfig: McpTransport): Promise<void> {
     if (this.connected) return;
 
+    const isHttpTransport = transportConfig.type === 'sse' || transportConfig.type === 'streamable-http';
+
+    // For HTTP transports, only attach an OAuth provider if cached tokens exist.
+    // This avoids triggering client registration (which binds to a random port)
+    // during daemon startup. If no tokens, try without auth — if the server
+    // requires it, skip silently.
+    if (isHttpTransport) {
+      const cachedTokens = await getSecureKeyAsync(`mcp:${this.serverId}:tokens`);
+      if (cachedTokens) {
+        this.oauthProvider = new McpOAuthProvider(this.serverId, transportConfig.url);
+      }
+    }
+
     console.log(`[MCP] Connecting to server "${this.serverId}"...`);
     this.transport = this.createTransport(transportConfig);
+
     try {
       await Promise.race([
         this.client.connect(this.transport),
@@ -48,11 +69,20 @@ export class McpClient {
         ),
       ]);
     } catch (err) {
-      // Clean up the transport on failure (e.g., kill spawned stdio process)
       try { await this.client.close(); } catch { /* ignore cleanup errors */ }
       this.transport = null;
+
+      if (isHttpTransport) {
+        // For HTTP transports, any connection failure may be auth-related.
+        // Skip silently — user can run `vellum mcp auth <name>` to authenticate.
+        log.info({ serverId: this.serverId, err }, 'MCP server connection failed — may need authentication');
+        console.log(`[MCP] Server "${this.serverId}" is not available. Run "vellum mcp auth ${this.serverId}" if it requires authentication.`);
+        return;
+      }
+
       throw err;
     }
+
     this.connected = true;
     console.log(`[MCP] Server "${this.serverId}" connected successfully`);
     log.info({ serverId: this.serverId }, 'MCP client connected');
@@ -140,13 +170,20 @@ export class McpClient {
       case 'sse':
         return new SSEClientTransport(
           new URL(config.url),
-          { requestInit: config.headers ? { headers: config.headers } : undefined },
+          {
+            authProvider: this.oauthProvider ?? undefined,
+            requestInit: config.headers ? { headers: config.headers } : undefined,
+          },
         );
       case 'streamable-http':
         return new StreamableHTTPClientTransport(
           new URL(config.url),
-          { requestInit: config.headers ? { headers: config.headers } : undefined },
+          {
+            authProvider: this.oauthProvider ?? undefined,
+            requestInit: config.headers ? { headers: config.headers } : undefined,
+          },
         );
     }
   }
 }
+
