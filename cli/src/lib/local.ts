@@ -282,9 +282,41 @@ async function discoverPublicUrl(): Promise<string | undefined> {
     // metadata service not reachable
   }
 
+  // For custom hardware or when cloud-specific metadata didn't resolve,
+  // fall back to a public IP discovery service.
+  if (!externalIp) {
+    externalIp = await discoverPublicIpFallback();
+  }
+
   if (externalIp) {
     console.log(`   Discovered external IP: ${externalIp}`);
     return `http://${externalIp}:${GATEWAY_PORT}`;
+  }
+  return undefined;
+}
+
+/** Try to discover the machine's public IP using external services.
+ *  Attempts multiple providers for resilience. */
+async function discoverPublicIpFallback(): Promise<string | undefined> {
+  const services = [
+    "https://api.ipify.org",
+    "https://ifconfig.me/ip",
+    "https://icanhazip.com",
+  ];
+
+  for (const url of services) {
+    try {
+      const resp = await fetch(url, { signal: AbortSignal.timeout(3000) });
+      if (resp.ok) {
+        const ip = (await resp.text()).trim();
+        // Basic validation: must look like an IPv4 or IPv6 address
+        if (ip && /^[\d.:a-fA-F]+$/.test(ip)) {
+          return ip;
+        }
+      }
+    } catch {
+      // Service unreachable, try the next one
+    }
   }
   return undefined;
 }
