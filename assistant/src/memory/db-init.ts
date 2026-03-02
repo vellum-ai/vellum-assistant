@@ -1,6 +1,7 @@
 import { getDb } from './db-connection.js';
 import {
   addCoreColumns,
+  createA2APeerConnectionsTable,
   createActorRefreshTokenRecordsTable,
   createActorTokenRecordsTable,
   createAssistantInboxTables,
@@ -188,6 +189,9 @@ export function initializeDb(): void {
 
   // 31. Enforce NOT NULL on channel_guardian_bindings.guardian_principal_id
   migrateGuardianPrincipalIdNotNull(database);
+
+  // 32. A2A peer connections (bidirectional assistant-to-assistant credentials and state)
+  createA2APeerConnectionsTable(database);
 
   validateMigrationState(database);
 }

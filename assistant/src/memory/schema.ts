@@ -1208,3 +1208,29 @@ export const scopedApprovalGrants = sqliteTable('scoped_approval_grants', {
   index('idx_scoped_grants_tool_sig').on(table.toolName, table.inputDigest),
   index('idx_scoped_grants_status_expires').on(table.status, table.expiresAt),
 ]);
+
+// ── A2A Peer Connections ─────────────────────────────────────────────
+
+export const a2aPeerConnections = sqliteTable('a2a_peer_connections', {
+  id: text('id').primaryKey(),
+  assistantId: text('assistant_id').notNull(),
+  peerAssistantId: text('peer_assistant_id'),
+  peerGatewayUrl: text('peer_gateway_url').notNull(),
+  peerDisplayName: text('peer_display_name'),
+  inviteId: text('invite_id'),
+  status: text('status').notNull().default('pending'),
+  protocolVersion: text('protocol_version'),
+  capabilities: text('capabilities').notNull().default('[]'),
+  scopes: text('scopes').notNull().default('[]'),
+  outboundCredentialHash: text('outbound_credential_hash'),
+  inboundCredentialHash: text('inbound_credential_hash'),
+  lastSeenAt: integer('last_seen_at'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+  revokedAt: integer('revoked_at'),
+  revokedReason: text('revoked_reason'),
+  expiresAt: integer('expires_at'),
+}, (table) => [
+  index('idx_a2a_peer_connections_status').on(table.assistantId, table.status),
+  index('idx_a2a_peer_connections_gateway_url').on(table.peerGatewayUrl),
+]);
