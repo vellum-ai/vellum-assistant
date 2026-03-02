@@ -531,20 +531,34 @@ jobs:
               }
             }')
 
-          echo "Registering release v${VERSION} with platform (${{ matrix.environment }})..."
-          HTTP_STATUS=$(curl -s -o /tmp/response.json -w "%{http_code}" \
-            -X POST "${{ steps.platform-creds.outputs.api_url }}/v1/internal/assistant-image-releases/" \
-            -H "Content-Type: application/json" \
-            -H "X-Internal-Service-Api-Key: ${{ steps.platform-creds.outputs.api_key }}" \
-            -d "$PAYLOAD")
+          DELAYS=(5 15 30)
+          MAX_ATTEMPTS=3
 
-          echo "HTTP Status: $HTTP_STATUS"
-          cat /tmp/response.json
+          for attempt in $(seq 1 $MAX_ATTEMPTS); do
+            echo "Registering release v${VERSION} with platform (${{ matrix.environment }}) [attempt ${attempt}/${MAX_ATTEMPTS}]..."
+            HTTP_STATUS=$(curl -s -o /tmp/response.json -w "%{http_code}" \
+              -X POST "${{ steps.platform-creds.outputs.api_url }}/v1/internal/assistant-image-releases/" \
+              -H "Content-Type: application/json" \
+              -H "X-Internal-Service-Api-Key: ${{ steps.platform-creds.outputs.api_key }}" \
+              -d "$PAYLOAD")
 
-          if [ "$HTTP_STATUS" -lt 200 ] || [ "$HTTP_STATUS" -ge 300 ]; then
-            echo "::error::Release registration failed with HTTP $HTTP_STATUS"
-            exit 1
-          fi
+            echo "HTTP Status: $HTTP_STATUS"
+            cat /tmp/response.json
+
+            if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
+              echo "Registration succeeded on attempt ${attempt}"
+              exit 0
+            fi
+
+            if [ "$attempt" -lt "$MAX_ATTEMPTS" ]; then
+              DELAY=${DELAYS[$((attempt - 1))]}
+              echo "::warning::Attempt ${attempt} failed with HTTP $HTTP_STATUS. Retrying in ${DELAY}s..."
+              sleep "$DELAY"
+            else
+              echo "::error::Release registration failed after ${MAX_ATTEMPTS} attempts (last HTTP $HTTP_STATUS)"
+              exit 1
+            fi
+          done
 
       - name: Summary
         run: |
