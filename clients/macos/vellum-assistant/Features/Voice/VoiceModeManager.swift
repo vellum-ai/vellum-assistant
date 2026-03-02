@@ -555,7 +555,9 @@ final class VoiceModeManager: ObservableObject {
 
     private func startConversationTimeout() {
         cancelConversationTimeout()
-        let interval = conversationTimeoutInterval
+        // Read the user's preference each time so changes take effect immediately
+        let storedTimeout = UserDefaults.standard.integer(forKey: "wakeWordTimeoutSeconds")
+        let interval = storedTimeout > 0 ? TimeInterval(storedTimeout) : conversationTimeoutInterval
         let clampedInterval = max(1.0, interval.isFinite ? interval : 30.0)
         conversationTimeoutTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(clampedInterval * 1_000_000_000))
