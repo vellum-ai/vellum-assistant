@@ -86,10 +86,10 @@ export function hashHandshakeSecret(secret: string): string {
  * which can happen if a caller passes an unhashed value by mistake.
  */
 export function timingSafeCompare(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-
   const bufA = Buffer.from(a, 'utf-8');
   const bufB = Buffer.from(b, 'utf-8');
+
+  if (bufA.length !== bufB.length) return false;
 
   return timingSafeEqual(bufA, bufB);
 }
