@@ -14,7 +14,7 @@ import type { GuardianDecisionAction } from './guardian-decision-types.js';
 // ---------------------------------------------------------------------------
 
 /** The set of actions a user can take on an approval prompt. */
-export type ApprovalAction = 'approve_once' | 'approve_always' | 'reject';
+export type ApprovalAction = 'approve_once' | 'approve_10m' | 'approve_thread' | 'approve_always' | 'reject';
 
 /** An action presented to the user as a tappable button or text option. */
 export interface ApprovalActionOption {
