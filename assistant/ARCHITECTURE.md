@@ -138,7 +138,7 @@ In addition to persistent trust rules (`always_allow` / `always_deny`), the appr
 | `src/runtime/session-approval-overrides.ts` | In-memory store: `setThreadMode`, `setTimedMode`, `getEffectiveMode`, `clearMode`, `hasActiveOverride`, `clearAll` |
 | `src/permissions/types.ts` | `UserDecision` type (includes `allow_10m`, `allow_thread`, `temporary_override`), `isAllowDecision()` helper |
 | `src/runtime/guardian-decision-types.ts` | `buildDecisionActions()` — controls which temporary options appear in approval prompts |
-| `src/tools/tool-approval-handler.ts` | Permission pipeline integration — checks temporary overrides before prompting |
+| `src/tools/permission-checker.ts` | Permission pipeline integration — checks temporary overrides before prompting |
 
 ### Canonical Guardian Request System
 
