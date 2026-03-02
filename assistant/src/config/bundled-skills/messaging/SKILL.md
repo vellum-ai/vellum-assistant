@@ -253,6 +253,8 @@ Use `messaging_analyze_activity` to classify channels or conversations by activi
 
 When a user asks to declutter, clean up, or organize their email — start scanning immediately. Don't ask what kind of cleanup they want or request permission to read their inbox. Go straight to scanning — but once results are ready, always show them via `ui_show` and let the user choose actions before archiving or unsubscribing.
 
+**CRITICAL**: Never call `gmail_archive_by_query`, `gmail_unsubscribe`, or `messaging_archive_by_sender` unless the user has clicked an action button on the table for that specific batch. Each batch of results requires its own explicit user confirmation via the table UI. If the user says "keep going" or "keep decluttering," that means scan and present a new table — NOT auto-archive. Previous batch approvals do not carry forward.
+
 ### Provider Selection
 
 - **Gmail connected**: Use the Gmail-specific tools (`gmail_sender_digest`, `gmail_archive_by_query`, `gmail_unsubscribe`, `gmail_filters`) — they have richer features like unsubscribe support and filter creation.
@@ -269,7 +271,7 @@ When a user asks to declutter, clean up, or organize their email — start scann
    - **Caption**: "Showing emails from last 90 days in Promotions" (or adjusted to match the query used)
    - **Gmail action buttons (exactly 2)**: "Archive & Unsubscribe" (primary), "Archive Only" (secondary). **NEVER offer Delete, Trash, or any destructive action.**
    - **Non-Gmail action button (exactly 1)**: "Archive Selected" (primary). Do not offer an unsubscribe button — it is Gmail-specific. **NEVER offer Delete, Trash, or any destructive action.**
-3. **Live progress**: After the user clicks an action button:
+3. **Wait for user action**: Stop and wait. Do NOT proceed to archiving or unsubscribing until the user clicks one of the action buttons on the table. When the user clicks an action button:
    - **Dismiss the table immediately** with `ui_dismiss` — it collapses to a completion chip
    - **Show a `task_progress` card** with one step per selected sender (e.g., "Archiving TechCrunch (247 emails)"). Update each step from `in_progress` → `completed` as each sender finishes.
    - When all senders are processed, set the progress card's `status: "completed"`.
