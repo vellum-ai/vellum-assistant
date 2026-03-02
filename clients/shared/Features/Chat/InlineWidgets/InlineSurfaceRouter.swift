@@ -32,7 +32,7 @@ public struct InlineSurfaceRouter: View {
     private var isAppCreated: Bool {
         #if os(macOS)
         if case .dynamicPage(let data) = surface.data,
-           let preview = data.preview, preview.context == "app_create" { return true }
+           let preview = data.preview, preview.context == "app_create" || data.appId != nil { return true }
         #endif
         return false
     }
@@ -159,7 +159,7 @@ public struct InlineSurfaceRouter: View {
         case .dynamicPage(let data):
             if let preview = data.preview {
                 #if os(macOS)
-                if preview.context == "app_create" {
+                if preview.context == "app_create" || data.appId != nil {
                     InlineAppCreatedCard(
                         preview: preview,
                         appId: data.appId,
