@@ -828,10 +828,16 @@ struct MainWindowView: View {
                         .foregroundColor(VColor.warning)
                         .frame(width: 20, height: 20)
                 case .error:
-                    Image(systemName: "exclamationmark.circle.fill")
-                        .font(.system(size: 12))
-                        .foregroundColor(VColor.error)
-                        .frame(width: 20, height: 20)
+                    if !isHovered {
+                        Image(systemName: "exclamationmark.circle.fill")
+                            .font(.system(size: 12))
+                            .foregroundColor(VColor.error)
+                            .frame(width: 20, height: 20)
+                            .transition(.opacity)
+                    } else {
+                        Color.clear
+                            .frame(width: 20, height: 20)
+                    }
                 case .idle:
                     if thread.hasUnseenLatestAssistantMessage && !isHovered {
                         Circle()
@@ -839,14 +845,12 @@ struct MainWindowView: View {
                             .frame(width: 6, height: 6)
                             .frame(width: 20, height: 20)
                             .transition(.opacity)
-                    } else if isHovered || thread.isPinned {
-                        Image(systemName: thread.isPinned ? "pin.fill" : "pin")
+                    } else if !isHovered && thread.isPinned {
+                        Image(systemName: "pin.fill")
                             .font(.system(size: 13, weight: .medium))
                             .foregroundColor(VColor.textMuted)
                             .rotationEffect(.degrees(-45))
                             .frame(width: 20, height: 20)
-                            .background(VColor.backgroundSubtle)
-                            .clipShape(Circle())
                             .transition(.opacity)
                     } else {
                         Color.clear
@@ -908,8 +912,6 @@ struct MainWindowView: View {
                         .foregroundColor(thread.isPinned ? VColor.textMuted : VColor.textSecondary)
                         .rotationEffect(.degrees(-45))
                         .frame(width: 20, height: 20)
-                        .background(VColor.backgroundSubtle)
-                        .clipShape(Circle())
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -919,19 +921,10 @@ struct MainWindowView: View {
         }
         .overlay(alignment: .trailing) {
             if sidebar.threadPendingDeletion == thread.id {
-                Button {
+                VButton(label: "Confirm", style: .danger, size: .small) {
                     threadManager.archiveThread(id: thread.id)
                     sidebar.threadPendingDeletion = nil
-                } label: {
-                    Text("Confirm")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.error)
-                        .padding(.horizontal, VSpacing.sm)
-                        .frame(height: 24)
-                        .background(VColor.surface)
-                        .clipShape(Capsule())
                 }
-                .buttonStyle(.plain)
                 .padding(.trailing, VSpacing.xs)
                 .accessibilityLabel("Confirm archive \(thread.title)")
             } else if isHovered {
@@ -942,8 +935,6 @@ struct MainWindowView: View {
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(VColor.textSecondary)
                         .frame(width: 20, height: 20)
-                        .background(VColor.backgroundSubtle)
-                        .clipShape(Circle())
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -979,15 +970,16 @@ struct MainWindowView: View {
             }
         }
         .onHover { hovering in
-            if hovering {
-                sidebar.isHoveredThread = thread.id
-                NSCursor.pointingHand.push()
-            } else {
-                if sidebar.isHoveredThread == thread.id {
-                    sidebar.isHoveredThread = nil
+            withAnimation(VAnimation.fast) {
+                if hovering {
+                    sidebar.isHoveredThread = thread.id
+                } else {
+                    if sidebar.isHoveredThread == thread.id {
+                        sidebar.isHoveredThread = nil
+                    }
                 }
-                NSCursor.pop()
             }
+            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
         }
         .onDrag {
             sidebar.draggingThreadId = thread.id
