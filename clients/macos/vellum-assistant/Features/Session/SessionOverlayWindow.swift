@@ -1,5 +1,7 @@
 import AppKit
 import Combine
+import SwiftUI
+import VellumAssistantShared
 
 @MainActor
 final class SessionOverlayWindow {
@@ -100,7 +102,7 @@ final class SessionOverlayWindow {
         stack.addArrangedSubview(header)
 
         // Task text
-        let task = makeLabel(session.task, font: .systemFont(ofSize: 11), color: .secondaryLabelColor, maxLines: 2)
+        let task = makeLabel(session.task, font: .systemFont(ofSize: 11), color: NSColor(VColor.textSecondary), maxLines: 2)
         self.taskLabel = task
         stack.addArrangedSubview(task)
 
@@ -140,13 +142,13 @@ final class SessionOverlayWindow {
         let icon = NSImageView()
         if let img = NSImage(systemSymbolName: "cursorarrow.click.2", accessibilityDescription: nil) {
             icon.image = img
-            icon.contentTintColor = .systemBlue
+            icon.contentTintColor = NSColor(VColor.accent)
         }
         icon.widthAnchor.constraint(equalToConstant: 16).isActive = true
         icon.heightAnchor.constraint(equalToConstant: 16).isActive = true
         self.headerIcon = icon
 
-        let label = makeLabel("Vellum is working...", font: .boldSystemFont(ofSize: 13), color: .labelColor, maxLines: 1)
+        let label = makeLabel("Vellum is working...", font: .boldSystemFont(ofSize: 13), color: NSColor(VColor.textPrimary), maxLines: 1)
         self.headerLabel = label
 
         hstack.addArrangedSubview(icon)
@@ -160,7 +162,7 @@ final class SessionOverlayWindow {
     private func buildStateContent(_ state: SessionState) -> NSView {
         switch state {
         case .idle:
-            return makeLabel("Initializing...", font: .systemFont(ofSize: 11), color: .secondaryLabelColor)
+            return makeLabel("Initializing...", font: .systemFont(ofSize: 11), color: NSColor(VColor.textSecondary))
 
         case .thinking(let step, let maxSteps):
             return buildThinkingView(step: step, maxSteps: maxSteps)
@@ -169,7 +171,7 @@ final class SessionOverlayWindow {
             return buildRunningView(step: step, maxSteps: maxSteps, lastAction: lastAction, reasoning: reasoning)
 
         case .paused(let step, let maxSteps):
-            return makeLabel("Paused at step \(step)/\(maxSteps)", font: .systemFont(ofSize: 11), color: .systemOrange)
+            return makeLabel("Paused at step \(step)/\(maxSteps)", font: .systemFont(ofSize: 11), color: NSColor(VColor.warning))
 
         case .awaitingConfirmation(let reason):
             return buildConfirmationView(reason: reason)
@@ -184,7 +186,7 @@ final class SessionOverlayWindow {
             return buildFailedView(reason: reason)
 
         case .cancelled:
-            return makeLabel("Cancelled", font: .boldSystemFont(ofSize: 11), color: .systemOrange)
+            return makeLabel("Cancelled", font: .boldSystemFont(ofSize: 11), color: NSColor(VColor.warning))
         }
     }
 
@@ -194,7 +196,7 @@ final class SessionOverlayWindow {
         vstack.alignment = .leading
         vstack.spacing = 4
 
-        let stepLabel = makeLabel("Step \(step) of \(maxSteps)", font: .systemFont(ofSize: 11), color: .secondaryLabelColor)
+        let stepLabel = makeLabel("Step \(step) of \(maxSteps)", font: .systemFont(ofSize: 11), color: NSColor(VColor.textSecondary))
         vstack.addArrangedSubview(stepLabel)
 
         let hstack = NSStackView()
@@ -210,7 +212,7 @@ final class SessionOverlayWindow {
         s.heightAnchor.constraint(equalToConstant: 16).isActive = true
         self.spinner = s
 
-        let thinkingLabel = makeLabel("Thinking...", font: .systemFont(ofSize: 11), color: .secondaryLabelColor)
+        let thinkingLabel = makeLabel("Thinking...", font: .systemFont(ofSize: 11), color: NSColor(VColor.textSecondary))
 
         hstack.addArrangedSubview(s)
         hstack.addArrangedSubview(thinkingLabel)
@@ -225,7 +227,7 @@ final class SessionOverlayWindow {
         vstack.alignment = .leading
         vstack.spacing = 4
 
-        let stepLabel = makeLabel("Step \(step) of \(maxSteps)", font: .systemFont(ofSize: 11), color: .secondaryLabelColor)
+        let stepLabel = makeLabel("Step \(step) of \(maxSteps)", font: .systemFont(ofSize: 11), color: NSColor(VColor.textSecondary))
         vstack.addArrangedSubview(stepLabel)
 
         if !reasoning.isEmpty {
@@ -233,14 +235,14 @@ final class SessionOverlayWindow {
             reasoningRow.orientation = .horizontal
             reasoningRow.spacing = 0
 
-            // Blue bar
+            // Accent bar
             let bar = NSView()
             bar.wantsLayer = true
-            bar.layer?.backgroundColor = NSColor.systemBlue.withAlphaComponent(0.4).cgColor
+            bar.layer?.backgroundColor = NSColor(VColor.accent).withAlphaComponent(0.4).cgColor
             bar.translatesAutoresizingMaskIntoConstraints = false
             bar.widthAnchor.constraint(equalToConstant: 3).isActive = true
 
-            let reasoningLabel = makeLabel(reasoning, font: .systemFont(ofSize: 13), color: .labelColor)
+            let reasoningLabel = makeLabel(reasoning, font: .systemFont(ofSize: 13), color: NSColor(VColor.textPrimary))
             reasoningLabel.translatesAutoresizingMaskIntoConstraints = false
 
             let wrapper = NSView()
@@ -265,7 +267,7 @@ final class SessionOverlayWindow {
             wrapper.widthAnchor.constraint(equalTo: vstack.widthAnchor).isActive = true
         }
 
-        let actionLabel = makeLabel(lastAction, font: .systemFont(ofSize: 13), color: .secondaryLabelColor)
+        let actionLabel = makeLabel(lastAction, font: .systemFont(ofSize: 13), color: NSColor(VColor.textSecondary))
         vstack.addArrangedSubview(actionLabel)
 
         return vstack
@@ -285,19 +287,19 @@ final class SessionOverlayWindow {
         let warningIcon = NSImageView()
         if let img = NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: nil) {
             warningIcon.image = img
-            warningIcon.contentTintColor = .systemYellow
+            warningIcon.contentTintColor = NSColor(VColor.warning)
         }
         warningIcon.widthAnchor.constraint(equalToConstant: 14).isActive = true
         warningIcon.heightAnchor.constraint(equalToConstant: 14).isActive = true
 
-        let warningLabel = makeLabel("Confirmation needed", font: .boldSystemFont(ofSize: 11), color: .labelColor)
+        let warningLabel = makeLabel("Confirmation needed", font: .boldSystemFont(ofSize: 11), color: NSColor(VColor.textPrimary))
 
         warningRow.addArrangedSubview(warningIcon)
         warningRow.addArrangedSubview(warningLabel)
         vstack.addArrangedSubview(warningRow)
 
         // Reason
-        let reasonLabel = makeLabel(reason, font: .systemFont(ofSize: 11), color: .secondaryLabelColor)
+        let reasonLabel = makeLabel(reason, font: .systemFont(ofSize: 11), color: NSColor(VColor.textSecondary))
         vstack.addArrangedSubview(reasonLabel)
 
         // Buttons
@@ -307,7 +309,7 @@ final class SessionOverlayWindow {
 
         let allowBtn = makeButton("Allow", action: #selector(SessionOverlayButtonTarget.allowClicked))
         allowBtn.bezelStyle = .rounded
-        allowBtn.bezelColor = .systemBlue
+        allowBtn.bezelColor = NSColor(VColor.accent)
         allowBtn.contentTintColor = .white
 
         let blockBtn = makeButton("Block", action: #selector(SessionOverlayButtonTarget.blockClicked))
@@ -315,7 +317,7 @@ final class SessionOverlayWindow {
 
         let stopBtn = makeButton("Stop", action: #selector(SessionOverlayButtonTarget.stopClicked))
         stopBtn.bezelStyle = .rounded
-        stopBtn.contentTintColor = .systemRed
+        stopBtn.contentTintColor = NSColor(VColor.error)
 
         buttonRow.addArrangedSubview(allowBtn)
         buttonRow.addArrangedSubview(blockBtn)
@@ -334,7 +336,7 @@ final class SessionOverlayWindow {
         let icon = NSImageView()
         if let img = NSImage(systemSymbolName: "checkmark.circle.fill", accessibilityDescription: nil) {
             icon.image = img
-            icon.contentTintColor = .systemGreen
+            icon.contentTintColor = NSColor(VColor.success)
         }
         icon.widthAnchor.constraint(equalToConstant: 14).isActive = true
         icon.heightAnchor.constraint(equalToConstant: 14).isActive = true
@@ -344,8 +346,8 @@ final class SessionOverlayWindow {
         textStack.alignment = .leading
         textStack.spacing = 2
 
-        let doneLabel = makeLabel("Done in \(steps) steps", font: .boldSystemFont(ofSize: 11), color: .labelColor)
-        let summaryLabel = makeLabel(summary, font: .systemFont(ofSize: 11), color: .secondaryLabelColor, maxLines: 2)
+        let doneLabel = makeLabel("Done in \(steps) steps", font: .boldSystemFont(ofSize: 11), color: NSColor(VColor.textPrimary))
+        let summaryLabel = makeLabel(summary, font: .systemFont(ofSize: 11), color: NSColor(VColor.textSecondary), maxLines: 2)
 
         textStack.addArrangedSubview(doneLabel)
         textStack.addArrangedSubview(summaryLabel)
@@ -370,12 +372,12 @@ final class SessionOverlayWindow {
         let icon = NSImageView()
         if let img = NSImage(systemSymbolName: "text.bubble.fill", accessibilityDescription: nil) {
             icon.image = img
-            icon.contentTintColor = .systemBlue
+            icon.contentTintColor = NSColor(VColor.accent)
         }
         icon.widthAnchor.constraint(equalToConstant: 14).isActive = true
         icon.heightAnchor.constraint(equalToConstant: 14).isActive = true
 
-        let responseLabel = makeLabel("Response", font: .boldSystemFont(ofSize: 11), color: .labelColor)
+        let responseLabel = makeLabel("Response", font: .boldSystemFont(ofSize: 11), color: NSColor(VColor.textPrimary))
 
         headerRow.addArrangedSubview(icon)
         headerRow.addArrangedSubview(responseLabel)
@@ -394,7 +396,7 @@ final class SessionOverlayWindow {
         textView.isSelectable = true
         textView.drawsBackground = false
         textView.font = NSFont.systemFont(ofSize: 11)
-        textView.textColor = .labelColor
+        textView.textColor = NSColor(VColor.textPrimary)
         textView.string = answer
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
@@ -421,12 +423,12 @@ final class SessionOverlayWindow {
         let icon = NSImageView()
         if let img = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: nil) {
             icon.image = img
-            icon.contentTintColor = .systemRed
+            icon.contentTintColor = NSColor(VColor.error)
         }
         icon.widthAnchor.constraint(equalToConstant: 14).isActive = true
         icon.heightAnchor.constraint(equalToConstant: 14).isActive = true
 
-        let reasonLabel = makeLabel(reason, font: .systemFont(ofSize: 11), color: .secondaryLabelColor, maxLines: 3)
+        let reasonLabel = makeLabel(reason, font: .systemFont(ofSize: 11), color: NSColor(VColor.textSecondary), maxLines: 3)
 
         hstack.addArrangedSubview(icon)
         hstack.addArrangedSubview(reasonLabel)
@@ -465,7 +467,7 @@ final class SessionOverlayWindow {
             pauseBtn.bezelStyle = .rounded
             let stopBtn = makeButton("Stop", action: #selector(SessionOverlayButtonTarget.stopClicked))
             stopBtn.bezelStyle = .rounded
-            stopBtn.contentTintColor = .systemRed
+            stopBtn.contentTintColor = NSColor(VColor.error)
 
             hstack.addArrangedSubview(undoBtn)
             hstack.addArrangedSubview(autoApproveBtn)
@@ -485,11 +487,11 @@ final class SessionOverlayWindow {
             spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
             let resumeBtn = makeButton("Resume", action: #selector(SessionOverlayButtonTarget.resumeClicked))
             resumeBtn.bezelStyle = .rounded
-            resumeBtn.bezelColor = .systemBlue
+            resumeBtn.bezelColor = NSColor(VColor.accent)
             resumeBtn.contentTintColor = .white
             let stopBtn = makeButton("Stop", action: #selector(SessionOverlayButtonTarget.stopClicked))
             stopBtn.bezelStyle = .rounded
-            stopBtn.contentTintColor = .systemRed
+            stopBtn.contentTintColor = NSColor(VColor.error)
 
             hstack.addArrangedSubview(undoBtn)
             hstack.addArrangedSubview(spacer)
@@ -530,8 +532,8 @@ final class SessionOverlayWindow {
         let field = NSTextField()
         field.placeholderString = "Steer the agent..."
         field.font = NSFont.systemFont(ofSize: 13)
-        field.textColor = .labelColor
-        field.backgroundColor = NSColor(white: 0.2, alpha: 1.0)
+        field.textColor = NSColor(VColor.textPrimary)
+        field.backgroundColor = NSColor(VColor.inputBackground)
         field.isBordered = false
         field.isBezeled = true
         field.bezelStyle = .roundedBezel
@@ -711,7 +713,7 @@ final class SessionOverlayWindow {
             btn.imagePosition = .imageLeading
         }
         if session.autoApproveTools {
-            btn.contentTintColor = .systemGreen
+            btn.contentTintColor = NSColor(VColor.success)
         }
         return btn
     }
@@ -751,9 +753,9 @@ private class SessionOverlayBackgroundView: NSView {
     override var wantsUpdateLayer: Bool { true }
 
     override func updateLayer() {
-        layer?.backgroundColor = NSColor(white: 0.15, alpha: 0.95).cgColor
-        layer?.cornerRadius = 12
+        layer?.backgroundColor = NSColor(VColor.surface).withAlphaComponent(0.95).cgColor
+        layer?.cornerRadius = VRadius.lg
         layer?.borderWidth = 1
-        layer?.borderColor = NSColor(white: 0.25, alpha: 1.0).cgColor
+        layer?.borderColor = NSColor(VColor.surfaceBorder).cgColor
     }
 }
