@@ -251,39 +251,40 @@ function isSocketResponsive(socketPath: string, timeoutMs = 1500): Promise<boole
 
 async function discoverPublicUrl(): Promise<string | undefined> {
   const cloud = process.env.VELLUM_CLOUD;
-  if (!cloud || cloud === "local") {
-    return `http://localhost:${GATEWAY_PORT}`;
-  }
 
   let externalIp: string | undefined;
-  try {
-    if (cloud === "gcp") {
-      const resp = await fetch(
-        "http://169.254.169.254/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip",
-        { headers: { "Metadata-Flavor": "Google" } },
-      );
-      if (resp.ok) externalIp = (await resp.text()).trim();
-    } else if (cloud === "aws") {
-      // Use IMDSv2 (token-based) for compatibility with HttpTokens=required
-      const tokenResp = await fetch(
-        "http://169.254.169.254/latest/api/token",
-        { method: "PUT", headers: { "X-aws-ec2-metadata-token-ttl-seconds": "30" } },
-      );
-      if (tokenResp.ok) {
-        const token = await tokenResp.text();
-        const ipResp = await fetch(
-          "http://169.254.169.254/latest/meta-data/public-ipv4",
-          { headers: { "X-aws-ec2-metadata-token": token } },
+
+  // Try cloud-specific metadata services first for GCP and AWS.
+  if (cloud && cloud !== "local") {
+    try {
+      if (cloud === "gcp") {
+        const resp = await fetch(
+          "http://169.254.169.254/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip",
+          { headers: { "Metadata-Flavor": "Google" } },
         );
-        if (ipResp.ok) externalIp = (await ipResp.text()).trim();
+        if (resp.ok) externalIp = (await resp.text()).trim();
+      } else if (cloud === "aws") {
+        // Use IMDSv2 (token-based) for compatibility with HttpTokens=required
+        const tokenResp = await fetch(
+          "http://169.254.169.254/latest/api/token",
+          { method: "PUT", headers: { "X-aws-ec2-metadata-token-ttl-seconds": "30" } },
+        );
+        if (tokenResp.ok) {
+          const token = await tokenResp.text();
+          const ipResp = await fetch(
+            "http://169.254.169.254/latest/meta-data/public-ipv4",
+            { headers: { "X-aws-ec2-metadata-token": token } },
+          );
+          if (ipResp.ok) externalIp = (await ipResp.text()).trim();
+        }
       }
+    } catch {
+      // metadata service not reachable
     }
-  } catch {
-    // metadata service not reachable
   }
 
-  // For custom hardware or when cloud-specific metadata didn't resolve,
-  // fall back to a public IP discovery service.
+  // Fall back to a public IP discovery service for all environments
+  // (local, custom, or when cloud-specific metadata didn't resolve).
   if (!externalIp) {
     externalIp = await discoverPublicIpFallback();
   }
@@ -292,7 +293,9 @@ async function discoverPublicUrl(): Promise<string | undefined> {
     console.log(`   Discovered external IP: ${externalIp}`);
     return `http://${externalIp}:${GATEWAY_PORT}`;
   }
-  return undefined;
+
+  // Final fallback to localhost when no public IP could be discovered.
+  return `http://localhost:${GATEWAY_PORT}`;
 }
 
 /** Try to discover the machine's public IP using external services.
