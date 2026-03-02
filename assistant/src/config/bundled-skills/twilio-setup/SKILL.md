@@ -3,7 +3,7 @@ name: "Twilio Setup"
 description: "Configure Twilio credentials and phone numbers for voice calls and SMS messaging"
 user-invocable: true
 includes: ["public-ingress"]
-metadata: {"vellum": {"emoji": "\ud83d\udcf1"}}
+metadata: { "vellum": { "emoji": "\ud83d\udcf1" } }
 ---
 
 You are helping your user configure Twilio for voice calls and SMS messaging. Twilio is the shared telephony provider for both the **phone-calls** and **SMS messaging** capabilities. When this skill is invoked, walk through each step below using the Twilio HTTP control-plane endpoints and existing tools.
@@ -30,6 +30,7 @@ For voice call setup after Twilio is configured, use `phone-calls` + `call_start
 ## Overview
 
 This skill manages the full Twilio lifecycle:
+
 - **Credential storage** — Account SID and Auth Token
 - **Phone number provisioning** — Buy a new number directly from Twilio
 - **Phone number assignment** — Assign an existing Twilio number to the assistant
@@ -42,16 +43,19 @@ All operations go through the Twilio HTTP control-plane endpoints on the gateway
 In a multi-assistant environment (multiple assistants sharing the same daemon), some actions are **assistant-scoped** while others are **global** (shared across all assistants):
 
 **Global actions** (ignore `assistantId` — credentials are shared across all assistants):
+
 - `POST /v1/integrations/twilio/credentials` — Stores Account SID and Auth Token in global secure storage (`credential:twilio:*` keys). All assistants share the same Twilio account credentials.
 - `DELETE /v1/integrations/twilio/credentials` — Removes the globally stored Account SID and Auth Token. This affects all assistants.
 
 **Assistant-scoped actions** (use `assistantId` query parameter to scope phone number configuration per assistant):
+
 - `GET /v1/integrations/twilio/config` — Returns the phone number assigned to the specified assistant.
 - `POST /v1/integrations/twilio/numbers/assign` — Assigns a phone number to a specific assistant via the per-assistant mapping.
 - `POST /v1/integrations/twilio/numbers/provision` — Provisions a new number and assigns it to the specified assistant.
 - `GET /v1/integrations/twilio/numbers` — Lists all phone numbers on the shared Twilio account (uses global credentials).
 
 Include `assistantId` as a query parameter in assistant-scoped requests whenever:
+
 - Multiple assistants share the same Twilio account but use different phone numbers
 - You want to ensure configuration changes only affect a specific assistant
 - The user has explicitly selected or referenced a particular assistant
@@ -69,6 +73,7 @@ curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/config" \
 ```
 
 The response includes:
+
 - `hasCredentials` — whether Account SID and Auth Token are stored
 - `phoneNumber` — the currently assigned phone number (if any)
 
@@ -124,6 +129,7 @@ curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/numbers/provi
 The endpoint provisions the number via the Twilio API, automatically assigns it to the assistant (persisting to both secure storage and config), and configures Twilio webhooks (voice, status callback, SMS) if a public ingress URL is available. The response includes the new `phoneNumber`. No separate assign call is needed.
 
 **Webhook auto-configuration:** When `ingress.publicBaseUrl` is configured, the endpoint automatically sets the following webhooks on the Twilio phone number:
+
 - Voice webhook: `{publicBaseUrl}/webhooks/twilio/voice`
 - Voice status callback: `{publicBaseUrl}/webhooks/twilio/status`
 - SMS webhook: `{publicBaseUrl}/webhooks/twilio/sms`
@@ -192,6 +198,7 @@ skill_load skill=public-ingress
 ```
 
 **Twilio webhook endpoints (auto-configured on provision/assign):**
+
 - Voice webhook: `{publicBaseUrl}/webhooks/twilio/voice`
 - Voice status callback: `{publicBaseUrl}/webhooks/twilio/status`
 - ConversationRelay WebSocket: `{publicBaseUrl}/webhooks/twilio/relay` (wss://)
@@ -210,6 +217,7 @@ curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/config" \
 ```
 
 Confirm:
+
 - `hasCredentials` is `true`
 - `phoneNumber` is set to the expected number
 
@@ -219,12 +227,12 @@ Tell the user: **"Twilio is configured. Your assistant's phone number is {phoneN
 
 Now link the user's phone number as the trusted guardian for SMS and/or voice channels. Tell the user: "Now let's verify your guardian identity. This links your phone number as the trusted guardian for messaging and calls."
 
-Install and load the **guardian-verify-setup** skill to handle the verification flow:
+Load the **guardian-verify-setup** skill to handle the verification flow:
 
-- Call `vellum_skills_catalog` with `action: "install"` and `skill_id: "guardian-verify-setup"`.
-- Then call `skill_load` with `skill: "guardian-verify-setup"`.
+- Call `skill_load` with `skill_id: "guardian-verify-setup"` to load the dependency skill.
 
 The guardian-verify-setup skill manages the full outbound verification flow for **one channel at a time** (sms, voice, or telegram). Each invocation handles:
+
 - Collecting the user's phone number as the destination (accepts any common format -- the API normalizes to E.164)
 - Starting the outbound verification session via the gateway endpoint `POST /v1/integrations/guardian/outbound/start`
 - For **SMS**: sending a 6-digit code to the phone number that the user must reply with from the SMS channel
@@ -234,13 +242,14 @@ The guardian-verify-setup skill manages the full outbound verification flow for 
 
 **If the user wants to verify both SMS and voice**, load the skill twice -- once for SMS and once for voice. Each channel requires its own separate verification session.
 
-Tell the user: *"I've loaded the guardian verification guide. It will walk you through linking your phone number as the trusted guardian. We'll verify one channel at a time."*
+Tell the user: _"I've loaded the guardian verification guide. It will walk you through linking your phone number as the trusted guardian. We'll verify one channel at a time."_
 
 After the guardian-verify-setup skill completes verification for a channel, load it again for the next channel if needed. Once all desired channels are verified (or the user skips), continue to Step 6.
 
 **Note:** Guardian verification is optional but recommended. If the user declines or wants to skip, proceed to Step 6 without blocking.
 
 To re-check guardian status later, query the channel(s) that were verified:
+
 ```bash
 TOKEN=$(cat ~/.vellum/http-token)
 # Check SMS guardian status
@@ -258,6 +267,7 @@ Check the status for whichever channel(s) the user actually verified (SMS, voice
 Now that Twilio is configured, the user can enable the features that depend on it:
 
 **For voice calls:**
+
 ```bash
 vellum config set calls.enabled true
 ```
@@ -282,22 +292,27 @@ This removes the stored Account SID and Auth Token. Phone number assignments are
 ## Troubleshooting
 
 ### "Twilio credentials not configured"
+
 Run Steps 2 and 3 to store credentials and assign a phone number.
 
 ### "No phone number assigned"
+
 Run Step 3 to provision or assign a phone number.
 
 ### Phone number provisioning fails
+
 - Verify Twilio credentials are correct
 - On trial accounts, you may already have a free number — check "Active Numbers" in the Console
 - Ensure the Twilio account has sufficient balance for paid accounts
 
 ### Calls/SMS fail after setup
+
 - Verify public ingress is running (`ingress.publicBaseUrl` must be set)
 - For calls, ensure `calls.enabled` is `true`
 - On trial accounts, outbound calls and SMS can only reach verified numbers
 
 ### "Number not found" when assigning
+
 - The number must be owned by the same Twilio account
 - Use the list numbers endpoint to see available numbers
 - Ensure the number is in E.164 format (`+` followed by country code and number)
