@@ -34,6 +34,7 @@ import { SecretPrompter } from '../permissions/secret-prompter.js';
 import type { UserDecision } from '../permissions/types.js';
 import type { Message } from '../providers/types.js';
 import type { Provider } from '../providers/types.js';
+import * as approvalOverrides from '../runtime/session-approval-overrides.js';
 import { ToolExecutor } from '../tools/executor.js';
 import type { AssistantAttachmentDraft } from './assistant-attachments.js';
 import type { AssistantActivityState, ConfirmationStateChanged } from './ipc-contract/messages.js';
@@ -505,6 +506,15 @@ export class Session {
       selectedScope,
       decisionContext,
     );
+
+    // Activate conversation-scoped temporary approval override when the
+    // user picks a temporary allow mode. These do not grant persistent
+    // trust and do not mutate allowlists/denylists.
+    if (decision === 'allow_thread') {
+      approvalOverrides.setThreadMode(this.conversationId);
+    } else if (decision === 'allow_10m') {
+      approvalOverrides.setTimedMode(this.conversationId);
+    }
 
     // Emit authoritative confirmation state and activity transition centrally
     // so ALL callers (IPC handlers, /v1/confirm, channel bridges) get
