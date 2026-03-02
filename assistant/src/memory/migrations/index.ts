@@ -68,6 +68,7 @@ export { migrateCanonicalGuardianDeliveriesDestinationIndex } from './123-canoni
 export { migrateVoiceInviteDisplayMetadata } from './124-voice-invite-display-metadata.js';
 export { migrateGuardianPrincipalIdColumns } from './125-guardian-principal-id-columns.js';
 export { migrateBackfillGuardianPrincipalId } from './126-backfill-guardian-principal-id.js';
+export { migrateGuardianPrincipalIdNotNull } from './127-guardian-principal-id-not-null.js';
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

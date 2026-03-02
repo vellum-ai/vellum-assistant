@@ -186,7 +186,7 @@ export function resolveActorTrust(input: ResolveActorTrustInput): ActorTrustCont
   return {
     canonicalSenderId,
     guardianBindingMatch,
-    guardianPrincipalId: binding?.guardianPrincipalId ?? undefined,
+    guardianPrincipalId: binding?.guardianPrincipalId,
     memberRecord,
     trustClass,
     actorMetadata: {
