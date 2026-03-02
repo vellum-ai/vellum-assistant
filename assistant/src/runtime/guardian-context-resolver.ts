@@ -12,7 +12,6 @@
  */
 import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
 import {
-  type DenialReason,
   resolveActorTrust,
   type ResolveActorTrustInput,
   toGuardianRuntimeContextFromTrust,
