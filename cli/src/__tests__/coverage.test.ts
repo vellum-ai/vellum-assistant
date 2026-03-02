@@ -1,3 +1,6 @@
+// Bun's coverage reporter only tracks files that are actually loaded during
+// test execution. There is no config option to include all source files.
+// See: https://github.com/oven-sh/bun/issues/5928
 import { resolve } from "node:path";
 import { expect, test } from "bun:test";
 
