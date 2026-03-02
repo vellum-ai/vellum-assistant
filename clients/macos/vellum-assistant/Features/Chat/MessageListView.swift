@@ -141,7 +141,12 @@ struct MessageListView: View {
         // across nested subviews; delay hide slightly to avoid visible flicker.
         hoverExitDebounceTask?.cancel()
         hoverExitDebounceTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 120_000_000)
+            do {
+                try await Task.sleep(nanoseconds: 120_000_000)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
             isThreadContentHovered = false
             hoverExitDebounceTask = nil
         }
@@ -541,7 +546,12 @@ struct MessageListView: View {
                 threadSwitchSuppressionTask = Task { @MainActor in
                     // Let the newly-selected thread finish its first layout pass so
                     // the scroller style/metrics settle before allowing re-show.
-                    try? await Task.sleep(nanoseconds: 150_000_000)
+                    do {
+                        try await Task.sleep(nanoseconds: 150_000_000)
+                    } catch {
+                        return
+                    }
+                    guard !Task.isCancelled else { return }
                     suppressScrollbarDuringThreadSwitch = false
                     threadSwitchSuppressionTask = nil
                 }
