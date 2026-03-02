@@ -21,8 +21,12 @@ struct VoiceSettingsView: View {
         ActivationKey(rawValue: activationKey) ?? .fn
     }
 
+    private var pttEnabled: Bool {
+        selectedActivationKey != .none
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.xl) {
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
             pttCard
             wakeWordCard
             ttsCard
@@ -42,26 +46,43 @@ struct VoiceSettingsView: View {
                     .foregroundColor(VColor.textMuted)
             }
 
-            Divider().background(VColor.surfaceBorder)
-
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
-                Text("Activation key")
-                    .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.textPrimary)
-
-                HStack(spacing: VSpacing.sm) {
-                    ForEach(ActivationKey.allCases, id: \.rawValue) { key in
-                        Button(key.displayName) {
-                            activationKey = key.rawValue
+            HStack {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Enable Push to Talk")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+                }
+                Spacer()
+                VToggle(isOn: Binding(
+                    get: { pttEnabled },
+                    set: { enabled in
+                        if enabled {
+                            if activationKey == ActivationKey.none.rawValue {
+                                activationKey = ActivationKey.fn.rawValue
+                            }
+                        } else {
+                            activationKey = ActivationKey.none.rawValue
                         }
-                        .buttonStyle(.plain)
-                        .font(VFont.caption)
-                        .foregroundColor(selectedActivationKey == key ? .white : VColor.textMuted)
-                        .padding(.horizontal, VSpacing.sm)
-                        .padding(.vertical, VSpacing.xs)
-                        .background(Capsule().fill(selectedActivationKey == key ? Forest._700 : VColor.surface))
-                        .overlay(Capsule().strokeBorder(selectedActivationKey == key ? Color.clear : VColor.surfaceBorder, lineWidth: 1))
                     }
+                ))
+                .accessibilityLabel("Enable Push to Talk")
+            }
+
+            if pttEnabled {
+                Divider().background(VColor.surfaceBorder)
+
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    Text("Activation key")
+                        .font(VFont.bodyMedium)
+                        .foregroundColor(VColor.textPrimary)
+
+                    VSegmentedControl(
+                        items: ActivationKey.allCases.filter { $0 != .none }.map {
+                            (label: $0.displayName, tag: $0.rawValue)
+                        },
+                        selection: $activationKey,
+                        style: .pill
+                    )
                 }
             }
         }
@@ -83,8 +104,6 @@ struct VoiceSettingsView: View {
                     .foregroundColor(VColor.textMuted)
                     .lineSpacing(2)
             }
-
-            Divider().background(VColor.surfaceBorder)
 
             HStack {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
@@ -127,15 +146,6 @@ struct VoiceSettingsView: View {
                             .overlay(Capsule().strokeBorder(wakeWordKeyword == suggestion ? Color.clear : VColor.surfaceBorder, lineWidth: 1))
                         }
                     }
-
-                    HStack(spacing: VSpacing.xs) {
-                        Image(systemName: "lock.fill")
-                            .font(.system(size: 10))
-                            .foregroundColor(VColor.textMuted)
-                        Text("Type any word or phrase. Uses on-device speech recognition \u{2014} no data leaves your Mac.")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                    }
                 }
 
                 Divider().background(VColor.surfaceBorder)
@@ -159,10 +169,51 @@ struct VoiceSettingsView: View {
                     .accessibilityLabel("Conversation timeout duration")
                 }
             }
+
+            Divider().background(VColor.surfaceBorder)
+
+            // How it works steps
+            HStack(alignment: .top, spacing: VSpacing.md) {
+                wakeWordStepCard(number: "1", title: "Say the keyword", description: "Speak your wake word when you\u{2019}re ready to talk.")
+                wakeWordStepCard(number: "2", title: "Vellum starts listening", description: "A chime plays and your microphone activates.")
+                wakeWordStepCard(number: "3", title: "Ask anything", description: "Speak naturally. Vellum responds when you pause.")
+            }
+
+            // Privacy note
+            HStack(spacing: VSpacing.xs) {
+                Image(systemName: "lock.fill")
+                    .font(.system(size: 10))
+                    .foregroundColor(VColor.textMuted)
+                Text("Uses on-device speech recognition \u{2014} no data leaves your Mac.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+            }
         }
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
+    }
+
+    private func wakeWordStepCard(number: String, title: String, description: String) -> some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            Text(number)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(VColor.success)
+                .frame(width: 24, height: 24)
+                .background(Circle().fill(VColor.success.opacity(0.15)))
+
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text(title)
+                    .font(VFont.bodyMedium)
+                    .foregroundColor(VColor.textPrimary)
+                Text(description)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+                    .lineSpacing(1)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private let timeoutOptions: [(label: String, value: Int)] = [
@@ -185,8 +236,6 @@ struct VoiceSettingsView: View {
                     .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)
             }
-
-            Divider().background(VColor.surfaceBorder)
 
             if store.hasElevenLabsKey {
                 HStack(spacing: VSpacing.sm) {
