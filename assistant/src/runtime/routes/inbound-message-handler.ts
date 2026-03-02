@@ -70,7 +70,6 @@ import {
   GUARDIAN_APPROVAL_TTL_MS,
   type GuardianContext,
   stripVerificationFailurePrefix,
-  toGuardianRuntimeContext,
   verifyGatewayOrigin,
 } from './channel-route-shared.js';
 import { handleApprovalInterception } from './guardian-approval-interception.js';
@@ -1141,7 +1140,7 @@ export async function handleChannelInbound(
       senderName: body.actorDisplayName,
       senderExternalUserId: body.actorExternalId,
       senderUsername: body.actorUsername,
-      guardianCtx: toGuardianRuntimeContext(sourceChannel, guardianCtx),
+      guardianCtx,
       replyCallbackUrl,
       assistantId: canonicalAssistantId,
     });
@@ -1687,7 +1686,7 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
             uxBrief: metadataUxBrief,
           },
           assistantId,
-          guardianContext: toGuardianRuntimeContext(sourceChannel, guardianCtx),
+          guardianContext: guardianCtx,
           isInteractive: resolveRoutingState(guardianCtx).promptWaitingAllowed,
           ...(cmdIntent ? { commandIntent: cmdIntent } : {}),
         },

@@ -16,10 +16,7 @@ import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.
 import { getActiveBinding } from '../memory/guardian-bindings.js';
 import { getLogger } from '../util/logger.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from './assistant-scope.js';
-import {
-  resolveGuardianContext,
-  toGuardianRuntimeContext,
-} from './guardian-context-resolver.js';
+import { resolveGuardianContext } from './guardian-context-resolver.js';
 import { ensureVellumGuardianBinding } from './guardian-vellum-migration.js';
 
 const log = getLogger('local-actor-identity');
@@ -58,7 +55,8 @@ export function resolveLocalIpcGuardianContext(
       conversationExternalId: 'local',
       actorExternalId: principalId,
     });
-    return toGuardianRuntimeContext(sourceChannel, guardianCtx);
+    // Overlay the caller's actual sourceChannel onto the resolved context.
+    return { ...guardianCtx, sourceChannel };
   }
 
   const guardianPrincipalId = binding.guardianExternalUserId;
@@ -78,5 +76,5 @@ export function resolveLocalIpcGuardianContext(
 
   // Overlay the caller's actual sourceChannel onto the resolved context
   // so downstream consumers see the correct channel provenance.
-  return toGuardianRuntimeContext(sourceChannel, guardianCtx);
+  return { ...guardianCtx, sourceChannel };
 }

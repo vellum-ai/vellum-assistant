@@ -103,6 +103,7 @@ function resetTables(): void {
 describe('resolveRoutingState', () => {
   test('guardian actors are always interactive and route-resolvable', () => {
     const ctx: GuardianContext = {
+      sourceChannel: 'telegram',
       trustClass: 'guardian',
       guardianExternalUserId: 'guardian-123',
       guardianChatId: 'chat-123',
@@ -118,6 +119,7 @@ describe('resolveRoutingState', () => {
   test('guardian actors are interactive even without guardianExternalUserId', () => {
     // Edge case: guardian is chatting in their own chat, no separate binding needed
     const ctx: GuardianContext = {
+      sourceChannel: 'telegram',
       trustClass: 'guardian',
     };
     const state = resolveRoutingState(ctx);
@@ -127,6 +129,7 @@ describe('resolveRoutingState', () => {
 
   test('trusted contact with resolvable guardian route is interactive', () => {
     const ctx: GuardianContext = {
+      sourceChannel: 'telegram',
       trustClass: 'trusted_contact',
       guardianExternalUserId: 'guardian-456',
       guardianChatId: 'guardian-chat-456',
@@ -141,6 +144,7 @@ describe('resolveRoutingState', () => {
 
   test('trusted contact without guardian route is NOT interactive (fail-fast)', () => {
     const ctx: GuardianContext = {
+      sourceChannel: 'telegram',
       trustClass: 'trusted_contact',
       // No guardianExternalUserId — no guardian binding for this channel
     };
@@ -154,10 +158,12 @@ describe('resolveRoutingState', () => {
 
   test('unknown actors are never interactive regardless of guardian route', () => {
     const withRoute: GuardianContext = {
+      sourceChannel: 'telegram',
       trustClass: 'unknown',
       guardianExternalUserId: 'guardian-789',
     };
     const withoutRoute: GuardianContext = {
+      sourceChannel: 'telegram',
       trustClass: 'unknown',
     };
 
