@@ -291,7 +291,8 @@ export function transitionToVerified(
   }
 
   // Anti-hijack: verify the submitter matches the bound peer
-  if (session.peerIdentity !== null && session.peerIdentity !== peerIdentity) {
+  // Treat null peerIdentity as an invariant violation — normal flow always sets it in transitionToAwaitingApproval
+  if (session.peerIdentity === null || session.peerIdentity !== peerIdentity) {
     return { ok: false, reason: 'identity_mismatch' };
   }
 
