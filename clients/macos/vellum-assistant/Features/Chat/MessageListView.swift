@@ -1,6 +1,9 @@
 import Combine
+import os
 import SwiftUI
 import VellumAssistantShared
+
+private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "MessageListView")
 
 struct MessageListView: View {
     let messages: [ChatMessage]
@@ -197,9 +200,11 @@ struct MessageListView: View {
                                 guard !isPaginationInFlight else { return }
                                 isPaginationInFlight = true
                                 let anchorId = visibleMessages.first?.id
+                                log.debug("Pagination triggered — anchorId: \(String(describing: anchorId))")
                                 Task {
                                     defer { isPaginationInFlight = false }
                                     let hadMore = await loadPreviousMessagePage?() ?? false
+                                    log.debug("loadPreviousMessagePage returned hadMore=\(hadMore)")
                                     if hadMore, let id = anchorId {
                                         // Suppress bottom auto-scroll for the brief layout window so the
                                         // restored anchor position is not immediately overridden.
@@ -207,6 +212,7 @@ struct MessageListView: View {
                                         // Wait ~2 frames for SwiftUI to complete layout before restoring position.
                                         try? await Task.sleep(nanoseconds: 32_000_000)
                                         proxy.scrollTo(id, anchor: .top)
+                                        log.debug("Scroll restored to anchor \(id)")
                                         isSuppressingBottomScroll = false
                                     }
                                 }
@@ -468,6 +474,8 @@ struct MessageListView: View {
                     withAnimation(VAnimation.fast) {
                         proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
                     }
+                } else if isSuppressingBottomScroll {
+                    log.debug("Auto-scroll suppressed (bottom-scroll suppression active)")
                 }
             }
             .onChange(of: conversationZoomScale) {
