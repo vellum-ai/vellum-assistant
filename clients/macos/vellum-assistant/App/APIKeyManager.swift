@@ -10,6 +10,8 @@ extension Notification.Name {
     static let navigateToSettingsTab = Notification.Name("MainWindow.navigateToSettingsTab")
     static let activationKeyChanged = Notification.Name("activationKeyChanged")
     static let identityChanged = Notification.Name("identityChanged")
+    static let pinAppToHomebase = Notification.Name("MainWindow.pinAppToHomebase")
+    static let appPreviewImageCaptured = Notification.Name("MainWindow.appPreviewImageCaptured")
 }
 
 /// Manages API keys in the macOS login keychain via native SecItem* APIs.

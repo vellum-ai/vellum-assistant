@@ -1506,13 +1506,17 @@ public struct IPCDynamicPagePreview: Codable, Sendable {
     public let description: String?
     public let icon: String?
     public let metrics: [IPCDynamicPagePreviewMetric]?
+    public let context: String?
+    public let previewImage: String?
 
-    public init(title: String, subtitle: String? = nil, description: String? = nil, icon: String? = nil, metrics: [IPCDynamicPagePreviewMetric]? = nil) {
+    public init(title: String, subtitle: String? = nil, description: String? = nil, icon: String? = nil, metrics: [IPCDynamicPagePreviewMetric]? = nil, context: String? = nil, previewImage: String? = nil) {
         self.title = title
         self.subtitle = subtitle
         self.description = description
         self.icon = icon
         self.metrics = metrics
+        self.context = context
+        self.previewImage = previewImage
     }
 }
 
