@@ -155,6 +155,14 @@ export class PermissionChecker {
           && input.network_mode === 'proxied'
         );
 
+        // Only offer temporary approval options to guardians when persistent
+        // decisions are allowed (proxied bash is excluded since it requires
+        // per-invocation approval).
+        const temporaryOptionsAvailable: Array<'allow_10m' | 'allow_thread'> | undefined =
+          persistentDecisionsAllowed && context.guardianTrustClass === 'guardian'
+            ? ['allow_10m', 'allow_thread']
+            : undefined;
+
         emitLifecycleEvent({
           type: 'permission_prompt',
           toolName: name,
@@ -192,6 +200,7 @@ export class PermissionChecker {
           executionTarget,
           persistentDecisionsAllowed,
           context.signal,
+          temporaryOptionsAvailable,
         );
 
         const decision = response.decision;

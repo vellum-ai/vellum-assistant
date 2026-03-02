@@ -269,12 +269,10 @@ export function createProxyApprovalCallback(
       return false;
     }
 
-    // Auto-approve proxy network requests when a temporary approval
-    // override is active for this conversation (guardian only).
-    const proxyGuardianTrust = ctx.guardianContext?.trustClass ?? 'guardian';
-    if (proxyGuardianTrust === 'guardian' && getEffectiveMode(ctx.conversationId) !== null) {
-      return true;
-    }
+    // Proxied network requests require per-invocation approval and must
+    // not be auto-approved by temporary overrides (allow_10m / allow_thread).
+    // Unlike regular tool invocations, these represent outbound network
+    // actions that should always receive explicit confirmation.
 
     const response = await prompter.prompt(
       toolName,
