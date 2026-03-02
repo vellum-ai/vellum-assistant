@@ -15,16 +15,7 @@ const log = getLogger('runtime-http');
 function parseGuardianRuntimeContext(value: unknown): GuardianRuntimeContext | undefined {
   if (!value || typeof value !== 'object') return undefined;
   const raw = value as Record<string, unknown>;
-  const trustClass = raw.trustClass
-    ?? (
-      raw.actorRole === 'guardian'
-        ? 'guardian'
-        : raw.actorRole === 'non-guardian'
-          ? 'trusted_contact'
-          : raw.actorRole === 'unverified_channel'
-            ? 'unknown'
-            : undefined
-    );
+  const trustClass = raw.trustClass;
   if (
     trustClass !== 'guardian'
     && trustClass !== 'trusted_contact'
