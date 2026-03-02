@@ -84,6 +84,7 @@ const stubContext: ToolContext = {
   workingDir: '/tmp',
   sessionId: 'test-session',
   conversationId: 'test-conversation',
+  guardianTrustClass: 'guardian',
 };
 
 // ── task_save ────────────────────────────────────────────────────────

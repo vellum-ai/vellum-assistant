@@ -235,6 +235,7 @@ describe('Story E2E: selfie yesterday -> generated image today', () => {
       workingDir: sandboxDir,
       sessionId: 'sess-story',
       conversationId: threadB.id,
+      guardianTrustClass: 'guardian',
     };
 
     const result = await assetSearchTool.execute(
@@ -253,6 +254,7 @@ describe('Story E2E: selfie yesterday -> generated image today', () => {
       workingDir: sandboxDir,
       sessionId: 'sess-story',
       conversationId: threadB.id,
+      guardianTrustClass: 'guardian',
     };
 
     const result = await assetSearchTool.execute(
@@ -269,6 +271,7 @@ describe('Story E2E: selfie yesterday -> generated image today', () => {
       workingDir: sandboxDir,
       sessionId: 'sess-story',
       conversationId: threadB.id,
+      guardianTrustClass: 'guardian',
     };
 
     const result = await assetMaterializeTool.execute(
@@ -296,6 +299,7 @@ describe('Story E2E: selfie yesterday -> generated image today', () => {
       workingDir: sandboxDir,
       sessionId: 'sess-story',
       conversationId: threadB.id,
+      guardianTrustClass: 'guardian',
     };
 
     // Step 3a: Search for the selfie
@@ -486,6 +490,7 @@ describe('Private-thread variant: cross-thread media blocking', () => {
       workingDir: sandboxDir,
       sessionId: 'sess-priv-test',
       conversationId: standardThread.id,
+      guardianTrustClass: 'guardian',
     };
 
     const result = await assetSearchTool.execute(
@@ -510,6 +515,7 @@ describe('Private-thread variant: cross-thread media blocking', () => {
       workingDir: sandboxDir,
       sessionId: 'sess-priv-test',
       conversationId: standardThread.id,
+      guardianTrustClass: 'guardian',
     };
 
     const result = await assetMaterializeTool.execute(
@@ -533,6 +539,7 @@ describe('Private-thread variant: cross-thread media blocking', () => {
       workingDir: sandboxDir,
       sessionId: 'sess-priv-test',
       conversationId: privateThread.id,
+      guardianTrustClass: 'guardian',
     };
 
     const searchResult = await assetSearchTool.execute(
@@ -563,6 +570,7 @@ describe('Private-thread variant: cross-thread media blocking', () => {
       workingDir: sandboxDir,
       sessionId: 'sess-priv-test',
       conversationId: privateThreadB.id,
+      guardianTrustClass: 'guardian',
     };
 
     const searchResult = await assetSearchTool.execute(

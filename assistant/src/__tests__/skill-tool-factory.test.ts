@@ -36,6 +36,7 @@ function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
     workingDir: '/tmp',
     sessionId: 'test-session',
     conversationId: 'test-conversation',
+    guardianTrustClass: 'guardian',
     ...overrides,
   };
 }

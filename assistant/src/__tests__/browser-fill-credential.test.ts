@@ -81,6 +81,7 @@ const ctx: ToolContext = {
   sessionId: 'test-session',
   conversationId: 'test-conversation',
   workingDir: '/tmp',
+  guardianTrustClass: 'guardian',
 };
 
 function resetMockPage() {

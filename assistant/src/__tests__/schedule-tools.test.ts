@@ -56,6 +56,7 @@ const ctx: ToolContext = {
   workingDir: '/tmp',
   sessionId: 'test-session',
   conversationId: 'test-conversation',
+  guardianTrustClass: 'guardian',
 };
 
 // ── schedule_create ─────────────────────────────────────────────────
