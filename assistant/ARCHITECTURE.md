@@ -664,7 +664,7 @@ graph LR
 
     subgraph "~/.vellum/workspace/data/db/assistant.db (SQLite + WAL)"
         direction TB
-        CONV["conversations<br/>───────────────<br/>id, title, timestamps<br/>token counts, estimated cost<br/>context_summary (compaction)<br/>thread_type: 'standard' | 'private'<br/>memory_scope_id: 'default' | 'private:&lt;uuid&gt;'"]
+        CONV["conversations<br/>───────────────<br/>id, title, timestamps<br/>archived_at (soft delete)<br/>token counts, estimated cost<br/>context_summary (compaction)<br/>thread_type: 'standard' | 'private'<br/>memory_scope_id: 'default' | 'private:&lt;uuid&gt;'"]
         MSG["messages<br/>───────────────<br/>id, conversation_id (FK)<br/>role: user | assistant<br/>content: JSON array<br/>created_at"]
         TOOL["tool_invocations<br/>───────────────<br/>tool_name, input, result<br/>decision, risk_level<br/>duration_ms"]
         SEG["memory_segments<br/>───────────────<br/>Text chunks for retrieval<br/>Linked to messages<br/>token_estimate per segment"]
@@ -851,7 +851,7 @@ graph LR
         S17["ipc_blob_probe_result<br/>probeId, ok,<br/>observedNonceSha256?, reason?"]
         S18["session_info<br/>sessionId, title,<br/>correlationId?, threadType?"]
         S19["session_title_updated<br/>sessionId, title"]
-        S20["session_list_response<br/>sessions[]: id, title,<br/>updatedAt, threadType?"]
+        S20["session_list_response<br/>sessions[]: id, title,<br/>updatedAt, threadType?,<br/>isArchived?, archivedAt?"]
         S21["work_item_status_changed<br/>workItemId, newStatus<br/>(planned push)"]
         S22["tool_permission_simulate_response<br/>decision, riskLevel, reason?,<br/>promptPayload?, matchedRuleId?"]
         S23["conversation_search_response<br/>query, results[]: conversationId,<br/>title, updatedAt, matchingMessages[]"]

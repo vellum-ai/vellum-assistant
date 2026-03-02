@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, gte, lt, ne, or, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, isNull, lt, ne, or, sql } from 'drizzle-orm';
 
 import { getLogger } from '../util/logger.js';
 import type { ConversationRow, MessageRow } from './conversation-crud.js';
@@ -10,10 +10,22 @@ import { buildFtsMatchQuery } from './search/lexical.js';
 
 const log = getLogger('conversation-store');
 
-export function listConversations(limit?: number, includeBackground = false, offset = 0): ConversationRow[] {
+export function listConversations(
+  limit?: number,
+  includeBackground = false,
+  offset = 0,
+  includeArchived = false,
+): ConversationRow[] {
   ensureDisplayOrderMigration();
   const db = getDb();
-  const where = includeBackground ? undefined : sql`${conversations.threadType} != 'background'`;
+  const filters = [];
+  if (!includeBackground) {
+    filters.push(sql`${conversations.threadType} != 'background'`);
+  }
+  if (!includeArchived) {
+    filters.push(isNull(conversations.archivedAt));
+  }
+  const where = filters.length > 0 ? and(filters[0]!, ...filters.slice(1)) : undefined;
   const query = db
     .select()
     .from(conversations)
@@ -24,9 +36,16 @@ export function listConversations(limit?: number, includeBackground = false, off
   return query.all().map(parseConversation);
 }
 
-export function countConversations(includeBackground = false): number {
+export function countConversations(includeBackground = false, includeArchived = false): number {
   const db = getDb();
-  const where = includeBackground ? undefined : sql`${conversations.threadType} != 'background'`;
+  const filters = [];
+  if (!includeBackground) {
+    filters.push(sql`${conversations.threadType} != 'background'`);
+  }
+  if (!includeArchived) {
+    filters.push(isNull(conversations.archivedAt));
+  }
+  const where = filters.length > 0 ? and(filters[0]!, ...filters.slice(1)) : undefined;
   const [{ total }] = db
     .select({ total: count() })
     .from(conversations)
@@ -40,7 +59,10 @@ export function getLatestConversation(): ConversationRow | null {
   const row = db
     .select()
     .from(conversations)
-    .where(sql`${conversations.threadType} != 'background'`)
+    .where(and(
+      sql`${conversations.threadType} != 'background'`,
+      isNull(conversations.archivedAt),
+    ))
     .orderBy(desc(conversations.updatedAt))
     .limit(1)
     .get();
@@ -219,7 +241,7 @@ export function searchConversations(
         FROM messages_fts f
         JOIN messages m ON m.id = f.message_id
         JOIN conversations c ON c.id = m.conversation_id
-        WHERE messages_fts MATCH ? AND c.thread_type != 'background'
+        WHERE messages_fts MATCH ? AND c.thread_type != 'background' AND c.archived_at IS NULL
         LIMIT 1000
       `, ftsMatch);
       for (const row of ftsRows) ftsConvIds.add(row.conversation_id);
@@ -235,7 +257,7 @@ export function searchConversations(
       SELECT DISTINCT m.conversation_id
       FROM messages m
       JOIN conversations c ON c.id = m.conversation_id
-      WHERE m.content LIKE ? ESCAPE '\\' AND c.thread_type != 'background'
+      WHERE m.content LIKE ? ESCAPE '\\' AND c.thread_type != 'background' AND c.archived_at IS NULL
       LIMIT 1000
     `, likePattern);
     for (const row of likeRows) ftsConvIds.add(row.conversation_id);
@@ -248,6 +270,7 @@ export function searchConversations(
     .where(
       and(
         sql`${conversations.threadType} != 'background'`,
+        isNull(conversations.archivedAt),
         sql`${conversations.title} LIKE ${titlePattern} ESCAPE '\\'`,
       ),
     )

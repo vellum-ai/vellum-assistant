@@ -118,6 +118,11 @@ import {
   handleMergeContacts,
 } from './routes/contact-routes.js';
 import { handleListConversationAttention } from './routes/conversation-attention-routes.js';
+import {
+  handleArchiveConversation,
+  handleHardDeleteConversation,
+  handleUnarchiveConversation,
+} from './routes/conversation-lifecycle-routes.js';
 // Route handlers — grouped by domain
 import {
   handleGetSuggestion,
@@ -653,8 +658,9 @@ export class RuntimeHttpServer {
       if (endpoint === 'conversations' && req.method === 'GET') {
         const limit = Number(url.searchParams.get('limit') ?? 50);
         const offset = Number(url.searchParams.get('offset') ?? 0);
-        const conversations = conversationStore.listConversations(limit, false, offset);
-        const totalCount = conversationStore.countConversations();
+        const includeArchived = ['1', 'true', 'yes'].includes((url.searchParams.get('includeArchived') ?? '').toLowerCase());
+        const conversations = conversationStore.listConversations(limit, false, offset, includeArchived);
+        const totalCount = conversationStore.countConversations(false, includeArchived);
         const conversationIds = conversations.map((c) => c.id);
         const bindings = externalConversationStore.getBindingsForConversations(conversationIds);
         const attentionStates = getAttentionStateByConversationIds(conversationIds);
@@ -678,6 +684,8 @@ export class RuntimeHttpServer {
               updatedAt: c.updatedAt,
               threadType: c.threadType === 'private' ? 'private' : 'standard',
               source: c.source ?? 'user',
+              isArchived: c.archivedAt != null,
+              ...(c.archivedAt != null ? { archivedAt: c.archivedAt } : {}),
               ...(binding ? {
                 channelBinding: {
                   sourceChannel: binding.sourceChannel,
@@ -693,6 +701,21 @@ export class RuntimeHttpServer {
           }),
           hasMore: offset + conversations.length < totalCount,
         });
+      }
+
+      const conversationArchiveMatch = endpoint.match(/^conversations\/([^/]+)\/archive$/);
+      if (conversationArchiveMatch && req.method === 'POST') {
+        return handleArchiveConversation(conversationArchiveMatch[1]);
+      }
+
+      const conversationUnarchiveMatch = endpoint.match(/^conversations\/([^/]+)\/unarchive$/);
+      if (conversationUnarchiveMatch && req.method === 'POST') {
+        return handleUnarchiveConversation(conversationUnarchiveMatch[1]);
+      }
+
+      const conversationDeleteMatch = endpoint.match(/^conversations\/([^/]+)$/);
+      if (conversationDeleteMatch && req.method === 'DELETE') {
+        return handleHardDeleteConversation(conversationDeleteMatch[1]);
       }
 
       if (endpoint === 'conversations/attention' && req.method === 'GET') return handleListConversationAttention(url);

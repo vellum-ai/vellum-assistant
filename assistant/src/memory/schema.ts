@@ -7,6 +7,7 @@ export const conversations = sqliteTable('conversations', {
   title: text('title'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
+  archivedAt: integer('archived_at'),
   totalInputTokens: integer('total_input_tokens').notNull().default(0),
   totalOutputTokens: integer('total_output_tokens').notNull().default(0),
   totalEstimatedCost: real('total_estimated_cost').notNull().default(0),
@@ -22,6 +23,7 @@ export const conversations = sqliteTable('conversations', {
 }, (table) => [
   index('idx_conversations_updated_at').on(table.updatedAt),
   index('idx_conversations_thread_type').on(table.threadType),
+  index('idx_conversations_archived_at').on(table.archivedAt),
 ]);
 
 export const messages = sqliteTable('messages', {

@@ -14,7 +14,31 @@ import { deleteOrphanAttachments } from './attachments-store.js';
 import { projectAssistantMessage } from './conversation-attention-store.js';
 import { getDb, rawExec, rawGet } from './db.js';
 import { indexMessageNow } from './indexer.js';
-import { channelInboundEvents, conversations, llmRequestLogs, memoryEmbeddings, memoryItemEntities, memoryItems, memoryItemSources, memorySegments, messageAttachments, messages, toolInvocations } from './schema.js';
+import {
+  canonicalGuardianDeliveries,
+  canonicalGuardianRequests,
+  channelGuardianApprovalRequests,
+  channelInboundEvents,
+  conversations,
+  cronRuns,
+  guardianActionDeliveries,
+  llmRequestLogs,
+  llmUsageEvents,
+  memoryEmbeddings,
+  memoryItemEntities,
+  memoryItems,
+  memoryItemSources,
+  memorySegments,
+  messageAttachments,
+  messages,
+  notificationDeliveries,
+  reminders,
+  scopedApprovalGrants,
+  taskRuns,
+  toolInvocations,
+  watchers,
+  workItems,
+} from './schema.js';
 
 const log = getLogger('conversation-store');
 
@@ -69,6 +93,7 @@ export interface ConversationRow {
   title: string | null;
   createdAt: number;
   updatedAt: number;
+  archivedAt: number | null;
   totalInputTokens: number;
   totalOutputTokens: number;
   totalEstimatedCost: number;
@@ -88,6 +113,7 @@ export const parseConversation = createRowMapper<typeof conversations.$inferSele
   title: 'title',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt',
+  archivedAt: 'archivedAt',
   totalInputTokens: 'totalInputTokens',
   totalOutputTokens: 'totalOutputTokens',
   totalEstimatedCost: 'totalEstimatedCost',
@@ -202,19 +228,113 @@ export function getConversationMemoryScopeId(conversationId: string): string {
   return conv?.memoryScopeId ?? 'default';
 }
 
+export function isConversationArchived(conversationId: string): boolean {
+  const db = getDb();
+  const row = db
+    .select({ archivedAt: conversations.archivedAt })
+    .from(conversations)
+    .where(eq(conversations.id, conversationId))
+    .get();
+  return row?.archivedAt != null;
+}
+
+export function archiveConversation(conversationId: string): boolean {
+  const db = getDb();
+  const row = db
+    .select({ id: conversations.id, archivedAt: conversations.archivedAt })
+    .from(conversations)
+    .where(eq(conversations.id, conversationId))
+    .get();
+  if (!row) return false;
+  if (row.archivedAt != null) return true;
+  const now = Date.now();
+  db.update(conversations)
+    .set({ archivedAt: now, updatedAt: now })
+    .where(eq(conversations.id, conversationId))
+    .run();
+  return true;
+}
+
+export function unarchiveConversation(conversationId: string): boolean {
+  const db = getDb();
+  const row = db
+    .select({ id: conversations.id, archivedAt: conversations.archivedAt })
+    .from(conversations)
+    .where(eq(conversations.id, conversationId))
+    .get();
+  if (!row) return false;
+  if (row.archivedAt == null) return true;
+  db.update(conversations)
+    .set({ archivedAt: null, updatedAt: Date.now() })
+    .where(eq(conversations.id, conversationId))
+    .run();
+  return true;
+}
+
 /**
  * Delete a conversation and all its messages.
  * Used for ephemeral conversations (e.g. secret-redirect placeholders)
  * that should not persist in session history.
  */
 export function deleteConversation(id: string): void {
+  hardDeleteConversation(id);
+}
+
+/**
+ * Permanently delete a conversation and scrub conversation-scoped rows from
+ * side tables that do not enforce FK constraints.
+ *
+ * Returns false when the conversation does not exist.
+ */
+export function hardDeleteConversation(id: string): boolean {
   const db = getDb();
+  const existing = db.select({ id: conversations.id }).from(conversations).where(eq(conversations.id, id)).get();
+  if (!existing) return false;
+
   db.transaction((tx) => {
+    tx.delete(channelGuardianApprovalRequests).where(eq(channelGuardianApprovalRequests.conversationId, id)).run();
+    tx.delete(canonicalGuardianRequests).where(eq(canonicalGuardianRequests.conversationId, id)).run();
+
+    tx.update(canonicalGuardianDeliveries)
+      .set({ destinationConversationId: null })
+      .where(eq(canonicalGuardianDeliveries.destinationConversationId, id))
+      .run();
+    tx.update(guardianActionDeliveries)
+      .set({ destinationConversationId: null })
+      .where(eq(guardianActionDeliveries.destinationConversationId, id))
+      .run();
+    tx.update(notificationDeliveries)
+      .set({ conversationId: null, threadTargetConversationId: null })
+      .where(
+        and(
+          eq(notificationDeliveries.conversationId, id),
+          eq(notificationDeliveries.threadTargetConversationId, id),
+        ),
+      )
+      .run();
+    tx.update(notificationDeliveries)
+      .set({ conversationId: null })
+      .where(eq(notificationDeliveries.conversationId, id))
+      .run();
+    tx.update(notificationDeliveries)
+      .set({ threadTargetConversationId: null })
+      .where(eq(notificationDeliveries.threadTargetConversationId, id))
+      .run();
+
+    tx.delete(llmUsageEvents).where(eq(llmUsageEvents.conversationId, id)).run();
+    tx.delete(reminders).where(eq(reminders.conversationId, id)).run();
+    tx.delete(cronRuns).where(eq(cronRuns.conversationId, id)).run();
+    tx.update(taskRuns).set({ conversationId: null }).where(eq(taskRuns.conversationId, id)).run();
+    tx.update(workItems).set({ lastRunConversationId: null }).where(eq(workItems.lastRunConversationId, id)).run();
+    tx.update(watchers).set({ conversationId: null }).where(eq(watchers.conversationId, id)).run();
+    tx.update(scopedApprovalGrants).set({ conversationId: null }).where(eq(scopedApprovalGrants.conversationId, id)).run();
+
     tx.delete(llmRequestLogs).where(eq(llmRequestLogs.conversationId, id)).run();
     tx.delete(toolInvocations).where(eq(toolInvocations.conversationId, id)).run();
     tx.delete(messages).where(eq(messages.conversationId, id)).run();
     tx.delete(conversations).where(eq(conversations.id, id)).run();
   });
+  return true;
 }
 
 export async function addMessage(conversationId: string, role: string, content: string, metadata?: Record<string, unknown>, opts?: { skipIndexing?: boolean }) {

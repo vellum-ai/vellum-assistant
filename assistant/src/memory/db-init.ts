@@ -21,6 +21,7 @@ import {
   createTasksAndWorkItemsTables,
   createWatchersAndLogsTables,
   migrateBackfillGuardianPrincipalId,
+  migrateConversationArchiveColumns,
   migrateCallSessionMode,
   migrateCanonicalGuardianDeliveriesDestinationIndex,
   migrateCanonicalGuardianRequesterChatId,
@@ -184,6 +185,9 @@ export function initializeDb(): void {
 
   // 30. Backfill guardianPrincipalId for existing bindings and requests, expire unresolvable pending requests
   migrateBackfillGuardianPrincipalId(database);
+
+  // 31. Conversation archive columns/index for soft-delete support
+  migrateConversationArchiveColumns(database);
 
   validateMigrationState(database);
 }

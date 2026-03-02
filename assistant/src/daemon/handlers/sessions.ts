@@ -834,9 +834,15 @@ export function handleSecretResponse(
   log.warn({ requestId: msg.requestId }, 'No session found with pending secret prompt for requestId');
 }
 
-export function handleSessionList(socket: net.Socket, ctx: HandlerContext, offset = 0, limit = 50): void {
-  const conversations = conversationStore.listConversations(limit, false, offset);
-  const totalCount = conversationStore.countConversations();
+export function handleSessionList(
+  socket: net.Socket,
+  ctx: HandlerContext,
+  offset = 0,
+  limit = 50,
+  includeArchived = false,
+): void {
+  const conversations = conversationStore.listConversations(limit, false, offset, includeArchived);
+  const totalCount = conversationStore.countConversations(false, includeArchived);
   const conversationIds = conversations.map((c) => c.id);
   const bindings = externalConversationStore.getBindingsForConversations(conversationIds);
   const attentionStates = getAttentionStateByConversationIds(conversationIds);
@@ -864,6 +870,8 @@ export function handleSessionList(socket: net.Socket, ctx: HandlerContext, offse
         updatedAt: c.updatedAt,
         threadType: normalizeThreadType(c.threadType),
         source: c.source ?? 'user',
+        isArchived: c.archivedAt != null,
+        ...(c.archivedAt != null ? { archivedAt: c.archivedAt } : {}),
         ...(binding && isChannelId(binding.sourceChannel) ? {
           channelBinding: {
             sourceChannel: binding.sourceChannel,
@@ -1484,7 +1492,13 @@ export const sessionHandlers = defineHandlers({
   user_message: handleUserMessage,
   confirmation_response: handleConfirmationResponse,
   secret_response: handleSecretResponse,
-  session_list: (msg, socket, ctx) => handleSessionList(socket, ctx, msg.offset ?? 0, msg.limit ?? 50),
+  session_list: (msg, socket, ctx) => handleSessionList(
+    socket,
+    ctx,
+    msg.offset ?? 0,
+    msg.limit ?? 50,
+    msg.includeArchived ?? false,
+  ),
   session_create: handleSessionCreate,
   sessions_clear: (_msg, socket, ctx) => handleSessionsClear(socket, ctx),
   session_switch: handleSessionSwitch,

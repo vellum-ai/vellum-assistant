@@ -12,6 +12,8 @@ export interface SessionListRequest {
   offset?: number;
   /** Maximum number of sessions to return. Defaults to 50. */
   limit?: number;
+  /** Include archived conversations in results. Defaults to false. */
+  includeArchived?: boolean;
 }
 
 /** Lightweight session transport metadata for channel identity and natural-language guidance. */
@@ -218,7 +220,22 @@ export interface AssistantAttention {
 
 export interface SessionListResponse {
   type: 'session_list_response';
-  sessions: Array<{ id: string; title: string; createdAt?: number; updatedAt: number; threadType?: ThreadType; source?: string; channelBinding?: ChannelBinding; conversationOriginChannel?: ChannelId; conversationOriginInterface?: InterfaceId; assistantAttention?: AssistantAttention; displayOrder?: number; isPinned?: boolean }>;
+  sessions: Array<{
+    id: string;
+    title: string;
+    createdAt?: number;
+    updatedAt: number;
+    threadType?: ThreadType;
+    source?: string;
+    isArchived?: boolean;
+    archivedAt?: number;
+    channelBinding?: ChannelBinding;
+    conversationOriginChannel?: ChannelId;
+    conversationOriginInterface?: InterfaceId;
+    assistantAttention?: AssistantAttention;
+    displayOrder?: number;
+    isPinned?: boolean;
+  }>;
   /** Whether more sessions exist beyond the returned page. */
   hasMore?: boolean;
 }
