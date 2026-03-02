@@ -514,14 +514,10 @@ export class Session {
       decisionContext,
     );
 
-    // Activate conversation-scoped temporary approval override when the
-    // user picks a temporary allow mode. These do not grant persistent
-    // trust and do not mutate allowlists/denylists.
-    if (decision === 'allow_thread') {
-      approvalOverrides.setThreadMode(this.conversationId);
-    } else if (decision === 'allow_10m') {
-      approvalOverrides.setTimedMode(this.conversationId);
-    }
+    // Mode activation (setTimedMode / setThreadMode) is intentionally NOT
+    // done here. It is handled in permission-checker.ts where
+    // persistentDecisionsAllowed context is available — this prevents
+    // proxied bash commands from escalating into blanket auto-approval.
 
     // Emit authoritative confirmation state and activity transition centrally
     // so ALL callers (IPC handlers, /v1/confirm, channel bridges) get
