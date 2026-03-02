@@ -278,7 +278,7 @@ The vellum channel (macOS, iOS, CLI) uses HMAC-SHA256 signed actor tokens to bin
 - **Bootstrap**: After hatch, the macOS client calls `POST /v1/integrations/guardian/vellum/bootstrap` with `{ platform, deviceId }`. Returns `{ guardianPrincipalId, actorToken, isNew }`. The endpoint is idempotent -- repeated calls with the same device return the same principal but mint a fresh token (revoking the previous one).
 - **iOS pairing**: The pairing response includes an `actorToken` automatically when a vellum guardian binding exists.
 - **IPC fallback**: Local IPC (Unix socket) connections resolve identity server-side via `resolveLocalIpcGuardianContext()` without requiring an actor token. CLI connections that pass bearer auth but lack an actor token also use this fallback (as long as the request is direct, not proxied through the gateway).
-- **HTTP enforcement**: Vellum HTTP routes require either an `X-Actor-Token` header or a provably-local connection (no `X-Forwarded-For` header). Gateway-proxied requests without an actor token are rejected.
+- **HTTP enforcement**: Vellum HTTP routes require either an `X-Actor-Token` header or a provably-local connection (no `X-Forwarded-For` header). On actor-bound gateway routes, clients may send `Authorization: Actor <token>`; the gateway maps this to upstream `X-Actor-Token`. Gateway-proxied requests without an actor token are rejected.
 - **Startup migration**: On daemon start, `ensureVellumGuardianBinding()` backfills a vellum guardian binding for existing installations so the identity system works without requiring a manual bootstrap step.
 
 ## Guardian Verification and Ingress ACL

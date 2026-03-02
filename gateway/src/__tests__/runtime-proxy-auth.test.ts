@@ -114,6 +114,38 @@ describe("runtime proxy auth enforcement", () => {
     expect(body.ok).toBe(true);
   });
 
+  test("auth required: accepts actor authorization for actor-bound route", async () => {
+    mockUpstream();
+    const handler = createRuntimeProxyHandler(makeConfig());
+    const req = new Request("http://localhost:7830/v1/messages", {
+      method: "POST",
+      headers: {
+        authorization: "Actor actor-token-123",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        conversationKey: "conversation-key",
+        sourceChannel: "vellum",
+        interface: "macos",
+        content: "hello",
+      }),
+    });
+    const res = await handler(req);
+
+    expect(res.status).toBe(200);
+  });
+
+  test("auth required: rejects actor authorization for non-actor route", async () => {
+    mockUpstream();
+    const handler = createRuntimeProxyHandler(makeConfig());
+    const req = new Request("http://localhost:7830/v1/health", {
+      headers: { authorization: "Actor actor-token-123" },
+    });
+    const res = await handler(req);
+
+    expect(res.status).toBe(401);
+  });
+
   test("auth required: replaces client authorization with configured bearer token for upstream", async () => {
     let capturedHeaders: Headers | undefined;
     fetchMock = mock(async (_input: string | URL | Request, init?: RequestInit) => {
@@ -130,6 +162,27 @@ describe("runtime proxy auth enforcement", () => {
     });
     await handler(req);
 
+    expect(capturedHeaders!.get("authorization")).toBe(`Bearer ${TOKEN}`);
+  });
+
+  test("auth required: maps actor authorization to upstream x-actor-token", async () => {
+    let capturedHeaders: Headers | undefined;
+    fetchMock = mock(async (_input: string | URL | Request, init?: RequestInit) => {
+      capturedHeaders = init?.headers as unknown as Headers;
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+
+    const handler = createRuntimeProxyHandler(makeConfig());
+    const req = new Request("http://localhost:7830/v1/events?conversationKey=test-key", {
+      headers: { authorization: "Actor actor-token-123" },
+    });
+    await handler(req);
+
+    expect(capturedHeaders!.get("x-actor-token")).toBe("actor-token-123");
+    // Gateway still authenticates upstream with its configured runtime token.
     expect(capturedHeaders!.get("authorization")).toBe(`Bearer ${TOKEN}`);
   });
 

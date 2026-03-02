@@ -3,7 +3,9 @@ import Foundation
 /// Cross-platform actor-token storage using Keychain via APIKeyManager.
 /// The actor token is an HMAC-signed credential that binds an assistant,
 /// platform, device, and guardian principal. It is transmitted as
-/// `X-Actor-Token` on HTTP requests to the runtime.
+/// actor identity on HTTP requests (gateway clients use
+/// `Authorization: Actor <token>`, gateway->runtime forwards as
+/// `X-Actor-Token`).
 ///
 /// Follows the same Keychain persistence pattern as SessionTokenManager.
 public enum ActorTokenManager {

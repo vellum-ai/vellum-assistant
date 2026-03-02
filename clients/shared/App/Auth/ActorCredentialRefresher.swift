@@ -35,10 +35,6 @@ public class ActorCredentialRefresher {
         if let token = bearerToken, !token.isEmpty {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
-        // Attach current actor token for identification
-        if let actorToken = ActorTokenManager.getToken() {
-            request.setValue(actorToken, forHTTPHeaderField: "X-Actor-Token")
-        }
 
         let body: [String: Any] = ["refreshToken": refreshToken, "platform": platform, "deviceId": deviceId]
 

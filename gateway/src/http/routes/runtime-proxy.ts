@@ -15,6 +15,38 @@ const log = getLogger("runtime-proxy");
  */
 const WEBHOOK_PATH_RE = /^\/webhooks\//;
 
+/**
+ * Actor-bound runtime routes for vellum user interactions.
+ * These routes require actor identity at runtime and can be authenticated at
+ * the gateway using `Authorization: Actor <token>` (client ergonomics), which
+ * the gateway maps to upstream `X-Actor-Token`.
+ */
+const ACTOR_BOUND_ROUTE_MATCHERS: Array<{ method: string; path: RegExp }> = [
+  { method: "POST", path: /^\/v1\/messages$/ },
+  { method: "GET", path: /^\/v1\/events$/ },
+  { method: "POST", path: /^\/v1\/confirm$/ },
+  { method: "POST", path: /^\/v1\/secret$/ },
+  { method: "POST", path: /^\/v1\/trust-rules$/ },
+  { method: "GET", path: /^\/v1\/pending-interactions$/ },
+  { method: "GET", path: /^\/v1\/guardian-actions\/pending$/ },
+  { method: "POST", path: /^\/v1\/guardian-actions\/decision$/ },
+];
+
+function isActorBoundRoute(method: string, upstreamPath: string): boolean {
+  return ACTOR_BOUND_ROUTE_MATCHERS.some((matcher) =>
+    matcher.method === method && matcher.path.test(upstreamPath),
+  );
+}
+
+function extractActorAuthorizationToken(authorizationHeader: string | null): string | null {
+  if (!authorizationHeader) return null;
+  if (!authorizationHeader.slice(0, 6).toLowerCase().startsWith("actor ")) {
+    return null;
+  }
+  const token = authorizationHeader.slice(6).trim();
+  return token.length > 0 ? token : null;
+}
+
 export function createRuntimeProxyHandler(config: GatewayConfig) {
   return async (req: Request, clientIp?: string): Promise<Response> => {
     const start = performance.now();
@@ -32,7 +64,20 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
       );
     }
 
-    if (config.runtimeProxyRequireAuth && req.method !== "OPTIONS") {
+    // The daemon uses flat /v1/... paths. Rewrite any legacy
+    // /v1/assistants/:assistantId/... requests from clients to flat paths.
+    let upstreamPath = url.pathname;
+    const assistantScopedMatch = url.pathname.match(/^\/v1\/assistants\/[^/]+\/(.+)$/);
+    if (assistantScopedMatch) {
+      upstreamPath = `/v1/${assistantScopedMatch[1]}`;
+    }
+    const isActorRoute = isActorBoundRoute(req.method, upstreamPath);
+    const actorTokenFromAuthorization = extractActorAuthorizationToken(
+      req.headers.get("authorization"),
+    );
+    const hasActorAuthorization = isActorRoute && actorTokenFromAuthorization !== null;
+
+    if (config.runtimeProxyRequireAuth && req.method !== "OPTIONS" && !hasActorAuthorization) {
       if (!config.runtimeProxyBearerToken) {
         return Response.json({ error: "Server misconfigured" }, { status: 500 });
       }
@@ -45,14 +90,6 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
       }
     }
 
-    // The daemon uses flat /v1/... paths. Rewrite any legacy
-    // /v1/assistants/:assistantId/... requests from clients to flat paths.
-    let upstreamPath = url.pathname;
-    const assistantScopedMatch = url.pathname.match(/^\/v1\/assistants\/[^/]+\/(.+)$/);
-    if (assistantScopedMatch) {
-      upstreamPath = `/v1/${assistantScopedMatch[1]}`;
-    }
-
     const upstream = `${config.assistantRuntimeBaseUrl}${upstreamPath}${url.search}`;
 
     const reqHeaders = stripHopByHop(new Headers(req.headers));
@@ -60,8 +97,11 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
     // Only strip the authorization header when the gateway consumed it for its
     // own auth check. When auth is not required, the header may be intended for
     // the upstream service and must be forwarded.
-    if (config.runtimeProxyRequireAuth) {
+    if (config.runtimeProxyRequireAuth || hasActorAuthorization) {
       reqHeaders.delete("authorization");
+    }
+    if (actorTokenFromAuthorization) {
+      reqHeaders.set("x-actor-token", actorTokenFromAuthorization);
     }
 
     // Inject the real client IP so the runtime can rate-limit per-user,

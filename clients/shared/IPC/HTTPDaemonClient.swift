@@ -124,6 +124,16 @@ public final class HTTPTransport {
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
 
+    private enum AuthMode {
+        case standard
+        case actorBound
+    }
+
+    private var isLoopbackBaseURL: Bool {
+        guard let host = URL(string: baseURL)?.host?.lowercased() else { return false }
+        return host == "localhost" || host == "127.0.0.1" || host == "::1"
+    }
+
     // MARK: - Init
 
     init(baseURL: String, bearerToken: String?, conversationKey: String) {
@@ -237,7 +247,7 @@ public final class HTTPTransport {
         var request = URLRequest(url: url)
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         request.timeoutInterval = .infinity
-        applyAuth(&request)
+        applyAuth(&request, mode: .actorBound)
 
         sseTask = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -362,7 +372,7 @@ public final class HTTPTransport {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
+        applyAuth(&request, mode: .actorBound)
 
         var body: [String: Any] = [
             "conversationKey": conversationKey,
@@ -424,7 +434,7 @@ public final class HTTPTransport {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
+        applyAuth(&request, mode: .actorBound)
 
         let body: [String: Any] = [
             "requestId": requestId,
@@ -461,7 +471,7 @@ public final class HTTPTransport {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
+        applyAuth(&request, mode: .actorBound)
 
         let body: [String: Any] = [
             "requestId": requestId,
@@ -497,7 +507,7 @@ public final class HTTPTransport {
         guard let url = URL(string: "\(baseURL)/v1/guardian-actions/pending?conversationId=\(encoded)") else { return }
 
         var request = URLRequest(url: url)
-        applyAuth(&request)
+        applyAuth(&request, mode: .actorBound)
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
@@ -538,7 +548,7 @@ public final class HTTPTransport {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
+        applyAuth(&request, mode: .actorBound)
 
         var body: [String: Any] = [
             "requestId": requestId,
@@ -1056,12 +1066,23 @@ public final class HTTPTransport {
 
     // MARK: - Helpers
 
-    private func applyAuth(_ request: inout URLRequest) {
+    private func applyAuth(_ request: inout URLRequest, mode: AuthMode = .standard) {
+        let actorToken = ActorTokenManager.getToken()
+
+        // For actor-bound gateway routes, expose a single user auth header at
+        // the client surface (`Authorization: Actor <token>`). The gateway
+        // maps this to upstream X-Actor-Token and still applies runtime bearer
+        // auth service-side. Direct loopback runtime calls retain legacy
+        // bearer + X-Actor-Token compatibility.
+        if mode == .actorBound, !isLoopbackBaseURL, let actorToken {
+            request.setValue("Actor \(actorToken)", forHTTPHeaderField: "Authorization")
+            return
+        }
+
         if let token = bearerToken {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
-        // Attach actor token when available for identity-bound requests.
-        if let actorToken = ActorTokenManager.getToken() {
+        if let actorToken {
             request.setValue(actorToken, forHTTPHeaderField: "X-Actor-Token")
         }
     }

@@ -310,6 +310,8 @@ When `GATEWAY_RUNTIME_PROXY_ENABLED=true`, the gateway forwards all non-Telegram
 
 By default (`GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH=true`), proxied requests must include a valid `Authorization: Bearer <token>` header matching `RUNTIME_PROXY_BEARER_TOKEN`. Set `GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH=false` to disable auth.
 
+For actor-bound vellum runtime routes (`/v1/messages`, `/v1/events`, `/v1/confirm`, `/v1/secret`, `/v1/trust-rules`, `/v1/pending-interactions`, `/v1/guardian-actions/*`), clients may alternatively send `Authorization: Actor <actorToken>`. The gateway maps this to upstream `X-Actor-Token` while still authenticating gateway→runtime with the configured runtime bearer token.
+
 `OPTIONS` requests are always allowed without auth (CORS preflight). Telegram webhook requests use their own secret-based verification and are not affected by proxy auth.
 
 ### Examples

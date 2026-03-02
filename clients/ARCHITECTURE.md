@@ -623,7 +623,7 @@ Both macOS and iOS clients use a shared credential refresh mechanism to maintain
 
 | Data | Storage | Purpose |
 |------|---------|---------|
-| Actor token | Keychain | `X-Actor-Token` header for authenticated requests |
+| Actor token | Keychain | Actor identity for authenticated requests (`Authorization: Actor <token>` on client->gateway actor-bound routes; forwarded as `X-Actor-Token` gateway->runtime) |
 | Refresh token | Keychain | Presented to the refresh endpoint to rotate credentials |
 | Actor token expiry | Keychain | Absolute expiry timestamp of the current actor token |
 | Refresh token expiry | Keychain | Absolute expiry timestamp of the current refresh token |
