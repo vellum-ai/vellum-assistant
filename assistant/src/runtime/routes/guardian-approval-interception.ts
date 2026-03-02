@@ -18,6 +18,7 @@ import { runApprovalConversationTurn } from '../approval-conversation-turn.js';
 import { composeApprovalMessageGenerative } from '../approval-message-composer.js';
 import { parseApprovalDecision } from '../channel-approval-parser.js';
 import type {
+  ApprovalAction,
   ApprovalDecisionResult,
 } from '../channel-approval-types.js';
 import {
@@ -275,12 +276,12 @@ export async function handleApprovalInterception(
         }
 
         // Decision-bearing disposition from the engine
-        let decisionAction = engineResult.disposition as 'approve_once' | 'approve_always' | 'reject';
+        let decisionAction = engineResult.disposition as ApprovalAction;
 
-        // Belt-and-suspenders: guardians cannot approve_always even if the
-        // engine returns it (the engine's allowedActions validation should
+        // Belt-and-suspenders: guardians cannot use broad allow modes even if
+        // the engine returns them (the engine's allowedActions validation should
         // already prevent this, but enforce it here too).
-        if (decisionAction === 'approve_always') {
+        if (decisionAction === 'approve_always' || decisionAction === 'approve_10m' || decisionAction === 'approve_thread') {
           decisionAction = 'approve_once';
         }
 
@@ -838,7 +839,7 @@ export async function handleApprovalInterception(
     }
 
     // Decision-bearing disposition — map to ApprovalDecisionResult and apply
-    const decisionAction = engineResult.disposition as 'approve_once' | 'approve_always' | 'reject';
+    const decisionAction = engineResult.disposition as ApprovalAction;
     const engineDecision: ApprovalDecisionResult = {
       action: decisionAction,
       source: 'plain_text',

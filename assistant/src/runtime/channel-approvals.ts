@@ -10,9 +10,11 @@
  */
 
 import { addRule } from '../permissions/trust-store.js';
+import type { UserDecision } from '../permissions/types.js';
 import { getTool } from '../tools/registry.js';
 import { composeApprovalMessage } from './approval-message-composer.js';
 import type {
+  ApprovalAction,
   ApprovalDecisionResult,
   ApprovalUIMetadata,
   ChannelApprovalPrompt,
@@ -111,6 +113,25 @@ export function buildApprovalUIMetadata(
 }
 
 // ---------------------------------------------------------------------------
+// 2.5. Action → UserDecision mapping
+// ---------------------------------------------------------------------------
+
+/**
+ * Map a channel-level `ApprovalAction` to the permission system's
+ * `UserDecision` type. Temporary approval modes (`approve_10m`,
+ * `approve_thread`) map directly to their `allow_*` counterparts so
+ * the permission pipeline can activate the appropriate override.
+ */
+function mapApprovalActionToUserDecision(action: ApprovalAction): UserDecision {
+  switch (action) {
+    case 'reject': return 'deny';
+    case 'approve_10m': return 'allow_10m';
+    case 'approve_thread': return 'allow_thread';
+    default: return 'allow';
+  }
+}
+
+// ---------------------------------------------------------------------------
 // 3. Consume a user decision and apply it to the session
 // ---------------------------------------------------------------------------
 
@@ -176,7 +197,7 @@ export function handleChannelDecision(
   if (!resolved) return { applied: false };
 
   // Map channel-level action to the permission system's UserDecision type.
-  const userDecision = decision.action === 'reject' ? 'deny' as const : 'allow' as const;
+  const userDecision = mapApprovalActionToUserDecision(decision.action);
   if (decisionContext === undefined) {
     resolved.session.handleConfirmationResponse(info.requestId, userDecision);
   } else {

@@ -162,10 +162,11 @@ export interface ApplyGuardianDecisionParams {
 export function applyGuardianDecision(params: ApplyGuardianDecisionParams): ApplyGuardianDecisionResult {
   const { approval, decision, actorExternalUserId, actorChannel, decisionContext } = params;
 
-  // Guardians cannot approve_always on behalf of requesters -- downgrade.
-  const effectiveDecision: ApprovalDecisionResult = decision.action === 'approve_always'
-    ? { ...decision, action: 'approve_once' }
-    : decision;
+  // Guardians cannot grant broad allow modes on behalf of requesters -- downgrade.
+  const effectiveDecision: ApprovalDecisionResult =
+    decision.action === 'approve_always' || decision.action === 'approve_10m' || decision.action === 'approve_thread'
+      ? { ...decision, action: 'approve_once' }
+      : decision;
 
   // Capture pending approval info before handleChannelDecision resolves
   // (and removes) the pending interaction. Needed for grant minting.
@@ -404,11 +405,13 @@ export async function applyCanonicalGuardianDecision(
     return { applied: false, reason: 'expired' };
   }
 
-  // 3. Downgrade approve_always to approve_once for guardian-on-behalf requests.
-  // Guardians cannot permanently allowlist tools on behalf of requesters.
-  const effectiveAction: ApprovalAction = action === 'approve_always'
-    ? 'approve_once'
-    : action;
+  // 3. Downgrade approve_always and temporary modes to approve_once for
+  // guardian-on-behalf requests. Guardians cannot grant broad allow modes
+  // (permanent, timed, or thread-scoped) on behalf of requesters.
+  const effectiveAction: ApprovalAction =
+    action === 'approve_always' || action === 'approve_10m' || action === 'approve_thread'
+      ? 'approve_once'
+      : action;
 
   // 4. CAS resolve: atomically transition from 'pending' to terminal status
   const targetStatus: CanonicalRequestStatus = effectiveAction === 'reject'
