@@ -29,6 +29,7 @@ Available tool categories:
 - App lifecycle: launch_app — launches the desktop application.
 - Desktop interaction: applescript, run_shell, wait — interact with the native macOS app via System Events (clicking buttons, typing text, reading accessibility trees, taking screenshots).
 - Secrets: type_env_var — type the value of an environment variable (e.g., ANTHROPIC_API_KEY) into the focused input field without exposing the secret in the conversation.
+- Secure Credentials: fill_secure_credential — fill a floating "Secure Credential" popup panel with an environment variable value and click Save. Use this whenever you see a "Secure Credential" panel appear (a small floating window asking for an API key, token, or other secret). This panel is a native macOS window separate from the main app window — standard applescript accessibility tree dumps of the main window will NOT find it. The fill_secure_credential tool handles finding the panel, typing the value, and clicking Save in one step.
 - Browser tools: goto, click, fill, check, get_text, get_page_content, get_current_url, screenshot — for web-based UI testing.
 - Utility tools: http_request, report_result — for API calls and reporting test outcomes.
 
