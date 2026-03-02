@@ -58,30 +58,37 @@ When a release includes relevant updates, the daemon materializes release notes 
 
 ## Usage
 
-### Start the daemon
+### Lifecycle management (recommended)
+
+Use the `vellum` CLI to manage daemon and gateway processes:
 
 ```bash
-bun run src/index.ts daemon start
+vellum wake    # start daemon + gateway from current checkout
+vellum ps      # list assistants and per-assistant process status
+vellum sleep   # stop daemon + gateway (directory-agnostic)
 ```
 
-### Interactive CLI
+> **Note:** `vellum wake` requires a hatched assistant. Run `vellum hatch` first, or launch the macOS app which handles hatching automatically.
+
+### Development: raw bun commands
+
+For low-level development (e.g., working on the daemon itself):
 
 ```bash
-bun run src/index.ts
-```
-
-### Dev mode (auto-restart on file changes)
-
-```bash
-bun run src/index.ts dev
+bun run src/index.ts daemon start   # start daemon only
+bun run src/index.ts                # interactive CLI session
+bun run src/index.ts dev            # dev mode (auto-restart on file changes)
 ```
 
 ### CLI commands
 
 | Command | Description |
 |---------|-------------|
+| `vellum wake` | Start daemon + gateway from current checkout |
+| `vellum sleep` | Stop daemon + gateway processes |
+| `vellum ps` | List assistants and per-assistant process status |
 | `vellum` | Launch interactive CLI session |
-| `vellum daemon start\|stop\|restart\|status` | Manage the daemon process |
+| `vellum daemon start\|stop\|restart\|status` | Manage the daemon process (low-level) |
 | `vellum dev` | Run daemon with auto-restart on file changes |
 | `vellum sessions list\|new\|export\|clear` | Manage conversation sessions |
 | `vellum config set\|get\|list` | Manage configuration |

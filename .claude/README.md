@@ -18,7 +18,7 @@ Re-run `setup` after pulling updates to the claude-skills repo.
 
 These commands are specific to vellum-assistant and live in `.claude/skills/vellum-skills/` as local skill files (NOT symlinks):
 
-- **`/update`** — Pull latest from main, restart the backend daemon, verify gateway health, rebuild/launch the macOS app (`.claude/skills/vellum-skills/update/SKILL.md`)
+- **`/update`** — Pull latest from main, use `vellum ps/sleep/wake` to manage daemon/gateway lifecycle, rebuild/launch the macOS app (`.claude/skills/vellum-skills/update/SKILL.md`)
 - **`/release`** — Cut a new release by triggering the GitHub Actions release workflow (`.claude/skills/vellum-skills/release/SKILL.md`)
 
 The shared-vs-local model:
