@@ -22,8 +22,8 @@ extension ChatBubble {
             } else {
                 let attributed = Self.cachedInlineMarkdown(for: segmentText, isStreaming: streaming)
                 Text(attributed)
-                    .font(.system(size: 13 * conversationZoomScale))
-                    .lineSpacing(3)
+                    .font(.system(size: 15 * conversationZoomScale))
+                    .lineSpacing(6)
                     .foregroundColor(VColor.textPrimary)
                     .tint(VColor.accent)
                     .selectableText(!streaming)

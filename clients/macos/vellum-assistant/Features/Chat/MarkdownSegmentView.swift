@@ -21,7 +21,7 @@ struct MarkdownSegmentView: View {
 
     var body: some View {
         let groups = groupedSegments
-        let scaledBodySize: CGFloat = 13 * zoomScale
+        let scaledBodySize: CGFloat = 15 * zoomScale
         let scaledCodeLabelSize: CGFloat = 11 * zoomScale
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
@@ -30,7 +30,7 @@ struct MarkdownSegmentView: View {
                     let attributed = buildCombinedAttributedString(from: runSegments)
                     Text(attributed)
                         .font(.system(size: scaledBodySize))
-                        .lineSpacing(4)
+                        .lineSpacing(6)
                         .foregroundColor(textColor)
                         .tint(tintColor)
                         .selectableText(!isStreaming)
@@ -248,16 +248,16 @@ struct MarkdownSegmentView: View {
             case .heading(let level, let headingText):
                 var heading = AttributedString(headingText)
                 heading.font = switch level {
-                case 1: .system(size: 20 * zoomScale, weight: .bold)
-                case 2: .system(size: 17 * zoomScale, weight: .semibold)
-                case 3: .system(size: 14 * zoomScale, weight: .semibold)
-                default: .system(size: 13 * zoomScale, weight: .semibold)
+                case 1: .system(size: 22 * zoomScale, weight: .bold)
+                case 2: .system(size: 19 * zoomScale, weight: .semibold)
+                case 3: .system(size: 16 * zoomScale, weight: .semibold)
+                default: .system(size: 15 * zoomScale, weight: .semibold)
                 }
                 result += heading
 
             case .list(let items):
                 let indentStep: CGFloat = 16 * zoomScale
-                let scaledSize: CGFloat = 13 * zoomScale
+                let scaledSize: CGFloat = 15 * zoomScale
                 let font = NSFont.systemFont(ofSize: scaledSize)
 
                 for (itemIndex, item) in items.enumerated() {
@@ -273,7 +273,7 @@ struct MarkdownSegmentView: View {
                     let textColumn = leftMargin + prefixSize.width
 
                     nonisolated(unsafe) let paraStyle = NSMutableParagraphStyle()
-                    paraStyle.lineSpacing = 4
+                    paraStyle.lineSpacing = 6
                     paraStyle.firstLineHeadIndent = leftMargin
                     paraStyle.headIndent = textColumn
                     paraStyle.tabStops = []
