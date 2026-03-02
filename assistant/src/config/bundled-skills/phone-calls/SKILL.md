@@ -56,7 +56,7 @@ curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/config" \
 vellum config get calls.enabled
 ```
 
-If `hasCredentials` is `true`, `phoneNumber` is set, and `calls.enabled` is `true`, skip to the **Making Calls** section.
+If `hasCredentials` is `true`, `phoneNumber` is set, and `calls.enabled` is `true`, skip to the **Making Outbound Calls** section.
 
 If Twilio is not yet configured, load the **twilio-setup** skill — it handles credential storage, phone number provisioning, and public ingress setup:
 
@@ -104,7 +104,7 @@ If the user wants a specific call to appear as coming from their own phone numbe
 credential_store action=store service=twilio field=user_phone_number value=+14155559999
 ```
 
-**To use it for a specific call**, pass `caller_identity_mode: 'user_number'` when calling `call_start` — see the Making Calls section for examples. User-number mode cannot be set as a global default; it must be requested explicitly per call.
+**To use it for a specific call**, pass `caller_identity_mode: 'user_number'` when calling `call_start` — see the Making Outbound Calls section for examples. User-number mode cannot be set as a global default; it must be requested explicitly per call.
 
 ### Configuration reference
 
