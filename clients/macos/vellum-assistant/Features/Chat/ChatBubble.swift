@@ -300,11 +300,11 @@ struct ChatBubble: View {
                 if message.isError && hasText {
                     HStack(alignment: .top, spacing: VSpacing.sm) {
                         Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 15 * conversationZoomScale, weight: .medium))
+                            .font(.system(size: 14 * conversationZoomScale, weight: .medium))
                             .foregroundColor(VColor.error)
                             .padding(.top, 1)
                         Text(message.text)
-                            .font(.system(size: 15 * conversationZoomScale))
+                            .font(.system(size: 14 * conversationZoomScale))
                             .lineSpacing(6)
                             .foregroundColor(VColor.textPrimary)
                             .textSelection(.enabled)
@@ -333,7 +333,7 @@ struct ChatBubble: View {
                         )
                     } else {
                         Text(markdownText)
-                            .font(.system(size: 15 * conversationZoomScale))
+                            .font(.system(size: 14 * conversationZoomScale))
                             .lineSpacing(6)
                             .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
                             .tint(isUser ? VColor.userBubbleText : VColor.accent)

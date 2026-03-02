@@ -22,7 +22,7 @@ extension ChatBubble {
             } else {
                 let attributed = Self.cachedInlineMarkdown(for: segmentText, isStreaming: streaming)
                 Text(attributed)
-                    .font(.system(size: 15 * conversationZoomScale))
+                    .font(.system(size: 14 * conversationZoomScale))
                     .lineSpacing(6)
                     .foregroundColor(VColor.textPrimary)
                     .tint(VColor.accent)

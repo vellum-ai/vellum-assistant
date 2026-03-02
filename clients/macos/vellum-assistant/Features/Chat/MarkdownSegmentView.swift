@@ -21,21 +21,64 @@ struct MarkdownSegmentView: View {
 
     var body: some View {
         let groups = groupedSegments
-        let scaledBodySize: CGFloat = 15 * zoomScale
+        let scaledBodySize: CGFloat = 14 * zoomScale
         let scaledCodeLabelSize: CGFloat = 11 * zoomScale
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
             ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
                 switch group {
                 case .selectableRun(let runSegments):
                     let attributed = buildCombinedAttributedString(from: runSegments)
                     Text(attributed)
                         .font(.system(size: scaledBodySize))
-                        .lineSpacing(6)
+                        .lineSpacing(4)
                         .foregroundColor(textColor)
                         .tint(tintColor)
                         .selectableText(!isStreaming)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: maxContentWidth ?? .infinity, alignment: .leading)
+
+                case .heading(let level, let headingText):
+                    let headingFont: Font = switch level {
+                    case 1: .system(size: 20 * zoomScale, weight: .bold)
+                    case 2: .system(size: 16 * zoomScale, weight: .semibold)
+                    case 3: .system(size: 14 * zoomScale, weight: .semibold)
+                    default: .system(size: 14 * zoomScale, weight: .semibold)
+                    }
+                    Text(headingText)
+                        .font(headingFont)
+                        .foregroundColor(textColor)
+                        .selectableText(!isStreaming)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: maxContentWidth ?? .infinity, alignment: .leading)
+                        .padding(.top, level == 1 ? 4 : 2)
+
+                case .list(let items, _):
+                    let mdOptions = AttributedString.MarkdownParsingOptions(
+                        interpretedSyntax: .inlineOnlyPreservingWhitespace
+                    )
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                            let indentLevel = CGFloat(item.indent / 2)
+                            let leftPad = indentLevel * 16 * zoomScale
+                            let prefix = item.ordered ? "\(item.number). " : "\u{2022} "
+                            let itemAttr = (try? AttributedString(markdown: item.text, options: mdOptions))
+                                ?? AttributedString(item.text)
+                            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                                Text(prefix)
+                                    .font(.system(size: scaledBodySize))
+                                    .foregroundColor(secondaryTextColor)
+                                Text(Self.applyInlineCodeStyles(to: itemAttr, codeTextColor: codeTextColor, codeBackgroundColor: codeBackgroundColor))
+                                    .font(.system(size: scaledBodySize))
+                                    .lineSpacing(4)
+                                    .foregroundColor(textColor)
+                                    .tint(tintColor)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            .padding(.leading, leftPad)
+                            .selectableText(!isStreaming)
+                        }
+                    }
+                    .frame(maxWidth: maxContentWidth ?? .infinity, alignment: .leading)
 
                 case .codeBlock(let language, let code):
                     VStack(alignment: .leading, spacing: 0) {
@@ -80,11 +123,14 @@ struct MarkdownSegmentView: View {
 
     // MARK: - Segment Grouping
 
-    /// Groups of segments for unified text selection rendering.
+    /// Groups of segments for rendering.
     private enum SegmentGroup {
-        /// Consecutive text-selectable segments combined for cross-paragraph selection.
+        /// Consecutive text paragraphs combined for cross-paragraph selection.
         case selectableRun([MarkdownSegment])
+        /// A heading rendered as its own block for spacing control.
+        case heading(level: Int, text: String)
         case codeBlock(language: String?, code: String)
+        case list(items: [ListItem], ordered: Bool)
         case table(headers: [String], rows: [[String]])
         case image(alt: String, url: String)
         case horizontalRule
@@ -105,8 +151,15 @@ struct MarkdownSegmentView: View {
 
         for segment in segments {
             switch segment {
-            case .text, .heading, .list:
+            case .text:
                 currentRun.append(segment)
+            case .heading(let level, let text):
+                flushRun()
+                groups.append(.heading(level: level, text: text))
+            case .list(let items):
+                flushRun()
+                let hasOrdered = items.contains { $0.ordered }
+                groups.append(.list(items: items, ordered: hasOrdered))
             case .codeBlock(let language, let code):
                 flushRun()
                 groups.append(.codeBlock(language: language, code: code))
@@ -221,6 +274,32 @@ struct MarkdownSegmentView: View {
         return result
     }
 
+    /// Applies inline code styling (background + text color) to an AttributedString.
+    private static func applyInlineCodeStyles(
+        to input: AttributedString,
+        codeTextColor: Color,
+        codeBackgroundColor: Color
+    ) -> AttributedString {
+        var result = input
+        var codeRanges: [Range<AttributedString.Index>] = []
+        for run in result.runs {
+            if let intent = run.inlinePresentationIntent, intent.contains(.code) {
+                codeRanges.append(run.range)
+            }
+        }
+        for range in codeRanges.reversed() {
+            result[range].foregroundColor = codeTextColor
+            result[range].backgroundColor = codeBackgroundColor
+            var trailing = AttributedString("\u{2009}")
+            trailing.backgroundColor = codeBackgroundColor
+            result.insert(trailing, at: range.upperBound)
+            var leading = AttributedString("\u{2009}")
+            leading.backgroundColor = codeBackgroundColor
+            result.insert(leading, at: range.lowerBound)
+        }
+        return result
+    }
+
     /// Pure builder with no side effects — separated for caching.
     private static func buildAttributedStringUncached(
         from segments: [MarkdownSegment],
@@ -244,51 +323,6 @@ struct MarkdownSegmentView: View {
                 let attributed = (try? AttributedString(markdown: text, options: mdOptions))
                     ?? AttributedString(text)
                 result += attributed
-
-            case .heading(let level, let headingText):
-                var heading = AttributedString(headingText)
-                heading.font = switch level {
-                case 1: .system(size: 22 * zoomScale, weight: .bold)
-                case 2: .system(size: 19 * zoomScale, weight: .semibold)
-                case 3: .system(size: 16 * zoomScale, weight: .semibold)
-                default: .system(size: 15 * zoomScale, weight: .semibold)
-                }
-                result += heading
-
-            case .list(let items):
-                let indentStep: CGFloat = 16 * zoomScale
-                let scaledSize: CGFloat = 15 * zoomScale
-                let font = NSFont.systemFont(ofSize: scaledSize)
-
-                for (itemIndex, item) in items.enumerated() {
-                    if itemIndex > 0 {
-                        result += AttributedString("\n")
-                    }
-
-                    let indentLevel = CGFloat(item.indent / 2)
-                    let leftMargin = indentLevel * indentStep
-                    let prefix = item.ordered ? "\(item.number). " : "\u{2022} "
-
-                    let prefixSize = (prefix as NSString).size(withAttributes: [.font: font])
-                    let textColumn = leftMargin + prefixSize.width
-
-                    nonisolated(unsafe) let paraStyle = NSMutableParagraphStyle()
-                    paraStyle.lineSpacing = 6
-                    paraStyle.firstLineHeadIndent = leftMargin
-                    paraStyle.headIndent = textColumn
-                    paraStyle.tabStops = []
-
-                    var prefixAttr = AttributedString(prefix)
-                    prefixAttr.foregroundColor = secondaryTextColor
-                    prefixAttr.font = .system(size: scaledSize)
-                    prefixAttr.applyParagraphStyle(paraStyle)
-                    result += prefixAttr
-
-                    var itemAttr = (try? AttributedString(markdown: item.text, options: mdOptions))
-                        ?? AttributedString(item.text)
-                    itemAttr.applyParagraphStyle(paraStyle)
-                    result += itemAttr
-                }
 
             default:
                 break
