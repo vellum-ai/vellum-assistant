@@ -25,9 +25,14 @@ final class VoiceModeManager: ObservableObject {
     /// How long to wait in `.idle` before auto-deactivating voice mode.
     var conversationTimeoutInterval: TimeInterval = 30
 
-    let voiceService: OpenAIVoiceService
+    let voiceService: any VoiceServiceProtocol
 
-    private weak var chatViewModel: ChatViewModel?
+    /// Typed accessor for UI views that need @Published properties (amplitude, speakingAmplitude).
+    var openAIVoiceService: OpenAIVoiceService? {
+        voiceService as? OpenAIVoiceService
+    }
+
+    weak var chatViewModel: ChatViewModel?
     private weak var settingsStore: SettingsStore?
     private var previousOnVoiceResponseComplete: ((String) -> Void)?
     private var previousOnVoiceTextDelta: ((String) -> Void)?
@@ -51,8 +56,8 @@ final class VoiceModeManager: ObservableObject {
     /// Combine subscription forwarding live partial transcription from the voice service.
     private var liveTranscriptionCancellable: AnyCancellable?
 
-    nonisolated init() {
-        self.voiceService = OpenAIVoiceService()
+    init(voiceService: any VoiceServiceProtocol = OpenAIVoiceService()) {
+        self.voiceService = voiceService
     }
 
     var stateLabel: String {
@@ -136,12 +141,14 @@ final class VoiceModeManager: ObservableObject {
             }
 
         // Forward live partial transcription when listening
-        liveTranscriptionCancellable = voiceService.$livePartialText
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] text in
-                guard let self, self.state == .listening else { return }
-                self.liveTranscription = text
-            }
+        if let openAI = voiceService as? OpenAIVoiceService {
+            liveTranscriptionCancellable = openAI.$livePartialText
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] text in
+                    guard let self, self.state == .listening else { return }
+                    self.liveTranscription = text
+                }
+        }
 
         // Pre-warm audio engine so first recording starts instantly
         voiceService.prewarmEngine()
@@ -427,7 +434,7 @@ final class VoiceModeManager: ObservableObject {
     }
 
     /// Produce a short, non-technical voice description for a single tool action.
-    private func describeAction(_ confirmation: ToolConfirmationData) -> String {
+    func describeAction(_ confirmation: ToolConfirmationData) -> String {
         let reason = (confirmation.input["reason"]?.value as? String) ?? ""
 
         // If the model provided a reason, use it directly — it's already high-level.
@@ -467,7 +474,12 @@ final class VoiceModeManager: ObservableObject {
         }
     }
 
-    private func handlePermissionResponse(_ text: String) {
+    /// Classify a voice response as approved, denied, or ambiguous.
+    enum PermissionDecision {
+        case approved, denied, ambiguous
+    }
+
+    static func classifyPermissionResponse(_ text: String) -> PermissionDecision {
         let lower = text.lowercased()
         let affirmative = ["yes", "yeah", "yep", "go ahead", "allow", "approve",
                            "sure", "okay", "ok", "do it", "proceed"]
@@ -478,8 +490,15 @@ final class VoiceModeManager: ObservableObject {
 
         // If both affirmative and negative substrings match (e.g. "no, don't do it"
         // contains "do it" + "no"/"don't"), treat as denial for safety.
-        let isApproved = hasAffirmative && !hasNegative
-        let isDenied = hasNegative
+        if hasAffirmative && !hasNegative { return .approved }
+        if hasNegative { return .denied }
+        return .ambiguous
+    }
+
+    private func handlePermissionResponse(_ text: String) {
+        let decision = Self.classifyPermissionResponse(text)
+        let isApproved = decision == .approved
+        let isDenied = decision == .denied
 
         guard let chatViewModel else {
             pendingPermissionIds = []

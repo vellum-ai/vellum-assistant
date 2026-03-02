@@ -414,7 +414,7 @@ extension MainWindowView {
                     onMicrophoneToggle: onMicrophoneToggle,
                     isTemporaryChat: activeThread?.kind == .private,
                     voiceModeManager: voiceModeManager,
-                    voiceService: voiceModeManager.voiceService,
+                    voiceService: voiceModeManager.openAIVoiceService,
                     onEndVoiceMode: {
                         voiceModeManager.deactivate()
                     },

@@ -26,7 +26,7 @@ final class VoiceInputManager {
     var currentMode: VoiceInputMode = .dictation
 
     /// Daemon client used to send dictation requests in `.dictation` mode.
-    var daemonClient: DaemonClient?
+    var daemonClient: (any DaemonClientProtocol)?
 
     /// Called when the daemon returns a dictation response (cleaned-up text + action plan).
     var onDictationResponse: ((IPCDictationResponse) -> Void)?
@@ -36,7 +36,7 @@ final class VoiceInputManager {
     var onActionModeTriggered: ((String) -> Void)?
 
     /// Context captured at activation time, describing the frontmost app state.
-    private var currentDictationContext: DictationContext?
+    var currentDictationContext: DictationContext?
 
     /// Floating overlay showing dictation state (recording/processing/done).
     private let overlayWindow = DictationOverlayWindow()
@@ -46,7 +46,7 @@ final class VoiceInputManager {
 
     /// True after a dictation request has been sent to the daemon and we're awaiting a response.
     /// Used by `stopRecording()` to decide whether the overlay should stay visible.
-    private var awaitingDaemonResponse = false
+    private(set) var awaitingDaemonResponse = false
 
     /// Whether the microphone is currently recording for PTT/dictation.
     private(set) var isRecording = false
@@ -287,8 +287,12 @@ final class VoiceInputManager {
                 }
                 guard !Task.isCancelled else { return }
                 guard let self = self else { return }
-                guard !self.otherKeyPressedDuringHold else { return }
-                guard Date().timeIntervalSince(self.lastAppSwitchTime) > 0.5 else { return }
+                guard self.shouldStartRecording(
+                    activationKeyPressed: true,
+                    otherKeyPressed: self.otherKeyPressedDuringHold,
+                    timeSinceAppSwitch: Date().timeIntervalSince(self.lastAppSwitchTime),
+                    isAlreadyRecording: self.isRecording
+                ) else { return }
                 // Capture frontmost app context before recording starts so the daemon
                 // knows where to insert the cleaned-up text after dictation completes.
                 if self.currentMode == .dictation {
@@ -322,6 +326,23 @@ final class VoiceInputManager {
         otherKeyPressedDuringHold = true
         holdTask?.cancel()
         holdTask = nil
+    }
+
+    // MARK: - Hold Detection Logic (extracted for testability)
+
+    /// Pure decision function: should recording begin after the hold timer fires?
+    /// Extracted from the hold detection closure so it can be unit-tested without NSEvent mocking.
+    func shouldStartRecording(
+        activationKeyPressed: Bool,
+        otherKeyPressed: Bool,
+        timeSinceAppSwitch: TimeInterval,
+        isAlreadyRecording: Bool
+    ) -> Bool {
+        guard activationKeyPressed else { return false }
+        guard !otherKeyPressed else { return false }
+        guard timeSinceAppSwitch > 0.5 else { return false }
+        guard !isAlreadyRecording else { return false }
+        return true
     }
 
     // MARK: - Recording
@@ -530,7 +551,7 @@ final class VoiceInputManager {
     }
 
     /// Routes a final transcription based on the current mode.
-    private func handleFinalTranscription(_ text: String) {
+    func handleFinalTranscription(_ text: String) {
         switch currentMode {
         case .conversation:
             onTranscription?(text)

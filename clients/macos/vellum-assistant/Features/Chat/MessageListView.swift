@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import os
 import SwiftUI
@@ -66,6 +67,11 @@ struct MessageListView: View {
     /// Suppresses bottom auto-scroll for the ~32ms layout window after pagination
     /// restores scroll position, preventing a jump back to the bottom.
     @State private var isSuppressingBottomScroll: Bool = false
+    @State private var isThreadContentHovered: Bool = false
+    @State private var isAppActive: Bool = NSApp.isActive
+    @State private var hoverExitDebounceTask: Task<Void, Never>?
+    @State private var threadSwitchSuppressionTask: Task<Void, Never>?
+    @State private var suppressScrollbarDuringThreadSwitch: Bool = false
 
     /// The subset of messages actually shown, honoring the pagination window.
     private var visibleMessages: [ChatMessage] {
@@ -117,6 +123,33 @@ struct MessageListView: View {
 
     private func modelListView(for message: ChatMessage) -> some View {
         ModelListBubble(currentModel: selectedModel, configuredProviders: configuredProviders)
+    }
+
+    private var shouldShowThreadScrollbar: Bool {
+        isAppActive && isThreadContentHovered && !suppressScrollbarDuringThreadSwitch
+    }
+
+    private func handleThreadContentHover(_ hovering: Bool) {
+        if hovering {
+            hoverExitDebounceTask?.cancel()
+            hoverExitDebounceTask = nil
+            isThreadContentHovered = true
+            return
+        }
+
+        // SwiftUI/AppKit can emit rapid hover false/true transitions while moving
+        // across nested subviews; delay hide slightly to avoid visible flicker.
+        hoverExitDebounceTask?.cancel()
+        hoverExitDebounceTask = Task { @MainActor in
+            do {
+                try await Task.sleep(nanoseconds: 120_000_000)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            isThreadContentHovered = false
+            hoverExitDebounceTask = nil
+        }
     }
 
     private var shouldAnchorThinkingToConfirmationChip: Bool {
@@ -394,11 +427,19 @@ struct MessageListView: View {
             }
             .scrollContentBackground(.hidden)
             .scrollDisabled(messages.isEmpty && !isSending)
+            .onHover { hovering in
+                handleThreadContentHover(hovering)
+            }
             .background {
                 ScrollWheelDetector(
-                    onScrollUp: { isNearBottom = false },
+                    onScrollUp: {
+                        scrollDebounceTask?.cancel()
+                        scrollDebounceTask = nil
+                        isNearBottom = false
+                    },
                     onScrollToBottom: { isNearBottom = true }
                 )
+                ThreadScrollbarVisibilityController(shouldShow: shouldShowThreadScrollbar)
             }
             .overlay(alignment: .bottom) {
                 if !isNearBottom {
@@ -427,7 +468,14 @@ struct MessageListView: View {
                 }
             }
             .onAppear {
+                isAppActive = NSApp.isActive
                 proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+            }
+            .onDisappear {
+                hoverExitDebounceTask?.cancel()
+                hoverExitDebounceTask = nil
+                threadSwitchSuppressionTask?.cancel()
+                threadSwitchSuppressionTask = nil
             }
             .onChange(of: isSending) {
                 if isSending {
@@ -451,18 +499,15 @@ struct MessageListView: View {
                     // execute during active streaming, not only after the last token.
                     if scrollDebounceTask == nil {
                         scrollDebounceTask = Task {
-                            // Re-check after the sleep — user may have scrolled away.
-                            guard isNearBottom else {
-                                scrollDebounceTask = nil
-                                return
-                            }
+                            defer { if !Task.isCancelled { scrollDebounceTask = nil } }
+                            guard isNearBottom && !isSuppressingBottomScroll else { return }
                             withAnimation(VAnimation.fast) {
                                 proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
                             }
                             try? await Task.sleep(nanoseconds: 200_000_000)
-                            scrollDebounceTask = nil
-                            // Trailing edge: content may have changed during cooldown.
-                            if isNearBottom {
+                            // If the task was cancelled during the sleep (user scrolled up), do not fire trailing-edge scroll.
+                            guard !Task.isCancelled else { return }
+                            if isNearBottom && !isSuppressingBottomScroll {
                                 withAnimation(VAnimation.fast) {
                                     proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
                                 }
@@ -486,10 +531,127 @@ struct MessageListView: View {
                 }
                 // When mid-scroll, do nothing — let SwiftUI handle the text reflow naturally.
             }
+            .onChange(of: threadId) {
+                // Keep the underlying NSScrollView instance stable across thread
+                // switches (prevents default-scroller flash), and reset view-local
+                // scroll state explicitly instead of remounting the whole view.
+                scrollDebounceTask?.cancel()
+                scrollDebounceTask = nil
+                isPaginationInFlight = false
+                isSuppressingBottomScroll = false
+                isNearBottom = true
+                hoverExitDebounceTask?.cancel()
+                hoverExitDebounceTask = nil
+                threadSwitchSuppressionTask?.cancel()
+                suppressScrollbarDuringThreadSwitch = true
+                threadSwitchSuppressionTask = Task { @MainActor in
+                    // Let the newly-selected thread finish its first layout pass so
+                    // the scroller style/metrics settle before allowing re-show.
+                    do {
+                        try await Task.sleep(nanoseconds: 150_000_000)
+                    } catch {
+                        return
+                    }
+                    guard !Task.isCancelled else { return }
+                    suppressScrollbarDuringThreadSwitch = false
+                    threadSwitchSuppressionTask = nil
+                }
+                isThreadContentHovered = false
+                DispatchQueue.main.async {
+                    proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                }
+            }
             .onReceive(TaskProgressOverlayManager.shared.$activeSurfaceId) { newId in
                 activeSurfaceId = newId
             }
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                isAppActive = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
+                isAppActive = false
+                hoverExitDebounceTask?.cancel()
+                hoverExitDebounceTask = nil
+                threadSwitchSuppressionTask?.cancel()
+                threadSwitchSuppressionTask = nil
+                suppressScrollbarDuringThreadSwitch = false
+                isThreadContentHovered = false
+            }
         }
-        .id(threadId)
+    }
+}
+
+private struct ThreadScrollbarVisibilityController: NSViewRepresentable {
+    let shouldShow: Bool
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async {
+            context.coordinator.update(from: view, shouldShow: shouldShow)
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async {
+            context.coordinator.update(from: nsView, shouldShow: shouldShow)
+        }
+    }
+
+    final class Coordinator {
+        weak var lastResolvedScrollView: NSScrollView?
+
+        func update(from markerView: NSView, shouldShow: Bool) {
+            guard let scrollView = findEnclosingScrollView(from: markerView) ?? lastResolvedScrollView else { return }
+            lastResolvedScrollView = scrollView
+            // Keep the scroller instantiated and styled consistently; only toggle
+            // visibility. Toggling `hasVerticalScroller` can recreate scroller
+            // internals, which causes visible flicker and brief legacy-style flashes.
+            scrollView.hasVerticalScroller = true
+            scrollView.hasHorizontalScroller = false
+            scrollView.autohidesScrollers = false
+            scrollView.scrollerStyle = .overlay
+            scrollView.verticalScroller?.controlSize = .small
+            scrollView.verticalScroller?.isEnabled = shouldShow
+            scrollView.verticalScroller?.isHidden = !shouldShow
+            scrollView.verticalScroller?.alphaValue = shouldShow ? 1 : 0
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+        }
+
+        private func findEnclosingScrollView(from view: NSView) -> NSScrollView? {
+            if let scrollView = view.enclosingScrollView { return scrollView }
+            var current: NSView? = view.superview
+            while let ancestor = current {
+                if let scrollView = ancestor as? NSScrollView {
+                    return scrollView
+                }
+                current = ancestor.superview
+            }
+            guard let window = view.window, let contentView = window.contentView else { return nil }
+            let probeInWindow = view.convert(
+                NSPoint(x: view.bounds.midX, y: view.bounds.midY),
+                to: nil
+            )
+            return deepestScrollView(in: contentView, containing: probeInWindow)
+        }
+
+        private func deepestScrollView(in view: NSView, containing windowPoint: NSPoint) -> NSScrollView? {
+            let localPoint = view.convert(windowPoint, from: nil)
+            guard view.bounds.contains(localPoint) else { return nil }
+
+            for subview in view.subviews.reversed() {
+                if let nested = deepestScrollView(in: subview, containing: windowPoint) {
+                    return nested
+                }
+            }
+
+            if let scrollView = view as? NSScrollView {
+                return scrollView
+            }
+            return nil
+        }
     }
 }

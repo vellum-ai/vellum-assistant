@@ -30,7 +30,7 @@ struct WakeUpStepView: View {
 
     var body: some View {
         // Title
-        Text("Create your Vellum")
+        Text("Create your Assistant")
             .font(.system(size: 32, weight: .regular, design: .serif))
             .foregroundColor(VColor.textPrimary)
             .textSelection(.enabled)
