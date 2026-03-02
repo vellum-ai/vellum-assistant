@@ -18,7 +18,6 @@ import { pair } from "./commands/pair";
 import { ps } from "./commands/ps";
 import { recover } from "./commands/recover";
 import { retire } from "./commands/retire";
-import { skills } from "./commands/skills";
 import { sleep } from "./commands/sleep";
 import { ssh } from "./commands/ssh";
 import { tunnel } from "./commands/tunnel";
@@ -37,7 +36,6 @@ const commands = {
   ps,
   recover,
   retire,
-  skills,
   sleep,
   ssh,
   tunnel,
@@ -51,9 +49,8 @@ function resolveAssistantEntry(): string | undefined {
   // When installed globally, resolve from node_modules
   try {
     const require = createRequire(import.meta.url);
-    const assistantPkgPath = require.resolve(
-      "@vellumai/assistant/package.json"
-    );
+    const assistantPkgPath =
+      require.resolve("@vellumai/assistant/package.json");
     return join(dirname(assistantPkgPath), "src", "index.ts");
   } catch {
     // For local development, resolve from sibling directory
@@ -64,7 +61,7 @@ function resolveAssistantEntry(): string | undefined {
       "..",
       "assistant",
       "src",
-      "index.ts"
+      "index.ts",
     );
     if (existsSync(localPath)) {
       return localPath;
@@ -95,10 +92,11 @@ async function main() {
     console.log("  login    Log in to the Vellum platform");
     console.log("  logout   Log out of the Vellum platform");
     console.log("  pair     Pair with a remote assistant via QR code");
-    console.log("  ps       List assistants (or processes for a specific assistant)");
+    console.log(
+      "  ps       List assistants (or processes for a specific assistant)",
+    );
     console.log("  recover  Restore a previously retired local assistant");
     console.log("  retire   Delete an assistant instance");
-    console.log("  skills   Browse and install skills from the Vellum catalog");
     console.log("  sleep    Stop the daemon process");
     console.log("  ssh      SSH into a remote assistant instance");
     console.log("  tunnel   Create a tunnel for a locally hosted assistant");
@@ -120,9 +118,7 @@ async function main() {
       });
     } else {
       console.error(`Unknown command: ${commandName}`);
-      console.error(
-        "Install the full stack with: bun install -g vellum"
-      );
+      console.error("Install the full stack with: bun install -g vellum");
       process.exit(1);
     }
     return;
