@@ -51,7 +51,7 @@ When your PR establishes a new mandatory pattern, convention, or architectural c
 
 ## Slash Commands — TLDR
 
-Most commands are shared from the [`claude-skills`](https://github.com/vellum-ai/claude-skills) repo via symlinks. Repo-local commands (`/update`, `/release`) live in `.claude/commands/` directly. After cloning, run `path/to/claude-skills/setup` to create the symlinks.
+Most commands are shared from the [`claude-skills`](https://github.com/vellum-ai/claude-skills) repo via symlinks. Repo-local commands (`/update`, `/release`) live in `.claude/skills/vellum-skills/` as local skill files. After cloning, run `path/to/claude-skills/setup` to create the symlinks.
 
 | Command | What it does |
 |---|---|
