@@ -231,8 +231,8 @@ A2AConnectionService
 | Method | Input | Output (success) | Output (failure) |
 |--------|-------|-------------------|-------------------|
 | `generateInvite` | `{ idempotencyKey?: string, expiresInMs?, note? }` | `{ ok: true, inviteCode: string, inviteId: string }` | `{ ok: false, reason: 'generation_failed' }` |
-| `redeemInvite` | `{ token: string, peerGatewayUrl: string, protocolVersion: string, capabilities: string[] }` | `{ ok: true, connectionRequestId: string }` | `{ ok: false, reason: 'invalid_or_expired' \| 'already_redeemed' \| 'version_mismatch' }` |
-| `initiateConnection` | `{ redemptionId: string, peerInfo: PeerInfo }` | `{ ok: true, connectionId: string }` | `{ ok: false, reason: 'not_found' \| 'expired' }` |
+| `redeemInvite` | `{ token: string, peerGatewayUrl: string }` | `{ ok: true, connectionRequestId: string }` | `{ ok: false, reason: 'invalid_or_expired' \| 'already_redeemed' }` |
+| `initiateConnection` | `{ redemptionId: string, peerInfo: PeerInfo, protocolVersion: string, capabilities: string[] }` | `{ ok: true, connectionId: string }` | `{ ok: false, reason: 'not_found' \| 'expired' \| 'version_mismatch' }` |
 | `approveConnection` | `{ requestId: string }` | `{ ok: true }` | `{ ok: false, reason: 'not_found' \| 'already_resolved' \| 'identity_mismatch' }` |
 | `submitVerificationCode` | `{ connectionId: string, code: string }` | `{ ok: true }` | `{ ok: false, reason: 'invalid_code' \| 'expired' \| 'max_attempts' }` |
 | `revokeConnection` | `{ connectionId: string }` | `{ ok: true }` | `{ ok: false, reason: 'not_found' }` |
