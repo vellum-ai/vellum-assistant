@@ -7,6 +7,14 @@ RED='\033[0;31m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
+# Cache staged file lists once (avoids repeated git diff --cached calls).
+# Two variants: ACM-filtered (most checks) and unfiltered (IPC contract check).
+STAGED_ACM_FILE=$(mktemp)
+STAGED_ALL_FILE=$(mktemp)
+trap 'rm -f "$STAGED_ACM_FILE" "$STAGED_ALL_FILE"' EXIT
+git diff --cached --name-only --diff-filter=ACM -z > "$STAGED_ACM_FILE"
+git diff --cached --name-only -z > "$STAGED_ALL_FILE"
+
 echo "🔍 Checking for plain text keys and secrets..."
 
 # Patterns to check for sensitive information
@@ -507,7 +515,7 @@ if [ "${1:-}" = "--self-test" ]; then
 fi
 
 # Check if there are any staged files
-if ! git diff --cached --name-only --diff-filter=ACM | grep -q .; then
+if [ ! -s "$STAGED_ACM_FILE" ]; then
     exit 0
 fi
 
@@ -583,7 +591,7 @@ while IFS= read -r -d '' FILE; do
             FOUND_SECRETS=1
         fi
     done
-done < <(git diff --cached --name-only --diff-filter=ACM -z)
+done < "$STAGED_ACM_FILE"
 
 if [ $FOUND_SECRETS -eq 1 ]; then
     echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -617,7 +625,7 @@ for DIR in "${DIRS_TO_CHECK[@]}"; do
         if [[ "$FILE" == "$DIR/"* ]]; then
             STAGED_FILES+=("$FILE")
         fi
-    done < <(git diff --cached --name-only --diff-filter=ACM -z)
+    done < "$STAGED_ACM_FILE"
 
     if [ ${#STAGED_FILES[@]} -eq 0 ]; then
         continue
@@ -704,7 +712,7 @@ while IFS= read -r -d '' FILE; do
             break 2
         fi
     done
-done < <(git diff --cached --name-only -z)
+done < "$STAGED_ALL_FILE"
 
 if [ $IPC_CHANGED -eq 1 ]; then
     echo "🔍 IPC contract files changed — checking generated code is up to date..."
@@ -779,7 +787,7 @@ fi
 # Non-blocking reminder to consider whether changes belong in a skill or
 # one of the compiled source files (IDENTITY.md, SOUL.md, etc.) instead.
 
-if git diff --cached --name-only | grep -q 'assistant/src/config/system-prompt.ts'; then
+if grep -zq 'assistant/src/config/system-prompt.ts' "$STAGED_ALL_FILE"; then
     echo ""
     echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo -e "${YELLOW}⚠️  You are modifying system-prompt.ts — the core system prompt.${NC}"
@@ -840,7 +848,7 @@ while IFS= read -r -d '' FILE; do
             COMMAND_VIOLATIONS=$((COMMAND_VIOLATIONS + 1))
             ;;
     esac
-done < <(git diff --cached --name-only --diff-filter=ACM -z)
+done < "$STAGED_ACM_FILE"
 
 if [ $COMMAND_VIOLATIONS -gt 0 ]; then
     echo ""
