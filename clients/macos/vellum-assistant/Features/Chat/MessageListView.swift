@@ -396,7 +396,11 @@ struct MessageListView: View {
             .scrollDisabled(messages.isEmpty && !isSending)
             .background {
                 ScrollWheelDetector(
-                    onScrollUp: { isNearBottom = false },
+                    onScrollUp: {
+                        scrollDebounceTask?.cancel()
+                        scrollDebounceTask = nil
+                        isNearBottom = false
+                    },
                     onScrollToBottom: { isNearBottom = true }
                 )
             }
@@ -451,18 +455,15 @@ struct MessageListView: View {
                     // execute during active streaming, not only after the last token.
                     if scrollDebounceTask == nil {
                         scrollDebounceTask = Task {
-                            // Re-check after the sleep — user may have scrolled away.
-                            guard isNearBottom else {
-                                scrollDebounceTask = nil
-                                return
-                            }
+                            defer { scrollDebounceTask = nil }
+                            guard isNearBottom && !isSuppressingBottomScroll else { return }
                             withAnimation(VAnimation.fast) {
                                 proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
                             }
                             try? await Task.sleep(nanoseconds: 200_000_000)
-                            scrollDebounceTask = nil
-                            // Trailing edge: content may have changed during cooldown.
-                            if isNearBottom {
+                            // If the task was cancelled during the sleep (user scrolled up), do not fire trailing-edge scroll.
+                            guard !Task.isCancelled else { return }
+                            if isNearBottom && !isSuppressingBottomScroll {
                                 withAnimation(VAnimation.fast) {
                                     proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
                                 }
