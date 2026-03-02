@@ -36,7 +36,8 @@ import { rotateToolInvocations } from '../memory/tool-usage-store.js';
 import { migrateToDataLayout } from '../migrations/data-layout.js';
 import { migrateToWorkspaceLayout } from '../migrations/workspace-layout.js';
 import { emitNotificationSignal, registerBroadcastFn } from '../notifications/emit-signal.js';
-import { initSigningKey, loadOrCreateSigningKey } from '../runtime/actor-token-service.js';
+import { loadOrCreateSigningKey } from '../runtime/actor-token-service.js';
+import { initAuthSigningKey } from '../runtime/auth/token-service.js';
 import { assistantEventHub } from '../runtime/assistant-event-hub.js';
 import { ensureVellumGuardianBinding } from '../runtime/guardian-vellum-migration.js';
 import { RuntimeHttpServer } from '../runtime/http-server.js';
@@ -136,7 +137,7 @@ export async function runDaemon(): Promise<void> {
     // Load (or generate + persist) the actor-token signing key so tokens
     // survive daemon restarts. Must happen after ensureDataDir() creates
     // the protected directory.
-    initSigningKey(loadOrCreateSigningKey());
+    initAuthSigningKey(loadOrCreateSigningKey());
 
     log.info('Daemon startup: migrations complete');
 

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
+import { DAEMON_INTERNAL_ASSISTANT_ID } from '../../assistant-scope.js';
 import { buildAuthContext } from '../context.js';
 import type { TokenClaims } from '../types.js';
 
@@ -58,6 +59,48 @@ describe('buildAuthContext', () => {
       expect(result.context.assistantId).toBe('self');
       expect(result.context.sessionId).toBe('session-123');
       expect(result.context.scopes.has('ipc.all')).toBe(true);
+    }
+  });
+
+  test('daemon-audience token forces assistantId to DAEMON_INTERNAL_ASSISTANT_ID', () => {
+    // Token sub contains an external assistant ID, but audience is daemon
+    const result = buildAuthContext(validClaims({
+      aud: 'vellum-daemon',
+      sub: 'actor:external-assistant-xyz:principal-abc',
+    }));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.context.assistantId).toBe(DAEMON_INTERNAL_ASSISTANT_ID);
+      expect(result.context.assistantId).toBe('self');
+      // Other fields should still reflect the parsed sub
+      expect(result.context.principalType).toBe('actor');
+      expect(result.context.actorPrincipalId).toBe('principal-abc');
+    }
+  });
+
+  test('gateway-audience token preserves assistantId from sub', () => {
+    const result = buildAuthContext(validClaims({
+      aud: 'vellum-gateway',
+      sub: 'actor:external-assistant-xyz:principal-abc',
+    }));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.context.assistantId).toBe('external-assistant-xyz');
+      expect(result.context.principalType).toBe('actor');
+      expect(result.context.actorPrincipalId).toBe('principal-abc');
+    }
+  });
+
+  test('daemon-audience svc:gateway sub also forces assistantId to self', () => {
+    const result = buildAuthContext(validClaims({
+      aud: 'vellum-daemon',
+      sub: 'svc:gateway:external-id',
+      scope_profile: 'gateway_ingress_v1',
+    }));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.context.assistantId).toBe(DAEMON_INTERNAL_ASSISTANT_ID);
+      expect(result.context.principalType).toBe('svc_gateway');
     }
   });
 

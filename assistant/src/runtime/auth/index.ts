@@ -14,7 +14,6 @@ export type { ParseSubResult } from './subject.js';
 export {
   hashToken,
   initAuthSigningKey,
-  initSigningKey,
   loadOrCreateSigningKey,
   mintToken,
   verifyToken,
