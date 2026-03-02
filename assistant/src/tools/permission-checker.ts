@@ -3,6 +3,7 @@ import { getHookManager } from '../hooks/manager.js';
 import { check, classifyRisk, generateAllowlistOptions, generateScopeOptions } from '../permissions/checker.js';
 import type { PermissionPrompter } from '../permissions/prompter.js';
 import { addRule } from '../permissions/trust-store.js';
+import { getEffectiveMode, setThreadMode, setTimedMode } from '../runtime/session-approval-overrides.js';
 import { getLogger } from '../util/logger.js';
 import { buildPolicyContext } from './policy-context.js';
 import { isSideEffectTool } from './side-effects.js';
@@ -108,6 +109,22 @@ export class PermissionChecker {
             riskLevel,
             content: `Permission denied: tool "${name}" requires user approval but no interactive client is connected. The tool was not executed. To allow this tool in non-interactive sessions, add a trust rule via permission settings.`,
           };
+        }
+
+        // Temporary approval override: if the guardian has enabled a
+        // conversation-scoped "allow all" mode (allow_10m or allow_thread),
+        // skip the interactive prompt and auto-approve. Only applies to
+        // guardian actors — untrusted actors cannot leverage this to bypass
+        // guardian-required gates (those are enforced in pre-execution gates).
+        if (
+          context.guardianTrustClass === 'guardian'
+          && getEffectiveMode(context.conversationId) !== null
+        ) {
+          log.info(
+            { toolName: name, riskLevel, conversationId: context.conversationId },
+            'Temporary approval override active — auto-approving without prompt',
+          );
+          return { allowed: true, decision: 'temporary_override', riskLevel };
         }
 
         const allowlistOptions = await generateAllowlistOptions(name, input, context.signal);
@@ -265,6 +282,24 @@ export class PermissionChecker {
           if (effectiveScope) {
             addRule(name, response.selectedPattern, effectiveScope, 'allow', 100, hasOptions ? ruleOptions : undefined);
           }
+        }
+
+        // Activate temporary approval mode when the user chooses a
+        // time-limited or thread-scoped override. Subsequent tool
+        // invocations in this conversation will auto-approve without
+        // prompting (checked above in the temporary override block).
+        if (response.decision === 'allow_10m') {
+          setTimedMode(context.conversationId);
+          log.info(
+            { toolName: name, conversationId: context.conversationId },
+            'Activated timed (10m) temporary approval mode',
+          );
+        } else if (response.decision === 'allow_thread') {
+          setThreadMode(context.conversationId);
+          log.info(
+            { toolName: name, conversationId: context.conversationId },
+            'Activated thread-scoped temporary approval mode',
+          );
         }
 
         return { allowed: true, decision, riskLevel };
