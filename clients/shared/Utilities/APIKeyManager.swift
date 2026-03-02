@@ -1,10 +1,10 @@
 import Foundation
 #if os(iOS)
 import UIKit
+import Security
 #elseif os(macOS)
 import AppKit
 #endif
-import Security
 
 public class APIKeyManager {
     public static let shared = APIKeyManager()
@@ -14,7 +14,7 @@ public class APIKeyManager {
     private init() {}
 
     public func getAPIKey(provider: String = "anthropic") -> String? {
-        #if targetEnvironment(simulator)
+        #if os(macOS) || targetEnvironment(simulator)
         return UserDefaults.standard.string(forKey: udKey(provider))
         #else
         let query: [String: Any] = [
@@ -38,7 +38,7 @@ public class APIKeyManager {
     }
 
     public func setAPIKey(_ key: String, provider: String = "anthropic") -> Bool {
-        #if targetEnvironment(simulator)
+        #if os(macOS) || targetEnvironment(simulator)
         UserDefaults.standard.set(key, forKey: udKey(provider))
         return true
         #else
@@ -66,7 +66,7 @@ public class APIKeyManager {
     }
 
     public func deleteAPIKey(provider: String = "anthropic") -> Bool {
-        #if targetEnvironment(simulator)
+        #if os(macOS) || targetEnvironment(simulator)
         UserDefaults.standard.removeObject(forKey: udKey(provider))
         return true
         #else
