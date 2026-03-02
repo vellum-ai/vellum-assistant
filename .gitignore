@@ -35,6 +35,7 @@ dist
 .claude/skills/*
 !.claude/skills/update/
 !.claude/skills/release/
+!.claude/skills/e2e/
 
 # Shared claude-skills symlinks (managed by claude-skills/setup)
 # These are gitignored because they're symlinks to the shared repo.
