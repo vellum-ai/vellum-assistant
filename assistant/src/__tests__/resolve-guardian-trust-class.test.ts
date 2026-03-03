@@ -35,8 +35,8 @@ describe("resolveGuardianTrustClass", () => {
     );
   });
 
-  test("defaults to guardian when no guardian context and auth is enabled", () => {
-    expect(resolveGuardianTrustClass(undefined)).toBe("guardian");
+  test("returns 'unknown' when guardianContext is undefined", () => {
+    expect(resolveGuardianTrustClass(undefined)).toBe("unknown");
   });
 
   test("forces guardian when HTTP auth is disabled, regardless of context trust class", () => {

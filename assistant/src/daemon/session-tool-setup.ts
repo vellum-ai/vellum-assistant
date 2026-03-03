@@ -62,7 +62,7 @@ export function resolveGuardianTrustClass(
   guardianContext: GuardianRuntimeContext | undefined,
 ): TrustClass {
   if (isHttpAuthDisabled()) return "guardian";
-  return guardianContext?.trustClass ?? "guardian";
+  return guardianContext?.trustClass ?? "unknown";
 }
 
 // ── Context Interface ────────────────────────────────────────────────
@@ -217,7 +217,7 @@ export function createToolExecutor(
         }
         // Auto-approve sub-tool confirmations when a temporary approval
         // override is active for this conversation (guardian only).
-        const guardianTrust = ctx.guardianContext?.trustClass ?? "guardian";
+        const guardianTrust = ctx.guardianContext?.trustClass ?? "unknown";
         if (
           guardianTrust === "guardian" &&
           getEffectiveMode(ctx.conversationId) !== undefined
