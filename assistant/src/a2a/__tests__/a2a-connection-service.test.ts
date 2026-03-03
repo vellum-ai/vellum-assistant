@@ -567,7 +567,7 @@ describe('a2a-connection-service', () => {
         submitVerificationCode({
           connectionId: conn.connectionId,
           code: r1.verificationCode,
-          peerIdentity: conn.connectionId,
+          peerIdentity: PEER_GATEWAY_URL,
         });
       }
 
@@ -621,7 +621,7 @@ describe('a2a-connection-service', () => {
       const result = submitVerificationCode({
         connectionId,
         code: verificationCode,
-        peerIdentity: connectionId,
+        peerIdentity: PEER_GATEWAY_URL,
       });
 
       expect(result.ok).toBe(true);
@@ -638,7 +638,7 @@ describe('a2a-connection-service', () => {
       const result = submitVerificationCode({
         connectionId,
         code: '000000',
-        peerIdentity: connectionId,
+        peerIdentity: PEER_GATEWAY_URL,
       });
 
       expect(result.ok).toBe(false);
@@ -682,7 +682,7 @@ describe('a2a-connection-service', () => {
         submitVerificationCode({
           connectionId,
           code: `99999${i}`,
-          peerIdentity: connectionId,
+          peerIdentity: PEER_GATEWAY_URL,
         });
       }
 
@@ -690,7 +690,7 @@ describe('a2a-connection-service', () => {
       const result = submitVerificationCode({
         connectionId,
         code: '999999',
-        peerIdentity: connectionId,
+        peerIdentity: PEER_GATEWAY_URL,
       });
 
       expect(result.ok).toBe(false);
@@ -729,7 +729,7 @@ describe('a2a-connection-service', () => {
       const verifyResult = submitVerificationCode({
         connectionId: initResult.connectionId,
         code,
-        peerIdentity: initResult.connectionId,
+        peerIdentity: PEER_GATEWAY_URL,
       });
       if (!verifyResult.ok) throw new Error('Failed to verify');
 
@@ -900,11 +900,12 @@ describe('a2a-connection-service', () => {
       if (!approveResult.ok) return;
       const verificationCode = (approveResult as { ok: true; verificationCode: string }).verificationCode;
 
-      // Step 5: Submit verification code
+      // Step 5: Submit verification code — peerIdentity must match the bound
+      // identity (peerAssistantId ?? peerGatewayUrl), not the connectionId
       const verifyResult = submitVerificationCode({
         connectionId: initResult.connectionId,
         code: verificationCode,
-        peerIdentity: initResult.connectionId,
+        peerIdentity: PEER_GATEWAY_URL,
       });
       expect(verifyResult.ok).toBe(true);
       if (!verifyResult.ok) return;
@@ -942,7 +943,7 @@ describe('a2a-connection-service', () => {
       const verifyResult = submitVerificationCode({
         connectionId: initResult.connectionId,
         code,
-        peerIdentity: initResult.connectionId,
+        peerIdentity: PEER_GATEWAY_URL,
       });
       if (!verifyResult.ok) throw new Error('Failed');
 

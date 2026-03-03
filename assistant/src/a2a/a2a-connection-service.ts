@@ -440,6 +440,7 @@ export function redeemInvite(params: {
  */
 export function initiateConnection(params: {
   peerGatewayUrl: string;
+  peerAssistantId?: string;
   inviteToken: string;
   protocolVersion: string;
   capabilities: string[];
@@ -490,6 +491,7 @@ export function initiateConnection(params: {
   // Create pending connection
   const connection = createConnection({
     peerGatewayUrl: params.peerGatewayUrl,
+    peerAssistantId: params.peerAssistantId,
     inviteId: invite.id,
     status: 'pending',
     protocolVersion: params.protocolVersion,
@@ -548,8 +550,14 @@ export function approveConnection(params: {
     return { ok: false, reason: 'not_found' };
   }
 
+  // Bind the peer's authenticated identity — peerAssistantId when available,
+  // otherwise peerGatewayUrl. Using connectionId would be meaningless because
+  // it is a generated UUID returned to the requester, so any caller who knows
+  // the ID could satisfy the anti-hijack check by echoing it back.
+  const peerIdentity = connection.peerAssistantId ?? connection.peerGatewayUrl;
+
   // Transition handshake: awaiting_request -> awaiting_approval
-  const toApproval = transitionToAwaitingApproval(session, params.connectionId);
+  const toApproval = transitionToAwaitingApproval(session, peerIdentity);
   if (!toApproval.ok) {
     return { ok: false, reason: 'invalid_state' };
   }
@@ -607,7 +615,9 @@ export function submitVerificationCode(params: {
     return { ok: false, reason: 'invalid_state' };
   }
 
-  // Verify the code via handshake state machine
+  // Verify the code via handshake state machine — the identity check inside
+  // transitionToVerified compares the caller's peerIdentity against what
+  // transitionToAwaitingApproval bound (peerAssistantId or peerGatewayUrl).
   const codeHash = hashHandshakeSecret(params.code);
   const result = transitionToVerified(session, codeHash, params.peerIdentity);
 
