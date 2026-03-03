@@ -291,7 +291,7 @@ Use `messaging_analyze_activity` to classify channels or conversations by activi
 
 When a user asks to declutter, clean up, or organize their email — start scanning immediately. Don't ask what kind of cleanup they want or request permission to read their inbox. Go straight to scanning — but once results are ready, always show them via `ui_show` and let the user choose actions before archiving or unsubscribing.
 
-**CRITICAL**: Never call `gmail_batch_archive`, `gmail_archive_by_query`, `gmail_unsubscribe`, or `messaging_archive_by_sender` unless the user has clicked an action button on the table for that specific batch. Each batch of results requires its own explicit user confirmation via the table UI. If the user says "keep going" or "keep decluttering," that means scan and present a new table — NOT auto-archive. Previous batch approvals do not carry forward.
+**CRITICAL**: Never call `gmail_batch_archive`, `gmail_archive_by_query`, `gmail_unsubscribe`, or `messaging_archive_by_sender` unless the user has clicked an action button on the table for that specific batch. Each batch of results requires its own explicit user confirmation via the table UI. If the user says "keep going" or "keep decluttering," that means scan and present a new table — NOT auto-archive. Previous batch approvals do not carry forward, but **deselections DO carry forward**: when the user deselects senders from a cleanup table, the system records those deselections as user preferences. Before building the next cleanup table, check `<dynamic-user-profile>` for previously deselected senders and exclude them from future cleanup tables — the user already indicated they want to keep those.
 
 ### Provider Selection
 
@@ -327,9 +327,7 @@ When a user asks to declutter, clean up, or organize their email — start scann
 
 - **Zero results**: Tell the user "No newsletter emails found" and suggest broadening the query (e.g. removing the category filter or extending the date range)
 - **Unsubscribe failures**: Report per-sender success/failure; the existing `gmail_unsubscribe` tool handles edge cases
-- **Truncation handling**: The scan covers up to 2000 messages per call (cap 5000). The default 2000 captures the vast majority of newsletter senders. If `truncated` is true:
-  - Tell the user: "Scanned [N] messages — here are your top senders." The top senders are almost always captured in the first pass.
-  - If the user explicitly asks to scan more, make ONE additional call with the `page_token`. Never chain more than 2 calls total.
+- **Truncation handling**: The scan covers up to 5,000 messages by default (cap 10,000). If `truncated` is true, the top senders are still captured — don't offer to scan more. Tell the user: "Scanned [N] messages — here are your top senders."
 - **Time budget exceeded**: If the scan returns `time_budget_exceeded: true`, present whatever results were collected. Do not retry or continue — the partial results are useful as-is.
 
 ### Scan ID

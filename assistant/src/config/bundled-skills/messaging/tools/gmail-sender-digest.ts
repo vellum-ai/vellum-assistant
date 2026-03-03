@@ -6,7 +6,7 @@ import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.j
 import { storeScanResult } from './scan-result-store.js';
 import { err,ok } from './shared.js';
 
-const MAX_MESSAGES_CAP = 5000;
+const MAX_MESSAGES_CAP = 10000;
 const MAX_IDS_PER_SENDER = 5000;
 const MAX_SAMPLE_SUBJECTS = 3;
 
@@ -38,8 +38,8 @@ function parseFrom(from: string): { displayName: string; email: string } {
 
 export async function run(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
   const query = (input.query as string) ?? 'category:promotions newer_than:90d';
-  const maxMessages = Math.min((input.max_messages as number) ?? 2000, MAX_MESSAGES_CAP);
-  const maxSenders = (input.max_senders as number) ?? 30;
+  const maxMessages = Math.min((input.max_messages as number) ?? 5000, MAX_MESSAGES_CAP);
+  const maxSenders = (input.max_senders as number) ?? 50;
   const inputPageToken = input.page_token as string | undefined;
 
   try {
@@ -190,7 +190,7 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
         senders: resultSenders,
         total_scanned: allMessageIds.length,
         query_used: query,
-        ...(truncated ? { truncated: true, next_page_token: pageToken } : {}),
+        ...(truncated ? { truncated: true } : {}),
         ...(timeBudgetExceeded ? { time_budget_exceeded: true } : {}),
         note: `message_count reflects emails found per sender within the ${allMessageIds.length} messages scanned. Use scan_id with gmail_batch_archive to archive messages (pass scan_id + sender_ids instead of message_ids).`,
       }));
