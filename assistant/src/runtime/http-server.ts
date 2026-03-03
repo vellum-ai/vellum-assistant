@@ -181,7 +181,10 @@ import {
   handleSetupTelegram,
   handleStartOutbound,
 } from "./routes/integration-routes.js";
-import { handleMigrationValidate } from "./routes/migration-routes.js";
+import {
+  handleMigrationExport,
+  handleMigrationValidate,
+} from "./routes/migration-routes.js";
 import type { PairingHandlerContext } from "./routes/pairing-routes.js";
 // Extracted route handlers
 import {
@@ -1431,6 +1434,8 @@ export class RuntimeHttpServer {
       // Migration endpoints
       if (endpoint === "migrations/validate" && req.method === "POST")
         return await handleMigrationValidate(req);
+      if (endpoint === "migrations/export" && req.method === "POST")
+        return await handleMigrationExport(req);
 
       // Internal OAuth callback endpoint (gateway -> runtime)
       if (endpoint === "internal/oauth/callback" && req.method === "POST") {
