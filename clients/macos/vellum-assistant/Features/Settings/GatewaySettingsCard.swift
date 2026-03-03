@@ -132,7 +132,8 @@ struct GatewaySettingsCard: View {
                 .focused($isGatewayUrlFocused)
 
             HStack(spacing: VSpacing.sm) {
-                if store.gatewayReachable == true {
+                let urlChanged = gatewayUrlText != store.ingressPublicBaseUrl
+                if store.gatewayReachable == true && !urlChanged {
                     VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .medium) {}
                     VButton(label: "Disconnect", style: .danger, size: .medium) {
                         store.saveIngressPublicBaseUrl("")
@@ -145,10 +146,17 @@ struct GatewaySettingsCard: View {
                         tunnelSetupExpanded = false
                     }
                     // No .disabled() — empty URL is valid (clears the tunnel target)
-                    VButton(label: "Cancel", style: .tertiary, size: .medium) {
-                        gatewayUrlText = store.ingressPublicBaseUrl
-                        isGatewayUrlFocused = false
-                        tunnelSetupExpanded = false
+                    if store.gatewayReachable == true {
+                        VButton(label: "Disconnect", style: .danger, size: .medium) {
+                            store.saveIngressPublicBaseUrl("")
+                            tunnelSetupExpanded = false
+                        }
+                    } else {
+                        VButton(label: "Cancel", style: .tertiary, size: .medium) {
+                            gatewayUrlText = store.ingressPublicBaseUrl
+                            isGatewayUrlFocused = false
+                            tunnelSetupExpanded = false
+                        }
                     }
                 }
             }
