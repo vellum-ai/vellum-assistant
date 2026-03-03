@@ -65,6 +65,7 @@ import {
   stripInjectedContext,
 } from './session-runtime-assembly.js';
 import type { SkillProjectionCache } from './session-skill-tools.js';
+import { resolveGuardianTrustClass } from './session-tool-setup.js';
 import { recordUsage } from './session-usage.js';
 import type { TraceEmitter } from './trace-emitter.js';
 
@@ -319,7 +320,7 @@ export async function runAgentLoopImpl(
         conflictGate: ctx.conflictGate,
         scopeId: ctx.memoryPolicy.scopeId,
         includeDefaultFallback: ctx.memoryPolicy.includeDefaultFallback,
-        guardianTrustClass: ctx.guardianContext?.trustClass ?? 'guardian',
+        guardianTrustClass: resolveGuardianTrustClass(ctx.guardianContext),
         isInteractive: options?.isInteractive ?? (!ctx.hasNoClient && !ctx.headlessLock),
       },
       content,

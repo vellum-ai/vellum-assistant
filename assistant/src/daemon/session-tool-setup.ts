@@ -18,6 +18,7 @@ import {
   findHighestPriorityRule,
 } from "../permissions/trust-store.js";
 import { isAllowDecision } from "../permissions/types.js";
+import { isHttpAuthDisabled } from "../config/env.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import { getEffectiveMode } from "../runtime/session-approval-overrides.js";
 import type { ToolExecutor } from "../tools/executor.js";
@@ -44,12 +45,25 @@ import type {
 import { getAllToolDefinitions } from "../tools/registry.js";
 import { allUiSurfaceTools } from "../tools/ui-surface/definitions.js";
 import type { GuardianRuntimeContext } from "./session-runtime-assembly.js";
+import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import {
   projectSkillTools,
   type SkillProjectionCache,
 } from "./session-skill-tools.js";
 import type { SurfaceSessionContext } from "./session-surfaces.js";
 import { surfaceProxyResolver } from "./session-surfaces.js";
+
+/**
+ * Resolve the effective guardian trust class for tool execution.
+ * When HTTP auth is disabled (dev bypass), always treat the actor as
+ * guardian so that control-plane gates don't block local development.
+ */
+export function resolveGuardianTrustClass(
+  guardianContext: GuardianRuntimeContext | undefined,
+): TrustClass {
+  if (isHttpAuthDisabled()) return "guardian";
+  return guardianContext?.trustClass ?? "guardian";
+}
 
 // ── Context Interface ────────────────────────────────────────────────
 
@@ -137,7 +151,7 @@ export function createToolExecutor(
       assistantId: ctx.assistantId,
       requestId: ctx.currentRequestId,
       taskRunId: ctx.taskRunId,
-      guardianTrustClass: ctx.guardianContext?.trustClass ?? "guardian",
+      guardianTrustClass: resolveGuardianTrustClass(ctx.guardianContext),
       executionChannel: ctx.guardianContext?.sourceChannel,
       callSessionId: ctx.callSessionId,
       triggeredBySurfaceAction:
