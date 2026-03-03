@@ -51,14 +51,20 @@ function parseAddressList(header: string): string[] {
  *   - `"Display Name" <user@example.com>`
  *   - `Display Name <user@example.com>`
  *   - `"Team <Ops>" <user@example.com>`
+ *   - `user@example.com (team <ops>)`
  *
- * Matches the LAST angle-bracketed segment, since RFC 5322 places the
- * actual mailbox last — display names with angle brackets come before it.
- * Returns the lowercase bare email, or the lowercased full string as fallback.
+ * Extracts all angle-bracketed segments and picks the last one containing `@`,
+ * falling back to the last segment, then to the raw string. This handles both
+ * display names with angle brackets and trailing RFC 5322 comments that may
+ * contain angle brackets.
  */
 function extractEmail(address: string): string {
-  const matches = address.match(/.*<([^>]+)>/);
-  return (matches ? matches[1] : address).trim().toLowerCase();
+  const segments = [...address.matchAll(/<([^>]+)>/g)].map((m) => m[1]);
+  if (segments.length > 0) {
+    const emailSegment = segments.findLast((s) => s.includes('@'));
+    return (emailSegment ?? segments[segments.length - 1]).trim().toLowerCase();
+  }
+  return address.trim().toLowerCase();
 }
 
 export async function run(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
