@@ -43,6 +43,11 @@ const appOpenTool: Tool = {
             type: 'string',
             description: 'The ID of the app to open',
           },
+          open_mode: {
+            type: 'string',
+            enum: ['preview', 'workspace'],
+            description: "Display mode. 'preview' shows an inline preview card in chat. 'workspace' opens the full app in a workspace panel. Defaults to 'workspace'.",
+          },
         },
         required: ['app_id'],
       },
