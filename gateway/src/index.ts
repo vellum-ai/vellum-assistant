@@ -665,6 +665,13 @@ function main() {
         return a2aInbound.handleA2AInbound(tracedReq, inboundClientIp);
       }
 
+      // A2A revocation notification endpoint (peer assistant -> gateway -> runtime).
+      // Authenticated via HMAC-SHA256 A2A headers (not gateway JWT).
+      if (url.pathname === "/v1/a2a/revoke-notify" && tracedReq.method === "POST") {
+        const revokeNotifyClientIp = getClientIp(req, svr, config.trustProxy);
+        return a2aInbound.handleA2ARevokeNotify(tracedReq, revokeNotifyClientIp);
+      }
+
       // ── Feature flags API ──
       // Feature flag access is scope-based: actor_client_v1 includes
       // feature_flags.read/write. No separate feature flag token needed.

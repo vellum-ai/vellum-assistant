@@ -93,6 +93,14 @@ export async function handleA2AMessageInbound(
     return httpError('NOT_FOUND', 'Connection not found', 404);
   }
 
+  if (connection.status === 'revoked' || connection.status === 'revoked_by_peer' || connection.status === 'revocation_pending') {
+    log.warn(
+      { connectionId: envelope.connectionId, status: connection.status },
+      'Rejecting inbound A2A message from revoked connection',
+    );
+    return httpError('FORBIDDEN', 'Connection has been revoked', 403);
+  }
+
   if (connection.status !== 'active') {
     return httpError('FORBIDDEN', 'Connection is not active', 403);
   }

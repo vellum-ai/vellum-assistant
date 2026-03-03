@@ -13,6 +13,7 @@ import type { ServerWebSocket } from "bun";
 
 import type { BrowserRelayWebSocketData } from "../browser-extension-relay/server.js";
 import { extensionRelayServer } from "../browser-extension-relay/server.js";
+import { startRevocationSweep, stopRevocationSweep } from "../a2a/a2a-revocation-sweep.js";
 import {
   startGuardianActionSweep,
   stopGuardianActionSweep,
@@ -185,6 +186,7 @@ import {
   handleA2AListConnections,
   handleA2ARedeem,
   handleA2ARevoke,
+  handleA2ARevokeNotify,
   handleA2ASendMessage,
   handleA2AUpdateScopes,
   handleA2AVerify,
@@ -511,6 +513,9 @@ export class RuntimeHttpServer {
     startCanonicalGuardianExpirySweep();
     log.info("Canonical guardian request expiry sweep started");
 
+    startRevocationSweep();
+    log.info("A2A revocation pending sweep started");
+
     log.info(
       "Running in gateway-only ingress mode. Direct webhook routes disabled.",
     );
@@ -547,6 +552,7 @@ export class RuntimeHttpServer {
     stopGuardianExpirySweep();
     stopGuardianActionSweep();
     stopCanonicalGuardianExpirySweep();
+    stopRevocationSweep();
     if (this.retrySweepTimer) {
       clearInterval(this.retrySweepTimer);
       this.retrySweepTimer = null;
@@ -1370,6 +1376,11 @@ export class RuntimeHttpServer {
       }
       if (a2aScopesMatch && req.method === 'GET') {
         return handleA2AGetScopes(a2aScopesMatch[1]);
+      }
+
+      // A2A revocation notification endpoint (peer gateway -> runtime)
+      if (endpoint === 'a2a/revoke-notify' && req.method === 'POST') {
+        return await handleA2ARevokeNotify(req);
       }
 
       // A2A inbound message endpoint (gateway -> runtime)

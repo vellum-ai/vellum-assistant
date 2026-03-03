@@ -27,6 +27,12 @@ mock.module('../../util/logger.js', () => ({
     }),
 }));
 
+// Mock the revocation delivery to always succeed so existing tests
+// don't need to worry about network calls.
+mock.module('../a2a-revocation-delivery.js', () => ({
+  deliverRevocationNotification: async () => ({ ok: true }),
+}));
+
 import {
   A2A_PROTOCOL_VERSION,
   A2A_SOURCE_CHANNEL,
@@ -736,9 +742,9 @@ describe('a2a-connection-service', () => {
       return initResult.connectionId;
     }
 
-    test('revokes an active connection', () => {
+    test('revokes an active connection', async () => {
       const connectionId = createActiveConnection();
-      const result = revokeConnection({ connectionId });
+      const result = await revokeConnection({ connectionId });
       expect(result.ok).toBe(true);
 
       const conn = getConnection(connectionId);
@@ -749,25 +755,25 @@ describe('a2a-connection-service', () => {
       expect(conn!.inboundCredentialHash).toBe('');
     });
 
-    test('idempotent: revoking already-revoked returns ok', () => {
+    test('idempotent: revoking already-revoked returns ok', async () => {
       const connectionId = createActiveConnection();
 
-      const r1 = revokeConnection({ connectionId });
+      const r1 = await revokeConnection({ connectionId });
       expect(r1.ok).toBe(true);
 
-      const r2 = revokeConnection({ connectionId });
+      const r2 = await revokeConnection({ connectionId });
       expect(r2.ok).toBe(true);
     });
 
-    test('returns not_found for nonexistent connection', () => {
-      const result = revokeConnection({ connectionId: 'nonexistent' });
+    test('returns not_found for nonexistent connection', async () => {
+      const result = await revokeConnection({ connectionId: 'nonexistent' });
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.reason).toBe('not_found');
       }
     });
 
-    test('can revoke a pending connection', () => {
+    test('can revoke a pending connection', async () => {
       const genResult = generateInvite({ gatewayUrl: MOCK_GATEWAY_URL });
       if (!genResult.ok) throw new Error('Failed to create invite');
       const decoded = decodeInviteCode(genResult.inviteCode)!;
@@ -780,7 +786,7 @@ describe('a2a-connection-service', () => {
       });
       if (!initResult.ok) throw new Error('Failed to initiate');
 
-      const result = revokeConnection({ connectionId: initResult.connectionId });
+      const result = await revokeConnection({ connectionId: initResult.connectionId });
       expect(result.ok).toBe(true);
 
       const conn = getConnection(initResult.connectionId);
@@ -823,7 +829,7 @@ describe('a2a-connection-service', () => {
       expect(result.connections).toHaveLength(2);
     });
 
-    test('filters by status', () => {
+    test('filters by status', async () => {
       const gen1 = generateInvite({ gatewayUrl: MOCK_GATEWAY_URL });
       const gen2 = generateInvite({ gatewayUrl: MOCK_GATEWAY_URL });
       if (!gen1.ok || !gen2.ok) throw new Error('Failed');
@@ -845,7 +851,7 @@ describe('a2a-connection-service', () => {
       });
 
       if (c1.ok) {
-        revokeConnection({ connectionId: c1.connectionId });
+        await revokeConnection({ connectionId: c1.connectionId });
       }
 
       const pending = listConnectionsFiltered({ status: 'pending' });
@@ -919,7 +925,7 @@ describe('a2a-connection-service', () => {
       expect(conn!.protocolVersion).toBe(A2A_PROTOCOL_VERSION);
     });
 
-    test('lifecycle with revocation', () => {
+    test('lifecycle with revocation', async () => {
       // Set up an active connection
       const genResult = generateInvite({ gatewayUrl: MOCK_GATEWAY_URL });
       if (!genResult.ok) throw new Error('Failed');
@@ -948,7 +954,7 @@ describe('a2a-connection-service', () => {
       if (!verifyResult.ok) throw new Error('Failed');
 
       // Revoke
-      const revokeResult = revokeConnection({ connectionId: initResult.connectionId });
+      const revokeResult = await revokeConnection({ connectionId: initResult.connectionId });
       expect(revokeResult.ok).toBe(true);
 
       const conn = getConnection(initResult.connectionId);
