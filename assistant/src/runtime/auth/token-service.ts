@@ -266,6 +266,29 @@ export function mintEdgeRelayToken(): string {
 }
 
 // ---------------------------------------------------------------------------
+// UI page token
+// ---------------------------------------------------------------------------
+
+/**
+ * Mint a long-lived JWT for embedding in browser-served UI pages
+ * (brain-graph, home-base).
+ *
+ * These pages make API calls that route through the gateway, which validates
+ * tokens with validateEdgeToken() expecting aud=vellum-gateway. A 1-hour TTL
+ * gives users enough time to interact with the page (including using Refresh
+ * buttons) without the token expiring mid-session.
+ */
+export function mintUiPageToken(): string {
+  return mintToken({
+    aud: 'vellum-gateway',
+    sub: 'svc:daemon:self',
+    scope_profile: 'gateway_service_v1',
+    policy_epoch: CURRENT_POLICY_EPOCH,
+    ttlSeconds: 3600,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Hash
 // ---------------------------------------------------------------------------
 

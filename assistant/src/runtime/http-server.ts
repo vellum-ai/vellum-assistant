@@ -46,7 +46,7 @@ import { DAEMON_INTERNAL_ASSISTANT_ID } from './assistant-scope.js';
 // Auth
 import { authenticateRequest } from './auth/middleware.js';
 import { enforcePolicy, getPolicy } from './auth/route-policy.js';
-import { mintDaemonDeliveryToken, verifyToken } from './auth/token-service.js';
+import { mintDaemonDeliveryToken, mintUiPageToken, verifyToken } from './auth/token-service.js';
 import type { AuthContext } from './auth/types.js';
 import { sweepFailedEvents } from './channel-retry-sweep.js';
 import { httpError } from './http-errors.js';
@@ -1318,8 +1318,8 @@ export class RuntimeHttpServer {
 
       if (endpoint === 'identity' && req.method === 'GET') return handleGetIdentity();
       if (endpoint === 'brain-graph' && req.method === 'GET') return handleGetBrainGraph();
-      if (endpoint === 'brain-graph-ui' && req.method === 'GET') return handleServeBrainGraphUI(mintDaemonDeliveryToken());
-      if (endpoint === 'home-base-ui' && req.method === 'GET') return handleServeHomeBaseUI(mintDaemonDeliveryToken());
+      if (endpoint === 'brain-graph-ui' && req.method === 'GET') return handleServeBrainGraphUI(mintUiPageToken());
+      if (endpoint === 'home-base-ui' && req.method === 'GET') return handleServeHomeBaseUI(mintUiPageToken());
       if (endpoint === 'events' && req.method === 'GET') return handleSubscribeAssistantEvents(req, url, { authContext });
 
       // Internal OAuth callback endpoint (gateway -> runtime)
