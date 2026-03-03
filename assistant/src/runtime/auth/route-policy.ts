@@ -293,6 +293,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "migrations/validate", scopes: ["settings.write"] },
   { endpoint: "migrations/export", scopes: ["settings.write"] },
   { endpoint: "migrations/import-preflight", scopes: ["settings.write"] },
+  { endpoint: "migrations/import", scopes: ["settings.write"] },
 ];
 
 for (const { endpoint, scopes } of ACTOR_ENDPOINTS) {
