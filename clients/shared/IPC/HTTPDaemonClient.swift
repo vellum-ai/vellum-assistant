@@ -451,9 +451,9 @@ public final class HTTPTransport {
         if let msg = message as? UserMessageMessage {
             Task { await self.sendMessage(content: msg.content, sessionId: msg.sessionId) }
         } else if let msg = message as? ConfirmationResponseMessage {
-            Task { await self.sendDecision(requestId: msg.requestId, decision: msg.decision) }
+            Task { await self.sendDecision(requestId: msg.requestId, decision: msg.decision, selectedPattern: msg.selectedPattern, selectedScope: msg.selectedScope) }
         } else if let msg = message as? SecretResponseMessage {
-            Task { await self.sendSecret(requestId: msg.requestId, value: msg.value) }
+            Task { await self.sendSecret(requestId: msg.requestId, value: msg.value, delivery: msg.delivery) }
         } else if let msg = message as? CancelMessage {
             // Best-effort cancel — no dedicated endpoint yet
             log.info("Cancel requested for session \(msg.sessionId ?? "unknown") (no-op over HTTP)")
@@ -548,7 +548,7 @@ public final class HTTPTransport {
         }
     }
 
-    private func sendDecision(requestId: String, decision: String, isRetry: Bool = false) async {
+    private func sendDecision(requestId: String, decision: String, selectedPattern: String? = nil, selectedScope: String? = nil, isRetry: Bool = false) async {
         guard let url = buildURL(for: .confirm) else { return }
 
         var request = URLRequest(url: url)
@@ -556,10 +556,16 @@ public final class HTTPTransport {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         applyAuth(&request)
 
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "requestId": requestId,
-            "decision": decision
+            "decision": decision,
         ]
+        if let selectedPattern {
+            body["selectedPattern"] = selectedPattern
+        }
+        if let selectedScope {
+            body["selectedScope"] = selectedScope
+        }
 
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -570,7 +576,7 @@ public final class HTTPTransport {
                     let refreshResult = await handleAuthenticationFailureAsync()
                     switch refreshResult {
                     case .success:
-                        await sendDecision(requestId: requestId, decision: decision, isRetry: true)
+                        await sendDecision(requestId: requestId, decision: decision, selectedPattern: selectedPattern, selectedScope: selectedScope, isRetry: true)
                     case .terminalFailure:
                         break
                     case .transientFailure:
@@ -585,7 +591,7 @@ public final class HTTPTransport {
         }
     }
 
-    private func sendSecret(requestId: String, value: String?, isRetry: Bool = false) async {
+    private func sendSecret(requestId: String, value: String?, delivery: String? = nil, isRetry: Bool = false) async {
         guard let url = buildURL(for: .secret) else { return }
 
         var request = URLRequest(url: url)
@@ -593,10 +599,13 @@ public final class HTTPTransport {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         applyAuth(&request)
 
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "requestId": requestId,
-            "value": value ?? ""
+            "value": value ?? "",
         ]
+        if let delivery {
+            body["delivery"] = delivery
+        }
 
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -607,7 +616,7 @@ public final class HTTPTransport {
                     let refreshResult = await handleAuthenticationFailureAsync()
                     switch refreshResult {
                     case .success:
-                        await sendSecret(requestId: requestId, value: value, isRetry: true)
+                        await sendSecret(requestId: requestId, value: value, delivery: delivery, isRetry: true)
                     case .terminalFailure:
                         break
                     case .transientFailure:
