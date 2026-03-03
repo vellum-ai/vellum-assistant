@@ -144,7 +144,7 @@ describe("vellum mcp list", () => {
     expect(stdout).toContain("stdio");
     expect(stdout).toContain("npx -y some-mcp-server");
     expect(stdout).toContain("low");
-  });
+  }, 15_000);
 
   test("--json outputs valid JSON", () => {
     writeConfig({

@@ -21,8 +21,10 @@ The user may pass `$ARGUMENTS` to filter to a specific test case by name (e.g., 
 2. Otherwise, look at the conversational context — if you've been working on or discussing a specific e2e test case (e.g., editing `playwright/cases/phone-setup.md`), automatically target that test case.
 3. If neither applies, run all tests.
 
+**Release targeting:** If the user passes `-v <version>` or `--version <version>` (e.g., `-v 1.2.3`), pass it through so CI tests against that specific released version. This is useful when developing a test that you expect to fail on a particular release.
+
 **Additional flags from `$ARGUMENTS`:**
-- `--xcode` uses the agent-xcode (AXUIElement) runner
+- `-v <version>` or `--version <version>` tests against a specific released version
 - `-d` or `--detach` triggers the run and exits without polling
 - `--no-experimental` overrides the default and excludes experimental tests
 
@@ -36,7 +38,7 @@ Map the resolved options:
 - Test case filter: `-t <case-name>`
 - Experimental (default on): `--experimental`
 - Branch: `-b <branch-name>`
-- Xcode runner: `--xcode`
+- Release version: `-v <version>`
 - Detach mode: `-d`
 
 Examples:

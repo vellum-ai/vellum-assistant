@@ -131,6 +131,8 @@ class MockSession {
     this.guardianContext = ctx;
   }
 
+  setAuthContext(): void {}
+
   setChannelCapabilities(): void {}
 
   setCommandIntent(): void {}

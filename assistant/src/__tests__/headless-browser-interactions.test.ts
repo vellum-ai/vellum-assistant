@@ -64,10 +64,6 @@ mock.module("../tools/browser/browser-screencast.js", () => ({
   stopBrowserScreencast: async () => {},
   stopAllScreencasts: async () => {},
   ensureScreencast: async () => {},
-  updateBrowserStatus: () => {},
-  updatePagesList: async () => {},
-  getElementBounds: async () => null,
-  updateHighlights: () => {},
 }));
 
 import {

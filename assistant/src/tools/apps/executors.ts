@@ -11,7 +11,6 @@
 import { setHomeBaseAppLink } from '../../home-base/app-link-store.js';
 import type { AppDefinition } from '../../memory/app-store.js';
 import type { EditEngineResult } from '../../memory/app-store.js';
-import { openAppViaSurface } from './open-proxy.js';
 
 // ---------------------------------------------------------------------------
 // Shared result type
@@ -123,33 +122,30 @@ export async function executeAppCreate(
     setHomeBaseAppLink(app.id, 'personalized');
   }
 
-  // Auto-open the app via the shared open-proxy helper
+  // Emit the inline preview card via the proxy without opening a workspace panel.
+  // open_mode: "preview" signals to the client that this should be shown inline only.
   if (autoOpen && proxyToolResolver) {
     const createPreview = { ...(preview ?? {}), context: 'app_create' as const };
-    const extraInput = { preview: createPreview };
-    const openResultText = await openAppViaSurface(app.id, proxyToolResolver, extraInput);
-
-    // Determine whether the open succeeded by checking for the fallback text
-    const opened = openResultText !== 'Failed to auto-open app. Use app_open to open it manually.';
-    if (opened) {
+    const extraInput = { preview: createPreview, open_mode: 'preview' };
+    try {
+      const openResult = await proxyToolResolver('app_open', { app_id: app.id, ...extraInput });
+      if (openResult.isError) {
+        return {
+          content: JSON.stringify({ ...app, auto_opened: false, auto_open_error: openResult.content }),
+          isError: false,
+        };
+      }
       return {
-        content: JSON.stringify({
-          ...app,
-          auto_opened: true,
-          open_result: openResultText,
-        }),
+        content: JSON.stringify({ ...app, auto_opened: true, open_result: openResult.content }),
+        isError: false,
+      };
+    } catch {
+      // Preview emission failure is non-fatal — the app was created successfully.
+      return {
+        content: JSON.stringify({ ...app, auto_opened: false, auto_open_error: 'Failed to auto-open app. Use app_open to open it manually.' }),
         isError: false,
       };
     }
-
-    return {
-      content: JSON.stringify({
-        ...app,
-        auto_opened: false,
-        auto_open_error: openResultText,
-      }),
-      isError: false,
-    };
   }
 
   return { content: JSON.stringify(app), isError: false };

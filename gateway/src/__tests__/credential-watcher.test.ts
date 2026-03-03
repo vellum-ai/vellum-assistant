@@ -53,19 +53,8 @@ function getMachineEntropy(): string {
   } catch {
     parts.push("unknown-user");
   }
-  switch (process.platform) {
-    case "darwin":
-      parts.push("macOS");
-      break;
-    case "win32":
-      parts.push("Windows");
-      break;
-    case "linux":
-      parts.push("Linux");
-      break;
-    default:
-      parts.push(process.platform);
-  }
+  // Must mirror assistant/src/util/platform.ts#getPlatformName (raw platform).
+  parts.push(process.platform);
   parts.push(process.arch);
   try {
     parts.push(userInfo().homedir);

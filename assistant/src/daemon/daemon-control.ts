@@ -251,6 +251,9 @@ function releaseStartupLock(): void {
   try { unlinkSync(getStartupLockPath()); } catch { /* already removed */ }
 }
 
+// NOTE: startDaemon() is the assistant-side daemon lifecycle manager.
+// It should eventually converge with cli/src/lib/local.ts::startLocalDaemon
+// which is the CLI-side equivalent.
 export async function startDaemon(): Promise<{
   pid: number;
   alreadyRunning: boolean;

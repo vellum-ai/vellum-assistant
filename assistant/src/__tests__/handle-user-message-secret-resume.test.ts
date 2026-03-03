@@ -1,7 +1,12 @@
 import * as net from "node:net";
 import { describe, expect, mock, test } from "bun:test";
 
-mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
+const actualEnv = await import("../config/env.js");
+mock.module("../config/env.js", () => ({
+  ...actualEnv,
+  isHttpAuthDisabled: () => true,
+  isMonitoringEnabled: () => false,
+}));
 
 const { handleUserMessage } = await import("../daemon/handlers/sessions.js");
 
@@ -47,6 +52,7 @@ describe("handleUserMessage secret redirect continuation", () => {
       setAssistantId: () => {},
       setChannelCapabilities: () => {},
       setGuardianContext: () => {},
+      setAuthContext: () => {},
       setCommandIntent: () => {},
       updateClient: () => {},
       emitActivityState: () => {},

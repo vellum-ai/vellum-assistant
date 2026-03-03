@@ -106,6 +106,11 @@ async function publishAndReadFrame(
   await assistantEventHub.publish(event);
 
   const reader = response.body!.getReader();
+
+  // The first chunk is the immediate heartbeat comment enqueued in start().
+  await reader.read();
+
+  // The second chunk is the actual assistant event.
   const { value } = await reader.read();
   ac.abort();
 
@@ -365,6 +370,11 @@ describe("SSE IPC parity — streaming/delta message types", () => {
     await assistantEventHub.publish(published);
 
     const reader = response.body!.getReader();
+
+    // The first chunk is the immediate heartbeat comment enqueued in start().
+    await reader.read();
+
+    // The second chunk is the actual assistant event.
     const { value } = await reader.read();
     ac.abort();
 

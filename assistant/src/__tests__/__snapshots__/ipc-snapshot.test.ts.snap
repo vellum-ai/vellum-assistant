@@ -768,54 +768,6 @@ exports[`IPC message snapshots ClientMessage types oauth_connect_start serialize
 }
 `;
 
-exports[`IPC message snapshots ClientMessage types browser_cdp_response serializes to expected JSON 1`] = `
-{
-  "sessionId": "test-session",
-  "success": true,
-  "type": "browser_cdp_response",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types browser_user_click serializes to expected JSON 1`] = `
-{
-  "sessionId": "test-session",
-  "surfaceId": "test-surface",
-  "type": "browser_user_click",
-  "x": 100,
-  "y": 200,
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types browser_user_scroll serializes to expected JSON 1`] = `
-{
-  "deltaX": 0,
-  "deltaY": -100,
-  "sessionId": "test-session",
-  "surfaceId": "test-surface",
-  "type": "browser_user_scroll",
-  "x": 100,
-  "y": 200,
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types browser_user_keypress serializes to expected JSON 1`] = `
-{
-  "key": "Enter",
-  "sessionId": "test-session",
-  "surfaceId": "test-surface",
-  "type": "browser_user_keypress",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types browser_interactive_mode serializes to expected JSON 1`] = `
-{
-  "enabled": true,
-  "sessionId": "test-session",
-  "surfaceId": "test-surface",
-  "type": "browser_interactive_mode",
-}
-`;
-
 exports[`IPC message snapshots ClientMessage types work_items_list serializes to expected JSON 1`] = `
 {
   "status": "queued",
@@ -2437,22 +2389,6 @@ exports[`IPC message snapshots ServerMessage types app_files_changed serializes 
 }
 `;
 
-exports[`IPC message snapshots ServerMessage types browser_frame serializes to expected JSON 1`] = `
-{
-  "frame": "base64-jpeg-data",
-  "metadata": {
-    "offsetTop": 0,
-    "pageScaleFactor": 1,
-    "scrollOffsetX": 0,
-    "scrollOffsetY": 0,
-    "timestamp": 1700000000,
-  },
-  "sessionId": "sess-001",
-  "surfaceId": "surface-001",
-  "type": "browser_frame",
-}
-`;
-
 exports[`IPC message snapshots ServerMessage types diagnostics_export_response serializes to expected JSON 1`] = `
 {
   "filePath": "/tmp/diagnostics-conv-001.zip",
@@ -2508,32 +2444,6 @@ exports[`IPC message snapshots ServerMessage types oauth_connect_result serializ
   ],
   "success": true,
   "type": "oauth_connect_result",
-}
-`;
-
-exports[`IPC message snapshots ServerMessage types browser_cdp_request serializes to expected JSON 1`] = `
-{
-  "sessionId": "test-session",
-  "type": "browser_cdp_request",
-}
-`;
-
-exports[`IPC message snapshots ServerMessage types browser_interactive_mode_changed serializes to expected JSON 1`] = `
-{
-  "enabled": true,
-  "sessionId": "test-session",
-  "surfaceId": "test-surface",
-  "type": "browser_interactive_mode_changed",
-}
-`;
-
-exports[`IPC message snapshots ServerMessage types browser_handoff_request serializes to expected JSON 1`] = `
-{
-  "message": "Login required",
-  "reason": "auth",
-  "sessionId": "test-session",
-  "surfaceId": "test-surface",
-  "type": "browser_handoff_request",
 }
 `;
 

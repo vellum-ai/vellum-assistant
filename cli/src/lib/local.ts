@@ -14,7 +14,7 @@ import { dirname, join } from "path";
 import { loadLatestAssistant } from "./assistant-config.js";
 import { GATEWAY_PORT } from "./constants.js";
 import { stopProcessByPidFile } from "./process.js";
-import { openLogFile, closeLogFile } from "./xdg-log.js";
+import { openLogFile, pipeToLogFile } from "./xdg-log.js";
 
 const _require = createRequire(import.meta.url);
 
@@ -148,6 +148,10 @@ async function waitForSocketFile(
   return existsSync(socketPath);
 }
 
+function resolveDaemonMainPath(assistantIndex: string): string {
+  return join(dirname(assistantIndex), "daemon", "main.ts");
+}
+
 async function startDaemonFromSource(assistantIndex: string): Promise<void> {
   const env: Record<string, string | undefined> = {
     ...process.env,
@@ -174,6 +178,80 @@ async function startDaemonFromSource(assistantIndex: string): Promise<void> {
     });
     child.on("error", reject);
   });
+}
+
+// NOTE: startDaemonWatchFromSource() is the CLI-side watch-mode daemon
+// launcher. Its lifecycle guards should eventually converge with
+// assistant/src/daemon/daemon-control.ts::startDaemon which is the
+// assistant-side equivalent.
+async function startDaemonWatchFromSource(assistantIndex: string): Promise<void> {
+  const mainPath = resolveDaemonMainPath(assistantIndex);
+  if (!existsSync(mainPath)) {
+    throw new Error(`Daemon main.ts not found at ${mainPath}`);
+  }
+
+  const vellumDir = join(homedir(), ".vellum");
+  mkdirSync(vellumDir, { recursive: true });
+
+  const pidFile = join(vellumDir, "vellum.pid");
+  const socketFile = join(vellumDir, "vellum.sock");
+
+  // --- Lifecycle guard: prevent split-brain daemon state ---
+  // If a daemon is already running, skip spawning a new one.
+  if (existsSync(pidFile)) {
+    try {
+      const pid = parseInt(readFileSync(pidFile, "utf-8").trim(), 10);
+      if (!isNaN(pid)) {
+        try {
+          process.kill(pid, 0); // Check if alive
+          console.log(`   Daemon already running (pid ${pid})\n`);
+          return;
+        } catch {
+          // Process doesn't exist, clean up stale PID file
+          try { unlinkSync(pidFile); } catch {}
+        }
+      }
+    } catch {}
+  }
+
+  // PID file was stale or missing, but a daemon with a different PID may
+  // still be listening on the socket. Check before starting a new one.
+  if (await isSocketResponsive(socketFile)) {
+    const ownerPid = findSocketOwnerPid(socketFile);
+    if (ownerPid) {
+      writeFileSync(pidFile, String(ownerPid), "utf-8");
+      console.log(
+        `   Daemon socket is responsive (pid ${ownerPid}) — skipping restart\n`,
+      );
+    } else {
+      console.log("   Daemon socket is responsive — skipping restart\n");
+    }
+    return;
+  }
+
+  // Socket is unresponsive or missing — safe to clean up and start fresh.
+  try { unlinkSync(socketFile); } catch {}
+
+  const env: Record<string, string | undefined> = {
+    ...process.env,
+    RUNTIME_HTTP_PORT: process.env.RUNTIME_HTTP_PORT || "7821",
+  };
+
+  const daemonLogFd = openLogFile("hatch.log");
+  const child = spawn("bun", ["--watch", "run", mainPath], {
+    detached: true,
+    stdio: ["ignore", "pipe", "pipe"],
+    env,
+  });
+  pipeToLogFile(child, daemonLogFd, "daemon");
+  child.unref();
+  const daemonPid = child.pid;
+
+  if (daemonPid) {
+    writeFileSync(pidFile, String(daemonPid), "utf-8");
+  }
+
+  console.log("   Daemon started in watch mode (bun --watch)");
 }
 
 function resolveGatewayDir(): string {
@@ -417,10 +495,16 @@ function getLocalLanIPv4(): string | undefined {
   return undefined;
 }
 
-export async function startLocalDaemon(): Promise<void> {
-  if (process.env.VELLUM_DESKTOP_APP) {
+// NOTE: startLocalDaemon() is the CLI-side daemon lifecycle manager.
+// It should eventually converge with
+// assistant/src/daemon/daemon-control.ts::startDaemon which is the
+// assistant-side equivalent.
+export async function startLocalDaemon(watch: boolean = false): Promise<void> {
+  if (process.env.VELLUM_DESKTOP_APP && !watch) {
     // When running inside the desktop app, the CLI owns the daemon lifecycle.
     // Find the vellum-daemon binary adjacent to the CLI binary.
+    // In watch mode, skip the bundled binary and use source (bun --watch
+    // only works with source files, not compiled binaries).
     const daemonBinary = join(dirname(process.execPath), "vellum-daemon");
     if (!existsSync(daemonBinary)) {
       throw new Error(
@@ -513,20 +597,16 @@ export async function startLocalDaemon(): Promise<void> {
         }
       }
 
-      const daemonLogFd = openLogFile("daemon.log");
-      let daemonPid: number | undefined;
-      try {
-        const child = spawn(daemonBinary, [], {
-          cwd: dirname(daemonBinary),
-          detached: true,
-          stdio: ["ignore", daemonLogFd, daemonLogFd],
-          env: daemonEnv,
-        });
-        child.unref();
-        daemonPid = child.pid;
-      } finally {
-        closeLogFile(daemonLogFd);
-      }
+      const daemonLogFd = openLogFile("hatch.log");
+      const child = spawn(daemonBinary, [], {
+        cwd: dirname(daemonBinary),
+        detached: true,
+        stdio: ["ignore", "pipe", "pipe"],
+        env: daemonEnv,
+      });
+      pipeToLogFile(child, daemonLogFd, "daemon");
+      child.unref();
+      const daemonPid = child.pid;
 
       // Write PID file immediately so the health monitor can find the process
       // and concurrent hatch() calls see it as alive.
@@ -549,7 +629,11 @@ export async function startLocalDaemon(): Promise<void> {
         );
         // Kill the bundled daemon to avoid two processes competing for the same socket/port
         await stopProcessByPidFile(pidFile, "bundled daemon", [socketFile]);
-        await startDaemonFromSource(assistantIndex);
+        if (watch) {
+          await startDaemonWatchFromSource(assistantIndex);
+        } else {
+          await startDaemonFromSource(assistantIndex);
+        }
         socketReady = await waitForSocketFile(socketFile, 60000);
       }
     }
@@ -571,11 +655,24 @@ export async function startLocalDaemon(): Promise<void> {
           "  Ensure the daemon binary is bundled alongside the CLI, or run from the source tree.",
       );
     }
-    await startDaemonFromSource(assistantIndex);
+    if (watch) {
+      await startDaemonWatchFromSource(assistantIndex);
+
+      const vellumDir = join(homedir(), ".vellum");
+      const socketFile = join(vellumDir, "vellum.sock");
+      const socketReady = await waitForSocketFile(socketFile, 60000);
+      if (socketReady) {
+        console.log("   Daemon socket ready\n");
+      } else {
+        console.log("   ⚠️  Daemon socket did not appear within 60s — continuing anyway\n");
+      }
+    } else {
+      await startDaemonFromSource(assistantIndex);
+    }
   }
 }
 
-export async function startGateway(assistantId?: string): Promise<string> {
+export async function startGateway(assistantId?: string, watch: boolean = false): Promise<string> {
   const publicUrl = await discoverPublicUrl();
   if (publicUrl) {
     console.log(`   Public URL: ${publicUrl}`);
@@ -681,8 +778,10 @@ export async function startGateway(assistantId?: string): Promise<string> {
 
   let gateway;
 
-  if (process.env.VELLUM_DESKTOP_APP) {
+  if (process.env.VELLUM_DESKTOP_APP && !watch) {
     // Desktop app: spawn the compiled gateway binary directly (mirrors daemon pattern).
+    // In watch mode, skip the bundled binary and use source (bun --watch
+    // only works with source files, not compiled binaries).
     const gatewayBinary = join(dirname(process.execPath), "vellum-gateway");
     if (!existsSync(gatewayBinary)) {
       throw new Error(
@@ -691,29 +790,29 @@ export async function startGateway(assistantId?: string): Promise<string> {
       );
     }
 
-    const gatewayLogFd = openLogFile("gateway.log");
-    try {
-      gateway = spawn(gatewayBinary, [], {
-        detached: true,
-        stdio: ["ignore", gatewayLogFd, gatewayLogFd],
-        env: gatewayEnv,
-      });
-    } finally {
-      closeLogFile(gatewayLogFd);
-    }
+    const gatewayLogFd = openLogFile("hatch.log");
+    gateway = spawn(gatewayBinary, [], {
+      detached: true,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: gatewayEnv,
+    });
+    pipeToLogFile(gateway, gatewayLogFd, "gateway");
   } else {
     // Source tree / bunx: resolve the gateway source directory and run via bun.
     const gatewayDir = resolveGatewayDir();
-    const gwLogFd = openLogFile("gateway.log");
-    try {
-      gateway = spawn("bun", ["run", "src/index.ts", "--vellum-gateway"], {
-        cwd: gatewayDir,
-        detached: true,
-        stdio: ["ignore", gwLogFd, gwLogFd],
-        env: gatewayEnv,
-      });
-    } finally {
-      closeLogFile(gwLogFd);
+    const bunArgs = watch
+      ? ["--watch", "run", "src/index.ts", "--vellum-gateway"]
+      : ["run", "src/index.ts", "--vellum-gateway"];
+    const gwLogFd = openLogFile("hatch.log");
+    gateway = spawn("bun", bunArgs, {
+      cwd: gatewayDir,
+      detached: true,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: gatewayEnv,
+    });
+    pipeToLogFile(gateway, gwLogFd, "gateway");
+    if (watch) {
+      console.log("   Gateway started in watch mode (bun --watch)");
     }
   }
 

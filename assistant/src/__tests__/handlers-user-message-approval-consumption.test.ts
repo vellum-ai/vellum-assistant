@@ -116,6 +116,7 @@ interface TestSession {
   setTurnInterfaceContext: (ctx: unknown) => void;
   setAssistantId: (assistantId: string) => void;
   setGuardianContext: (ctx: unknown) => void;
+  setAuthContext: (ctx: unknown) => void;
   setCommandIntent: (intent: unknown) => void;
   updateClient: (
     sendToClient: (msg: ServerMessage) => void,
@@ -180,6 +181,7 @@ function makeSession(overrides: Partial<TestSession> = {}): TestSession {
     setTurnInterfaceContext: () => {},
     setAssistantId: () => {},
     setGuardianContext: () => {},
+    setAuthContext: () => {},
     setCommandIntent: () => {},
     updateClient: () => {},
     emitActivityState: () => {},

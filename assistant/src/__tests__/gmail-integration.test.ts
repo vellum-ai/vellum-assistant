@@ -11,6 +11,13 @@ const toolsManifestPath = resolve(
   "../config/bundled-skills/messaging/TOOLS.json",
 );
 const toolsManifest = JSON.parse(readFileSync(toolsManifestPath, "utf-8"));
+const slackToolsManifestPath = resolve(
+  __dirname,
+  "../config/bundled-skills/slack/TOOLS.json",
+);
+const slackToolsManifest = JSON.parse(
+  readFileSync(slackToolsManifestPath, "utf-8"),
+);
 
 describe("Messaging tool contract", () => {
   const expectedGmailToolNames = [
@@ -70,19 +77,21 @@ describe("Messaging tool contract", () => {
   });
 
   test("TOOLS.json manifest contains all expected slack_* tool names", () => {
-    const manifestToolNames: string[] = toolsManifest.tools.map(
+    const slackToolNames: string[] = slackToolsManifest.tools.map(
       (t: { name: string }) => t.name,
     );
     for (const name of expectedSlackToolNames) {
-      expect(manifestToolNames).toContain(name);
+      expect(slackToolNames).toContain(name);
     }
   });
 
-  test("TOOLS.json manifest contains at least the expected number of tools", () => {
+  test("TOOLS.json manifests contain at least the expected number of tools", () => {
     const expectedMinimum =
       expectedGmailToolNames.length +
       expectedMessagingToolNames.length +
       expectedSlackToolNames.length;
-    expect(toolsManifest.tools.length).toBeGreaterThanOrEqual(expectedMinimum);
+    const totalTools =
+      toolsManifest.tools.length + slackToolsManifest.tools.length;
+    expect(totalTools).toBeGreaterThanOrEqual(expectedMinimum);
   });
 });

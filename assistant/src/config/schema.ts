@@ -17,7 +17,6 @@ export type {
   CallerIdentityConfig,
   CallsConfig,
   CallsDisclosureConfig,
-  CallsElevenLabsConfig,
   CallsSafetyConfig,
   CallsVerificationConfig,
   CallsVoiceConfig,
@@ -26,7 +25,6 @@ export {
   CallerIdentityConfigSchema,
   CallsConfigSchema,
   CallsDisclosureConfigSchema,
-  CallsElevenLabsConfigSchema,
   CallsSafetyConfigSchema,
   CallsVerificationConfigSchema,
   CallsVoiceConfigSchema,
@@ -68,6 +66,13 @@ export {
   TimeoutConfigSchema,
   UiConfigSchema,
 } from './core-schema.js';
+export type {
+  ElevenLabsConfig,
+} from './elevenlabs-schema.js';
+export {
+  DEFAULT_ELEVENLABS_VOICE_ID,
+  ElevenLabsConfigSchema,
+} from './elevenlabs-schema.js';
 export type {
   McpConfig,
   McpServerConfig,
@@ -146,6 +151,7 @@ export {
 // Imports for AssistantConfigSchema composition
 import { HeartbeatConfigSchema, SwarmConfigSchema, WorkspaceGitConfigSchema } from './agent-schema.js';
 import { CallsConfigSchema } from './calls-schema.js';
+import { ElevenLabsConfigSchema } from './elevenlabs-schema.js';
 import {
   AuditLogConfigSchema,
   ContextWindowConfigSchema,
@@ -228,6 +234,7 @@ export const AssistantConfigSchema = z.object({
   skills: SkillsConfigSchema.default(SkillsConfigSchema.parse({})),
   workspaceGit: WorkspaceGitConfigSchema.default(WorkspaceGitConfigSchema.parse({})),
   calls: CallsConfigSchema.default(CallsConfigSchema.parse({})),
+  elevenlabs: ElevenLabsConfigSchema.default(ElevenLabsConfigSchema.parse({})),
   sms: SmsConfigSchema.default(SmsConfigSchema.parse({})),
   ingress: IngressConfigSchema,
   platform: PlatformConfigSchema.default(PlatformConfigSchema.parse({})),

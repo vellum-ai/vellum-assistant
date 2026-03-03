@@ -11,17 +11,16 @@ You are helping your user configure Twilio for voice calls and SMS messaging. Tw
 ## Quick Start
 
 ```bash
-TOKEN=$(cat ~/.vellum/http-token)
 # 1. Check current status
 curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/config" \
-  -H "Authorization: Bearer $TOKEN"
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN"
 # 2. Store credentials (after collecting via credential_store prompt)
 curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/credentials" \
-  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" -H "Content-Type: application/json" \
   -d '{"accountSid":"ACxxx","authToken":"xxx"}'
 # 3. Provision or assign a number
 curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/numbers/provision" \
-  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" -H "Content-Type: application/json" \
   -d '{"country":"US","areaCode":"415"}'
 ```
 
@@ -67,9 +66,8 @@ All HTTP examples below include the optional `assistantId` query parameter in as
 First, check whether Twilio is already configured:
 
 ```bash
-TOKEN=$(cat ~/.vellum/http-token)
 curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/config" \
-  -H "Authorization: Bearer $TOKEN"
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN"
 ```
 
 The response includes:
@@ -96,9 +94,8 @@ If credentials are not yet stored, guide the user through Twilio account setup:
 After both credentials are collected, retrieve them from secure storage and send them to the gateway:
 
 ```bash
-TOKEN=$(cat ~/.vellum/http-token)
 curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/credentials" \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"accountSid":"<value from credential_store for twilio/account_sid>","authToken":"<value from credential_store for twilio/auth_token>"}'
 ```
@@ -116,9 +113,8 @@ The assistant needs a phone number to make calls and send SMS. There are two pat
 If the user wants to buy a new number through Twilio:
 
 ```bash
-TOKEN=$(cat ~/.vellum/http-token)
 curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/numbers/provision" \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"country":"US","areaCode":"415"}'
 ```
@@ -143,9 +139,8 @@ If ingress is not yet configured, webhook setup is skipped gracefully — the nu
 If the user already has a Twilio phone number, first list available numbers:
 
 ```bash
-TOKEN=$(cat ~/.vellum/http-token)
 curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/numbers" \
-  -H "Authorization: Bearer $TOKEN"
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN"
 ```
 
 The response includes a `numbers` array with each number's `phoneNumber`, `friendlyName`, and `capabilities` (voice, SMS). Present these to the user and let them choose.
@@ -153,9 +148,8 @@ The response includes a `numbers` array with each number's `phoneNumber`, `frien
 Then assign the chosen number:
 
 ```bash
-TOKEN=$(cat ~/.vellum/http-token)
 curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/numbers/assign" \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"phoneNumber":"+14155551234"}'
 ```
@@ -173,9 +167,8 @@ credential_store action=store service=twilio field=phone_number value=+141555512
 Then assign it through the gateway:
 
 ```bash
-TOKEN=$(cat ~/.vellum/http-token)
 curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/numbers/assign" \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"phoneNumber":"+14155551234"}'
 ```
@@ -211,9 +204,8 @@ Webhook URLs are automatically configured on the Twilio phone number when provis
 After configuration, verify by checking the config endpoint again.
 
 ```bash
-TOKEN=$(cat ~/.vellum/http-token)
 curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/config" \
-  -H "Authorization: Bearer $TOKEN"
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN"
 ```
 
 Confirm:
@@ -251,13 +243,12 @@ After the guardian-verify-setup skill completes verification for a channel, load
 To re-check guardian status later, query the channel(s) that were verified:
 
 ```bash
-TOKEN=$(cat ~/.vellum/http-token)
 # Check SMS guardian status
 curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/guardian/status?channel=sms" \
-  -H "Authorization: Bearer $TOKEN"
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN"
 # Check voice guardian status
 curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/guardian/status?channel=voice" \
-  -H "Authorization: Bearer $TOKEN"
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN"
 ```
 
 Check the status for whichever channel(s) the user actually verified (SMS, voice, or both). Report the guardian verification result per channel: **"Guardian identity — SMS: {verified | not configured}, Voice: {verified | not configured}."**
@@ -280,9 +271,8 @@ SMS is available automatically once Twilio is configured — no additional featu
 If the user wants to disconnect Twilio:
 
 ```bash
-TOKEN=$(cat ~/.vellum/http-token)
 curl -s -X DELETE "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/credentials" \
-  -H "Authorization: Bearer $TOKEN"
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN"
 ```
 
 This removes the stored Account SID and Auth Token. Phone number assignments are preserved. Voice calls and SMS will stop working until credentials are reconfigured.

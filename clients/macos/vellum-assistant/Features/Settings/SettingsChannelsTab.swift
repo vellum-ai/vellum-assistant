@@ -28,16 +28,11 @@ struct SettingsChannelsTab: View {
     @State private var twilioAuthTokenText = ""
     @State private var twilioSetupExpanded = false
 
-    // Twilio number picker (SMS card)
-    @State private var twilioNumberPickerExpanded = false
-
     // Twilio credential entry (Voice card)
     @State private var voiceAccountSidText = ""
     @State private var voiceAuthTokenText = ""
     @State private var voiceSetupExpanded = false
 
-    // Twilio number picker (Voice card)
-    @State private var voiceNumberPickerExpanded = false
 
     // Slack channel credential entry
     @State private var slackChannelSetupExpanded = false
@@ -66,7 +61,7 @@ struct SettingsChannelsTab: View {
     private let labelColumnWidth: CGFloat = 140
 
     var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.xl) {
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
             connectionsSection
         }
         .onAppear {
@@ -78,6 +73,9 @@ struct SettingsChannelsTab: View {
             store.refreshChannelGuardianStatus(channel: "slack")
             store.refreshTelegramApprovedMembers()
             store.fetchSlackChannelConfig()
+            if store.twilioHasCredentials {
+                store.refreshTwilioNumbers()
+            }
             Task {
                 await loadSmsFeatureFlag()
                 if isSmsFeatureEnabled {
@@ -88,9 +86,9 @@ struct SettingsChannelsTab: View {
         .onChange(of: store.twilioHasCredentials) { _, hasCredentials in
             if !hasCredentials {
                 twilioSetupExpanded = false
-                twilioNumberPickerExpanded = false
                 voiceSetupExpanded = false
-                voiceNumberPickerExpanded = false
+            } else {
+                store.refreshTwilioNumbers()
             }
         }
         .alert("Regenerate Bearer Token", isPresented: $showingRegenerateConfirmation) {
@@ -178,12 +176,10 @@ struct SettingsChannelsTab: View {
                     .accessibilityLabel("Copy bearer token")
                     .help("Copy token")
 
-                    // Regenerate button
-                    Button("Regenerate") {
-                        showingRegenerateConfirmation = true
-                    }
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.accent)
+                }
+
+                VButton(label: "Regenerate", style: .tertiary, size: .large) {
+                    showingRegenerateConfirmation = true
                 }
             }
         }
@@ -192,7 +188,7 @@ struct SettingsChannelsTab: View {
     // MARK: - Connections Section
 
     private var connectionsSection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
             mobileCard
             telegramCard
             slackChannelCard
@@ -277,33 +273,19 @@ struct SettingsChannelsTab: View {
 
             // Bot credential row
             if store.telegramHasBotToken {
-                channelStatusRow(
-                    label: "Bot",
-                    icon: "checkmark.circle.fill",
-                    iconColor: VColor.success,
-                    value: store.telegramBotUsername.map { "@\($0)" } ?? "Configured",
-                    valueURL: store.telegramBotUsername.flatMap { URL(string: "https://web.telegram.org/k/#@\($0)") },
-                    action: .init(label: "Clear", style: .secondary, disabled: store.telegramSaveInProgress) {
+                HStack(spacing: VSpacing.sm) {
+                    VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .large) {}
+                    VButton(label: "Disconnect", style: .danger, size: .large, isDisabled: store.telegramSaveInProgress) {
                         store.clearTelegramCredentials()
                         telegramBotTokenText = ""
                         telegramSetupExpanded = false
                     }
-                )
+                }
             } else if telegramSetupExpanded {
                 telegramCredentialEntry
             } else {
-                VStack(alignment: .leading, spacing: VSpacing.lg) {
-                    HStack(spacing: VSpacing.sm) {
-                        Image(systemName: "exclamationmark.triangle")
-                            .foregroundColor(VColor.warning)
-                            .font(.system(size: 12))
-                        Text("Not configured")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                    }
-                    VButton(label: "Set Up", style: .secondary, size: .large) {
-                        telegramSetupExpanded = true
-                    }
+                VButton(label: "Set Up", style: .secondary, size: .large) {
+                    telegramSetupExpanded = true
                 }
             }
 
@@ -389,16 +371,9 @@ struct SettingsChannelsTab: View {
 
     private var telegramCredentialEntry: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            HStack {
-                Text("Bot Token")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
-                Spacer()
-                VButton(label: "Cancel", style: .secondary, size: .large) {
-                    telegramSetupExpanded = false
-                    telegramBotTokenText = ""
-                }
-            }
+            Text("Bot Token")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textSecondary)
 
             SecureField("Telegram bot token", text: $telegramBotTokenText)
                 .vInputStyle()
@@ -418,12 +393,18 @@ struct SettingsChannelsTab: View {
                         .foregroundColor(VColor.textSecondary)
                 }
             } else {
-                VButton(label: "Save", style: .secondary, size: .large) {
-                    store.saveTelegramToken(botToken: telegramBotTokenText)
-                    telegramBotTokenText = ""
-                    telegramSetupExpanded = false
+                HStack(spacing: VSpacing.sm) {
+                    VButton(label: "Connect", style: .secondary, size: .large) {
+                        store.saveTelegramToken(botToken: telegramBotTokenText)
+                        telegramBotTokenText = ""
+                        telegramSetupExpanded = false
+                    }
+                    .disabled(telegramBotTokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    VButton(label: "Cancel", style: .tertiary, size: .large) {
+                        telegramSetupExpanded = false
+                        telegramBotTokenText = ""
+                    }
                 }
-                .disabled(telegramBotTokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
     }
@@ -442,42 +423,20 @@ struct SettingsChannelsTab: View {
             }
 
             if store.slackChannelHasBotToken && store.slackChannelHasAppToken {
-                channelStatusRow(
-                    label: "Bot",
-                    icon: "checkmark.circle.fill",
-                    iconColor: VColor.success,
-                    value: {
-                        var parts: [String] = []
-                        if let username = store.slackChannelBotUsername {
-                            parts.append("@\(username)")
-                        }
-                        if let team = store.slackChannelTeamName {
-                            parts.append(team)
-                        }
-                        return parts.isEmpty ? "Configured" : parts.joined(separator: " — ")
-                    }(),
-                    action: .init(label: "Clear", style: .secondary, disabled: store.slackChannelSaveInProgress) {
+                HStack(spacing: VSpacing.sm) {
+                    VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .large) {}
+                    VButton(label: "Disconnect", style: .danger, size: .large, isDisabled: store.slackChannelSaveInProgress) {
                         store.clearSlackChannelConfig()
                         slackChannelBotTokenInput = ""
                         slackChannelAppTokenInput = ""
                         slackChannelSetupExpanded = false
                     }
-                )
+                }
             } else if slackChannelSetupExpanded {
                 slackChannelCredentialEntry
             } else {
-                VStack(alignment: .leading, spacing: VSpacing.lg) {
-                    HStack(spacing: VSpacing.sm) {
-                        Image(systemName: "exclamationmark.triangle")
-                            .foregroundColor(VColor.warning)
-                            .font(.system(size: 12))
-                        Text("Not configured")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                    }
-                    VButton(label: "Set Up", style: .secondary, size: .large) {
-                        slackChannelSetupExpanded = true
-                    }
+                VButton(label: "Set Up", style: .secondary, size: .large) {
+                    slackChannelSetupExpanded = true
                 }
             }
 
@@ -502,17 +461,9 @@ struct SettingsChannelsTab: View {
 
     private var slackChannelCredentialEntry: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            HStack {
-                Text("Slack Credentials")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
-                Spacer()
-                VButton(label: "Cancel", style: .secondary, size: .large) {
-                    slackChannelSetupExpanded = false
-                    slackChannelBotTokenInput = ""
-                    slackChannelAppTokenInput = ""
-                }
-            }
+            Text("Slack Credentials")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textSecondary)
 
             SecureField("Bot Token (xoxb-...)", text: $slackChannelBotTokenInput)
                 .vInputStyle()
@@ -537,19 +488,26 @@ struct SettingsChannelsTab: View {
                         .foregroundColor(VColor.textSecondary)
                 }
             } else {
-                VButton(label: "Save", style: .secondary, size: .large) {
-                    store.saveSlackChannelConfig(
-                        botToken: slackChannelBotTokenInput,
-                        appToken: slackChannelAppTokenInput
+                HStack(spacing: VSpacing.sm) {
+                    VButton(label: "Connect", style: .secondary, size: .large) {
+                        store.saveSlackChannelConfig(
+                            botToken: slackChannelBotTokenInput,
+                            appToken: slackChannelAppTokenInput
+                        )
+                        slackChannelBotTokenInput = ""
+                        slackChannelAppTokenInput = ""
+                        slackChannelSetupExpanded = false
+                    }
+                    .disabled(
+                        slackChannelBotTokenInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        || slackChannelAppTokenInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     )
-                    slackChannelBotTokenInput = ""
-                    slackChannelAppTokenInput = ""
-                    slackChannelSetupExpanded = false
+                    VButton(label: "Cancel", style: .tertiary, size: .large) {
+                        slackChannelSetupExpanded = false
+                        slackChannelBotTokenInput = ""
+                        slackChannelAppTokenInput = ""
+                    }
                 }
-                .disabled(
-                    slackChannelBotTokenInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    || slackChannelAppTokenInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                )
             }
         }
     }
@@ -569,54 +527,39 @@ struct SettingsChannelsTab: View {
 
             // Credentials row
             if store.twilioHasCredentials {
-                channelStatusRow(
-                    label: "Credentials",
-                    icon: "checkmark.circle.fill",
-                    iconColor: VColor.success,
-                    value: "Configured",
-                    action: .init(label: "Clear", style: .secondary, disabled: store.twilioSaveInProgress) {
+                HStack(spacing: VSpacing.sm) {
+                    VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .large) {}
+                    VButton(label: "Disconnect", style: .danger, size: .large, isDisabled: store.twilioSaveInProgress) {
                         store.clearTwilioCredentials()
                     }
-                )
+                }
             } else if twilioSetupExpanded {
                 twilioCredentialEntry
             } else {
-                VStack(alignment: .leading, spacing: VSpacing.lg) {
-                    HStack(spacing: VSpacing.sm) {
-                        Image(systemName: "exclamationmark.triangle")
-                            .foregroundColor(VColor.warning)
-                            .font(.system(size: 12))
-                        Text("Not configured")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                    }
-                    VButton(label: "Set Up", style: .secondary, size: .large) {
-                        twilioSetupExpanded = true
-                    }
+                VButton(label: "Set Up", style: .secondary, size: .large) {
+                    twilioSetupExpanded = true
                 }
             }
 
             // Phone number row (only when credentials exist)
             if store.twilioHasCredentials {
                 Divider().background(VColor.surfaceBorder)
-
-                if twilioNumberPickerExpanded {
-                    twilioNumberPicker
-                } else {
-                    channelStatusRow(
-                        label: "Phone Number",
-                        icon: store.twilioPhoneNumber != nil ? "phone.fill" : "phone",
-                        iconColor: store.twilioPhoneNumber != nil ? VColor.success : VColor.textMuted,
-                        value: store.twilioPhoneNumber ?? "Not assigned",
-                        valueFont: VFont.mono,
-                        valueColor: store.twilioPhoneNumber != nil ? VColor.textPrimary : VColor.textMuted,
-                        action: .init(label: "Change", style: .secondary) {
-                            twilioNumberPickerExpanded = true
-                            if !store.twilioListInProgress {
-                                store.refreshTwilioNumbers()
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Phone Number")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                    VDropdown(
+                        placeholder: "Not Set",
+                        selection: Binding(
+                            get: { store.twilioPhoneNumber ?? "" },
+                            set: { newValue in
+                                store.assignTwilioNumber(phoneNumber: newValue)
                             }
-                        }
+                        ),
+                        options: store.twilioNumbers.map { (label: $0.friendlyName, value: $0.phoneNumber) },
+                        emptyValue: ""
                     )
+                    .frame(maxWidth: 360)
                 }
             }
 
@@ -658,54 +601,39 @@ struct SettingsChannelsTab: View {
 
             // Credentials row
             if store.twilioHasCredentials {
-                channelStatusRow(
-                    label: "Credentials",
-                    icon: "checkmark.circle.fill",
-                    iconColor: VColor.success,
-                    value: "Configured",
-                    action: .init(label: "Clear", style: .secondary, disabled: store.twilioSaveInProgress) {
+                HStack(spacing: VSpacing.sm) {
+                    VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .large) {}
+                    VButton(label: "Disconnect", style: .danger, size: .large, isDisabled: store.twilioSaveInProgress) {
                         store.clearTwilioCredentials()
                     }
-                )
+                }
             } else if voiceSetupExpanded {
                 voiceCredentialEntry
             } else {
-                VStack(alignment: .leading, spacing: VSpacing.lg) {
-                    HStack(spacing: VSpacing.sm) {
-                        Image(systemName: "exclamationmark.triangle")
-                            .foregroundColor(VColor.warning)
-                            .font(.system(size: 12))
-                        Text("Not configured")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                    }
-                    VButton(label: "Set Up", style: .secondary, size: .large) {
-                        voiceSetupExpanded = true
-                    }
+                VButton(label: "Set Up", style: .secondary, size: .large) {
+                    voiceSetupExpanded = true
                 }
             }
 
             // Phone number row (only when credentials exist)
             if store.twilioHasCredentials {
                 Divider().background(VColor.surfaceBorder)
-
-                if voiceNumberPickerExpanded {
-                    voiceNumberPicker
-                } else {
-                    channelStatusRow(
-                        label: "Phone Number",
-                        icon: store.twilioPhoneNumber != nil ? "phone.fill" : "phone",
-                        iconColor: store.twilioPhoneNumber != nil ? VColor.success : VColor.textMuted,
-                        value: store.twilioPhoneNumber ?? "Not assigned",
-                        valueFont: VFont.mono,
-                        valueColor: store.twilioPhoneNumber != nil ? VColor.textPrimary : VColor.textMuted,
-                        action: .init(label: "Change", style: .secondary) {
-                            voiceNumberPickerExpanded = true
-                            if !store.twilioListInProgress {
-                                store.refreshTwilioNumbers()
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Phone Number")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                    VDropdown(
+                        placeholder: "Not Set",
+                        selection: Binding(
+                            get: { store.twilioPhoneNumber ?? "" },
+                            set: { newValue in
+                                store.assignTwilioNumber(phoneNumber: newValue)
                             }
-                        }
+                        ),
+                        options: store.twilioNumbers.map { (label: $0.friendlyName, value: $0.phoneNumber) },
+                        emptyValue: ""
                     )
+                    .frame(maxWidth: 360)
                 }
             }
 
@@ -737,17 +665,9 @@ struct SettingsChannelsTab: View {
 
     private var twilioCredentialEntry: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            HStack {
-                Text("Account SID and Auth Token")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
-                Spacer()
-                VButton(label: "Cancel", style: .secondary, size: .large) {
-                    twilioSetupExpanded = false
-                    twilioAccountSidText = ""
-                    twilioAuthTokenText = ""
-                }
-            }
+            Text("Account SID and Auth Token")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textSecondary)
 
             TextField("Account SID", text: $twilioAccountSidText)
                 .vInputStyle()
@@ -768,78 +688,24 @@ struct SettingsChannelsTab: View {
                         .foregroundColor(VColor.textSecondary)
                 }
             } else {
-                VButton(label: "Save Credentials", style: .secondary, size: .large) {
-                    store.saveTwilioCredentials(
-                        accountSid: twilioAccountSidText,
-                        authToken: twilioAuthTokenText
-                    )
-                    twilioAccountSidText = ""
-                    twilioAuthTokenText = ""
-                    twilioSetupExpanded = false
-                }
-                .disabled(
-                    twilioAccountSidText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                    twilioAuthTokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                )
-            }
-        }
-    }
-
-    // MARK: - Twilio Number Picker
-
-    private var twilioNumberPicker: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            HStack {
-                Text("Phone Number")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
-                Spacer()
-                VButton(label: "Cancel", style: .secondary, size: .large) {
-                    twilioNumberPickerExpanded = false
-                }
-            }
-
-            if store.twilioListInProgress {
                 HStack(spacing: VSpacing.sm) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Loading numbers...")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                }
-            } else if store.twilioNumbers.isEmpty {
-                Text("No phone numbers found on this Twilio account.")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
-            } else {
-                ForEach(store.twilioNumbers, id: \.phoneNumber) { number in
-                    let isCurrent = number.phoneNumber == store.twilioPhoneNumber
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(number.phoneNumber)
-                                .font(VFont.mono)
-                                .foregroundColor(VColor.textPrimary)
-                            Text(number.friendlyName)
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
-                        }
-                        Spacer()
-                        if isCurrent {
-                            HStack(spacing: VSpacing.xs) {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundColor(VColor.success)
-                                    .font(.system(size: 12))
-                                Text("Current")
-                                    .font(VFont.caption)
-                                    .foregroundColor(VColor.textSecondary)
-                            }
-                        } else {
-                            VButton(label: "Use", style: .secondary, size: .large) {
-                                store.assignTwilioNumber(phoneNumber: number.phoneNumber)
-                                twilioNumberPickerExpanded = false
-                            }
-                            .disabled(store.twilioSaveInProgress)
-                        }
+                    VButton(label: "Connect", style: .secondary, size: .large) {
+                        store.saveTwilioCredentials(
+                            accountSid: twilioAccountSidText,
+                            authToken: twilioAuthTokenText
+                        )
+                        twilioAccountSidText = ""
+                        twilioAuthTokenText = ""
+                        twilioSetupExpanded = false
+                    }
+                    .disabled(
+                        twilioAccountSidText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                        twilioAuthTokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    )
+                    VButton(label: "Cancel", style: .tertiary, size: .large) {
+                        twilioSetupExpanded = false
+                        twilioAccountSidText = ""
+                        twilioAuthTokenText = ""
                     }
                 }
             }
@@ -850,17 +716,9 @@ struct SettingsChannelsTab: View {
 
     private var voiceCredentialEntry: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            HStack {
-                Text("Account SID and Auth Token")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
-                Spacer()
-                VButton(label: "Cancel", style: .secondary, size: .large) {
-                    voiceSetupExpanded = false
-                    voiceAccountSidText = ""
-                    voiceAuthTokenText = ""
-                }
-            }
+            Text("Account SID and Auth Token")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textSecondary)
 
             TextField("Account SID", text: $voiceAccountSidText)
                 .vInputStyle()
@@ -881,78 +739,24 @@ struct SettingsChannelsTab: View {
                         .foregroundColor(VColor.textSecondary)
                 }
             } else {
-                VButton(label: "Save Credentials", style: .secondary, size: .large) {
-                    store.saveTwilioCredentials(
-                        accountSid: voiceAccountSidText,
-                        authToken: voiceAuthTokenText
-                    )
-                    voiceAccountSidText = ""
-                    voiceAuthTokenText = ""
-                    voiceSetupExpanded = false
-                }
-                .disabled(
-                    voiceAccountSidText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                    voiceAuthTokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                )
-            }
-        }
-    }
-
-    // MARK: - Voice Number Picker
-
-    private var voiceNumberPicker: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            HStack {
-                Text("Phone Number")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
-                Spacer()
-                VButton(label: "Cancel", style: .secondary, size: .large) {
-                    voiceNumberPickerExpanded = false
-                }
-            }
-
-            if store.twilioListInProgress {
                 HStack(spacing: VSpacing.sm) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Loading numbers...")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                }
-            } else if store.twilioNumbers.isEmpty {
-                Text("No phone numbers found on this Twilio account.")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
-            } else {
-                ForEach(store.twilioNumbers, id: \.phoneNumber) { number in
-                    let isCurrent = number.phoneNumber == store.twilioPhoneNumber
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(number.phoneNumber)
-                                .font(VFont.mono)
-                                .foregroundColor(VColor.textPrimary)
-                            Text(number.friendlyName)
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
-                        }
-                        Spacer()
-                        if isCurrent {
-                            HStack(spacing: VSpacing.xs) {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundColor(VColor.success)
-                                    .font(.system(size: 12))
-                                Text("Current")
-                                    .font(VFont.caption)
-                                    .foregroundColor(VColor.textSecondary)
-                            }
-                        } else {
-                            VButton(label: "Use", style: .secondary, size: .large) {
-                                store.assignTwilioNumber(phoneNumber: number.phoneNumber)
-                                voiceNumberPickerExpanded = false
-                            }
-                            .disabled(store.twilioSaveInProgress)
-                        }
+                    VButton(label: "Connect", style: .secondary, size: .large) {
+                        store.saveTwilioCredentials(
+                            accountSid: voiceAccountSidText,
+                            authToken: voiceAuthTokenText
+                        )
+                        voiceAccountSidText = ""
+                        voiceAuthTokenText = ""
+                        voiceSetupExpanded = false
+                    }
+                    .disabled(
+                        voiceAccountSidText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                        voiceAuthTokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    )
+                    VButton(label: "Cancel", style: .tertiary, size: .large) {
+                        voiceSetupExpanded = false
+                        voiceAccountSidText = ""
+                        voiceAuthTokenText = ""
                     }
                 }
             }
@@ -1279,17 +1083,14 @@ struct SettingsChannelsTab: View {
             }
         }()
 
-        VStack(alignment: .leading, spacing: VSpacing.xs) {
-            HStack(spacing: VSpacing.sm) {
-                guardianLabel
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            guardianLabel
 
-                VInlineActionField(text: destinationBinding, placeholder: placeholder, actionLabel: "Send") {
-                    store.startOutboundGuardianVerification(channel: channel, destination: destination)
-                }
+            TextField(placeholder, text: destinationBinding)
+                .vInputStyle()
+                .font(VFont.body)
+                .foregroundColor(VColor.textPrimary)
                 .frame(maxWidth: 360)
-
-                Spacer()
-            }
 
             if channel == "telegram" {
                 HStack(spacing: 0) {
@@ -1311,13 +1112,16 @@ struct SettingsChannelsTab: View {
                         if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
                     }
                 }
-                .padding(.leading, labelColumnWidth + VSpacing.sm)
             } else if channel == "voice" || channel == "sms" {
                 Text("This is your personal phone number")
                     .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)
-                    .padding(.leading, labelColumnWidth + VSpacing.sm)
             }
+
+            VButton(label: "Send", style: .secondary, size: .large) {
+                store.startOutboundGuardianVerification(channel: channel, destination: destination)
+            }
+            .disabled(destination.isEmpty)
         }
     }
 
@@ -1333,22 +1137,35 @@ struct SettingsChannelsTab: View {
         outboundCode: String?
     ) -> some View {
         let isCodeCopied = outboundCodeCopiedChannel == channel
+        let canResend: Bool = {
+            // Bootstrap sessions (Telegram handle-based) don't support resend
+            if bootstrapUrl != nil { return false }
+            guard let nextResendAt else { return true }
+            return countdownNow >= nextResendAt
+        }()
+        let resendCooldownText: String? = {
+            guard let nextResendAt, countdownNow < nextResendAt else { return nil }
+            let remaining = Int(nextResendAt.timeIntervalSince(countdownNow))
+            return "Resend in \(remaining)s"
+        }()
 
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             HStack(spacing: VSpacing.sm) {
                 guardianLabel
-                Text("Verification sent")
-                    .font(VFont.body)
-                    .foregroundColor(VColor.warning)
                 Spacer()
             }
 
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                // Verification code display
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                // Verification Code label + code box
                 if let outboundCode {
-                    Text("Your verification code:")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                    HStack(spacing: VSpacing.xs) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(VColor.success)
+                            .font(.system(size: 12))
+                        Text("Verification Code Sent")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.success)
+                    }
 
                     HStack(spacing: VSpacing.sm) {
                         Text(outboundCode)
@@ -1387,6 +1204,7 @@ struct SettingsChannelsTab: View {
                         .help("Copy code")
                     }
                     .padding(VSpacing.md)
+                    .frame(width: 360)
                     .background(VColor.surface)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
                     .overlay(
@@ -1395,48 +1213,42 @@ struct SettingsChannelsTab: View {
                     )
                 }
 
-                // Countdown to expiry
-                if let expiresAt {
-                    let remaining = expiresAt.timeIntervalSince(countdownNow)
-                    if remaining > 0 {
-                        let minutes = Int(remaining) / 60
-                        let seconds = Int(remaining) % 60
-                        Text("Expires in \(minutes):\(String(format: "%02d", seconds))")
+                // Send count + countdown in one line
+                HStack(spacing: VSpacing.md) {
+                    if sendCount > 0 {
+                        Text("Sent \(sendCount) time\(sendCount == 1 ? "" : "s")")
                             .font(VFont.caption)
                             .foregroundColor(VColor.textMuted)
-                    } else {
-                        Text("Verification expired")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.error)
+                    }
+                    if let expiresAt {
+                        let remaining = expiresAt.timeIntervalSince(countdownNow)
+                        if remaining > 0 {
+                            let minutes = Int(remaining) / 60
+                            let seconds = Int(remaining) % 60
+                            Text("Expires in \(minutes):\(String(format: "%02d", seconds))")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                        } else {
+                            Text("Verification expired")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.error)
+                        }
                     }
                 }
 
-                if sendCount > 0 {
-                    Text("Sent \(sendCount) time\(sendCount == 1 ? "" : "s")")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
-                }
-
-                // Resend button with cooldown
+                // Resend + Cancel in one line
                 // Disable resend during bootstrap: when bootstrapUrl is set the session is
                 // in pending_bootstrap state and the daemon rejects resend attempts.
                 HStack(spacing: VSpacing.sm) {
-                    let canResend: Bool = {
-                        // Bootstrap sessions (Telegram handle-based) don't support resend
-                        if bootstrapUrl != nil { return false }
-                        guard let nextResendAt else { return true }
-                        return countdownNow >= nextResendAt
-                    }()
-                    let resendCooldownText: String? = {
-                        guard let nextResendAt, countdownNow < nextResendAt else { return nil }
-                        let remaining = Int(nextResendAt.timeIntervalSince(countdownNow))
-                        return "Resend in \(remaining)s"
-                    }()
-
-                    VButton(label: resendCooldownText ?? "Resend", style: .secondary, size: .large) {
+                    VButton(label: resendCooldownText ?? "Resend", style: .secondary, size: .large, isFullWidth: true) {
                         store.resendOutboundGuardian(channel: channel)
                     }
                     .disabled(!canResend)
+                    .frame(width: 160)
+
+                    VButton(label: "Cancel", style: .tertiary, size: .large) {
+                        store.cancelOutboundGuardian(channel: channel)
+                    }
                 }
 
                 // Telegram bootstrap URL deep link
@@ -1463,11 +1275,6 @@ struct SettingsChannelsTab: View {
                         }
                     }
                 }
-            }
-            .padding(.leading, labelColumnWidth + VSpacing.sm)
-
-            VButton(label: "Cancel", style: .secondary, size: .large) {
-                store.cancelOutboundGuardian(channel: channel)
             }
         }
         .onAppear { startCountdownTimer() }
@@ -1630,16 +1437,6 @@ struct SettingsChannelsTab: View {
 
     // MARK: - Mobile Card (Pairing + Approved Devices)
 
-    private var mobilePairingLabel: some View {
-        HStack(spacing: VSpacing.xs) {
-            Text("Device Pairing")
-            VInfoTooltip("Scan a QR code with the iOS app to pair your phone with this Mac.")
-        }
-        .font(VFont.caption)
-        .foregroundColor(VColor.textSecondary)
-        .frame(width: labelColumnWidth, alignment: .leading)
-    }
-
     private var mobileCard: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
@@ -1651,30 +1448,39 @@ struct SettingsChannelsTab: View {
                     .foregroundColor(VColor.textMuted)
             }
 
-            // Connected devices — shown as status rows (mirrors Telegram bot / Twilio phone rows)
-            if store.approvedDevices.isEmpty {
-                channelStatusRow(
-                    label: "Device",
-                    icon: "iphone",
-                    iconColor: VColor.textMuted,
-                    value: "No devices paired",
-                    valueColor: VColor.textMuted
-                )
-            } else {
-                ForEach(store.approvedDevices, id: \.hashedDeviceId) { device in
-                    channelStatusRow(
-                        label: "Device",
-                        icon: "iphone",
-                        iconColor: VColor.success,
-                        value: device.deviceName,
-                        action: .init(label: "Remove", style: .secondary) {
-                            store.removeApprovedDevice(hashedDeviceId: device.hashedDeviceId)
+            // Connected devices
+            if !store.approvedDevices.isEmpty {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Devices")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+
+                    ForEach(store.approvedDevices, id: \.hashedDeviceId) { device in
+                        HStack(spacing: VSpacing.sm) {
+                            Image(systemName: "iphone")
+                                .foregroundColor(VColor.success)
+                                .font(.system(size: 12))
+                            Text(device.deviceName)
+                                .font(VFont.body)
+                                .foregroundColor(VColor.textSecondary)
+                            Button {
+                                store.removeApprovedDevice(hashedDeviceId: device.hashedDeviceId)
+                            } label: {
+                                Image(systemName: "trash")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(VColor.error)
+                                    .padding(VSpacing.xs)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Remove \(device.deviceName)")
+                            .onHover { hovering in
+                                if hovering { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() }
+                            }
                         }
-                    )
+                    }
                 }
             }
-
-            Divider().background(VColor.surfaceBorder)
 
             // Device pairing row — mirrors Guardian Verification row layout
             mobilePairingRow
@@ -1722,7 +1528,6 @@ struct SettingsChannelsTab: View {
 
         if store.isRegeneratingToken {
             HStack(spacing: VSpacing.sm) {
-                mobilePairingLabel
                 ProgressView()
                     .controlSize(.small)
                 Text("Restarting daemon\u{2026}")
@@ -1731,7 +1536,6 @@ struct SettingsChannelsTab: View {
             }
         } else if !hasGateway {
             HStack(spacing: VSpacing.sm) {
-                mobilePairingLabel
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundColor(VColor.warning)
                     .font(.system(size: 12))
@@ -1742,7 +1546,6 @@ struct SettingsChannelsTab: View {
         } else if !hasToken {
             VStack(alignment: .leading, spacing: VSpacing.sm) {
                 HStack(spacing: VSpacing.sm) {
-                    mobilePairingLabel
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundColor(VColor.warning)
                         .font(.system(size: 12))
@@ -1755,13 +1558,8 @@ struct SettingsChannelsTab: View {
                 }
             }
         } else {
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
-                HStack(spacing: VSpacing.sm) {
-                    mobilePairingLabel
-                }
-                VButton(label: "Pair Device", leftIcon: "qrcode", style: .primary, size: .large) {
-                    showingPairingQR = true
-                }
+            VButton(label: "Pair Device", leftIcon: "qrcode", style: .primary, size: .large) {
+                showingPairingQR = true
             }
         }
     }

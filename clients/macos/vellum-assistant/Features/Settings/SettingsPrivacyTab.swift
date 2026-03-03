@@ -15,7 +15,7 @@ struct SettingsPrivacyTab: View {
     @State private var loadError: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.xl) {
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
             diagnosticsSection
         }
         .onAppear {

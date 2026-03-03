@@ -12,9 +12,8 @@ You are helping your user set up SMS messaging. This skill orchestrates Twilio s
 First, check the current SMS channel readiness state via the gateway:
 
 ```bash
-TOKEN=$(cat ~/.vellum/http-token)
 curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/config" \
-  -H "Authorization: Bearer $TOKEN"
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN"
 ```
 
 Inspect the response for `hasCredentials` and `phoneNumber`.
@@ -35,9 +34,8 @@ Tell the user: _"SMS needs Twilio configured first. I've loaded the Twilio setup
 After twilio-setup completes, re-check readiness by calling the config endpoint again:
 
 ```bash
-TOKEN=$(cat ~/.vellum/http-token)
 curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/config" \
-  -H "Authorization: Bearer $TOKEN"
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN"
 ```
 
 If baseline is still not ready, report the specific failures and ask the user to address them before continuing.
@@ -47,9 +45,8 @@ If baseline is still not ready, report the specific failures and ask the user to
 Once baseline is ready, check SMS compliance status including remote (Twilio API) checks:
 
 ```bash
-TOKEN=$(cat ~/.vellum/http-token)
 curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/sms/compliance" \
-  -H "Authorization: Bearer $TOKEN"
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN"
 ```
 
 Examine the compliance results:
@@ -90,9 +87,8 @@ The `tollfreePhoneNumberSid` is returned by the compliance status response in th
 **Step 3c: Submit verification:**
 
 ```bash
-TOKEN=$(cat ~/.vellum/http-token)
 curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/sms/compliance/tollfree" \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "tollfreePhoneNumberSid": "<compliance.tollfreePhoneNumberSid from Step 3a>",
@@ -118,9 +114,8 @@ The endpoint validates all fields before submitting to Twilio and returns clear 
 **Step 3d: Update a rejected verification** (if `editAllowed` is true):
 
 ```bash
-TOKEN=$(cat ~/.vellum/http-token)
 curl -s -X PATCH "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/sms/compliance/tollfree/<verificationSid>" \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "businessName": "updated value",
@@ -133,9 +128,8 @@ Only include fields that need to change. The endpoint checks edit eligibility an
 **Step 3e: Delete and resubmit** (if editing is not allowed):
 
 ```bash
-TOKEN=$(cat ~/.vellum/http-token)
 curl -s -X DELETE "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/sms/compliance/tollfree/<verificationSid>" \
-  -H "Authorization: Bearer $TOKEN"
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN"
 ```
 
 After deletion, return to Step 3b to collect information and resubmit. Warn the user that deleting resets their position in the review queue.
@@ -183,9 +177,8 @@ Tell the user: _"Let's send a test SMS to verify everything works. What phone nu
 After the user provides a number, send a test message via the gateway:
 
 ```bash
-TOKEN=$(cat ~/.vellum/http-token)
 curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/sms/test" \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"phoneNumber":"<recipient phone number>","text":"Test SMS from your Vellum assistant."}'
 ```
@@ -200,9 +193,8 @@ Report the result honestly:
 If the test fails or the user reports SMS issues, run the SMS doctor:
 
 ```bash
-TOKEN=$(cat ~/.vellum/http-token)
 curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/sms/doctor" \
-  -H "Authorization: Bearer $TOKEN"
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN"
 ```
 
 This runs a comprehensive health diagnostic, checking channel readiness, compliance/toll-free verification status, and the last test result. Report the diagnostics and actionable items to the user.

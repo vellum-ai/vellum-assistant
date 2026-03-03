@@ -108,6 +108,7 @@ function makeCompletingSession(): Session {
     setChannelCapabilities: () => {},
     setAssistantId: () => {},
     setGuardianContext: () => {},
+    setAuthContext: () => {},
     setCommandIntent: () => {},
     setTurnChannelContext: () => {},
     setTurnInterfaceContext: () => {},
@@ -160,6 +161,7 @@ function makeHangingSession(): Session {
     setChannelCapabilities: () => {},
     setAssistantId: () => {},
     setGuardianContext: () => {},
+    setAuthContext: () => {},
     setCommandIntent: () => {},
     setTurnChannelContext: () => {},
     setTurnInterfaceContext: () => {},
@@ -236,7 +238,11 @@ function makePendingApprovalSession(
     },
     setChannelCapabilities: () => {},
     setAssistantId: () => {},
-    setGuardianContext: () => {},
+    guardianContext: undefined as unknown,
+    setGuardianContext(this: { guardianContext: unknown }, ctx: unknown) {
+      this.guardianContext = ctx;
+    },
+    setAuthContext: () => {},
     setCommandIntent: () => {},
     setTurnChannelContext: () => {},
     setTurnInterfaceContext: () => {},
@@ -290,7 +296,7 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     createBinding({
       assistantId: "self",
       channel: "vellum",
-      guardianExternalUserId: "guardian-vellum",
+      guardianExternalUserId: "dev-bypass",
       guardianDeliveryChatId: "vellum",
       guardianPrincipalId: "test-principal-id",
     });

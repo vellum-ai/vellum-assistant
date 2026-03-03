@@ -168,6 +168,13 @@ describe("SSE assistant-events endpoint", () => {
 
     // Read the first frame directly from the response body stream.
     const reader = response.body!.getReader();
+
+    // The first chunk is the immediate heartbeat comment enqueued in start().
+    const initial = await reader.read();
+    expect(initial.done).toBe(false);
+    expect(new TextDecoder().decode(initial.value)).toBe(": heartbeat\n\n");
+
+    // The second chunk is the actual assistant event.
     const { value, done } = await reader.read();
     ac.abort();
 

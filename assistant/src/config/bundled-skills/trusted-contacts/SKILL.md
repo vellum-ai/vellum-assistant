@@ -11,7 +11,7 @@ You are helping your user manage trusted contacts and invite links for the Vellu
 
 - Use the injected `INTERNAL_GATEWAY_BASE_URL` for gateway API calls.
 - Use gateway control-plane routes only: this skill calls `/v1/ingress/*` and `/v1/integrations/telegram/config` on the gateway, never the daemon runtime port directly.
-- The bearer token is stored at `~/.vellum/http-token`. Read it with: `TOKEN=$(cat ~/.vellum/http-token)`.
+- The bearer token is available as the `$GATEWAY_AUTH_TOKEN` environment variable.
 
 ## Concepts
 
@@ -29,9 +29,8 @@ You are helping your user manage trusted contacts and invite links for the Vellu
 Use this to show the user who currently has access, or to look up a specific contact.
 
 ```bash
-TOKEN=$(cat ~/.vellum/http-token)
 curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/ingress/members" \
-  -H "Authorization: Bearer $TOKEN"
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN"
 ```
 
 Optional query parameters for filtering:
@@ -42,7 +41,7 @@ Optional query parameters for filtering:
 Example with filters:
 ```bash
 curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/ingress/members?sourceChannel=telegram&status=active" \
-  -H "Authorization: Bearer $TOKEN"
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN"
 ```
 
 The response contains `{ ok: true, members: [...] }` where each member has:
@@ -65,10 +64,9 @@ Use this when the user wants to grant someone access to message the assistant. *
 Ask the user: *"I'll add [name/identifier] on [channel] as an allowed contact. Should I proceed?"*
 
 ```bash
-TOKEN=$(cat ~/.vellum/http-token)
 curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/ingress/members" \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" \
   -d '{
     "sourceChannel": "<channel>",
     "externalUserId": "<user_id>",
@@ -97,9 +95,8 @@ Ask the user: *"I'll revoke access for [name/identifier]. They will no longer be
 First, list members to find the member's `id`, then revoke:
 
 ```bash
-TOKEN=$(cat ~/.vellum/http-token)
 curl -s -X DELETE "$INTERNAL_GATEWAY_BASE_URL/v1/ingress/members/<member_id>" \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"reason": "<optional reason>"}'
 ```
@@ -113,10 +110,9 @@ Use this when the user wants to explicitly block someone. Blocking is stronger t
 Ask the user: *"I'll block [name/identifier]. They will be permanently denied from messaging the assistant. Should I proceed?"*
 
 ```bash
-TOKEN=$(cat ~/.vellum/http-token)
 curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/ingress/members/<member_id>/block" \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" \
   -d '{"reason": "<optional reason>"}'
 ```
 
@@ -127,11 +123,9 @@ Use this when the guardian wants to invite someone to message the assistant on T
 **Important**: The shell snippet below emits a `<vellum-sensitive-output>` directive containing the raw invite token. The tool executor automatically strips this directive and replaces the raw token with a placeholder so the LLM never sees it. The placeholder is resolved back to the real token in the final assistant reply.
 
 ```bash
-TOKEN=$(cat ~/.vellum/http-token)
-
 INVITE_JSON=$(curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/ingress/invites" \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" \
   -d '{
     "sourceChannel": "telegram",
     "maxUses": 1,
@@ -160,7 +154,7 @@ fi
 # Prefer backend-provided canonical link when available.
 if [ -z "$INVITE_URL" ]; then
   BOT_CONFIG_JSON=$(curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/telegram/config" \
-    -H "Authorization: Bearer $TOKEN")
+    -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN")
   BOT_USERNAME=$(printf '%s' "$BOT_CONFIG_JSON" | tr -d '\n' | sed -n 's/.*"botUsername"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
   if [ -z "$BOT_USERNAME" ]; then
     echo "error:no_share_url_or_bot_username"
@@ -201,9 +195,8 @@ If the Telegram bot username is not available (integration not set up), tell the
 Use this to show the guardian their active (and optionally all) invite links.
 
 ```bash
-TOKEN=$(cat ~/.vellum/http-token)
 curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/ingress/invites?sourceChannel=telegram" \
-  -H "Authorization: Bearer $TOKEN"
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN"
 ```
 
 Optional query parameters:
@@ -232,9 +225,8 @@ Ask the user: *"I'll revoke the invite link [note or ID]. It will no longer be u
 First, list invites to find the invite's `id`, then revoke:
 
 ```bash
-TOKEN=$(cat ~/.vellum/http-token)
 curl -s -X DELETE "$INTERNAL_GATEWAY_BASE_URL/v1/ingress/invites/<invite_id>" \
-  -H "Authorization: Bearer $TOKEN"
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN"
 ```
 
 Replace `<invite_id>` with the invite's `id` from the list response.
@@ -246,11 +238,9 @@ Use this when the guardian wants to authorize a specific phone number to call th
 **Important**: The response includes a `voiceCode` field that is only returned at creation time and cannot be retrieved later. Extract and present it clearly.
 
 ```bash
-TOKEN=$(cat ~/.vellum/http-token)
-
 INVITE_JSON=$(curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/ingress/invites" \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" \
   -d '{
     "sourceChannel": "voice",
     "expectedExternalUserId": "<phone_number_E164>",
@@ -303,9 +293,8 @@ If the user provides a phone number without the `+` country code prefix, ask the
 Use this to show the guardian their active voice invites.
 
 ```bash
-TOKEN=$(cat ~/.vellum/http-token)
 curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/ingress/invites?sourceChannel=voice" \
-  -H "Authorization: Bearer $TOKEN"
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN"
 ```
 
 Optional query parameters:
@@ -327,9 +316,8 @@ Ask the user: *"I'll revoke the voice invite for [phone number or note]. The cod
 First, list voice invites to find the invite's `id`, then revoke:
 
 ```bash
-TOKEN=$(cat ~/.vellum/http-token)
 curl -s -X DELETE "$INTERNAL_GATEWAY_BASE_URL/v1/ingress/invites/<invite_id>" \
-  -H "Authorization: Bearer $TOKEN"
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN"
 ```
 
 Replace `<invite_id>` with the invite's `id` from the list response. The same revoke endpoint is used for both Telegram and voice invites.
