@@ -130,10 +130,11 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
   const maxChannels = (input.max_channels as number) ?? 20;
 
   try {
-    return withSlackToken(async (token) => {
+    return await withSlackToken(async (token) => {
       const oldestTs = String((Date.now() - hoursBack * 60 * 60 * 1000) / 1000);
 
       let channelsToScan: SlackConversation[];
+      let failedLookups = 0;
 
       if (channelIds?.length) {
         const results = await Promise.allSettled(
@@ -142,6 +143,7 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
         channelsToScan = results
           .filter((r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof slack.conversationInfo>>> => r.status === 'fulfilled')
           .map((r) => r.value.channel);
+        failedLookups = results.filter((r) => r.status === 'rejected').length;
       } else {
         const config = getConfig();
         const preferredIds = config.skills?.entries?.slack?.config?.preferredChannels as string[] | undefined;
@@ -153,9 +155,17 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
           channelsToScan = results
             .filter((r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof slack.conversationInfo>>> => r.status === 'fulfilled')
             .map((r) => r.value.channel);
+          failedLookups = results.filter((r) => r.status === 'rejected').length;
         } else {
-          const resp = await slack.listConversations(token, 'public_channel,private_channel', true, 200);
-          channelsToScan = resp.channels
+          const allChannels: SlackConversation[] = [];
+          let cursor: string | undefined;
+          do {
+            const resp = await slack.listConversations(token, 'public_channel,private_channel', true, 200, cursor);
+            allChannels.push(...resp.channels);
+            cursor = resp.response_metadata?.next_cursor || undefined;
+          } while (cursor);
+
+          channelsToScan = allChannels
             .filter((c) => c.is_member)
             .sort((a, b) => {
               const aTs = a.latest?.ts ? parseFloat(a.latest.ts) : 0;
@@ -181,6 +191,7 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
         scannedChannels: digests.length,
         totalChannelsAttempted: channelsToScan.length,
         skippedDueToErrors: skippedCount,
+        failedLookups,
         hoursBack,
         channels: digests,
       };

@@ -11,7 +11,7 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
   }
 
   try {
-    return withSlackToken(async (token) => {
+    return await withSlackToken(async (token) => {
       await deleteMessage(token, channel, timestamp);
       return ok(`Message deleted.`);
     });
