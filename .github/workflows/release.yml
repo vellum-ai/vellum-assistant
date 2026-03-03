@@ -1376,6 +1376,7 @@ jobs:
         working-directory: assistant
         env:
           EXCLUDE_EXPERIMENTAL: 'true'
+          TEST_WORKERS: '4'
 
   ci-cli:
     needs: bump-and-tag

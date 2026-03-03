@@ -46,6 +46,8 @@ jobs:
 
       - name: Test
         run: bun run test:stable
+        env:
+          TEST_WORKERS: '4'
 
       - name: Track consecutive failures
         if: always()
