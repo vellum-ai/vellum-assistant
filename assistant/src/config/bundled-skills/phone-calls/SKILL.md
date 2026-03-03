@@ -147,6 +147,29 @@ Suggest a test call to the user's own phone: **"Want to do a quick test call to 
 
 If they agree, ask for their personal phone number and place a test call with a simple task like "Introduce yourself and confirm the call system is working."
 
+## Step 5: Verify Guardian Identity (Voice)
+
+Now link the user's phone number as the trusted voice guardian. Tell the user: "Now let's verify your guardian identity for voice. This links your phone number so the assistant can verify inbound callers."
+
+Load the **guardian-verify-setup** skill to handle the verification flow:
+
+- Call `skill_load` with `skill: "guardian-verify-setup"` to load the dependency skill.
+
+When invoking the skill, indicate the channel is `voice`. The guardian-verify-setup skill manages the full outbound verification flow, including:
+
+- Collecting the user's phone number as the destination
+- Starting the outbound verification session via the gateway endpoint `POST /v1/integrations/guardian/outbound/start` with `channel: "voice"`
+- Calling the phone number and providing a code for the user to enter via their phone's keypad
+- Proactively polling for completion (voice auto-check) so the user gets instant confirmation
+- Checking guardian status to confirm the binding was created
+- Handling resend, cancel, and error cases
+
+Tell the user: _"I've loaded the guardian verification guide. It will walk you through linking your phone number as the trusted voice guardian."_
+
+After the guardian-verify-setup skill completes (or the user skips), continue to the next sections.
+
+**Note:** Guardian verification is optional but recommended. If the user declines or wants to skip, proceed without blocking. Once verified, inbound callers can be prompted for voice verification before calls proceed (see the **Guardian voice verification for inbound calls** section below).
+
 ## Caller Identity
 
 All implicit calls (calls without an explicit `caller_identity_mode`) always use the assistant's Twilio phone number. This is the number that appears on the recipient's caller ID.
