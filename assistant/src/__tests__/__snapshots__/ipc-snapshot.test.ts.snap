@@ -768,14 +768,6 @@ exports[`IPC message snapshots ClientMessage types oauth_connect_start serialize
 }
 `;
 
-exports[`IPC message snapshots ClientMessage types browser_cdp_response serializes to expected JSON 1`] = `
-{
-  "sessionId": "test-session",
-  "success": true,
-  "type": "browser_cdp_response",
-}
-`;
-
 exports[`IPC message snapshots ClientMessage types work_items_list serializes to expected JSON 1`] = `
 {
   "status": "queued",
@@ -2452,13 +2444,6 @@ exports[`IPC message snapshots ServerMessage types oauth_connect_result serializ
   ],
   "success": true,
   "type": "oauth_connect_result",
-}
-`;
-
-exports[`IPC message snapshots ServerMessage types browser_cdp_request serializes to expected JSON 1`] = `
-{
-  "sessionId": "test-session",
-  "type": "browser_cdp_request",
 }
 `;
 

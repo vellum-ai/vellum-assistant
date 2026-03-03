@@ -133,32 +133,16 @@ public final class AmbientAgent: ObservableObject {
         showProgress()
     }
 
+    // NOTE: Learn sessions depend on Chrome running with CDP (--remote-debugging-port=9222)
+    // for network recording. The daemon's ride-shotgun-handler connects directly to
+    // localhost:9222. If Chrome isn't running with CDP, network capture will silently fail.
+    // TODO: Move CDP Chrome launch to the daemon side (ride-shotgun-handler.ts).
     func startLearnSession(targetDomain: String, durationSeconds: Int = 300) {
         Task { @MainActor in
-            // Ensure Chrome is running with CDP so we can record network traffic
-            await ensureChromeWithCDP()
             startRideShotgun(durationSeconds: durationSeconds, mode: "learn", targetDomain: targetDomain)
         }
     }
 
-    /// Restart Chrome with CDP if it's not already available, or launch it if not running.
-    private func ensureChromeWithCDP() async {
-        // Check if CDP is already available
-        if let url = URL(string: "http://localhost:9222/json/version"),
-           let (_, response) = try? await URLSession.shared.data(from: url),
-           let httpResponse = response as? HTTPURLResponse,
-           httpResponse.statusCode == 200 {
-            log.info("CDP already available, skipping Chrome restart")
-            return
-        }
-
-        // Launch a separate Chrome instance for CDP (doesn't touch existing Chrome)
-        log.info("Launching separate Chrome instance with CDP for learn session")
-        let success = await ChromeAccessibilityHelper.launchChromeForCDP()
-        if !success {
-            log.warning("Chrome CDP launch failed, proceeding without network recording")
-        }
-    }
 
     func cancelRideShotgun() {
         currentSession?.cancel()
