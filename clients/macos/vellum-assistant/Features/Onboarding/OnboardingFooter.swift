@@ -21,20 +21,9 @@ struct OnboardingFooter: View {
     }
 
     var body: some View {
-        VStack(spacing: VSpacing.sm) {
-            HStack(spacing: VSpacing.sm) {
-                ForEach(0..<totalDots, id: \.self) { index in
-                    Circle()
-                        .fill(index <= activeDotIndex ? Forest._600 : VColor.textMuted.opacity(0.3))
-                        .frame(width: 8, height: 8)
-                        .animation(.spring(duration: 0.4, bounce: 0.2), value: activeDotIndex)
-                }
-            }
-
-            Text("\u{00A9} 2026 Vellum Inc.")
-                .font(VFont.monoSmall)
-                .foregroundStyle(VColor.textMuted.opacity(0.5))
-        }
+        Text("\u{00A9} 2026 Vellum Inc.")
+            .font(VFont.monoSmall)
+            .foregroundStyle(VColor.textMuted.opacity(0.5))
     }
 }
 

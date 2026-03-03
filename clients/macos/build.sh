@@ -713,7 +713,14 @@ if [ -d "$FRAMEWORKS_DIR/Sparkle.framework" ]; then
     [ -f "$SPARKLE_VERSIONS/Autoupdate" ] && codesign "${FW_SIGN_FLAGS[@]}" "$SPARKLE_VERSIONS/Autoupdate"
 
     # Sign the outer framework last
-    codesign "${FW_SIGN_FLAGS[@]}" "$FRAMEWORKS_DIR/Sparkle.framework"
+    # --bundle-format framework is required on newer codesign versions because
+    # Sparkle's Versions/B layout is ambiguous (could be app or framework).
+    # Fall back to plain codesign if the flag isn't supported.
+    if codesign --bundle-format framework "${FW_SIGN_FLAGS[@]}" "$FRAMEWORKS_DIR/Sparkle.framework" 2>/dev/null; then
+        :
+    else
+        codesign "${FW_SIGN_FLAGS[@]}" "$FRAMEWORKS_DIR/Sparkle.framework"
+    fi
     echo "Sparkle.framework signed (including nested binaries)"
 fi
 

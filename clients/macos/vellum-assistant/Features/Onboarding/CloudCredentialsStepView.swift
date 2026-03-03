@@ -431,30 +431,12 @@ struct CloudCredentialsStepView: View {
     // MARK: - Buttons
 
     private var continueButton: some View {
-        Button(action: { saveAndContinue() }) {
-            Text(isCustomHardware ? "Pair!" : "Hatch!")
-                .font(.system(size: 15, weight: .medium))
-                .foregroundColor(adaptiveColor(light: .white, dark: .white))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, VSpacing.lg)
-                .background(
-                    RoundedRectangle(cornerRadius: VRadius.lg)
-                        .fill(continueDisabled
-                            ? adaptiveColor(
-                                light: Stone._900.opacity(0.3),
-                                dark: Forest._600.opacity(0.3)
-                            )
-                            : adaptiveColor(
-                                light: Stone._900,
-                                dark: Forest._600
-                            )
-                        )
-                )
-        }
-        .buttonStyle(.plain)
-        .disabled(continueDisabled)
-        .onHover { hovering in
-            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+        OnboardingButton(
+            title: isCustomHardware ? "Pair!" : "Hatch!",
+            style: .primary,
+            disabled: continueDisabled
+        ) {
+            saveAndContinue()
         }
     }
 

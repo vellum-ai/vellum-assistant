@@ -479,11 +479,17 @@ public struct SurfaceActionButton: Identifiable, Equatable, Sendable {
     public let id: String
     public let label: String
     public let style: SurfaceActionStyle
+    private let index: Int
 
-    public init(id: String, label: String, style: SurfaceActionStyle) {
+    /// Unique identity for SwiftUI ForEach. Multiple actions can share the same
+    /// `id` (e.g. "relay_prompt"), so we combine id + index to disambiguate.
+    public var uniqueId: String { "\(id)-\(index)" }
+
+    public init(id: String, label: String, style: SurfaceActionStyle, index: Int = 0) {
         self.id = id
         self.label = label
         self.style = style
+        self.index = index
     }
 }
 
@@ -521,11 +527,12 @@ public extension Surface {
             return nil
         }
 
-        let actions = (message.actions ?? []).map { action in
+        let actions = (message.actions ?? []).enumerated().map { index, action in
             SurfaceActionButton(
                 id: action.id,
                 label: action.label,
-                style: SurfaceActionStyle(rawValue: action.style ?? "secondary") ?? .secondary
+                style: SurfaceActionStyle(rawValue: action.style ?? "secondary") ?? .secondary,
+                index: index
             )
         }
 
@@ -552,11 +559,12 @@ public extension Surface {
             return nil
         }
 
-        let actions = (historySurface.actions ?? []).map { action in
+        let actions = (historySurface.actions ?? []).enumerated().map { index, action in
             SurfaceActionButton(
                 id: action.id,
                 label: action.label,
-                style: SurfaceActionStyle(rawValue: action.style ?? "secondary") ?? .secondary
+                style: SurfaceActionStyle(rawValue: action.style ?? "secondary") ?? .secondary,
+                index: index
             )
         }
 

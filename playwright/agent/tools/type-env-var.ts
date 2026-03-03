@@ -55,6 +55,49 @@ export async function execute(
     };
   }
 
+  // Guard: only allow typing env var values into password or secret input
+  // fields to prevent accidental exposure of sensitive values.
+  // Uses macOS Accessibility (System Events) to check the focused UI element's
+  // role — "AXSecureTextField" corresponds to password/secret inputs.
+  const checkScript = `
+tell application "System Events"
+  tell process "${processName}"
+    try
+      set focusedEl to focused UI element of window 1
+      set elRole to role of focusedEl
+      return elRole
+    on error
+      return "unknown"
+    end try
+  end tell
+end tell
+`;
+  const checkPath = `/tmp/pw-agent-check-secret-w${context.workerIndex}.scpt`;
+  try {
+    writeFileSync(checkPath, checkScript, "utf-8");
+    const role = execSync(`osascript ${checkPath}`, {
+      encoding: "utf-8",
+      timeout: 10_000,
+    }).trim();
+
+    if (role !== "AXSecureTextField") {
+      return {
+        result: {
+          success: false,
+          data: `Cannot type environment variable ${envVar}: the focused element is not a password or secret input field (role: ${role})`,
+        },
+      };
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      result: {
+        success: false,
+        data: `Cannot verify focused element is a secret input: ${message}`,
+      },
+    };
+  }
+
   const script = `
 tell application "System Events"
   tell process "${processName}"

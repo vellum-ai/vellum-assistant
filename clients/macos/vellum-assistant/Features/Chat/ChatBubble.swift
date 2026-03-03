@@ -212,7 +212,7 @@ struct ChatBubble: View {
                                 Circle()
                                     .strokeBorder(VColor.surfaceBorder, lineWidth: 1)
                             )
-                            .offset(x: -(28 + VSpacing.sm), y: 2)
+                            .offset(x: -(28 + VSpacing.sm), y: 0)
                     }
                 }
                 .padding(.leading, isUser ? 0 : 28 + VSpacing.sm)

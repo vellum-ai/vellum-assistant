@@ -124,7 +124,7 @@ struct SurfaceContainerView: View {
     private var actionButtons: some View {
         HStack(spacing: VSpacing.md) {
             Spacer()
-            ForEach(surface.actions) { action in
+            ForEach(surface.actions, id: \.uniqueId) { action in
                 VButton(
                     label: action.label,
                     style: buttonStyle(for: action.style)

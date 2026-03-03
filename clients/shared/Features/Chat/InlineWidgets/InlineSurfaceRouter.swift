@@ -293,9 +293,8 @@ public struct InlineSurfaceRouter: View {
                 )
             }
         } else {
-            HStack(spacing: VSpacing.sm) {
-                Spacer()
-                ForEach(surface.actions) { action in
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                ForEach(surface.actions, id: \.uniqueId) { action in
                     Button {
                         clickedActionLabel = action.label
                         onAction(surface.id, action.id, selectionPayload)

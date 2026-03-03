@@ -573,7 +573,7 @@ jobs:
           echo "**Version:** \`${{ needs.bump-and-tag.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
 
   publish-npm:
-    needs: bump-and-tag
+    needs: [bump-and-tag, ci-cli, ci-gateway, ci-assistant]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -634,7 +634,7 @@ jobs:
   # Parallel Swift builds — each architecture compiles on its own runner,
   # then build-macos merges them into a universal binary via lipo.
   build-swift-arm64:
-    needs: [bump-and-tag, ci-cli, ci-gateway]
+    needs: bump-and-tag
     runs-on: macos-15
     timeout-minutes: 15
     outputs:
@@ -681,7 +681,7 @@ jobs:
           retention-days: 1
 
   build-swift-x86_64:
-    needs: [bump-and-tag, ci-cli, ci-gateway]
+    needs: bump-and-tag
     runs-on: macos-15
     timeout-minutes: 15
     outputs:
@@ -731,7 +731,7 @@ jobs:
   # builds arm64-only Bun binaries, creates DMG, notarizes, staples, and
   # generates the Sparkle appcast. This is the primary/default build.
   build-macos-arm64:
-    needs: [build-swift-arm64, ci-cli, ci-gateway]
+    needs: build-swift-arm64
     runs-on: macos-15
     timeout-minutes: 30
     defaults:
@@ -829,7 +829,7 @@ jobs:
 
           APP_PATH="dist/Vellum.app"
           ls -la "$APP_PATH"
-          codesign --verify --deep --strict "$APP_PATH"
+          codesign --verify --strict "$APP_PATH"
           echo "Code signature verified"
 
           echo "Main executable architecture:"
@@ -1040,7 +1040,7 @@ jobs:
   # x86_64 macOS build — produces a separate DMG for Intel Macs.
   # Runs in parallel with build-macos-arm64 and does NOT block the release job.
   build-macos-x64:
-    needs: [build-swift-x86_64, ci-cli, ci-gateway]
+    needs: build-swift-x86_64
     runs-on: macos-15
     timeout-minutes: 30
     continue-on-error: true
@@ -1181,7 +1181,7 @@ jobs:
 
           APP_PATH="dist/Vellum.app"
           ls -la "$APP_PATH"
-          codesign --verify --deep --strict "$APP_PATH"
+          codesign --verify --strict "$APP_PATH"
           echo "Code signature verified"
 
           echo "Main executable architecture:"
@@ -1328,8 +1328,8 @@ jobs:
           rm -rf ~/.private_keys 2>/dev/null || true
 
   release:
-    needs: [bump-and-tag, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, push-assistant-manifest, push-gateway-manifest, register-release, ci-cli, ci-gateway, ci-playwright]
-    if: ${{ !cancelled() && needs.bump-and-tag.result == 'success' && needs.publish-npm.result == 'success' && needs.publish-meta.result == 'success' && needs.build-macos-arm64.result == 'success' && needs.ci-cli.result == 'success' && needs.ci-gateway.result == 'success' }}
+    needs: [bump-and-tag, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, push-assistant-manifest, push-gateway-manifest, register-release, ci-playwright]
+    if: ${{ !cancelled() && needs.bump-and-tag.result == 'success' && needs.publish-npm.result == 'success' && needs.publish-meta.result == 'success' && needs.build-macos-arm64.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -1485,6 +1485,7 @@ jobs:
   # release on its result. It still runs so we get visibility in the Slack
   # notification, but downstream jobs no longer depend on it.
   ci-assistant:
+    needs: bump-and-tag
     runs-on: ubuntu-latest
     timeout-minutes: 5
     continue-on-error: true
@@ -1514,6 +1515,7 @@ jobs:
           EXCLUDE_EXPERIMENTAL: 'true'
 
   ci-cli:
+    needs: bump-and-tag
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -1536,6 +1538,7 @@ jobs:
         working-directory: cli
 
   ci-gateway:
+    needs: bump-and-tag
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -1562,7 +1565,7 @@ jobs:
         working-directory: gateway
 
   build-ios:
-    needs: [bump-and-tag, ci-cli, ci-gateway]
+    needs: bump-and-tag
     runs-on: macos-15
     timeout-minutes: 15
     steps:
@@ -1588,7 +1591,7 @@ jobs:
         run: ./build.sh test
 
   release-ios:
-    needs: [bump-and-tag, build-ios, ci-cli, ci-gateway]
+    needs: [bump-and-tag, build-ios]
     runs-on: macos-15
     timeout-minutes: 30
     env:

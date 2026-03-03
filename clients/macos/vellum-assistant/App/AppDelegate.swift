@@ -2463,21 +2463,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
     // MARK: - Wake-Up Greeting
 
-    /// Generates a time-aware greeting for the assistant's first message.
-    /// Intentionally unnamed — the assistant has no identity yet at hatch.
     private func wakeUpGreeting() -> String {
-        let hour = Calendar.current.component(.hour, from: Date())
-        switch hour {
-        case 5..<12:
-            return "Good morning. Time to wake up."
-        case 12..<18:
-            return "Wake up, my friend."
-        case 18..<22:
-            return "Evening. Ready when you are."
-        default:
-            // 22–4 (late night)
-            return "Burning the midnight oil? Let's go."
-        }
+        return "Wake up, my friend."
     }
 
     // MARK: - Main Window
