@@ -1017,6 +1017,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                 alert.addButton(withTitle: "Cancel")
                 if alert.runModal() != .alertFirstButtonReturn {
                     // Daemon is still running — user can continue using the app.
+                    // retire() already set isStopping=true and stopped monitoring;
+                    // restart monitoring so the health check remains active.
+                    assistantCli.startMonitoring()
                     return false
                 }
                 // Retire failed but user chose Force Remove — stop the daemon
