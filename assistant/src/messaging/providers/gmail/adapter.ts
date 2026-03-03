@@ -205,8 +205,14 @@ export const gmailMessagingProvider: MessagingProvider = {
     let pageToken: string | undefined = options?.pageToken;
     let truncated = false;
     const metadataHeaders = ['From', 'List-Unsubscribe'];
+    const startTime = Date.now();
+    const TIME_BUDGET_MS = 90_000;
 
     while (allMessageIds.length < maxMessages) {
+      if (Date.now() - startTime > TIME_BUDGET_MS) {
+        truncated = true;
+        break;
+      }
       const pageSize = Math.min(100, maxMessages - allMessageIds.length);
       const listResp = await gmail.listMessages(token, query, pageSize, pageToken);
       const ids = (listResp.messages ?? []).map((m) => m.id);

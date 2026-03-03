@@ -84,9 +84,17 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
       const fetchPromises: Promise<GmailMessage[]>[] = [];
       let pageToken: string | undefined = inputPageToken;
       let truncated = false;
+      let timeBudgetExceeded = false;
       const metadataHeaders = ['From', 'Subject', 'Date'];
+      const startTime = Date.now();
+      const TIME_BUDGET_MS = 90_000;
 
       while (allMessageIds.length < maxMessages) {
+        if (Date.now() - startTime > TIME_BUDGET_MS) {
+          timeBudgetExceeded = true;
+          truncated = true;
+          break;
+        }
         const pageSize = Math.min(100, maxMessages - allMessageIds.length);
         const listResp = await listMessages(token, query, pageSize, pageToken);
         const ids = (listResp.messages ?? []).map((m) => m.id);
@@ -231,6 +239,7 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
         total_scanned: allMessageIds.length,
         outreach_detected: totalOutreachDetected,
         ...(truncated ? { truncated: true, next_page_token: pageToken } : {}),
+        ...(timeBudgetExceeded ? { time_budget_exceeded: true } : {}),
       }));
     });
   } catch (e) {
