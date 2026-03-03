@@ -21,7 +21,11 @@ struct VoiceSettingsView: View {
     private let suggestedKeywords = ["computer", "jarvis", "hey vellum", "assistant"]
 
     private var currentActivator: PTTActivator {
-        PTTActivator.fromStored()
+        // Read activationKey to establish SwiftUI dependency tracking —
+        // without this, SwiftUI doesn't know the body depends on this
+        // @AppStorage value and skips re-rendering when it changes.
+        _ = activationKey
+        return PTTActivator.fromStored()
     }
 
     private var pttEnabled: Bool {
