@@ -44,6 +44,14 @@ describe("resolveChannelCapabilities", () => {
     expect(caps.supportsVoiceInput).toBe(true);
   });
 
+  test("vellum channel with vellum interface supports dynamic UI", () => {
+    const caps = resolveChannelCapabilities("vellum", "vellum");
+    expect(caps.channel).toBe("vellum");
+    expect(caps.dashboardCapable).toBe(false);
+    expect(caps.supportsDynamicUi).toBe(true);
+    expect(caps.supportsVoiceInput).toBe(false);
+  });
+
   test("defaults to vellum for null source channel", () => {
     const caps = resolveChannelCapabilities(null);
     expect(caps.channel).toBe("vellum");
@@ -406,6 +414,24 @@ describe("trust-gating via channel capabilities", () => {
     expect(injected).toContain("Do NOT use ui_show, ui_update, or app_create");
     expect(injected).toContain("Present information as well-formatted text");
     expect(injected).toContain("desktop app");
+  });
+
+  test("vellum web interface allows dynamic UI but constrains dashboard references", () => {
+    const caps = resolveChannelCapabilities("vellum", "vellum");
+    const message: Message = {
+      role: "user",
+      content: [{ type: "text", text: "Show me a form" }],
+    };
+
+    const result = injectChannelCapabilityContext(message, caps);
+    const injected = (result.content[0] as { type: "text"; text: string }).text;
+
+    expect(injected).toContain("CHANNEL CONSTRAINTS");
+    expect(injected).toContain("Do NOT reference the dashboard UI");
+    expect(injected).not.toContain("Do NOT use ui_show");
+    expect(injected).not.toContain("Present information as well-formatted text");
+    expect(injected).toContain("supports_dynamic_ui: true");
+    expect(injected).toContain("dashboard_capable: false");
   });
 });
 
@@ -994,12 +1020,12 @@ describe("sanitizePttActivationKey", () => {
     expect(sanitizePttActivationKey("none")).toBe("none");
   });
 
-  test('returns "unknown" for invalid keys', () => {
-    expect(sanitizePttActivationKey("malicious\nprompt injection")).toBe(
-      "unknown",
-    );
-    expect(sanitizePttActivationKey("arbitrary_value")).toBe("unknown");
-    expect(sanitizePttActivationKey("")).toBe("unknown");
+  test("returns undefined for invalid keys", () => {
+    expect(
+      sanitizePttActivationKey("malicious\nprompt injection"),
+    ).toBeUndefined();
+    expect(sanitizePttActivationKey("arbitrary_value")).toBeUndefined();
+    expect(sanitizePttActivationKey("")).toBeUndefined();
   });
 });
 
@@ -1015,11 +1041,11 @@ describe("resolveChannelCapabilities with PTT metadata", () => {
     expect(caps.pttActivationKey).toBe("fn");
   });
 
-  test("sanitizes invalid pttActivationKey to unknown", () => {
+  test("sanitizes invalid pttActivationKey to undefined", () => {
     const caps = resolveChannelCapabilities("macos", "macos", {
       pttActivationKey: "evil\nprompt",
     });
-    expect(caps.pttActivationKey).toBe("unknown");
+    expect(caps.pttActivationKey).toBeUndefined();
   });
 
   test("passes through microphonePermissionGranted", () => {

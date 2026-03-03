@@ -516,7 +516,7 @@ jobs:
             '{
               version: $version,
               released_at: $released_at,
-              is_stable: false,
+              is_stable: true,
               assistant_image: {
                 repository: $assistant_repo,
                 tag: $assistant_tag,
@@ -636,7 +636,7 @@ jobs:
   # This is the primary/default build.
   build-macos-arm64:
     needs: bump-and-tag
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 45
     defaults:
       run:
@@ -650,8 +650,8 @@ jobs:
         with:
           ref: "v${{ needs.bump-and-tag.outputs.version }}"
 
-      - name: Select Xcode 16.2
-        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+      - name: Select Xcode 26.2
+        run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
 
       - name: Import code-signing certificate
         env:
@@ -925,7 +925,7 @@ jobs:
   # Runs in parallel with build-macos-arm64 and does NOT block the release job.
   build-macos-x64:
     needs: bump-and-tag
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 45
     continue-on-error: true
     defaults:
@@ -940,8 +940,8 @@ jobs:
         with:
           ref: "v${{ needs.bump-and-tag.outputs.version }}"
 
-      - name: Select Xcode 16.2
-        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+      - name: Select Xcode 26.2
+        run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
 
       - name: Import code-signing certificate
         env:
@@ -1429,15 +1429,15 @@ jobs:
 
   build-ios:
     needs: bump-and-tag
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
           ref: "v${{ needs.bump-and-tag.outputs.version }}"
 
-      - name: Select Xcode 16.2
-        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+      - name: Select Xcode 26.2
+        run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
 
       - name: Install XcodeGen
         run: brew install xcodegen
@@ -1455,7 +1455,7 @@ jobs:
 
   release-ios:
     needs: [bump-and-tag, build-ios]
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 30
     env:
       KEYCHAIN_NAME: ios-build.keychain
@@ -1465,8 +1465,8 @@ jobs:
         with:
           ref: "v${{ needs.bump-and-tag.outputs.version }}"
 
-      - name: Select Xcode 16.2
-        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+      - name: Select Xcode 26.2
+        run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
 
       - name: Import code-signing certificate
         env:
@@ -1563,7 +1563,7 @@ jobs:
 
   ci-playwright:
     needs: [bump-and-tag, build-macos-arm64]
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 60
     permissions:
       contents: read

@@ -84,15 +84,13 @@ SMS messaging uses Twilio as the telephony provider. Twilio credentials and phon
 
 The sms-setup skill handles: Twilio credential storage (Account SID + Auth Token), phone number provisioning or assignment, public ingress setup, SMS compliance verification, and end-to-end test sending. Once SMS is set up, messaging is available automatically — no additional feature flag is needed.
 
-The sms-setup skill also includes optional **guardian verification** for SMS, which links your phone number as the trusted guardian.
+### Guardian Verification (Voice or Telegram)
 
-### Guardian Verification (SMS, Voice, or Telegram)
-
-If the user asks to verify their guardian identity for any channel (SMS, voice, or Telegram), load the **guardian-verify-setup** skill:
+If the user asks to verify their guardian identity for voice or Telegram, load the **guardian-verify-setup** skill:
 
 - Call `skill_load` with `skill: "guardian-verify-setup"` to load the dependency skill.
 
-The guardian-verify-setup skill handles the full outbound verification flow for all supported channels. It collects the user's destination (phone number or Telegram chat ID/handle), initiates an outbound verification session, and guides the user through entering or replying with the verification code. This is the single source of truth for guardian verification setup -- do not duplicate the verification flow inline.
+The guardian-verify-setup skill handles the full outbound verification flow for voice and Telegram channels. It collects the user's destination (phone number or Telegram chat ID/handle), initiates an outbound verification session, and guides the user through entering or replying with the verification code. This is the single source of truth for guardian verification setup -- do not duplicate the verification flow inline.
 
 ## Error Recovery
 

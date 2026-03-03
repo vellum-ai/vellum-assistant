@@ -2,14 +2,27 @@
 
 // === Surface type definitions ===
 
-export type SurfaceType = 'card' | 'form' | 'list' | 'table' | 'confirmation' | 'dynamic_page' | 'file_upload' | 'browser_view' | 'document_preview';
+export type SurfaceType =
+  | "card"
+  | "form"
+  | "list"
+  | "table"
+  | "confirmation"
+  | "dynamic_page"
+  | "file_upload"
+  | "document_preview";
 
-export const INTERACTIVE_SURFACE_TYPES: SurfaceType[] = ['form', 'confirmation', 'dynamic_page', 'file_upload'];
+export const INTERACTIVE_SURFACE_TYPES: SurfaceType[] = [
+  "form",
+  "confirmation",
+  "dynamic_page",
+  "file_upload",
+];
 
 export interface SurfaceAction {
   id: string;
   label: string;
-  style?: 'primary' | 'secondary' | 'destructive';
+  style?: "primary" | "secondary" | "destructive";
 }
 
 export interface CardSurfaceData {
@@ -25,7 +38,7 @@ export interface CardSurfaceData {
 
 export interface FormField {
   id: string;
-  type: 'text' | 'textarea' | 'select' | 'toggle' | 'number' | 'password';
+  type: "text" | "textarea" | "select" | "toggle" | "number" | "password";
   label: string;
   placeholder?: string;
   required?: boolean;
@@ -58,7 +71,7 @@ export interface ListItem {
 
 export interface ListSurfaceData {
   items: ListItem[];
-  selectionMode: 'single' | 'multiple' | 'none';
+  selectionMode: "single" | "multiple" | "none";
 }
 
 export interface ConfirmationSurfaceData {
@@ -76,8 +89,8 @@ export interface DynamicPagePreview {
   description?: string;
   icon?: string;
   metrics?: Array<{ label: string; value: string }>;
-  context?: 'app_create' | 'general';
-  previewImage?: string;  // base64 PNG
+  context?: "app_create" | "general";
+  previewImage?: string; // base64 PNG
 }
 
 export interface DynamicPageSurfaceData {
@@ -106,8 +119,8 @@ export interface TableColumn {
 
 export interface TableCellValue {
   text: string;
-  icon?: string;       // SF Symbol name
-  iconColor?: string;  // semantic token: "success" | "warning" | "error" | "muted"
+  icon?: string; // SF Symbol name
+  iconColor?: string; // semantic token: "success" | "warning" | "error" | "muted"
 }
 
 export interface TableRow {
@@ -120,32 +133,30 @@ export interface TableRow {
 export interface TableSurfaceData {
   columns: TableColumn[];
   rows: TableRow[];
-  selectionMode?: 'none' | 'single' | 'multiple';
+  selectionMode?: "none" | "single" | "multiple";
   caption?: string;
-}
-
-export interface BrowserViewSurfaceData {
-  sessionId: string;
-  currentUrl: string;
-  status: 'navigating' | 'idle' | 'interacting';
-  frame?: string; // base64 JPEG
-  actionText?: string; // "Clicking 'Submit' button"
-  highlights?: Array<{ x: number; y: number; w: number; h: number; label: string }>;
-  pages?: Array<{ id: string; title: string; url: string; active: boolean }>;
 }
 
 export interface DocumentPreviewSurfaceData {
   title: string;
-  surfaceId: string;   // the doc's real surfaceId, for focusing the panel
+  surfaceId: string; // the doc's real surfaceId, for focusing the panel
   subtitle?: string;
 }
 
-export type SurfaceData = CardSurfaceData | FormSurfaceData | ListSurfaceData | TableSurfaceData | ConfirmationSurfaceData | DynamicPageSurfaceData | FileUploadSurfaceData | BrowserViewSurfaceData | DocumentPreviewSurfaceData;
+export type SurfaceData =
+  | CardSurfaceData
+  | FormSurfaceData
+  | ListSurfaceData
+  | TableSurfaceData
+  | ConfirmationSurfaceData
+  | DynamicPageSurfaceData
+  | FileUploadSurfaceData
+  | DocumentPreviewSurfaceData;
 
 // === Client → Server ===
 
 export interface UiSurfaceAction {
-  type: 'ui_surface_action';
+  type: "ui_surface_action";
   sessionId: string;
   surfaceId: string;
   actionId: string;
@@ -153,7 +164,7 @@ export interface UiSurfaceAction {
 }
 
 export interface UiSurfaceUndoRequest {
-  type: 'ui_surface_undo';
+  type: "ui_surface_undo";
   sessionId: string;
   surfaceId: string;
 }
@@ -162,58 +173,53 @@ export interface UiSurfaceUndoRequest {
 
 /** Common fields shared by all UiSurfaceShow variants. */
 interface UiSurfaceShowBase {
-  type: 'ui_surface_show';
+  type: "ui_surface_show";
   sessionId: string;
   surfaceId: string;
   title?: string;
   actions?: SurfaceAction[];
-  display?: 'inline' | 'panel';
+  display?: "inline" | "panel";
   /** The message ID that this surface belongs to (for history loading). */
   messageId?: string;
 }
 
 export interface UiSurfaceShowCard extends UiSurfaceShowBase {
-  surfaceType: 'card';
+  surfaceType: "card";
   data: CardSurfaceData;
 }
 
 export interface UiSurfaceShowForm extends UiSurfaceShowBase {
-  surfaceType: 'form';
+  surfaceType: "form";
   data: FormSurfaceData;
 }
 
 export interface UiSurfaceShowList extends UiSurfaceShowBase {
-  surfaceType: 'list';
+  surfaceType: "list";
   data: ListSurfaceData;
 }
 
 export interface UiSurfaceShowConfirmation extends UiSurfaceShowBase {
-  surfaceType: 'confirmation';
+  surfaceType: "confirmation";
   data: ConfirmationSurfaceData;
 }
 
 export interface UiSurfaceShowDynamicPage extends UiSurfaceShowBase {
-  surfaceType: 'dynamic_page';
+  surfaceType: "dynamic_page";
   data: DynamicPageSurfaceData;
 }
 
 export interface UiSurfaceShowTable extends UiSurfaceShowBase {
-  surfaceType: 'table';
+  surfaceType: "table";
   data: TableSurfaceData;
 }
 
 export interface UiSurfaceShowFileUpload extends UiSurfaceShowBase {
-  surfaceType: 'file_upload';
+  surfaceType: "file_upload";
   data: FileUploadSurfaceData;
 }
 
-export interface UiSurfaceShowBrowserView extends UiSurfaceShowBase {
-  surfaceType: 'browser_view';
-  data: BrowserViewSurfaceData;
-}
-
 export interface UiSurfaceShowDocumentPreview extends UiSurfaceShowBase {
-  surfaceType: 'document_preview';
+  surfaceType: "document_preview";
   data: DocumentPreviewSurfaceData;
 }
 
@@ -225,24 +231,23 @@ export type UiSurfaceShow =
   | UiSurfaceShowConfirmation
   | UiSurfaceShowDynamicPage
   | UiSurfaceShowFileUpload
-  | UiSurfaceShowBrowserView
   | UiSurfaceShowDocumentPreview;
 
 export interface UiSurfaceUpdate {
-  type: 'ui_surface_update';
+  type: "ui_surface_update";
   sessionId: string;
   surfaceId: string;
   data: Partial<SurfaceData>;
 }
 
 export interface UiSurfaceDismiss {
-  type: 'ui_surface_dismiss';
+  type: "ui_surface_dismiss";
   sessionId: string;
   surfaceId: string;
 }
 
 export interface UiSurfaceComplete {
-  type: 'ui_surface_complete';
+  type: "ui_surface_complete";
   sessionId: string;
   surfaceId: string;
   summary: string;
@@ -250,7 +255,7 @@ export interface UiSurfaceComplete {
 }
 
 export interface UiSurfaceUndoResult {
-  type: 'ui_surface_undo_result';
+  type: "ui_surface_undo_result";
   sessionId: string;
   surfaceId: string;
   success: boolean;
@@ -260,9 +265,7 @@ export interface UiSurfaceUndoResult {
 
 // --- Domain-level union aliases (consumed by the barrel file) ---
 
-export type _SurfacesClientMessages =
-  | UiSurfaceAction
-  | UiSurfaceUndoRequest;
+export type _SurfacesClientMessages = UiSurfaceAction | UiSurfaceUndoRequest;
 
 export type _SurfacesServerMessages =
   | UiSurfaceShow

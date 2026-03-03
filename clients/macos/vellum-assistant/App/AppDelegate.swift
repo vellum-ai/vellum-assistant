@@ -146,7 +146,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var daemonClient: DaemonClient { services.daemonClient }
     var ambientAgent: AmbientAgent { services.ambientAgent }
     var surfaceManager: SurfaceManager { services.surfaceManager }
-    var browserPiPManager: BrowserPiPManager { services.browserPiPManager }
     private var secretPromptManager: SecretPromptManager { services.secretPromptManager }
     var zoomManager: ZoomManager { services.zoomManager }
     var conversationZoomManager: ConversationZoomManager { services.conversationZoomManager }
@@ -927,6 +926,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             }
             voiceInput?.stop()
             voiceInput = nil
+            wakeWordErrorCancellable?.cancel()
+            wakeWordErrorCancellable = nil
             wakeWordCoordinator = nil
             ambientAgent.teardown()
 
@@ -1115,6 +1116,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         }
         voiceInput?.stop()
         voiceInput = nil
+        wakeWordErrorCancellable?.cancel()
+        wakeWordErrorCancellable = nil
         wakeWordCoordinator = nil
         ambientAgent.teardown()
 
@@ -1647,45 +1650,18 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     }
 
     private func setupSurfaceManager() {
-        // Wire daemon surface messages to SurfaceManager (or BrowserPiPManager for browser_view)
         daemonClient.onSurfaceShow = { [weak self] msg in
             guard let self else { return }
-            if msg.surfaceType == SurfaceType.browserView.rawValue {
-                self.browserPiPManager.showPanel(for: msg)
-            } else {
-                self.surfaceManager.showSurface(msg)
-            }
+            self.surfaceManager.showSurface(msg)
         }
         daemonClient.onSurfaceUpdate = { [weak self] msg in
             guard let self else { return }
-            self.browserPiPManager.updateSurface(msg)
             self.surfaceManager.updateSurface(msg)
         }
         daemonClient.onSurfaceDismiss = { [weak self] msg in
             guard let self else { return }
-            self.browserPiPManager.dismissIfMatching(surfaceId: msg.surfaceId)
             self.surfaceManager.dismissSurface(msg)
         }
-
-        // Wire browser frame updates to BrowserPiPManager
-        daemonClient.onBrowserFrame = { [weak self] msg in
-            self?.browserPiPManager.updateFrame(msg)
-        }
-
-        // Wire browser interactive mode changes to BrowserPiPManager
-        daemonClient.onBrowserInteractiveModeChanged = { [weak self] msg in
-            self?.browserPiPManager.handleInteractiveModeChanged(msg)
-        }
-
-        // Give BrowserPiPManager a reference to DaemonClient for sending interactive input
-        browserPiPManager.daemonClient = daemonClient
-
-        daemonClient.onBrowserCDPRequest = { [weak self] msg in
-            Task { @MainActor in
-                await self?.handleBrowserCDPRequest(msg)
-            }
-        }
-
 
         // Reload webviews for surfaces whose app files changed (cross-session broadcast)
         daemonClient.onAppFilesChanged = { [weak self] appId in
@@ -2318,6 +2294,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
     // MARK: - Wake Word Coordinator
 
+    private var wakeWordErrorCancellable: AnyCancellable?
+
     private func setupWakeWordCoordinator() {
         guard let mainWindow else {
             log.warning("Cannot set up wake word coordinator — main window not available")
@@ -2334,6 +2312,22 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             threadManager: mainWindow.threadManager,
             voiceInputManager: voiceInput
         )
+
+        // Show a toast when the wake word engine hits a persistent error
+        // (e.g. Dictation disabled at the OS level).
+        wakeWordErrorCancellable = audioMonitor.$persistentErrorMessage
+            .compactMap { $0 }
+            .sink { [weak self] message in
+                self?.mainWindow?.windowState.showToast(
+                    message: message,
+                    style: .warning,
+                    primaryAction: VToastAction(label: "Open Settings") {
+                        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.keyboard?Dictation") {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
+                )
+            }
 
         if UserDefaults.standard.bool(forKey: "wakeWordEnabled") {
             audioMonitor.startMonitoring()
@@ -2671,102 +2665,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         recordingHUDWindow?.dismiss()
         debugStateWriter.stop()
         assistantCli.stop()
-    }
-
-    // MARK: - Browser CDP Request Handling
-
-    @MainActor
-    private func handleBrowserCDPRequest(_ msg: BrowserCDPRequestMessage) async {
-        // Show confirmation dialog
-        let alert = NSAlert()
-        alert.messageText = "Browser Remote Control"
-        alert.informativeText = "A separate Chrome window will open for the assistant to control. Your existing Chrome and tabs will not be affected."
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: "Open Browser")
-        alert.addButton(withTitle: "Use Background Browser")
-
-        // Add "Always launch" checkbox
-        let checkbox = NSButton(checkboxWithTitle: "Always launch Chrome with remote debugging", target: nil, action: nil)
-        alert.accessoryView = checkbox
-
-        let response = alert.runModal()
-
-        if response == .alertFirstButtonReturn {
-            // Launch a separate Chrome instance for CDP (doesn't touch existing Chrome)
-            let success = await ChromeAccessibilityHelper.launchChromeForCDP()
-
-            // Handle "Always launch" checkbox
-            if checkbox.state == .on {
-                createChromeDebugLaunchAgent()
-            }
-
-            do {
-                try daemonClient.send(BrowserCDPResponseMessage(sessionId: msg.sessionId, success: success))
-            } catch {
-                log.error("Failed to send browser CDP response (open): \(error)")
-            }
-        } else {
-            // User chose background browser
-            do {
-                try daemonClient.send(BrowserCDPResponseMessage(sessionId: msg.sessionId, success: false, declined: true))
-            } catch {
-                log.error("Failed to send browser CDP response (background): \(error)")
-            }
-        }
-    }
-
-    /// Poll http://localhost:9222/json/version until CDP responds or we time out.
-    private static func pollForCDP(maxAttempts: Int = 10, intervalNs: UInt64 = 1_000_000_000) async -> Bool {
-        for _ in 0..<maxAttempts {
-            try? await Task.sleep(nanoseconds: intervalNs)
-            if let url = URL(string: "http://localhost:9222/json/version"),
-               let (_, response) = try? await URLSession.shared.data(from: url),
-               let http = response as? HTTPURLResponse,
-               http.statusCode == 200 {
-                return true
-            }
-        }
-        return false
-    }
-
-    private func createChromeDebugLaunchAgent() {
-        let chromeDataDir = NSHomeDirectory() + "/Library/Application Support/Google/Chrome-CDP"
-
-        guard let chromeURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.google.Chrome") else {
-            return // Chrome not installed
-        }
-        let chromeBinary = chromeURL.appendingPathComponent("Contents/MacOS/Google Chrome").path
-
-        let plistContent = """
-        <?xml version="1.0" encoding="UTF-8"?>
-        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-        <plist version="1.0">
-        <dict>
-            <key>Label</key>
-            <string>com.vellum.chrome-debug</string>
-            <key>ProgramArguments</key>
-            <array>
-                <string>\(chromeBinary)</string>
-                <string>--remote-debugging-port=9222</string>
-                <string>--force-renderer-accessibility</string>
-                <string>--user-data-dir=\(chromeDataDir)</string>
-            </array>
-            <key>RunAtLoad</key>
-            <true/>
-        </dict>
-        </plist>
-        """
-
-        let launchAgentsDir = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/LaunchAgents")
-        let plistPath = launchAgentsDir.appendingPathComponent("com.vellum.chrome-debug.plist")
-
-        do {
-            try FileManager.default.createDirectory(at: launchAgentsDir, withIntermediateDirectories: true)
-            try plistContent.write(to: plistPath, atomically: true, encoding: .utf8)
-        } catch {
-            // Best effort — log but don't fail
-        }
     }
 
 }

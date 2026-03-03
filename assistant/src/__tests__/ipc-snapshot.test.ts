@@ -476,39 +476,6 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     service: "gmail",
     requestedScopes: ["https://www.googleapis.com/auth/gmail.readonly"],
   },
-  browser_cdp_response: {
-    type: "browser_cdp_response",
-    sessionId: "test-session",
-    success: true,
-  },
-  browser_user_click: {
-    type: "browser_user_click",
-    sessionId: "test-session",
-    surfaceId: "test-surface",
-    x: 100,
-    y: 200,
-  },
-  browser_user_scroll: {
-    type: "browser_user_scroll",
-    sessionId: "test-session",
-    surfaceId: "test-surface",
-    deltaX: 0,
-    deltaY: -100,
-    x: 100,
-    y: 200,
-  },
-  browser_user_keypress: {
-    type: "browser_user_keypress",
-    sessionId: "test-session",
-    surfaceId: "test-surface",
-    key: "Enter",
-  },
-  browser_interactive_mode: {
-    type: "browser_interactive_mode",
-    sessionId: "test-session",
-    surfaceId: "test-surface",
-    enabled: true,
-  },
   work_items_list: {
     type: "work_items_list",
     status: "queued",
@@ -1590,19 +1557,6 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     type: "app_files_changed",
     appId: "app-001",
   },
-  browser_frame: {
-    type: "browser_frame",
-    sessionId: "sess-001",
-    surfaceId: "surface-001",
-    frame: "base64-jpeg-data",
-    metadata: {
-      offsetTop: 0,
-      pageScaleFactor: 1,
-      scrollOffsetX: 0,
-      scrollOffsetY: 0,
-      timestamp: 1700000000,
-    },
-  },
   diagnostics_export_response: {
     type: "diagnostics_export_response",
     success: true,
@@ -1632,23 +1586,6 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     success: true,
     grantedScopes: ["https://www.googleapis.com/auth/gmail.readonly"],
     accountInfo: "user@example.com",
-  },
-  browser_cdp_request: {
-    type: "browser_cdp_request",
-    sessionId: "test-session",
-  },
-  browser_interactive_mode_changed: {
-    type: "browser_interactive_mode_changed",
-    sessionId: "test-session",
-    surfaceId: "test-surface",
-    enabled: true,
-  },
-  browser_handoff_request: {
-    type: "browser_handoff_request",
-    sessionId: "test-session",
-    surfaceId: "test-surface",
-    reason: "auth" as const,
-    message: "Login required",
   },
   document_editor_show: {
     type: "document_editor_show",

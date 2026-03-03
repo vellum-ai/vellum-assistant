@@ -1,6 +1,6 @@
 {
   "name": "@vellumai/assistant",
-  "version": "0.4.22",
+  "version": "0.4.24",
   "type": "module",
   "bin": {
     "vellum": "./src/index.ts"
@@ -27,6 +27,7 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.42",
+    "@vellumai/proxy-sidecar": "file:../proxy-sidecar",
     "@anthropic-ai/sdk": "^0.39.0",
     "@google/genai": "^1.40.0",
     "@modelcontextprotocol/sdk": "^1.15.1",

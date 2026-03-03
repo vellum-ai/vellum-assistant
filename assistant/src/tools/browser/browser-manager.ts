@@ -1,31 +1,26 @@
-import { mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
 
-import { getLogger } from '../../util/logger.js';
-import { getDataDir } from '../../util/platform.js';
-import { silentlyWithLog } from '../../util/silently.js';
-import { authSessionCache } from './auth-cache.js';
-import type { ExtractedCredential } from './network-recording-types.js';
-import { checkBrowserRuntime } from './runtime-check.js';
+import { getLogger } from "../../util/logger.js";
+import { getDataDir } from "../../util/platform.js";
+import { authSessionCache } from "./auth-cache.js";
+import type { ExtractedCredential } from "./network-recording-types.js";
+import { checkBrowserRuntime } from "./runtime-check.js";
 
-const log = getLogger('browser-manager');
+const log = getLogger("browser-manager");
 
 /**
  * Returns true when the host has a GUI capable of displaying a browser window.
  * macOS and Windows always have a display; Linux requires DISPLAY or WAYLAND_DISPLAY.
  */
 function canDisplayGui(): boolean {
-  if (process.platform === 'darwin' || process.platform === 'win32') return true;
+  if (process.platform === "darwin" || process.platform === "win32")
+    return true;
   return !!(process.env.DISPLAY || process.env.WAYLAND_DISPLAY);
 }
 
-// Screencast capture dimensions — used by coordinate math across the browser module
-// to map between page coordinates and screencast-frame coordinates.
-export const SCREENCAST_WIDTH = 1280;
-export const SCREENCAST_HEIGHT = 800;
-
 function getDownloadsDir(): string {
-  const dir = join(getDataDir(), 'browser-downloads');
+  const dir = join(getDataDir(), "browser-downloads");
   mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -43,7 +38,10 @@ export type PageResponse = {
   url(): string;
 };
 
-export type RouteHandler = (route: PageRoute, request: PageRequest) => Promise<void> | void;
+export type RouteHandler = (
+  route: PageRoute,
+  request: PageRequest,
+) => Promise<void> | void;
 
 export type PageRoute = {
   abort(errorCode?: string): Promise<void>;
@@ -57,36 +55,57 @@ export type PageRequest = {
 export type Page = {
   close(): Promise<void>;
   isClosed(): boolean;
-  goto(url: string, options?: { waitUntil?: string; timeout?: number }): Promise<PageResponse | null>;
+  goto(
+    url: string,
+    options?: { waitUntil?: string; timeout?: number },
+  ): Promise<PageResponse | null>;
   title(): Promise<string>;
   url(): string;
   evaluate(expression: string): Promise<unknown>;
   click(selector: string, options?: { timeout?: number }): Promise<void>;
-  fill(selector: string, value: string, options?: { timeout?: number }): Promise<void>;
-  press(selector: string, key: string, options?: { timeout?: number }): Promise<void>;
-  selectOption(selector: string, values: Record<string, string | number>, options?: { timeout?: number }): Promise<string[]>;
+  fill(
+    selector: string,
+    value: string,
+    options?: { timeout?: number },
+  ): Promise<void>;
+  press(
+    selector: string,
+    key: string,
+    options?: { timeout?: number },
+  ): Promise<void>;
+  selectOption(
+    selector: string,
+    values: Record<string, string | number>,
+    options?: { timeout?: number },
+  ): Promise<string[]>;
   hover(selector: string, options?: { timeout?: number }): Promise<void>;
-  waitForSelector(selector: string, options?: { timeout?: number }): Promise<unknown>;
-  waitForFunction(expression: string, options?: { timeout?: number }): Promise<unknown>;
+  waitForSelector(
+    selector: string,
+    options?: { timeout?: number },
+  ): Promise<unknown>;
+  waitForFunction(
+    expression: string,
+    options?: { timeout?: number },
+  ): Promise<unknown>;
   route(pattern: string, handler: RouteHandler): Promise<void>;
   unroute(pattern: string, handler?: RouteHandler): Promise<void>;
   bringToFront(): Promise<void>;
-  screenshot(options?: { type?: string; quality?: number; fullPage?: boolean }): Promise<Buffer>;
+  screenshot(options?: {
+    type?: string;
+    quality?: number;
+    fullPage?: boolean;
+  }): Promise<Buffer>;
   keyboard: { press(key: string): Promise<void> };
   mouse: {
-    click(x: number, y: number, options?: { button?: string; clickCount?: number }): Promise<void>;
+    click(
+      x: number,
+      y: number,
+      options?: { button?: string; clickCount?: number },
+    ): Promise<void>;
     move(x: number, y: number): Promise<void>;
     wheel(deltaX: number, deltaY: number): Promise<void>;
   };
   on(event: string, handler: (...args: unknown[]) => void): void;
-};
-
-type ScreencastFrameMetadata = {
-  offsetTop: number;
-  pageScaleFactor: number;
-  scrollOffsetX: number;
-  scrollOffsetY: number;
-  timestamp: number;
 };
 
 type CDPSession = {
@@ -99,7 +118,10 @@ type RawPlaywrightPage = {
   context(): { newCDPSession(page: unknown): Promise<CDPSession> };
 };
 
-type LaunchFn = (userDataDir: string, options: { headless: boolean }) => Promise<BrowserContext>;
+type LaunchFn = (
+  userDataDir: string,
+  options: { headless: boolean },
+) => Promise<BrowserContext>;
 
 let launchPersistentContext: LaunchFn | null = null;
 
@@ -108,12 +130,12 @@ export function setLaunchFn(fn: LaunchFn | null): void {
 }
 
 async function getDefaultLaunchFn(): Promise<LaunchFn> {
-  const pw = await import('playwright');
+  const pw = await import("playwright");
   return pw.chromium.launchPersistentContext.bind(pw.chromium);
 }
 
 function getProfileDir(): string {
-  return join(getDataDir(), 'browser-profile');
+  return join(getDataDir(), "browser-profile");
 }
 
 class BrowserManager {
@@ -123,190 +145,59 @@ class BrowserManager {
   private pages = new Map<string, Page>();
   private rawPages = new Map<string, unknown>();
   private cdpSessions = new Map<string, CDPSession>();
-  private screencastCallbacks = new Map<string, (frame: { data: string; metadata: ScreencastFrameMetadata }) => void>();
   private snapshotMaps = new Map<string, Map<string, string>>();
-  private _browserMode: 'headless' | 'cdp' = 'headless';
-  private cdpUrl: string = 'http://localhost:9222';
-  private cdpBrowser: unknown = null; // Store CDP browser reference separately
-  private _browserLaunched = false; // true when browser was launched (vs connected via CDP)
   private browserCdpSession: CDPSession | null = null;
   private browserWindowId: number | null = null;
-  private cdpRequestResolvers = new Map<string, (response: { success: boolean; declined?: boolean }) => void>();
   private interactiveModeSessions = new Set<string>();
   private handoffResolvers = new Map<string, () => void>();
-  private sessionSenders = new Map<string, (msg: { type: string; sessionId: string }) => void>();
   private downloads = new Map<string, DownloadInfo[]>();
-  private pendingDownloads = new Map<string, { resolve: (info: DownloadInfo) => void; reject: (err: Error) => void }[]>();
+  private pendingDownloads = new Map<
+    string,
+    { resolve: (info: DownloadInfo) => void; reject: (err: Error) => void }[]
+  >();
 
-  get browserMode(): 'headless' | 'cdp' {
-    return this._browserMode;
-  }
-
-  /** Whether page.route() is supported. False only for connectOverCDP browsers. */
+  /** Whether page.route() is supported. Always true for launched browsers. */
   get supportsRouteInterception(): boolean {
-    return this._browserMode !== 'cdp' || this._browserLaunched;
+    return true;
   }
 
-  registerSender(sessionId: string, sendToClient: (msg: { type: string; sessionId: string }) => void): void {
-    this.sessionSenders.set(sessionId, sendToClient);
-  }
-
-  unregisterSender(sessionId: string): void {
-    this.sessionSenders.delete(sessionId);
-  }
-
-  setBrowserMode(mode: 'headless' | 'cdp', cdpUrl?: string): void {
-    this._browserMode = mode;
-    if (cdpUrl) this.cdpUrl = cdpUrl;
-    log.info({ mode, cdpUrl: this.cdpUrl }, 'Browser mode set');
-  }
-
-  async detectCDP(url?: string): Promise<boolean> {
-    const target = url || this.cdpUrl;
-    try {
-      const response = await fetch(`${target}/json/version`, { signal: AbortSignal.timeout(3000) });
-      return response.ok;
-    } catch {
-      return false;
-    }
-  }
-
-  /**
-   * Request Chrome restart from client via IPC. Returns true if client confirmed and CDP is now available.
-   * The sendToClient callback sends the request, and resolveCDPResponse() is called when the response arrives.
-   */
-  async requestCDPFromClient(sessionId: string, sendToClient: (msg: { type: string; sessionId: string }) => void): Promise<boolean> {
-    // Cancel any existing pending request for this session to avoid leaked promises
-    const existing = this.cdpRequestResolvers.get(sessionId);
-    if (existing) {
-      existing({ success: false });
-    }
-
-    return new Promise<boolean>((resolve) => {
-      const resolver = (response: { success: boolean; declined?: boolean }) => {
-        clearTimeout(timer);
-        // Only act if we're still the active resolver for this session
-        if (this.cdpRequestResolvers.get(sessionId) === resolver) {
-          this.cdpRequestResolvers.delete(sessionId);
-        }
-        resolve(response.success);
-      };
-
-      // Set a timeout in case the client never responds
-      const timer = setTimeout(() => {
-        if (this.cdpRequestResolvers.get(sessionId) === resolver) {
-          this.cdpRequestResolvers.delete(sessionId);
-        }
-        resolve(false);
-      }, 15_000);
-
-      this.cdpRequestResolvers.set(sessionId, resolver);
-      sendToClient({ type: 'browser_cdp_request', sessionId });
-    });
-  }
-
-  /**
-   * Called when a browser_cdp_response message arrives from the client.
-   */
-  resolveCDPResponse(sessionId: string, success: boolean, declined?: boolean): void {
-    const resolver = this.cdpRequestResolvers.get(sessionId);
-    if (resolver) {
-      resolver({ success, declined });
-    }
-  }
-
-  private async ensureContext(invokingSessionId?: string): Promise<BrowserContext> {
+  private async ensureContext(): Promise<BrowserContext> {
     if (this.context) return this.context;
     if (this.contextCreating) return this.contextCreating;
 
     this.contextCreating = (async () => {
-      // Deterministic test mode: when launch is injected via setLaunchFn,
-      // bypass ambient CDP probing/negotiation and use the injected launcher.
-      const hasInjectedLaunchFn = launchPersistentContext != null;
-
-      if (!hasInjectedLaunchFn) {
-        // Try to detect or negotiate CDP before falling back to headless.
-        // This auto-detects an existing Chrome with --remote-debugging-port,
-        // or asks the client to restart Chrome with CDP enabled.
-        let useCdp = this._browserMode === 'cdp';
-        const sender = invokingSessionId ? this.sessionSenders.get(invokingSessionId) : undefined;
-        if (!useCdp) {
-          const cdpAvailable = await this.detectCDP();
-          if (cdpAvailable) {
-            useCdp = true;
-          } else if (invokingSessionId && sender) {
-            log.info({ sessionId: invokingSessionId }, 'Requesting CDP from client');
-            const accepted = await this.requestCDPFromClient(invokingSessionId, sender);
-            if (accepted) {
-              const nowAvailable = await this.detectCDP();
-              if (nowAvailable) {
-                useCdp = true;
-              } else {
-                log.warn('Client accepted CDP request but CDP not detected');
-              }
-            } else {
-              log.info('Client declined CDP request');
-            }
-          }
-        }
-
-        if (useCdp) {
-          try {
-            const pw = await import('playwright');
-            const browser = await pw.chromium.connectOverCDP(this.cdpUrl, { timeout: 10_000 });
-            this.cdpBrowser = browser;
-            this._browserLaunched = false;
-            const contexts = browser.contexts();
-            const ctx = contexts[0] || await browser.newContext();
-            this.setBrowserMode('cdp');
-            await this.initBrowserCdpSession();
-            log.info({ cdpUrl: this.cdpUrl }, 'Connected to Chrome via CDP');
-            return ctx as unknown as BrowserContext;
-          } catch (err) {
-            log.warn({ err }, 'CDP connectOverCDP failed');
-            this._browserMode = 'headless';
-          }
-        }
-
-        if (invokingSessionId && this.sessionSenders.get(invokingSessionId) && this._browserMode === 'headless') {
-          const willBeHeaded = canDisplayGui();
-          log.info(
-            { sessionId: invokingSessionId, willBeHeaded },
-            willBeHeaded
-              ? 'CDP unavailable/declined; launching visible browser (display available)'
-              : 'CDP unavailable/declined; staying in headless mode (no display available)',
-          );
-        }
-      }
-
-      const profileDir = getProfileDir();
-      mkdirSync(profileDir, { recursive: true });
-
-      // Initialize auth session cache alongside browser context
       await authSessionCache.load();
 
-      // Auto-install Chromium if missing
+      // Auto-install Chromium if needed (skip when test launcher is injected)
       if (!launchPersistentContext) {
         const status = await checkBrowserRuntime();
         if (status.playwrightAvailable && !status.chromiumInstalled) {
-          log.info('Chromium not installed, installing via playwright...');
-          const proc = Bun.spawn(['bunx', 'playwright', 'install', 'chromium'], {
-            stdout: 'pipe',
-            stderr: 'pipe',
-          });
+          log.info("Chromium not installed, installing via playwright...");
+          const proc = Bun.spawn(
+            ["bunx", "playwright", "install", "chromium"],
+            {
+              stdout: "pipe",
+              stderr: "pipe",
+            },
+          );
           const timeoutMs = 120_000;
           let timer: ReturnType<typeof setTimeout>;
           const exitCode = await Promise.race([
             proc.exited.finally(() => clearTimeout(timer)),
-            new Promise<never>((_, reject) =>
-              timer = setTimeout(() => {
-                proc.kill();
-                reject(new Error(`Chromium install timed out after ${timeoutMs / 1000}s`));
-              }, timeoutMs),
+            new Promise<never>(
+              (_, reject) =>
+                (timer = setTimeout(() => {
+                  proc.kill();
+                  reject(
+                    new Error(
+                      `Chromium install timed out after ${timeoutMs / 1000}s`,
+                    ),
+                  );
+                }, timeoutMs)),
             ),
           ]);
           if (exitCode === 0) {
-            log.info('Chromium installed successfully');
+            log.info("Chromium installed successfully");
           } else {
             const stderr = await new Response(proc.stderr).text();
             const msg = stderr.trim() || `exited with code ${exitCode}`;
@@ -315,11 +206,17 @@ class BrowserManager {
         }
       }
 
-      const launch = launchPersistentContext ?? await getDefaultLaunchFn();
+      const profileDir = getProfileDir();
+      mkdirSync(profileDir, { recursive: true });
+      const launch = launchPersistentContext ?? (await getDefaultLaunchFn());
       const headless = !canDisplayGui();
       const ctx = await launch(profileDir, { headless });
-      this._browserLaunched = true;
-      log.info({ profileDir, headless }, headless ? 'Browser context created (headless)' : 'Browser context created (visible)');
+      log.info(
+        { profileDir, headless },
+        headless
+          ? "Browser context created (headless)"
+          : "Browser context created (visible)",
+      );
       return ctx;
     })();
 
@@ -332,15 +229,13 @@ class BrowserManager {
         on?: (event: string, handler: (...args: unknown[]) => void) => void;
         off?: (event: string, handler: (...args: unknown[]) => void) => void;
       };
-      if (typeof rawCtx.on === 'function') {
+      if (typeof rawCtx.on === "function") {
         this.contextCloseHandler = () => {
-          log.warn('Browser context closed unexpectedly, resetting state');
+          log.warn("Browser context closed unexpectedly, resetting state");
           this.context = null;
           this.contextCloseHandler = null;
           this.browserCdpSession = null;
           this.browserWindowId = null;
-          this.cdpBrowser = null;
-          this._browserLaunched = false;
           // Resolve any pending handoffs before clearing state
           for (const resolver of this.handoffResolvers.values()) {
             resolver();
@@ -350,15 +245,16 @@ class BrowserManager {
           this.pages.clear();
           this.rawPages.clear();
           this.cdpSessions.clear();
-          this.screencastCallbacks.clear();
+
           this.snapshotMaps.clear();
           this.downloads.clear();
           for (const pending of this.pendingDownloads.values()) {
-            for (const waiter of pending) waiter.reject(new Error('Browser closed'));
+            for (const waiter of pending)
+              waiter.reject(new Error("Browser closed"));
           }
           this.pendingDownloads.clear();
         };
-        rawCtx.on('close', this.contextCloseHandler);
+        rawCtx.on("close", this.contextCloseHandler);
       }
 
       return this.context;
@@ -368,7 +264,7 @@ class BrowserManager {
   }
 
   async getOrCreateSessionPage(sessionId: string): Promise<Page> {
-    const context = await this.ensureContext(sessionId);
+    const context = await this.ensureContext();
 
     const existing = this.pages.get(sessionId);
     if (existing && !existing.isClosed()) {
@@ -379,51 +275,38 @@ class BrowserManager {
     this.snapshotMaps.delete(sessionId);
     await this.stopScreencast(sessionId);
 
-    let page: Page | undefined;
-
-    // In connectOverCDP mode, Chrome often starts with a pre-opened blank tab.
-    // Only reuse blank/new-tab pages to avoid hijacking active user tabs, which
-    // could cause user-visible disruption or data loss when the session closes.
-    if (this._browserMode === 'cdp' && !this._browserLaunched && typeof context.pages === 'function') {
-      const BLANK_TAB_URLS = new Set(['about:blank', 'chrome://newtab/', 'chrome://new-tab-page/']);
-      const claimedPages = new Set(this.pages.values());
-      const reusable = context.pages().find((p) => {
-        if (p.isClosed() || claimedPages.has(p)) return false;
-        const url = p.url();
-        return BLANK_TAB_URLS.has(url) || url === '';
-      });
-      if (reusable) {
-        page = reusable;
-        log.debug({ sessionId, url: reusable.url() }, 'Reusing blank CDP tab instead of creating a new page');
-      }
-    }
-
-    page ??= await context.newPage();
+    const page = await context.newPage();
     this.pages.set(sessionId, page);
     this.rawPages.set(sessionId, page);
 
     // Track downloads for this page
     this.setupDownloadTracking(sessionId, page);
 
-    // For launched browsers (not CDP-connected), create a page-level CDP session
-    // so we can position the browser window. Browser domain commands (setWindowBounds,
-    // getWindowForTarget) are accessible from page-level CDP sessions.
-    if (!this.browserCdpSession && this._browserLaunched && this._browserMode !== 'cdp') {
+    // Create a page-level CDP session for window positioning.
+    // Browser domain commands (setWindowBounds, getWindowForTarget) are accessible
+    // from page-level CDP sessions.
+    if (!this.browserCdpSession) {
       try {
         const rawPage = page as unknown as RawPlaywrightPage;
         this.browserCdpSession = await rawPage.context().newCDPSession(rawPage);
         await this.ensureBrowserWindowId();
       } catch (err) {
-        log.warn({ err }, 'Failed to create CDP session for window positioning');
+        log.warn(
+          { err },
+          "Failed to create CDP session for window positioning",
+        );
       }
     }
 
     // Position the browser window so the user can watch.
-    if (this.browserCdpSession && !this.interactiveModeSessions.has(sessionId)) {
+    if (
+      this.browserCdpSession &&
+      !this.interactiveModeSessions.has(sessionId)
+    ) {
       await this.positionWindowSidebar();
     }
 
-    log.debug({ sessionId }, 'Session page created');
+    log.debug({ sessionId }, "Session page created");
     return page;
   }
 
@@ -447,10 +330,10 @@ class BrowserManager {
     // Reject any pending download waiters
     const pending = this.pendingDownloads.get(sessionId);
     if (pending) {
-      for (const waiter of pending) waiter.reject(new Error('Session closed'));
+      for (const waiter of pending) waiter.reject(new Error("Session closed"));
       this.pendingDownloads.delete(sessionId);
     }
-    log.debug({ sessionId }, 'Session page closed');
+    log.debug({ sessionId }, "Session page closed");
   }
 
   async closeAllPages(): Promise<void> {
@@ -459,7 +342,7 @@ class BrowserManager {
       try {
         await this.stopScreencast(sessionId);
       } catch (err) {
-        log.warn({ err, sessionId }, 'Failed to stop screencast');
+        log.warn({ err, sessionId }, "Failed to stop screencast");
       }
     }
 
@@ -468,7 +351,7 @@ class BrowserManager {
         try {
           await page.close();
         } catch (err) {
-          log.warn({ err, sessionId }, 'Failed to close page');
+          log.warn({ err, sessionId }, "Failed to close page");
         }
       }
     }
@@ -477,7 +360,7 @@ class BrowserManager {
     this.snapshotMaps.clear();
     this.downloads.clear();
     for (const pending of this.pendingDownloads.values()) {
-      for (const waiter of pending) waiter.reject(new Error('Browser closed'));
+      for (const waiter of pending) waiter.reject(new Error("Browser closed"));
     }
     this.pendingDownloads.clear();
 
@@ -485,99 +368,49 @@ class BrowserManager {
       // Remove the close listener before intentional close to avoid
       // the handler firing and clearing state we're already cleaning up.
       if (this.contextCloseHandler) {
-        const rawCtx = this.context as unknown as { off?: (event: string, handler: (...args: unknown[]) => void) => void };
-        if (typeof rawCtx.off === 'function') {
-          rawCtx.off('close', this.contextCloseHandler);
+        const rawCtx = this.context as unknown as {
+          off?: (event: string, handler: (...args: unknown[]) => void) => void;
+        };
+        if (typeof rawCtx.off === "function") {
+          rawCtx.off("close", this.contextCloseHandler);
         }
         this.contextCloseHandler = null;
       }
       try {
         await this.context.close();
       } catch (err) {
-        log.warn({ err }, 'Failed to close browser context');
+        log.warn({ err }, "Failed to close browser context");
       }
       this.context = null;
-      log.info('Browser context closed');
+      log.info("Browser context closed");
     }
 
     // Detach browser-level CDP session used for window management
     if (this.browserCdpSession) {
       try {
         await this.browserCdpSession.detach();
-      } catch (e) { log.debug({ err: e }, 'CDP session detach failed during shutdown'); }
+      } catch (e) {
+        log.debug({ err: e }, "CDP session detach failed during shutdown");
+      }
       this.browserCdpSession = null;
       this.browserWindowId = null;
     }
-
-    // Close or disconnect CDP browser connection if present
-    if (this.cdpBrowser) {
-      const b = this.cdpBrowser as { close?: () => Promise<void>; disconnect?: () => Promise<void> };
-      const wasLaunched = this._browserLaunched;
-      this.cdpBrowser = null;
-      this._browserLaunched = false;
-      try {
-        if (wasLaunched) {
-          // Launched browsers must be closed to terminate the process
-          await b.close?.();
-        } else {
-          // CDP-connected browsers should be disconnected, not closed
-          await b.disconnect?.();
-        }
-      } catch (err) {
-        log.warn({ err }, 'Failed to close/disconnect CDP browser');
-      }
-    }
-  }
-
-  async startScreencast(sessionId: string, onFrame: (frame: { data: string; metadata: ScreencastFrameMetadata }) => void): Promise<void> {
-    const rawPage = this.rawPages.get(sessionId) as RawPlaywrightPage | undefined;
-    if (!rawPage) throw new Error('No page for session');
-
-    // Stop any existing screencast before creating a new CDP session
-    await this.stopScreencast(sessionId);
-
-    const cdp = await rawPage.context().newCDPSession(rawPage);
-    this.cdpSessions.set(sessionId, cdp);
-    this.screencastCallbacks.set(sessionId, onFrame);
-
-    // Keep screencast intentionally low-frequency to avoid Chrome renderer /
-    // WindowServer spikes while users type in interactive auth flows.
-    const MIN_FRAME_INTERVAL_MS = 1000;
-    let lastFrameTime = 0;
-
-    cdp.on('Page.screencastFrame', (params) => {
-      const now = Date.now();
-      if (now - lastFrameTime >= MIN_FRAME_INTERVAL_MS) {
-        lastFrameTime = now;
-        onFrame({ data: params.data as string, metadata: params.metadata as ScreencastFrameMetadata });
-      }
-      // Always ack so CDP continues delivering frames (otherwise it stalls)
-      silentlyWithLog(cdp.send('Page.screencastFrameAck', { sessionId: params.sessionId }), 'screencast frame ack');
-    });
-
-    await cdp.send('Page.startScreencast', {
-      format: 'jpeg',
-      quality: 45,
-      maxWidth: SCREENCAST_WIDTH,
-      maxHeight: SCREENCAST_HEIGHT,
-      everyNthFrame: 4,
-    });
   }
 
   async stopScreencast(sessionId: string): Promise<void> {
     const cdp = this.cdpSessions.get(sessionId);
     if (cdp) {
       try {
-        await cdp.send('Page.stopScreencast');
+        await cdp.send("Page.stopScreencast");
         await cdp.detach();
-      } catch (e) { log.debug({ err: e }, 'Screencast stop / CDP detach failed during cleanup'); }
+      } catch (e) {
+        log.debug(
+          { err: e },
+          "Screencast stop / CDP detach failed during cleanup",
+        );
+      }
       this.cdpSessions.delete(sessionId);
-      this.screencastCallbacks.delete(sessionId);
     }
-  }
-
-  isScreencasting(sessionId: string): boolean {
-    return this.cdpSessions.has(sessionId);
   }
 
   storeSnapshotMap(sessionId: string, map: Map<string, string>): void {
@@ -594,41 +427,33 @@ class BrowserManager {
     return map.get(elementId) ?? null;
   }
 
-  /**
-   * Create a browser-level CDP session and discover the window ID.
-   * Called once after browser launch/connect so positionWindowSidebar/moveWindowOnscreen can work.
-   */
-  private async initBrowserCdpSession(): Promise<void> {
-    if (!this.cdpBrowser) return;
-    try {
-      const browser = this.cdpBrowser as { newBrowserCDPSession?: () => Promise<CDPSession> };
-      if (typeof browser.newBrowserCDPSession !== 'function') return;
-
-      this.browserCdpSession = await browser.newBrowserCDPSession();
-      this.browserWindowId = null;
-      await this.ensureBrowserWindowId();
-    } catch (err) {
-      log.warn({ err }, 'Failed to init browser CDP session');
-    }
-  }
-
   private async ensureBrowserWindowId(): Promise<number | null> {
     if (!this.browserCdpSession) return null;
     if (this.browserWindowId != null) return this.browserWindowId;
     try {
-      const targets = await this.browserCdpSession.send('Target.getTargets') as {
+      const targets = (await this.browserCdpSession.send(
+        "Target.getTargets",
+      )) as {
         targetInfos: Array<{ targetId: string; type: string }>;
       };
-      const pageTarget = targets.targetInfos.find((t: { type: string }) => t.type === 'page');
+      const pageTarget = targets.targetInfos.find(
+        (t: { type: string }) => t.type === "page",
+      );
       if (!pageTarget) return null;
-      const result = await this.browserCdpSession.send('Browser.getWindowForTarget', {
-        targetId: pageTarget.targetId,
-      }) as { windowId: number };
+      const result = (await this.browserCdpSession.send(
+        "Browser.getWindowForTarget",
+        {
+          targetId: pageTarget.targetId,
+        },
+      )) as { windowId: number };
       this.browserWindowId = result.windowId;
-      log.debug({ windowId: this.browserWindowId }, 'Got browser window ID via CDP');
+      log.debug(
+        { windowId: this.browserWindowId },
+        "Got browser window ID via CDP",
+      );
       return this.browserWindowId;
     } catch (err) {
-      log.warn({ err }, 'Failed to resolve browser window ID');
+      log.warn({ err }, "Failed to resolve browser window ID");
       return null;
     }
   }
@@ -642,13 +467,19 @@ class BrowserManager {
     const windowId = await this.ensureBrowserWindowId();
     if (windowId == null) return;
     try {
-      await this.browserCdpSession.send('Browser.setWindowBounds', {
+      await this.browserCdpSession.send("Browser.setWindowBounds", {
         windowId,
-        bounds: { left: 480, top: 40, width: 940, height: 700, windowState: 'normal' },
+        bounds: {
+          left: 480,
+          top: 40,
+          width: 940,
+          height: 700,
+          windowState: "normal",
+        },
       });
-      log.debug('positionWindowSidebar: placed browser window in top-right');
+      log.debug("positionWindowSidebar: placed browser window in top-right");
     } catch (err) {
-      log.warn({ err }, 'positionWindowSidebar: failed to position window');
+      log.warn({ err }, "positionWindowSidebar: failed to position window");
       // CDP session may be stale (e.g. page closed) — clear it so it gets recreated
       this.browserCdpSession = null;
       this.browserWindowId = null;
@@ -663,13 +494,19 @@ class BrowserManager {
     const windowId = await this.ensureBrowserWindowId();
     if (windowId == null) return;
     try {
-      await this.browserCdpSession.send('Browser.setWindowBounds', {
+      await this.browserCdpSession.send("Browser.setWindowBounds", {
         windowId,
-        bounds: { left: 200, top: 40, width: 1100, height: 820, windowState: 'normal' },
+        bounds: {
+          left: 200,
+          top: 40,
+          width: 1100,
+          height: 820,
+          windowState: "normal",
+        },
       });
-      log.debug('moveWindowOnscreen: moved window onscreen via CDP');
+      log.debug("moveWindowOnscreen: moved window onscreen via CDP");
     } catch (err) {
-      log.warn({ err }, 'moveWindowOnscreen: CDP setWindowBounds failed');
+      log.warn({ err }, "moveWindowOnscreen: CDP setWindowBounds failed");
     }
   }
 
@@ -690,7 +527,10 @@ class BrowserManager {
     }
   }
 
-  async waitForHandoffComplete(sessionId: string, timeoutMs: number = 300_000): Promise<void> {
+  async waitForHandoffComplete(
+    sessionId: string,
+    timeoutMs: number = 300_000,
+  ): Promise<void> {
     if (!this.interactiveModeSessions.has(sessionId)) return;
 
     // Cancel any existing pending handoff for this session
@@ -738,7 +578,10 @@ class BrowserManager {
             }
             const currentUrl = page.url();
             if (currentUrl !== initialUrl) {
-              log.info({ sessionId, from: initialUrl, to: currentUrl }, 'Handoff auto-resolved: URL changed');
+              log.info(
+                { sessionId, from: initialUrl, to: currentUrl },
+                "Handoff auto-resolved: URL changed",
+              );
               this.interactiveModeSessions.delete(sessionId);
               resolver();
             }
@@ -776,7 +619,9 @@ class BrowserManager {
   async extractCookies(domain?: string): Promise<ExtractedCredential[]> {
     if (!this.browserCdpSession) return [];
     try {
-      const result = await this.browserCdpSession.send('Network.getAllCookies') as {
+      const result = (await this.browserCdpSession.send(
+        "Network.getAllCookies",
+      )) as {
         cookies: Array<{
           name: string;
           value: string;
@@ -790,14 +635,15 @@ class BrowserManager {
 
       let cookies = result.cookies ?? [];
       if (domain) {
-        cookies = cookies.filter(c =>
-          c.domain === domain ||
-          c.domain === `.${domain}` ||
-          c.domain.endsWith(`.${domain}`),
+        cookies = cookies.filter(
+          (c) =>
+            c.domain === domain ||
+            c.domain === `.${domain}` ||
+            c.domain.endsWith(`.${domain}`),
         );
       }
 
-      return cookies.map(c => ({
+      return cookies.map((c) => ({
         name: c.name,
         value: c.value,
         domain: c.domain,
@@ -807,13 +653,13 @@ class BrowserManager {
         expires: c.expires > 0 ? c.expires : undefined,
       }));
     } catch (err) {
-      log.warn({ err }, 'Failed to extract cookies via CDP');
+      log.warn({ err }, "Failed to extract cookies via CDP");
       return [];
     }
   }
 
   private setupDownloadTracking(sessionId: string, page: Page): void {
-    page.on('download', async (download: unknown) => {
+    page.on("download", async (download: unknown) => {
       const dl = download as {
         suggestedFilename(): string;
         path(): Promise<string | null>;
@@ -838,16 +684,18 @@ class BrowserManager {
           this.downloads.set(sessionId, list);
         }
 
-        log.info({ sessionId, filename, path: destPath }, 'Download completed');
+        log.info({ sessionId, filename, path: destPath }, "Download completed");
       } catch (err) {
         const failure = await dl.failure();
-        log.warn({ err, failure, sessionId }, 'Download failed');
+        log.warn({ err, failure, sessionId }, "Download failed");
 
         // Reject any pending waiters
         const pending = this.pendingDownloads.get(sessionId);
         if (pending && pending.length > 0) {
           const waiter = pending.shift()!;
-          waiter.reject(new Error(`Download failed: ${failure ?? String(err)}`));
+          waiter.reject(
+            new Error(`Download failed: ${failure ?? String(err)}`),
+          );
           if (pending.length === 0) this.pendingDownloads.delete(sessionId);
         }
       }
@@ -860,7 +708,10 @@ class BrowserManager {
     return list[list.length - 1];
   }
 
-  waitForDownload(sessionId: string, timeoutMs: number = 30_000): Promise<DownloadInfo> {
+  waitForDownload(
+    sessionId: string,
+    timeoutMs: number = 30_000,
+  ): Promise<DownloadInfo> {
     // Check if an unconsumed download already completed for this session
     const existing = this.downloads.get(sessionId);
     if (existing && existing.length > 0) {
@@ -874,7 +725,7 @@ class BrowserManager {
         // Remove this waiter from the pending list
         const pending = this.pendingDownloads.get(sessionId);
         if (pending) {
-          const idx = pending.findIndex(w => w.resolve === wrappedResolve);
+          const idx = pending.findIndex((w) => w.resolve === wrappedResolve);
           if (idx >= 0) pending.splice(idx, 1);
           if (pending.length === 0) this.pendingDownloads.delete(sessionId);
         }

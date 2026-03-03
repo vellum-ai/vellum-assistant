@@ -84,7 +84,10 @@ mock.module("../runtime/guardian-context-resolver.js", () => ({
     trustClass: "guardian",
     sourceChannel: "vellum",
   }),
-  toGuardianRuntimeContext: (ctx: unknown) => ctx,
+  toGuardianRuntimeContext: (sourceChannel: unknown, ctx: unknown) => ({
+    ...(ctx as Record<string, unknown>),
+    sourceChannel,
+  }),
 }));
 
 import type { AuthContext } from "../runtime/auth/types.js";
