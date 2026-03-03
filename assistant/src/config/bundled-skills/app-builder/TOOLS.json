@@ -37,7 +37,7 @@
           },
           "auto_open": {
             "type": "boolean",
-            "description": "Automatically open the app after creation. Defaults to true. When true, the app is immediately displayed in a dynamic_page surface without needing a separate app_open call."
+            "description": "When true (default), an inline preview card is shown in chat after creation. The app is NOT automatically opened in a workspace panel — users can open it explicitly via the 'Open App' button on the inline card."
           },
           "set_as_home_base": {
             "type": "boolean",
@@ -45,7 +45,7 @@
           },
           "preview": {
             "type": "object",
-            "description": "Optional inline preview card shown in chat. Provides a compact summary so the user sees what was built without opening the app.",
+            "description": "Inline preview card shown in chat after creation. Always include this so users see a compact summary of what was built. Required fields: title.",
             "properties": {
               "title": { "type": "string", "description": "Preview card title" },
               "subtitle": { "type": "string", "description": "Optional subtitle" },

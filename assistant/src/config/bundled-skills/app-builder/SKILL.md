@@ -1323,14 +1323,16 @@ Call `app_create` with:
 - `description`: One-sentence summary
 - `schema_json`: JSON schema as string
 - `html`: Complete HTML document as string
-- `auto_open`: (optional, defaults to `true`) Opens the app immediately
-- `preview`: (optional) Inline preview card — see below
+- `auto_open`: (optional, defaults to `true`) Shows an inline preview card in chat after creation
+- `preview`: Always include this — see below
 
-Since `auto_open` defaults to `true`, you don't need to call `app_open` separately after `app_create`.
+Since `auto_open` defaults to `true`, an inline preview card is shown in chat after creation. The app is NOT opened in a workspace panel automatically — users open it explicitly if desired by clicking 'Open App' on the inline card. The app appears in Things (sidebar) immediately after creation via the `app_files_changed` broadcast.
 
 #### Preview metadata
 
-Both `ui_show` and `app_create` support a `preview` object for an inline chat preview card. Always include it so the user sees a compact summary without opening the app.
+Always include preview metadata in `app_create` calls. The app shows as an inline card in chat first — no workspace opens automatically. Users can click 'Open App' on the inline card to open the workspace.
+
+Both `ui_show` and `app_create` support a `preview` object for an inline chat preview card. Always include it so the user sees a compact summary of what was built.
 
 **With `ui_show`:**
 ```json
@@ -1387,7 +1389,7 @@ Both `ui_show` and `app_create` support a `preview` object for an inline chat pr
 }
 ```
 
-Preview fields: `title` (required), `subtitle`, `description`, `icon`, `metrics` (up to 3 key-value pills). The `icon` field accepts an emoji or an image URL. **Prefer an image URL whenever you have a relevant one** — logos, favicons, product images, headshots, flags, album art, or any image you encountered during research. The preview card renders image URLs as a thumbnail automatically. Fall back to emoji only when there is no natural image. When `app_create` is called with `auto_open: true` (the default), the preview is forwarded through `app_open` automatically.
+Preview fields: `title` (required), `subtitle`, `description`, `icon`, `metrics` (up to 3 key-value pills). The `icon` field accepts an emoji or an image URL. **Prefer an image URL whenever you have a relevant one** — logos, favicons, product images, headshots, flags, album art, or any image you encountered during research. The preview card renders image URLs as a thumbnail automatically. Fall back to emoji only when there is no natural image. When `app_create` is called with `auto_open: true` (the default), the inline preview card is shown in chat — the app is NOT automatically opened in a workspace panel.
 
 ### 6. Handle Iteration
 
