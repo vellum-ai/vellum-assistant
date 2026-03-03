@@ -12,7 +12,7 @@ on:
 jobs:
   build:
     name: macOS Build
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 15
     env:
       VELLUM_FLAG_FEATURE_FLAG_EDITOR_ENABLED: "true"
@@ -132,7 +132,7 @@ jobs:
 
   test:
     name: macOS Tests
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 10
     steps:
       - name: Checkout
