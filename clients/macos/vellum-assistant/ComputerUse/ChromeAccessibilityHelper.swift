@@ -107,24 +107,64 @@ final class ChromeAccessibilityHelper {
     /// Uses a dedicated user-data-dir so the user's normal Chrome is untouched.
     /// Launches via the binary directly (not NSWorkspace/Launch Services) to ensure
     /// a second instance is created instead of activating the existing one.
+    /// Resolve the Chrome binary to use for CDP automation.
+    /// Prefers Chrome for Testing (installed by Playwright) since it won't conflict
+    /// with the user's regular Chrome instance.
+    private static func resolveCDPChromeBinary() -> String? {
+        // 1. Try Chrome for Testing (Playwright-installed) — preferred because it's
+        //    a separate app that won't conflict with regular Chrome.
+        if let cftURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.google.chrome.for.testing") {
+            let binary = cftURL.appendingPathComponent("Contents/MacOS/Google Chrome for Testing").path
+            if FileManager.default.fileExists(atPath: binary) {
+                log.info("Resolved CDP binary: Chrome for Testing at \(binary, privacy: .public)")
+                return binary
+            }
+        }
+
+        // 2. Also check Playwright cache directly (bundle ID lookup can miss it)
+        let playwriteGlob = NSHomeDirectory() + "/Library/Caches/ms-playwright/chromium-*/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"
+        if let match = try? FileManager.default.contentsOfDirectory(atPath: NSHomeDirectory() + "/Library/Caches/ms-playwright")
+            .filter({ $0.hasPrefix("chromium-") })
+            .sorted()
+            .last,
+           FileManager.default.fileExists(atPath: NSHomeDirectory() + "/Library/Caches/ms-playwright/\(match)/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing") {
+            let binary = NSHomeDirectory() + "/Library/Caches/ms-playwright/\(match)/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"
+            log.info("Resolved CDP binary: Chrome for Testing (Playwright cache) at \(binary, privacy: .public)")
+            return binary
+        }
+
+        // 3. Fall back to regular Chrome
+        if let chromeURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.google.Chrome") {
+            let binary = chromeURL.appendingPathComponent("Contents/MacOS/Google Chrome").path
+            if FileManager.default.fileExists(atPath: binary) {
+                log.info("Resolved CDP binary: regular Chrome at \(binary, privacy: .public)")
+                return binary
+            }
+        }
+
+        log.error("No Chrome binary found for CDP")
+        return nil
+    }
+
     @MainActor
     static func launchChromeForCDP() async -> Bool {
+        // Check if CDP is already available — don't launch a duplicate
+        if let url = URL(string: "http://localhost:9222/json/version"),
+           let (_, response) = try? await URLSession.shared.data(from: url),
+           let httpResponse = response as? HTTPURLResponse,
+           httpResponse.statusCode == 200 {
+            log.info("CDP already available, skipping Chrome launch")
+            return true
+        }
+
+        guard let chromeBinary = resolveCDPChromeBinary() else {
+            return false
+        }
+
         // Chrome 145+ requires a non-default --user-data-dir for CDP to bind the debugging port.
         let chromeDataDir = NSHomeDirectory() + "/Library/Application Support/Google/Chrome-CDP"
 
-        // Resolve Chrome binary dynamically via bundle ID to support non-standard install locations
-        guard let chromeURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.google.Chrome") else {
-            log.error("Google Chrome not found via bundle ID")
-            return false
-        }
-        let chromeBinary = chromeURL.appendingPathComponent("Contents/MacOS/Google Chrome").path
-
-        guard FileManager.default.fileExists(atPath: chromeBinary) else {
-            log.error("Chrome binary not found at \(chromeBinary)")
-            return false
-        }
-
-        log.info("Launching separate Chrome instance for CDP with user-data-dir: \(chromeDataDir, privacy: .public)")
+        log.info("Launching Chrome for CDP with user-data-dir: \(chromeDataDir, privacy: .public)")
 
         do {
             let process = Process()

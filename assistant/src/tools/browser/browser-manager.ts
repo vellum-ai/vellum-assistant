@@ -5,8 +5,19 @@ import { getLogger } from "../../util/logger.js";
 import { getDataDir } from "../../util/platform.js";
 import { authSessionCache } from "./auth-cache.js";
 import type { ExtractedCredential } from "./network-recording-types.js";
+import { checkBrowserRuntime } from "./runtime-check.js";
 
 const log = getLogger("browser-manager");
+
+/**
+ * Returns true when the host has a GUI capable of displaying a browser window.
+ * macOS and Windows always have a display; Linux requires DISPLAY or WAYLAND_DISPLAY.
+ */
+function canDisplayGui(): boolean {
+  if (process.platform === "darwin" || process.platform === "win32")
+    return true;
+  return !!(process.env.DISPLAY || process.env.WAYLAND_DISPLAY);
+}
 
 function getDownloadsDir(): string {
   const dir = join(getDataDir(), "browser-downloads");
@@ -116,6 +127,11 @@ let launchPersistentContext: LaunchFn | null = null;
 
 export function setLaunchFn(fn: LaunchFn | null): void {
   launchPersistentContext = fn;
+}
+
+async function getDefaultLaunchFn(): Promise<LaunchFn> {
+  const pw = await import("playwright");
+  return pw.chromium.launchPersistentContext.bind(pw.chromium);
 }
 
 function getProfileDir(): string {
@@ -232,7 +248,7 @@ class BrowserManager {
   }
 
   private async ensureContext(
-    invokingSessionId?: string,
+    _invokingSessionId?: string,
   ): Promise<BrowserContext> {
     if (this.context) return this.context;
     if (this.contextCreating) return this.contextCreating;
@@ -252,58 +268,63 @@ class BrowserManager {
         return ctx;
       }
 
-      // Try to detect an existing Chrome with --remote-debugging-port,
-      // or ask the client to launch Chrome with CDP enabled.
-      const sender = invokingSessionId
-        ? this.sessionSenders.get(invokingSessionId)
-        : undefined;
-      let cdpAvailable = await this.detectCDP();
-
-      if (!cdpAvailable && invokingSessionId && sender) {
-        log.info(
-          { sessionId: invokingSessionId },
-          "Requesting CDP from client",
-        );
-        const accepted = await this.requestCDPFromClient(
-          invokingSessionId,
-          sender,
-        );
-        if (accepted) {
-          cdpAvailable = await this.detectCDP();
-          if (!cdpAvailable) {
-            log.warn("Client accepted CDP request but CDP not detected");
-          }
-        } else {
-          log.info("Client declined CDP request");
-          throw new Error("Browser access was declined by user");
-        }
-      }
-
-      if (!cdpAvailable) {
-        throw new Error(
-          "Chrome with remote debugging is not available. Please launch Chrome with --remote-debugging-port=9222.",
-        );
-      }
-
       // Initialize auth session cache alongside browser context
       await authSessionCache.load();
 
-      try {
-        const pw = await import("playwright");
-        const browser = await pw.chromium.connectOverCDP(this.cdpUrl, {
-          timeout: 10_000,
-        });
-        this.cdpBrowser = browser;
-        this._browserLaunched = false;
-        const contexts = browser.contexts();
-        const ctx = contexts[0] || (await browser.newContext());
-        await this.initBrowserCdpSession();
-        log.info({ cdpUrl: this.cdpUrl }, "Connected to Chrome via CDP");
-        return ctx as unknown as BrowserContext;
-      } catch (err) {
-        log.warn({ err }, "CDP connectOverCDP failed");
-        throw new Error(`Failed to connect to Chrome via CDP: ${err}`);
+      // Launch browser via Playwright directly. Playwright's connectOverCDP
+      // is broken under Bun's runtime (websocket handshake times out), so we
+      // launch Playwright's own Chromium instead.
+      // Auto-install Chromium if missing.
+      if (!launchPersistentContext) {
+        const status = await checkBrowserRuntime();
+        if (status.playwrightAvailable && !status.chromiumInstalled) {
+          log.info("Chromium not installed, installing via playwright...");
+          const proc = Bun.spawn(
+            ["bunx", "playwright", "install", "chromium"],
+            {
+              stdout: "pipe",
+              stderr: "pipe",
+            },
+          );
+          const timeoutMs = 120_000;
+          let timer: ReturnType<typeof setTimeout>;
+          const exitCode = await Promise.race([
+            proc.exited.finally(() => clearTimeout(timer)),
+            new Promise<never>(
+              (_, reject) =>
+                (timer = setTimeout(() => {
+                  proc.kill();
+                  reject(
+                    new Error(
+                      `Chromium install timed out after ${timeoutMs / 1000}s`,
+                    ),
+                  );
+                }, timeoutMs)),
+            ),
+          ]);
+          if (exitCode === 0) {
+            log.info("Chromium installed successfully");
+          } else {
+            const stderr = await new Response(proc.stderr).text();
+            const msg = stderr.trim() || `exited with code ${exitCode}`;
+            throw new Error(`Failed to install Chromium: ${msg}`);
+          }
+        }
       }
+
+      const profileDir = getProfileDir();
+      mkdirSync(profileDir, { recursive: true });
+      const launch = launchPersistentContext ?? (await getDefaultLaunchFn());
+      const headless = !canDisplayGui();
+      const ctx = await launch(profileDir, { headless });
+      this._browserLaunched = true;
+      log.info(
+        { profileDir, headless },
+        headless
+          ? "Browser context created (headless)"
+          : "Browser context created (visible)",
+      );
+      return ctx;
     })();
 
     try {
