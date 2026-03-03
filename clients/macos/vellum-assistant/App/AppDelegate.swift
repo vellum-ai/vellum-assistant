@@ -1239,6 +1239,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                 ))
                 services.reconfigureDaemonClient(config: config)
                 log.info("Configured local HTTP transport (localHttpEnabled flag) on port \(port)")
+            } else {
+                // Reset to default socket transport in case the previous assistant used HTTP.
+                services.reconfigureDaemonClient(config: .default)
             }
             return
         }
