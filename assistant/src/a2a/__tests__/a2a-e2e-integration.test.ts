@@ -5,7 +5,7 @@
  * assistants (Alice and Bob) going through the complete connection
  * lifecycle: invite generation -> redemption -> connection request ->
  * guardian approval -> IRL verification code exchange -> active
- * connection -> scoped message exchange -> revocation.
+ * connection -> message exchange -> revocation.
  *
  * Uses real in-memory SQLite (via the actual store layer) with mocked
  * outbound delivery (HTTP calls to peer gateways) and notification
@@ -56,22 +56,6 @@ mock.module('../../notifications/emit-signal.js', () => ({
   },
 }));
 
-// Control whether scope policy flag is enabled per test
-let scopePolicyEnabled = true;
-mock.module('../../config/assistant-feature-flags.js', () => ({
-  isAssistantFeatureFlagEnabled: (key: string) => {
-    if (key === 'feature_flags.a2a-scope-policy.enabled') return scopePolicyEnabled;
-    return true;
-  },
-  loadDefaultsRegistry: () => ({}),
-}));
-
-mock.module('../../config/loader.js', () => ({
-  getConfig: () => ({
-    assistantFeatureFlagValues: {},
-  }),
-}));
-
 // Mock outbound delivery — track calls and control success/failure per test
 let deliverMessageShouldSucceed = true;
 let deliveredMessages: Array<{ connectionId: string; envelope: unknown }> = [];
@@ -115,8 +99,6 @@ import {
   revokeConnection,
   sendMessage,
   submitVerificationCode,
-  updateScopes,
-  getScopes,
   _resetHandshakeSessions,
   _resetIdempotencyStore,
 } from '../a2a-connection-service.js';
@@ -149,7 +131,6 @@ function resetMocks(): void {
   revocationDeliveries.length = 0;
   deliverMessageShouldSucceed = true;
   revocationDeliveryShouldSucceed = true;
-  scopePolicyEnabled = true;
 }
 
 /**
@@ -234,7 +215,7 @@ describe('A2A E2E Integration', () => {
   // =========================================================================
 
   describe('happy path: invite -> redeem -> connect -> approve -> verify -> active -> message', () => {
-    test('complete lifecycle produces an active connection and allows scoped messaging', async () => {
+    test('complete lifecycle produces an active connection and allows messaging', async () => {
       // -- Step 1: Alice generates an invite --
       const inviteResult = generateInvite({ gatewayUrl: ALICE_GATEWAY_URL });
       expect(inviteResult.ok).toBe(true);
@@ -321,13 +302,7 @@ describe('A2A E2E Integration', () => {
       );
       expect(establishedSignal).toBeDefined();
 
-      // -- Step 6: Grant message scope and send a message --
-      const scopeResult = updateScopes({
-        connectionId: initResult.connectionId,
-        scopes: ['message'],
-      });
-      expect(scopeResult.ok).toBe(true);
-
+      // -- Step 6: Send a message --
       const sendResult = await sendMessage({
         connectionId: initResult.connectionId,
         content: { type: 'text', text: 'Hello from Alice!' },
@@ -583,9 +558,6 @@ describe('A2A E2E Integration', () => {
     test('sendMessage rejected after connection is revoked', async () => {
       const { connectionId } = fullHandshakeToActive();
 
-      // Grant message scope
-      updateScopes({ connectionId, scopes: ['message'] });
-
       // Revoke the connection
       const revokeResult = await revokeConnection({ connectionId });
       expect(revokeResult.ok).toBe(true);
@@ -616,58 +588,7 @@ describe('A2A E2E Integration', () => {
   });
 
   // =========================================================================
-  // 8. Out-of-scope action
-  // =========================================================================
-
-  describe('out-of-scope action', () => {
-    test('sendMessage rejected when connection lacks message scope', async () => {
-      const { connectionId } = fullHandshakeToActive();
-
-      // Connection is active but has no scopes granted
-      const sendResult = await sendMessage({
-        connectionId,
-        content: { type: 'text', text: 'Should be denied' },
-      });
-      expect(sendResult.ok).toBe(false);
-      if (!sendResult.ok) {
-        expect(sendResult.reason).toBe('scope_denied');
-      }
-    });
-
-    test('sendMessage succeeds after granting message scope', async () => {
-      const { connectionId } = fullHandshakeToActive();
-
-      // Grant the message scope
-      const scopeResult = updateScopes({ connectionId, scopes: ['message'] });
-      expect(scopeResult.ok).toBe(true);
-
-      const sendResult = await sendMessage({
-        connectionId,
-        content: { type: 'text', text: 'Now this should work' },
-      });
-      expect(sendResult.ok).toBe(true);
-    });
-
-    test('sendMessage rejected after scope is narrowed to remove message', async () => {
-      const { connectionId } = fullHandshakeToActive();
-
-      // Grant then narrow
-      updateScopes({ connectionId, scopes: ['message', 'read_profile'] });
-      updateScopes({ connectionId, scopes: ['read_profile'] });
-
-      const sendResult = await sendMessage({
-        connectionId,
-        content: { type: 'text', text: 'Should be denied again' },
-      });
-      expect(sendResult.ok).toBe(false);
-      if (!sendResult.ok) {
-        expect(sendResult.reason).toBe('scope_denied');
-      }
-    });
-  });
-
-  // =========================================================================
-  // 9. Stale/duplicate decision handling
+  // 8. Stale/duplicate decision handling
   // =========================================================================
 
   describe('stale/duplicate decision handling', () => {
@@ -744,20 +665,6 @@ describe('A2A E2E Integration', () => {
       // This test IS the surface-agnosticism proof — every call in the happy
       // path above goes through service methods, not HTTP endpoints.
       const { connectionId } = fullHandshakeToActive();
-
-      // Scope management via direct service calls
-      const scopeResult = updateScopes({
-        connectionId,
-        scopes: ['message', 'read_profile'],
-      });
-      expect(scopeResult.ok).toBe(true);
-
-      const getScopeResult = getScopes({ connectionId });
-      expect(getScopeResult.ok).toBe(true);
-      if (getScopeResult.ok) {
-        expect(getScopeResult.scopes).toContain('message');
-        expect(getScopeResult.scopes).toContain('read_profile');
-      }
 
       // Message sending via direct service call
       const sendResult = await sendMessage({
@@ -1017,38 +924,8 @@ describe('A2A E2E Integration', () => {
       expect(deniedSignal).toBeDefined();
     });
 
-    test('scope update with invalid scope ID is rejected', () => {
-      const { connectionId } = fullHandshakeToActive();
-
-      const result = updateScopes({
-        connectionId,
-        scopes: ['message', 'nonexistent_scope'],
-      });
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.reason).toBe('invalid_scopes');
-      }
-    });
-
-    test('sendMessage rejected when scope policy feature flag is disabled', async () => {
-      const { connectionId } = fullHandshakeToActive();
-      updateScopes({ connectionId, scopes: ['message'] });
-
-      scopePolicyEnabled = false;
-
-      const result = await sendMessage({
-        connectionId,
-        content: { type: 'text', text: 'Should fail' },
-      });
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.reason).toBe('not_enabled');
-      }
-    });
-
     test('sendMessage handles delivery failure gracefully', async () => {
       const { connectionId } = fullHandshakeToActive();
-      updateScopes({ connectionId, scopes: ['message'] });
 
       deliverMessageShouldSucceed = false;
 
@@ -1059,29 +936,6 @@ describe('A2A E2E Integration', () => {
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.reason).toBe('delivery_failed');
-      }
-    });
-
-    test('getScopes returns correct scopes for active connection', () => {
-      const { connectionId } = fullHandshakeToActive();
-
-      updateScopes({ connectionId, scopes: ['message', 'read_availability'] });
-
-      const result = getScopes({ connectionId });
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.scopes).toEqual(['message', 'read_availability']);
-      }
-    });
-
-    test('getScopes rejected for non-active connection', async () => {
-      const { connectionId } = fullHandshakeToActive();
-      await revokeConnection({ connectionId });
-
-      const result = getScopes({ connectionId });
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.reason).toBe('not_active');
       }
     });
 

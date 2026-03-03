@@ -1,10 +1,9 @@
 # A2A (Assistant-to-Assistant) Architecture
 
-Comprehensive architecture reference for the A2A communications system. This document covers the full system topology, data flows, service API contract, handshake protocol, trust model, scope model, and extension points.
+Comprehensive architecture reference for the A2A communications system. This document covers the full system topology, data flows, service API contract, handshake protocol, trust model, and extension points.
 
 Related docs:
 - [A2A Communications Design (constraints, threat model, protocol)](a2a-communications.md)
-- [A2A Scope Model (scope semantics, catalog, policy)](a2a-scope-model.md)
 - [Security (includes approval grants)](security.md)
 
 ---
@@ -56,7 +55,7 @@ graph TB
 
 - **Gateway-only ingress**: All A2A traffic routes through the gateway. The daemon never accepts direct peer connections.
 - **Assistant identity boundary**: The daemon uses `DAEMON_INTERNAL_ASSISTANT_ID` (`'self'`) for all internal scoping. Peer connections are keyed by gateway URL and connection ID, not by a peer's internal identity.
-- **Fail-closed trust**: New peer connections start with zero capabilities. The guardian must explicitly grant scopes.
+- **Fail-closed trust**: Peer assistants have no tool execution capabilities. The `peer_assistant` trust classification provides the security boundary.
 - **HMAC-SHA256 authentication**: All post-handshake messages are signed with per-connection credentials.
 
 ---
@@ -113,7 +112,7 @@ sequenceDiagram
     Note over GA,GB: Connection Active — HMAC-authenticated messaging
     GWB->>GWA: POST /v1/a2a/messages/inbound<br/>{envelope + x-a2a-signature headers}
     GWA->>RTA: forward with auth headers
-    RTA->>RTA: HMAC verify, dedup, scope check, route to session
+    RTA->>RTA: HMAC verify, dedup, route to session
     RTA-->>GWA: {accepted: true}
 ```
 
@@ -193,7 +192,7 @@ stateDiagram-v2
 | `invite_generated` | Invite token created, waiting for peer redemption | 24 hours (default) |
 | `awaiting_approval` | Peer sent connection request, guardian must approve/deny | 15 minutes |
 | `awaiting_verification` | Guardian approved, verification code generated and delivered | 5 minutes (code TTL) |
-| `active` | Connection live, bidirectional messaging within granted scopes | Persists until revoked |
+| `active` | Connection live, bidirectional messaging enabled | Persists until revoked |
 | `revocation_pending` | Local guardian revoked, notification to peer in flight | Sweep retry window |
 | `revoked` | Final state after successful local revocation | Terminal |
 | `revoked_by_peer` | Peer initiated revocation | Terminal |
@@ -213,8 +212,6 @@ All A2A operations go through a single stateless service in `assistant/src/a2a/a
 | `approveConnection()` | `{ connectionId, decision }` | `{ ok, verificationCode?, connectionId }` | `not_found`, `invalid_state`, `already_resolved` |
 | `revokeConnection()` | `{ connectionId }` | `{ ok, status }` | `not_found` |
 | `listConnectionsFiltered()` | `{ status? }` | `{ connections: PeerConnection[] }` | -- (always succeeds) |
-| `updateScopes()` | `{ connectionId, scopes }` | `{ ok, previousScopes, newScopes }` | `not_found`, `not_active`, `invalid_scopes` |
-| `getScopes()` | `{ connectionId }` | `{ ok, connectionId, scopes }` | `not_found`, `not_active` |
 
 ### Peer-Facing Methods (unauthenticated / invite-gated / HMAC-auth)
 
@@ -222,7 +219,7 @@ All A2A operations go through a single stateless service in `assistant/src/a2a/a
 |--------|-------|---------------|----------------|
 | `initiateConnection()` | `{ peerGatewayUrl, inviteToken, protocolVersion, capabilities, ownGatewayUrl }` | `{ ok, connectionId, handshakeSessionId }` | `invalid_target`, `version_mismatch`, `invite_not_found`, `invite_consumed` |
 | `submitVerificationCode()` | `{ connectionId, code, peerIdentity }` | `{ ok, connection }` | `not_found`, `invalid_code`, `expired`, `max_attempts`, `invalid_state`, `identity_mismatch` |
-| `sendMessage()` | `{ connectionId, content, correlationId? }` | `{ ok, messageId, conversationId }` | `not_found`, `not_active`, `not_enabled`, `scope_denied`, `no_credential`, `delivery_failed` |
+| `sendMessage()` | `{ connectionId, content, correlationId? }` | `{ ok, messageId, conversationId }` | `not_found`, `not_active`, `no_credential`, `delivery_failed` |
 | `handlePeerRevocationNotification()` | `{ connectionId }` | `{ ok }` | `not_found`, `already_revoked` |
 
 ### Key Design Principles
@@ -262,54 +259,20 @@ graph TD
 | Actor role | `peer_assistant` |
 | Source channel | `assistant` |
 | Default capabilities | Zero -- fail-closed |
-| Capability source | Explicit scope grants from the guardian |
+| Capability source | Trust classification infrastructure gates (no scope system) |
 | Memory provenance | Peer messages indexed with `peer_assistant` provenance; extraction suppressed |
-| Tool execution | No host-target or side-effect tools unless explicitly scoped |
+| Tool execution | All tool execution denied (fail-closed) |
 | History view | Peer-provenance messages only; no guardian-era context replay |
 
 ### Trust Enforcement Points
 
 | Gate | Module | Behavior for `peer_assistant` |
 |------|--------|-------------------------------|
-| Tool execution | `tool-approval-handler.ts` | Blocked unless scope grants the specific tool category |
+| Tool execution | `tool-approval-handler.ts` | All tool execution denied (fail-closed) |
 | Memory write | `indexer.ts` | Segments indexed for search; `extract_items` jobs suppressed |
 | Memory read | `session-memory.ts` | Empty recall result (no profile, no conflicts) |
 | History view | `session-lifecycle.ts` | Only peer-provenance messages visible |
 | Backfill | `job-handlers/backfill.ts` | `peer_assistant` provenance excluded from extraction |
-
----
-
-## Scope Model Summary
-
-Scopes are **asymmetric and per-connection**. Each guardian independently decides what to expose to each peer. See [A2A Scope Model](a2a-scope-model.md) for the full specification.
-
-### Initial Scope Catalog
-
-| Scope ID | Label | Risk | Description |
-|----------|-------|------|-------------|
-| `message` | Send/receive messages | Low | Text message exchange over the connection |
-| `read_availability` | Read calendar availability | Low | Query free/busy information |
-| `create_events` | Create calendar events | Medium | Create events/reminders (guardian confirmation may apply) |
-| `read_profile` | Read basic profile | Low | Non-sensitive profile: name, timezone, language |
-| `execute_requests` | Execute structured requests | High | Typed action/response patterns beyond messaging |
-
-### Evaluation Flow
-
-```mermaid
-graph TD
-    INBOUND["Inbound A2A request"] --> AUTH["HMAC-SHA256 auth"]
-    AUTH --> CONN["Connection lookup<br/>status = active?"]
-    CONN --> SCOPE{"Scope check:<br/>connection.scopes<br/>includes required scope?"}
-    SCOPE -->|"Yes"| ROUTE["Route to session<br/>with peer_assistant trust"]
-    SCOPE -->|"No"| DENY["403 Forbidden<br/>scope_not_granted"]
-    ROUTE --> TOOL{"Tool execution<br/>requested?"}
-    TOOL -->|"No"| DELIVER["Deliver to conversation"]
-    TOOL -->|"Yes"| TOOL_SCOPE{"Tool allowed<br/>by granted scopes?"}
-    TOOL_SCOPE -->|"Yes"| EXECUTE["Execute tool"]
-    TOOL_SCOPE -->|"No"| TOOL_DENY["Permission denied"]
-```
-
-The `a2a-scope-policy` feature flag (`feature_flags.a2a-scope-policy.enabled`, default: false) gates scope enforcement on both inbound and outbound message paths. When off, inbound messages from active connections are accepted without a scope check (the tool execution gate still blocks privileged actions) and outbound sends are rejected with `not_enabled`.
 
 ---
 
@@ -376,7 +339,6 @@ The system emits notification signals for all connection lifecycle transitions:
 | `a2a.verification_code_ready` | Verification code generated after approval |
 | `a2a.connection_established` | Handshake complete, connection active |
 | `a2a.connection_revoked` | Connection revoked by either side |
-| `a2a.scopes_changed` | Scope set modified by guardian |
 | `a2a.message_received` | Inbound message processed |
 | `a2a.message_delivered` | Outbound message accepted by peer |
 | `a2a.message_failed` | Outbound delivery failed |
@@ -411,8 +373,6 @@ Management endpoints called by the local guardian via gateway proxy or directly.
 | `POST` | `/v1/a2a/revoke` | Revoke a connection |
 | `GET` | `/v1/a2a/connections` | List connections (optional status filter) |
 | `POST` | `/v1/a2a/connections/:id/messages` | Send a message to a peer |
-| `PUT` | `/v1/a2a/connections/:id/scopes` | Update connection scopes |
-| `GET` | `/v1/a2a/connections/:id/scopes` | Get connection scopes |
 
 Source: `assistant/src/runtime/routes/a2a-routes.ts`
 
@@ -464,7 +424,6 @@ Stores the bidirectional connection state between two assistants.
 | `status` | text | Lifecycle state (see state machine above) |
 | `protocolVersion` | text | Negotiated protocol version |
 | `capabilities` | text | JSON array of negotiated capabilities |
-| `scopes` | text | JSON array of granted scope strings |
 | `outboundCredentialHash` | text? | SHA-256 hash of credential we send to the peer |
 | `inboundCredentialHash` | text? | SHA-256 hash of credential the peer sends to us |
 | `inboundCredential` | text? | Raw inbound credential (for HMAC verification) |
@@ -500,8 +459,6 @@ Stores the bidirectional connection state between two assistants.
 | `a2a-outbound-delivery.ts` | Outbound message delivery with HMAC signing |
 | `a2a-revocation-delivery.ts` | Revocation notification delivery to peer |
 | `a2a-revocation-sweep.ts` | Background sweep for retrying failed revocation notifications |
-| `a2a-scope-catalog.ts` | Scope definitions registry (IDs, labels, risk levels) |
-| `a2a-scope-policy.ts` | Scope evaluation engine (set-membership check) |
 | `a2a-rate-limiter.ts` | Per-endpoint rate limiters for peer-facing routes |
 
 ### `assistant/src/runtime/routes/`
@@ -509,7 +466,7 @@ Stores the bidirectional connection state between two assistants.
 | File | Purpose |
 |------|---------|
 | `a2a-routes.ts` | Runtime HTTP handlers for management + peer-facing endpoints |
-| `a2a-inbound-routes.ts` | Inbound message processing (HMAC verify, dedup, scope check, route) |
+| `a2a-inbound-routes.ts` | Inbound message processing (HMAC verify, dedup, route) |
 | `a2a-revoke-notify-auth.ts` | Signature verification for revocation notifications |
 
 ### `gateway/src/http/routes/`
@@ -550,10 +507,9 @@ A2A connection management via Telegram (generate invite, approve connection, rev
 ### macOS Settings UI
 
 A "Peer Assistants" section in Settings > Connect tab:
-- List active connections with status, peer name, and scopes
+- List active connections with status and peer name
 - Generate invite codes (calls `generateInvite()` via gateway HTTP)
 - Revoke connections
-- Adjust scopes per connection
 - No protocol changes needed -- the macOS app calls gateway HTTP endpoints that delegate to `A2AConnectionService`
 
 ### Directory Resolver
@@ -562,23 +518,6 @@ Replace or augment invite-based discovery with a directory service:
 - Implement `DirectoryResolver` conforming to the `PeerDiscoveryResolver` interface defined in the architecture doc
 - The invite-code path remains available as a fallback
 - The `redeemInvite()` method in `A2AConnectionService` delegates to the active resolver
-
-### Scope Expansion
-
-New scope strings can be added at any time:
-1. Add the scope ID and metadata to `a2a-scope-catalog.ts`
-2. Add tool-to-scope mapping entries in `a2a-scope-policy.ts`
-3. Add gateway-side enforcement for the new scope
-4. Existing connections can be upgraded by the guardian granting the new scope
-5. No protocol version bump needed for additive scope additions
-
-### Scope Hints in Handshake
-
-Allow connecting peers to include `requestedScopes` in the handshake payload as a hint. The guardian sees suggestions in the approval UI but the granted scopes remain the guardian's decision. Additive -- no protocol version bump.
-
-### Custom Scopes
-
-Let guardians define custom scope IDs with descriptions and tool-pattern mappings. The `string[]` storage format already supports arbitrary scope IDs without schema migration.
 
 ---
 
@@ -597,7 +536,6 @@ Let guardians define custom scope IDs with descriptions and tool-pattern mapping
 | `invalid_or_expired` on redeem | Invite TTL (24h) exceeded or already used | Generate a new invite |
 | `identity_mismatch` on verify | Verification code submitted by wrong identity | Ensure the correct guardian is submitting the code |
 | `max_attempts` on verify | 3 failed verification attempts | Connection is invalidated; start a new handshake |
-| `scope_denied` on message | Connection lacks required scope | Guardian grants the scope via `PUT /v1/a2a/connections/:id/scopes` |
 | `delivery_failed` on send | Peer gateway unreachable | Check peer's gateway URL and network connectivity |
 | Connection stuck in `revocation_pending` | Peer did not acknowledge revocation | The background sweep will finalize after the retry window |
 
@@ -610,17 +548,3 @@ POST /v1/a2a/revoke
 
 This immediately tombstones the outbound credential and sends a revocation notification to the peer. The connection transitions through `revocation_pending` to `revoked`.
 
-### Modifying Scopes
-
-```
-PUT /v1/a2a/connections/:id/scopes
-{ "scopes": ["message", "read_availability"] }
-```
-
-Scope changes take effect immediately. The peer is optionally notified via an `a2a.scopes_changed` lifecycle event.
-
-### Feature Flags
-
-| Flag | Key | Default | Controls |
-|------|-----|---------|----------|
-| A2A Scope Policy | `feature_flags.a2a-scope-policy.enabled` | `false` | When enabled, inbound messages are checked against connection scopes and outbound sends are allowed. When disabled, all inbound messages from active connections are accepted (tool execution gate still applies) and outbound sends are rejected with `not_enabled`. |

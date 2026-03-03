@@ -40,22 +40,6 @@ mock.module('../../notifications/emit-signal.js', () => ({
   },
 }));
 
-// Control whether scope policy flag is enabled per test
-let scopePolicyEnabled = false;
-mock.module('../../config/assistant-feature-flags.js', () => ({
-  isAssistantFeatureFlagEnabled: (key: string) => {
-    if (key === 'feature_flags.a2a-scope-policy.enabled') return scopePolicyEnabled;
-    return true;
-  },
-  loadDefaultsRegistry: () => ({}),
-}));
-
-mock.module('../../config/loader.js', () => ({
-  getConfig: () => ({
-    assistantFeatureFlagValues: {},
-  }),
-}));
-
 // ---------------------------------------------------------------------------
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
@@ -110,7 +94,6 @@ describe('a2a-outbound-delivery', () => {
     _resetHandshakeSessions();
     _resetIdempotencyStore();
     emittedSignals.length = 0;
-    scopePolicyEnabled = false;
   });
 
   afterAll(() => {
@@ -123,49 +106,12 @@ describe('a2a-outbound-delivery', () => {
   });
 
   // ========================================================================
-  // sendMessage — scope gating
-  // ========================================================================
-
-  describe('sendMessage scope gating', () => {
-    test('returns not_enabled when scope policy flag is off', async () => {
-      scopePolicyEnabled = false;
-      const { connection } = createActiveConnection();
-
-      const result = await sendMessage({
-        connectionId: connection.id,
-        content: { type: 'text', text: 'hello' },
-      });
-
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.reason).toBe('not_enabled');
-      }
-    });
-
-    test('proceeds past scope gate when flag is on', async () => {
-      scopePolicyEnabled = true;
-      const { connection } = createActiveConnection();
-
-      // This will fail at delivery (no actual server), but it gets past the scope gate
-      const result = await sendMessage({
-        connectionId: connection.id,
-        content: { type: 'text', text: 'hello' },
-      });
-
-      // It should not be 'not_enabled' — it should proceed to delivery attempt
-      if (!result.ok) {
-        expect(result.reason).not.toBe('not_enabled');
-      }
-    });
-  });
-
-  // ========================================================================
   // sendMessage — connection validation
   // ========================================================================
 
   describe('sendMessage connection validation', () => {
     test('returns not_found for missing connection', async () => {
-      scopePolicyEnabled = true;
+
 
       const result = await sendMessage({
         connectionId: 'nonexistent-id',
@@ -179,7 +125,7 @@ describe('a2a-outbound-delivery', () => {
     });
 
     test('returns not_active for pending connection', async () => {
-      scopePolicyEnabled = true;
+
       const conn = createConnection({
         peerGatewayUrl: 'https://peer.example.com',
         status: 'pending',
@@ -197,7 +143,7 @@ describe('a2a-outbound-delivery', () => {
     });
 
     test('returns not_active for revoked connection', async () => {
-      scopePolicyEnabled = true;
+
       const conn = createConnection({
         peerGatewayUrl: 'https://peer.example.com',
         status: 'active',
@@ -216,7 +162,7 @@ describe('a2a-outbound-delivery', () => {
     });
 
     test('returns no_credential when outbound credential is missing', async () => {
-      scopePolicyEnabled = true;
+
       const conn = createConnection({
         peerGatewayUrl: 'https://peer.example.com',
         status: 'active',
@@ -240,7 +186,7 @@ describe('a2a-outbound-delivery', () => {
 
   describe('sendMessage conversation binding', () => {
     test('creates external conversation binding on first send', async () => {
-      scopePolicyEnabled = true;
+
       const { connection } = createActiveConnection();
 
       // Verify no binding exists before send
