@@ -1,7 +1,7 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// Full-screen apps grid view showing all apps as a card grid with search and pinned/recent sections.
+/// Full-screen apps grid view showing all apps as a flat card grid with search.
 struct AppsGridView: View {
     @ObservedObject var appListManager: AppListManager
     let daemonClient: DaemonClient
@@ -9,7 +9,6 @@ struct AppsGridView: View {
 
     @State private var searchText = ""
     @State private var hoveredAppId: String?
-    @State private var recentVisibleCount = 10
     @State private var editingApp: AppListManager.AppItem?
 
     /// Cache of lazily-loaded preview screenshots keyed by app ID.
@@ -18,7 +17,7 @@ struct AppsGridView: View {
     /// In-flight preview fetch tasks, keyed by app ID, so they can be cancelled.
     @State private var previewTasks: [String: Task<Void, Never>] = [:]
 
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: VSpacing.xl), count: 4)
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: VSpacing.xl), count: 5)
 
     /// Maximum width of the centered content area.
     private let maxContentWidth: CGFloat = 1400
@@ -28,34 +27,48 @@ struct AppsGridView: View {
             if appListManager.apps.isEmpty {
                 noAppsEmptyState
             } else {
-                ScrollView {
-                    VStack(spacing: VSpacing.xxl) {
-                        searchBar
-                            .padding(.top, VSpacing.xxl)
-
-                        if !filteredPinnedApps.isEmpty {
-                            pinnedSectionView
-                        }
-
-                        if !filteredRecentApps.isEmpty {
-                            recentSectionView
-                        }
-
-                        if filteredPinnedApps.isEmpty && filteredRecentApps.isEmpty && !searchText.isEmpty {
-                            VEmptyState(
-                                title: "No apps matched",
-                                subtitle: "No apps matched \"\(searchText)\"",
-                                icon: "magnifyingglass"
-                            )
-                            .frame(maxWidth: .infinity)
-                            .padding(.top, VSpacing.xxxl)
-                        }
+                VStack(alignment: .leading, spacing: 0) {
+                    // Header
+                    HStack(alignment: .center) {
+                        Text("Things")
+                            .font(VFont.panelTitle)
+                            .foregroundColor(VColor.textPrimary)
+                        Spacer()
                     }
-                    .frame(maxWidth: maxContentWidth)
-                    .frame(maxWidth: .infinity)
-                    .padding(.horizontal, VSpacing.xxxl)
-                    .padding(.bottom, VSpacing.xxl)
+                    .padding(.bottom, VSpacing.md)
+
+                    Divider().background(VColor.surfaceBorder)
+
+                    ScrollView {
+                        VStack(spacing: VSpacing.xxl) {
+                            searchBar
+
+                            let allApps = filteredApps
+                            if !allApps.isEmpty {
+                                LazyVGrid(columns: columns, spacing: VSpacing.xxl) {
+                                    ForEach(allApps) { app in
+                                        appCard(app)
+                                            .onAppear { fetchPreviewIfNeeded(app) }
+                                    }
+                                }
+                            }
+
+                            if allApps.isEmpty && !searchText.isEmpty {
+                                VEmptyState(
+                                    title: "No apps matched",
+                                    subtitle: "No apps matched \"\(searchText)\"",
+                                    icon: "magnifyingglass"
+                                )
+                                .frame(maxWidth: .infinity)
+                                .padding(.top, VSpacing.xxxl)
+                            }
+                        }
+                        .frame(maxWidth: maxContentWidth)
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, VSpacing.lg)
+                    }
                 }
+                .padding(VSpacing.lg)
             }
         }
         .background(VColor.backgroundSubtle)
@@ -100,60 +113,7 @@ struct AppsGridView: View {
     // MARK: - Search Bar
 
     private var searchBar: some View {
-        VSearchBar(placeholder: "Search apps...", text: $searchText)
-    }
-
-    // MARK: - Sections
-
-    private var pinnedSectionView: some View {
-        VStack(alignment: .leading, spacing: VSpacing.lg) {
-            Text("Pinned")
-                .font(VFont.headline)
-                .foregroundColor(VColor.textSecondary)
-
-            LazyVGrid(columns: columns, spacing: VSpacing.xxl) {
-                ForEach(filteredPinnedApps) { app in
-                    appCard(app)
-                        .onAppear { fetchPreviewIfNeeded(app) }
-                }
-            }
-        }
-    }
-
-    private var recentSectionView: some View {
-        VStack(alignment: .leading, spacing: VSpacing.lg) {
-            Text("Recent")
-                .font(VFont.headline)
-                .foregroundColor(VColor.textSecondary)
-
-            let visibleRecent = Array(filteredRecentApps.prefix(recentVisibleCount))
-
-            LazyVGrid(columns: columns, spacing: VSpacing.xxl) {
-                ForEach(visibleRecent) { app in
-                    appCard(app)
-                        .onAppear { fetchPreviewIfNeeded(app) }
-                }
-            }
-
-            if filteredRecentApps.count > recentVisibleCount {
-                HStack {
-                    Spacer()
-                    Button {
-                        withAnimation(VAnimation.standard) {
-                            recentVisibleCount += 10
-                        }
-                    } label: {
-                        Text("Show more")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.accent)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Show more recent apps")
-                    Spacer()
-                }
-                .padding(.top, VSpacing.sm)
-            }
-        }
+        VSearchBar(placeholder: "Find your things", text: $searchText)
     }
 
     // MARK: - App Card
@@ -206,19 +166,17 @@ struct AppsGridView: View {
                 )
                 .shadow(color: .black.opacity(0.06), radius: 4, y: 2)
 
-                // Name + description below the image
+                // Name + date below the image
                 VStack(alignment: .leading, spacing: 2) {
                     Text(app.name)
                         .font(VFont.bodyBold)
                         .foregroundColor(VColor.textPrimary)
                         .lineLimit(1)
 
-                    if let description = app.description, !description.isEmpty {
-                        Text(description)
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                            .lineLimit(1)
-                    }
+                    Text(Self.formatDate(app.lastOpenedAt))
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                        .lineLimit(1)
                 }
                 .padding(.horizontal, VSpacing.xs)
             }
@@ -301,22 +259,28 @@ struct AppsGridView: View {
         return VAppIconGenerator.generate(from: app.name, type: app.appType)
     }
 
-    private var filteredPinnedApps: [AppListManager.AppItem] {
-        let pinned = appListManager.displayApps.filter { $0.isPinned }
-        guard !searchText.isEmpty else { return pinned }
-        return pinned.filter { matchesSearch($0) }
-    }
-
-    private var filteredRecentApps: [AppListManager.AppItem] {
-        let unpinned = appListManager.displayApps.filter { !$0.isPinned }
-            .sorted { ($0.lastOpenedAt) > ($1.lastOpenedAt) }
-        guard !searchText.isEmpty else { return unpinned }
-        return unpinned.filter { matchesSearch($0) }
+    /// All apps sorted with pinned first (by pinnedOrder), then unpinned (by lastOpenedAt desc), filtered by search.
+    private var filteredApps: [AppListManager.AppItem] {
+        let sorted = appListManager.displayApps
+        guard !searchText.isEmpty else { return sorted }
+        return sorted.filter { matchesSearch($0) }
     }
 
     private func matchesSearch(_ app: AppListManager.AppItem) -> Bool {
         app.name.localizedCaseInsensitiveContains(searchText) ||
         (app.description?.localizedCaseInsensitiveContains(searchText) ?? false)
+    }
+
+    /// Formats a date in a locale-aware medium style (e.g. "Jan 12, 2026" in en_US).
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        return formatter
+    }()
+
+    private static func formatDate(_ date: Date) -> String {
+        dateFormatter.string(from: date)
     }
 }
 
