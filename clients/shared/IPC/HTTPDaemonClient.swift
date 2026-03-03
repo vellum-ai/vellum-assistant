@@ -158,6 +158,7 @@ public final class HTTPTransport {
         case surfaceAction
         case trustRulesManage
         case trustRuleManageById(id: String)
+        case pendingInteractions(conversationKey: String?)
     }
 
     /// Build a URL for the given endpoint using the current route mode.
@@ -227,6 +228,12 @@ public final class HTTPTransport {
         case .trustRuleManageById(let id):
             let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             return ("/v1/trust-rules/manage/\(encoded)", nil)
+        case .pendingInteractions(let conversationKey):
+            if let key = conversationKey {
+                let encoded = key.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? key
+                return ("/v1/pending-interactions", "conversationKey=\(encoded)")
+            }
+            return ("/v1/pending-interactions", nil)
         }
     }
 
@@ -277,6 +284,12 @@ public final class HTTPTransport {
         case .trustRuleManageById(let id):
             let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             return ("\(prefix)/trust-rules/manage/\(encoded)/", nil)
+        case .pendingInteractions(let conversationKey):
+            if let key = conversationKey {
+                let encoded = key.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? key
+                return ("\(prefix)/pending-interactions/", "conversationKey=\(encoded)")
+            }
+            return ("\(prefix)/pending-interactions/", nil)
         }
     }
 
