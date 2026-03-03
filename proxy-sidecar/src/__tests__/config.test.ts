@@ -8,6 +8,7 @@ describe('loadConfig', () => {
     expect(config).toEqual({
       port: 8080,
       host: '0.0.0.0',
+      healthPort: 8081,
       caDir: null,
       logLevel: 'info',
     });
@@ -79,5 +80,29 @@ describe('loadConfig', () => {
   it('accepts port 65535 (maximum)', () => {
     const config = loadConfig({ PROXY_PORT: '65535' });
     expect(config.port).toBe(65535);
+  });
+
+  it('reads PROXY_HEALTH_PORT from the environment', () => {
+    const config = loadConfig({ PROXY_HEALTH_PORT: '9091' });
+    expect(config.healthPort).toBe(9091);
+  });
+
+  it('defaults PROXY_HEALTH_PORT to 8081', () => {
+    const config = loadConfig({});
+    expect(config.healthPort).toBe(8081);
+  });
+
+  it('throws ConfigError for invalid PROXY_HEALTH_PORT', () => {
+    expect(() => loadConfig({ PROXY_HEALTH_PORT: 'bad' })).toThrow(ConfigError);
+  });
+
+  it('throws ConfigError for out-of-range PROXY_HEALTH_PORT', () => {
+    expect(() => loadConfig({ PROXY_HEALTH_PORT: '0' })).toThrow(ConfigError);
+    expect(() => loadConfig({ PROXY_HEALTH_PORT: '70000' })).toThrow(ConfigError);
+  });
+
+  it('treats empty PROXY_HEALTH_PORT the same as missing', () => {
+    const config = loadConfig({ PROXY_HEALTH_PORT: '' });
+    expect(config.healthPort).toBe(8081);
   });
 });
