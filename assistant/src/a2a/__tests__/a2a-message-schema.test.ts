@@ -427,8 +427,8 @@ describe('MessageDedupStore', () => {
     const evicted = store.sweep(t0 + ttl + 1);
     expect(evicted).toBe(1);
     expect(store.size).toBe(1);
-    expect(store.isKnown('conn-1', 'nonce-old')).toBe(false);
-    expect(store.isKnown('conn-1', 'nonce-new')).toBe(true);
+    expect(store.isKnown('conn-1', 'nonce-old', t0 + ttl + 1)).toBe(false);
+    expect(store.isKnown('conn-1', 'nonce-new', t0 + ttl + 1)).toBe(true);
   });
 
   test('opportunistic sweep triggers on isDuplicate after TTL interval', () => {
@@ -443,7 +443,7 @@ describe('MessageDedupStore', () => {
     // currentTime - lastSweep >= ttlMs
     store.isDuplicate('conn-1', 'nonce-b', t0 + ttl + 1);
     // nonce-a should have been evicted, nonce-b is new
-    expect(store.isKnown('conn-1', 'nonce-a')).toBe(false);
+    expect(store.isKnown('conn-1', 'nonce-a', t0 + ttl + 1)).toBe(false);
     expect(store.size).toBe(1);
   });
 

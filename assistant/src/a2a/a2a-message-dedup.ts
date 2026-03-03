@@ -31,9 +31,10 @@ export const MAX_DEDUP_ENTRIES = 10_000;
  * In-memory deduplication store for inbound A2A messages.
  *
  * Keyed by `${connectionId}:${nonce}`. Entries are evicted after `ttlMs`
- * via opportunistic sweeps on `isDuplicate()` calls. A hard cap of
- * `MAX_DEDUP_ENTRIES` triggers an immediate sweep if the store grows
- * too large.
+ * via opportunistic sweeps on `isDuplicate()`, `isKnown()`, and `record()`
+ * calls. A hard cap of `MAX_DEDUP_ENTRIES` is enforced after each sweep —
+ * if TTL eviction alone doesn't bring the store under capacity, the oldest
+ * entries are evicted until below the limit.
  */
 export class MessageDedupStore {
   private readonly seen = new Map<string, number>();
@@ -57,7 +58,8 @@ export class MessageDedupStore {
    * the `(connectionId, nonce)` pair and returns `false`. If the pair
    * has been seen within the TTL window, returns `true`.
    *
-   * Performs opportunistic sweep of expired entries.
+   * Performs opportunistic sweep of expired entries and enforces the
+   * hard capacity cap.
    */
   isDuplicate(connectionId: string, nonce: string, now?: number): boolean {
     const currentTime = now ?? Date.now();
@@ -68,6 +70,7 @@ export class MessageDedupStore {
       this.seen.size >= MAX_DEDUP_ENTRIES
     ) {
       this.sweep(currentTime);
+      this.evictOldestIfOverCapacity();
     }
 
     const k = MessageDedupStore.key(connectionId, nonce);
@@ -83,8 +86,21 @@ export class MessageDedupStore {
   /**
    * Check whether a `(connectionId, nonce)` pair is known without
    * recording it. Useful for read-only checks before processing.
+   *
+   * Performs opportunistic sweep so expired entries are not reported
+   * as known.
    */
-  isKnown(connectionId: string, nonce: string): boolean {
+  isKnown(connectionId: string, nonce: string, now?: number): boolean {
+    const currentTime = now ?? Date.now();
+
+    if (
+      currentTime - this.lastSweep >= this.ttlMs ||
+      this.seen.size >= MAX_DEDUP_ENTRIES
+    ) {
+      this.sweep(currentTime);
+      this.evictOldestIfOverCapacity();
+    }
+
     return this.seen.has(MessageDedupStore.key(connectionId, nonce));
   }
 
@@ -92,9 +108,20 @@ export class MessageDedupStore {
    * Explicitly record a `(connectionId, nonce)` pair. Use this when
    * dedup checking and recording are done in separate steps (e.g.,
    * record only after successful processing).
+   *
+   * Performs opportunistic sweep to keep the store bounded.
    */
   record(connectionId: string, nonce: string, now?: number): void {
     const currentTime = now ?? Date.now();
+
+    if (
+      currentTime - this.lastSweep >= this.ttlMs ||
+      this.seen.size >= MAX_DEDUP_ENTRIES
+    ) {
+      this.sweep(currentTime);
+      this.evictOldestIfOverCapacity();
+    }
+
     this.seen.set(MessageDedupStore.key(connectionId, nonce), currentTime);
   }
 
@@ -115,6 +142,22 @@ export class MessageDedupStore {
 
     this.lastSweep = currentTime;
     return evicted;
+  }
+
+  /**
+   * Hard-cap enforcement: if the store is still at or above capacity
+   * after a TTL sweep (e.g., burst of unique nonces within one TTL
+   * window), evict the oldest entries until under the limit.
+   */
+  private evictOldestIfOverCapacity(): void {
+    if (this.seen.size < MAX_DEDUP_ENTRIES) return;
+
+    const excess = this.seen.size - MAX_DEDUP_ENTRIES + 1;
+    const entries = [...this.seen.entries()].sort((a, b) => a[1] - b[1]);
+
+    for (let i = 0; i < excess && i < entries.length; i++) {
+      this.seen.delete(entries[i][0]);
+    }
   }
 
   /** Current number of tracked entries. */
