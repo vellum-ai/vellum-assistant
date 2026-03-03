@@ -218,25 +218,17 @@ struct HatchingStepView: View {
     }
 
     private func retryHatch() {
+        // Reset hatching state
+        state.isHatching = false
         state.hatchFailed = false
+        state.hatchCompleted = false
         state.hatchLogLines = []
+        state.hasHatched = false
+        hatchStarted = false
         failureReason = nil
-        eggCracked = false
-        crackTime = nil
-        cliFinished = false
-        elapsedTime = 0
-        progressMessageIndex = 0
-        showTimeEstimate = false
-        hatchStartTime = Date()
-        startWobble()
-        startElapsedTimer()
-        startProgressMessageRotation()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-            withAnimation(.easeIn(duration: 0.5)) {
-                showTimeEstimate = true
-            }
-        }
-        startHatching()
+
+        // Return to the welcome screen (step 0)
+        state.currentStep = 0
     }
 
     // MARK: - Timers
