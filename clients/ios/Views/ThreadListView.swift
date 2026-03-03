@@ -376,15 +376,21 @@ struct ThreadListView: View {
                     }
                 }
             } label: {
-                HStack {
+                HStack(spacing: 8) {
                     Image(systemName: "bubble.left")
                         .foregroundStyle(.secondary)
                         .font(.caption)
                     Text(group.label)
                         .lineLimit(1)
                     Text("\(group.threads.count)")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(
+                            Capsule()
+                                .fill(Color.secondary.opacity(0.12))
+                        )
                     Spacer()
                 }
                 .contentShape(Rectangle())

@@ -1332,15 +1332,30 @@ struct MainWindowView: View {
                                             .padding(.bottom, VSpacing.xxs)
                                     }
                                 } label: {
-                                    HStack(spacing: VSpacing.xs) {
+                                    HStack(spacing: VSpacing.sm) {
+                                        // Unread indicator: show orange dot when group
+                                        // is collapsed and any child thread has unseen messages.
+                                        if !sidebar.expandedScheduleGroups.contains(group.key),
+                                           group.threads.contains(where: { $0.hasUnseenLatestAssistantMessage }) {
+                                            Circle()
+                                                .fill(Color(hex: 0xE86B40))
+                                                .frame(width: 6, height: 6)
+                                                .transition(.opacity)
+                                        }
                                         Text(group.label)
                                             .font(.system(size: 13))
                                             .foregroundColor(VColor.textPrimary)
                                             .lineLimit(1)
                                             .truncationMode(.tail)
                                         Text("\(group.threads.count)")
-                                            .font(.system(size: 11))
+                                            .font(.system(size: 10, weight: .medium))
                                             .foregroundColor(VColor.textMuted)
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 2)
+                                            .background(
+                                                Capsule()
+                                                    .fill(VColor.textMuted.opacity(0.12))
+                                            )
                                     }
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .contentShape(Rectangle())
