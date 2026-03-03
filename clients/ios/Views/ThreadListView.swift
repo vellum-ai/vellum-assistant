@@ -354,6 +354,15 @@ struct ThreadListView: View {
                 }
                 .tint(VColor.warning)
             }
+            .swipeActions(edge: .leading) {
+                Button {
+                    renamingThreadId = thread.id
+                    renameText = thread.title
+                } label: {
+                    Label("Rename", systemImage: "pencil")
+                }
+                .tint(.blue) // Intentional: system blue for non-destructive swipe actions
+            }
         } else {
             // Multi-thread group: DisclosureGroup with fully-tappable label
             DisclosureGroup {
@@ -373,6 +382,15 @@ struct ThreadListView: View {
                             Label("Archive", systemImage: "archivebox")
                         }
                         .tint(VColor.warning)
+                    }
+                    .swipeActions(edge: .leading) {
+                        Button {
+                            renamingThreadId = thread.id
+                            renameText = thread.title
+                        } label: {
+                            Label("Rename", systemImage: "pencil")
+                        }
+                        .tint(.blue) // Intentional: system blue for non-destructive swipe actions
                     }
                 }
             } label: {
