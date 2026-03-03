@@ -1690,26 +1690,11 @@ jobs:
           VERSION="${{ needs.bump-and-tag.outputs.version }}"
           VERSION_TAG="v${VERSION}"
 
-          # Determine release status from core jobs
+          # Determine release status from the release job
           RELEASE_FAILED="false"
-          for result in \
-            "${{ needs.bump-and-tag.result }}" \
-            "${{ needs.publish-npm.result }}" \
-            "${{ needs.publish-meta.result }}" \
-            "${{ needs.build-macos-arm64.result }}" \
-            "${{ needs.build-ios.result }}" \
-            "${{ needs.push-assistant-manifest.result }}" \
-            "${{ needs.push-gateway-manifest.result }}" \
-            "${{ needs.release.result }}" \
-            "${{ needs.update-platform.result }}" \
-            "${{ needs.ci-cli.result }}" \
-            "${{ needs.ci-gateway.result }}" \
-            "${{ needs.release-ios.result }}"; do
-            if [ "$result" = "failure" ] || [ "$result" = "skipped" ]; then
-              RELEASE_FAILED="true"
-              break
-            fi
-          done
+          if [ "${{ needs.release.result }}" != "success" ]; then
+            RELEASE_FAILED="true"
+          fi
 
           if [ "$RELEASE_FAILED" = "true" ]; then
             HEADER="❌ Release ${VERSION_TAG} Failed"
