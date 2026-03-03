@@ -1,7 +1,12 @@
 import * as net from "node:net";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
+const actualEnv = await import("../config/env.js");
+mock.module("../config/env.js", () => ({
+  ...actualEnv,
+  isHttpAuthDisabled: () => true,
+  isMonitoringEnabled: () => false,
+}));
 
 // ─── Mocks (must be before any imports that depend on them) ─────────────────
 
@@ -351,7 +356,9 @@ mock.module("../subagent/index.js", () => ({
 
 // ── Mock IPC protocol helpers ──────────────────────────────────────────────
 
+const actualIpcProtocol = await import("../daemon/ipc-protocol.js");
 mock.module("../daemon/ipc-protocol.js", () => ({
+  ...actualIpcProtocol,
   normalizeThreadType: (t: string) => t ?? "primary",
 }));
 
@@ -414,6 +421,7 @@ function createCtx(overrides?: Partial<HandlerContext>): {
     setAssistantId: noop,
     setChannelCapabilities: noop,
     setGuardianContext: noop,
+    setAuthContext: noop,
     setCommandIntent: noop,
     updateClient: noop,
     processMessage: async () => {},

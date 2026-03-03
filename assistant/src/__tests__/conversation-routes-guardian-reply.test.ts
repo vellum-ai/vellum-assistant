@@ -79,6 +79,14 @@ mock.module("../runtime/local-actor-identity.js", () => ({
   }),
 }));
 
+mock.module("../runtime/guardian-context-resolver.js", () => ({
+  resolveGuardianContext: () => ({
+    trustClass: "guardian",
+    sourceChannel: "vellum",
+  }),
+  toGuardianRuntimeContext: (ctx: unknown) => ctx,
+}));
+
 import type { AuthContext } from "../runtime/auth/types.js";
 import { handleSendMessage } from "../runtime/routes/conversation-routes.js";
 

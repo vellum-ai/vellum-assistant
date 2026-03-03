@@ -66,6 +66,13 @@ mock.module("../providers/registry.js", () => ({
   initializeProviders: () => {},
 }));
 
+// Mock token service — triggerGatewayReconcile now uses mintDaemonDeliveryToken
+// instead of readHttpToken for the Bearer token.
+let mintedToken: string | null = null;
+mock.module("../runtime/auth/token-service.js", () => ({
+  mintDaemonDeliveryToken: () => mintedToken ?? "test-delivery-token",
+}));
+
 import { handleIngressConfig } from "../daemon/handlers/config.js";
 import type { HandlerContext } from "../daemon/handlers/shared.js";
 import type {
@@ -121,6 +128,7 @@ describe("Ingress reconcile trigger in handleIngressConfig", () => {
   beforeEach(() => {
     rawConfigStore = {};
     httpTokenValue = null;
+    mintedToken = null;
     reconcileCalls = [];
     fetchShouldFail = false;
 
@@ -186,7 +194,7 @@ describe("Ingress reconcile trigger in handleIngressConfig", () => {
 
   // ── Token present/missing behavior ──────────────────────────────────────
 
-  test("skips reconcile trigger when no HTTP bearer token is available", async () => {
+  test("always triggers reconcile even when readHttpToken returns null (uses mintDaemonDeliveryToken)", async () => {
     httpTokenValue = null;
 
     const msg: IngressConfigRequest = {
@@ -206,12 +214,12 @@ describe("Ingress reconcile trigger in handleIngressConfig", () => {
     const res = sent[0] as { type: string; success: boolean };
     expect(res.success).toBe(true);
 
-    // No reconcile call should have been made
-    expect(reconcileCalls).toHaveLength(0);
+    // Reconcile is always triggered using mintDaemonDeliveryToken
+    expect(reconcileCalls).toHaveLength(1);
   });
 
-  test("triggers reconcile when HTTP bearer token is available", async () => {
-    httpTokenValue = "test-bearer-token";
+  test("triggers reconcile with mintDaemonDeliveryToken bearer token", async () => {
+    mintedToken = "test-bearer-token";
 
     const msg: IngressConfigRequest = {
       type: "ingress_config",

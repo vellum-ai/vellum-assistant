@@ -132,9 +132,11 @@ describe("getChannelApprovalPrompt", () => {
     const result = getChannelApprovalPrompt("conv-1");
     expect(result).not.toBeNull();
     expect(result!.promptText).toContain("shell");
-    expect(result!.actions).toHaveLength(3);
+    expect(result!.actions).toHaveLength(5);
     expect(result!.actions.map((a) => a.id)).toEqual([
       "approve_once",
+      "approve_10m",
+      "approve_thread",
       "approve_always",
       "reject",
     ]);
@@ -174,6 +176,8 @@ describe("getChannelApprovalPrompt", () => {
     expect(result).not.toBeNull();
     expect(result!.actions.map((a) => a.id)).toEqual([
       "approve_once",
+      "approve_10m",
+      "approve_thread",
       "approve_always",
       "reject",
     ]);
@@ -189,6 +193,8 @@ describe("getChannelApprovalPrompt", () => {
     expect(result).not.toBeNull();
     expect(result!.actions.map((a) => a.id)).toEqual([
       "approve_once",
+      "approve_10m",
+      "approve_thread",
       "approve_always",
       "reject",
     ]);

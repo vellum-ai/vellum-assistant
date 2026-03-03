@@ -37,6 +37,10 @@ mock.module("../util/platform.js", () => ({
   readHttpToken: () => "runtime-token",
 }));
 
+mock.module("../runtime/auth/token-service.js", () => ({
+  mintDaemonDeliveryToken: () => "runtime-token",
+}));
+
 mock.module("../config/loader.js", () => ({
   loadConfig: () => configState,
 }));
