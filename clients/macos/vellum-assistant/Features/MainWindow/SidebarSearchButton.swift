@@ -9,6 +9,7 @@ struct SidebarSearchButton: View {
     let action: () -> Void
 
     @State private var isHovered = false
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         Button(action: action) {
@@ -44,13 +45,15 @@ struct SidebarSearchButton: View {
                 .foregroundColor(VColor.textMuted)
                 .padding(.horizontal, VSpacing.xs)
                 .padding(.vertical, VSpacing.xxs)
-                .background(VColor.surfaceBorder.opacity(0.7))
+                .background(VColor.surfaceBorder.opacity(colorScheme == .dark ? 0.5 : 0.7))
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.xs))
         }
         .padding(.horizontal, VSpacing.sm)
         .padding(.vertical, VSpacing.sm)
         .background(
-            (isHovered ? VColor.surfaceBorder.opacity(0.7) : VColor.surfaceBorder.opacity(0.4))
+            (isHovered
+                ? VColor.surfaceBorder.opacity(colorScheme == .dark ? 0.5 : 0.7)
+                : VColor.surfaceBorder.opacity(colorScheme == .dark ? 0.25 : 0.4))
                 .animation(VAnimation.fast, value: isHovered)
         )
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
