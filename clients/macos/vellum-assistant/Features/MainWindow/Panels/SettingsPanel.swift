@@ -390,6 +390,7 @@ struct SettingsPanel: View {
             }
             .animation(VAnimation.fast, value: showModelDropdown)
             .zIndex(showModelDropdown ? 1 : 0)
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             // PERPLEXITY SEARCH section
             VStack(alignment: .leading, spacing: VSpacing.md) {
@@ -448,6 +449,7 @@ struct SettingsPanel: View {
             }
             .padding(VSpacing.lg)
             .vCard(background: VColor.surfaceSubtle)
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             // BRAVE SEARCH section
             VStack(alignment: .leading, spacing: VSpacing.md) {
@@ -506,6 +508,7 @@ struct SettingsPanel: View {
             }
             .padding(VSpacing.lg)
             .vCard(background: VColor.surfaceSubtle)
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             // IMAGE GENERATION section
             VStack(alignment: .leading, spacing: VSpacing.md) {
@@ -585,6 +588,7 @@ struct SettingsPanel: View {
             }
             .padding(VSpacing.lg)
             .vCard(background: VColor.surfaceSubtle)
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             // INTEGRATIONS section (hidden when empty)
             if daemonClient != nil && !integrations.isEmpty {
@@ -599,6 +603,7 @@ struct SettingsPanel: View {
                 }
                 .padding(VSpacing.lg)
                 .vCard(background: VColor.surfaceSubtle)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             // TWITTER / X section
@@ -752,6 +757,7 @@ struct SettingsPanel: View {
         }
         .padding(VSpacing.lg)
         .vCard(background: VColor.surfaceSubtle)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Permissions Tab
@@ -820,6 +826,7 @@ struct SettingsPanel: View {
             }
             .padding(VSpacing.lg)
             .vCard(background: VColor.surfaceSubtle)
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             // TRUST RULES section
             if daemonClient != nil {
@@ -846,6 +853,7 @@ struct SettingsPanel: View {
                 }
                 .padding(VSpacing.lg)
                 .vCard(background: VColor.surfaceSubtle)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             // COMPUTER USAGE section (moved from Advanced)
@@ -869,6 +877,7 @@ struct SettingsPanel: View {
             }
             .padding(VSpacing.lg)
             .vCard(background: VColor.surfaceSubtle)
+            .frame(maxWidth: .infinity, alignment: .leading)
 
         }
     }
