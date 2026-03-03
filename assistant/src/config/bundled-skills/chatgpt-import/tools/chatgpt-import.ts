@@ -20,6 +20,9 @@ import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
+import { getLogger } from "../../../../util/logger.js";
+
+const log = getLogger("chatgpt-import");
 
 // -- ChatGPT export format types --
 
@@ -171,10 +174,16 @@ export async function run(
           },
           memoryConfig,
         );
-      } catch {
+      } catch (err) {
         // Indexing failure is non-fatal — the message is already persisted,
         // and failing here would abort the loop before conversationKeys is
         // written, causing duplicate imports on retry.
+        log.warn(
+          "Failed to index imported message %s in conversation %s: %s",
+          dbMessages[i].id,
+          conversation.id,
+          err instanceof Error ? err.message : String(err),
+        );
       }
     }
 
