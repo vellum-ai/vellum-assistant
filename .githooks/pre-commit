@@ -522,6 +522,17 @@ fi
 FOUND_SECRETS=0
 CHECKED_FILES=0
 
+# Build a single combined regex from all patterns (joined with |).
+# This lets us do one grep per file instead of N greps (one per pattern).
+COMBINED_PATTERN=""
+for P in "${PATTERNS[@]}"; do
+    if [ -n "$COMBINED_PATTERN" ]; then
+        COMBINED_PATTERN="${COMBINED_PATTERN}|${P}"
+    else
+        COMBINED_PATTERN="${P}"
+    fi
+done
+
 # Use NUL-delimited list to safely handle filenames with spaces
 while IFS= read -r -d '' FILE; do
     # Skip hook files themselves (they contain patterns to detect secrets)
@@ -548,49 +559,48 @@ while IFS= read -r -d '' FILE; do
 
     CHECKED_FILES=$((CHECKED_FILES + 1))
 
-    # Check each pattern
-    for PATTERN in "${PATTERNS[@]}"; do
-        # Use git show to check the staged content, not the working directory
-        # Use -- to indicate end of options for patterns starting with dashes
-        MATCHES=$(git show ":$FILE" 2>/dev/null | grep -niE -- "$PATTERN" 2>/dev/null)
+    # Cache staged file content once (avoids repeated git show calls per pattern)
+    FILE_CONTENT=$(git show ":$FILE" 2>/dev/null) || continue
 
-        if [ ! -z "$MATCHES" ]; then
-            FILTERED_MATCHES=""
-            while IFS= read -r line; do
-                if [ -z "$line" ]; then
+    # Single grep with combined pattern instead of N separate greps
+    MATCHES=$(printf '%s\n' "$FILE_CONTENT" | grep -niE -- "$COMBINED_PATTERN" 2>/dev/null)
+
+    if [ ! -z "$MATCHES" ]; then
+        FILTERED_MATCHES=""
+        while IFS= read -r line; do
+            if [ -z "$line" ]; then
+                continue
+            fi
+            CONTENT="${line#*:}"
+            if matches_safe_line_pattern "$CONTENT"; then
+                # Strip safe-line portions and re-check: a real secret
+                # on the same line (e.g. minified JSON) must not be masked.
+                STRIPPED="$CONTENT"
+                for sp in "${SAFE_LINE_PATTERNS[@]}"; do
+                    STRIPPED=$(printf '%s\n' "$STRIPPED" | sed -E "s"$'\x01'"$sp"$'\x01\x01'"g" 2>/dev/null || printf '%s\n' "$STRIPPED")
+                done
+                if ! printf '%s\n' "$STRIPPED" | grep -iE -- "$COMBINED_PATTERN" >/dev/null 2>&1; then
                     continue
                 fi
-                CONTENT="${line#*:}"
-                if matches_safe_line_pattern "$CONTENT"; then
-                    # Strip safe-line portions and re-check: a real secret
-                    # on the same line (e.g. minified JSON) must not be masked.
-                    STRIPPED="$CONTENT"
-                    for sp in "${SAFE_LINE_PATTERNS[@]}"; do
-                        STRIPPED=$(printf '%s\n' "$STRIPPED" | sed -E "s"$'\x01'"$sp"$'\x01\x01'"g" 2>/dev/null || printf '%s\n' "$STRIPPED")
-                    done
-                    if ! printf '%s\n' "$STRIPPED" | grep -iE -- "$PATTERN" >/dev/null 2>&1; then
-                        continue
-                    fi
-                fi
-                FILTERED_MATCHES="${FILTERED_MATCHES}${line}"$'\n'
-            done <<< "$MATCHES"
-            MATCHES="$FILTERED_MATCHES"
-        fi
-
-        if [ ! -z "$MATCHES" ]; then
-            if [ $FOUND_SECRETS -eq 0 ]; then
-                echo -e "${RED}❌ Found potential secrets in staged files:${NC}\n"
             fi
+            FILTERED_MATCHES="${FILTERED_MATCHES}${line}"$'\n'
+        done <<< "$MATCHES"
+        MATCHES="$FILTERED_MATCHES"
+    fi
 
-            echo -e "${YELLOW}File: $FILE${NC}"
-            echo "$MATCHES" | while read -r line; do
-                echo "  Line: $line"
-            done
-            echo ""
-
-            FOUND_SECRETS=1
+    if [ ! -z "$MATCHES" ]; then
+        if [ $FOUND_SECRETS -eq 0 ]; then
+            echo -e "${RED}❌ Found potential secrets in staged files:${NC}\n"
         fi
-    done
+
+        echo -e "${YELLOW}File: $FILE${NC}"
+        echo "$MATCHES" | while read -r line; do
+            echo "  Line: $line"
+        done
+        echo ""
+
+        FOUND_SECRETS=1
+    fi
 done < "$STAGED_ACM_FILE"
 
 if [ $FOUND_SECRETS -eq 1 ]; then
