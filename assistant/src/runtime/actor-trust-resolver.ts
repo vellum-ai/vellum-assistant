@@ -26,7 +26,7 @@ export type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.
 // Types
 // ---------------------------------------------------------------------------
 
-export type TrustClass = 'guardian' | 'trusted_contact' | 'unknown';
+export type TrustClass = 'guardian' | 'trusted_contact' | 'peer_assistant' | 'unknown';
 export type DenialReason = 'no_binding' | 'no_identity';
 
 export interface ActorTrustContext {

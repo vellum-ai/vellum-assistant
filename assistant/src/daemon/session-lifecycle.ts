@@ -31,7 +31,7 @@ function parseProvenanceTrustClass(metadata: string | null): GuardianTrustClass 
   try {
     const parsed = JSON.parse(metadata) as { provenanceTrustClass?: unknown };
     const trustClass = parsed?.provenanceTrustClass;
-    if (trustClass === 'guardian' || trustClass === 'trusted_contact' || trustClass === 'unknown') {
+    if (trustClass === 'guardian' || trustClass === 'trusted_contact' || trustClass === 'peer_assistant' || trustClass === 'unknown') {
       return trustClass;
     }
   } catch {
@@ -41,13 +41,13 @@ function parseProvenanceTrustClass(metadata: string | null): GuardianTrustClass 
 }
 
 function isUntrustedTrustClass(trustClass: GuardianTrustClass | undefined): boolean {
-  return trustClass === 'trusted_contact' || trustClass === 'unknown';
+  return trustClass === 'trusted_contact' || trustClass === 'peer_assistant' || trustClass === 'unknown';
 }
 
 function filterMessagesForUntrustedActor(messages: conversationStore.MessageRow[]): conversationStore.MessageRow[] {
   return messages.filter((m) => {
     const provenanceTrustClass = parseProvenanceTrustClass(m.metadata);
-    return provenanceTrustClass === 'trusted_contact' || provenanceTrustClass === 'unknown';
+    return provenanceTrustClass === 'trusted_contact' || provenanceTrustClass === 'peer_assistant' || provenanceTrustClass === 'unknown';
   });
 }
 

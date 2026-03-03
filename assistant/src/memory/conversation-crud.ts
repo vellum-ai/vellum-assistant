@@ -40,7 +40,7 @@ export const messageMetadataSchema = z.object({
   assistantMessageInterface: interfaceIdSchema.optional(),
   subagentNotification: subagentNotificationSchema.optional(),
   // Provenance fields for trust-aware memory gating (M3)
-  provenanceTrustClass: z.enum(['guardian', 'trusted_contact', 'unknown']).optional(),
+  provenanceTrustClass: z.enum(['guardian', 'trusted_contact', 'peer_assistant', 'unknown']).optional(),
   provenanceSourceChannel: channelIdSchema.optional(),
   provenanceGuardianExternalUserId: z.string().optional(),
   provenanceRequesterIdentifier: z.string().optional(),
@@ -700,7 +700,7 @@ export function getConversationOriginInterface(conversationId: string): Interfac
  */
 export function getConversationRecentProvenanceTrustClass(
   conversationId: string,
-): 'guardian' | 'trusted_contact' | 'unknown' | undefined {
+): 'guardian' | 'trusted_contact' | 'peer_assistant' | 'unknown' | undefined {
   const row = rawGet<{ metadata: string | null }>(
     `SELECT metadata FROM messages
      WHERE conversation_id = ? AND role = 'user' AND metadata IS NOT NULL
