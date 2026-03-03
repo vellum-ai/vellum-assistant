@@ -174,6 +174,9 @@ function canonicalizeJson(obj: unknown): string {
 
 const REQUIRED_ENTRIES = ["manifest.json", "data/db/assistant.db"];
 
+// 500 MB — reasonable upper bound for a decompressed vbundle tar
+const MAX_DECOMPRESSED_SIZE = 500 * 1024 * 1024;
+
 /**
  * Validate a .vbundle archive from raw bytes.
  *
@@ -186,15 +189,20 @@ const REQUIRED_ENTRIES = ["manifest.json", "data/db/assistant.db"];
 export function validateVBundle(data: Uint8Array): VBundleValidationResult {
   const errors: ValidationError[] = [];
 
-  // Step 1: Decompress gzip
+  // Step 1: Decompress gzip with size cap to prevent zip-bomb DoS
   let tarData: Uint8Array;
   try {
-    tarData = gunzipSync(data);
+    tarData = gunzipSync(data, { maxOutputLength: MAX_DECOMPRESSED_SIZE });
   } catch (err) {
-    errors.push({
-      code: "INVALID_GZIP",
-      message: `Archive is not a valid gzip file: ${err instanceof Error ? err.message : String(err)}`,
-    });
+    const message =
+      err instanceof RangeError
+        ? `Decompressed archive exceeds ${MAX_DECOMPRESSED_SIZE} byte limit`
+        : `Archive is not a valid gzip file: ${
+            err instanceof Error ? err.message : String(err)
+          }`;
+    const code =
+      err instanceof RangeError ? "DECOMPRESSED_SIZE_EXCEEDED" : "INVALID_GZIP";
+    errors.push({ code, message });
     return { is_valid: false, errors };
   }
 
@@ -205,7 +213,9 @@ export function validateVBundle(data: Uint8Array): VBundleValidationResult {
   } catch (err) {
     errors.push({
       code: "INVALID_TAR",
-      message: `Archive is not a valid tar file: ${err instanceof Error ? err.message : String(err)}`,
+      message: `Archive is not a valid tar file: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
     });
     return { is_valid: false, errors };
   }
@@ -240,7 +250,9 @@ export function validateVBundle(data: Uint8Array): VBundleValidationResult {
   } catch (err) {
     errors.push({
       code: "INVALID_MANIFEST_JSON",
-      message: `manifest.json is not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
+      message: `manifest.json is not valid JSON: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
       path: "manifest.json",
     });
     return { is_valid: false, errors };
@@ -251,7 +263,9 @@ export function validateVBundle(data: Uint8Array): VBundleValidationResult {
     for (const issue of parseResult.error.issues) {
       errors.push({
         code: "MANIFEST_SCHEMA_ERROR",
-        message: `Manifest validation error at ${issue.path.join(".")}: ${issue.message}`,
+        message: `Manifest validation error at ${issue.path.join(".")}: ${
+          issue.message
+        }`,
         path: `manifest.json/${issue.path.join(".")}`,
       });
     }
@@ -277,6 +291,8 @@ export function validateVBundle(data: Uint8Array): VBundleValidationResult {
   }
 
   // Step 6: Verify per-file content integrity
+  const manifestFilePaths = new Set(manifest.files.map((f) => f.path));
+
   for (const fileEntry of manifest.files) {
     const archiveEntry = entryMap.get(fileEntry.path);
     if (!archiveEntry) {
@@ -304,6 +320,19 @@ export function validateVBundle(data: Uint8Array): VBundleValidationResult {
         code: "FILE_CHECKSUM_MISMATCH",
         message: `Checksum mismatch for ${fileEntry.path}: expected ${fileEntry.sha256}, computed ${computedSha256}`,
         path: fileEntry.path,
+      });
+    }
+  }
+
+  // Step 7: Ensure every required entry (except manifest.json itself) has a
+  // checksum in the manifest — presence in the archive alone is not enough.
+  for (const required of REQUIRED_ENTRIES) {
+    if (required === "manifest.json") continue;
+    if (!manifestFilePaths.has(required)) {
+      errors.push({
+        code: "REQUIRED_FILE_NOT_IN_MANIFEST",
+        message: `Required file ${required} exists in archive but has no checksum entry in manifest.files`,
+        path: required,
       });
     }
   }
