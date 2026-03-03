@@ -88,7 +88,7 @@ struct ThreadListView: View {
     private var scheduleThreadGroups: [(key: String, label: String, threads: [IOSThread])] {
         var grouped: [String: [IOSThread]] = [:]
         var order: [String] = []
-        for thread in scheduleThreads {
+        for thread in filteredScheduleThreads {
             let key = thread.scheduleJobId ?? thread.sessionId ?? thread.id.uuidString
             if grouped[key] == nil {
                 order.append(key)

@@ -380,7 +380,8 @@ class IOSThreadStore: ObservableObject {
                             createdAt: restored.createdAt,
                             lastActivityAt: restored.lastActivityAt,
                             sessionId: restored.sessionId,
-                            isArchived: local.isArchived
+                            isArchived: local.isArchived,
+                            scheduleJobId: restored.scheduleJobId
                         )
                     }
                     merged.append(restored)
