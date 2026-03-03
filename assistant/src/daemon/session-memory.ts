@@ -63,7 +63,16 @@ export async function prepareMemoryContext(
 ): Promise<MemoryRecallResult & { conflictClarification: string | null }> {
   // Provenance-based trust gating: untrusted actors skip all memory operations
   // (recall, dynamic profile, conflict gate) to prevent untrusted content from
-  // influencing memory-augmented responses.
+  // influencing memory-augmented responses. This includes peer_assistant (A2A)
+  // actors, who receive zero memory context by default.
+  //
+  // Extension point (scope-aware memory): When A2A scope-based access is
+  // implemented, peer_assistant actors with the `read_profile` scope could
+  // receive a limited subset of memory (e.g., timezone, display name,
+  // preferred language) via a scoped profile projection. The gate below
+  // would check `ctx.a2aScopes?.includes('read_profile')` and branch to
+  // a restricted recall path. Until then, the binary allow/block gate
+  // ensures no leakage of guardian-only context to A2A peers.
   const isTrustedActor = ctx.guardianTrustClass === 'guardian';
 
   if (!isTrustedActor) {

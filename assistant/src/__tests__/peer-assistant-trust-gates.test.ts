@@ -439,25 +439,125 @@ describe("peer_assistant memory extraction gate", () => {
 // =====================================================================
 
 describe("peer_assistant memory retrieval gate (session-memory)", () => {
-  // The prepareMemoryContext function in session-memory.ts checks:
-  // const isTrustedActor = ctx.guardianTrustClass === 'guardian';
-  // If not trusted, it returns early with empty recall/profile/conflict data.
-  // peer_assistant is not 'guardian', so it gets the untrusted path.
+  // Verify the session-memory.ts trust gate by scanning the source for the
+  // isTrustedActor check. This is more robust than string equality because
+  // it catches regressions in the actual source code.
 
-  // We can't easily test prepareMemoryContext directly (it has complex async deps),
-  // but we verify the trust classification logic:
+  test("session-memory.ts gates recall to guardian-only (source check)", () => {
+    const { readFileSync } = require("node:fs");
+    const { join } = require("node:path");
+    const source = readFileSync(
+      join(__dirname, "..", "daemon", "session-memory.ts"),
+      "utf-8",
+    );
 
-  test("peer_assistant is not treated as trusted for memory recall", () => {
-    // The memory gate in session-memory.ts checks:
-    // const isTrustedActor = ctx.guardianTrustClass === 'guardian';
-    // Only 'guardian' passes. peer_assistant does not.
-    const isTrustedActor = "peer_assistant" === "guardian";
-    expect(isTrustedActor).toBe(false);
+    // The isTrustedActor check must be strictly guardian-only
+    const trustedLine = source
+      .split("\n")
+      .find(
+        (l: string) => l.includes("isTrustedActor") && l.includes("==="),
+      );
+    expect(trustedLine).toBeDefined();
+    expect(trustedLine).toContain("'guardian'");
+    // Must NOT include peer_assistant as trusted
+    expect(trustedLine).not.toContain("peer_assistant");
   });
 
-  test("guardian IS treated as trusted for memory recall", () => {
-    const isTrustedActor = "guardian" === "guardian";
-    expect(isTrustedActor).toBe(true);
+  test("session-memory returns empty recall for non-guardian trust classes", () => {
+    const { readFileSync } = require("node:fs");
+    const { join } = require("node:path");
+    const source = readFileSync(
+      join(__dirname, "..", "daemon", "session-memory.ts"),
+      "utf-8",
+    );
+
+    // When isTrustedActor is false, prepareMemoryContext must return early
+    // with empty/disabled recall, profile, and conflict data.
+    const untrustedBlock = source.indexOf("if (!isTrustedActor)");
+    expect(untrustedBlock).toBeGreaterThan(-1);
+
+    // The early return must include disabled recall
+    const returnBlock = source.slice(
+      untrustedBlock,
+      source.indexOf("}", untrustedBlock + 200) + 200,
+    );
+    expect(returnBlock).toContain("enabled: false");
+    expect(returnBlock).toContain("injectedText: ''");
+    expect(returnBlock).toContain("dynamicProfile: { text: '' }");
+    expect(returnBlock).toContain("softConflictInstruction: null");
+  });
+
+  test("peer_assistant in MemoryPrepareContext guardianTrustClass type", () => {
+    const { readFileSync } = require("node:fs");
+    const { join } = require("node:path");
+    const source = readFileSync(
+      join(__dirname, "..", "daemon", "session-memory.ts"),
+      "utf-8",
+    );
+
+    // The MemoryPrepareContext interface must accept peer_assistant
+    const ifaceStart = source.indexOf(
+      "export interface MemoryPrepareContext",
+    );
+    expect(ifaceStart).toBeGreaterThan(-1);
+    const ifaceBlock = source.slice(
+      ifaceStart,
+      source.indexOf("}", ifaceStart) + 1,
+    );
+    expect(ifaceBlock).toContain("'peer_assistant'");
+  });
+});
+
+// =====================================================================
+// 5b. No Guardian Context Leakage to A2A Peers
+// =====================================================================
+
+describe("no guardian context leakage to peer_assistant actors", () => {
+  test("session-lifecycle treats peer_assistant as untrusted for history view", () => {
+    const { readFileSync } = require("node:fs");
+    const { join } = require("node:path");
+    const source = readFileSync(
+      join(__dirname, "..", "daemon", "session-lifecycle.ts"),
+      "utf-8",
+    );
+
+    // isUntrustedTrustClass must include peer_assistant
+    const fnStart = source.indexOf("function isUntrustedTrustClass");
+    expect(fnStart).toBeGreaterThan(-1);
+    const fnBody = source.slice(fnStart, source.indexOf("}", fnStart) + 1);
+    expect(fnBody).toContain("'peer_assistant'");
+  });
+
+  test("session-lifecycle filters messages for untrusted actors including peer_assistant", () => {
+    const { readFileSync } = require("node:fs");
+    const { join } = require("node:path");
+    const source = readFileSync(
+      join(__dirname, "..", "daemon", "session-lifecycle.ts"),
+      "utf-8",
+    );
+
+    // filterMessagesForUntrustedActor must recognize peer_assistant provenance
+    const fnStart = source.indexOf(
+      "function filterMessagesForUntrustedActor",
+    );
+    expect(fnStart).toBeGreaterThan(-1);
+    const fnBody = source.slice(fnStart, source.indexOf("}", fnStart) + 1);
+    expect(fnBody).toContain("'peer_assistant'");
+  });
+
+  test("indexer blocks extraction AND conflict resolution for peer_assistant", () => {
+    // Already tested above via indexMessageNow, but verify the dual gate:
+    // both shouldExtract && isTrustedActor and shouldResolveConflicts && isTrustedActor
+    const { readFileSync } = require("node:fs");
+    const { join } = require("node:path");
+    const source = readFileSync(
+      join(__dirname, "..", "memory", "indexer.ts"),
+      "utf-8",
+    );
+
+    // Both extraction and conflict resolution must be gated on isTrustedActor
+    expect(source).toContain("shouldExtract && isTrustedActor");
+    expect(source).toContain("shouldResolveConflicts && isTrustedActor");
   });
 });
 
