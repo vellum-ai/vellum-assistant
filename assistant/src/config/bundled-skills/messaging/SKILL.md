@@ -42,7 +42,7 @@ When the user asks to "connect my email", "set up email", "manage my email", or 
 
 1. **Try connecting directly first.** Call `credential_store` with `action: "oauth2_connect"` and `service: "gmail"`. The tool auto-fills Google's OAuth endpoints and looks up any previously stored client credentials — so this single call may be all that's needed.
 2. **If it fails because no client_id is found:** The user needs to create Google Cloud OAuth credentials first. Load the **google-oauth-setup** skill (which depends on **public-ingress** for the redirect URI):
-   - Call `skill_load` with `skill_id: "google-oauth-setup"` to load the dependency skill.
+   - Call `skill_load` with `skill: "google-oauth-setup"` to load the dependency skill.
    - Tell the user Gmail isn't connected yet and briefly explain what the setup involves, then use `ui_show` with `surface_type: "confirmation"` to ask for permission to start:
      - **message:** "Ready to set up Gmail?"
      - **detail:** "I'll open a browser where you sign in to Google, then automate everything else — creating a project, enabling APIs, and connecting your account. Takes 2-3 minutes and you can watch in the browser preview panel."
@@ -55,7 +55,7 @@ When the user asks to "connect my email", "set up email", "manage my email", or 
 
 1. **Try connecting directly first.** Call `credential_store` with `action: "oauth2_connect"` and `service: "slack"`. The tool auto-fills Slack's OAuth endpoints and looks up any previously stored client credentials.
 2. **If it fails because no client_id is found:** The user needs to create a Slack App first. Load the **slack-oauth-setup** skill:
-   - Call `skill_load` with `skill_id: "slack-oauth-setup"` to load the dependency skill.
+   - Call `skill_load` with `skill: "slack-oauth-setup"` to load the dependency skill.
    - Tell the user Slack isn't connected yet and briefly explain what the setup involves, then use `ui_show` with `surface_type: "confirmation"` to ask for permission to start:
      - **message:** "Ready to set up Slack?"
      - **detail:** "I'll walk you through creating a Slack App and connecting your workspace. The process takes a few minutes, and I'll ask for your approval before each step."
@@ -68,7 +68,7 @@ When the user asks to "connect my email", "set up email", "manage my email", or 
 
 Telegram uses a bot token (not OAuth). Load the **telegram-setup** skill (which depends on **public-ingress** for the webhook URL) which automates the full setup:
 
-- Call `skill_load` with `skill_id: "telegram-setup"` to load the dependency skill.
+- Call `skill_load` with `skill: "telegram-setup"` to load the dependency skill.
 - Tell the user: _"I've loaded a setup guide for Telegram. It will walk you through connecting a Telegram bot to your assistant."_
 
 The telegram-setup skill handles: verifying the bot token from @BotFather, generating a webhook secret, registering bot commands, and storing credentials securely via the secure credential prompt flow. **Never accept a Telegram bot token pasted in plaintext chat — always use the secure prompt.** Webhook registration with Telegram is handled automatically by the gateway on startup and whenever credentials change.
@@ -79,7 +79,7 @@ The telegram-setup skill also includes **guardian verification**, which links yo
 
 SMS messaging uses Twilio as the telephony provider. Twilio credentials and phone number configuration are shared with the **phone-calls** skill. Load the **sms-setup** skill for complete SMS configuration including compliance and testing:
 
-- Call `skill_load` with `skill_id: "sms-setup"` to load the dependency skill.
+- Call `skill_load` with `skill: "sms-setup"` to load the dependency skill.
 - Tell the user: _"I've loaded the SMS setup guide. It will walk you through configuring Twilio, handling compliance requirements, and testing SMS delivery."_
 
 The sms-setup skill handles: Twilio credential storage (Account SID + Auth Token), phone number provisioning or assignment, public ingress setup, SMS compliance verification, and end-to-end test sending. Once SMS is set up, messaging is available automatically — no additional feature flag is needed.
@@ -90,7 +90,7 @@ The sms-setup skill also includes optional **guardian verification** for SMS, wh
 
 If the user asks to verify their guardian identity for any channel (SMS, voice, or Telegram), load the **guardian-verify-setup** skill:
 
-- Call `skill_load` with `skill_id: "guardian-verify-setup"` to load the dependency skill.
+- Call `skill_load` with `skill: "guardian-verify-setup"` to load the dependency skill.
 
 The guardian-verify-setup skill handles the full outbound verification flow for all supported channels. It collects the user's destination (phone number or Telegram chat ID/handle), initiates an outbound verification session, and guides the user through entering or replying with the verification code. This is the single source of truth for guardian verification setup -- do not duplicate the verification flow inline.
 

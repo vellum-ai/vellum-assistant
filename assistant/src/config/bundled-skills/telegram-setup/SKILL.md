@@ -69,7 +69,7 @@ Now link the user's Telegram account as the trusted guardian for this bot. Tell 
 
 Load the **guardian-verify-setup** skill to handle the verification flow:
 
-- Call `skill_load` with `skill_id: "guardian-verify-setup"` to load the dependency skill.
+- Call `skill_load` with `skill: "guardian-verify-setup"` to load the dependency skill.
 
 The guardian-verify-setup skill manages the full outbound verification flow for Telegram, including:
 
