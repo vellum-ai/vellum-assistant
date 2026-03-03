@@ -119,13 +119,13 @@ describe("guardian-verify-setup skill — voice auto-followup", () => {
     expect(pollingSection).toContain("Non-rebind flows");
   });
 
-  test("polling is voice-only — does not apply to SMS or Telegram", () => {
+  test("polling is voice-only — does not apply to Telegram", () => {
     const pollingSection =
       skillContent
         .split("## Voice Auto-Check Polling")[1]
         ?.split("## Step 6")[0] ?? "";
     expect(pollingSection).toContain("voice-only");
-    expect(pollingSection).toContain("Do NOT poll for SMS or Telegram");
+    expect(pollingSection).toContain("Do NOT poll for Telegram");
   });
 
   test('no instruction requires waiting for user to ask "did it work?"', () => {
