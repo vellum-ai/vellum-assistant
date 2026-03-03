@@ -29,7 +29,7 @@ interface WatcherEventPayload {
 function extractEmail(from: string): string | undefined {
   const segments = [...from.matchAll(/<([^>]+)>/g)].map((m) => m[1]);
   if (segments.length > 0) {
-    const emailSegment = segments.findLast((s) => s.includes('@'));
+    const emailSegment = [...segments].reverse().find((s) => s.includes('@'));
     if (emailSegment) return emailSegment.trim().toLowerCase();
     return segments[segments.length - 1].trim().toLowerCase();
   }
