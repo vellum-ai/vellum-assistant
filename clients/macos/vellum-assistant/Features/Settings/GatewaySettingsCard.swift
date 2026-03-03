@@ -32,7 +32,7 @@ struct GatewaySettingsCard: View {
             } else if tunnelSetupExpanded || !gatewayUrlText.isEmpty {
                 tunnelConfigEntry
             } else {
-                VButton(label: "Set Up Tunnel", style: .secondary, size: .large) {
+                VButton(label: "Set Up", style: .secondary, size: .large) {
                     tunnelSetupExpanded = true
                 }
             }
