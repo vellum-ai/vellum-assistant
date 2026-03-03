@@ -18,6 +18,7 @@ private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "Sp
 final class SpeechWakeWordEngine: WakeWordEngine {
 
     var onWakeWordDetected: ((Float) -> Void)?
+    var onPersistentError: ((String) -> Void)?
 
     private(set) var isRunning = false
 
@@ -203,6 +204,19 @@ final class SpeechWakeWordEngine: WakeWordEngine {
                         return
                     }
                     log.error("Recognition ended after \(String(format: "%.1f", sessionDuration), privacy: .public)s: \(nsError.domain, privacy: .public)/\(nsError.code, privacy: .public) \(error.localizedDescription, privacy: .public)")
+
+                    // "Siri and Dictation are disabled" — retrying won't help.
+                    // Stop the engine and notify the caller so they can surface
+                    // a user-facing message.
+                    if nsError.domain == "kLSRErrorDomain" && nsError.code == 201 {
+                        DispatchQueue.main.async { [weak self] in
+                            guard let self, self.isRunning else { return }
+                            log.error("Dictation is disabled at the OS level — stopping wake word engine")
+                            self.stop()
+                            self.onPersistentError?("Wake word requires Dictation to be enabled. Turn it on in System Settings > Keyboard > Dictation.")
+                        }
+                        return
+                    }
                 }
 
                 DispatchQueue.main.async { [weak self] in

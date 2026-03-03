@@ -11,6 +11,7 @@ import { randomInt } from 'node:crypto';
 import type { ServerWebSocket } from 'bun';
 
 import { getConfig } from '../config/loader.js';
+import { resolveUserReference } from '../config/user-reference.js';
 import { getAssistantName } from '../daemon/identity-helpers.js';
 import { getCanonicalGuardianRequest } from '../memory/canonical-guardian-store.js';
 import { listActiveBindingsByAssistant } from '../memory/channel-guardian-store.js';
@@ -790,6 +791,68 @@ export class RelayConnection {
   }
 
   /**
+   * Shared post-activation handoff for all trusted-contact success paths
+   * (access-request approval, invite redemption, verification code).
+   * Activates the caller, updates guardian context, delivers deterministic
+   * transition copy, and marks the next utterance as opening-ack so the
+   * LLM continues naturally.
+   */
+  private continueCallAfterTrustedContactActivation(params: {
+    assistantId: string;
+    fromNumber: string;
+    callerName?: string;
+    skipMemberActivation?: boolean;
+  }): void {
+    const { assistantId, fromNumber, callerName } = params;
+
+    if (!params.skipMemberActivation) {
+      try {
+        upsertMember({
+          assistantId,
+          sourceChannel: 'voice',
+          externalUserId: fromNumber,
+          externalChatId: fromNumber,
+          displayName: callerName,
+          status: 'active',
+          policy: 'allow',
+        });
+      } catch (err) {
+        log.error({ err, callSessionId: this.callSessionId }, 'Failed to activate voice caller as trusted contact');
+      }
+    }
+
+    const updatedTrust = resolveActorTrust({
+      assistantId,
+      sourceChannel: 'voice',
+      conversationExternalId: fromNumber,
+      actorExternalId: fromNumber,
+    });
+
+    if (this.controller) {
+      this.controller.setGuardianContext(
+        toGuardianRuntimeContextFromTrust(updatedTrust, fromNumber),
+      );
+    }
+
+    this.connectionState = 'connected';
+    updateCallSession(this.callSessionId, { status: 'in_progress' });
+
+    const guardianLabel = this.resolveGuardianLabel();
+    const handoffText = `Great! ${guardianLabel} said I can speak with you. How can I help?`;
+    this.sendTextToken(handoffText, true);
+
+    recordCallEvent(this.callSessionId, 'assistant_spoke', { text: handoffText });
+    const session = getCallSession(this.callSessionId);
+    if (session) {
+      fireCallTranscriptNotifier(session.conversationId, this.callSessionId, 'assistant', handoffText);
+    }
+
+    if (this.controller) {
+      this.controller.markNextCallerTurnAsOpeningAck();
+    }
+  }
+
+  /**
    * Enter verification-pending state for an inbound call with a pending
    * voice guardian challenge. Prompts the caller to enter their six-digit
    * verification code via DTMF or by speaking it.
@@ -974,8 +1037,15 @@ export class RelayConnection {
         setTimeout(() => {
           this.endSession('Guardian verification succeeded');
         }, getTtsPlaybackDelayMs());
+      } else if (result.verificationType === 'trusted_contact') {
+        // Inbound trusted-contact verification: activate and continue
+        // the live call with the shared handoff primitive.
+        this.continueCallAfterTrustedContactActivation({
+          assistantId: this.guardianChallengeAssistantId,
+          fromNumber: this.guardianVerificationFromNumber,
+        });
       } else {
-        // Inbound: proceed to normal call flow
+        // Inbound guardian verification: proceed to normal call flow
         if (this.controller) {
           const verifiedActorTrust = resolveActorTrust({
             assistantId: this.guardianChallengeAssistantId,
@@ -1214,10 +1284,14 @@ export class RelayConnection {
 
     updateCallSession(this.callSessionId, { status: 'waiting_on_user' });
 
-    // Start the heartbeat timer for periodic progress updates
-    this.accessRequestWaitStartedAt = Date.now();
+    // Start the heartbeat timer for periodic progress updates.
+    // Delay the first heartbeat by the estimated TTS playback duration so
+    // the initial hold message finishes before any heartbeat fires.
     this.heartbeatSequence = 0;
-    this.scheduleNextHeartbeat();
+    this.accessRequestHeartbeatTimer = setTimeout(() => {
+      this.accessRequestWaitStartedAt = Date.now();
+      this.scheduleNextHeartbeat();
+    }, getTtsPlaybackDelayMs());
 
     // Poll the canonical request status
     this.accessRequestPollTimer = setInterval(() => {
@@ -1282,7 +1356,6 @@ export class RelayConnection {
    */
   private handleAccessRequestApproved(): void {
     this.clearAccessRequestWait();
-    this.connectionState = 'connected';
 
     const assistantId = this.accessRequestAssistantId!;
     const fromNumber = this.accessRequestFromNumber!;
@@ -1294,68 +1367,20 @@ export class RelayConnection {
       requestId: this.accessRequestId,
     });
 
-    // Activate the caller as a trusted contact via the existing upsert path
-    try {
-      upsertMember({
-        assistantId,
-        sourceChannel: 'voice',
-        externalUserId: fromNumber,
-        externalChatId: fromNumber,
-        displayName: callerName ?? undefined,
-        status: 'active',
-        policy: 'allow',
-      });
-    } catch (err) {
-      log.error({ err, callSessionId: this.callSessionId }, 'Failed to activate voice caller as trusted contact');
-    }
-
-    // Re-resolve actor trust now that the member is active
-    const updatedTrust = resolveActorTrust({
-      assistantId,
-      sourceChannel: 'voice',
-      conversationExternalId: fromNumber,
-      actorExternalId: fromNumber,
-    });
-
-    if (this.controller) {
-      this.controller.setGuardianContext(
-        toGuardianRuntimeContextFromTrust(updatedTrust, fromNumber),
-      );
-    }
-
-    updateCallSession(this.callSessionId, { status: 'in_progress' });
-
     log.info(
       { callSessionId: this.callSessionId, from: fromNumber },
       'Access request approved — caller activated and continuing call',
     );
 
-    // Deliver deterministic transition copy directly via TTS instead of
-    // routing through handleUserInstruction, which would start a fresh
-    // model turn and risk reintroduction/disclosure reset.
-    const guardianLabel = this.resolveGuardianLabel();
-    const handoffText = `Great! ${guardianLabel} said I can speak with you. How can I help?`;
-    this.sendTextToken(handoffText, true);
-
-    // Record the deterministic handoff as an assistant_spoke event and
-    // fire the transcript notifier so it appears in conversation history
-    // and real-time transcript subscribers — matching the parity of text
-    // spoken through the normal runTurn() pipeline.
-    recordCallEvent(this.callSessionId, 'assistant_spoke', { text: handoffText });
-    const session = getCallSession(this.callSessionId);
-    if (session) {
-      fireCallTranscriptNotifier(session.conversationId, this.callSessionId, 'assistant', handoffText);
-    }
+    this.continueCallAfterTrustedContactActivation({
+      assistantId,
+      fromNumber,
+      callerName: callerName ?? undefined,
+    });
 
     recordCallEvent(this.callSessionId, 'inbound_acl_post_approval_handoff_spoken', {
       from: fromNumber,
     });
-
-    // Mark the next caller utterance as an opening acknowledgment so the
-    // LLM continues naturally without emitting a fresh introduction.
-    if (this.controller) {
-      this.controller.markNextCallerTurnAsOpeningAck();
-    }
   }
 
   /**
@@ -1586,7 +1611,6 @@ export class RelayConnection {
     });
 
     if (result.ok) {
-      this.connectionState = 'connected';
       this.inviteRedemptionActive = false;
       this.verificationAttempts = 0;
       this.dtmfBuffer = '';
@@ -1600,18 +1624,12 @@ export class RelayConnection {
         'Voice invite redemption succeeded',
       );
 
-      if (this.controller) {
-        const redeemedActorTrust = resolveActorTrust({
-          assistantId: this.inviteRedemptionAssistantId,
-          sourceChannel: 'voice',
-          conversationExternalId: this.inviteRedemptionFromNumber,
-          actorExternalId: this.inviteRedemptionFromNumber,
-        });
-        this.controller.setGuardianContext(
-          toGuardianRuntimeContextFromTrust(redeemedActorTrust, this.inviteRedemptionFromNumber),
-        );
-        this.startNormalCallFlow(this.controller, true);
-      }
+      this.continueCallAfterTrustedContactActivation({
+        assistantId: this.inviteRedemptionAssistantId,
+        fromNumber: this.inviteRedemptionFromNumber,
+        callerName: this.inviteRedemptionFriendName ?? undefined,
+        skipMemberActivation: true,
+      });
     } else {
       // On any invalid/expired code, emit exact deterministic failure copy and end call immediately.
       this.inviteRedemptionActive = false;
@@ -1658,7 +1676,7 @@ export class RelayConnection {
   /**
    * Resolve a human-readable guardian label for voice wait copy.
    * Prefers displayName from the guardian binding metadata, falls back
-   * to @username, then "my guardian".
+   * to @username, then the user's preferred name from USER.md.
    */
   private resolveGuardianLabel(): string {
     const assistantId = this.accessRequestAssistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
@@ -1690,7 +1708,8 @@ export class RelayConnection {
         // ignore malformed metadata
       }
     }
-    return 'my guardian';
+
+    return resolveUserReference();
   }
 
   /**

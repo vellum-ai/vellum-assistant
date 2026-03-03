@@ -66,7 +66,7 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request' && github.event.label.name == 'e2e')
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 30
     env:
       APP_DISPLAY_NAME: Vellum
@@ -76,9 +76,9 @@ jobs:
 
       # ── Build from source (when no release version is provided) ──
 
-      - name: Select Xcode 16.2
+      - name: Select Xcode 26.2
         if: ${{ !inputs.release_version }}
-        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+        run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
 
       - name: Cache SPM build artifacts
         if: ${{ !inputs.release_version }}
@@ -180,7 +180,7 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request' && github.event.label.name == 'e2e')
-    runs-on: macos-14
+    runs-on: macos-15
     environment: dev
     timeout-minutes: 60
     strategy:

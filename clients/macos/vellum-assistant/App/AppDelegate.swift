@@ -136,6 +136,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     private var quickInputWindow: QuickInputWindow?
     private var quickInputHotKeyRef: EventHotKeyRef?
     private var quickInputEventHandlerRef: EventHandlerRef?
+    private var commandPaletteWindow: CommandPaletteWindow?
+    private var cmdKLocalMonitor: Any?
     public let services = AppServices()
     private let assistantCli = AssistantCli()
     public let updateManager = UpdateManager()
@@ -926,6 +928,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             }
             voiceInput?.stop()
             voiceInput = nil
+            wakeWordErrorCancellable?.cancel()
+            wakeWordErrorCancellable = nil
             wakeWordCoordinator = nil
             ambientAgent.teardown()
 
@@ -1114,6 +1118,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         }
         voiceInput?.stop()
         voiceInput = nil
+        wakeWordErrorCancellable?.cancel()
+        wakeWordErrorCancellable = nil
         wakeWordCoordinator = nil
         ambientAgent.teardown()
 
@@ -1659,13 +1665,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             self.surfaceManager.dismissSurface(msg)
         }
 
-        daemonClient.onBrowserCDPRequest = { [weak self] msg in
-            Task { @MainActor in
-                await self?.handleBrowserCDPRequest(msg)
-            }
-        }
-
-
         // Reload webviews for surfaces whose app files changed (cross-session broadcast)
         daemonClient.onAppFilesChanged = { [weak self] appId in
             guard let self else { return }
@@ -1879,6 +1878,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         registerGlobalHotkeyMonitor()
         registerQuickInputMonitor()
         registerFnVMonitor()
+        registerCmdKMonitor()
 
         globalHotkeyObserver = NotificationCenter.default
             .publisher(for: UserDefaults.didChangeNotification)
@@ -1979,6 +1979,67 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             _ = handler(event)
         }
         fnVLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
+    }
+
+    /// Registers Cmd+K as a local shortcut to open the command palette.
+    /// Only active when the app is focused (local monitor, not global).
+    private func registerCmdKMonitor() {
+        let handler: (NSEvent) -> NSEvent? = { [weak self] event in
+            // Cmd+K: keyCode 40 is kVK_ANSI_K
+            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            guard event.keyCode == 40,
+                  mods == [.command] else {
+                return event
+            }
+            Task { @MainActor in
+                guard self?.isBootstrapping != true else { return }
+                self?.toggleCommandPalette()
+            }
+            return nil // consume the event
+        }
+        cmdKLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
+    }
+
+    func toggleCommandPalette() {
+        if let window = commandPaletteWindow, window.isVisible {
+            window.dismiss()
+            return
+        }
+
+        let window = CommandPaletteWindow()
+
+        // Static actions
+        window.actions = [
+            CommandPaletteAction(id: "new-conversation", icon: "square.and.pencil", label: "New Conversation", shortcutHint: nil) { [weak self] in
+                self?.mainWindow?.threadManager.enterDraftMode()
+                self?.mainWindow?.windowState.selection = nil
+            },
+            CommandPaletteAction(id: "settings", icon: "gear", label: "Settings", shortcutHint: nil) { [weak self] in
+                self?.mainWindow?.windowState.togglePanel(.settings)
+            },
+            CommandPaletteAction(id: "app-directory", icon: "square.grid.2x2", label: "App Directory", shortcutHint: nil) { [weak self] in
+                self?.mainWindow?.windowState.showAppsPanel()
+            },
+            CommandPaletteAction(id: "intelligence", icon: "brain.head.profile", label: "Intelligence", shortcutHint: nil) { [weak self] in
+                self?.mainWindow?.windowState.togglePanel(.intelligence)
+            },
+        ]
+
+        // Recent conversations from ThreadManager
+        if let threads = mainWindow?.threadManager.threads {
+            window.recentItems = threads
+                .filter { !$0.isArchived }
+                .sorted { $0.lastInteractedAt > $1.lastInteractedAt }
+                .prefix(5)
+                .map { CommandPaletteRecentItem(id: $0.id, title: $0.title, lastInteracted: $0.lastInteractedAt) }
+        }
+
+        window.onSelectConversation = { [weak self] threadId in
+            self?.mainWindow?.threadManager.selectThread(id: threadId)
+        }
+
+        window.show()
+        commandPaletteWindow = window
     }
 
     func toggleQuickInput(aboveDock: Bool = false, requestScreenPermission: Bool? = nil) {
@@ -2297,6 +2358,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
     // MARK: - Wake Word Coordinator
 
+    private var wakeWordErrorCancellable: AnyCancellable?
+
     private func setupWakeWordCoordinator() {
         guard let mainWindow else {
             log.warning("Cannot set up wake word coordinator — main window not available")
@@ -2313,6 +2376,22 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             threadManager: mainWindow.threadManager,
             voiceInputManager: voiceInput
         )
+
+        // Show a toast when the wake word engine hits a persistent error
+        // (e.g. Dictation disabled at the OS level).
+        wakeWordErrorCancellable = audioMonitor.$persistentErrorMessage
+            .compactMap { $0 }
+            .sink { [weak self] message in
+                self?.mainWindow?.windowState.showToast(
+                    message: message,
+                    style: .warning,
+                    primaryAction: VToastAction(label: "Open Settings") {
+                        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.keyboard?Dictation") {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
+                )
+            }
 
         if UserDefaults.standard.bool(forKey: "wakeWordEnabled") {
             audioMonitor.startMonitoring()
@@ -2650,102 +2729,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         recordingHUDWindow?.dismiss()
         debugStateWriter.stop()
         assistantCli.stop()
-    }
-
-    // MARK: - Browser CDP Request Handling
-
-    @MainActor
-    private func handleBrowserCDPRequest(_ msg: BrowserCDPRequestMessage) async {
-        // Show confirmation dialog
-        let alert = NSAlert()
-        alert.messageText = "Browser Remote Control"
-        alert.informativeText = "A separate Chrome window will open for the assistant to control. Your existing Chrome and tabs will not be affected."
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: "Open Browser")
-        alert.addButton(withTitle: "Cancel")
-
-        // Add "Always launch" checkbox
-        let checkbox = NSButton(checkboxWithTitle: "Always launch Chrome with remote debugging", target: nil, action: nil)
-        alert.accessoryView = checkbox
-
-        let response = alert.runModal()
-
-        if response == .alertFirstButtonReturn {
-            // Launch a separate Chrome instance for CDP (doesn't touch existing Chrome)
-            let success = await ChromeAccessibilityHelper.launchChromeForCDP()
-
-            // Handle "Always launch" checkbox
-            if checkbox.state == .on {
-                createChromeDebugLaunchAgent()
-            }
-
-            do {
-                try daemonClient.send(BrowserCDPResponseMessage(sessionId: msg.sessionId, success: success))
-            } catch {
-                log.error("Failed to send browser CDP response (open): \(error)")
-            }
-        } else {
-            // User cancelled — decline so the daemon knows
-            do {
-                try daemonClient.send(BrowserCDPResponseMessage(sessionId: msg.sessionId, success: false, declined: true))
-            } catch {
-                log.error("Failed to send browser CDP response (declined): \(error)")
-            }
-        }
-    }
-
-    /// Poll http://localhost:9222/json/version until CDP responds or we time out.
-    private static func pollForCDP(maxAttempts: Int = 10, intervalNs: UInt64 = 1_000_000_000) async -> Bool {
-        for _ in 0..<maxAttempts {
-            try? await Task.sleep(nanoseconds: intervalNs)
-            if let url = URL(string: "http://localhost:9222/json/version"),
-               let (_, response) = try? await URLSession.shared.data(from: url),
-               let http = response as? HTTPURLResponse,
-               http.statusCode == 200 {
-                return true
-            }
-        }
-        return false
-    }
-
-    private func createChromeDebugLaunchAgent() {
-        let chromeDataDir = NSHomeDirectory() + "/Library/Application Support/Google/Chrome-CDP"
-
-        guard let chromeURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.google.Chrome") else {
-            return // Chrome not installed
-        }
-        let chromeBinary = chromeURL.appendingPathComponent("Contents/MacOS/Google Chrome").path
-
-        let plistContent = """
-        <?xml version="1.0" encoding="UTF-8"?>
-        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-        <plist version="1.0">
-        <dict>
-            <key>Label</key>
-            <string>com.vellum.chrome-debug</string>
-            <key>ProgramArguments</key>
-            <array>
-                <string>\(chromeBinary)</string>
-                <string>--remote-debugging-port=9222</string>
-                <string>--force-renderer-accessibility</string>
-                <string>--user-data-dir=\(chromeDataDir)</string>
-            </array>
-            <key>RunAtLoad</key>
-            <true/>
-        </dict>
-        </plist>
-        """
-
-        let launchAgentsDir = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/LaunchAgents")
-        let plistPath = launchAgentsDir.appendingPathComponent("com.vellum.chrome-debug.plist")
-
-        do {
-            try FileManager.default.createDirectory(at: launchAgentsDir, withIntermediateDirectories: true)
-            try plistContent.write(to: plistPath, atomically: true, encoding: .utf8)
-        } catch {
-            // Best effort — log but don't fail
-        }
     }
 
 }

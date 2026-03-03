@@ -1156,11 +1156,17 @@ struct MainWindowView: View {
                         sidebarPinnedAppRow(app)
                     }
                 }
+                .drawingGroup() // Isolate into Metal layer to prevent re-renders from sibling hover
 
                 VColor.divider
                     .frame(height: 1)
                     .padding(.horizontal, VSpacing.md)
                     .padding(.vertical, VSpacing.sm)
+            }
+
+            // MARK: Search Bar
+            SidebarSearchButton(isExpanded: true) {
+                AppDelegate.shared?.toggleCommandPalette()
             }
 
             // MARK: Nav Items (fixed)
@@ -1356,10 +1362,15 @@ struct MainWindowView: View {
                         sidebarPinnedAppRow(app, isExpanded: false)
                     }
                 }
+                .drawingGroup() // Isolate into Metal layer to prevent re-renders from sibling hover
 
                 VColor.divider
                     .frame(height: 1)
                     .padding(.horizontal, VSpacing.xs)
+            }
+
+            SidebarSearchButton(isExpanded: false) {
+                AppDelegate.shared?.toggleCommandPalette()
             }
 
             SidebarNavRow(icon: "brain.head.profile", label: "Intelligence", isActive: windowState.activePanel == .intelligence, isExpanded: false) {
@@ -1610,10 +1621,12 @@ private struct SidebarPrimaryRow: View {
             .padding(.trailing, isExpanded ? VSpacing.sm : 0)
             .padding(.vertical, VSpacing.sm)
             .frame(maxWidth: .infinity, alignment: isExpanded ? .leading : .center)
-            .background(isActive ? adaptiveColor(light: Moss._100, dark: Moss._700) : isHovered ? adaptiveColor(light: Moss._100, dark: Moss._700).opacity(0.5) : .clear)
+            .background(
+                (isActive ? adaptiveColor(light: Moss._100, dark: Moss._700) : isHovered ? adaptiveColor(light: Moss._100, dark: Moss._700).opacity(0.5) : .clear)
+                    .animation(VAnimation.fast, value: isHovered)
+            )
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .contentShape(Rectangle())
-            .animation(VAnimation.fast, value: isHovered)
         }
         .buttonStyle(.plain)
         .padding(.horizontal, isExpanded ? VSpacing.sm : VSpacing.xs)

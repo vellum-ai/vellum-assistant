@@ -1,7 +1,6 @@
 import { z } from 'zod';
 
 const VALID_CALL_PROVIDERS = ['twilio'] as const;
-const VALID_CALL_VOICE_MODES = ['twilio_standard', 'twilio_elevenlabs_tts', 'elevenlabs_agent'] as const;
 export const VALID_CALLER_IDENTITY_MODES = ['assistant_number', 'user_number'] as const;
 const VALID_CALL_TRANSCRIPTION_PROVIDERS = ['Deepgram', 'Google'] as const;
 
@@ -20,51 +19,7 @@ export const CallsSafetyConfigSchema = z.object({
     .default([]),
 });
 
-export const CallsElevenLabsConfigSchema = z.object({
-  voiceId: z
-    .string({ error: 'calls.voice.elevenlabs.voiceId must be a string' })
-    .default(''),
-  voiceModelId: z
-    .string({ error: 'calls.voice.elevenlabs.voiceModelId must be a string' })
-    .default(''),
-  speed: z
-    .number({ error: 'calls.voice.elevenlabs.speed must be a number' })
-    .min(0.7, 'calls.voice.elevenlabs.speed must be >= 0.7')
-    .max(1.2, 'calls.voice.elevenlabs.speed must be <= 1.2')
-    .default(1.0),
-  stability: z
-    .number({ error: 'calls.voice.elevenlabs.stability must be a number' })
-    .min(0, 'calls.voice.elevenlabs.stability must be >= 0')
-    .max(1, 'calls.voice.elevenlabs.stability must be <= 1')
-    .default(0.5),
-  similarityBoost: z
-    .number({ error: 'calls.voice.elevenlabs.similarityBoost must be a number' })
-    .min(0, 'calls.voice.elevenlabs.similarityBoost must be >= 0')
-    .max(1, 'calls.voice.elevenlabs.similarityBoost must be <= 1')
-    .default(0.75),
-  useSpeakerBoost: z
-    .boolean({ error: 'calls.voice.elevenlabs.useSpeakerBoost must be a boolean' })
-    .default(true),
-  agentId: z
-    .string({ error: 'calls.voice.elevenlabs.agentId must be a string' })
-    .default(''),
-  apiBaseUrl: z
-    .string({ error: 'calls.voice.elevenlabs.apiBaseUrl must be a string' })
-    .default('https://api.elevenlabs.io'),
-  registerCallTimeoutMs: z
-    .number({ error: 'calls.voice.elevenlabs.registerCallTimeoutMs must be a number' })
-    .int('calls.voice.elevenlabs.registerCallTimeoutMs must be an integer')
-    .min(1000, 'calls.voice.elevenlabs.registerCallTimeoutMs must be >= 1000')
-    .max(15000, 'calls.voice.elevenlabs.registerCallTimeoutMs must be <= 15000')
-    .default(5000),
-});
-
 export const CallsVoiceConfigSchema = z.object({
-  mode: z
-    .enum(VALID_CALL_VOICE_MODES, {
-      error: `calls.voice.mode must be one of: ${VALID_CALL_VOICE_MODES.join(', ')}`,
-    })
-    .default('twilio_standard'),
   language: z
     .string({ error: 'calls.voice.language must be a string' })
     .default('en-US'),
@@ -73,10 +28,6 @@ export const CallsVoiceConfigSchema = z.object({
       error: `calls.voice.transcriptionProvider must be one of: ${VALID_CALL_TRANSCRIPTION_PROVIDERS.join(', ')}`,
     })
     .default('Deepgram'),
-  fallbackToStandardOnError: z
-    .boolean({ error: 'calls.voice.fallbackToStandardOnError must be a boolean' })
-    .default(true),
-  elevenlabs: CallsElevenLabsConfigSchema.default(CallsElevenLabsConfigSchema.parse({})),
 });
 
 export const CallerIdentityConfigSchema = z.object({
@@ -142,7 +93,7 @@ export const CallsConfigSchema = z.object({
     .int('calls.guardianWaitUpdateInitialIntervalMs must be an integer')
     .min(1000, 'calls.guardianWaitUpdateInitialIntervalMs must be >= 1000')
     .max(60_000, 'calls.guardianWaitUpdateInitialIntervalMs must be at most 60000')
-    .default(5000),
+    .default(15_000),
   guardianWaitUpdateInitialWindowMs: z
     .number({ error: 'calls.guardianWaitUpdateInitialWindowMs must be a number' })
     .int('calls.guardianWaitUpdateInitialWindowMs must be an integer')
@@ -154,13 +105,13 @@ export const CallsConfigSchema = z.object({
     .int('calls.guardianWaitUpdateSteadyMinIntervalMs must be an integer')
     .min(1000, 'calls.guardianWaitUpdateSteadyMinIntervalMs must be >= 1000')
     .max(60_000, 'calls.guardianWaitUpdateSteadyMinIntervalMs must be at most 60000')
-    .default(7000),
+    .default(20_000),
   guardianWaitUpdateSteadyMaxIntervalMs: z
     .number({ error: 'calls.guardianWaitUpdateSteadyMaxIntervalMs must be a number' })
     .int('calls.guardianWaitUpdateSteadyMaxIntervalMs must be an integer')
     .min(1000, 'calls.guardianWaitUpdateSteadyMaxIntervalMs must be >= 1000')
     .max(60_000, 'calls.guardianWaitUpdateSteadyMaxIntervalMs must be at most 60000')
-    .default(10_000),
+    .default(30_000),
   disclosure: CallsDisclosureConfigSchema.default(CallsDisclosureConfigSchema.parse({})),
   safety: CallsSafetyConfigSchema.default(CallsSafetyConfigSchema.parse({})),
   voice: CallsVoiceConfigSchema.default(CallsVoiceConfigSchema.parse({})),
@@ -175,6 +126,5 @@ export type CallsConfig = z.infer<typeof CallsConfigSchema>;
 export type CallsDisclosureConfig = z.infer<typeof CallsDisclosureConfigSchema>;
 export type CallsSafetyConfig = z.infer<typeof CallsSafetyConfigSchema>;
 export type CallsVoiceConfig = z.infer<typeof CallsVoiceConfigSchema>;
-export type CallsElevenLabsConfig = z.infer<typeof CallsElevenLabsConfigSchema>;
 export type CallerIdentityConfig = z.infer<typeof CallerIdentityConfigSchema>;
 export type CallsVerificationConfig = z.infer<typeof CallsVerificationConfigSchema>;

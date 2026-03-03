@@ -8,7 +8,6 @@ mock.module("../config/loader.js", () => ({
 
 import {
   buildElevenLabsVoiceSpec,
-  isVoiceProfileValid,
   resolveVoiceQualityProfile,
 } from "../calls/voice-quality.js";
 
@@ -62,176 +61,66 @@ describe("buildElevenLabsVoiceSpec", () => {
 });
 
 describe("resolveVoiceQualityProfile", () => {
-  test("returns standard profile for twilio_standard mode", () => {
+  test("always returns ElevenLabs ttsProvider", () => {
     mockConfig = {
+      elevenlabs: { voiceId: "21m00Tcm4TlvDq8ikWAM" },
       calls: {
         voice: {
-          mode: "twilio_standard",
           language: "en-US",
-          transcriptionProvider: "Google",
-          fallbackToStandardOnError: false,
-          elevenlabs: {},
+          transcriptionProvider: "Deepgram",
         },
       },
     };
     const profile = resolveVoiceQualityProfile();
-    expect(profile.mode).toBe("twilio_standard");
-    expect(profile.ttsProvider).toBe("Google");
-    expect(profile.voice).toBe("Google.en-US-Journey-O");
-    expect(profile.validationErrors).toHaveLength(0);
-  });
-
-  test("returns elevenlabs profile for twilio_elevenlabs_tts mode", () => {
-    mockConfig = {
-      calls: {
-        voice: {
-          mode: "twilio_elevenlabs_tts",
-          language: "en-US",
-          transcriptionProvider: "Google",
-          fallbackToStandardOnError: false,
-          elevenlabs: { voiceId: "elvoice1" },
-        },
-      },
-    };
-    const profile = resolveVoiceQualityProfile();
-    expect(profile.mode).toBe("twilio_elevenlabs_tts");
     expect(profile.ttsProvider).toBe("ElevenLabs");
-    expect(profile.voice).toBe("elvoice1");
-    expect(profile.validationErrors).toHaveLength(0);
   });
 
-  test("falls back to standard when voiceId missing and fallback enabled", () => {
+  test("voice ID comes from elevenlabs.voiceId", () => {
     mockConfig = {
+      elevenlabs: { voiceId: "custom-voice-123" },
       calls: {
         voice: {
-          mode: "twilio_elevenlabs_tts",
           language: "en-US",
-          transcriptionProvider: "Google",
-          fallbackToStandardOnError: true,
-          elevenlabs: { voiceId: "" },
+          transcriptionProvider: "Deepgram",
         },
       },
     };
     const profile = resolveVoiceQualityProfile();
-    expect(profile.mode).toBe("twilio_standard");
-    expect(profile.validationErrors.length).toBeGreaterThan(0);
-    expect(profile.validationErrors[0]).toContain("falling back");
+    expect(profile.voice).toBe("custom-voice-123");
   });
 
-  test("returns validation error when voiceId missing and fallback disabled", () => {
+  test("uses language from calls.voice config", () => {
     mockConfig = {
+      elevenlabs: { voiceId: "abc" },
       calls: {
         voice: {
-          mode: "twilio_elevenlabs_tts",
-          language: "en-US",
+          language: "es-MX",
           transcriptionProvider: "Google",
-          fallbackToStandardOnError: false,
-          elevenlabs: { voiceId: "" },
         },
       },
     };
     const profile = resolveVoiceQualityProfile();
-    expect(profile.mode).toBe("twilio_elevenlabs_tts");
-    expect(profile.validationErrors.length).toBeGreaterThan(0);
-    expect(profile.validationErrors[0]).toContain("voiceId is required");
+    expect(profile.language).toBe("es-MX");
+    expect(profile.transcriptionProvider).toBe("Google");
   });
 
-  test("returns elevenlabs_agent profile with agentId", () => {
+  test("builds voice spec with model and tuning params", () => {
     mockConfig = {
+      elevenlabs: {
+        voiceId: "voice1",
+        voiceModelId: "turbo_v2_5",
+        speed: 0.9,
+        stability: 0.8,
+        similarityBoost: 0.9,
+      },
       calls: {
         voice: {
-          mode: "elevenlabs_agent",
           language: "en-US",
-          transcriptionProvider: "Google",
-          fallbackToStandardOnError: false,
-          elevenlabs: { voiceId: "voice1", agentId: "agent123" },
+          transcriptionProvider: "Deepgram",
         },
       },
     };
     const profile = resolveVoiceQualityProfile();
-    expect(profile.mode).toBe("elevenlabs_agent");
-    expect(profile.agentId).toBe("agent123");
-    expect(profile.validationErrors).toHaveLength(0);
-  });
-
-  test("falls back to standard when agentId missing and fallback enabled", () => {
-    mockConfig = {
-      calls: {
-        voice: {
-          mode: "elevenlabs_agent",
-          language: "en-US",
-          transcriptionProvider: "Google",
-          fallbackToStandardOnError: true,
-          elevenlabs: { voiceId: "voice1", agentId: "" },
-        },
-      },
-    };
-    const profile = resolveVoiceQualityProfile();
-    expect(profile.mode).toBe("twilio_standard");
-    expect(profile.validationErrors[0]).toContain("falling back");
-  });
-
-  test("returns validation error when agentId missing and fallback disabled", () => {
-    mockConfig = {
-      calls: {
-        voice: {
-          mode: "elevenlabs_agent",
-          language: "en-US",
-          transcriptionProvider: "Google",
-          fallbackToStandardOnError: false,
-          elevenlabs: { voiceId: "voice1", agentId: "" },
-        },
-      },
-    };
-    const profile = resolveVoiceQualityProfile();
-    expect(profile.mode).toBe("elevenlabs_agent");
-    expect(profile.validationErrors.length).toBeGreaterThan(0);
-    expect(profile.validationErrors[0]).toContain("agentId is required");
-  });
-
-  test("returns standard profile for unknown mode", () => {
-    mockConfig = {
-      calls: {
-        voice: {
-          mode: "unknown_mode",
-          language: "en-US",
-          transcriptionProvider: "Google",
-          fallbackToStandardOnError: false,
-          elevenlabs: {},
-        },
-      },
-    };
-    const profile = resolveVoiceQualityProfile();
-    expect(profile.mode).toBe("twilio_standard");
-  });
-});
-
-describe("isVoiceProfileValid", () => {
-  test("returns true for profile with no errors", () => {
-    expect(
-      isVoiceProfileValid({
-        mode: "twilio_standard",
-        language: "en-US",
-        transcriptionProvider: "Google",
-        ttsProvider: "Google",
-        voice: "Google.en-US-Journey-O",
-        fallbackToStandardOnError: false,
-        validationErrors: [],
-      }),
-    ).toBe(true);
-  });
-
-  test("returns false for profile with errors", () => {
-    expect(
-      isVoiceProfileValid({
-        mode: "twilio_elevenlabs_tts",
-        language: "en-US",
-        transcriptionProvider: "Google",
-        ttsProvider: "ElevenLabs",
-        voice: "",
-        fallbackToStandardOnError: false,
-        validationErrors: ["voiceId is required"],
-      }),
-    ).toBe(false);
+    expect(profile.voice).toBe("voice1-turbo_v2_5-0.9_0.8_0.9");
   });
 });

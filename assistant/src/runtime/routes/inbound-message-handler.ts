@@ -9,6 +9,7 @@
 import type { ChannelId, InterfaceId } from '../../channels/types.js';
 import { CHANNEL_IDS, INTERFACE_IDS, isChannelId, parseInterfaceId } from '../../channels/types.js';
 import { getGatewayInternalBaseUrl } from '../../config/env.js';
+import { resolveUserReference } from '../../config/user-reference.js';
 import { RESEND_COOLDOWN_MS } from '../../daemon/handlers/config-channels.js';
 import * as attachmentsStore from '../../memory/attachments-store.js';
 import {
@@ -1577,10 +1578,8 @@ function startTrustedContactApprovalNotifier(params: {
           const guardianName = resolveGuardianDisplayName(
             assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
             sourceChannel,
-          );
-          const waitingText = guardianName
-            ? `Waiting for ${guardianName}'s approval...`
-            : 'Waiting for your guardian\'s approval...';
+          ) ?? resolveUserReference();
+          const waitingText = `Waiting for ${guardianName}'s approval...`;
           try {
             await deliverChannelReply(replyCallbackUrl, {
               chatId: externalChatId,

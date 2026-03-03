@@ -226,15 +226,14 @@ export function buildGuardianVerificationRoutingSection(): string {
     "",
     "### Trigger phrases",
     '- "verify guardian"',
-    '- "set guardian for SMS"',
     '- "verify my Telegram account"',
     '- "verify voice channel"',
     '- "verify my phone number"',
     '- "set up guardian verification"',
     "",
     "### What it does",
-    "The skill walks through outbound guardian verification for SMS, voice, or Telegram:",
-    "1. Confirm channel (sms, voice, telegram)",
+    "The skill walks through outbound guardian verification for voice or Telegram:",
+    "1. Confirm channel (voice, telegram)",
     "2. Collect destination (phone number or Telegram handle/chat ID)",
     "3. Start outbound verification via runtime HTTP API",
     "4. Guide the user through code entry, resend, or cancel",
@@ -245,7 +244,7 @@ export function buildGuardianVerificationRoutingSection(): string {
     "- Guardian verification intents must only be handled by `guardian-verify-setup` — load it exclusively.",
     "- Do NOT load `phone-calls` for guardian verification intent routing. The phone-calls skill does not orchestrate verification flows.",
     '- If the user asks to "load phone-calls and guardian verification", prioritize `guardian-verify-setup` and continue the verification flow. Only load `phone-calls` if the user also asks to configure or place regular calls.',
-    '- If the user has already explicitly specified a channel (e.g., "verify my phone for SMS", "verify my Telegram"), do not re-ask which channel unless the input is contradictory. Note: "verify my phone number" alone is ambiguous (phone numbers apply to both sms and voice) — ask which channel.',
+    '- If the user has already explicitly specified a channel (e.g., "verify my phone for voice", "verify my Telegram"), do not re-ask which channel unless the input is contradictory.',
   ].join("\n");
 }
 

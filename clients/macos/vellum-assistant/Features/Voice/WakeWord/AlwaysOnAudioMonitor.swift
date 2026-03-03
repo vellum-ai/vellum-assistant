@@ -32,6 +32,10 @@ final class AlwaysOnAudioMonitor: ObservableObject {
 
     @Published private(set) var isListening = false
 
+    /// Non-nil when the engine hit a persistent error that requires user action
+    /// (e.g. Dictation disabled). Cleared when monitoring restarts successfully.
+    @Published private(set) var persistentErrorMessage: String?
+
     /// Fired on the main actor when the wake word engine detects a keyword.
     var onWakeWordDetected: (() -> Void)?
 
@@ -49,6 +53,7 @@ final class AlwaysOnAudioMonitor: ObservableObject {
     init(engine: WakeWordEngine) {
         self.engine = engine
         setupEngineCallback()
+        setupPersistentErrorCallback()
         setupNotificationObservers()
         observeKeywordChanges()
     }
@@ -70,7 +75,13 @@ final class AlwaysOnAudioMonitor: ObservableObject {
 
         do {
             try engine.start()
+            // Set isListening optimistically — engine.start() may return
+            // before the engine is fully running (e.g. when speech auth is
+            // .notDetermined and deferred to an async callback). The
+            // persistent-error callback will reset isListening if the engine
+            // hits an unrecoverable failure after starting.
             isListening = true
+            persistentErrorMessage = nil
             log.info("Audio monitoring started")
         } catch {
             log.error("Wake word engine failed to start: \(error.localizedDescription)")
@@ -93,6 +104,17 @@ final class AlwaysOnAudioMonitor: ObservableObject {
                 guard let self, self.isListening else { return }
                 log.info("Wake word detected (confidence: \(confidence, format: .fixed(precision: 2)))")
                 self.onWakeWordDetected?()
+            }
+        }
+    }
+
+    private func setupPersistentErrorCallback() {
+        engine.onPersistentError = { [weak self] message in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                log.error("Persistent engine error: \(message, privacy: .public)")
+                self.isListening = false
+                self.persistentErrorMessage = message
             }
         }
     }
@@ -150,7 +172,12 @@ final class AlwaysOnAudioMonitor: ObservableObject {
 
         do {
             try engine.start()
-            log.info("Audio monitoring restarted after configuration change")
+            if engine.isRunning {
+                log.info("Audio monitoring restarted after configuration change")
+            } else {
+                log.warning("Engine did not restart after audio configuration change")
+                isListening = false
+            }
         } catch {
             log.error("Failed to restart audio monitoring: \(error.localizedDescription)")
             isListening = false

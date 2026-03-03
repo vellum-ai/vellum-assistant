@@ -95,6 +95,20 @@ Whenever you merge a PR, you MUST append its URL to `.private/UNREVIEWED_PRS.md`
 ## Implementing new functionality
 Before implementing new functionality do a quick check to see if the new feature has already been implemented
 
+## Dead Code Removal
+
+Proactively remove unused code during every change. Dead code accumulates quickly and makes the codebase harder to understand, navigate, and modify.
+
+Concretely:
+- **Remove code that your change makes unused.** When refactoring, replacing, or deleting a feature, trace the code you're touching and delete anything that is no longer referenced — functions, classes, imports, files, config entries, test helpers, and type definitions.
+- **Clean up adjacent dead code you encounter.** If you notice unused code near the code you're modifying, remove it in the same PR. Don't leave it for a future cleanup pass.
+- **Delete rather than comment out.** Git history preserves old code. Commented-out code is noise — remove it.
+- **Remove fully-rolled-out feature flags.** When a feature flag is permanently enabled and no longer gating behavior, remove the flag check and the associated conditional branches.
+- **Don't leave "TODO: clean up later" markers.** If code is unused now, remove it now. Deferred cleanup rarely happens.
+- **Check for orphaned files.** After removing a module or capability, verify that no files, tests, scripts, or skill definitions were left behind that only served the removed code.
+
+Ask: "After my change, is there any code that nothing calls, imports, or references?" If yes, delete it.
+
 ## Extensibility Principle
 
 Vellum is a **general-purpose assistant**, not a single-purpose tool. When adding a new capability (e.g., personalized email responses, context-aware summarization, smart scheduling), build it as a **reusable, extensible primitive** that works across contexts — not a narrow solution wired to one specific use case.

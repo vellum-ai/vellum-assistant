@@ -16,6 +16,7 @@
  * Guardian verification:
  * POST   /v1/integrations/guardian/challenge        — create a verification challenge
  * GET    /v1/integrations/guardian/status            — check guardian binding status
+ * POST   /v1/integrations/guardian/revoke            — revoke active guardian binding
  * POST   /v1/integrations/guardian/outbound/start    — start outbound verification
  * POST   /v1/integrations/guardian/outbound/resend   — resend outbound verification
  * POST   /v1/integrations/guardian/outbound/cancel   — cancel outbound verification
@@ -25,6 +26,7 @@ import type { ChannelId } from '../../channels/types.js';
 import {
   createGuardianChallenge,
   getGuardianStatus,
+  revokeGuardianForChannel,
 } from '../../daemon/handlers/config-channels.js';
 import {
   clearSlackChannelConfig,
@@ -166,6 +168,20 @@ export function handleGetGuardianStatus(url: URL): Response {
   const channel = (url.searchParams.get('channel') as ChannelId | null) ?? undefined;
   const result = getGuardianStatus(channel);
   return Response.json(result);
+}
+
+/**
+ * POST /v1/integrations/guardian/revoke
+ *
+ * Body: { channel?: ChannelId }
+ */
+export async function handleRevokeGuardian(req: Request): Promise<Response> {
+  const body = (await req.json()) as {
+    channel?: ChannelId;
+  };
+  const result = revokeGuardianForChannel(body.channel);
+  const status = result.success ? 200 : 400;
+  return Response.json(result, { status });
 }
 
 // ---------------------------------------------------------------------------

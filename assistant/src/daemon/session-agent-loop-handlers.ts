@@ -150,6 +150,9 @@ const TOOL_FRIENDLY_NAMES: Record<string, string> = {
   browser_wait: 'browser',
   app_create: 'app',
   app_update: 'app',
+  skill_load: 'skill',
+  app_file_edit: 'app file',
+  app_file_write: 'app file',
 };
 
 function friendlyToolName(name: string): string {

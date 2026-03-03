@@ -7,6 +7,11 @@ protocol WakeWordEngine: AnyObject {
     /// The parameter is the confidence score (0.0-1.0).
     var onWakeWordDetected: ((Float) -> Void)? { get set }
 
+    /// Called when the engine encounters a persistent error that won't resolve
+    /// by retrying (e.g. Dictation disabled at the OS level). The parameter
+    /// is a user-facing message describing what needs to be fixed.
+    var onPersistentError: ((String) -> Void)? { get set }
+
     /// Whether the engine is currently listening for the wake word.
     var isRunning: Bool { get }
 

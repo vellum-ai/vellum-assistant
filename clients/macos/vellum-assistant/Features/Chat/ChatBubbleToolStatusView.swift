@@ -65,6 +65,12 @@ extension ChatBubble {
                 if stepsExpanded {
                     StepsSection(toolCalls: message.toolCalls, onRehydrate: onRehydrate)
                 }
+                // Inline processing indicator — shown when assistant is still working
+                // after tool calls completed, preventing a duplicate avatar row.
+                if isProcessingAfterTools {
+                    inlineProcessingIndicator
+                        .padding(.top, VSpacing.xs)
+                }
             }
         } else if hasPermission || (hasInProgressTools && permissionWasDenied) {
             // Completed tool steps are hidden — only show permission chip or denied tool chip.
@@ -78,9 +84,40 @@ extension ChatBubble {
                     }
                     Spacer()
                 }
+                if isProcessingAfterTools {
+                    inlineProcessingIndicator
+                        .padding(.top, VSpacing.xs)
+                }
             }
             .padding(.top, VSpacing.xxs)
+        } else if isProcessingAfterTools {
+            // Fallback: no tool status to show but assistant is still processing.
+            inlineProcessingIndicator
         }
+    }
+
+    /// Inline processing indicator with staged friendly labels for long waits.
+    var inlineProcessingIndicator: some View {
+        let initialLabel = Self.friendlyProcessingLabel(processingStatusText)
+        return RunningIndicator(
+            label: initialLabel,
+            showIcon: false,
+            progressiveLabels: [
+                initialLabel,
+                "Putting this together",
+                "Finalizing your response",
+            ],
+            labelInterval: 8
+        )
+    }
+
+    /// Maps raw daemon status text to a friendlier label for the inline indicator.
+    static func friendlyProcessingLabel(_ statusText: String?) -> String {
+        guard let text = statusText else { return "Thinking" }
+        let lower = text.lowercased()
+        if lower.contains("skill") { return "Applying capabilities" }
+        if lower.contains("processing") { return "Processing results" }
+        return text
     }
 
     /// Failed/denied tool chip — shown when the user denied permission.

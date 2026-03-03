@@ -84,15 +84,13 @@ SMS messaging uses Twilio as the telephony provider. Twilio credentials and phon
 
 The sms-setup skill handles: Twilio credential storage (Account SID + Auth Token), phone number provisioning or assignment, public ingress setup, SMS compliance verification, and end-to-end test sending. Once SMS is set up, messaging is available automatically — no additional feature flag is needed.
 
-The sms-setup skill also includes optional **guardian verification** for SMS, which links your phone number as the trusted guardian.
+### Guardian Verification (Voice or Telegram)
 
-### Guardian Verification (SMS, Voice, or Telegram)
-
-If the user asks to verify their guardian identity for any channel (SMS, voice, or Telegram), load the **guardian-verify-setup** skill:
+If the user asks to verify their guardian identity for voice or Telegram, load the **guardian-verify-setup** skill:
 
 - Call `skill_load` with `skill: "guardian-verify-setup"` to load the dependency skill.
 
-The guardian-verify-setup skill handles the full outbound verification flow for all supported channels. It collects the user's destination (phone number or Telegram chat ID/handle), initiates an outbound verification session, and guides the user through entering or replying with the verification code. This is the single source of truth for guardian verification setup -- do not duplicate the verification flow inline.
+The guardian-verify-setup skill handles the full outbound verification flow for voice and Telegram channels. It collects the user's destination (phone number or Telegram chat ID/handle), initiates an outbound verification session, and guides the user through entering or replying with the verification code. This is the single source of truth for guardian verification setup -- do not duplicate the verification flow inline.
 
 ## Error Recovery
 
@@ -293,7 +291,7 @@ Use `messaging_analyze_activity` to classify channels or conversations by activi
 
 When a user asks to declutter, clean up, or organize their email — start scanning immediately. Don't ask what kind of cleanup they want or request permission to read their inbox. Go straight to scanning — but once results are ready, always show them via `ui_show` and let the user choose actions before archiving or unsubscribing.
 
-**CRITICAL**: Never call `gmail_batch_archive`, `gmail_archive_by_query`, `gmail_unsubscribe`, or `messaging_archive_by_sender` unless the user has clicked an action button on the table for that specific batch. Each batch of results requires its own explicit user confirmation via the table UI. If the user says "keep going" or "keep decluttering," that means scan and present a new table — NOT auto-archive. Previous batch approvals do not carry forward.
+**CRITICAL**: Never call `gmail_batch_archive`, `gmail_archive_by_query`, `gmail_unsubscribe`, or `messaging_archive_by_sender` unless the user has clicked an action button on the table for that specific batch. Each batch of results requires its own explicit user confirmation via the table UI. If the user says "keep going" or "keep decluttering," that means scan and present a new table — NOT auto-archive. Previous batch approvals do not carry forward, but **deselections DO carry forward**: when the user deselects senders from a cleanup table, the system records those deselections as user preferences. Before building the next cleanup table, check `<dynamic-user-profile>` for previously deselected senders and exclude them from future cleanup tables — the user already indicated they want to keep those.
 
 ### Provider Selection
 
@@ -309,7 +307,7 @@ When a user asks to declutter, clean up, or organize their email — start scann
      - **Unsub? cell values**: Use rich cell format: `{ "text": "Yes", "icon": "checkmark.circle.fill", "iconColor": "success" }` when `has_unsubscribe` is true, `{ "text": "No", "icon": "minus.circle", "iconColor": "muted" }` when false.
    - **Non-Gmail columns (exactly 2)**: Sender, Emails Found (omit the Unsub? column — unsubscribe is not available)
    - **Pre-select all rows** (`selected: true`) — users deselect what they want to keep
-   - **Caption**: "Showing emails from last 90 days in Promotions" (or adjusted to match the query used)
+   - **Caption**: Include two parts separated by a newline: (1) data scope, e.g. "Newsletters, notifications, and outreach from last 90 days. Deselect anything you want to keep." (adjusted to match the query used), and (2) for Gmail tables only, the Unsub? column legend: "Unsub? — \"Yes\" means these emails contain an unsubscribe link, so I can opt you out automatically. \"No\" means no unsubscribe link was found — these will be archived but you may continue receiving them."
    - **Gmail action buttons (exactly 2)**: "Archive & Unsubscribe" (primary), "Archive Only" (secondary). **NEVER offer Delete, Trash, or any destructive action.**
    - **Non-Gmail action button (exactly 1)**: "Archive Selected" (primary). Do not offer an unsubscribe button — it is Gmail-specific. **NEVER offer Delete, Trash, or any destructive action.**
 3. **Wait for user action**: Stop and wait. Do NOT proceed to archiving or unsubscribing until the user clicks one of the action buttons on the table. When the user clicks an action button:
@@ -329,9 +327,7 @@ When a user asks to declutter, clean up, or organize their email — start scann
 
 - **Zero results**: Tell the user "No newsletter emails found" and suggest broadening the query (e.g. removing the category filter or extending the date range)
 - **Unsubscribe failures**: Report per-sender success/failure; the existing `gmail_unsubscribe` tool handles edge cases
-- **Truncation handling**: The scan covers up to 2000 messages per call (cap 5000). The default 2000 captures the vast majority of newsletter senders. If `truncated` is true:
-  - Tell the user: "Scanned [N] messages — here are your top senders." The top senders are almost always captured in the first pass.
-  - If the user explicitly asks to scan more, make ONE additional call with the `page_token`. Never chain more than 2 calls total.
+- **Truncation handling**: The scan covers up to 5,000 messages by default (cap 10,000). If `truncated` is true, the top senders are still captured — don't offer to scan more. Tell the user: "Scanned [N] messages — here are your top senders."
 - **Time budget exceeded**: If the scan returns `time_budget_exceeded: true`, present whatever results were collected. Do not retry or continue — the partial results are useful as-is.
 
 ### Scan ID

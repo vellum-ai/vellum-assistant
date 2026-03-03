@@ -141,6 +141,31 @@ struct ButtonsGallerySection: View {
 
             Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
 
+            // MARK: - VIconButton (Filled)
+            GallerySectionHeader(
+                title: "VIconButton (Filled)",
+                description: "Filled icon buttons with a solid background color and white icon."
+            )
+
+            VCard {
+                HStack(spacing: VSpacing.xl) {
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        Text("Primary").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        VIconButton(label: "More", icon: "ellipsis", iconOnly: true, variant: .filled(VColor.buttonPrimary)) {}
+                    }
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        Text("Accent").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        VIconButton(label: "Add", icon: "plus", iconOnly: true, variant: .filled(VColor.accent)) {}
+                    }
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        Text("Error").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        VIconButton(label: "Delete", icon: "trash", iconOnly: true, variant: .filled(VColor.error)) {}
+                    }
+                }
+            }
+
+            Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
+
             // MARK: - VIconButton (Icon Only)
             GallerySectionHeader(
                 title: "VIconButton (Icon Only)",

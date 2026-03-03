@@ -39,217 +39,8 @@ struct ChatContentView: View {
             if viewModel.messages.isEmpty && !viewModel.isSending && !viewModel.isThinking {
                 emptyStateView
             } else {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(spacing: VSpacing.md) {
-                        // Loading indicator shown at the very top when fetching an older page.
-                        if viewModel.isLoadingMoreMessages {
-                            HStack {
-                                Spacer()
-                                VLoadingIndicator(size: 18)
-                                Spacer()
-                            }
-                            .padding(.vertical, VSpacing.sm)
-                            .id("page-loading-indicator")
-                        } else if viewModel.hasMoreMessages {
-                            // Invisible sentinel: fires when the user scrolls to the top,
-                            // triggering the next-older page of messages to be revealed.
-                            Color.clear
-                                .frame(height: 1)
-                                .id("page-load-trigger")
-                                .onAppear {
-                                    // Capture the current first-visible message ID before the
-                                    // pagination window expands so we can restore scroll position.
-                                    let anchorId = visibleMessages.first?.id
-                                    Task {
-                                        let hadMore = await viewModel.loadPreviousMessagePage()
-                                        // Restore position to the message that was previously at
-                                        // the top so the content doesn't jump unexpectedly.
-                                        if hadMore, let id = anchorId {
-                                            proxy.scrollTo(id, anchor: .top)
-                                        }
-                                    }
-                                }
-                        }
-
-                        let messages = visibleMessages
-                        ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
-                            if message.modelPicker != nil {
-                                ModelPickerBubble(
-                                    models: ModelListBubble.anthropicModels.map { (id: $0.model, name: $0.display) },
-                                    selectedModelId: viewModel.selectedModel,
-                                    onSelect: { modelId in
-                                        viewModel.setModel(modelId)
-                                    }
-                                )
-                                .id(message.id)
-                                .transition(.asymmetric(
-                                    insertion: .move(edge: .bottom).combined(with: .opacity),
-                                    removal: .opacity
-                                ))
-                            } else if message.modelList != nil {
-                                ModelListBubble(currentModel: viewModel.selectedModel, configuredProviders: viewModel.configuredProviders)
-                                    .id(message.id)
-                                    .transition(.asymmetric(
-                                        insertion: .move(edge: .bottom).combined(with: .opacity),
-                                        removal: .opacity
-                                    ))
-                            } else if message.commandList != nil {
-                                CommandListBubble()
-                                    .id(message.id)
-                                    .transition(.asymmetric(
-                                        insertion: .move(edge: .bottom).combined(with: .opacity),
-                                        removal: .opacity
-                                    ))
-                            } else {
-                                let isLastAssistant = message.role == .assistant
-                                    && !message.isStreaming
-                                    && (index == messages.count - 1
-                                        || (index == messages.count - 2
-                                            && messages[messages.count - 1].confirmation != nil
-                                            && messages[messages.count - 1].confirmation?.state != .pending))
-                                    && !viewModel.isSending
-                                    && !viewModel.isThinking
-                                MessageBubbleView(
-                                    message: message,
-                                    onConfirmationResponse: { requestId, decision in
-                                        viewModel.respondToConfirmation(requestId: requestId, decision: decision)
-                                    },
-                                    onSurfaceAction: { surfaceId, actionId, data in
-                                        viewModel.sendSurfaceAction(surfaceId: surfaceId, actionId: actionId, data: data)
-                                    },
-                                    onRegenerate: isLastAssistant ? { viewModel.regenerateLastMessage() } : nil,
-                                    onAlwaysAllow: { requestId, selectedPattern, selectedScope, decision in
-                                        viewModel.respondToAlwaysAllow(requestId: requestId, selectedPattern: selectedPattern, selectedScope: selectedScope, decision: decision)
-                                    },
-                                    onGuardianAction: { requestId, action in
-                                        viewModel.submitGuardianDecision(requestId: requestId, action: action)
-                                    }
-                                )
-                                .id(message.id)
-                                .transition(.asymmetric(
-                                    insertion: .move(edge: .bottom).combined(with: .opacity),
-                                    removal: .opacity
-                                ))
-
-                                // Inline media embeds (images, videos)
-                                if !message.text.isEmpty && !message.isStreaming {
-                                    MessageMediaEmbedsView(message: message)
-                                }
-                            }
-
-                            // Subagent chips anchored to the message that spawned them
-                            ForEach(viewModel.activeSubagents.filter { $0.parentMessageId == message.id }) { subagent in
-                                SubagentStatusChip(subagent: subagent)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .id("subagent-\(subagent.id)")
-                            }
-                        }
-
-                        // Subagents with no parent message (e.g. from history load)
-                        ForEach(viewModel.activeSubagents.filter { $0.parentMessageId == nil }) { subagent in
-                            SubagentStatusChip(subagent: subagent)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .id("subagent-\(subagent.id)")
-                        }
-
-                        // Typing / step indicator shown while generating
-                        // Suppress the indicator while awaiting a confirmation prompt —
-                        // the user should see the confirmation UI, not a spinner.
-                        if viewModel.isSending && !viewModel.hasPendingConfirmation {
-                            let lastMessage = viewModel.messages.last
-                            let allToolCalls = lastMessage?.toolCalls ?? []
-                            let isStreaming = lastMessage?.isStreaming == true
-                            let hasActiveToolCall = allToolCalls.contains { !$0.isComplete }
-                            // True when the assistant is streaming but has not yet emitted any text.
-                            // This happens between tool-call completion and the next text chunk.
-                            let isStreamingWithoutText = isStreaming && (lastMessage?.text.isEmpty ?? true)
-
-                            if !isStreaming && !hasActiveToolCall {
-                                // No streaming text or active tool call yet — show typing dots
-                                HStack {
-                                    TypingIndicatorView()
-                                    if let statusText = viewModel.assistantStatusText, !statusText.isEmpty {
-                                        Text(statusText)
-                                            .font(VFont.caption)
-                                            .foregroundColor(VColor.textSecondary)
-                                    }
-                                    Spacer()
-                                }
-                                .padding(.horizontal, VSpacing.lg)
-                                .id("step-indicator")
-                                .transition(.opacity.combined(with: .move(edge: .bottom)))
-                            } else if hasActiveToolCall {
-                                // Tool execution in progress — show step indicator
-                                CurrentStepIndicator(
-                                    toolCalls: allToolCalls,
-                                    isStreaming: viewModel.isSending,
-                                    onTap: {}
-                                )
-                                .padding(.horizontal, VSpacing.lg)
-                                .id("step-indicator")
-                            } else if isStreamingWithoutText {
-                                // Tool call just finished but no text has arrived yet — show
-                                // typing dots so the user isn't left without feedback.
-                                HStack {
-                                    TypingIndicatorView()
-                                    Spacer()
-                                }
-                                .padding(.horizontal, VSpacing.lg)
-                                .id("step-indicator")
-                                .transition(.opacity.combined(with: .move(edge: .bottom)))
-                            } else if viewModel.isThinking {
-                                // LLM is processing tool results but streaming text is
-                                // already visible — show typing dots with status text.
-                                HStack {
-                                    TypingIndicatorView()
-                                    if let statusText = viewModel.assistantStatusText, !statusText.isEmpty {
-                                        Text(statusText)
-                                            .font(VFont.caption)
-                                            .foregroundColor(VColor.textSecondary)
-                                    }
-                                    Spacer()
-                                }
-                                .padding(.horizontal, VSpacing.lg)
-                                .id("step-indicator")
-                                .transition(.opacity.combined(with: .move(edge: .bottom)))
-                            }
-                            // Otherwise isStreaming with text: the growing message bubble is the indicator
-                        }
-
-                        // Invisible anchor at the very bottom of all content
-                        Color.clear.frame(height: 1)
-                            .id("scroll-bottom-anchor")
-                    }
-                    .animation(VAnimation.standard, value: viewModel.messages.count)
-                    .padding(VSpacing.lg)
-                }
-                .scrollDismissesKeyboard(.interactively)
-                .onChange(of: viewModel.messages.count) { _, _ in
-                    scrollToBottom(proxy: proxy, animated: true)
-                }
-                .onChange(of: viewModel.messages.last?.text) { _, _ in
-                    // Scroll without animation during streaming to avoid jank.
-                    // Only scroll when actively streaming to avoid overriding the animated
-                    // scroll from new message additions (handled by count change above).
-                    if viewModel.messages.last?.isStreaming == true {
-                        scrollToBottom(proxy: proxy, animated: false)
-                    }
-                }
-                .onChange(of: viewModel.isSending) { _, isSending in
-                    if isSending {
-                        withAnimation(.easeOut(duration: 0.3)) {
-                            proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
-                        }
-                    }
-                }
-                .onChange(of: viewModel.activeSubagents.count) { oldCount, newCount in
-                    if newCount > oldCount {
-                        scrollToBottom(proxy: proxy, animated: true)
-                    }
-                }
+                messagesScrollView
             }
-            } // end else (messages non-empty)
 
             // Generic error banner (session errors are shown inline in messages)
             if viewModel.sessionError == nil, let errorText = viewModel.errorText {
@@ -263,8 +54,8 @@ struct ChatContentView: View {
                 isInputFocused: $isInputFocused,
                 isGenerating: (viewModel.isSending && !viewModel.hasPendingConfirmation) || viewModel.isThinking,
                 isCancelling: viewModel.isCancelling,
-                onSend: viewModel.sendMessage,
-                onStop: viewModel.stopGenerating,
+                onSend: { viewModel.sendMessage() },
+                onStop: { viewModel.stopGenerating() },
                 onVoiceResult: { _ in
                     viewModel.pendingVoiceMessage = true
                     viewModel.sendMessage()
@@ -280,6 +71,242 @@ struct ChatContentView: View {
             if isEmpty {
                 greeting = greetingChoices.randomElement()!
             }
+        }
+    }
+
+    // MARK: - Messages Scroll View
+
+    private var messagesScrollView: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: VSpacing.md) {
+                    paginationHeader(proxy: proxy)
+
+                    let messages = visibleMessages
+                    ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
+                        messageBubble(message: message, index: index, messages: messages)
+
+                        // Subagent chips anchored to the message that spawned them
+                        ForEach(viewModel.activeSubagents.filter { $0.parentMessageId == message.id }) { subagent in
+                            SubagentStatusChip(subagent: subagent)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .id("subagent-\(subagent.id)")
+                        }
+                    }
+
+                    // Subagents with no parent message (e.g. from history load)
+                    ForEach(viewModel.activeSubagents.filter { $0.parentMessageId == nil }) { subagent in
+                        SubagentStatusChip(subagent: subagent)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .id("subagent-\(subagent.id)")
+                    }
+
+                    typingIndicatorSection
+
+                    // Invisible anchor at the very bottom of all content
+                    Color.clear.frame(height: 1)
+                        .id("scroll-bottom-anchor")
+                }
+                .animation(VAnimation.standard, value: viewModel.messages.count)
+                .padding(VSpacing.lg)
+            }
+            .scrollDismissesKeyboard(.interactively)
+            .onChange(of: viewModel.messages.count) { _, _ in
+                scrollToBottom(proxy: proxy, animated: true)
+            }
+            .onChange(of: viewModel.messages.last?.text) { _, _ in
+                // Scroll without animation during streaming to avoid jank.
+                // Only scroll when actively streaming to avoid overriding the animated
+                // scroll from new message additions (handled by count change above).
+                if viewModel.messages.last?.isStreaming == true {
+                    scrollToBottom(proxy: proxy, animated: false)
+                }
+            }
+            .onChange(of: viewModel.isSending) { _, isSending in
+                if isSending {
+                    withAnimation(.easeOut(duration: 0.3)) {
+                        proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                    }
+                }
+            }
+            .onChange(of: viewModel.activeSubagents.count) { oldCount, newCount in
+                if newCount > oldCount {
+                    scrollToBottom(proxy: proxy, animated: true)
+                }
+            }
+        }
+    }
+
+    // MARK: - Pagination Header
+
+    @ViewBuilder
+    private func paginationHeader(proxy: ScrollViewProxy) -> some View {
+        // Loading indicator shown at the very top when fetching an older page.
+        if viewModel.isLoadingMoreMessages {
+            HStack {
+                Spacer()
+                VLoadingIndicator(size: 18)
+                Spacer()
+            }
+            .padding(.vertical, VSpacing.sm)
+            .id("page-loading-indicator")
+        } else if viewModel.hasMoreMessages {
+            // Invisible sentinel: fires when the user scrolls to the top,
+            // triggering the next-older page of messages to be revealed.
+            Color.clear
+                .frame(height: 1)
+                .id("page-load-trigger")
+                .onAppear {
+                    // Capture the current first-visible message ID before the
+                    // pagination window expands so we can restore scroll position.
+                    let anchorId = visibleMessages.first?.id
+                    Task {
+                        let hadMore = await viewModel.loadPreviousMessagePage()
+                        // Restore position to the message that was previously at
+                        // the top so the content doesn't jump unexpectedly.
+                        if hadMore, let id = anchorId {
+                            proxy.scrollTo(id, anchor: .top)
+                        }
+                    }
+                }
+        }
+    }
+
+    // MARK: - Message Bubble
+
+    @ViewBuilder
+    private func messageBubble(message: ChatMessage, index: Int, messages: [ChatMessage]) -> some View {
+        if message.modelPicker != nil {
+            ModelPickerBubble(
+                models: ModelListBubble.anthropicModels.map { (id: $0.model, name: $0.display) },
+                selectedModelId: viewModel.selectedModel,
+                onSelect: { modelId in
+                    viewModel.setModel(modelId)
+                }
+            )
+            .id(message.id)
+            .transition(.asymmetric(
+                insertion: .move(edge: .bottom).combined(with: .opacity),
+                removal: .opacity
+            ))
+        } else if message.modelList != nil {
+            ModelListBubble(currentModel: viewModel.selectedModel, configuredProviders: viewModel.configuredProviders)
+                .id(message.id)
+                .transition(.asymmetric(
+                    insertion: .move(edge: .bottom).combined(with: .opacity),
+                    removal: .opacity
+                ))
+        } else if message.commandList != nil {
+            CommandListBubble()
+                .id(message.id)
+                .transition(.asymmetric(
+                    insertion: .move(edge: .bottom).combined(with: .opacity),
+                    removal: .opacity
+                ))
+        } else {
+            let isLastAssistant = message.role == .assistant
+                && !message.isStreaming
+                && (index == messages.count - 1
+                    || (index == messages.count - 2
+                        && messages[messages.count - 1].confirmation != nil
+                        && messages[messages.count - 1].confirmation?.state != .pending))
+                && !viewModel.isSending
+                && !viewModel.isThinking
+            MessageBubbleView(
+                message: message,
+                onConfirmationResponse: { requestId, decision in
+                    viewModel.respondToConfirmation(requestId: requestId, decision: decision)
+                },
+                onSurfaceAction: { surfaceId, actionId, data in
+                    viewModel.sendSurfaceAction(surfaceId: surfaceId, actionId: actionId, data: data)
+                },
+                onRegenerate: isLastAssistant ? { viewModel.regenerateLastMessage() } : nil,
+                onAlwaysAllow: { requestId, selectedPattern, selectedScope, decision in
+                    viewModel.respondToAlwaysAllow(requestId: requestId, selectedPattern: selectedPattern, selectedScope: selectedScope, decision: decision)
+                },
+                onGuardianAction: { requestId, action in
+                    viewModel.submitGuardianDecision(requestId: requestId, action: action)
+                }
+            )
+            .id(message.id)
+            .transition(.asymmetric(
+                insertion: .move(edge: .bottom).combined(with: .opacity),
+                removal: .opacity
+            ))
+
+            // Inline media embeds (images, videos)
+            if !message.text.isEmpty && !message.isStreaming {
+                MessageMediaEmbedsView(message: message)
+            }
+        }
+    }
+
+    // MARK: - Typing Indicator
+
+    @ViewBuilder
+    private var typingIndicatorSection: some View {
+        // Typing / step indicator shown while generating
+        // Suppress the indicator while awaiting a confirmation prompt —
+        // the user should see the confirmation UI, not a spinner.
+        if viewModel.isSending && !viewModel.hasPendingConfirmation {
+            let lastMessage = viewModel.messages.last
+            let allToolCalls = lastMessage?.toolCalls ?? []
+            let isStreaming = lastMessage?.isStreaming == true
+            let hasActiveToolCall = allToolCalls.contains { !$0.isComplete }
+            // True when the assistant is streaming but has not yet emitted any text.
+            // This happens between tool-call completion and the next text chunk.
+            let isStreamingWithoutText = isStreaming && (lastMessage?.text.isEmpty ?? true)
+
+            if !isStreaming && !hasActiveToolCall {
+                // No streaming text or active tool call yet — show typing dots
+                HStack {
+                    TypingIndicatorView()
+                    if let statusText = viewModel.assistantStatusText, !statusText.isEmpty {
+                        Text(statusText)
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, VSpacing.lg)
+                .id("step-indicator")
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            } else if hasActiveToolCall {
+                // Tool execution in progress — show step indicator
+                CurrentStepIndicator(
+                    toolCalls: allToolCalls,
+                    isStreaming: viewModel.isSending,
+                    onTap: {}
+                )
+                .padding(.horizontal, VSpacing.lg)
+                .id("step-indicator")
+            } else if isStreamingWithoutText {
+                // Tool call just finished but no text has arrived yet — show
+                // typing dots so the user isn't left without feedback.
+                HStack {
+                    TypingIndicatorView()
+                    Spacer()
+                }
+                .padding(.horizontal, VSpacing.lg)
+                .id("step-indicator")
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            } else if viewModel.isThinking {
+                // LLM is processing tool results but streaming text is
+                // already visible — show typing dots with status text.
+                HStack {
+                    TypingIndicatorView()
+                    if let statusText = viewModel.assistantStatusText, !statusText.isEmpty {
+                        Text(statusText)
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, VSpacing.lg)
+                .id("step-indicator")
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
+            // Otherwise isStreaming with text: the growing message bubble is the indicator
         }
     }
 

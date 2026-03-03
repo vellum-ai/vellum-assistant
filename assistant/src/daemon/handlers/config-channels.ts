@@ -1,9 +1,9 @@
-import * as net from 'node:net';
+import * as net from "node:net";
 
-import type { ChannelId } from '../../channels/types.js';
-import * as externalConversationStore from '../../memory/external-conversation-store.js';
-import { findMember, revokeMember } from '../../memory/ingress-member-store.js';
-import { DAEMON_INTERNAL_ASSISTANT_ID } from '../../runtime/assistant-scope.js';
+import type { ChannelId } from "../../channels/types.js";
+import * as externalConversationStore from "../../memory/external-conversation-store.js";
+import { findMember, revokeMember } from "../../memory/ingress-member-store.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
 import {
   createVerificationChallenge,
   findActiveSession,
@@ -11,22 +11,28 @@ import {
   getPendingChallenge,
   revokeBinding as revokeGuardianBinding,
   revokePendingChallenges,
-} from '../../runtime/channel-guardian-service.js';
-import { type ChannelReadinessService, createReadinessService } from '../../runtime/channel-readiness-service.js';
+} from "../../runtime/channel-guardian-service.js";
+import {
+  type ChannelReadinessService,
+  createReadinessService,
+} from "../../runtime/channel-readiness-service.js";
 import {
   cancelOutbound,
   resendOutbound,
   startOutbound,
-} from '../../runtime/guardian-outbound-actions.js';
+} from "../../runtime/guardian-outbound-actions.js";
 import type {
   GuardianVerificationRequest,
   GuardianVerificationResponse,
-} from '../ipc-protocol.js';
-import { defineHandlers, type HandlerContext, log } from './shared.js';
+} from "../ipc-protocol.js";
+import { defineHandlers, type HandlerContext, log } from "./shared.js";
 
 // -- Transport-agnostic result type (omits the IPC `type` discriminant) --
 
-export type GuardianVerificationResult = Omit<GuardianVerificationResponse, 'type'>;
+export type GuardianVerificationResult = Omit<
+  GuardianVerificationResponse,
+  "type"
+>;
 
 // ---------------------------------------------------------------------------
 // Re-export rate limit constants from the shared outbound actions module
@@ -38,7 +44,7 @@ export {
   MAX_SENDS_PER_DESTINATION_WINDOW,
   MAX_SENDS_PER_SESSION,
   RESEND_COOLDOWN_MS,
-} from '../../runtime/guardian-outbound-actions.js';
+} from "../../runtime/guardian-outbound-actions.js";
 
 // ---------------------------------------------------------------------------
 // Readiness service singleton
@@ -63,19 +69,27 @@ export function createGuardianChallenge(
   sessionId?: string,
 ): GuardianVerificationResult {
   const resolvedAssistantId = DAEMON_INTERNAL_ASSISTANT_ID;
-  const resolvedChannel = channel ?? 'telegram';
+  const resolvedChannel = channel ?? "telegram";
 
-  const existingBinding = getGuardianBinding(resolvedAssistantId, resolvedChannel);
+  const existingBinding = getGuardianBinding(
+    resolvedAssistantId,
+    resolvedChannel,
+  );
   if (existingBinding && !rebind) {
     return {
       success: false,
-      error: 'already_bound',
-      message: 'A guardian is already bound for this channel. Revoke the existing binding first, or set rebind: true to replace.',
+      error: "already_bound",
+      message:
+        "A guardian is already bound for this channel. Revoke the existing binding first, or set rebind: true to replace.",
       channel: resolvedChannel,
     };
   }
 
-  const result = createVerificationChallenge(resolvedAssistantId, resolvedChannel, sessionId);
+  const result = createVerificationChallenge(
+    resolvedAssistantId,
+    resolvedChannel,
+    sessionId,
+  );
 
   return {
     success: true,
@@ -89,25 +103,37 @@ export function getGuardianStatus(
   channel?: ChannelId,
 ): GuardianVerificationResult {
   const resolvedAssistantId = DAEMON_INTERNAL_ASSISTANT_ID;
-  const resolvedChannel = channel ?? 'telegram';
+  const resolvedChannel = channel ?? "telegram";
 
   const binding = getGuardianBinding(resolvedAssistantId, resolvedChannel);
   let guardianUsername: string | undefined;
   let guardianDisplayName: string | undefined;
   if (binding?.metadataJson) {
     try {
-      const parsed = JSON.parse(binding.metadataJson) as Record<string, unknown>;
-      if (typeof parsed.username === 'string' && parsed.username.trim().length > 0) {
+      const parsed = JSON.parse(binding.metadataJson) as Record<
+        string,
+        unknown
+      >;
+      if (
+        typeof parsed.username === "string" &&
+        parsed.username.trim().length > 0
+      ) {
         guardianUsername = parsed.username.trim();
       }
-      if (typeof parsed.displayName === 'string' && parsed.displayName.trim().length > 0) {
+      if (
+        typeof parsed.displayName === "string" &&
+        parsed.displayName.trim().length > 0
+      ) {
         guardianDisplayName = parsed.displayName.trim();
       }
     } catch {
       // ignore malformed metadata
     }
   }
-  if (binding?.guardianDeliveryChatId && (!guardianUsername || !guardianDisplayName)) {
+  if (
+    binding?.guardianDeliveryChatId &&
+    (!guardianUsername || !guardianDisplayName)
+  ) {
     const ext = externalConversationStore.getBindingByChannelChat(
       resolvedChannel,
       binding.guardianDeliveryChatId,
@@ -119,18 +145,22 @@ export function getGuardianStatus(
       guardianDisplayName = ext.displayName;
     }
   }
-  const hasPendingChallenge = getPendingChallenge(resolvedAssistantId, resolvedChannel) != null;
+  const hasPendingChallenge =
+    getPendingChallenge(resolvedAssistantId, resolvedChannel) != null;
 
   // Include active outbound session state so the UI can resume
   // after app restart and detect bootstrap completion.
-  const activeOutboundSession = findActiveSession(resolvedAssistantId, resolvedChannel);
+  const activeOutboundSession = findActiveSession(
+    resolvedAssistantId,
+    resolvedChannel,
+  );
   const outboundFields: Record<string, unknown> = {};
   if (activeOutboundSession) {
     outboundFields.verificationSessionId = activeOutboundSession.id;
     outboundFields.expiresAt = activeOutboundSession.expiresAt;
     outboundFields.nextResendAt = activeOutboundSession.nextResendAt;
     outboundFields.sendCount = activeOutboundSession.sendCount;
-    if (activeOutboundSession.status === 'pending_bootstrap') {
+    if (activeOutboundSession.status === "pending_bootstrap") {
       outboundFields.pendingBootstrap = true;
     }
   }
@@ -150,6 +180,52 @@ export function getGuardianStatus(
 }
 
 // ---------------------------------------------------------------------------
+// Revoke guardian binding
+// ---------------------------------------------------------------------------
+
+export function revokeGuardianForChannel(
+  channel?: ChannelId,
+): GuardianVerificationResult {
+  const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
+  const resolvedChannel = channel ?? "telegram";
+
+  // Always revoke pending challenges first — the macOS app uses
+  // action: "revoke" to cancel an in-flight challenge even before
+  // a binding exists (e.g. during verification setup).
+  revokePendingChallenges(assistantId, resolvedChannel);
+
+  // Capture binding before revoking so we can revoke the guardian's
+  // ingress member record — without this, the guardian would still pass
+  // the ACL check after unbinding.
+  const bindingBeforeRevoke = getGuardianBinding(assistantId, resolvedChannel);
+  if (!bindingBeforeRevoke) {
+    return {
+      success: true,
+      bound: false,
+      channel: resolvedChannel,
+    };
+  }
+
+  revokeGuardianBinding(assistantId, resolvedChannel);
+
+  const member = findMember({
+    assistantId,
+    sourceChannel: resolvedChannel,
+    externalUserId: bindingBeforeRevoke.guardianExternalUserId,
+    externalChatId: bindingBeforeRevoke.guardianDeliveryChatId,
+  });
+  if (member) {
+    revokeMember(member.id, "guardian_binding_revoked");
+  }
+
+  return {
+    success: true,
+    bound: false,
+    channel: resolvedChannel,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Guardian verification handler
 // ---------------------------------------------------------------------------
 
@@ -158,54 +234,42 @@ export function handleGuardianVerification(
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
-  const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
-  const channel = msg.channel ?? 'telegram';
+  const channel = msg.channel ?? "telegram";
 
   try {
-    if (msg.action === 'create_challenge') {
-      const result = createGuardianChallenge(channel, msg.rebind, msg.sessionId);
-      ctx.send(socket, { type: 'guardian_verification_response', ...result });
-    } else if (msg.action === 'status') {
-      const result = getGuardianStatus(channel);
-      ctx.send(socket, { type: 'guardian_verification_response', ...result });
-    } else if (msg.action === 'revoke') {
-      // Capture binding before revoking so we can revoke the guardian's
-      // ingress member record — without this, the guardian would still pass
-      // the ACL check after unbinding.
-      const bindingBeforeRevoke = getGuardianBinding(assistantId, channel);
-      revokeGuardianBinding(assistantId, channel);
-      revokePendingChallenges(assistantId, channel);
-
-      if (bindingBeforeRevoke) {
-        const member = findMember({
-          assistantId,
-          sourceChannel: channel,
-          externalUserId: bindingBeforeRevoke.guardianExternalUserId,
-          externalChatId: bindingBeforeRevoke.guardianDeliveryChatId,
-        });
-        if (member) {
-          revokeMember(member.id, 'guardian_binding_revoked');
-        }
-      }
-
-      ctx.send(socket, {
-        type: 'guardian_verification_response',
-        success: true,
-        bound: false,
+    if (msg.action === "create_challenge") {
+      const result = createGuardianChallenge(
         channel,
+        msg.rebind,
+        msg.sessionId,
+      );
+      ctx.send(socket, { type: "guardian_verification_response", ...result });
+    } else if (msg.action === "status") {
+      const result = getGuardianStatus(channel);
+      ctx.send(socket, { type: "guardian_verification_response", ...result });
+    } else if (msg.action === "revoke") {
+      const result = revokeGuardianForChannel(channel);
+      ctx.send(socket, { type: "guardian_verification_response", ...result });
+    } else if (msg.action === "start_outbound") {
+      const result = startOutbound({
+        channel,
+        destination: msg.destination,
+        rebind: msg.rebind,
+        originConversationId: msg.originConversationId,
       });
-    } else if (msg.action === 'start_outbound') {
-      const result = startOutbound({ channel, destination: msg.destination, rebind: msg.rebind, originConversationId: msg.originConversationId });
-      ctx.send(socket, { type: 'guardian_verification_response', ...result });
-    } else if (msg.action === 'resend_outbound') {
-      const result = resendOutbound({ channel, originConversationId: msg.originConversationId });
-      ctx.send(socket, { type: 'guardian_verification_response', ...result });
-    } else if (msg.action === 'cancel_outbound') {
+      ctx.send(socket, { type: "guardian_verification_response", ...result });
+    } else if (msg.action === "resend_outbound") {
+      const result = resendOutbound({
+        channel,
+        originConversationId: msg.originConversationId,
+      });
+      ctx.send(socket, { type: "guardian_verification_response", ...result });
+    } else if (msg.action === "cancel_outbound") {
       const result = cancelOutbound({ channel });
-      ctx.send(socket, { type: 'guardian_verification_response', ...result });
+      ctx.send(socket, { type: "guardian_verification_response", ...result });
     } else {
       ctx.send(socket, {
-        type: 'guardian_verification_response',
+        type: "guardian_verification_response",
         success: false,
         error: `Unknown action: ${String(msg.action)}`,
         channel,
@@ -213,16 +277,15 @@ export function handleGuardianVerification(
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    log.error({ err }, 'Failed to handle guardian verification');
+    log.error({ err }, "Failed to handle guardian verification");
     ctx.send(socket, {
-      type: 'guardian_verification_response',
+      type: "guardian_verification_response",
       success: false,
       error: message,
       channel,
     });
   }
 }
-
 
 export const channelHandlers = defineHandlers({
   guardian_verification: handleGuardianVerification,

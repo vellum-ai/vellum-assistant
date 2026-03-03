@@ -959,15 +959,15 @@
           },
           "max_messages": {
             "type": "number",
-            "description": "Maximum messages to scan (default 2000, cap 5000)"
+            "description": "Maximum messages to scan (default 5000, cap 10000)"
           },
           "max_senders": {
             "type": "number",
-            "description": "Maximum senders to return (default 30)"
+            "description": "Maximum senders to return (default 50)"
           },
           "page_token": {
             "type": "string",
-            "description": "Resume token from a previous scan's next_page_token to continue scanning beyond the cap"
+            "description": "Resume token from a previous scan (rarely needed — scans now cover up to 10,000 messages in a single call)"
           }
         }
       },
@@ -992,7 +992,7 @@
           },
           "max_messages": {
             "type": "number",
-            "description": "Maximum messages to scan (default 2000, cap 2000)"
+            "description": "Maximum messages to scan (default 5000, cap 5000)"
           },
           "max_senders": {
             "type": "number",
@@ -1000,7 +1000,7 @@
           },
           "page_token": {
             "type": "string",
-            "description": "Resume token from a previous scan's next_page_token to continue scanning beyond the cap"
+            "description": "Resume token from a previous scan (rarely needed — scans now cover up to 5,000 messages in a single call)"
           }
         }
       },
@@ -1046,7 +1046,7 @@
         "properties": {
           "max_messages": {
             "type": "number",
-            "description": "Maximum messages to scan (default 500, cap 2000)"
+            "description": "Maximum messages to scan (default 2000, cap 5000)"
           },
           "max_senders": {
             "type": "number",
@@ -1062,7 +1062,7 @@
           },
           "page_token": {
             "type": "string",
-            "description": "Resume token from a previous scan's next_page_token to continue scanning beyond the cap"
+            "description": "Resume token from a previous scan (rarely needed — scans now cover up to 5,000 messages in a single call)"
           }
         }
       },

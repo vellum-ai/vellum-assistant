@@ -7,6 +7,7 @@ import Combine
 
 final class MockWakeWordEngine: WakeWordEngine {
     var onWakeWordDetected: ((Float) -> Void)?
+    var onPersistentError: ((String) -> Void)?
     private(set) var isRunning = false
     var startCalled = false
     var stopCalled = false
