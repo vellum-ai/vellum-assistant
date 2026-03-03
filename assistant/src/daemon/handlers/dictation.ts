@@ -425,7 +425,7 @@ async function handleCommandMode(
   const systemPrompt = buildCommandPrompt(msg, stylePrompt);
   const inputLength =
     (msg.context.selectedText ?? "").length + msg.transcription.length;
-  const maxTokens = computeMaxTokens(inputLength);
+  const maxTokens = Math.max(1024, computeMaxTokens(inputLength));
 
   try {
     const provider = getConfiguredProvider();
