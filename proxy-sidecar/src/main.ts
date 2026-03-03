@@ -18,6 +18,7 @@
 import type { Server } from 'node:http';
 
 import { ConfigError, loadConfig } from './config.js';
+import { createHealthServer } from './health.js';
 import { createProxyServer } from './server.js';
 import type { ProxyServerConfig } from './server.js';
 
@@ -37,6 +38,8 @@ function log(level: string, msg: string, extra?: Record<string, unknown>): void 
 // ---------------------------------------------------------------------------
 
 let server: Server | null = null;
+let healthServer: Server | null = null;
+let proxyListening = false;
 
 function main(): void {
   let config;
@@ -53,6 +56,7 @@ function main(): void {
   log('info', 'proxy-sidecar starting', {
     port: config.port,
     host: config.host,
+    healthPort: config.healthPort,
     caDir: config.caDir,
     logLevel: config.logLevel,
   });
@@ -69,6 +73,7 @@ function main(): void {
   server = createProxyServer(serverConfig);
 
   server.listen(config.port, config.host, () => {
+    proxyListening = true;
     const addr = server!.address();
     const boundPort = typeof addr === 'object' && addr ? addr.port : config.port;
     log('info', 'proxy-sidecar listening', {
@@ -81,6 +86,23 @@ function main(): void {
     log('error', 'server error', { error: String(err) });
     process.exit(1);
   });
+
+  // Start health/readiness server on separate control port
+  healthServer = createHealthServer({
+    isReady: () => proxyListening,
+  });
+
+  healthServer.listen(config.healthPort, config.host, () => {
+    log('info', 'health server listening', {
+      port: config.healthPort,
+      host: config.host,
+    });
+  });
+
+  healthServer.on('error', (err) => {
+    log('error', 'health server error', { error: String(err) });
+    process.exit(1);
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -89,21 +111,39 @@ function main(): void {
 
 function shutdown(signal: string): void {
   log('info', 'shutting down', { signal });
+  proxyListening = false;
 
-  if (!server) {
+  if (!server && !healthServer) {
     process.exit(0);
     return;
   }
 
-  // Stop accepting new connections and wait for in-flight requests.
-  server.close((err) => {
+  let pending = 0;
+  let hasError = false;
+
+  const onClosed = (name: string) => (err?: Error) => {
     if (err) {
-      log('error', 'error during shutdown', { error: String(err) });
-      process.exit(1);
+      log('error', `error during ${name} shutdown`, { error: String(err) });
+      hasError = true;
     }
-    log('info', 'proxy-sidecar stopped');
-    process.exit(0);
-  });
+    pending--;
+    if (pending === 0) {
+      log('info', 'proxy-sidecar stopped');
+      process.exit(hasError ? 1 : 0);
+    }
+  };
+
+  // Close health server first so probes report not-ready during drain
+  if (healthServer) {
+    pending++;
+    healthServer.close(onClosed('health'));
+  }
+
+  // Stop accepting new proxy connections and wait for in-flight requests.
+  if (server) {
+    pending++;
+    server.close(onClosed('proxy'));
+  }
 
   // Force-exit after 10 seconds if graceful shutdown stalls.
   setTimeout(() => {

@@ -64,6 +64,10 @@ export type { MitmHandlerConfig, ProxyServerConfig } from './server.js';
 export { ConfigError, loadConfig } from './config.js';
 export type { SidecarConfig } from './config.js';
 
+// Health / readiness server
+export { createHealthServer } from './health.js';
+export type { HealthServerOptions } from './health.js';
+
 // Logging/diagnostics
 export {
   buildCredentialRefTrace,
