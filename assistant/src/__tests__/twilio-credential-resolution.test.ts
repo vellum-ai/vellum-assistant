@@ -45,14 +45,21 @@ mock.module('../config/env.js', () => ({
 // Mock secure keys storage
 const secureStore = new Map<string, string>();
 const setSecureKeyCalls: Array<{ key: string; value: string }> = [];
+const deleteSecureKeyCalls: Array<{ key: string }> = [];
+/** Keys for which setSecureKey should return false (simulate storage failure). */
+const setSecureKeyFailures = new Set<string>();
 mock.module('../security/secure-keys.js', () => ({
   getSecureKey: (key: string) => secureStore.get(key),
   setSecureKey: (key: string, value: string) => {
     setSecureKeyCalls.push({ key, value });
+    if (setSecureKeyFailures.has(key)) return false;
     secureStore.set(key, value);
     return true;
   },
-  deleteSecureKey: (key: string) => secureStore.delete(key),
+  deleteSecureKey: (key: string) => {
+    deleteSecureKeyCalls.push({ key });
+    secureStore.delete(key);
+  },
 }));
 
 // Track metadata upserts
@@ -110,6 +117,8 @@ afterAll(() => {
 beforeEach(() => {
   secureStore.clear();
   setSecureKeyCalls.length = 0;
+  deleteSecureKeyCalls.length = 0;
+  setSecureKeyFailures.clear();
   metadataUpserts.length = 0;
   lastFetchUrl = '';
   fetchShouldSucceed = true;
@@ -230,6 +239,62 @@ describe('Twilio credentials endpoint server-side resolution', () => {
     expect(setSecureKeyCalls).toEqual([]);
     // No metadata upserts should have been made either
     expect(metadataUpserts).toEqual([]);
+  });
+
+  test('partial body (authToken only) rollback does not delete stored account_sid', async () => {
+    // Pre-seed account_sid in storage (simulating a previously stored credential)
+    secureStore.set('credential:twilio:account_sid', 'ACprevious');
+    secureStore.set('credential:twilio:auth_token', 'oldToken');
+    // Clear tracking arrays after seeding
+    setSecureKeyCalls.length = 0;
+    deleteSecureKeyCalls.length = 0;
+    metadataUpserts.length = 0;
+
+    // Make setSecureKey fail for auth_token to trigger rollback
+    setSecureKeyFailures.add('credential:twilio:auth_token');
+
+    const req = new Request('http://localhost/v1/integrations/twilio/credentials', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ authToken: 'newRotatedToken' }),
+    });
+
+    const res = await handleSetTwilioCredentials(req);
+    const data = await res.json() as { success: boolean; error: string };
+
+    expect(data.success).toBe(false);
+    expect(data.error).toContain('Auth Token');
+
+    // The stored account_sid should NOT have been deleted because it was not provided in the body
+    expect(secureStore.get('credential:twilio:account_sid')).toBe('ACprevious');
+    expect(deleteSecureKeyCalls.filter((c) => c.key === 'credential:twilio:account_sid')).toEqual([]);
+  });
+
+  test('partial body (accountSid only) persists only account_sid', async () => {
+    // Pre-seed auth_token in storage
+    secureStore.set('credential:twilio:auth_token', 'existingToken');
+    setSecureKeyCalls.length = 0;
+    metadataUpserts.length = 0;
+
+    const req = new Request('http://localhost/v1/integrations/twilio/credentials', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ accountSid: 'ACnew' }),
+    });
+
+    const res = await handleSetTwilioCredentials(req);
+    const data = await res.json() as { success: boolean; hasCredentials: boolean };
+
+    expect(data.success).toBe(true);
+    expect(data.hasCredentials).toBe(true);
+
+    // Only account_sid should have been written, not auth_token
+    expect(setSecureKeyCalls).toEqual([
+      { key: 'credential:twilio:account_sid', value: 'ACnew' },
+    ]);
+    expect(metadataUpserts).toEqual([
+      { service: 'twilio', field: 'account_sid' },
+    ]);
   });
 
   test('invalid credentials from Twilio API return error', async () => {
