@@ -12,6 +12,7 @@ import { v4 as uuid } from 'uuid';
 import type { AgentEvent,AgentLoop, CheckpointDecision } from '../agent/loop.js';
 import { createAssistantMessage } from '../agent/message-types.js';
 import type { ChannelId, InterfaceId, TurnChannelContext, TurnInterfaceContext } from '../channels/types.js';
+import { isHttpAuthDisabled } from '../config/env.js';
 import { getConfig } from '../config/loader.js';
 import type { ContextWindowManager } from '../context/window-manager.js';
 import type { ToolProfiler } from '../events/tool-profiling-listener.js';
@@ -319,7 +320,7 @@ export async function runAgentLoopImpl(
         conflictGate: ctx.conflictGate,
         scopeId: ctx.memoryPolicy.scopeId,
         includeDefaultFallback: ctx.memoryPolicy.includeDefaultFallback,
-        guardianTrustClass: ctx.guardianContext?.trustClass ?? 'guardian',
+        guardianTrustClass: isHttpAuthDisabled() ? 'guardian' : (ctx.guardianContext?.trustClass ?? 'guardian'),
         isInteractive: options?.isInteractive ?? (!ctx.hasNoClient && !ctx.headlessLock),
       },
       content,

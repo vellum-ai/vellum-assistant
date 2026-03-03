@@ -34,6 +34,7 @@ import type { ServerMessage, UiSurfaceShow } from "./ipc-protocol.js";
 import { runPostExecutionSideEffects } from "./tool-side-effects.js";
 
 const log = getLogger("session-tool-setup");
+import { isHttpAuthDisabled } from "../config/env.js";
 import { coreAppProxyTools } from "../tools/apps/definitions.js";
 import { registerSessionSender } from "../tools/browser/browser-screencast.js";
 import { requestComputerControlTool } from "../tools/computer-use/request-computer-control.js";
@@ -137,7 +138,7 @@ export function createToolExecutor(
       assistantId: ctx.assistantId,
       requestId: ctx.currentRequestId,
       taskRunId: ctx.taskRunId,
-      guardianTrustClass: ctx.guardianContext?.trustClass ?? "guardian",
+      guardianTrustClass: isHttpAuthDisabled() ? "guardian" : (ctx.guardianContext?.trustClass ?? "guardian"),
       executionChannel: ctx.guardianContext?.sourceChannel,
       callSessionId: ctx.callSessionId,
       triggeredBySurfaceAction:
