@@ -24,10 +24,10 @@ mock.module("../util/logger.js", () => ({
 
 import { QdrantManager } from "../memory/qdrant-manager.js";
 
-/** Minimal timeouts so tests complete as fast as possible. */
+/** Short timeouts so tests complete fast but with enough headroom for CI. */
 const FAST_TIMEOUTS = {
   readyzPollIntervalMs: 10,
-  readyzTimeoutMs: 500,
+  readyzTimeoutMs: 1_000,
   shutdownGraceMs: 200,
 } as const;
 
