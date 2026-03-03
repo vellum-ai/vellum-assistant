@@ -1007,26 +1007,40 @@ public final class SettingsStore: ObservableObject {
         UserDefaults.standard.set(tombstones, forKey: kPendingKeyDeletionTombstones)
     }
 
-    /// Replay pending deletion tombstones and clear them.
+    /// Replay pending deletion tombstones, clearing only those successfully dispatched.
     private func replayDeletionTombstones() {
         let tombstones = UserDefaults.standard.array(forKey: kPendingKeyDeletionTombstones)
             as? [[String: String]] ?? []
         guard !tombstones.isEmpty else { return }
+        // Bail out early if the HTTP endpoint is unavailable — preserve all tombstones
+        // for the next reconnect attempt.
+        guard resolveRuntimeHTTP() != nil else { return }
+        var remaining: [[String: String]] = []
         for entry in tombstones {
             guard let type = entry["type"], let name = entry["name"] else { continue }
+            var dispatched = false
             if type == "api_key" {
-                deleteKeyFromDaemon(provider: name)
+                dispatched = deleteKeyFromDaemon(provider: name)
             } else if type == "credential" {
-                deleteCredentialFromDaemon(name: name)
+                dispatched = deleteCredentialFromDaemon(name: name)
+            }
+            if !dispatched {
+                remaining.append(entry)
             }
         }
-        UserDefaults.standard.removeObject(forKey: kPendingKeyDeletionTombstones)
+        if remaining.isEmpty {
+            UserDefaults.standard.removeObject(forKey: kPendingKeyDeletionTombstones)
+        } else {
+            UserDefaults.standard.set(remaining, forKey: kPendingKeyDeletionTombstones)
+        }
     }
 
     /// Notify the daemon that an API key was deleted.
-    private func deleteKeyFromDaemon(provider: String) {
-        guard let http = resolveRuntimeHTTP() else { return }
-        guard let url = URL(string: "\(http.baseURL)/v1/secrets") else { return }
+    /// Returns true if the HTTP endpoint was available and the request was dispatched.
+    @discardableResult
+    private func deleteKeyFromDaemon(provider: String) -> Bool {
+        guard let http = resolveRuntimeHTTP() else { return false }
+        guard let url = URL(string: "\(http.baseURL)/v1/secrets") else { return false }
         var request = URLRequest(url: url)
         request.httpMethod = "DELETE"
         request.setValue("Bearer \(http.token)", forHTTPHeaderField: "Authorization")
@@ -1037,6 +1051,7 @@ public final class SettingsStore: ObservableObject {
         Task.detached {
             _ = try? await URLSession.shared.data(for: request)
         }
+        return true
     }
 
     /// Notify the daemon that a credential was set (type: "credential", name: "service:field").
@@ -1056,9 +1071,11 @@ public final class SettingsStore: ObservableObject {
     }
 
     /// Notify the daemon that a credential was deleted.
-    private func deleteCredentialFromDaemon(name: String) {
-        guard let http = resolveRuntimeHTTP() else { return }
-        guard let url = URL(string: "\(http.baseURL)/v1/secrets") else { return }
+    /// Returns true if the HTTP endpoint was available and the request was dispatched.
+    @discardableResult
+    private func deleteCredentialFromDaemon(name: String) -> Bool {
+        guard let http = resolveRuntimeHTTP() else { return false }
+        guard let url = URL(string: "\(http.baseURL)/v1/secrets") else { return false }
         var request = URLRequest(url: url)
         request.httpMethod = "DELETE"
         request.setValue("Bearer \(http.token)", forHTTPHeaderField: "Authorization")
@@ -1069,6 +1086,7 @@ public final class SettingsStore: ObservableObject {
         Task.detached {
             _ = try? await URLSession.shared.data(for: request)
         }
+        return true
     }
 
     /// Re-sync locally-known keys to daemon on reconnect.
