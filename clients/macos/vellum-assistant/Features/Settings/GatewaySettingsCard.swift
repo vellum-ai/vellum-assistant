@@ -12,18 +12,10 @@ struct GatewaySettingsCard: View {
     @State private var gatewayUrlText: String = ""
     @FocusState private var isGatewayUrlFocused: Bool
     @State private var gatewayTargetCopied: Bool = false
-    @State private var tunnelSetupExpanded: Bool = false
-
-    /// True only when the local gateway is running AND a tunnel URL has been configured.
-    /// Gating on both conditions ensures Disconnect (which clears the URL) transitions
-    /// back to the setup form even though the local gateway process keeps running.
-    private var isGatewayConnected: Bool {
-        store.gatewayReachable == true &&
-        !store.ingressPublicBaseUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
+            // Section header
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("Gateway")
                     .font(VFont.sectionTitle)
@@ -33,15 +25,93 @@ struct GatewaySettingsCard: View {
                     .foregroundColor(VColor.textMuted)
             }
 
-            // Gateway running status row
-            if isGatewayConnected {
-                // Connected: show local target address + Connected/Disconnect, no URL input
-                tunnelConfigEntry
-            } else if tunnelSetupExpanded || !gatewayUrlText.isEmpty {
-                tunnelConfigEntry
-            } else {
-                VButton(label: "Set Up", style: .secondary, size: .medium) {
-                    tunnelSetupExpanded = true
+            // Running status row — its own dedicated row at the top of card content
+            HStack {
+                InlineConnectionStatus(
+                    status: gatewayStatusInfo,
+                    isRefreshing: store.isCheckingGateway,
+                    lastChecked: store.gatewayLastChecked,
+                    accessibilityLabel: "gateway"
+                ) {
+                    Task { await store.testGatewayOnly() }
+                }
+                Spacer()
+            }
+
+            // Local Gateway Target (read-only copyable address)
+            Text("Local Gateway Target")
+                .font(VFont.inputLabel)
+                .foregroundColor(VColor.textSecondary)
+
+            HStack(spacing: VSpacing.sm) {
+                Text(store.localGatewayTarget)
+                    .font(VFont.mono)
+                    .foregroundColor(VColor.textPrimary)
+                    .textSelection(.enabled)
+                    .padding(VSpacing.md)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(VColor.surface.opacity(0.5))
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.md)
+                            .stroke(VColor.surfaceBorder.opacity(0.3), lineWidth: 1)
+                    )
+
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(store.localGatewayTarget, forType: .string)
+                    gatewayTargetCopied = true
+                    Task {
+                        try? await Task.sleep(nanoseconds: 2_000_000_000)
+                        gatewayTargetCopied = false
+                    }
+                } label: {
+                    Image(systemName: gatewayTargetCopied ? "checkmark" : "doc.on.doc")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(gatewayTargetCopied ? VColor.success : VColor.textSecondary)
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Copy gateway address")
+                .help("Copy address")
+            }
+
+            Text("Point your tunnel (ngrok, Cloudflare, etc.) to this address.")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textSecondary)
+
+            // Gateway URL field
+            Text("Gateway URL")
+                .font(VFont.inputLabel)
+                .foregroundColor(VColor.textSecondary)
+
+            TextField("https://your-tunnel.example.com", text: $gatewayUrlText)
+                .vInputStyle()
+                .font(VFont.body)
+                .foregroundColor(VColor.textPrimary)
+                .focused($isGatewayUrlFocused)
+
+            // Tunnel status — only shown when URL is non-empty (no "Not configured" state)
+            if !gatewayUrlText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                HStack {
+                    InlineConnectionStatus(
+                        status: tunnelStatusInfo,
+                        isRefreshing: store.isCheckingTunnel,
+                        lastChecked: store.tunnelLastChecked,
+                        accessibilityLabel: "tunnel"
+                    ) {
+                        Task { await store.testTunnelOnly() }
+                    }
+                    Spacer()
+                }
+            }
+
+            // Save button at the bottom
+            HStack {
+                VButton(label: "Save", style: .secondary, size: .medium) {
+                    store.saveIngressPublicBaseUrl(gatewayUrlText)
+                    isGatewayUrlFocused = false
                 }
             }
 
@@ -84,89 +154,43 @@ struct GatewaySettingsCard: View {
         }
     }
 
-    // MARK: - Tunnel Configuration Entry
+    // MARK: - Connection Status Helpers
 
-    private var tunnelConfigEntry: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
-                Text("Local Gateway Target")
-                    .font(VFont.inputLabel)
-                    .foregroundColor(VColor.textSecondary)
-                HStack(spacing: VSpacing.sm) {
-                    Text(store.localGatewayTarget)
-                        .font(VFont.mono)
-                        .foregroundColor(VColor.textPrimary)
-                        .textSelection(.enabled)
-                        .padding(VSpacing.md)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(VColor.surface.opacity(0.5))
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.md)
-                                .stroke(VColor.surfaceBorder.opacity(0.3), lineWidth: 1)
-                        )
+    private var gatewayStatusInfo: ConnectionStatusInfo {
+        guard let reachable = store.gatewayReachable else {
+            return ConnectionStatusInfo(label: "Unknown", color: VColor.textMuted, icon: "questionmark.circle.fill")
+        }
+        if reachable {
+            return ConnectionStatusInfo(label: "Running", color: VColor.success, icon: "checkmark.circle.fill")
+        } else {
+            return ConnectionStatusInfo(label: "Stopped", color: VColor.error, icon: "xmark.circle.fill")
+        }
+    }
 
-                    Button {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(store.localGatewayTarget, forType: .string)
-                        gatewayTargetCopied = true
-                        Task {
-                            try? await Task.sleep(nanoseconds: 2_000_000_000)
-                            gatewayTargetCopied = false
-                        }
-                    } label: {
-                        Image(systemName: gatewayTargetCopied ? "checkmark" : "doc.on.doc")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(gatewayTargetCopied ? VColor.success : VColor.textSecondary)
-                            .frame(width: 28, height: 28)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Copy gateway address")
-                    .help("Copy address")
-                }
-                Text("Point your tunnel (ngrok, Cloudflare, etc.) to this address.")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
-            }
+    private var tunnelStatusInfo: ConnectionStatusInfo {
+        let trimmedUrl = store.ingressPublicBaseUrl.trimmingCharacters(in: .whitespacesAndNewlines)
 
-            // Gateway URL input — hidden when connected (tunnel URL set + gateway running)
-            if !isGatewayConnected {
-                Text("Gateway URL")
-                    .font(VFont.inputLabel)
-                    .foregroundColor(VColor.textSecondary)
+        // URL is non-empty but not a valid absolute HTTP(S) URL
+        if let parsed = URL(string: trimmedUrl), let scheme = parsed.scheme, ["http", "https"].contains(scheme.lowercased()) {
+            // valid — fall through to further checks below
+        } else {
+            return ConnectionStatusInfo(label: "Invalid URL format", color: VColor.error, icon: "exclamationmark.circle.fill")
+        }
 
-                TextField("https://your-tunnel.example.com", text: $gatewayUrlText)
-                    .vInputStyle()
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
-                    .focused($isGatewayUrlFocused)
-            }
+        // URL is set but ingress is disabled
+        if !store.ingressEnabled {
+            return ConnectionStatusInfo(label: "URL set but gateway not active", color: VColor.warning, icon: "exclamationmark.triangle.fill")
+        }
 
-            HStack(spacing: VSpacing.sm) {
-                if isGatewayConnected {
-                    // Connected: status indicator + disconnect
-                    VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .medium) {}
-                    VButton(label: "Disconnect", style: .danger, size: .medium) {
-                        store.saveIngressPublicBaseUrl("")
-                        // Show setup form immediately so user can re-enter a URL
-                        tunnelSetupExpanded = true
-                    }
-                } else {
-                    // Not connected: save/cancel
-                    VButton(label: "Save", style: .secondary, size: .medium) {
-                        store.saveIngressPublicBaseUrl(gatewayUrlText)
-                        isGatewayUrlFocused = false
-                        tunnelSetupExpanded = false
-                    }
-                    // No .disabled() — empty URL is valid (clears the tunnel target)
-                    VButton(label: "Cancel", style: .tertiary, size: .medium) {
-                        gatewayUrlText = store.ingressPublicBaseUrl
-                        isGatewayUrlFocused = false
-                        tunnelSetupExpanded = false
-                    }
-                }
-            }
+        // Haven't tested yet
+        guard let reachable = store.ingressReachable else {
+            return ConnectionStatusInfo(label: "Unknown", color: VColor.textMuted, icon: "questionmark.circle.fill")
+        }
+
+        if reachable {
+            return ConnectionStatusInfo(label: "Reachable", color: VColor.success, icon: "checkmark.circle.fill")
+        } else {
+            return ConnectionStatusInfo(label: "Unreachable", color: VColor.error, icon: "xmark.circle.fill")
         }
     }
 }
