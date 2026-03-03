@@ -313,7 +313,7 @@ struct SettingsPanel: View {
                                 anthropicSetupExpanded = false
                             }
                             .disabled(apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            VButton(label: "Cancel", style: .secondary, size: .large) {
+                            VButton(label: "Cancel", style: .tertiary, size: .large) {
                                 apiKeyText = ""
                                 anthropicSetupExpanded = false
                             }
@@ -379,7 +379,7 @@ struct SettingsPanel: View {
                                 perplexitySetupExpanded = false
                             }
                             .disabled(perplexityKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            VButton(label: "Cancel", style: .secondary, size: .large) {
+                            VButton(label: "Cancel", style: .tertiary, size: .large) {
                                 perplexityKeyText = ""
                                 perplexitySetupExpanded = false
                             }
@@ -445,7 +445,7 @@ struct SettingsPanel: View {
                                 braveSetupExpanded = false
                             }
                             .disabled(braveKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            VButton(label: "Cancel", style: .secondary, size: .large) {
+                            VButton(label: "Cancel", style: .tertiary, size: .large) {
                                 braveKeyText = ""
                                 braveSetupExpanded = false
                             }
@@ -532,7 +532,7 @@ struct SettingsPanel: View {
                                 imageGenSetupExpanded = false
                             }
                             .disabled(imageGenKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            VButton(label: "Cancel", style: .secondary, size: .large) {
+                            VButton(label: "Cancel", style: .tertiary, size: .large) {
                                 imageGenKeyText = ""
                                 imageGenSetupExpanded = false
                             }

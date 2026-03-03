@@ -137,7 +137,7 @@ struct GatewaySettingsCard: View {
                     tunnelSetupExpanded = false
                 }
                 // No .disabled() — empty URL is valid (clears the tunnel target)
-                VButton(label: "Cancel", style: .secondary, size: .large) {
+                VButton(label: "Cancel", style: .tertiary, size: .large) {
                     gatewayUrlText = store.ingressPublicBaseUrl
                     isGatewayUrlFocused = false
                     tunnelSetupExpanded = false

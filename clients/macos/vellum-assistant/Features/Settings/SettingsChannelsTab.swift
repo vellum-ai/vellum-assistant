@@ -1429,7 +1429,7 @@ struct SettingsChannelsTab: View {
                     .padding(.leading, labelColumnWidth + VSpacing.sm)
             }
 
-            VButton(label: "Cancel", style: .secondary, size: .large) {
+            VButton(label: "Cancel", style: .tertiary, size: .large) {
                 store.cancelGuardianChallenge(channel: channel)
             }
         }
