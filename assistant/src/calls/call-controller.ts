@@ -1072,7 +1072,7 @@ export class CallController {
       // which is confusing when the caller is waiting on a decision.
       // Two paths: in-call consultation (pendingGuardianInput) and
       // inbound access-request wait (relay state).
-      if (this.pendingGuardianInput !== null || this.relay.getConnectionState() === 'awaiting_guardian_decision') {
+      if (this.pendingGuardianInput || this.relay.getConnectionState() === 'awaiting_guardian_decision') {
         log.debug({ callSessionId: this.callSessionId }, 'Silence timeout suppressed during guardian wait');
         return;
       }
