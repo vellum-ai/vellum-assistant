@@ -44,13 +44,13 @@ struct SidebarSearchButton: View {
                 .foregroundColor(VColor.textMuted)
                 .padding(.horizontal, VSpacing.xs)
                 .padding(.vertical, VSpacing.xxs)
-                .background(VColor.surfaceBorder.opacity(0.5))
+                .background(VColor.surfaceBorder.opacity(0.7))
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.xs))
         }
         .padding(.horizontal, VSpacing.sm)
         .padding(.vertical, VSpacing.sm)
         .background(
-            (isHovered ? VColor.surfaceBorder.opacity(0.5) : VColor.surfaceBorder.opacity(0.25))
+            (isHovered ? VColor.surfaceBorder.opacity(0.7) : VColor.surfaceBorder.opacity(0.4))
                 .animation(VAnimation.fast, value: isHovered)
         )
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))

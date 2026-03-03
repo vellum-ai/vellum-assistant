@@ -175,7 +175,7 @@ public enum VColor {
     // Text
     public static let textPrimary = adaptiveColor(light: Stone._900, dark: Moss._50)
     public static let textSecondary = adaptiveColor(light: Stone._600, dark: Moss._400)
-    public static let textMuted = adaptiveColor(light: Stone._500, dark: Moss._500)
+    public static let textMuted = adaptiveColor(light: Stone._600, dark: Moss._500)
 
     // Accent
     public static let accent = adaptiveColor(light: Color(hex: 0x262624), dark: Forest._600)
@@ -207,7 +207,7 @@ public enum VColor {
     // Interactive states
     public static let ghostHover = adaptiveColor(light: Stone._100, dark: Moss._700)
     public static let ghostPressed = adaptiveColor(light: Stone._200, dark: Moss._600)
-    public static let divider = adaptiveColor(light: Stone._200, dark: Moss._700)
+    public static let divider = adaptiveColor(light: Stone._300, dark: Moss._700)
     public static let hoverOverlay = adaptiveColor(light: Color(hex: 0x000000), dark: Moss._200)
     public static let toggleOff = adaptiveColor(light: Stone._200, dark: Moss._600)
     public static let toggleBorder = adaptiveColor(light: Stone._400, dark: Moss._600)
