@@ -141,6 +141,12 @@ extension DaemonClient {
             onShareToSlackResponse?(msg)
         case .slackWebhookConfigResponse(let msg):
             onSlackWebhookConfigResponse?(msg)
+        case .secretsConfigResponse(let msg):
+            onSecretsConfigResponse?(msg)
+        case .slackChannelConfigResponse(let msg):
+            onSlackChannelConfigResponse?(msg)
+        case .ingressMemberResponse(let msg):
+            onIngressMemberResponse?(msg)
         case .ingressConfigResponse(let msg):
             onIngressConfigResponse?(msg)
         case .platformConfigResponse(let msg):

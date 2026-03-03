@@ -23,7 +23,9 @@ export { handleTwitterIntegrationConfig,handleVercelApiConfig } from './config-i
 export { handleImageGenModelSet,handleModelGet, handleModelSet } from './config-model.js';
 export { handlePlatformConfig } from './config-platform.js';
 export { handleReminderCancel,handleRemindersList, handleScheduleRemove, handleScheduleRunNow, handleSchedulesList, handleScheduleToggle } from './config-scheduling.js';
+export { handleSecretsConfig } from './config-secrets.js';
 export { handleShareToSlack, handleSlackWebhookConfig } from './config-slack.js';
+export { handleSlackChannelConfig } from './config-slack-channel-ipc.js';
 export { handleTelegramConfig, summarizeTelegramError } from './config-telegram.js';
 export { handleEnvVarsRequest, handleToolNamesList,handleToolPermissionSimulate } from './config-tools.js';
 export { handleAcceptStarterBundle,handleAddTrustRule, handleRemoveTrustRule, handleTrustRulesList, handleUpdateTrustRule } from './config-trust.js';
@@ -37,7 +39,9 @@ import { integrationHandlers } from './config-integrations.js';
 import { modelHandlers } from './config-model.js';
 import { platformHandlers } from './config-platform.js';
 import { schedulingHandlers } from './config-scheduling.js';
+import { secretsHandlers } from './config-secrets.js';
 import { slackHandlers } from './config-slack.js';
+import { slackChannelHandlers } from './config-slack-channel-ipc.js';
 import { telegramHandlers } from './config-telegram.js';
 import { toolHandlers } from './config-tools.js';
 import { trustHandlers } from './config-trust.js';
@@ -47,7 +51,9 @@ export const configHandlers = {
   ...modelHandlers,
   ...trustHandlers,
   ...schedulingHandlers,
+  ...secretsHandlers,
   ...slackHandlers,
+  ...slackChannelHandlers,
   ...ingressHandlers,
   ...platformHandlers,
   ...integrationHandlers,

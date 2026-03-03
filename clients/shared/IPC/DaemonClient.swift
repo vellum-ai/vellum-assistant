@@ -350,6 +350,15 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `slack_webhook_config_response` message.
     public var onSlackWebhookConfigResponse: ((SlackWebhookConfigResponseMessage) -> Void)?
 
+    /// Called when the daemon sends a `secrets_config_response` message.
+    public var onSecretsConfigResponse: ((SecretsConfigResponseMessage) -> Void)?
+
+    /// Called when the daemon sends a `slack_channel_config_response` message.
+    public var onSlackChannelConfigResponse: ((SlackChannelConfigResponseMessage) -> Void)?
+
+    /// Called when the daemon sends an `ingress_member_response` message.
+    public var onIngressMemberResponse: ((IPCIngressMemberResponse) -> Void)?
+
     /// Called when the daemon sends an `ingress_config_response` message.
     public var onIngressConfigResponse: ((IngressConfigResponseMessage) -> Void)?
 
@@ -1141,6 +1150,27 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Get or set the Slack webhook URL configuration.
     public func sendSlackWebhookConfig(action: String, webhookUrl: String? = nil) throws {
         try send(SlackWebhookConfigRequestMessage(action: action, webhookUrl: webhookUrl))
+    }
+
+    /// Set or delete a secret (API key or credential) on the daemon.
+    public func sendSecretsConfig(action: String, secretType: String, name: String, value: String? = nil) throws {
+        try send(SecretsConfigRequestMessage(action: action, secretType: secretType, name: name, value: value))
+    }
+
+    /// Get, set, or clear Slack channel configuration (bot token + app token).
+    public func sendSlackChannelConfig(action: String, botToken: String? = nil, appToken: String? = nil) throws {
+        try send(SlackChannelConfigRequestMessage(action: action, botToken: botToken, appToken: appToken))
+    }
+
+    /// List or revoke ingress members.
+    public func sendIngressMember(action: String, sourceChannel: String? = nil, status: String? = nil, memberId: String? = nil) throws {
+        try send(IPCIngressMemberRequest(
+            type: "ingress_member",
+            action: action,
+            sourceChannel: sourceChannel,
+            status: status,
+            memberId: memberId
+        ))
     }
 
     /// Get, set, or delete the Vercel API token configuration.

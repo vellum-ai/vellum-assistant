@@ -3578,6 +3578,43 @@ public struct IPCSecretResponse: Codable, Sendable {
     }
 }
 
+public struct IPCSecretsConfigRequest: Codable, Sendable {
+    public let type: String
+    public let action: String
+    /// 'api_key' or 'credential'
+    public let secretType: String
+    /// Provider name for api_key (e.g. 'anthropic'), or 'service:field' for credential
+    public let name: String
+    /// Required for action: 'set'
+    public let value: String?
+
+    public init(type: String, action: String, secretType: String, name: String, value: String? = nil) {
+        self.type = type
+        self.action = action
+        self.secretType = secretType
+        self.name = name
+        self.value = value
+    }
+}
+
+public struct IPCSecretsConfigResponse: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+    /// The secret type echoed back ('api_key' or 'credential')
+    public let secretType: String?
+    /// The secret name echoed back
+    public let name: String?
+    public let error: String?
+
+    public init(type: String, success: Bool, secretType: String? = nil, name: String? = nil, error: String? = nil) {
+        self.type = type
+        self.success = success
+        self.secretType = secretType
+        self.name = name
+        self.error = error
+    }
+}
+
 public struct IPCSessionCreateRequest: Codable, Sendable {
     public let type: String
     public let title: String?
@@ -4304,6 +4341,44 @@ public struct IPCSkillsUpdateRequest: Codable, Sendable {
     public init(type: String, name: String) {
         self.type = type
         self.name = name
+    }
+}
+
+public struct IPCSlackChannelConfigRequest: Codable, Sendable {
+    public let type: String
+    public let action: String
+    public let botToken: String?
+    public let appToken: String?
+
+    public init(type: String, action: String, botToken: String? = nil, appToken: String? = nil) {
+        self.type = type
+        self.action = action
+        self.botToken = botToken
+        self.appToken = appToken
+    }
+}
+
+public struct IPCSlackChannelConfigResponse: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+    public let hasBotToken: Bool
+    public let hasAppToken: Bool
+    public let connected: Bool
+    public let teamName: String?
+    public let botUsername: String?
+    public let error: String?
+    public let warning: String?
+
+    public init(type: String, success: Bool, hasBotToken: Bool, hasAppToken: Bool, connected: Bool, teamName: String? = nil, botUsername: String? = nil, error: String? = nil, warning: String? = nil) {
+        self.type = type
+        self.success = success
+        self.hasBotToken = hasBotToken
+        self.hasAppToken = hasAppToken
+        self.connected = connected
+        self.teamName = teamName
+        self.botUsername = botUsername
+        self.error = error
+        self.warning = warning
     }
 }
 

@@ -91,6 +91,24 @@ export interface LinkOpenRequest {
   metadata?: Record<string, unknown>;
 }
 
+export interface SecretsConfigRequest {
+  type: 'secrets_config';
+  action: 'set' | 'delete';
+  /** 'api_key' or 'credential' */
+  secretType: string;
+  /** Provider name for api_key (e.g. 'anthropic'), or 'service:field' for credential */
+  name: string;
+  /** Required for action: 'set' */
+  value?: string;
+}
+
+export interface SlackChannelConfigRequest {
+  type: 'slack_channel_config';
+  action: 'get' | 'set' | 'clear';
+  botToken?: string;
+  appToken?: string;
+}
+
 // === Server → Client ===
 
 export interface SlackWebhookConfigResponse {
@@ -247,6 +265,28 @@ export interface NavigateSettings {
   tab: string;
 }
 
+export interface SecretsConfigResponse {
+  type: 'secrets_config_response';
+  success: boolean;
+  /** The secret type echoed back ('api_key' or 'credential') */
+  secretType?: string;
+  /** The secret name echoed back */
+  name?: string;
+  error?: string;
+}
+
+export interface SlackChannelConfigResponse {
+  type: 'slack_channel_config_response';
+  success: boolean;
+  hasBotToken: boolean;
+  hasAppToken: boolean;
+  connected: boolean;
+  teamName?: string;
+  botUsername?: string;
+  error?: string;
+  warning?: string;
+}
+
 // --- Domain-level union aliases (consumed by the barrel file) ---
 
 export type _IntegrationsClientMessages =
@@ -263,7 +303,9 @@ export type _IntegrationsClientMessages =
   | IntegrationConnectRequest
   | IntegrationDisconnectRequest
   | OAuthConnectStartRequest
-  | LinkOpenRequest;
+  | LinkOpenRequest
+  | SecretsConfigRequest
+  | SlackChannelConfigRequest;
 
 export type _IntegrationsServerMessages =
   | SlackWebhookConfigResponse
@@ -279,4 +321,6 @@ export type _IntegrationsServerMessages =
   | IntegrationConnectResult
   | OAuthConnectResultResponse
   | OpenUrl
-  | NavigateSettings;
+  | NavigateSettings
+  | SecretsConfigResponse
+  | SlackChannelConfigResponse;

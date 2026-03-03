@@ -1776,6 +1776,30 @@ public struct SlackWebhookConfigResponseMessage: Decodable, Sendable {
     public let error: String?
 }
 
+// MARK: - Secrets Config Messages
+
+public typealias SecretsConfigRequestMessage = IPCSecretsConfigRequest
+
+extension IPCSecretsConfigRequest {
+    public init(action: String, secretType: String, name: String, value: String? = nil) {
+        self.init(type: "secrets_config", action: action, secretType: secretType, name: name, value: value)
+    }
+}
+
+public typealias SecretsConfigResponseMessage = IPCSecretsConfigResponse
+
+// MARK: - Slack Channel Config Messages
+
+public typealias SlackChannelConfigRequestMessage = IPCSlackChannelConfigRequest
+
+extension IPCSlackChannelConfigRequest {
+    public init(action: String, botToken: String? = nil, appToken: String? = nil) {
+        self.init(type: "slack_channel_config", action: action, botToken: botToken, appToken: appToken)
+    }
+}
+
+public typealias SlackChannelConfigResponseMessage = IPCSlackChannelConfigResponse
+
 // MARK: - Ingress Config Messages
 
 public struct IngressConfigRequestMessage: Encodable, Sendable {
@@ -2198,6 +2222,9 @@ public enum ServerMessage: Decodable, Sendable {
     case signBundlePayload(SignBundlePayloadMessage)
     case shareToSlackResponse(ShareToSlackResponseMessage)
     case slackWebhookConfigResponse(SlackWebhookConfigResponseMessage)
+    case secretsConfigResponse(SecretsConfigResponseMessage)
+    case slackChannelConfigResponse(SlackChannelConfigResponseMessage)
+    case ingressMemberResponse(IPCIngressMemberResponse)
     case ingressConfigResponse(IngressConfigResponseMessage)
     case platformConfigResponse(PlatformConfigResponseMessage)
     case vercelApiConfigResponse(VercelApiConfigResponseMessage)
@@ -2511,6 +2538,15 @@ public enum ServerMessage: Decodable, Sendable {
         case "slack_webhook_config_response":
             let message = try SlackWebhookConfigResponseMessage(from: decoder)
             self = .slackWebhookConfigResponse(message)
+        case "secrets_config_response":
+            let message = try SecretsConfigResponseMessage(from: decoder)
+            self = .secretsConfigResponse(message)
+        case "slack_channel_config_response":
+            let message = try SlackChannelConfigResponseMessage(from: decoder)
+            self = .slackChannelConfigResponse(message)
+        case "ingress_member_response":
+            let message = try IPCIngressMemberResponse(from: decoder)
+            self = .ingressMemberResponse(message)
         case "ingress_config_response":
             let message = try IngressConfigResponseMessage(from: decoder)
             self = .ingressConfigResponse(message)

@@ -536,6 +536,70 @@ public final class SettingsStore: ObservableObject {
             }
         }
 
+        // Wire up secrets config IPC response (logging only — secrets sync is fire-and-forget)
+        daemonClient?.onSecretsConfigResponse = { response in
+            if !response.success, let error = response.error {
+                log.error("Secrets config failed: \(error)")
+            }
+        }
+
+        // Wire up Slack channel config IPC response
+        daemonClient?.onSlackChannelConfigResponse = { [weak self] response in
+            guard let self else { return }
+            self.slackChannelSaveInProgress = false
+            if response.success {
+                self.slackChannelHasBotToken = response.hasBotToken
+                self.slackChannelHasAppToken = response.hasAppToken
+                self.slackChannelConnected = response.connected
+                self.slackChannelBotUsername = response.botUsername
+                self.slackChannelTeamName = response.teamName
+                self.slackChannelError = nil
+                if let warning = response.warning {
+                    self.slackChannelError = warning
+                }
+            } else {
+                if let error = response.error {
+                    self.slackChannelError = "Failed to save: \(error)"
+                }
+            }
+        }
+
+        // Wire up ingress member IPC response (Telegram approved members)
+        daemonClient?.onIngressMemberResponse = { [weak self] response in
+            guard let self else { return }
+            self.telegramApprovedMembersLoading = false
+            if response.success {
+                if let members = response.members {
+                    let guardianId = self.telegramGuardianIdentity
+                    self.telegramApprovedMembers = members.compactMap { m in
+                        let externalUserId = m.externalUserId
+                        // Skip the guardian — they're already shown in the Guardian Verification row
+                        if let guardianId, let externalUserId, externalUserId == guardianId {
+                            return nil
+                        }
+                        return ApprovedMember(
+                            id: m.id,
+                            displayName: m.displayName,
+                            username: m.username,
+                            externalUserId: externalUserId
+                        )
+                    }
+                    self.telegramApprovedMembersError = nil
+                }
+                // Handle revoke response (single member)
+                if let member = response.member {
+                    self.telegramRevokingMemberIds.remove(member.id)
+                }
+            } else {
+                self.telegramApprovedMembersError = response.error ?? "Unknown error"
+                // On failure, clear all revoking states and refresh to restore UI
+                if !self.telegramRevokingMemberIds.isEmpty {
+                    self.telegramRevokingMemberIds.removeAll()
+                    self.refreshTelegramApprovedMembers()
+                }
+            }
+        }
+
         // Twilio config is now handled via HTTP — no IPC callback wiring needed.
 
         // Wire up guardian verification IPC response
@@ -958,31 +1022,14 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    // MARK: - Slack Channel Actions (HTTP-first)
-
-    /// Resolves the runtime HTTP base URL and bearer token for direct HTTP calls.
-    private func resolveRuntimeHTTP() -> (baseURL: String, token: String)? {
-        let port = ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"]
-            .flatMap(Int.init) ?? 7821
-        guard let token = readHttpToken() else { return nil }
-        return ("http://localhost:\(port)", token)
-    }
-
-    // MARK: - Daemon Key Sync (HTTP)
+    // MARK: - Daemon Key Sync (IPC)
 
     /// Notify the daemon that an API key was set, so it updates its encrypted store.
     private func syncKeyToDaemon(provider: String, value: String) {
-        guard let http = resolveRuntimeHTTP() else { return }
-        guard let url = URL(string: "\(http.baseURL)/v1/secrets") else { return }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(http.token)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 5
-        let body: [String: String] = ["type": "api_key", "name": provider, "value": value]
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        Task.detached {
-            _ = try? await URLSession.shared.data(for: request)
+        do {
+            try daemonClient?.sendSecretsConfig(action: "set", secretType: "api_key", name: provider, value: value)
+        } catch {
+            log.error("Failed to sync key to daemon via IPC: \(error)")
         }
     }
 
@@ -1012,9 +1059,9 @@ public final class SettingsStore: ObservableObject {
         let tombstones = UserDefaults.standard.array(forKey: kPendingKeyDeletionTombstones)
             as? [[String: String]] ?? []
         guard !tombstones.isEmpty else { return }
-        // Bail out early if the HTTP endpoint is unavailable — preserve all tombstones
+        // Bail out early if the IPC connection is unavailable — preserve all tombstones
         // for the next reconnect attempt.
-        guard resolveRuntimeHTTP() != nil else { return }
+        guard daemonClient?.isConnected == true else { return }
         var remaining: [[String: String]] = []
         for entry in tombstones {
             guard let type = entry["type"], let name = entry["name"] else { continue }
@@ -1036,57 +1083,38 @@ public final class SettingsStore: ObservableObject {
     }
 
     /// Notify the daemon that an API key was deleted.
-    /// Returns true if the HTTP endpoint was available and the request was dispatched.
+    /// Returns true if the IPC connection was available and the request was dispatched.
     @discardableResult
     private func deleteKeyFromDaemon(provider: String) -> Bool {
-        guard let http = resolveRuntimeHTTP() else { return false }
-        guard let url = URL(string: "\(http.baseURL)/v1/secrets") else { return false }
-        var request = URLRequest(url: url)
-        request.httpMethod = "DELETE"
-        request.setValue("Bearer \(http.token)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 5
-        let body: [String: String] = ["type": "api_key", "name": provider]
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        Task.detached {
-            _ = try? await URLSession.shared.data(for: request)
+        do {
+            try daemonClient?.sendSecretsConfig(action: "delete", secretType: "api_key", name: provider)
+            return daemonClient?.isConnected == true
+        } catch {
+            log.error("Failed to delete key from daemon via IPC: \(error)")
+            return false
         }
-        return true
     }
 
     /// Notify the daemon that a credential was set (type: "credential", name: "service:field").
     private func syncCredentialToDaemon(name: String, value: String) {
-        guard let http = resolveRuntimeHTTP() else { return }
-        guard let url = URL(string: "\(http.baseURL)/v1/secrets") else { return }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(http.token)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 5
-        let body: [String: String] = ["type": "credential", "name": name, "value": value]
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        Task.detached {
-            _ = try? await URLSession.shared.data(for: request)
+        do {
+            try daemonClient?.sendSecretsConfig(action: "set", secretType: "credential", name: name, value: value)
+        } catch {
+            log.error("Failed to sync credential to daemon via IPC: \(error)")
         }
     }
 
     /// Notify the daemon that a credential was deleted.
-    /// Returns true if the HTTP endpoint was available and the request was dispatched.
+    /// Returns true if the IPC connection was available and the request was dispatched.
     @discardableResult
     private func deleteCredentialFromDaemon(name: String) -> Bool {
-        guard let http = resolveRuntimeHTTP() else { return false }
-        guard let url = URL(string: "\(http.baseURL)/v1/secrets") else { return false }
-        var request = URLRequest(url: url)
-        request.httpMethod = "DELETE"
-        request.setValue("Bearer \(http.token)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 5
-        let body: [String: String] = ["type": "credential", "name": name]
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        Task.detached {
-            _ = try? await URLSession.shared.data(for: request)
+        do {
+            try daemonClient?.sendSecretsConfig(action: "delete", secretType: "credential", name: name)
+            return daemonClient?.isConnected == true
+        } catch {
+            log.error("Failed to delete credential from daemon via IPC: \(error)")
+            return false
         }
-        return true
     }
 
     /// Re-sync locally-known keys to daemon on reconnect.
@@ -1114,35 +1142,10 @@ public final class SettingsStore: ObservableObject {
     }
 
     func fetchSlackChannelConfig() {
-        guard let http = resolveRuntimeHTTP() else { return }
-        guard let url = URL(string: "\(http.baseURL)/v1/integrations/slack/channel/config") else { return }
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("Bearer \(http.token)", forHTTPHeaderField: "Authorization")
-        request.timeoutInterval = 10
-        Task {
-            do {
-                let (data, response) = try await URLSession.shared.data(for: request)
-                guard let httpResp = response as? HTTPURLResponse else { return }
-                if httpResp.statusCode == 200 {
-                    if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                        self.slackChannelHasBotToken = json["hasBotToken"] as? Bool ?? false
-                        self.slackChannelHasAppToken = json["hasAppToken"] as? Bool ?? false
-                        self.slackChannelConnected = json["connected"] as? Bool ?? false
-                        self.slackChannelBotUsername = json["botUsername"] as? String
-                        self.slackChannelTeamName = json["teamName"] as? String
-                        self.slackChannelError = nil
-                    }
-                } else if httpResp.statusCode == 404 {
-                    self.slackChannelHasBotToken = false
-                    self.slackChannelHasAppToken = false
-                    self.slackChannelConnected = false
-                    self.slackChannelBotUsername = nil
-                    self.slackChannelTeamName = nil
-                }
-            } catch {
-                log.error("Failed to fetch Slack channel config: \(error)")
-            }
+        do {
+            try daemonClient?.sendSlackChannelConfig(action: "get")
+        } catch {
+            log.error("Failed to fetch Slack channel config via IPC: \(error)")
         }
     }
 
@@ -1152,78 +1155,20 @@ public final class SettingsStore: ObservableObject {
         guard !trimmedBot.isEmpty, !trimmedApp.isEmpty else { return }
         slackChannelSaveInProgress = true
         slackChannelError = nil
-        guard let http = resolveRuntimeHTTP() else {
+        do {
+            try daemonClient?.sendSlackChannelConfig(action: "set", botToken: trimmedBot, appToken: trimmedApp)
+        } catch {
             slackChannelSaveInProgress = false
-            return
-        }
-        guard let url = URL(string: "\(http.baseURL)/v1/integrations/slack/channel/config") else {
-            slackChannelSaveInProgress = false
-            return
-        }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(http.token)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 10
-        let body: [String: String] = ["botToken": trimmedBot, "appToken": trimmedApp]
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        Task {
-            do {
-                let (data, response) = try await URLSession.shared.data(for: request)
-                self.slackChannelSaveInProgress = false
-                guard let httpResp = response as? HTTPURLResponse else { return }
-                if (200..<300).contains(httpResp.statusCode) {
-                    if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                        self.slackChannelHasBotToken = json["hasBotToken"] as? Bool ?? true
-                        self.slackChannelHasAppToken = json["hasAppToken"] as? Bool ?? true
-                        self.slackChannelConnected = json["connected"] as? Bool ?? false
-                        self.slackChannelBotUsername = json["botUsername"] as? String
-                        self.slackChannelTeamName = json["teamName"] as? String
-                        self.slackChannelError = nil
-                    } else {
-                        self.slackChannelHasBotToken = true
-                        self.slackChannelHasAppToken = true
-                    }
-                } else {
-                    let errorMsg: String
-                    if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                       let msg = json["error"] as? String {
-                        errorMsg = msg
-                    } else {
-                        errorMsg = "HTTP \(httpResp.statusCode)"
-                    }
-                    self.slackChannelError = "Failed to save: \(errorMsg)"
-                }
-            } catch {
-                self.slackChannelSaveInProgress = false
-                self.slackChannelError = "Failed to save: \(error.localizedDescription)"
-            }
+            slackChannelError = "Failed to save: \(error.localizedDescription)"
         }
     }
 
     func clearSlackChannelConfig() {
         slackChannelError = nil
-        guard let http = resolveRuntimeHTTP() else { return }
-        guard let url = URL(string: "\(http.baseURL)/v1/integrations/slack/channel/config") else { return }
-        var request = URLRequest(url: url)
-        request.httpMethod = "DELETE"
-        request.setValue("Bearer \(http.token)", forHTTPHeaderField: "Authorization")
-        request.timeoutInterval = 10
-        Task {
-            do {
-                let (_, response) = try await URLSession.shared.data(for: request)
-                guard let httpResp = response as? HTTPURLResponse else { return }
-                if (200..<300).contains(httpResp.statusCode) {
-                    self.slackChannelHasBotToken = false
-                    self.slackChannelHasAppToken = false
-                    self.slackChannelConnected = false
-                    self.slackChannelBotUsername = nil
-                    self.slackChannelTeamName = nil
-                    self.slackChannelError = nil
-                }
-            } catch {
-                log.error("Failed to clear Slack channel config: \(error)")
-            }
+        do {
+            try daemonClient?.sendSlackChannelConfig(action: "clear")
+        } catch {
+            log.error("Failed to clear Slack channel config via IPC: \(error)")
         }
     }
 
@@ -1576,74 +1521,26 @@ public final class SettingsStore: ObservableObject {
     // MARK: - Approved Ingress Members Actions
 
     func refreshTelegramApprovedMembers() {
-        guard let http = resolveRuntimeHTTP() else { return }
-        guard let url = URL(string: "\(http.baseURL)/v1/ingress/members?sourceChannel=telegram&status=active") else { return }
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("Bearer \(http.token)", forHTTPHeaderField: "Authorization")
-        request.timeoutInterval = 10
         telegramApprovedMembersLoading = true
         telegramApprovedMembersError = nil
-        Task {
-            do {
-                let (data, response) = try await URLSession.shared.data(for: request)
-                self.telegramApprovedMembersLoading = false
-                guard let httpResp = response as? HTTPURLResponse else { return }
-                if httpResp.statusCode == 200 {
-                    if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                       let members = json["members"] as? [[String: Any]] {
-                        let guardianId = self.telegramGuardianIdentity
-                        self.telegramApprovedMembers = members.compactMap { m in
-                            guard let id = m["id"] as? String else { return nil }
-                            let externalUserId = m["externalUserId"] as? String
-                            // Skip the guardian — they're already shown in the Guardian Verification row
-                            if let guardianId, let externalUserId, externalUserId == guardianId {
-                                return nil
-                            }
-                            return ApprovedMember(
-                                id: id,
-                                displayName: m["displayName"] as? String,
-                                username: m["username"] as? String,
-                                externalUserId: externalUserId
-                            )
-                        }
-                        self.telegramApprovedMembersError = nil
-                    }
-                } else {
-                    self.telegramApprovedMembersError = "Failed to load (HTTP \(httpResp.statusCode))"
-                }
-            } catch {
-                self.telegramApprovedMembersLoading = false
-                self.telegramApprovedMembersError = "Failed to load: \(error.localizedDescription)"
-            }
+        do {
+            try daemonClient?.sendIngressMember(action: "list", sourceChannel: "telegram", status: "active")
+        } catch {
+            telegramApprovedMembersLoading = false
+            telegramApprovedMembersError = "Failed to load: \(error.localizedDescription)"
         }
     }
 
     func revokeTelegramApprovedMember(memberId: String) {
-        guard let http = resolveRuntimeHTTP() else { return }
-        guard let url = URL(string: "\(http.baseURL)/v1/ingress/members/\(memberId)") else { return }
-        var request = URLRequest(url: url)
-        request.httpMethod = "DELETE"
-        request.setValue("Bearer \(http.token)", forHTTPHeaderField: "Authorization")
-        request.timeoutInterval = 10
         telegramRevokingMemberIds.insert(memberId)
         let removed = telegramApprovedMembers.filter { $0.id == memberId }
         telegramApprovedMembers.removeAll { $0.id == memberId }
-        Task {
-            do {
-                let (_, response) = try await URLSession.shared.data(for: request)
-                self.telegramRevokingMemberIds.remove(memberId)
-                guard let httpResp = response as? HTTPURLResponse else { return }
-                if !(200..<300).contains(httpResp.statusCode) {
-                    // Rollback on failure
-                    self.telegramApprovedMembers.append(contentsOf: removed)
-                    self.telegramApprovedMembersError = "Failed to revoke (HTTP \(httpResp.statusCode))"
-                }
-            } catch {
-                self.telegramRevokingMemberIds.remove(memberId)
-                self.telegramApprovedMembers.append(contentsOf: removed)
-                self.telegramApprovedMembersError = "Failed to revoke: \(error.localizedDescription)"
-            }
+        do {
+            try daemonClient?.sendIngressMember(action: "revoke", memberId: memberId)
+        } catch {
+            telegramRevokingMemberIds.remove(memberId)
+            telegramApprovedMembers.append(contentsOf: removed)
+            telegramApprovedMembersError = "Failed to revoke: \(error.localizedDescription)"
         }
     }
 
