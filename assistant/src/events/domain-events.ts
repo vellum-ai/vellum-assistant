@@ -20,7 +20,7 @@ export interface ToolDomainEvents {
     sessionId: string;
     requestId?: string;
     toolName: string;
-    decision: 'allow' | 'always_allow' | 'deny' | 'always_deny';
+    decision: 'allow' | 'allow_10m' | 'allow_thread' | 'always_allow' | 'deny' | 'always_deny';
     riskLevel: string;
     decidedAtMs: number;
   };

@@ -10,6 +10,8 @@ import { generateAllowlistOptions, generateScopeOptions, normalizeWebFetchUrl } 
 import type { PermissionPrompter } from '../permissions/prompter.js';
 import type { SecretPrompter } from '../permissions/secret-prompter.js';
 import { addRule, findHighestPriorityRule } from '../permissions/trust-store.js';
+import { isAllowDecision } from '../permissions/types.js';
+import { getEffectiveMode } from '../runtime/session-approval-overrides.js';
 import type { Message, ToolDefinition } from '../providers/types.js';
 import type { ToolExecutor } from '../tools/executor.js';
 import type { ToolExecutionResult, ToolLifecycleEventHandler } from '../tools/types.js';
@@ -162,6 +164,12 @@ export function createToolExecutor(
             decision: existingRule.decision === 'allow' ? 'allow' as const : 'deny' as const,
           };
         }
+        // Auto-approve sub-tool confirmations when a temporary approval
+        // override is active for this conversation (guardian only).
+        const guardianTrust = ctx.guardianContext?.trustClass ?? 'guardian';
+        if (guardianTrust === 'guardian' && getEffectiveMode(ctx.conversationId) !== null) {
+          return { decision: 'allow' as const };
+        }
         const allowlistOptions = [
           { label: `cc:${req.toolName}`, description: `Claude Code ${req.toolName}`, pattern: `cc:${req.toolName}` },
           { label: 'cc:*', description: 'All Claude Code sub-tools', pattern: 'cc:*' },
@@ -187,7 +195,7 @@ export function createToolExecutor(
           addRule('cc:' + req.toolName, response.selectedPattern, response.selectedScope, 'deny');
         }
         return {
-          decision: (response.decision === 'allow' || response.decision === 'always_allow' || response.decision === 'always_allow_high_risk') ? 'allow' as const : 'deny' as const,
+          decision: isAllowDecision(response.decision) ? 'allow' as const : 'deny' as const,
         };
       },
     });
@@ -261,6 +269,11 @@ export function createProxyApprovalCallback(
       return false;
     }
 
+    // Proxied network requests require per-invocation approval and must
+    // not be auto-approved by temporary overrides (allow_10m / allow_thread).
+    // Unlike regular tool invocations, these represent outbound network
+    // actions that should always receive explicit confirmation.
+
     const response = await prompter.prompt(
       toolName,
       input,
@@ -283,9 +296,7 @@ export function createProxyApprovalCallback(
       addRule(toolName, response.selectedPattern, response.selectedScope, 'deny');
     }
 
-    return response.decision === 'allow'
-      || response.decision === 'always_allow'
-      || response.decision === 'always_allow_high_risk';
+    return isAllowDecision(response.decision);
   };
 }
 

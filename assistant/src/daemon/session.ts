@@ -34,6 +34,7 @@ import { SecretPrompter } from '../permissions/secret-prompter.js';
 import type { UserDecision } from '../permissions/types.js';
 import type { Message } from '../providers/types.js';
 import type { Provider } from '../providers/types.js';
+import * as approvalOverrides from '../runtime/session-approval-overrides.js';
 import { ToolExecutor } from '../tools/executor.js';
 import type { AssistantAttachmentDraft } from './assistant-attachments.js';
 import type { AssistantActivityState, ConfirmationStateChanged } from './ipc-contract/messages.js';
@@ -428,6 +429,7 @@ export class Session {
   }
 
   dispose(): void {
+    approvalOverrides.clearMode(this.conversationId);
     disposeSession(this);
   }
 
@@ -499,6 +501,12 @@ export class Session {
       decisionText?: string;
     },
   ): void {
+    // Guard: only proceed if the confirmation is still pending. Stale or
+    // already-resolved requests must not activate overrides or emit events.
+    if (!this.prompter.hasPendingRequest(requestId)) {
+      return;
+    }
+
     this.prompter.resolveConfirmation(
       requestId,
       decision,
@@ -506,6 +514,11 @@ export class Session {
       selectedScope,
       decisionContext,
     );
+
+    // Mode activation (setTimedMode / setThreadMode) is intentionally NOT
+    // done here. It is handled in permission-checker.ts where
+    // persistentDecisionsAllowed context is available — this prevents
+    // proxied bash commands from escalating into blanket auto-approval.
 
     // Emit authoritative confirmation state and activity transition centrally
     // so ALL callers (IPC handlers, /v1/confirm, channel bridges) get

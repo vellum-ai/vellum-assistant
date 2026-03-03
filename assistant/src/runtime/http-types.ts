@@ -30,6 +30,8 @@ export type ApprovalCopyGenerator = (
 export type ApprovalConversationDisposition =
   | "keep_pending"
   | "approve_once"
+  | "approve_10m"
+  | "approve_thread"
   | "approve_always"
   | "reject";
 

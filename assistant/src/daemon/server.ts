@@ -163,6 +163,7 @@ function makePendingInteractionRegistrar(
           allowlistOptions: msg.allowlistOptions,
           scopeOptions: msg.scopeOptions,
           persistentDecisionsAllowed: msg.persistentDecisionsAllowed,
+          temporaryOptionsAvailable: msg.temporaryOptionsAvailable,
         },
       });
 
