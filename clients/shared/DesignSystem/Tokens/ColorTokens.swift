@@ -181,7 +181,7 @@ public enum VColor {
     public static let accent = adaptiveColor(light: Color(hex: 0x262624), dark: Forest._600)
 
     // Icon & button accent
-    public static let iconAccent = adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._500)
+    public static let iconAccent = adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._500)
 
     // Send button — always green
     public static let sendButton = Color(hex: 0x216C37)
@@ -216,10 +216,10 @@ public enum VColor {
     public static let slashCommand = adaptiveColor(light: Forest._500, dark: Forest._300)
 
     // Button colors
-    public static let buttonPrimary = adaptiveColor(light: Color(hex: 0x4B6845), dark: Color(hex: 0x4B6845))
-    public static let buttonPrimaryHover = adaptiveColor(light: Color(hex: 0x5A7B54), dark: Color(hex: 0x5A7B54))
-    public static let buttonPrimaryPressed = adaptiveColor(light: Color(hex: 0x3D5739), dark: Color(hex: 0x3D5739))
-    public static let buttonSecondaryBorder = adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._500)
-    public static let buttonSecondaryText = adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._400)
+    public static let buttonPrimary = adaptiveColor(light: Color(hex: 0x537D53), dark: Color(hex: 0x537D53))
+    public static let buttonPrimaryHover = adaptiveColor(light: Color(hex: 0x629062), dark: Color(hex: 0x629062))
+    public static let buttonPrimaryPressed = adaptiveColor(light: Color(hex: 0x456C47), dark: Color(hex: 0x456C47))
+    public static let buttonSecondaryBorder = adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._500)
+    public static let buttonSecondaryText = adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._400)
     public static let buttonTertiaryBackground = adaptiveColor(light: Moss._200, dark: Moss._700)
 }

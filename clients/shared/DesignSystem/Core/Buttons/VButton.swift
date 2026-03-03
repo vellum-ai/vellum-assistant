@@ -186,11 +186,11 @@ private struct VButtonStyle: ButtonStyle {
         switch style {
         case .primary: return .white
         case .tertiary: return VColor.buttonSecondaryText
-        case .secondary: return adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._400)
+        case .secondary: return adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._400)
         case .danger: return .white
-        case .ghost: return Color(hex: 0x516748)
+        case .ghost: return Color(hex: 0x537D53)
         case .outlined: return VColor.buttonSecondaryText
-        case .success: return adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._300)
+        case .success: return adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._300)
         }
     }
 
