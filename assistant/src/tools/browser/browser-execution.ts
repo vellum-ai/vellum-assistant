@@ -394,7 +394,7 @@ export async function executeBrowserNavigate(
             await startHandoff(context.sessionId, sender, {
               reason: "captcha",
               message:
-                'Cloudflare verification detected. Please solve the CAPTCHA in the Chrome window that just opened (not the preview panel — CAPTCHA providers detect preview clicks as automated). Click "Hand back" when done.',
+                "Cloudflare verification detected. Please solve the CAPTCHA in the Chrome window. The browser will automatically detect when you're done and resume.",
               bringToFront: true,
             });
             const newUrl = page.url();
