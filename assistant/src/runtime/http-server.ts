@@ -617,7 +617,8 @@ export class RuntimeHttpServer {
     // abuse surface. We key on IP rather than bearer token because the gateway
     // uses a single shared token for all proxied requests, which would collapse
     // all users into one bucket.
-    if (path.startsWith("/v1/")) {
+    // Skip rate limiting entirely when HTTP auth is disabled (local Docker dev).
+    if (path.startsWith("/v1/") && !isHttpAuthDisabled()) {
       const clientIp = extractClientIp(req, server);
       const token = extractBearerToken(req);
       const result = token
