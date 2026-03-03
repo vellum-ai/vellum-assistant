@@ -74,6 +74,27 @@ public struct ToolConfirmationBubble: View {
         return preview.isEmpty ? nil : preview
     }
 
+    /// Label shown in the collapsed state after a decision is made.
+    private var collapsedLabel: String {
+        switch confirmation.state {
+        case .approved:
+            switch confirmation.approvedDecision {
+            case "allow_10m":
+                return "\(confirmation.toolCategory) allowed for 10 minutes"
+            case "allow_thread":
+                return "\(confirmation.toolCategory) allowed for this thread"
+            default:
+                return "\(confirmation.toolCategory) allowed"
+            }
+        case .denied:
+            return "\(confirmation.toolCategory) denied"
+        case .timedOut:
+            return "Timed out"
+        case .pending:
+            return ""
+        }
+    }
+
     /// Color for the risk level badge.
     private var riskColor: Color {
         switch confirmation.riskLevel.lowercased() {
@@ -382,10 +403,12 @@ public struct ToolConfirmationBubble: View {
     // MARK: - Button Row
 
     /// Build the ordered list of top-level actions based on current confirmation state.
+    /// Temporary options come first (matching visual top-to-bottom, left-to-right order).
     private var topLevelActions: [ToolConfirmationKeyboardModel.Action] {
-        var actions: [ToolConfirmationKeyboardModel.Action] = [.allowOnce]
+        var actions: [ToolConfirmationKeyboardModel.Action] = []
         if hasAllow10m { actions.append(.allow10m) }
         if hasAllowThread { actions.append(.allowThread) }
+        actions.append(.allowOnce)
         if hasRuleOptions && confirmation.persistentDecisionsAllowed {
             actions.append(.alwaysAllow)
         }
@@ -393,42 +416,64 @@ public struct ToolConfirmationBubble: View {
         return actions
     }
 
+    private var hasTemporaryOptions: Bool {
+        hasAllow10m || hasAllowThread
+    }
+
     @ViewBuilder
     private var buttonRow: some View {
         let actions = topLevelActions
-        HStack(spacing: VSpacing.xs) {
-            confirmationButton(
-                "Allow Once",
-                isPrimary: true,
-                isDanger: false,
-                isKeyboardSelected: keyboardModel?.selectedAction == .allowOnce
-            ) { markCommandExplanationSeen(); onAllow() }
-            if hasAllow10m {
-                confirmationButton(
-                    "Allow 10m",
-                    isPrimary: false,
-                    isDanger: false,
-                    isKeyboardSelected: keyboardModel?.selectedAction == .allow10m
-                ) { markCommandExplanationSeen(); onTemporaryAllow?(confirmation.requestId, "allow_10m") }
-                .help("Allow this action for 10 minutes")
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            // Top group: temporary approval options (approve all future actions)
+            if hasTemporaryOptions {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Approve all actions")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                    HStack(spacing: VSpacing.xs) {
+                        if hasAllow10m {
+                            confirmationButton(
+                                "Allow for 10 minutes",
+                                isPrimary: true,
+                                isDanger: false,
+                                isKeyboardSelected: keyboardModel?.selectedAction == .allow10m
+                            ) { markCommandExplanationSeen(); onTemporaryAllow?(confirmation.requestId, "allow_10m") }
+                        }
+                        if hasAllowThread {
+                            confirmationButton(
+                                "Allow for this thread",
+                                isPrimary: true,
+                                isDanger: false,
+                                isKeyboardSelected: keyboardModel?.selectedAction == .allowThread
+                            ) { markCommandExplanationSeen(); onTemporaryAllow?(confirmation.requestId, "allow_thread") }
+                        }
+                    }
+                }
             }
-            if hasAllowThread {
-                confirmationButton(
-                    "Allow Thread",
-                    isPrimary: false,
-                    isDanger: false,
-                    isKeyboardSelected: keyboardModel?.selectedAction == .allowThread
-                ) { markCommandExplanationSeen(); onTemporaryAllow?(confirmation.requestId, "allow_thread") }
-                .help("Allow this action for the current thread")
+            // Bottom group: per-action options
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                if hasTemporaryOptions {
+                    Text("This action only")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                }
+                HStack(spacing: VSpacing.xs) {
+                    confirmationButton(
+                        "Allow Once",
+                        isPrimary: !hasTemporaryOptions,
+                        isDanger: false,
+                        isKeyboardSelected: keyboardModel?.selectedAction == .allowOnce
+                    ) { markCommandExplanationSeen(); onAllow() }
+                    if hasRuleOptions && confirmation.persistentDecisionsAllowed { alwaysAllowInlineButton }
+                    confirmationButton(
+                        "Don\u{2019}t Allow",
+                        isPrimary: false,
+                        isDanger: false,
+                        isKeyboardSelected: keyboardModel?.selectedAction == .dontAllow
+                    ) { markCommandExplanationSeen(); onDeny() }
+                    Spacer()
+                }
             }
-            if hasRuleOptions && confirmation.persistentDecisionsAllowed { alwaysAllowInlineButton }
-            confirmationButton(
-                "Don\u{2019}t Allow",
-                isPrimary: false,
-                isDanger: false,
-                isKeyboardSelected: keyboardModel?.selectedAction == .dontAllow
-            ) { markCommandExplanationSeen(); onDeny() }
-            Spacer()
         }
         .onAppear {
             if isKeyboardActive {
@@ -894,11 +939,7 @@ public struct ToolConfirmationBubble: View {
             }
             .font(.system(size: 12))
 
-            Text(confirmation.state == .approved
-                 ? "\(confirmation.toolCategory) allowed"
-                 : confirmation.state == .denied
-                 ? "\(confirmation.toolCategory) denied"
-                 : "Timed out")
+            Text(collapsedLabel)
                 .font(VFont.caption)
                 .foregroundColor(VColor.textSecondary)
 

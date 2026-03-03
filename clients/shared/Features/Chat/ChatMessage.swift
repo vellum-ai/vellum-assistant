@@ -43,6 +43,9 @@ public struct ToolConfirmationData: Equatable {
     /// Which temporary approval options the daemon supports for this request (e.g. "allow_10m", "allow_thread").
     public let temporaryOptionsAvailable: [String]
     public var state: ToolConfirmationState = .pending
+    /// The decision string that was used to approve (e.g. "allow", "allow_10m", "allow_thread", "always_allow").
+    /// Set when the state transitions to `.approved`.
+    public var approvedDecision: String?
 
     /// Normalized target label shown in confirmation UIs.
     public var normalizedExecutionTarget: String? {

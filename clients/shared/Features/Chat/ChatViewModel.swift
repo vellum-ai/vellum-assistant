@@ -1892,6 +1892,9 @@ public final class ChatViewModel: ObservableObject {
         if let index = messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) {
             let isApproval = decision == "allow" || decision == "allow_10m" || decision == "allow_thread"
             messages[index].confirmation?.state = isApproval ? .approved : .denied
+            if isApproval {
+                messages[index].confirmation?.approvedDecision = decision
+            }
         }
         // Dismiss the corresponding floating panel / native notification if one exists
         onInlineConfirmationResponse?(requestId, decision)
@@ -1924,6 +1927,7 @@ public final class ChatViewModel: ObservableObject {
         // IPC send succeeded — update the message state
         if let index = messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) {
             messages[index].confirmation?.state = .approved
+            messages[index].confirmation?.approvedDecision = decision
         }
         // Dismiss the corresponding floating panel / native notification if one exists
         onInlineConfirmationResponse?(requestId, "allow")
@@ -1936,6 +1940,7 @@ public final class ChatViewModel: ObservableObject {
             switch decision {
             case "allow", "allow_10m", "allow_thread":
                 messages[index].confirmation?.state = .approved
+                messages[index].confirmation?.approvedDecision = decision
             case "deny":
                 messages[index].confirmation?.state = .denied
             default:
