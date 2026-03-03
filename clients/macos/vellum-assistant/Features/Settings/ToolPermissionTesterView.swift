@@ -25,6 +25,7 @@ struct ToolPermissionTesterView: View {
         }
         .padding(VSpacing.lg)
         .vCard(background: VColor.surfaceSubtle)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .onAppear {
             model.fetchToolNames()
         }

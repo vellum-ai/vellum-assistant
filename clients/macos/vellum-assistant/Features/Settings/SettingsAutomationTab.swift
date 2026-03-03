@@ -35,6 +35,7 @@ struct SettingsAutomationTab: View {
                 .padding(VSpacing.lg)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .vCard(background: VColor.surfaceSubtle)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 VStack(alignment: .leading, spacing: VSpacing.md) {
                     Text("Scheduled Tasks")
@@ -58,6 +59,7 @@ struct SettingsAutomationTab: View {
                 .padding(VSpacing.lg)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .vCard(background: VColor.surfaceSubtle)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             // Heartbeat section (checklist + runs, minus configCard)
@@ -139,6 +141,7 @@ struct HeartbeatAutomationSection: View {
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Recent Runs Card
@@ -231,6 +234,7 @@ struct HeartbeatAutomationSection: View {
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Helpers

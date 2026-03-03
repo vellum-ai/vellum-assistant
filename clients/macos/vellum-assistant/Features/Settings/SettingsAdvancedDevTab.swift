@@ -102,6 +102,7 @@ struct SettingsAdvancedDevTab: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(VSpacing.lg)
         .vCard(background: VColor.surfaceSubtle)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func assistantFlagRow(flag: DaemonClient.AssistantFeatureFlag) -> some View {
@@ -210,6 +211,7 @@ struct SettingsAdvancedDevTab: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(VSpacing.lg)
         .vCard(background: VColor.surfaceSubtle)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Developer
@@ -251,6 +253,7 @@ struct SettingsAdvancedDevTab: View {
             .padding(VSpacing.lg)
             .frame(maxWidth: .infinity, alignment: .leading)
             .vCard(background: VColor.surfaceSubtle)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }

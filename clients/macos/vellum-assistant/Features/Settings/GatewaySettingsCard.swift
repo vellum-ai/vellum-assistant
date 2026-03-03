@@ -54,6 +54,7 @@ struct GatewaySettingsCard: View {
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .onAppear {
             store.refreshIngressConfig()
             gatewayUrlText = store.ingressPublicBaseUrl
