@@ -1005,11 +1005,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         }
 
         if let name = assistantName {
-            // Stop processes FIRST while PID files and lockfile entry still exist.
-            // retire() internally tries to stop them again, which is idempotent.
-            daemonClient.disconnect()
-            assistantCli.stop()
-
             do {
                 try await assistantCli.retire(name: name)
             } catch {
@@ -1027,6 +1022,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                 // lockfile entry so onboarding can re-run with a fresh lockfile.
                 self.removeLockfileEntry(assistantId: name)
             }
+
+            // Stop processes after retire succeeds (or user chose Force Remove).
+            // This keeps the daemon alive if the user cancels a failed retire.
+            daemonClient.disconnect()
+            assistantCli.stop()
         } else {
             assistantCli.stop()
         }
