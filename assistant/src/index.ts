@@ -17,7 +17,6 @@ import {
 import {
   registerAuditCommand,
   registerCompletionsCommand,
-  registerDaemonCommand,
   registerDefaultAction,
   registerDevCommand,
   registerDoctorCommand,
@@ -39,7 +38,6 @@ program
   .version(version);
 
 registerDefaultAction(program);
-registerDaemonCommand(program);
 registerDevCommand(program);
 registerSessionsCommand(program);
 registerConfigCommand(program);

@@ -153,6 +153,8 @@ function resolveDaemonMainPath(assistantIndex: string): string {
 }
 
 async function startDaemonFromSource(assistantIndex: string): Promise<void> {
+  const daemonMainPath = resolveDaemonMainPath(assistantIndex);
+
   const env: Record<string, string | undefined> = {
     ...process.env,
     RUNTIME_HTTP_PORT: process.env.RUNTIME_HTTP_PORT || "7821",
@@ -163,21 +165,22 @@ async function startDaemonFromSource(assistantIndex: string): Promise<void> {
       process.env.VELLUM_DAEMON_TCP_ENABLED || "1";
   }
 
-  const child = spawn("bun", ["run", assistantIndex, "daemon", "start"], {
-    stdio: "inherit",
+  const vellumDir = join(homedir(), ".vellum");
+  mkdirSync(vellumDir, { recursive: true });
+
+  const logFd = openLogFile("hatch.log");
+  const child = spawn("bun", ["run", daemonMainPath], {
+    detached: true,
+    stdio: ["ignore", "pipe", "pipe"],
     env,
   });
+  pipeToLogFile(child, logFd, "daemon");
+  child.unref();
 
-  await new Promise<void>((resolve, reject) => {
-    child.on("close", (code) => {
-      if (code === 0) {
-        resolve();
-      } else {
-        reject(new Error(`Daemon start exited with code ${code}`));
-      }
-    });
-    child.on("error", reject);
-  });
+  if (child.pid) {
+    const pidFile = join(vellumDir, "vellum.pid");
+    writeFileSync(pidFile, String(child.pid), "utf-8");
+  }
 }
 
 // NOTE: startDaemonWatchFromSource() is the CLI-side watch-mode daemon
@@ -668,6 +671,17 @@ export async function startLocalDaemon(watch: boolean = false): Promise<void> {
       }
     } else {
       await startDaemonFromSource(assistantIndex);
+
+      const vellumDir = join(homedir(), ".vellum");
+      const socketFile = join(vellumDir, "vellum.sock");
+      const socketReady = await waitForSocketFile(socketFile, 60000);
+      if (socketReady) {
+        console.log("   Daemon socket ready\n");
+      } else {
+        console.log(
+          "   ⚠️  Daemon socket did not appear within 60s — continuing anyway\n",
+        );
+      }
     }
   }
 }
