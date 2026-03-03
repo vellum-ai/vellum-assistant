@@ -78,7 +78,7 @@ function mockFetch(
       return new Response(body, { status, headers: responseHeaders });
     }
     return new Response(String(body), { status, headers: responseHeaders });
-  }) as typeof fetch;
+  }) as unknown as typeof fetch;
 }
 
 function runtimeConfig(overrides?: Partial<TransportConfig>): TransportConfig {
@@ -598,7 +598,7 @@ describe("executeTransferStep", () => {
         status: 200,
         headers: responseHeaders,
       });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const destFetch = (async () => {
       importCalled = true;
@@ -606,7 +606,7 @@ describe("executeTransferStep", () => {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const state = advanceTo("transfer");
     const options = makeExecutorOptions({
@@ -684,14 +684,14 @@ describe("executeTransferStep", () => {
         return new Response(new ArrayBuffer(32), { status: 200 });
       }
       return new Response("Not found", { status: 404 });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const destFetch = (async () => {
       return new Response(JSON.stringify(importResponse), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const state = advanceTo("transfer");
     const options = makeExecutorOptions({
@@ -732,14 +732,14 @@ describe("executeTransferStep", () => {
           "X-Vbundle-Manifest-Sha256": "abc",
         },
       });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const destFetch = (async () => {
       return new Response(JSON.stringify(importResponse), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const state = advanceTo("transfer");
     const options = makeExecutorOptions({
@@ -779,7 +779,7 @@ describe("executeTransferStep", () => {
         );
       }
       return new Response("Not found", { status: 404 });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const state = advanceTo("transfer");
     const options = makeExecutorOptions({
@@ -1157,14 +1157,14 @@ describe("full wizard flow", () => {
           "X-Vbundle-Manifest-Sha256": "abc",
         },
       });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const destFetch = (async () => {
       return new Response(JSON.stringify(importResponse), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     state = await executeTransferStep(
       state,
