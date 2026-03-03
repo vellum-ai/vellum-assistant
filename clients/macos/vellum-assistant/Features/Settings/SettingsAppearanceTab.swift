@@ -71,8 +71,8 @@ struct SettingsAppearanceTab: View {
 
             }
             .padding(VSpacing.lg)
-            .vCard(background: VColor.surfaceSubtle)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .vCard(background: VColor.surfaceSubtle)
             .onAppear {
                 selectedTimezone = store.userTimezone ?? ""
             }
@@ -165,8 +165,8 @@ struct SettingsAppearanceTab: View {
                 .padding(.vertical, VSpacing.md)
             }
             .padding(VSpacing.lg)
-            .vCard(background: VColor.surfaceSubtle)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .vCard(background: VColor.surfaceSubtle)
             .onDisappear {
                 stopRecording()
             }
@@ -238,8 +238,8 @@ struct SettingsAppearanceTab: View {
                 }
             }
             .padding(VSpacing.lg)
-            .vCard(background: VColor.surfaceSubtle)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .vCard(background: VColor.surfaceSubtle)
         }
     }
 

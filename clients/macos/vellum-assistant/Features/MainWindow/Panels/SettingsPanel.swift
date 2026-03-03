@@ -97,12 +97,13 @@ struct SettingsPanel: View {
             settingsNav
                 .frame(width: 200)
 
-            // Right: tab content on plain window background
+            // Right: tab content in a subtle background panel (nav is outside)
             ScrollView {
                 selectedTabContent
                     .padding(VSpacing.lg)
                     .frame(maxWidth: .infinity, alignment: .top)
             }
+            .background(VColor.background)
             .padding(.trailing, VSpacing.lg)
             .padding(.vertical, VSpacing.lg)
         }
@@ -325,8 +326,8 @@ struct SettingsPanel: View {
                 }
             }
             .padding(VSpacing.lg)
-            .vCard(background: VColor.surfaceSubtle)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .vCard(background: VColor.surfaceSubtle)
 
             // PERPLEXITY SEARCH section
             VStack(alignment: .leading, spacing: VSpacing.md) {
@@ -391,8 +392,8 @@ struct SettingsPanel: View {
                 }
             }
             .padding(VSpacing.lg)
-            .vCard(background: VColor.surfaceSubtle)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .vCard(background: VColor.surfaceSubtle)
 
             // BRAVE SEARCH section
             VStack(alignment: .leading, spacing: VSpacing.md) {
@@ -457,8 +458,8 @@ struct SettingsPanel: View {
                 }
             }
             .padding(VSpacing.lg)
-            .vCard(background: VColor.surfaceSubtle)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .vCard(background: VColor.surfaceSubtle)
 
             // IMAGE GENERATION section
             VStack(alignment: .leading, spacing: VSpacing.md) {
@@ -544,8 +545,8 @@ struct SettingsPanel: View {
                 }
             }
             .padding(VSpacing.lg)
-            .vCard(background: VColor.surfaceSubtle)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .vCard(background: VColor.surfaceSubtle)
 
             // INTEGRATIONS section (hidden when empty)
             if daemonClient != nil && !integrations.isEmpty {
@@ -559,8 +560,8 @@ struct SettingsPanel: View {
                     }
                 }
                 .padding(VSpacing.lg)
-                .vCard(background: VColor.surfaceSubtle)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .vCard(background: VColor.surfaceSubtle)
             }
 
             // TWITTER / X section
@@ -701,8 +702,8 @@ struct SettingsPanel: View {
             }
         }
         .padding(VSpacing.lg)
-        .vCard(background: VColor.surfaceSubtle)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .vCard(background: VColor.surfaceSubtle)
     }
 
     // MARK: - Permissions Tab
@@ -770,8 +771,8 @@ struct SettingsPanel: View {
                 }
             }
             .padding(VSpacing.lg)
-            .vCard(background: VColor.surfaceSubtle)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .vCard(background: VColor.surfaceSubtle)
 
             // TRUST RULES section
             if daemonClient != nil {
@@ -797,8 +798,8 @@ struct SettingsPanel: View {
                     }
                 }
                 .padding(VSpacing.lg)
-                .vCard(background: VColor.surfaceSubtle)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .vCard(background: VColor.surfaceSubtle)
             }
 
             // COMPUTER USAGE section (moved from Advanced)
@@ -821,8 +822,8 @@ struct SettingsPanel: View {
                 VSlider(value: $store.maxSteps, range: 1...100, step: 10, showTickMarks: true)
             }
             .padding(VSpacing.lg)
-            .vCard(background: VColor.surfaceSubtle)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .vCard(background: VColor.surfaceSubtle)
 
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -895,8 +896,8 @@ struct SettingsPanel: View {
             }
         }
         .padding(VSpacing.md)
-        .vCard(background: VColor.surfaceSubtle)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .vCard(background: VColor.surfaceSubtle)
     }
 
     private func integrationDisplayName(_ id: String) -> String {

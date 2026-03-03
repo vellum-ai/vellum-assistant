@@ -63,8 +63,8 @@ struct ApprovedDevicesSection: View {
             }
         }
         .padding(VSpacing.lg)
-        .vCard(background: VColor.surfaceSubtle)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .vCard(background: VColor.surfaceSubtle)
         .onAppear {
             store.refreshApprovedDevices()
         }
