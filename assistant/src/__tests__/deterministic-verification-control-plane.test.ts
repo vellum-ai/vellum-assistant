@@ -282,7 +282,7 @@ describe("Verification control messages are deterministic (guard)", () => {
         return new Response(JSON.stringify({ ok: true }), { status: 200 });
       }
       return originalFetch(input, init as never);
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     try {
       const req = new Request("http://localhost/channels/inbound", {
@@ -369,7 +369,7 @@ describe("Verification control messages are deterministic (guard)", () => {
         return new Response(JSON.stringify({ ok: true }), { status: 200 });
       }
       return originalFetch(input, init as never);
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     try {
       const req = new Request("http://localhost/channels/inbound", {

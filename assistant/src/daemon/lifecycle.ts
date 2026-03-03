@@ -371,6 +371,14 @@ export async function runDaemon(): Promise<void> {
           },
         });
       },
+      (info) => {
+        server.broadcast({
+          type: "schedule_thread_created",
+          conversationId: info.conversationId,
+          scheduleJobId: info.scheduleJobId,
+          title: info.title,
+        });
+      },
     );
 
     // Start the runtime HTTP server. Required for iOS pairing (gateway proxies

@@ -3,24 +3,33 @@ import SwiftUI
 import AppKit
 #endif
 
+public enum VIconButtonVariant {
+    case standard
+    case filled(Color)
+}
+
 public struct VIconButton: View {
     public let label: String
     public var icon: String = ""
     public var customIcon: Image? = nil
     public var isActive: Bool = false
     public var iconOnly: Bool = false
+    public var variant: VIconButtonVariant = .standard
+    public var size: CGFloat? = nil
     public var tooltip: String? = nil
     public let action: () -> Void
 
     @State private var isHovered = false
     @FocusState private var isFocused: Bool
 
-    public init(label: String, icon: String = "", customIcon: Image? = nil, isActive: Bool = false, iconOnly: Bool = false, tooltip: String? = nil, action: @escaping () -> Void) {
+    public init(label: String, icon: String = "", customIcon: Image? = nil, isActive: Bool = false, iconOnly: Bool = false, variant: VIconButtonVariant = .standard, size: CGFloat? = nil, tooltip: String? = nil, action: @escaping () -> Void) {
         self.label = label
         self.icon = icon
         self.customIcon = customIcon
         self.isActive = isActive
         self.iconOnly = iconOnly
+        self.variant = variant
+        self.size = size
         self.tooltip = tooltip
         self.action = action
     }
@@ -40,21 +49,30 @@ public struct VIconButton: View {
                         .font(VFont.caption)
                 }
             }
-            .foregroundColor(iconForegroundColor)
+            .foregroundColor(iconForegroundForVariant)
         }
         .focused($isFocused)
-        .buttonStyle(VIconButtonStyle(isActive: isActive, isHovered: isHovered, isFocused: isFocused))
+        .buttonStyle(VIconButtonStyle(isActive: isActive, isHovered: isHovered, isFocused: isFocused, size: size, variant: variant))
         #if os(macOS)
         .onHover { hovering in
             isHovered = hovering
-            if hovering { NSCursor.pointingHand.set() }
-            else { NSCursor.arrow.set() }
+            if case .filled = variant {} else {
+                if hovering { NSCursor.pointingHand.set() }
+                else { NSCursor.arrow.set() }
+            }
         }
         #else
         .onHover { isHovered = $0 }
         #endif
         .accessibilityLabel(label)
         .modifier(OptionalHelpModifier(tooltip: tooltip))
+    }
+
+    private var iconForegroundForVariant: Color {
+        if case .filled = variant {
+            return .white
+        }
+        return iconForegroundColor
     }
 
     private var iconForegroundColor: Color {
@@ -85,18 +103,24 @@ public struct VIconButtonStyle: ButtonStyle {
     public var isHovered: Bool
     public var isFocused: Bool
     public var size: CGFloat?
+    public var variant: VIconButtonVariant
 
     @Environment(\.isEnabled) private var isEnabled
 
-    public init(isActive: Bool = false, isHovered: Bool, isFocused: Bool = false, size: CGFloat? = nil) {
+    public init(isActive: Bool = false, isHovered: Bool, isFocused: Bool = false, size: CGFloat? = nil, variant: VIconButtonVariant = .standard) {
         self.isActive = isActive
         self.isHovered = isHovered
         self.isFocused = isFocused
         self.size = size
+        self.variant = variant
     }
 
     public func makeBody(configuration: Configuration) -> some View {
-        let shape = RoundedRectangle(cornerRadius: VRadius.md)
+        let cornerRadius: CGFloat = {
+            if case .filled = variant { return VRadius.md }
+            return VRadius.md
+        }()
+        let shape = RoundedRectangle(cornerRadius: cornerRadius)
 
         configuration.label
             .frame(width: size, height: size)
@@ -118,6 +142,12 @@ public struct VIconButtonStyle: ButtonStyle {
     }
 
     private func backgroundColor(isPressed: Bool) -> Color {
+        if case .filled(let color) = variant {
+            guard isEnabled else { return color.opacity(0.5) }
+            if isPressed { return color.opacity(0.7) }
+            if isHovered { return color.opacity(0.85) }
+            return color
+        }
         guard isEnabled else {
             return isActive ? adaptiveColor(light: Moss._100, dark: Moss._700).opacity(0.5) : .clear
         }
@@ -133,6 +163,7 @@ public struct VIconButtonStyle: ButtonStyle {
     }
 
     private var borderColor: Color {
+        if case .filled = variant { return .clear }
         guard isEnabled, isFocused else { return .clear }
         return VColor.accent.opacity(0.72)
     }
@@ -146,8 +177,9 @@ public struct VIconButtonStyle: ButtonStyle {
             VIconButton(label: "Active", icon: "star.fill", isActive: true) {}
             VIconButton(label: "Icon Only", icon: "plus", iconOnly: true) {}
             VIconButton(label: "Active Icon", icon: "pencil", isActive: true, iconOnly: true) {}
+            VIconButton(label: "Filled", icon: "ellipsis", iconOnly: true, variant: .filled(VColor.buttonPrimary)) {}
         }
         .padding()
     }
-    .frame(width: 400, height: 80)
+    .frame(width: 500, height: 80)
 }

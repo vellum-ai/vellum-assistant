@@ -71,9 +71,9 @@ export interface ToolDefinition {
 }
 
 export type ModelIntent =
-  | 'latency-optimized'
-  | 'quality-optimized'
-  | 'vision-optimized';
+  | "latency-optimized"
+  | "quality-optimized"
+  | "vision-optimized";
 
 export interface ProviderResponse {
   content: ContentBlock[];
@@ -93,13 +93,14 @@ export interface ProviderResponse {
 }
 
 export type ProviderEvent =
-  | { type: 'text_delta'; text: string }
-  | { type: 'thinking_delta'; thinking: string }
-  | { type: 'input_json_delta'; toolName: string; accumulatedJson: string };
+  | { type: "text_delta"; text: string }
+  | { type: "thinking_delta"; thinking: string }
+  | { type: "input_json_delta"; toolName: string; accumulatedJson: string };
 
 export interface SendMessageConfig {
   model?: string;
   modelIntent?: ModelIntent;
+  effort?: "low" | "medium" | "high";
   [key: string]: unknown;
 }
 

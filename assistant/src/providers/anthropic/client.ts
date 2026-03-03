@@ -1,8 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 
 import { ProviderError } from "../../util/errors.js";
-import { getLogger } from '../../util/logger.js';
-import { createStreamTimeout } from '../stream-timeout.js';
+import { getLogger } from "../../util/logger.js";
+import { createStreamTimeout } from "../stream-timeout.js";
 import type {
   ContentBlock,
   Message,
@@ -12,7 +12,7 @@ import type {
   ToolDefinition,
 } from "../types.js";
 
-const log = getLogger('anthropic-client');
+const log = getLogger("anthropic-client");
 
 /**
  * The Anthropic API returns block types (server_tool_use, web_search_tool_result)
@@ -27,44 +27,60 @@ type AnthropicContentBlock =
 const TOOL_ID_RE = /[^a-wyzA-Z0-9_-]/g;
 
 const ANTHROPIC_SUPPORTED_IMAGE_TYPES = new Set([
-  'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
 ]);
 
 function isTextBasedMimeType(mediaType: string): boolean {
   return (
-    mediaType.startsWith('text/') ||
-    mediaType === 'application/json' ||
-    mediaType === 'application/xml' ||
-    mediaType === 'application/javascript'
+    mediaType.startsWith("text/") ||
+    mediaType === "application/json" ||
+    mediaType === "application/xml" ||
+    mediaType === "application/javascript"
   );
 }
 
 /** Anthropic requires tool_use IDs to match ^[a-zA-Z0-9_-]+$ */
 function sanitizeToolId(id: string): string {
-  if (!id) return 'empty';
+  if (!id) return "empty";
   // Escape `x` itself (to `x78`) so it can safely serve as the hex-escape
   // prefix without collisions.  E.g. "a:" → "ax3a", "ax3a" → "ax783a".
   return id.replace(TOOL_ID_RE, (ch) => {
-    const hex = ch.charCodeAt(0).toString(16).padStart(4, '0');
+    const hex = ch.charCodeAt(0).toString(16).padStart(4, "0");
     return `x${hex}`;
   });
 }
 
-const SYNTHETIC_RESULT = '<synthesized_result>tool result missing from history</synthesized_result>';
+const SYNTHETIC_RESULT =
+  "<synthesized_result>tool result missing from history</synthesized_result>";
 
 // Null-byte prefix makes these placeholders impossible to produce via normal
 // model output or user input, preventing false positives in isPlaceholder().
-export const PLACEHOLDER_EMPTY_TURN = '\x00__PLACEHOLDER__[empty assistant turn]';
-export const PLACEHOLDER_BLOCKS_OMITTED = '\x00__PLACEHOLDER__[internal blocks omitted]';
+export const PLACEHOLDER_EMPTY_TURN =
+  "\x00__PLACEHOLDER__[empty assistant turn]";
+export const PLACEHOLDER_BLOCKS_OMITTED =
+  "\x00__PLACEHOLDER__[internal blocks omitted]";
 
 /** Type-guard for tool_use blocks in Anthropic-formatted content. */
 function isToolUseBlock(block: unknown): block is Anthropic.ToolUseBlockParam {
-  return typeof block === 'object' && block != null && (block as { type: string }).type === 'tool_use';
+  return (
+    typeof block === "object" &&
+    block != null &&
+    (block as { type: string }).type === "tool_use"
+  );
 }
 
 /** Type-guard for tool_result blocks in Anthropic-formatted content. */
-function isToolResultBlock(block: unknown): block is Anthropic.ToolResultBlockParam {
-  return typeof block === 'object' && block != null && (block as { type: string }).type === 'tool_result';
+function isToolResultBlock(
+  block: unknown,
+): block is Anthropic.ToolResultBlockParam {
+  return (
+    typeof block === "object" &&
+    block != null &&
+    (block as { type: string }).type === "tool_result"
+  );
 }
 
 /**
@@ -73,27 +89,32 @@ function isToolResultBlock(block: unknown): block is Anthropic.ToolResultBlockPa
  */
 function summarizeMessages(messages: Anthropic.MessageParam[]): string[] {
   return messages.map((m, idx) => {
-    const content = Array.isArray(m.content) ? m.content : [{ type: 'text' }];
+    const content = Array.isArray(m.content) ? m.content : [{ type: "text" }];
     const blockDescs = content.map((b) => {
       const bt = (b as { type: string }).type;
-      if (bt === 'tool_use') return `tool_use(${(b as { id: string }).id})`;
-      if (bt === 'tool_result') return `tool_result(${(b as { tool_use_id: string }).tool_use_id})`;
+      if (bt === "tool_use") return `tool_use(${(b as { id: string }).id})`;
+      if (bt === "tool_result")
+        return `tool_result(${(b as { tool_use_id: string }).tool_use_id})`;
       return bt;
     });
-    return `[${idx}] ${m.role}: ${blockDescs.join(', ') || '(empty)'}`;
+    return `[${idx}] ${m.role}: ${blockDescs.join(", ") || "(empty)"}`;
   });
 }
 
-function buildSyntheticToolResult(toolUseId: string): Anthropic.ToolResultBlockParam {
+function buildSyntheticToolResult(
+  toolUseId: string,
+): Anthropic.ToolResultBlockParam {
   return {
-    type: 'tool_result',
+    type: "tool_result",
     tool_use_id: toolUseId,
     content: SYNTHETIC_RESULT,
     is_error: true,
   };
 }
 
-function getOrderedToolUseIds(content: Anthropic.ContentBlockParam[]): string[] {
+function getOrderedToolUseIds(
+  content: Anthropic.ContentBlockParam[],
+): string[] {
   const ids: string[] = [];
   const seen = new Set<string>();
   for (const block of content) {
@@ -118,9 +139,7 @@ function hasOrderedToolResultPrefix(
   return true;
 }
 
-function splitAssistantForToolPairing(
-  content: Anthropic.ContentBlockParam[],
-): {
+function splitAssistantForToolPairing(content: Anthropic.ContentBlockParam[]): {
   pairedContent: Anthropic.ContentBlockParam[];
   carryoverContent: Anthropic.ContentBlockParam[];
   toolUseIds: string[];
@@ -151,7 +170,10 @@ function splitAssistantForToolPairing(
     };
   }
 
-  const pairedContent: Anthropic.ContentBlockParam[] = [...leading, ...toolUseBlocks];
+  const pairedContent: Anthropic.ContentBlockParam[] = [
+    ...leading,
+    ...toolUseBlocks,
+  ];
   return {
     pairedContent,
     carryoverContent: carryover,
@@ -174,9 +196,9 @@ function normalizeFollowingUserContent(
 
   for (const block of nextContent) {
     if (
-      isToolResultBlock(block)
-      && pendingIds.has(block.tool_use_id)
-      && !matchedById.has(block.tool_use_id)
+      isToolResultBlock(block) &&
+      pendingIds.has(block.tool_use_id) &&
+      !matchedById.has(block.tool_use_id)
     ) {
       matchedById.set(block.tool_use_id, block);
       continue;
@@ -193,7 +215,10 @@ function normalizeFollowingUserContent(
     toolResultPrefix: orderedResults,
     remainingContent: remaining,
     missingIds,
-    hadOrderedPrefix: hasOrderedToolResultPrefix(nextContent, orderedToolUseIds),
+    hadOrderedPrefix: hasOrderedToolResultPrefix(
+      nextContent,
+      orderedToolUseIds,
+    ),
   };
 }
 
@@ -214,18 +239,15 @@ function ensureToolPairing(
   while (i < messages.length) {
     const msg = messages[i];
 
-    if (msg.role !== 'assistant') {
+    if (msg.role !== "assistant") {
       result.push(msg);
       i++;
       continue;
     }
 
     const content = Array.isArray(msg.content) ? msg.content : [];
-    const {
-      pairedContent,
-      carryoverContent,
-      toolUseIds,
-    } = splitAssistantForToolPairing(content);
+    const { pairedContent, carryoverContent, toolUseIds } =
+      splitAssistantForToolPairing(content);
 
     if (toolUseIds.length === 0) {
       result.push(msg);
@@ -235,20 +257,24 @@ function ensureToolPairing(
 
     // Assistant message — push the paired portion (pre-tool text + tool_use blocks)
     result.push({
-      role: 'assistant' as const,
+      role: "assistant" as const,
       content: pairedContent,
     });
 
     if (carryoverContent.length > 0) {
       log.debug(
-        { msgIndex: i, carryoverBlocks: carryoverContent.length, totalToolUse: toolUseIds.length },
-        'Split assistant trailing non-tool blocks into post-tool carryover message',
+        {
+          msgIndex: i,
+          carryoverBlocks: carryoverContent.length,
+          totalToolUse: toolUseIds.length,
+        },
+        "Split assistant trailing non-tool blocks into post-tool carryover message",
       );
     }
 
     // There are tool_use blocks — ensure the next message has matching tool_results
     const next = messages[i + 1];
-    if (next && next.role === 'user') {
+    if (next && next.role === "user") {
       const nextContent = Array.isArray(next.content) ? next.content : [];
       const normalized = normalizeFollowingUserContent(nextContent, toolUseIds);
       if (normalized.missingIds.length > 0) {
@@ -259,13 +285,13 @@ function ensureToolPairing(
             totalToolUse: toolUseIds.length,
             msgIndex: i,
           },
-          'Injecting synthetic tool_result blocks in Anthropic client',
+          "Injecting synthetic tool_result blocks in Anthropic client",
         );
       }
       if (!normalized.hadOrderedPrefix) {
         log.debug(
           { msgIndex: i, totalToolUse: toolUseIds.length },
-          'Reordered user message so tool_result blocks immediately follow assistant tool_use',
+          "Reordered user message so tool_result blocks immediately follow assistant tool_use",
         );
       }
 
@@ -273,39 +299,48 @@ function ensureToolPairing(
         // Reconstruct collapsed chronology:
         // assistant(tool_use...) -> user(tool_result...) -> assistant(trailing text) -> user(remaining text)
         result.push({
-          role: 'user' as const,
+          role: "user" as const,
           content: normalized.toolResultPrefix,
         });
         result.push({
-          role: 'assistant' as const,
+          role: "assistant" as const,
           content: carryoverContent,
         });
         // Always emit a trailing user message to maintain alternation, even if the
         // original user turn had only tool_result blocks. Use a synthetic placeholder
         // when remainingContent is empty.
         result.push({
-          role: 'user' as const,
-          content: normalized.remainingContent.length > 0
-            ? normalized.remainingContent
-            : [{ type: 'text' as const, text: '(continue)' }],
+          role: "user" as const,
+          content:
+            normalized.remainingContent.length > 0
+              ? normalized.remainingContent
+              : [{ type: "text" as const, text: "(continue)" }],
         });
       } else {
         // No carryover assistant text to restore, so preserve existing behavior
         // and keep additional user blocks in the same message.
         result.push({
-          role: 'user' as const,
-          content: [...normalized.toolResultPrefix, ...normalized.remainingContent],
+          role: "user" as const,
+          content: [
+            ...normalized.toolResultPrefix,
+            ...normalized.remainingContent,
+          ],
         });
       }
       i += 2; // skip both assistant (already pushed) and original user (replaced)
     } else {
       // No following user message or next is assistant — inject synthetic user
       log.warn(
-        { toolUseCount: toolUseIds.length, toolUseIds, msgIndex: i, nextRole: next?.role },
-        'Injecting synthetic tool_result user message in Anthropic client',
+        {
+          toolUseCount: toolUseIds.length,
+          toolUseIds,
+          msgIndex: i,
+          nextRole: next?.role,
+        },
+        "Injecting synthetic tool_result user message in Anthropic client",
       );
       result.push({
-        role: 'user' as const,
+        role: "user" as const,
         content: toolUseIds.map((id) => buildSyntheticToolResult(id)),
       });
 
@@ -313,7 +348,7 @@ function ensureToolPairing(
       // separate assistant message after synthetic tool_result repair.
       if (carryoverContent.length > 0) {
         result.push({
-          role: 'assistant' as const,
+          role: "assistant" as const,
           content: carryoverContent,
         });
       }
@@ -325,21 +360,28 @@ function ensureToolPairing(
   // Self-validation: verify no tool_use/tool_result mismatches remain
   for (let j = 0; j < result.length; j++) {
     const m = result[j];
-    if (m.role !== 'assistant') continue;
+    if (m.role !== "assistant") continue;
     const c = Array.isArray(m.content) ? m.content : [];
     const ids = getOrderedToolUseIds(c);
     if (ids.length === 0) continue;
 
     const nxt = result[j + 1];
-    const nxtContent = nxt && nxt.role === 'user' && Array.isArray(nxt.content) ? nxt.content : [];
+    const nxtContent =
+      nxt && nxt.role === "user" && Array.isArray(nxt.content)
+        ? nxt.content
+        : [];
     if (!hasOrderedToolResultPrefix(nxtContent, ids)) {
       const unmatchedIds = ids.filter((id, idx) => {
         const block = nxtContent[idx];
         return !(isToolResultBlock(block) && block.tool_use_id === id);
       });
       log.error(
-        { unmatchedIds, msgIndex: j, messageSummary: summarizeMessages(result) },
-        'ensureToolPairing self-validation FAILED — tool_result prefix mismatch after repair',
+        {
+          unmatchedIds,
+          msgIndex: j,
+          messageSummary: summarizeMessages(result),
+        },
+        "ensureToolPairing self-validation FAILED — tool_result prefix mismatch after repair",
       );
     }
   }
@@ -355,11 +397,15 @@ export class AnthropicProvider implements Provider {
   private streamTimeoutMs: number;
   private fastMode: boolean;
 
-  constructor(apiKey: string, model: string, options: { useNativeWebSearch?: boolean; streamTimeoutMs?: number } = {}) {
+  constructor(
+    apiKey: string,
+    model: string,
+    options: { useNativeWebSearch?: boolean; streamTimeoutMs?: number } = {},
+  ) {
     this.client = new Anthropic({ apiKey });
     // Models ending in "-fast" use the beta fast-mode API
-    this.fastMode = model.endsWith('-fast');
-    this.model = this.fastMode ? model.slice(0, -'-fast'.length) : model;
+    this.fastMode = model.endsWith("-fast");
+    this.model = this.fastMode ? model.slice(0, -"-fast".length) : model;
     this.useNativeWebSearch = options.useNativeWebSearch ?? false;
     this.streamTimeoutMs = options.streamTimeoutMs ?? 300_000;
   }
@@ -373,52 +419,70 @@ export class AnthropicProvider implements Provider {
     const { config, onEvent, signal } = options ?? {};
     let sentMessages: Anthropic.MessageParam[] | undefined;
     try {
-      const formatted = messages.map((m) => {
-        // Track whether an unknown block was dropped during filtering
-        let droppedUnknownBlock = false;
+      const formatted = messages
+        .map((m) => {
+          // Track whether an unknown block was dropped during filtering
+          let droppedUnknownBlock = false;
 
-        const content = m.content
-          .map((block) => {
-            const result = this.toAnthropicBlockSafe(block);
-            if (result == null) {
-              droppedUnknownBlock = true;
-            }
-            return result;
-          })
-          .filter((block): block is Anthropic.ContentBlockParam => block != null)
-          .filter((block) => !(block.type === 'text' && !(block as { text?: string }).text?.trim()));
+          const content = m.content
+            .map((block) => {
+              const result = this.toAnthropicBlockSafe(block);
+              if (result == null) {
+                droppedUnknownBlock = true;
+              }
+              return result;
+            })
+            .filter(
+              (block): block is Anthropic.ContentBlockParam => block != null,
+            )
+            .filter(
+              (block) =>
+                !(
+                  block.type === "text" &&
+                  !(block as { text?: string }).text?.trim()
+                ),
+            );
 
-        // Preserve assistant turns that would otherwise become empty after filtering
-        // unknown block types (e.g. ui_surface). Dropping these messages can violate
-        // Anthropic's role alternation requirement.
-        if (content.length === 0 && m.role === 'assistant' && droppedUnknownBlock) {
+          // Preserve assistant turns that would otherwise become empty after filtering
+          // unknown block types (e.g. ui_surface). Dropping these messages can violate
+          // Anthropic's role alternation requirement.
+          if (
+            content.length === 0 &&
+            m.role === "assistant" &&
+            droppedUnknownBlock
+          ) {
+            return {
+              role: m.role as "assistant",
+              content: [
+                { type: "text" as const, text: PLACEHOLDER_BLOCKS_OMITTED },
+              ],
+            };
+          }
+
           return {
-            role: m.role as 'assistant',
-            content: [{ type: 'text' as const, text: PLACEHOLDER_BLOCKS_OMITTED }],
-          };
-        }
-
-        return {
-          role: m.role,
-          content,
-        } as Anthropic.MessageParam;
-      }).reduce<Anthropic.MessageParam[]>((acc, m) => {
-        if (m.content.length > 0) {
-          acc.push(m);
+            role: m.role,
+            content,
+          } as Anthropic.MessageParam;
+        })
+        .reduce<Anthropic.MessageParam[]>((acc, m) => {
+          if (m.content.length > 0) {
+            acc.push(m);
+            return acc;
+          }
+          // Dropping an empty assistant message between two user messages (or vice
+          // versa) would create consecutive same-role messages, violating
+          // Anthropic's role alternation requirement. Inject a placeholder instead.
+          const prev = acc[acc.length - 1];
+          if (m.role === "assistant" && prev && prev.role !== "assistant") {
+            acc.push({
+              role: "assistant" as const,
+              content: [
+                { type: "text" as const, text: PLACEHOLDER_EMPTY_TURN },
+              ],
+            });
+          }
           return acc;
-        }
-        // Dropping an empty assistant message between two user messages (or vice
-        // versa) would create consecutive same-role messages, violating
-        // Anthropic's role alternation requirement. Inject a placeholder instead.
-        const prev = acc[acc.length - 1];
-        if (m.role === 'assistant' && prev && prev.role !== 'assistant') {
-          acc.push({
-            role: 'assistant' as const,
-            content: [{ type: 'text' as const, text: PLACEHOLDER_EMPTY_TURN }],
-          });
-        }
-        return acc;
-      }, []);
+        }, []);
 
       // Post-processing: fix consecutive same-role messages that can arise when
       // dropping empty messages (e.g. empty assistant followed by empty user).
@@ -428,13 +492,25 @@ export class AnthropicProvider implements Provider {
         if (formatted[i].role !== formatted[i - 1].role) continue;
         // For consecutive assistant messages, remove whichever one is a
         // placeholder injected by the reduce above.
-        if (formatted[i].role === 'assistant') {
-          const iContent = Array.isArray(formatted[i].content) ? formatted[i].content : [];
-          const prevContent = Array.isArray(formatted[i - 1].content) ? formatted[i - 1].content : [];
+        if (formatted[i].role === "assistant") {
+          const iContent = Array.isArray(formatted[i].content)
+            ? formatted[i].content
+            : [];
+          const prevContent = Array.isArray(formatted[i - 1].content)
+            ? formatted[i - 1].content
+            : [];
           const isPlaceholder = (c: typeof iContent) => {
-            if (c.length !== 1 || typeof c[0] === 'string' || c[0].type !== 'text') return false;
+            if (
+              c.length !== 1 ||
+              typeof c[0] === "string" ||
+              c[0].type !== "text"
+            )
+              return false;
             const text = (c[0] as { text?: string }).text;
-            return text === PLACEHOLDER_EMPTY_TURN || text === PLACEHOLDER_BLOCKS_OMITTED;
+            return (
+              text === PLACEHOLDER_EMPTY_TURN ||
+              text === PLACEHOLDER_BLOCKS_OMITTED
+            );
           };
           if (isPlaceholder(iContent)) {
             formatted.splice(i, 1);
@@ -445,43 +521,57 @@ export class AnthropicProvider implements Provider {
       }
 
       sentMessages = ensureToolPairing(formatted);
+      const { effort, ...restConfig } = (config ?? {}) as Record<
+        string,
+        unknown
+      > & { effort?: string };
       const params: Anthropic.MessageCreateParams = {
         model: this.model,
         max_tokens: 64000,
         messages: sentMessages,
-        ...config,
+        ...restConfig,
+        ...(effort ? { output_config: { effort } } : {}),
       };
 
       if (systemPrompt) {
         params.system = [
           {
-            type: 'text' as const,
+            type: "text" as const,
             text: systemPrompt,
-            cache_control: { type: 'ephemeral' as const },
+            cache_control: { type: "ephemeral" as const },
           },
         ];
       }
 
       if (tools && tools.length > 0) {
-        if (this.useNativeWebSearch && tools.some(t => t.name === 'web_search')) {
-          const otherTools = tools.filter(t => t.name !== 'web_search');
+        if (
+          this.useNativeWebSearch &&
+          tools.some((t) => t.name === "web_search")
+        ) {
+          const otherTools = tools.filter((t) => t.name !== "web_search");
           const mappedOther = otherTools.map((t, i) => ({
             name: t.name,
             description: t.description,
-            input_schema: t.input_schema as Anthropic.Tool['input_schema'],
-            ...(i === otherTools.length - 1 ? { cache_control: { type: 'ephemeral' as const } } : {}),
+            input_schema: t.input_schema as Anthropic.Tool["input_schema"],
+            ...(i === otherTools.length - 1
+              ? { cache_control: { type: "ephemeral" as const } }
+              : {}),
           }));
           params.tools = [
             ...mappedOther,
-            { type: 'web_search_20250305' as const, name: 'web_search' as const, max_uses: 5 },
-          ] as unknown as Anthropic.MessageCreateParams['tools'];
+            {
+              type: "web_search_20250305" as const,
+              name: "web_search" as const,
+              max_uses: 5,
+            },
+          ] as unknown as Anthropic.MessageCreateParams["tools"];
         } else {
           params.tools = tools.map((t, i) => ({
             name: t.name,
             description: t.description,
             input_schema: t.input_schema as Anthropic.Tool["input_schema"],
             ...(i === tools.length - 1
-              ? { cache_control: { type: 'ephemeral' as const } }
+              ? { cache_control: { type: "ephemeral" as const } }
               : {}),
           }));
         }
@@ -491,23 +581,31 @@ export class AnthropicProvider implements Provider {
       // conversation prefix is cached between agent-loop iterations.
       const userIndices: number[] = [];
       for (let i = 0; i < params.messages.length; i++) {
-        if (params.messages[i].role === 'user') userIndices.push(i);
+        if (params.messages[i].role === "user") userIndices.push(i);
       }
       for (const idx of userIndices.slice(-2)) {
         const content = params.messages[idx].content;
         if (Array.isArray(content) && content.length > 0) {
-          (content[content.length - 1] as unknown as { cache_control?: { type: string } })
-            .cache_control = { type: 'ephemeral' };
+          (
+            content[content.length - 1] as unknown as {
+              cache_control?: { type: string };
+            }
+          ).cache_control = { type: "ephemeral" };
         }
       }
 
-      const { signal: timeoutSignal, cleanup: cleanupTimeout } = createStreamTimeout(this.streamTimeoutMs, signal);
+      const { signal: timeoutSignal, cleanup: cleanupTimeout } =
+        createStreamTimeout(this.streamTimeoutMs, signal);
 
       let response: Anthropic.Message;
       try {
         const stream = this.fastMode
           ? this.client.beta.messages.stream(
-              { ...params, betas: ['fast-mode-2026-02-01'], speed: 'fast' } as Parameters<typeof this.client.beta.messages.stream>[0],
+              {
+                ...params,
+                betas: ["fast-mode-2026-02-01"],
+                speed: "fast",
+              } as Parameters<typeof this.client.beta.messages.stream>[0],
               { signal: timeoutSignal },
             )
           : this.client.messages.stream(params, { signal: timeoutSignal });
@@ -526,7 +624,7 @@ export class AnthropicProvider implements Provider {
 
         // Track which tool is currently streaming so we can attribute inputJson deltas.
         let currentStreamingToolName: string | undefined;
-        let accumulatedInputJson = '';
+        let accumulatedInputJson = "";
         let lastInputJsonEmitMs = 0;
         let pendingInputJsonFlush: ReturnType<typeof setTimeout> | undefined;
 
@@ -536,32 +634,42 @@ export class AnthropicProvider implements Provider {
           // concatenated without whitespace (e.g. "sentence.NextSentence").
           // Uses a space instead of \n because the client's MarkdownRenderer
           // can collapse soft line breaks (\n) within a paragraph.
-          if (event.type === 'content_block_start' && event.content_block.type === 'text') {
+          if (
+            event.type === "content_block_start" &&
+            event.content_block.type === "text"
+          ) {
             if (hasSeenTextBlock) {
               onEvent?.({ type: "text_delta", text: " " });
             }
             hasSeenTextBlock = true;
-          } else if (event.type === 'content_block_start') {
+          } else if (event.type === "content_block_start") {
             // Reset on non-text blocks so that text separated by tool_use
             // (text -> tool_use -> text) doesn't get a spurious leading space
             // in the second text segment.
             hasSeenTextBlock = false;
           }
-          if (event.type === 'content_block_start' && event.content_block.type === 'tool_use') {
+          if (
+            event.type === "content_block_start" &&
+            event.content_block.type === "tool_use"
+          ) {
             currentStreamingToolName = event.content_block.name;
-            accumulatedInputJson = '';
+            accumulatedInputJson = "";
             lastInputJsonEmitMs = 0;
           }
-          if (event.type === 'content_block_stop') {
+          if (event.type === "content_block_stop") {
             if (pendingInputJsonFlush) {
               clearTimeout(pendingInputJsonFlush);
               pendingInputJsonFlush = undefined;
             }
             if (currentStreamingToolName && accumulatedInputJson) {
-              onEvent?.({ type: "input_json_delta", toolName: currentStreamingToolName, accumulatedJson: accumulatedInputJson });
+              onEvent?.({
+                type: "input_json_delta",
+                toolName: currentStreamingToolName,
+                accumulatedJson: accumulatedInputJson,
+              });
             }
             currentStreamingToolName = undefined;
-            accumulatedInputJson = '';
+            accumulatedInputJson = "";
           }
         });
 
@@ -575,14 +683,22 @@ export class AnthropicProvider implements Provider {
               clearTimeout(pendingInputJsonFlush);
               pendingInputJsonFlush = undefined;
             }
-            onEvent?.({ type: "input_json_delta", toolName: currentStreamingToolName, accumulatedJson: accumulatedInputJson });
+            onEvent?.({
+              type: "input_json_delta",
+              toolName: currentStreamingToolName,
+              accumulatedJson: accumulatedInputJson,
+            });
           } else if (!pendingInputJsonFlush) {
             const toolName = currentStreamingToolName;
             pendingInputJsonFlush = setTimeout(() => {
               pendingInputJsonFlush = undefined;
               lastInputJsonEmitMs = Date.now();
               if (currentStreamingToolName === toolName) {
-                onEvent?.({ type: "input_json_delta", toolName, accumulatedJson: accumulatedInputJson });
+                onEvent?.({
+                  type: "input_json_delta",
+                  toolName,
+                  accumulatedJson: accumulatedInputJson,
+                });
               }
             }, 150);
           }
@@ -599,12 +715,15 @@ export class AnthropicProvider implements Provider {
         ),
         model: this.fastMode ? `${response.model}-fast` : response.model,
         usage: {
-          inputTokens: response.usage.input_tokens
-            + (response.usage.cache_creation_input_tokens ?? 0)
-            + (response.usage.cache_read_input_tokens ?? 0),
+          inputTokens:
+            response.usage.input_tokens +
+            (response.usage.cache_creation_input_tokens ?? 0) +
+            (response.usage.cache_read_input_tokens ?? 0),
           outputTokens: response.usage.output_tokens,
-          cacheCreationInputTokens: response.usage.cache_creation_input_tokens ?? undefined,
-          cacheReadInputTokens: response.usage.cache_read_input_tokens ?? undefined,
+          cacheCreationInputTokens:
+            response.usage.cache_creation_input_tokens ?? undefined,
+          cacheReadInputTokens:
+            response.usage.cache_read_input_tokens ?? undefined,
         },
         stopReason: response.stop_reason ?? "unknown",
         rawRequest: params,
@@ -613,21 +732,28 @@ export class AnthropicProvider implements Provider {
     } catch (error) {
       if (error instanceof Anthropic.APIError) {
         // Log detailed message structure for tool_use/tool_result ordering errors
-        if (error.status === 400 && /tool_use.*tool_result|tool_result.*tool_use/i.test(error.message) && sentMessages) {
+        if (
+          error.status === 400 &&
+          /tool_use.*tool_result|tool_result.*tool_use/i.test(error.message) &&
+          sentMessages
+        ) {
           log.error(
-            { messageSummary: summarizeMessages(sentMessages), messageCount: sentMessages.length },
-            'Anthropic 400: tool_use/tool_result pairing error — dumping message structure',
+            {
+              messageSummary: summarizeMessages(sentMessages),
+              messageCount: sentMessages.length,
+            },
+            "Anthropic 400: tool_use/tool_result pairing error — dumping message structure",
           );
         }
         throw new ProviderError(
           `Anthropic API error (${error.status}): ${error.message}`,
-          'anthropic',
+          "anthropic",
           error.status,
         );
       }
       throw new ProviderError(
         `Anthropic request failed: ${error instanceof Error ? error.message : String(error)}`,
-        'anthropic',
+        "anthropic",
         undefined,
         { cause: error },
       );
@@ -647,26 +773,35 @@ export class AnthropicProvider implements Provider {
       case "text":
         return { type: "text", text: block.text };
       case "thinking":
-        return { type: "thinking", thinking: block.thinking, signature: block.signature };
+        return {
+          type: "thinking",
+          thinking: block.thinking,
+          signature: block.signature,
+        };
       case "redacted_thinking":
         return { type: "redacted_thinking", data: block.data };
       case "image":
         if (!ANTHROPIC_SUPPORTED_IMAGE_TYPES.has(block.source.media_type)) {
-          log.warn(`Unsupported image MIME type for Anthropic: ${block.source.media_type}; replacing with text placeholder`);
-          return { type: "text", text: `[Image: ${block.source.media_type} — format not supported by this provider]` };
+          log.warn(
+            `Unsupported image MIME type for Anthropic: ${block.source.media_type}; replacing with text placeholder`,
+          );
+          return {
+            type: "text",
+            text: `[Image: ${block.source.media_type} — format not supported by this provider]`,
+          };
         }
         return {
           type: "image",
           source: {
             type: "base64",
-            media_type:
-              block.source.media_type as Anthropic.Base64ImageSource["media_type"],
+            media_type: block.source
+              .media_type as Anthropic.Base64ImageSource["media_type"],
             data: block.source.data,
           },
         };
       case "file": {
         const { media_type, data, filename } = block.source;
-        if (media_type === 'application/pdf') {
+        if (media_type === "application/pdf") {
           // Only valid base64 document source for Anthropic
           return {
             type: "document",
@@ -676,18 +811,24 @@ export class AnthropicProvider implements Provider {
         }
         if (isTextBasedMimeType(media_type)) {
           // Decode base64 to UTF-8 text and send as PlainTextSource
-          const decodedText = Buffer.from(data, 'base64').toString('utf-8');
+          const decodedText = Buffer.from(data, "base64").toString("utf-8");
           return {
             type: "document",
-            source: { type: "text", media_type: "text/plain", data: decodedText },
+            source: {
+              type: "text",
+              media_type: "text/plain",
+              data: decodedText,
+            },
             ...(filename ? { title: filename } : {}),
           } as unknown as Anthropic.ContentBlockParam;
         }
         // Binary non-text file: use extracted_text if available, otherwise a placeholder
-        log.warn(`Binary file type not natively supported by Anthropic: ${media_type}; falling back to text`);
+        log.warn(
+          `Binary file type not natively supported by Anthropic: ${media_type}; falling back to text`,
+        );
         const fallbackText = block.extracted_text?.trim()
           ? block.extracted_text
-          : `[File: ${filename ?? 'unknown'} (${media_type}) — binary file]`;
+          : `[File: ${filename ?? "unknown"} (${media_type}) — binary file]`;
         return { type: "text", text: fallbackText };
       }
       case "tool_use":
@@ -701,20 +842,21 @@ export class AnthropicProvider implements Provider {
         const toolUseId = sanitizeToolId(block.tool_use_id);
         if (block.contentBlocks && block.contentBlocks.length > 0) {
           // Build rich content array: text + images for Anthropic's native multi-part tool results
-          const parts: Anthropic.ToolResultBlockParam['content'] = [
+          const parts: Anthropic.ToolResultBlockParam["content"] = [
             { type: "text" as const, text: block.content },
           ];
           for (const cb of block.contentBlocks) {
-            if (cb.type === 'image') {
+            if (cb.type === "image") {
               parts.push({
                 type: "image" as const,
                 source: {
                   type: "base64" as const,
-                  media_type: cb.source.media_type as Anthropic.Base64ImageSource["media_type"],
+                  media_type: cb.source
+                    .media_type as Anthropic.Base64ImageSource["media_type"],
                   data: cb.source.data,
                 },
               });
-            } else if (cb.type === 'text') {
+            } else if (cb.type === "text") {
               parts.push({ type: "text" as const, text: cb.text });
             }
           }
@@ -733,23 +875,31 @@ export class AnthropicProvider implements Provider {
         };
       }
       default: {
-        log.warn({ blockType: (block as { type: string }).type }, 'Dropping unknown content block type');
+        log.warn(
+          { blockType: (block as { type: string }).type },
+          "Dropping unknown content block type",
+        );
         return null;
       }
     }
   }
 
-  private fromAnthropicBlock(
-    block: AnthropicContentBlock,
-  ): ContentBlock {
+  private fromAnthropicBlock(block: AnthropicContentBlock): ContentBlock {
     const blockType = block.type as string;
     switch (blockType) {
       case "text":
         return { type: "text", text: (block as Anthropic.TextBlock).text };
       case "thinking":
-        return { type: "thinking", thinking: (block as Anthropic.ThinkingBlock).thinking, signature: (block as Anthropic.ThinkingBlock).signature };
+        return {
+          type: "thinking",
+          thinking: (block as Anthropic.ThinkingBlock).thinking,
+          signature: (block as Anthropic.ThinkingBlock).signature,
+        };
       case "redacted_thinking":
-        return { type: "redacted_thinking", data: (block as Anthropic.RedactedThinkingBlock).data };
+        return {
+          type: "redacted_thinking",
+          data: (block as Anthropic.RedactedThinkingBlock).data,
+        };
       case "tool_use": {
         const tu = block as Anthropic.ToolUseBlock;
         return {
@@ -768,5 +918,4 @@ export class AnthropicProvider implements Provider {
         return { type: "text", text: `[unsupported block type: ${blockType}]` };
     }
   }
-
 }

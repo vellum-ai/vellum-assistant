@@ -279,7 +279,7 @@ describe("Telegram config handler", () => {
         );
       }
       return originalFetch(url);
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const msg: TelegramConfigRequest = {
       type: "telegram_config",
@@ -340,7 +340,7 @@ describe("Telegram config handler", () => {
         );
       }
       return originalFetch(url);
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const msg: TelegramConfigRequest = {
       type: "telegram_config",
@@ -404,7 +404,7 @@ describe("Telegram config handler", () => {
         );
       }
       return originalFetch(url);
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const msg: TelegramConfigRequest = {
       type: "telegram_config",
@@ -529,7 +529,7 @@ describe("Telegram config handler", () => {
         );
       }
       return originalFetch(url);
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const msg: TelegramConfigRequest = {
       type: "telegram_config",
@@ -581,7 +581,7 @@ describe("Telegram config handler", () => {
         );
       }
       return originalFetch(url);
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const msg: TelegramConfigRequest = {
       type: "telegram_config",
@@ -629,7 +629,7 @@ describe("Telegram config handler", () => {
         );
       }
       return originalFetch(url);
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const msg: TelegramConfigRequest = {
       type: "telegram_config",
@@ -707,7 +707,7 @@ describe("Telegram config handler", () => {
         );
       }
       return originalFetch(url);
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const msg: TelegramConfigRequest = {
       type: "telegram_config",
@@ -813,7 +813,7 @@ describe("Telegram config handler", () => {
         );
       }
       return originalFetch(url);
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const msg: TelegramConfigRequest = {
       type: "telegram_config",
@@ -882,7 +882,7 @@ describe("Telegram config handler", () => {
         );
       }
       return originalFetch(url);
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const msg: TelegramConfigRequest = {
       type: "telegram_config",
@@ -946,7 +946,7 @@ describe("Telegram config handler", () => {
         });
       }
       return originalFetch(url);
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const { ctx, sent } = createTestContext();
     await handleTelegramConfig(
@@ -1040,7 +1040,7 @@ describe("Telegram config handler", () => {
         });
       }
       return originalFetch(url);
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const msg: TelegramConfigRequest = {
       type: "telegram_config",
@@ -1096,7 +1096,7 @@ describe("Telegram config handler", () => {
         });
       }
       return originalFetch(url);
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const msg: TelegramConfigRequest = {
       type: "telegram_config",
@@ -1159,7 +1159,7 @@ describe("Telegram config handler", () => {
         );
       }
       return originalFetch(url);
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const msg: TelegramConfigRequest = {
       type: "telegram_config",
@@ -1198,7 +1198,7 @@ describe("Telegram config handler", () => {
         });
       }
       return originalFetch(url);
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     // Call set_commands WITHOUT explicit commands to use defaults
     const msg: TelegramConfigRequest = {

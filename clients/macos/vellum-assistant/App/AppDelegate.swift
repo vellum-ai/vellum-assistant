@@ -136,6 +136,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     private var quickInputWindow: QuickInputWindow?
     private var quickInputHotKeyRef: EventHotKeyRef?
     private var quickInputEventHandlerRef: EventHandlerRef?
+    private var commandPaletteWindow: CommandPaletteWindow?
+    private var cmdKLocalMonitor: Any?
     public let services = AppServices()
     private let assistantCli = AssistantCli()
     public let updateManager = UpdateManager()
@@ -1340,6 +1342,16 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             )
         }
 
+        // Schedule threads — created when the scheduler fires and creates a conversation.
+        daemonClient.onScheduleThreadCreated = { [weak self] msg in
+            guard let self, !self.isBootstrapping else { return }
+            self.mainWindow?.threadManager.createScheduleThread(
+                conversationId: msg.conversationId,
+                scheduleJobId: msg.scheduleJobId,
+                title: msg.title
+            )
+        }
+
         // Notification threads — created when the notification pipeline delivers
         // to the vellum channel with start_new_conversation strategy.
         daemonClient.onNotificationThreadCreated = { [weak self] msg in
@@ -1876,6 +1888,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         registerGlobalHotkeyMonitor()
         registerQuickInputMonitor()
         registerFnVMonitor()
+        registerCmdKMonitor()
 
         globalHotkeyObserver = NotificationCenter.default
             .publisher(for: UserDefaults.didChangeNotification)
@@ -1976,6 +1989,78 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             _ = handler(event)
         }
         fnVLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
+    }
+
+    /// Registers Cmd+K as a local shortcut to open the command palette.
+    /// Only active when the app is focused (local monitor, not global).
+    private func registerCmdKMonitor() {
+        let handler: (NSEvent) -> NSEvent? = { [weak self] event in
+            // Cmd+K: keyCode 40 is kVK_ANSI_K
+            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            guard event.keyCode == 40,
+                  mods == [.command] else {
+                return event
+            }
+            Task { @MainActor in
+                guard self?.isBootstrapping != true else { return }
+                self?.toggleCommandPalette()
+            }
+            return nil // consume the event
+        }
+        cmdKLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
+    }
+
+    func toggleCommandPalette() {
+        if let window = commandPaletteWindow, window.isVisible {
+            window.dismiss()
+            return
+        }
+
+        let window = CommandPaletteWindow()
+
+        // Static actions
+        window.actions = [
+            CommandPaletteAction(id: "new-conversation", icon: "square.and.pencil", label: "New Conversation", shortcutHint: "\u{2318}N") { [weak self] in
+                self?.mainWindow?.threadManager.enterDraftMode()
+                self?.mainWindow?.windowState.selection = nil
+            },
+            CommandPaletteAction(id: "settings", icon: "gear", label: "Settings", shortcutHint: "\u{2318},") { [weak self] in
+                self?.mainWindow?.windowState.togglePanel(.settings)
+            },
+            CommandPaletteAction(id: "app-directory", icon: "square.grid.2x2", label: "App Directory", shortcutHint: nil) { [weak self] in
+                self?.mainWindow?.windowState.showAppsPanel()
+            },
+            CommandPaletteAction(id: "intelligence", icon: "brain.head.profile", label: "Intelligence", shortcutHint: nil) { [weak self] in
+                self?.mainWindow?.windowState.togglePanel(.intelligence)
+            },
+        ]
+
+        // Recent conversations from ThreadManager
+        if let threads = mainWindow?.threadManager.threads {
+            window.recentItems = threads
+                .filter { !$0.isArchived }
+                .sorted { $0.lastInteractedAt > $1.lastInteractedAt }
+                .prefix(5)
+                .map { CommandPaletteRecentItem(id: $0.id, title: $0.title, lastInteracted: $0.lastInteractedAt) }
+        }
+
+        window.onSelectConversation = { [weak self] threadId in
+            self?.mainWindow?.threadManager.selectThread(id: threadId)
+        }
+
+        // Wire runtime HTTP resolver for server search
+        window.runtimeHTTPResolver = {
+            let port = ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"]
+                .flatMap(Int.init) ?? 7821
+            if let jwt = ActorTokenManager.getToken(), !jwt.isEmpty {
+                return ("http://localhost:\(port)", jwt)
+            }
+            guard let token = readHttpToken() else { return nil }
+            return ("http://localhost:\(port)", token)
+        }
+
+        window.show()
+        commandPaletteWindow = window
     }
 
     func toggleQuickInput(aboveDock: Bool = false, requestScreenPermission: Bool? = nil) {

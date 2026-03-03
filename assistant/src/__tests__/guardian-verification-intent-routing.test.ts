@@ -13,7 +13,6 @@ describe("direct guardian setup phrases trigger forced routing", () => {
     "verify me as your guardian",
     "confirm me as guardian",
     "confirm me as your guardian",
-    "set me as guardian for SMS",
     "set me as guardian for voice",
     "set me as guardian for telegram",
     "set me up as guardian",
@@ -25,10 +24,8 @@ describe("direct guardian setup phrases trigger forced routing", () => {
     "can you verify me as guardian",
     "I want to become your guardian",
     "register me as your guardian",
-    "help me set myself up as your guardian via sms",
     "I need to set myself as guardian",
     "guardian verify",
-    "set me up as guardian for text message",
   ];
 
   for (const phrase of directSetupPhrases) {
@@ -142,14 +139,15 @@ describe("slash commands are never intercepted", () => {
 // =====================================================================
 
 describe("channel hint extraction", () => {
-  test("detects SMS channel hint", () => {
+  test("SMS phrases still trigger setup but without SMS channel hint", () => {
     const result = resolveGuardianVerificationIntent(
       "set me as guardian for SMS",
     );
     expect(result.kind).toBe("direct_setup");
     if (result.kind === "direct_setup") {
-      expect(result.channelHint).toBe("sms");
-      expect(result.rewrittenContent).toContain("sms channel");
+      // SMS is no longer a supported channel; the intent still matches on
+      // the guardian setup pattern but no channel hint is extracted.
+      expect(result.channelHint).toBeUndefined();
     }
   });
 

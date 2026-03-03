@@ -9,6 +9,7 @@ import type {
   SlackApiResponse,
   SlackAuthTestResponse,
   SlackChatDeleteResponse,
+  SlackChatUpdateResponse,
   SlackConversationHistoryResponse,
   SlackConversationInfoResponse,
   SlackConversationLeaveResponse,
@@ -20,9 +21,9 @@ import type {
   SlackReactionAddResponse,
   SlackSearchMessagesResponse,
   SlackUserInfoResponse,
-} from './types.js';
+} from "./types.js";
 
-const SLACK_API_BASE = 'https://slack.com/api';
+const SLACK_API_BASE = "https://slack.com/api";
 
 export class SlackApiError extends Error {
   constructor(
@@ -31,7 +32,7 @@ export class SlackApiError extends Error {
     message: string,
   ) {
     super(message);
-    this.name = 'SlackApiError';
+    this.name = "SlackApiError";
   }
 }
 
@@ -48,8 +49,8 @@ async function request<T extends SlackApiResponse>(
 
   let init: RequestInit;
   if (body) {
-    headers['Content-Type'] = 'application/json; charset=utf-8';
-    init = { method: 'POST', headers, body: JSON.stringify(body) };
+    headers["Content-Type"] = "application/json; charset=utf-8";
+    init = { method: "POST", headers, body: JSON.stringify(body) };
   } else {
     if (params) {
       const searchParams = new URLSearchParams();
@@ -58,37 +59,52 @@ async function request<T extends SlackApiResponse>(
       }
       url += `?${searchParams}`;
     }
-    init = { method: 'GET', headers };
+    init = { method: "GET", headers };
   }
 
   const resp = await fetch(url, init);
   if (!resp.ok) {
-    throw new SlackApiError(resp.status, `http_${resp.status}`, `Slack API HTTP ${resp.status}`);
+    throw new SlackApiError(
+      resp.status,
+      `http_${resp.status}`,
+      `Slack API HTTP ${resp.status}`,
+    );
   }
 
   const data = (await resp.json()) as T;
   if (!data.ok) {
-    const slackError = data.error ?? 'unknown_error';
+    const slackError = data.error ?? "unknown_error";
     // Map auth errors to 401 for token-manager retry
-    const status = ['invalid_auth', 'token_expired', 'token_revoked', 'not_authed'].includes(slackError) ? 401 : 400;
-    throw new SlackApiError(status, slackError, `Slack API error: ${slackError}`);
+    const status = [
+      "invalid_auth",
+      "token_expired",
+      "token_revoked",
+      "not_authed",
+    ].includes(slackError)
+      ? 401
+      : 400;
+    throw new SlackApiError(
+      status,
+      slackError,
+      `Slack API error: ${slackError}`,
+    );
   }
 
   return data;
 }
 
 export async function authTest(token: string): Promise<SlackAuthTestResponse> {
-  return request<SlackAuthTestResponse>(token, 'auth.test');
+  return request<SlackAuthTestResponse>(token, "auth.test");
 }
 
 export async function listConversations(
   token: string,
-  types = 'public_channel,private_channel,mpim,im',
+  types = "public_channel,private_channel,mpim,im",
   excludeArchived = true,
   limit = 200,
   cursor?: string,
 ): Promise<SlackConversationsListResponse> {
-  return request<SlackConversationsListResponse>(token, 'conversations.list', {
+  return request<SlackConversationsListResponse>(token, "conversations.list", {
     types,
     exclude_archived: String(excludeArchived),
     limit: String(limit),
@@ -100,7 +116,9 @@ export async function conversationInfo(
   token: string,
   channel: string,
 ): Promise<SlackConversationInfoResponse> {
-  return request<SlackConversationInfoResponse>(token, 'conversations.info', { channel });
+  return request<SlackConversationInfoResponse>(token, "conversations.info", {
+    channel,
+  });
 }
 
 export async function conversationHistory(
@@ -111,13 +129,17 @@ export async function conversationHistory(
   oldest?: string,
   cursor?: string,
 ): Promise<SlackConversationHistoryResponse> {
-  return request<SlackConversationHistoryResponse>(token, 'conversations.history', {
-    channel,
-    limit: String(limit),
-    latest,
-    oldest,
-    cursor,
-  });
+  return request<SlackConversationHistoryResponse>(
+    token,
+    "conversations.history",
+    {
+      channel,
+      limit: String(limit),
+      latest,
+      oldest,
+      cursor,
+    },
+  );
 }
 
 export async function conversationReplies(
@@ -126,11 +148,15 @@ export async function conversationReplies(
   ts: string,
   limit = 50,
 ): Promise<SlackConversationRepliesResponse> {
-  return request<SlackConversationRepliesResponse>(token, 'conversations.replies', {
-    channel,
-    ts,
-    limit: String(limit),
-  });
+  return request<SlackConversationRepliesResponse>(
+    token,
+    "conversations.replies",
+    {
+      channel,
+      ts,
+      limit: String(limit),
+    },
+  );
 }
 
 export async function conversationMark(
@@ -138,26 +164,36 @@ export async function conversationMark(
   channel: string,
   ts: string,
 ): Promise<SlackConversationMarkResponse> {
-  return request<SlackConversationMarkResponse>(token, 'conversations.mark', undefined, {
-    channel,
-    ts,
-  });
+  return request<SlackConversationMarkResponse>(
+    token,
+    "conversations.mark",
+    undefined,
+    {
+      channel,
+      ts,
+    },
+  );
 }
 
 export async function conversationsOpen(
   token: string,
   userId: string,
 ): Promise<SlackConversationsOpenResponse> {
-  return request<SlackConversationsOpenResponse>(token, 'conversations.open', undefined, {
-    users: userId,
-  });
+  return request<SlackConversationsOpenResponse>(
+    token,
+    "conversations.open",
+    undefined,
+    {
+      users: userId,
+    },
+  );
 }
 
 export async function userInfo(
   token: string,
   userId: string,
 ): Promise<SlackUserInfoResponse> {
-  return request<SlackUserInfoResponse>(token, 'users.info', { user: userId });
+  return request<SlackUserInfoResponse>(token, "users.info", { user: userId });
 }
 
 export async function postMessage(
@@ -168,7 +204,12 @@ export async function postMessage(
 ): Promise<SlackPostMessageResponse> {
   const body: Record<string, unknown> = { channel, text };
   if (threadTs) body.thread_ts = threadTs;
-  return request<SlackPostMessageResponse>(token, 'chat.postMessage', undefined, body);
+  return request<SlackPostMessageResponse>(
+    token,
+    "chat.postMessage",
+    undefined,
+    body,
+  );
 }
 
 export async function searchMessages(
@@ -177,7 +218,7 @@ export async function searchMessages(
   count = 20,
   page = 1,
 ): Promise<SlackSearchMessagesResponse> {
-  return request<SlackSearchMessagesResponse>(token, 'search.messages', {
+  return request<SlackSearchMessagesResponse>(token, "search.messages", {
     query,
     count: String(count),
     page: String(page),
@@ -190,10 +231,23 @@ export async function addReaction(
   timestamp: string,
   name: string,
 ): Promise<SlackReactionAddResponse> {
-  return request<SlackReactionAddResponse>(token, 'reactions.add', undefined, {
+  return request<SlackReactionAddResponse>(token, "reactions.add", undefined, {
     channel,
     timestamp,
     name,
+  });
+}
+
+export async function updateMessage(
+  token: string,
+  channel: string,
+  ts: string,
+  text: string,
+): Promise<SlackChatUpdateResponse> {
+  return request<SlackChatUpdateResponse>(token, "chat.update", undefined, {
+    channel,
+    ts,
+    text,
   });
 }
 
@@ -202,7 +256,7 @@ export async function deleteMessage(
   channel: string,
   ts: string,
 ): Promise<SlackChatDeleteResponse> {
-  return request<SlackChatDeleteResponse>(token, 'chat.delete', undefined, {
+  return request<SlackChatDeleteResponse>(token, "chat.delete", undefined, {
     channel,
     ts,
   });
@@ -212,7 +266,12 @@ export async function leaveConversation(
   token: string,
   channel: string,
 ): Promise<SlackConversationLeaveResponse> {
-  return request<SlackConversationLeaveResponse>(token, 'conversations.leave', undefined, {
-    channel,
-  });
+  return request<SlackConversationLeaveResponse>(
+    token,
+    "conversations.leave",
+    undefined,
+    {
+      channel,
+    },
+  );
 }

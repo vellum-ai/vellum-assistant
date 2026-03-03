@@ -37,30 +37,12 @@ function createMockProvider(): {
   return { provider, lastConfig: () => capturedConfig };
 }
 
-describe("AgentLoop thinking budget clamping", () => {
-  test("clamps budget_tokens when it exceeds max_tokens", async () => {
-    const { provider, lastConfig } = createMockProvider();
-    const loop = new AgentLoop(provider, "test", {
-      maxTokens: 4096,
-      thinking: { enabled: true, budgetTokens: 10000 },
-    });
-
-    await loop.run(
-      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      () => {},
-    );
-
-    const config = lastConfig()!;
-    const thinking = config.thinking as { type: string; budget_tokens: number };
-    expect(thinking.type).toBe("enabled");
-    expect(thinking.budget_tokens).toBe(3072); // clamped to floor(maxTokens * 0.75)
-  });
-
-  test("does not clamp when budget_tokens is within max_tokens", async () => {
+describe("AgentLoop thinking and effort", () => {
+  test("sends adaptive thinking when thinking is enabled", async () => {
     const { provider, lastConfig } = createMockProvider();
     const loop = new AgentLoop(provider, "test", {
       maxTokens: 64000,
-      thinking: { enabled: true, budgetTokens: 10000 },
+      thinking: { enabled: true },
     });
 
     await loop.run(
@@ -69,15 +51,15 @@ describe("AgentLoop thinking budget clamping", () => {
     );
 
     const config = lastConfig()!;
-    const thinking = config.thinking as { type: string; budget_tokens: number };
-    expect(thinking.budget_tokens).toBe(10000); // unchanged
+    const thinking = config.thinking as { type: string };
+    expect(thinking.type).toBe("adaptive");
   });
 
   test("does not include thinking config when thinking is disabled", async () => {
     const { provider, lastConfig } = createMockProvider();
     const loop = new AgentLoop(provider, "test", {
       maxTokens: 64000,
-      thinking: { enabled: false, budgetTokens: 10000 },
+      thinking: { enabled: false },
     });
 
     await loop.run(
@@ -86,6 +68,40 @@ describe("AgentLoop thinking budget clamping", () => {
     );
 
     const config = lastConfig()!;
+    expect(config.thinking).toBeUndefined();
+  });
+
+  test("sends effort in provider config", async () => {
+    const { provider, lastConfig } = createMockProvider();
+    const loop = new AgentLoop(provider, "test", {
+      maxTokens: 64000,
+      effort: "high",
+    });
+
+    await loop.run(
+      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      () => {},
+    );
+
+    const config = lastConfig()!;
+    expect(config.effort).toBe("high");
+  });
+
+  test("sends effort without thinking when thinking is disabled", async () => {
+    const { provider, lastConfig } = createMockProvider();
+    const loop = new AgentLoop(provider, "test", {
+      maxTokens: 64000,
+      effort: "medium",
+      thinking: { enabled: false },
+    });
+
+    await loop.run(
+      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      () => {},
+    );
+
+    const config = lastConfig()!;
+    expect(config.effort).toBe("medium");
     expect(config.thinking).toBeUndefined();
   });
 });

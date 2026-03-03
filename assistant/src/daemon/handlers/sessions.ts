@@ -876,6 +876,7 @@ export function handleSessionList(socket: net.Socket, ctx: HandlerContext, offse
             username: binding.username,
           },
         } : {}),
+        ...(c.scheduleJobId ? { scheduleJobId: c.scheduleJobId } : {}),
         ...(originChannel ? { conversationOriginChannel: originChannel } : {}),
         ...(originInterface ? { conversationOriginInterface: originInterface } : {}),
         ...(assistantAttention ? { assistantAttention } : {}),

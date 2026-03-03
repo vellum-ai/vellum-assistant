@@ -485,6 +485,16 @@ extension IPCSharedAppsListRequest {
     }
 }
 
+/// Sent to delete a persistent user-created app by ID.
+/// Backed by generated `IPCAppDeleteRequest`.
+public typealias AppDeleteRequestMessage = IPCAppDeleteRequest
+
+extension IPCAppDeleteRequest {
+    public init(appId: String) {
+        self.init(type: "app_delete", appId: appId)
+    }
+}
+
 /// Sent to delete a shared app by UUID.
 /// Backed by generated `IPCSharedAppDeleteRequest`.
 public typealias SharedAppDeleteRequestMessage = IPCSharedAppDeleteRequest
@@ -1404,6 +1414,10 @@ extension IPCSharedAppsListResponseApp: Identifiable {
 /// Backed by generated `IPCSharedAppsListResponse`.
 public typealias SharedAppsListResponseMessage = IPCSharedAppsListResponse
 
+/// Response from deleting a persistent user-created app.
+/// Backed by generated `IPCAppDeleteResponse`.
+public typealias AppDeleteResponseMessage = IPCAppDeleteResponse
+
 /// Response from deleting a shared app.
 /// Backed by generated `IPCSharedAppDeleteResponse`.
 public typealias SharedAppDeleteResponseMessage = IPCSharedAppDeleteResponse
@@ -2191,6 +2205,7 @@ public enum ServerMessage: Decodable, Sendable {
     case appHistoryResponse(IPCAppHistoryResponse)
     case appRestoreResponse(IPCAppRestoreResponse)
     case sharedAppsListResponse(SharedAppsListResponseMessage)
+    case appDeleteResponse(AppDeleteResponseMessage)
     case sharedAppDeleteResponse(SharedAppDeleteResponseMessage)
     case forkSharedAppResponse(ForkSharedAppResponseMessage)
     case bundleAppResponse(BundleAppResponseMessage)
@@ -2237,6 +2252,7 @@ public enum ServerMessage: Decodable, Sendable {
     case workItemApprovePermissionsResponse(IPCWorkItemApprovePermissionsResponse)
     case workItemCancelResponse(IPCWorkItemCancelResponse)
     case taskRunThreadCreated(IPCTaskRunThreadCreated)
+    case scheduleThreadCreated(IPCScheduleThreadCreated)
     case subagentSpawned(IPCSubagentSpawned)
     case subagentStatusChanged(IPCSubagentStatusChanged)
     indirect case subagentEvent(SubagentEventMessage)
@@ -2490,6 +2506,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "shared_apps_list_response":
             let message = try SharedAppsListResponseMessage(from: decoder)
             self = .sharedAppsListResponse(message)
+        case "app_delete_response":
+            let message = try AppDeleteResponseMessage(from: decoder)
+            self = .appDeleteResponse(message)
         case "shared_app_delete_response":
             let message = try SharedAppDeleteResponseMessage(from: decoder)
             self = .sharedAppDeleteResponse(message)
@@ -2616,6 +2635,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "task_run_thread_created":
             let message = try IPCTaskRunThreadCreated(from: decoder)
             self = .taskRunThreadCreated(message)
+        case "schedule_thread_created":
+            let message = try IPCScheduleThreadCreated(from: decoder)
+            self = .scheduleThreadCreated(message)
         case "subagent_spawned":
             let message = try IPCSubagentSpawned(from: decoder)
             self = .subagentSpawned(message)

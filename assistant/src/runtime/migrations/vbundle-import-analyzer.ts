@@ -1,0 +1,210 @@
+/**
+ * Analyzes a validated .vbundle archive to produce a dry-run import report.
+ *
+ * Given a valid .vbundle archive (already validated), this module inspects
+ * its manifest and contents to determine what would happen if the bundle
+ * were imported. It compares the bundle's files against the current
+ * assistant state on disk and reports:
+ * - Which files would be written or overwritten
+ * - Size changes for each file
+ * - Whether existing data would be replaced
+ * - Any potential conflicts
+ *
+ * This is a read-only analysis — no files are written or modified.
+ */
+
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync, statSync } from "node:fs";
+
+import type { ManifestType } from "./vbundle-validator.js";
+
+// ---------------------------------------------------------------------------
+// Public types
+// ---------------------------------------------------------------------------
+
+export type ImportAction = "create" | "overwrite" | "unchanged";
+
+export interface ImportFileReport {
+  /** Archive path (e.g. "data/db/assistant.db") */
+  path: string;
+  /** What would happen to this file on import */
+  action: ImportAction;
+  /** Size of the file in the bundle (bytes) */
+  bundle_size: number;
+  /** Size of the existing file on disk, or null if it does not exist */
+  current_size: number | null;
+  /** SHA-256 of the file in the bundle */
+  bundle_sha256: string;
+  /** SHA-256 of the existing file on disk, or null if it does not exist */
+  current_sha256: string | null;
+}
+
+export interface ImportConflict {
+  code: string;
+  message: string;
+  path?: string;
+}
+
+export interface ImportDryRunReport {
+  /** Whether the import can proceed (bundle is valid and no blocking conflicts) */
+  can_import: boolean;
+  /** Summary of what would happen */
+  summary: {
+    total_files: number;
+    files_to_create: number;
+    files_to_overwrite: number;
+    files_unchanged: number;
+  };
+  /** Per-file analysis of what would change */
+  files: ImportFileReport[];
+  /** Any conflicts or warnings that might block or complicate import */
+  conflicts: ImportConflict[];
+  /** The manifest from the bundle */
+  manifest: ManifestType;
+}
+
+// ---------------------------------------------------------------------------
+// Path mapping
+// ---------------------------------------------------------------------------
+
+/**
+ * Maps archive paths to their corresponding locations on disk.
+ * This is the canonical mapping used during actual import (PR-5) —
+ * dry-run uses the same mapping for consistency.
+ */
+export interface PathResolver {
+  resolve(archivePath: string): string | null;
+}
+
+export class DefaultPathResolver implements PathResolver {
+  constructor(
+    private dbPath: string,
+    private configPath: string,
+  ) {}
+
+  resolve(archivePath: string): string | null {
+    switch (archivePath) {
+      case "data/db/assistant.db":
+        return this.dbPath;
+      case "config/settings.json":
+        return this.configPath;
+      default:
+        return null;
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Hash helper
+// ---------------------------------------------------------------------------
+
+function sha256Hex(data: Uint8Array): string {
+  return createHash("sha256").update(data).digest("hex");
+}
+
+// ---------------------------------------------------------------------------
+// Core analyzer
+// ---------------------------------------------------------------------------
+
+export interface AnalyzeImportOptions {
+  /** The parsed and validated manifest from the bundle */
+  manifest: ManifestType;
+  /** Resolves archive paths to disk paths for comparison */
+  pathResolver: PathResolver;
+}
+
+/**
+ * Analyze what importing a .vbundle archive would do without modifying
+ * any state. Compares bundle contents against current files on disk.
+ */
+export function analyzeImport(
+  options: AnalyzeImportOptions,
+): ImportDryRunReport {
+  const { manifest, pathResolver } = options;
+  const files: ImportFileReport[] = [];
+  const conflicts: ImportConflict[] = [];
+
+  for (const fileEntry of manifest.files) {
+    const diskPath = pathResolver.resolve(fileEntry.path);
+
+    if (!diskPath) {
+      // Unknown archive path — would have nowhere to write
+      conflicts.push({
+        code: "UNKNOWN_ARCHIVE_PATH",
+        message: `Archive path "${fileEntry.path}" has no known disk target — it would be skipped during import`,
+        path: fileEntry.path,
+      });
+      files.push({
+        path: fileEntry.path,
+        action: "create",
+        bundle_size: fileEntry.size,
+        bundle_sha256: fileEntry.sha256,
+        current_size: null,
+        current_sha256: null,
+      });
+      continue;
+    }
+
+    let currentSize: number | null = null;
+    let currentSha256: string | null = null;
+    let action: ImportAction;
+
+    if (existsSync(diskPath)) {
+      try {
+        const stat = statSync(diskPath);
+        currentSize = stat.size;
+        const diskData = new Uint8Array(readFileSync(diskPath));
+        currentSha256 = sha256Hex(diskData);
+      } catch {
+        // If we cannot read the file, treat it as a conflict
+        conflicts.push({
+          code: "UNREADABLE_EXISTING_FILE",
+          message: `Cannot read existing file at disk path for "${fileEntry.path}" — import would overwrite it`,
+          path: fileEntry.path,
+        });
+        action = "overwrite";
+        files.push({
+          path: fileEntry.path,
+          action,
+          bundle_size: fileEntry.size,
+          bundle_sha256: fileEntry.sha256,
+          current_size: currentSize,
+          current_sha256: currentSha256,
+        });
+        continue;
+      }
+
+      if (currentSha256 === fileEntry.sha256) {
+        action = "unchanged";
+      } else {
+        action = "overwrite";
+      }
+    } else {
+      action = "create";
+    }
+
+    files.push({
+      path: fileEntry.path,
+      action,
+      bundle_size: fileEntry.size,
+      bundle_sha256: fileEntry.sha256,
+      current_size: currentSize,
+      current_sha256: currentSha256,
+    });
+  }
+
+  const summary = {
+    total_files: files.length,
+    files_to_create: files.filter((f) => f.action === "create").length,
+    files_to_overwrite: files.filter((f) => f.action === "overwrite").length,
+    files_unchanged: files.filter((f) => f.action === "unchanged").length,
+  };
+
+  return {
+    can_import: true,
+    summary,
+    files,
+    conflicts,
+    manifest,
+  };
+}

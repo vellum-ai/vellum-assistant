@@ -7,7 +7,7 @@
 
 export type GuardianVerificationIntentResult =
   | { kind: 'none' }
-  | { kind: 'direct_setup'; rewrittenContent: string; channelHint?: 'sms' | 'voice' | 'telegram' };
+  | { kind: 'direct_setup'; rewrittenContent: string; channelHint?: 'voice' | 'telegram' };
 
 // ── Direct setup patterns ────────────────────────────────────────────────
 // These capture imperative requests to start guardian verification.
@@ -42,8 +42,7 @@ const CONCEPTUAL_PATTERNS: RegExp[] = [
 
 // ── Channel hint extraction ──────────────────────────────────────────────
 
-const CHANNEL_HINT_PATTERNS: Array<{ pattern: RegExp; channel: 'sms' | 'voice' | 'telegram' }> = [
-  { pattern: /\b(?:sms|text\s*(?:message)?)\b/i, channel: 'sms' },
+const CHANNEL_HINT_PATTERNS: Array<{ pattern: RegExp; channel: 'voice' | 'telegram' }> = [
   { pattern: /\b(?:voice|call|phone\s*call|by\s+phone)\b/i, channel: 'voice' },
   { pattern: /\btelegram\b/i, channel: 'telegram' },
 ];
@@ -63,7 +62,7 @@ function isDirectSetupIntent(text: string): boolean {
   return DIRECT_SETUP_PATTERNS.some((p) => p.test(text));
 }
 
-function extractChannelHint(text: string): 'sms' | 'voice' | 'telegram' | undefined {
+function extractChannelHint(text: string): 'voice' | 'telegram' | undefined {
   for (const { pattern, channel } of CHANNEL_HINT_PATTERNS) {
     if (pattern.test(text)) return channel;
   }

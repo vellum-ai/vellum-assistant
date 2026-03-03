@@ -123,7 +123,7 @@ globalThis.fetch = (async (
     return new Response(JSON.stringify({ ok: true }), { status: 200 });
   }
   return originalFetch(input, init as never);
-}) as typeof fetch;
+}) as unknown as typeof fetch;
 
 // ---------------------------------------------------------------------------
 // Now import modules under test (after mocks are in place)

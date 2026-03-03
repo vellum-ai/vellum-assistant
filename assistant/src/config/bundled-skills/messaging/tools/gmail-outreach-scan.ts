@@ -8,8 +8,8 @@ import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.j
 import { storeScanResult } from './scan-result-store.js';
 import { err,ok } from './shared.js';
 
-const MAX_MESSAGES_CAP = 2000;
-const MAX_IDS_PER_SENDER = 1000;
+const MAX_MESSAGES_CAP = 5000;
+const MAX_IDS_PER_SENDER = 5000;
 const MAX_SAMPLE_SUBJECTS = 3;
 
 interface OutreachSenderAggregation {
@@ -68,7 +68,7 @@ function mostCommon(items: string[]): string {
 }
 
 export async function run(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
-  const maxMessages = Math.min((input.max_messages as number) ?? 500, MAX_MESSAGES_CAP);
+  const maxMessages = Math.min((input.max_messages as number) ?? 2000, MAX_MESSAGES_CAP);
   const maxSenders = (input.max_senders as number) ?? 30;
   const timeRange = (input.time_range as string) ?? '90d';
   const minConfidence = (input.min_confidence as number) ?? 0.5;
@@ -238,7 +238,7 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
         senders,
         total_scanned: allMessageIds.length,
         outreach_detected: totalOutreachDetected,
-        ...(truncated ? { truncated: true, next_page_token: pageToken } : {}),
+        ...(truncated ? { truncated: true } : {}),
         ...(timeBudgetExceeded ? { time_budget_exceeded: true } : {}),
       }));
     });

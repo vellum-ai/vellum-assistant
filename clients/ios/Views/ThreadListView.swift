@@ -74,6 +74,44 @@ struct ThreadListView: View {
         store.threads.filter { !$0.isArchived && !$0.isPrivate }
     }
 
+    /// Active threads that are NOT from a schedule.
+    private var regularThreads: [IOSThread] {
+        activeThreads.filter { !$0.isScheduleThread }
+    }
+
+    /// Active threads created by a schedule or reminder.
+    private var scheduleThreads: [IOSThread] {
+        activeThreads.filter { $0.isScheduleThread }
+    }
+
+    /// Groups schedule threads by their scheduleJobId for collapsible display.
+    private var scheduleThreadGroups: [(key: String, label: String, threads: [IOSThread])] {
+        var grouped: [String: [IOSThread]] = [:]
+        var order: [String] = []
+        for thread in filteredScheduleThreads {
+            let key = thread.scheduleJobId ?? thread.sessionId ?? thread.id.uuidString
+            if grouped[key] == nil {
+                order.append(key)
+            }
+            grouped[key, default: []].append(thread)
+        }
+        return order.compactMap { key in
+            guard let threads = grouped[key], let first = threads.first else { return nil }
+            let label: String
+            if threads.count > 1 {
+                let base = first.title
+                if let colonRange = base.range(of: ":") {
+                    label = String(base[base.startIndex..<colonRange.lowerBound])
+                } else {
+                    label = base
+                }
+            } else {
+                label = first.title
+            }
+            return (key: key, label: label, threads: threads)
+        }
+    }
+
     private var archivedThreads: [IOSThread] {
         store.threads.filter { $0.isArchived && !$0.isPrivate }
     }
@@ -81,6 +119,16 @@ struct ThreadListView: View {
     private var filteredActiveThreads: [IOSThread] {
         guard !searchText.isEmpty else { return activeThreads }
         return activeThreads.filter { $0.title.localizedCaseInsensitiveContains(searchText) }
+    }
+
+    private var filteredRegularThreads: [IOSThread] {
+        guard !searchText.isEmpty else { return regularThreads }
+        return regularThreads.filter { $0.title.localizedCaseInsensitiveContains(searchText) }
+    }
+
+    private var filteredScheduleThreads: [IOSThread] {
+        guard !searchText.isEmpty else { return scheduleThreads }
+        return scheduleThreads.filter { $0.title.localizedCaseInsensitiveContains(searchText) }
     }
 
     private var filteredArchivedThreads: [IOSThread] {
@@ -156,7 +204,8 @@ struct ThreadListView: View {
 
     private var threadList: some View {
         List(selection: horizontalSizeClass == .regular ? $selectedThreadId : nil) {
-            ForEach(filteredActiveThreads) { thread in
+            // Regular (non-schedule) threads
+            ForEach(filteredRegularThreads) { thread in
                 NavigationLink(value: thread.id) {
                     threadRow(thread)
                 }
@@ -188,6 +237,11 @@ struct ThreadListView: View {
                     }
                     .tint(.blue) // Intentional: system blue for non-destructive swipe actions
                 }
+            }
+
+            // Scheduled threads grouped by scheduleJobId
+            if !filteredScheduleThreads.isEmpty {
+                scheduledSection
             }
 
             if !archivedThreads.isEmpty {
@@ -267,6 +321,110 @@ struct ThreadListView: View {
             }
         } message: {
             Text("Enter a new name for this chat")
+        }
+    }
+
+    // MARK: - Scheduled Section
+
+    private var scheduledSection: some View {
+        Section("Scheduled") {
+            ForEach(scheduleThreadGroups, id: \.key) { group in
+                scheduleGroupRow(group)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func scheduleGroupRow(_ group: (key: String, label: String, threads: [IOSThread])) -> some View {
+        if group.threads.count == 1, let thread = group.threads.first {
+            // Single-thread group: render inline
+            NavigationLink(value: thread.id) {
+                threadRow(thread)
+            }
+            .swipeActions(edge: .trailing) {
+                Button(role: .destructive) {
+                    store.deleteThread(thread)
+                    if horizontalSizeClass == .regular && selectedThreadId == thread.id {
+                        selectedThreadId = activeThreads.first?.id
+                    }
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+                Button {
+                    store.archiveThread(thread)
+                    if horizontalSizeClass == .regular && selectedThreadId == thread.id {
+                        selectedThreadId = activeThreads.first?.id
+                    }
+                } label: {
+                    Label("Archive", systemImage: "archivebox")
+                }
+                .tint(VColor.warning)
+            }
+            .swipeActions(edge: .leading) {
+                Button {
+                    renamingThreadId = thread.id
+                    renameText = thread.title
+                } label: {
+                    Label("Rename", systemImage: "pencil")
+                }
+                .tint(.blue) // Intentional: system blue for non-destructive swipe actions
+            }
+        } else {
+            // Multi-thread group: DisclosureGroup with fully-tappable label
+            DisclosureGroup {
+                ForEach(group.threads) { thread in
+                    NavigationLink(value: thread.id) {
+                        threadRow(thread)
+                    }
+                    .swipeActions(edge: .trailing) {
+                        Button(role: .destructive) {
+                            store.deleteThread(thread)
+                            if horizontalSizeClass == .regular && selectedThreadId == thread.id {
+                                selectedThreadId = activeThreads.first?.id
+                            }
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                        Button {
+                            store.archiveThread(thread)
+                            if horizontalSizeClass == .regular && selectedThreadId == thread.id {
+                                selectedThreadId = activeThreads.first?.id
+                            }
+                        } label: {
+                            Label("Archive", systemImage: "archivebox")
+                        }
+                        .tint(VColor.warning)
+                    }
+                    .swipeActions(edge: .leading) {
+                        Button {
+                            renamingThreadId = thread.id
+                            renameText = thread.title
+                        } label: {
+                            Label("Rename", systemImage: "pencil")
+                        }
+                        .tint(.blue) // Intentional: system blue for non-destructive swipe actions
+                    }
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "bubble.left")
+                        .foregroundStyle(.secondary)
+                        .font(.caption)
+                    Text(group.label)
+                        .lineLimit(1)
+                    Text("\(group.threads.count)")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(
+                            Capsule()
+                                .fill(Color.secondary.opacity(0.12))
+                        )
+                    Spacer()
+                }
+                .contentShape(Rectangle())
+            }
         }
     }
 

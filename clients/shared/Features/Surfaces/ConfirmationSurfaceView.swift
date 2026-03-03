@@ -122,7 +122,7 @@ public struct ConfirmationSurfaceView: View {
                 Image(systemName: "xmark.circle.fill")
                     .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)
-                Text("Dismissed")
+                Text(data.cancelLabel ?? "Dismissed")
                     .font(VFont.captionMedium)
                     .foregroundColor(VColor.textSecondary)
             }

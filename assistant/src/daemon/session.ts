@@ -15,7 +15,8 @@
  * - session-usage.ts        — recordUsage
  */
 
-import { AgentLoop, type ResolvedSystemPrompt } from "../agent/loop.js";
+import type { ResolvedSystemPrompt } from "../agent/loop.js";
+import { AgentLoop } from "../agent/loop.js";
 import type {
   TurnChannelContext,
   TurnInterfaceContext,
@@ -57,8 +58,8 @@ import type {
 } from "./ipc-protocol.js";
 import { runAgentLoopImpl } from "./session-agent-loop.js";
 import { ConflictGate } from "./session-conflict-gate.js";
+import type { HistorySessionContext } from "./session-history.js";
 import {
-  type HistorySessionContext,
   regenerate as regenerateImpl,
   undo as undoImpl,
 } from "./session-history.js";
@@ -67,18 +68,18 @@ import {
   disposeSession,
   loadFromDb as loadFromDbImpl,
 } from "./session-lifecycle.js";
+import type { RedirectToSecurePromptOptions } from "./session-messaging.js";
 import {
   enqueueMessage as enqueueMessageImpl,
   persistUserMessage as persistUserMessageImpl,
   redirectToSecurePrompt as redirectToSecurePromptImpl,
-  type RedirectToSecurePromptOptions,
 } from "./session-messaging.js";
 // Extracted modules
 import { registerSessionNotifiers } from "./session-notifiers.js";
+import type { ProcessSessionContext } from "./session-process.js";
 import {
   drainQueue as drainQueueImpl,
   processMessage as processMessageImpl,
-  type ProcessSessionContext,
 } from "./session-process.js";
 import type {
   QueueDrainReason,
@@ -95,11 +96,11 @@ import {
   handleSurfaceAction as handleSurfaceActionImpl,
   handleSurfaceUndo as handleSurfaceUndoImpl,
 } from "./session-surfaces.js";
+import type { ToolSetupContext } from "./session-tool-setup.js";
 import {
   buildToolDefinitions,
   createResolveToolsCallback,
   createToolExecutor,
-  type ToolSetupContext,
 } from "./session-tool-setup.js";
 import { refreshWorkspaceTopLevelContextIfNeeded as refreshWorkspaceImpl } from "./session-workspace.js";
 import { TraceEmitter } from "./trace-emitter.js";
@@ -118,11 +119,8 @@ export const DEFAULT_MEMORY_POLICY: Readonly<SessionMemoryPolicy> =
   });
 
 export { findLastUndoableUserMessageIndex } from "./session-history.js";
-export {
-  MAX_QUEUE_DEPTH,
-  type QueueDrainReason,
-  type QueuePolicy,
-} from "./session-queue-manager.js";
+export type { QueueDrainReason, QueuePolicy } from "./session-queue-manager.js";
+export { MAX_QUEUE_DEPTH } from "./session-queue-manager.js";
 
 export class Session {
   public readonly conversationId: string;
@@ -334,6 +332,7 @@ export class Session {
         maxTokens,
         maxInputTokens: config.contextWindow.maxInputTokens,
         thinking: config.thinking,
+        effort: config.effort,
         maxToolUseTurns: config.maxToolUseTurns,
       },
       toolDefs.length > 0 ? toolDefs : undefined,

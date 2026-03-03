@@ -22,6 +22,7 @@ import {
   beforeEach,
   describe,
   expect,
+  jest,
   type Mock,
   mock,
   test,
@@ -171,6 +172,7 @@ import {
 import {
   createBinding,
   createChallenge,
+  createVerificationSession,
 } from "../memory/channel-guardian-store.js";
 import { addMessage, getMessages } from "../memory/conversation-store.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
@@ -2740,20 +2742,28 @@ describe("relay-server", () => {
       }),
     );
 
-    // Provide name
-    await relay.handleMessage(
-      JSON.stringify({
-        type: "prompt",
-        voicePrompt: "Timeout Tester",
-        lang: "en-US",
-        last: true,
-      }),
-    );
+    jest.useFakeTimers();
+    try {
+      // Provide name
+      await relay.handleMessage(
+        JSON.stringify({
+          type: "prompt",
+          voicePrompt: "Timeout Tester",
+          lang: "en-US",
+          last: true,
+        }),
+      );
 
-    expect(relay.getConnectionState()).toBe("awaiting_guardian_decision");
+      expect(relay.getConnectionState()).toBe("awaiting_guardian_decision");
 
-    // Wait for timeout (2 seconds + buffer)
-    await new Promise((resolve) => setTimeout(resolve, 2500));
+      // Advance past the 2s timeout + endSession delay
+      jest.advanceTimersByTime(2500);
+    } finally {
+      jest.useRealTimers();
+    }
+
+    // Let async fire-and-forget work settle
+    await new Promise((resolve) => setTimeout(resolve, 50));
 
     // Should be disconnecting after timeout
     expect(relay.getConnectionState()).toBe("disconnecting");
@@ -2781,9 +2791,6 @@ describe("relay-server", () => {
     expect(
       events.some((e) => e.eventType === "inbound_acl_access_timeout"),
     ).toBe(true);
-
-    // Let the delayed endSession callback flush
-    await new Promise((resolve) => setTimeout(resolve, 100));
 
     // Restore default timeout
     mockConfig.calls.userConsultTimeoutSeconds = 120;
@@ -3089,29 +3096,34 @@ describe("relay-server", () => {
       }),
     );
 
-    await relay.handleMessage(
-      JSON.stringify({
-        type: "prompt",
-        voicePrompt: "OptIn Tester",
-        lang: "en-US",
-        last: true,
-      }),
-    );
+    jest.useFakeTimers();
+    try {
+      await relay.handleMessage(
+        JSON.stringify({
+          type: "prompt",
+          voicePrompt: "OptIn Tester",
+          lang: "en-US",
+          last: true,
+        }),
+      );
 
-    expect(relay.getConnectionState()).toBe("awaiting_guardian_decision");
+      expect(relay.getConnectionState()).toBe("awaiting_guardian_decision");
 
-    // Trigger impatience to get callback offer
-    await relay.handleMessage(
-      JSON.stringify({
-        type: "prompt",
-        voicePrompt: "Hurry up please",
-        lang: "en-US",
-        last: true,
-      }),
-    );
+      // Trigger impatience to get callback offer
+      await relay.handleMessage(
+        JSON.stringify({
+          type: "prompt",
+          voicePrompt: "Hurry up please",
+          lang: "en-US",
+          last: true,
+        }),
+      );
 
-    // Wait for cooldown
-    await new Promise((resolve) => setTimeout(resolve, 3100));
+      // Advance past the 3s cooldown
+      jest.advanceTimersByTime(3200);
+    } finally {
+      jest.useRealTimers();
+    }
 
     const msgCountBeforeOptIn = ws.sentMessages.length;
 
@@ -3341,53 +3353,58 @@ describe("relay-server", () => {
       }),
     );
 
-    // Provide name to enter guardian wait
-    await relay.handleMessage(
-      JSON.stringify({
-        type: "prompt",
-        voicePrompt: "Callback Tester",
-        lang: "en-US",
-        last: true,
-      }),
-    );
+    jest.useFakeTimers();
+    try {
+      // Provide name to enter guardian wait
+      await relay.handleMessage(
+        JSON.stringify({
+          type: "prompt",
+          voicePrompt: "Callback Tester",
+          lang: "en-US",
+          last: true,
+        }),
+      );
 
-    expect(relay.getConnectionState()).toBe("awaiting_guardian_decision");
+      expect(relay.getConnectionState()).toBe("awaiting_guardian_decision");
 
-    // Trigger impatience to get callback offer
-    await relay.handleMessage(
-      JSON.stringify({
-        type: "prompt",
-        voicePrompt: "Hurry up please",
-        lang: "en-US",
-        last: true,
-      }),
-    );
+      // Trigger impatience to get callback offer
+      await relay.handleMessage(
+        JSON.stringify({
+          type: "prompt",
+          voicePrompt: "Hurry up please",
+          lang: "en-US",
+          last: true,
+        }),
+      );
 
-    // Accept callback offer (callback decisions bypass cooldown)
-    await relay.handleMessage(
-      JSON.stringify({
-        type: "prompt",
-        voicePrompt: "Yes, please call me back",
-        lang: "en-US",
-        last: true,
-      }),
-    );
+      // Accept callback offer (callback decisions bypass cooldown)
+      await relay.handleMessage(
+        JSON.stringify({
+          type: "prompt",
+          voicePrompt: "Yes, please call me back",
+          lang: "en-US",
+          last: true,
+        }),
+      );
 
-    // Verify callback opt-in was set
-    const eventsBeforeTimeout = getCallEvents(session.id);
-    expect(
-      eventsBeforeTimeout.some(
-        (e) => e.eventType === "voice_guardian_wait_callback_opt_in_set",
-      ),
-    ).toBe(true);
+      // Verify callback opt-in was set
+      const eventsBeforeTimeout = getCallEvents(session.id);
+      expect(
+        eventsBeforeTimeout.some(
+          (e) => e.eventType === "voice_guardian_wait_callback_opt_in_set",
+        ),
+      ).toBe(true);
 
-    // Wait for timeout (2s) plus settling time
-    await new Promise((resolve) => setTimeout(resolve, 2500));
+      // Advance past the 2s timeout + endSession delay
+      jest.advanceTimersByTime(2500);
+    } finally {
+      jest.useRealTimers();
+    }
+
+    // Let async notification emission settle
+    await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(relay.getConnectionState()).toBe("disconnecting");
-
-    // Allow async notification emission to complete
-    await new Promise((resolve) => setTimeout(resolve, 200));
 
     const events = getCallEvents(session.id);
     // Should have exactly one callback_handoff_notified event (or callback_handoff_failed
@@ -3439,23 +3456,29 @@ describe("relay-server", () => {
       }),
     );
 
-    await relay.handleMessage(
-      JSON.stringify({
-        type: "prompt",
-        voicePrompt: "No Callback Tester",
-        lang: "en-US",
-        last: true,
-      }),
-    );
+    jest.useFakeTimers();
+    try {
+      await relay.handleMessage(
+        JSON.stringify({
+          type: "prompt",
+          voicePrompt: "No Callback Tester",
+          lang: "en-US",
+          last: true,
+        }),
+      );
 
-    expect(relay.getConnectionState()).toBe("awaiting_guardian_decision");
+      expect(relay.getConnectionState()).toBe("awaiting_guardian_decision");
 
-    // Wait for timeout without opting into callback
-    await new Promise((resolve) => setTimeout(resolve, 2500));
+      // Advance past the 2s timeout + endSession delay
+      jest.advanceTimersByTime(2500);
+    } finally {
+      jest.useRealTimers();
+    }
+
+    // Let async work settle
+    await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(relay.getConnectionState()).toBe("disconnecting");
-
-    await new Promise((resolve) => setTimeout(resolve, 200));
 
     const events = getCallEvents(session.id);
     // Should NOT have callback handoff events
@@ -3560,41 +3583,47 @@ describe("relay-server", () => {
       }),
     );
 
-    await relay.handleMessage(
-      JSON.stringify({
-        type: "prompt",
-        voicePrompt: "Race Tester",
-        lang: "en-US",
-        last: true,
-      }),
-    );
+    jest.useFakeTimers();
+    try {
+      await relay.handleMessage(
+        JSON.stringify({
+          type: "prompt",
+          voicePrompt: "Race Tester",
+          lang: "en-US",
+          last: true,
+        }),
+      );
 
-    // Opt into callback (callback decisions bypass cooldown)
-    await relay.handleMessage(
-      JSON.stringify({
-        type: "prompt",
-        voicePrompt: "Hurry up please",
-        lang: "en-US",
-        last: true,
-      }),
-    );
+      // Opt into callback (callback decisions bypass cooldown)
+      await relay.handleMessage(
+        JSON.stringify({
+          type: "prompt",
+          voicePrompt: "Hurry up please",
+          lang: "en-US",
+          last: true,
+        }),
+      );
 
-    await relay.handleMessage(
-      JSON.stringify({
-        type: "prompt",
-        voicePrompt: "Yes call me back",
-        lang: "en-US",
-        last: true,
-      }),
-    );
+      await relay.handleMessage(
+        JSON.stringify({
+          type: "prompt",
+          voicePrompt: "Yes call me back",
+          lang: "en-US",
+          last: true,
+        }),
+      );
 
-    // Wait for timeout to fire (2s) plus settling time
-    await new Promise((resolve) => setTimeout(resolve, 2500));
+      // Advance past the 2s timeout
+      jest.advanceTimersByTime(2500);
+    } finally {
+      jest.useRealTimers();
+    }
 
     // Now transport close too (simulating race)
     relay.handleTransportClosed(1000, "Normal closure");
 
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    // Let async work settle
+    await new Promise((resolve) => setTimeout(resolve, 50));
 
     const events = getCallEvents(session.id);
     // Guard should ensure only ONE handoff event
@@ -3632,45 +3661,51 @@ describe("relay-server", () => {
       }),
     );
 
-    await relay.handleMessage(
-      JSON.stringify({
-        type: "prompt",
-        voicePrompt: "Member Tester",
-        lang: "en-US",
-        last: true,
-      }),
-    );
+    jest.useFakeTimers();
+    try {
+      await relay.handleMessage(
+        JSON.stringify({
+          type: "prompt",
+          voicePrompt: "Member Tester",
+          lang: "en-US",
+          last: true,
+        }),
+      );
 
-    expect(relay.getConnectionState()).toBe("awaiting_guardian_decision");
+      expect(relay.getConnectionState()).toBe("awaiting_guardian_decision");
 
-    // Add the caller as a trusted contact AFTER the access request flow
-    // is entered so resolveActorTrust doesn't skip the flow. The handoff
-    // code uses findMember to resolve requesterMemberId at handoff time.
-    addTrustedVoiceContact("+15557770024");
+      // Add the caller as a trusted contact AFTER the access request flow
+      // is entered so resolveActorTrust doesn't skip the flow. The handoff
+      // code uses findMember to resolve requesterMemberId at handoff time.
+      addTrustedVoiceContact("+15557770024");
 
-    // Opt into callback (callback decisions bypass cooldown)
-    await relay.handleMessage(
-      JSON.stringify({
-        type: "prompt",
-        voicePrompt: "Hurry up",
-        lang: "en-US",
-        last: true,
-      }),
-    );
+      // Opt into callback (callback decisions bypass cooldown)
+      await relay.handleMessage(
+        JSON.stringify({
+          type: "prompt",
+          voicePrompt: "Hurry up",
+          lang: "en-US",
+          last: true,
+        }),
+      );
 
-    await relay.handleMessage(
-      JSON.stringify({
-        type: "prompt",
-        voicePrompt: "Yes please call me back",
-        lang: "en-US",
-        last: true,
-      }),
-    );
+      await relay.handleMessage(
+        JSON.stringify({
+          type: "prompt",
+          voicePrompt: "Yes please call me back",
+          lang: "en-US",
+          last: true,
+        }),
+      );
 
-    // Wait for timeout (2s) plus settling time
-    await new Promise((resolve) => setTimeout(resolve, 2500));
+      // Advance past the 2s timeout
+      jest.advanceTimersByTime(2500);
+    } finally {
+      jest.useRealTimers();
+    }
 
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    // Let async work settle
+    await new Promise((resolve) => setTimeout(resolve, 50));
 
     const events = getCallEvents(session.id);
     const handoffEvents = events.filter(
@@ -3719,40 +3754,46 @@ describe("relay-server", () => {
       }),
     );
 
-    await relay.handleMessage(
-      JSON.stringify({
-        type: "prompt",
-        voicePrompt: "No Member Tester",
-        lang: "en-US",
-        last: true,
-      }),
-    );
+    jest.useFakeTimers();
+    try {
+      await relay.handleMessage(
+        JSON.stringify({
+          type: "prompt",
+          voicePrompt: "No Member Tester",
+          lang: "en-US",
+          last: true,
+        }),
+      );
 
-    expect(relay.getConnectionState()).toBe("awaiting_guardian_decision");
+      expect(relay.getConnectionState()).toBe("awaiting_guardian_decision");
 
-    // Opt into callback (callback decisions bypass cooldown)
-    await relay.handleMessage(
-      JSON.stringify({
-        type: "prompt",
-        voicePrompt: "Come on hurry up",
-        lang: "en-US",
-        last: true,
-      }),
-    );
+      // Opt into callback (callback decisions bypass cooldown)
+      await relay.handleMessage(
+        JSON.stringify({
+          type: "prompt",
+          voicePrompt: "Come on hurry up",
+          lang: "en-US",
+          last: true,
+        }),
+      );
 
-    await relay.handleMessage(
-      JSON.stringify({
-        type: "prompt",
-        voicePrompt: "Yes callback please",
-        lang: "en-US",
-        last: true,
-      }),
-    );
+      await relay.handleMessage(
+        JSON.stringify({
+          type: "prompt",
+          voicePrompt: "Yes callback please",
+          lang: "en-US",
+          last: true,
+        }),
+      );
 
-    // Wait for timeout (2s) plus settling time
-    await new Promise((resolve) => setTimeout(resolve, 2500));
+      // Advance past the 2s timeout
+      jest.advanceTimersByTime(2500);
+    } finally {
+      jest.useRealTimers();
+    }
 
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    // Let async work settle
+    await new Promise((resolve) => setTimeout(resolve, 50));
 
     const events = getCallEvents(session.id);
     const handoffEvents = events.filter(
@@ -3847,6 +3888,229 @@ describe("relay-server", () => {
     expect(text).not.toBeNull();
     expect(text!).toContain("+15559876543");
     expect(text!).toContain("failed");
+
+    relay.destroy();
+  });
+
+  // ── Trusted-contact in-call continuation ─────────────────────────────
+
+  test("inbound trusted-contact verification: DTMF code entry continues same call with handoff copy", async () => {
+    ensureConversation("conv-tc-verify-continue");
+    const session = createCallSession({
+      conversationId: "conv-tc-verify-continue",
+      provider: "twilio",
+      fromNumber: "+15553334444",
+      toNumber: "+15551111111",
+      assistantId: "self",
+    });
+
+    // Create a trusted-contact verification challenge with status 'pending'
+    // so getPendingChallenge finds it during inbound setup, and
+    // verificationPurpose 'trusted_contact' so validateAndConsumeChallenge
+    // returns the correct verificationType.
+    const tcSecret = "654321";
+    createVerificationSession({
+      id: randomUUID(),
+      assistantId: "self",
+      channel: "voice",
+      challengeHash: createHash("sha256").update(tcSecret).digest("hex"),
+      expiresAt: Date.now() + 10 * 60 * 1000,
+      status: "pending",
+      verificationPurpose: "trusted_contact",
+    });
+    const secret = tcSecret;
+
+    mockSendMessage.mockImplementation(
+      createMockProviderResponse(["Sure, I can help with that."]),
+    );
+
+    const { ws, relay } = createMockWs(session.id);
+
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_tc_verify_continue",
+        from: "+15553334444",
+        to: "+15551111111",
+      }),
+    );
+
+    // Should be in verification-pending state
+    expect(relay.isGuardianVerificationActive()).toBe(true);
+    expect(relay.getConnectionState()).toBe("verification_pending");
+
+    // Enter the correct code via DTMF
+    for (const digit of secret) {
+      await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // Verification should have succeeded — call remains connected
+    expect(relay.isGuardianVerificationActive()).toBe(false);
+    expect(relay.getConnectionState()).toBe("connected");
+
+    // Deterministic handoff copy should have been sent (not a fresh greeting)
+    const textMessages = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+      .filter((m) => m.type === "text");
+    expect(
+      textMessages.some((m) =>
+        (m.token ?? "").includes("said I can speak with you"),
+      ),
+    ).toBe(true);
+
+    // No end message should have been sent — call stays alive
+    const endMessages = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string })
+      .filter((m) => m.type === "end");
+    expect(endMessages.length).toBe(0);
+
+    // assistant_spoke event should have been recorded for the handoff
+    const events = getCallEvents(session.id);
+    expect(events.some((e) => e.eventType === "assistant_spoke")).toBe(true);
+
+    // Session should be in_progress (not completed/failed)
+    const updated = getCallSession(session.id);
+    expect(updated).not.toBeNull();
+    expect(updated!.status).toBe("in_progress");
+
+    relay.destroy();
+  });
+
+  test("inbound guardian verification (non-trusted-contact): still starts normal call flow", async () => {
+    ensureConversation("conv-guardian-verify-normal");
+    const session = createCallSession({
+      conversationId: "conv-guardian-verify-normal",
+      provider: "twilio",
+      fromNumber: "+15552223333",
+      toNumber: "+15551111111",
+      assistantId: "self",
+    });
+
+    // Create a guardian challenge (default verificationPurpose = 'guardian')
+    const secret = createPendingVoiceGuardianChallenge("self");
+
+    mockSendMessage.mockImplementation(
+      createMockProviderResponse(["Hello, how can I help you?"]),
+    );
+
+    const { ws, relay } = createMockWs(session.id);
+
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_guardian_verify_normal",
+        from: "+15552223333",
+        to: "+15551111111",
+      }),
+    );
+
+    expect(relay.isGuardianVerificationActive()).toBe(true);
+
+    // Enter the correct code
+    for (const digit of secret) {
+      await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // Should have transitioned to connected with normal greeting (not handoff copy)
+    expect(relay.isGuardianVerificationActive()).toBe(false);
+    expect(relay.getConnectionState()).toBe("connected");
+
+    // Guardian binding should have been created
+    const binding = getGuardianBinding("self", "voice");
+    expect(binding).not.toBeNull();
+
+    // Normal greeting should fire (from mockSendMessage), not the handoff copy
+    const textMessages = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+      .filter((m) => m.type === "text");
+    expect(
+      textMessages.some((m) => (m.token ?? "").includes("how can I help")),
+    ).toBe(true);
+
+    relay.destroy();
+  });
+
+  test("invite redemption success: continues call with handoff copy instead of ending", async () => {
+    ensureConversation("conv-invite-continue");
+    const session = createCallSession({
+      conversationId: "conv-invite-continue",
+      provider: "twilio",
+      fromNumber: "+15557776666",
+      toNumber: "+15551111111",
+      assistantId: "self",
+    });
+
+    const code = generateVoiceCode(6);
+    const codeHash = hashVoiceCode(code);
+    createInvite({
+      assistantId: "self",
+      sourceChannel: "voice",
+      maxUses: 1,
+      expectedExternalUserId: "+15557776666",
+      voiceCodeHash: codeHash,
+      voiceCodeDigits: 6,
+      friendName: "Eve",
+      guardianName: "Frank",
+    });
+
+    mockSendMessage.mockImplementation(
+      createMockProviderResponse(["I'd be happy to help."]),
+    );
+
+    const { ws, relay } = createMockWs(session.id);
+
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_invite_continue",
+        from: "+15557776666",
+        to: "+15551111111",
+      }),
+    );
+
+    // Should be in verification-pending for invite redemption
+    expect(relay.getConnectionState()).toBe("verification_pending");
+
+    // Enter the correct code via DTMF
+    for (const digit of code) {
+      await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // Call should remain connected
+    expect(relay.getConnectionState()).toBe("connected");
+
+    // Handoff copy should have been sent
+    const textMessages = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+      .filter((m) => m.type === "text");
+    expect(
+      textMessages.some((m) =>
+        (m.token ?? "").includes("said I can speak with you"),
+      ),
+    ).toBe(true);
+
+    // No end message — call stays alive
+    const endMessages = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string })
+      .filter((m) => m.type === "end");
+    expect(endMessages.length).toBe(0);
+
+    // Session should be in_progress
+    const updated = getCallSession(session.id);
+    expect(updated).not.toBeNull();
+    expect(updated!.status).toBe("in_progress");
+
+    // invite_redemption_succeeded event should exist
+    const events = getCallEvents(session.id);
+    expect(
+      events.some((e) => e.eventType === "invite_redemption_succeeded"),
+    ).toBe(true);
 
     relay.destroy();
   });

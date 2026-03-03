@@ -121,6 +121,8 @@ extension DaemonClient {
             onAppRestoreResponse?(msg)
         case .sharedAppsListResponse(let msg):
             onSharedAppsListResponse?(msg)
+        case .appDeleteResponse(let msg):
+            onAppDeleteResponse?(msg)
         case .sharedAppDeleteResponse(let msg):
             onSharedAppDeleteResponse?(msg)
         case .forkSharedAppResponse(let msg):
@@ -234,6 +236,8 @@ extension DaemonClient {
             onWorkItemCancelResponse?(msg)
         case .taskRunThreadCreated(let msg):
             onTaskRunThreadCreated?(msg)
+        case .scheduleThreadCreated(let msg):
+            onScheduleThreadCreated?(msg)
         case .subagentSpawned(let msg):
             onSubagentSpawned?(msg)
         case .subagentStatusChanged(let msg):

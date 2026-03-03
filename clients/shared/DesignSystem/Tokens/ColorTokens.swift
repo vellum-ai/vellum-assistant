@@ -174,14 +174,14 @@ public enum VColor {
 
     // Text
     public static let textPrimary = adaptiveColor(light: Stone._900, dark: Moss._50)
-    public static let textSecondary = adaptiveColor(light: Stone._600, dark: Moss._400)
-    public static let textMuted = adaptiveColor(light: Stone._500, dark: Moss._500)
+    public static let textSecondary = adaptiveColor(light: Stone._700, dark: Moss._400)
+    public static let textMuted = adaptiveColor(light: Stone._600, dark: Moss._500)
 
     // Accent
     public static let accent = adaptiveColor(light: Color(hex: 0x262624), dark: Forest._600)
 
     // Icon & button accent
-    public static let iconAccent = adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._500)
+    public static let iconAccent = adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._500)
 
     // Send button — always green
     public static let sendButton = Color(hex: 0x216C37)
@@ -207,7 +207,7 @@ public enum VColor {
     // Interactive states
     public static let ghostHover = adaptiveColor(light: Stone._100, dark: Moss._700)
     public static let ghostPressed = adaptiveColor(light: Stone._200, dark: Moss._600)
-    public static let divider = adaptiveColor(light: Stone._200, dark: Moss._700)
+    public static let divider = adaptiveColor(light: Stone._300, dark: Moss._700)
     public static let hoverOverlay = adaptiveColor(light: Color(hex: 0x000000), dark: Moss._200)
     public static let toggleOff = adaptiveColor(light: Stone._200, dark: Moss._600)
     public static let toggleBorder = adaptiveColor(light: Stone._400, dark: Moss._600)
@@ -216,10 +216,10 @@ public enum VColor {
     public static let slashCommand = adaptiveColor(light: Forest._500, dark: Forest._300)
 
     // Button colors
-    public static let buttonPrimary = adaptiveColor(light: Color(hex: 0x4B6845), dark: Color(hex: 0x4B6845))
-    public static let buttonPrimaryHover = adaptiveColor(light: Color(hex: 0x5A7B54), dark: Color(hex: 0x5A7B54))
-    public static let buttonPrimaryPressed = adaptiveColor(light: Color(hex: 0x3D5739), dark: Color(hex: 0x3D5739))
-    public static let buttonSecondaryBorder = adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._500)
-    public static let buttonSecondaryText = adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._400)
+    public static let buttonPrimary = adaptiveColor(light: Color(hex: 0x537D53), dark: Color(hex: 0x537D53))
+    public static let buttonPrimaryHover = adaptiveColor(light: Color(hex: 0x629062), dark: Color(hex: 0x629062))
+    public static let buttonPrimaryPressed = adaptiveColor(light: Color(hex: 0x456C47), dark: Color(hex: 0x456C47))
+    public static let buttonSecondaryBorder = adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._500)
+    public static let buttonSecondaryText = adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._400)
     public static let buttonTertiaryBackground = adaptiveColor(light: Moss._200, dark: Moss._700)
 }

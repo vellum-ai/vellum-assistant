@@ -289,6 +289,10 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: "app_open_request",
     appId: "app-001",
   },
+  app_delete: {
+    type: "app_delete",
+    appId: "app-001",
+  },
   apps_list: {
     type: "apps_list",
   },
@@ -1221,6 +1225,12 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
       },
     ],
   },
+  schedule_thread_created: {
+    type: "schedule_thread_created",
+    conversationId: "conv-sched-001",
+    scheduleJobId: "sched-job-001",
+    title: "Daily standup reminder",
+  },
   schedules_list_response: {
     type: "schedules_list_response",
     schedules: [
@@ -1332,6 +1342,10 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
         updateAvailable: true,
       },
     ],
+  },
+  app_delete_response: {
+    type: "app_delete_response",
+    success: true,
   },
   shared_app_delete_response: {
     type: "shared_app_delete_response",

@@ -129,7 +129,7 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     });
   }
   return originalFetch(input, init);
-}) as typeof fetch;
+}) as unknown as typeof fetch;
 
 // ---------------------------------------------------------------------------
 // Import module under test AFTER mocks are in place

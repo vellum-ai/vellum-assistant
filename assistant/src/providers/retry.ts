@@ -1,16 +1,22 @@
-import { ProviderError } from '../util/errors.js';
-import { getLogger, isDebug } from '../util/logger.js';
+import { ProviderError } from "../util/errors.js";
+import { getLogger, isDebug } from "../util/logger.js";
 import {
   computeRetryDelay,
   DEFAULT_BASE_DELAY_MS,
   DEFAULT_MAX_RETRIES,
   isRetryableNetworkError,
   sleep,
-} from '../util/retry.js';
-import { isModelIntent, resolveModelIntent } from './model-intents.js';
-import type { Message, Provider, ProviderResponse, SendMessageOptions, ToolDefinition } from './types.js';
+} from "../util/retry.js";
+import { isModelIntent, resolveModelIntent } from "./model-intents.js";
+import type {
+  Message,
+  Provider,
+  ProviderResponse,
+  SendMessageOptions,
+  ToolDefinition,
+} from "./types.js";
 
-const log = getLogger('retry');
+const log = getLogger("retry");
 
 function isRetryableError(error: unknown): boolean {
   if (error instanceof ProviderError && error.statusCode !== undefined) {
@@ -19,28 +25,47 @@ function isRetryableError(error: unknown): boolean {
   return isRetryableNetworkError(error);
 }
 
-function normalizeSendMessageOptions(providerName: string, options?: SendMessageOptions): SendMessageOptions | undefined {
+function normalizeSendMessageOptions(
+  providerName: string,
+  options?: SendMessageOptions,
+): SendMessageOptions | undefined {
   const config = options?.config;
   if (!config) return options;
 
-  const explicitModel = typeof config.model === 'string' && config.model.trim().length > 0
-    ? config.model.trim()
+  const explicitModel =
+    typeof config.model === "string" && config.model.trim().length > 0
+      ? config.model.trim()
+      : undefined;
+  const intent = isModelIntent(config.modelIntent)
+    ? config.modelIntent
     : undefined;
-  const intent = isModelIntent(config.modelIntent) ? config.modelIntent : undefined;
   const hasIntent = config.modelIntent !== undefined;
 
-  const needsThinkingStrip = providerName !== 'anthropic' && config.thinking !== undefined;
+  const needsThinkingStrip =
+    providerName !== "anthropic" && config.thinking !== undefined;
+  const needsEffortStrip =
+    providerName !== "anthropic" && config.effort !== undefined;
 
-  if (!hasIntent && explicitModel === config.model && !needsThinkingStrip) {
+  if (
+    !hasIntent &&
+    explicitModel === config.model &&
+    !needsThinkingStrip &&
+    !needsEffortStrip
+  ) {
     return options;
   }
 
   const nextConfig: Record<string, unknown> = { ...config };
   delete nextConfig.modelIntent;
 
-  // thinking/budget_tokens is Anthropic-specific; strip it for other providers
-  if (providerName !== 'anthropic' && nextConfig.thinking !== undefined) {
+  // thinking is Anthropic-specific; strip it for other providers
+  if (providerName !== "anthropic" && nextConfig.thinking !== undefined) {
     delete nextConfig.thinking;
+  }
+
+  // effort is Anthropic-specific; strip it for other providers
+  if (providerName !== "anthropic" && nextConfig.effort !== undefined) {
+    delete nextConfig.effort;
   }
 
   if (explicitModel) {
@@ -74,11 +99,14 @@ export class RetryProvider implements Provider {
     const debug = isDebug();
 
     if (debug) {
-      log.debug({
-        provider: this.name,
-        messageCount: messages.length,
-        toolCount: tools?.length ?? 0,
-      }, 'Provider sendMessage start');
+      log.debug(
+        {
+          provider: this.name,
+          messageCount: messages.length,
+          toolCount: tools?.length ?? 0,
+        },
+        "Provider sendMessage start",
+      );
     }
 
     const normalizedOptions = normalizeSendMessageOptions(this.name, options);
@@ -86,16 +114,24 @@ export class RetryProvider implements Provider {
     for (let attempt = 0; attempt <= DEFAULT_MAX_RETRIES; attempt++) {
       try {
         const start = Date.now();
-        const result = await this.inner.sendMessage(messages, tools, systemPrompt, normalizedOptions);
+        const result = await this.inner.sendMessage(
+          messages,
+          tools,
+          systemPrompt,
+          normalizedOptions,
+        );
         if (debug) {
-          log.debug({
-            provider: this.name,
-            durationMs: Date.now() - start,
-            attempt: attempt + 1,
-            model: result.model,
-            inputTokens: result.usage.inputTokens,
-            outputTokens: result.usage.outputTokens,
-          }, 'Provider sendMessage success');
+          log.debug(
+            {
+              provider: this.name,
+              durationMs: Date.now() - start,
+              attempt: attempt + 1,
+              model: result.model,
+              inputTokens: result.usage.inputTokens,
+              outputTokens: result.usage.outputTokens,
+            },
+            "Provider sendMessage success",
+          );
         }
         return result;
       } catch (error) {
@@ -103,12 +139,24 @@ export class RetryProvider implements Provider {
 
         if (attempt < DEFAULT_MAX_RETRIES && isRetryableError(error)) {
           const delay = computeRetryDelay(attempt, DEFAULT_BASE_DELAY_MS);
-          const errorType = error instanceof ProviderError && error.statusCode === 429
-            ? 'rate_limit'
-            : error instanceof ProviderError && error.statusCode !== undefined && error.statusCode >= 500
-              ? `server_error_${error.statusCode}`
-              : 'network_error';
-          log.warn({ attempt: attempt + 1, maxRetries: DEFAULT_MAX_RETRIES, delay, errorType, provider: this.name }, 'Retrying after transient error');
+          const errorType =
+            error instanceof ProviderError && error.statusCode === 429
+              ? "rate_limit"
+              : error instanceof ProviderError &&
+                  error.statusCode !== undefined &&
+                  error.statusCode >= 500
+                ? `server_error_${error.statusCode}`
+                : "network_error";
+          log.warn(
+            {
+              attempt: attempt + 1,
+              maxRetries: DEFAULT_MAX_RETRIES,
+              delay,
+              errorType,
+              provider: this.name,
+            },
+            "Retrying after transient error",
+          );
           await sleep(delay);
           continue;
         }

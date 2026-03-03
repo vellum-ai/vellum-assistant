@@ -21,7 +21,8 @@ const log = getLogger("agent-loop");
 export interface AgentLoopConfig {
   maxTokens: number;
   maxInputTokens?: number; // context window size for tool result truncation
-  thinking?: { enabled: boolean; budgetTokens: number };
+  thinking?: { enabled: boolean };
+  effort: "low" | "medium" | "high";
   toolChoice?:
     | { type: "auto" }
     | { type: "any" }
@@ -80,6 +81,7 @@ export type AgentEvent =
 
 const DEFAULT_CONFIG: AgentLoopConfig = {
   maxTokens: 16000,
+  effort: "high",
   maxToolUseTurns: 40,
   minTurnIntervalMs: 150,
 };
@@ -211,18 +213,11 @@ export class AgentLoop {
         if (turnModel) {
           providerConfig.model = turnModel;
         }
-        if (this.config.thinking?.enabled && turnMaxTokens >= 4000) {
-          // Skip thinking when turnMaxTokens is too low to avoid the
-          // thinking budget consuming nearly all output tokens.
-          const budgetTokens = Math.min(
-            this.config.thinking.budgetTokens,
-            Math.floor(turnMaxTokens * 0.75),
-          );
-          providerConfig.thinking = {
-            type: "enabled",
-            budget_tokens: budgetTokens,
-          };
+        if (this.config.thinking?.enabled) {
+          providerConfig.thinking = { type: "adaptive" };
         }
+
+        providerConfig.effort = this.config.effort;
 
         if (this.config.toolChoice) {
           providerConfig.tool_choice = this.config.toolChoice;
@@ -647,7 +642,10 @@ export class AgentLoop {
         if (softLimit > 0 && toolUseTurns === softLimit) {
           resultBlocks.push({
             type: "text",
-            text: `<system_notice>${APPROACHING_LIMIT_WARNING.replace("{remaining}", String(APPROACHING_LIMIT_OFFSET))}</system_notice>`,
+            text: `<system_notice>${APPROACHING_LIMIT_WARNING.replace(
+              "{remaining}",
+              String(APPROACHING_LIMIT_OFFSET),
+            )}</system_notice>`,
           });
         } else if (toolUseTurns % PROGRESS_CHECK_INTERVAL === 0) {
           resultBlocks.push({

@@ -154,6 +154,29 @@ If the response shows the guardian is bound, confirm success: "Guardian verified
 
 If not yet bound, offer to resend (Step 4) or generate a new session (Step 3).
 
+## Step 7: Revoke Guardian Binding
+
+If the user wants to remove themselves (or the current guardian) from a channel, use the revoke endpoint:
+
+```bash
+curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/guardian/revoke" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" \
+  -d '{"channel": "<channel>"}'
+```
+
+Replace `<channel>` with the channel to unbind from (e.g. `voice`, `telegram`).
+
+### On success (`success: true`)
+
+Confirm to the user: "Guardian binding revoked for [channel]. The previous guardian no longer has access to this channel."
+
+### On error (`success: false`)
+
+| Error code | Action |
+|---|---|
+| `not_bound` | Tell the user there is no active guardian binding for this channel — nothing to revoke. |
+
 ## Important Notes
 
 - Verification codes expire after 10 minutes. If the session expires, start a new one.
@@ -161,3 +184,4 @@ If not yet bound, offer to resend (Step 4) or generate a new session (Step 3).
 - Per-destination rate limiting allows up to 10 sends within a 1-hour rolling window.
 - Guardian verification is identity-bound: the code can only be consumed by the identity matching the destination provided at start time.
 - **Missing `secret` guardrail**: For voice and Telegram chat-ID flows, the API response MUST include a `secret` field. If `secret` is unexpectedly absent from a start or resend response that otherwise indicates success, treat this as a control-plane error. Do NOT fabricate a code or tell the user to proceed without one. Instead, tell the user something went wrong and ask them to retry the start (Step 3) or resend (Step 4).
+- **Revoking a guardian**: To remove the current guardian from a channel, use the revoke API (Step 7). This revokes the binding AND revokes the guardian's ingress member record, so they lose access to the channel. A new guardian can then be verified for that channel.

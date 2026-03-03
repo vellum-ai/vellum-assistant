@@ -2,13 +2,18 @@
 set -uo pipefail
 
 # ---------------------------------------------------------------------------
-# Compare current benchmark results against a baseline and alert on >10%
-# regressions. Exits non-zero if any benchmark regressed beyond the threshold.
+# Compare current benchmark results against a baseline and alert on
+# regressions. A regression is flagged when BOTH the percentage increase
+# exceeds the threshold (default 10%) AND the absolute increase exceeds
+# the minimum (default 50ms). Exits non-zero if any benchmark regressed.
 #
 # Usage: compare-benchmarks.sh <baseline.json> <current.json>
 # ---------------------------------------------------------------------------
 
 THRESHOLD="${BENCHMARK_REGRESSION_THRESHOLD:-10}"
+# Minimum absolute increase (ms) required to flag a regression. Filters noise
+# from fast benchmarks where small absolute swings produce large percentages.
+MIN_ABS_MS="${BENCHMARK_MIN_ABSOLUTE_MS:-50}"
 
 if [[ $# -lt 2 ]]; then
   echo "Usage: $0 <baseline.json> <current.json>"
@@ -28,7 +33,7 @@ if [[ ! -f "${CURRENT}" ]]; then
   exit 1
 fi
 
-echo "Comparing benchmarks (regression threshold: ${THRESHOLD}%)"
+echo "Comparing benchmarks (regression threshold: ${THRESHOLD}%, min absolute: ${MIN_ABS_MS}ms)"
 echo "Baseline commit: $(jq -r '.commit // "unknown"' "${BASELINE}")"
 echo "Current commit:  $(jq -r '.commit // "unknown"' "${CURRENT}")"
 echo ""
@@ -57,8 +62,10 @@ while IFS= read -r file; do
   # Uses -v to pass shell variables safely (prevents awk code injection via crafted values)
   pct_change=$(awk -v c="$current_ms" -v b="$baseline_ms" 'BEGIN { printf "%.1f", (c - b) / b * 100 }')
 
-  if awk -v p="$pct_change" -v t="$THRESHOLD" 'BEGIN { exit !(p > t) }'; then
-    echo "  REGR ${file}: ${baseline_ms}ms -> ${current_ms}ms (+${pct_change}%)"
+  abs_change=$(( current_ms - baseline_ms ))
+
+  if awk -v p="$pct_change" -v t="$THRESHOLD" 'BEGIN { exit !(p > t) }' && [[ ${abs_change} -ge ${MIN_ABS_MS} ]]; then
+    echo "  REGR ${file}: ${baseline_ms}ms -> ${current_ms}ms (+${pct_change}%, +${abs_change}ms)"
     regressions=$((regressions + 1))
   elif awk -v p="$pct_change" -v t="$THRESHOLD" 'BEGIN { exit !(p < -t) }'; then
     echo "  IMPR ${file}: ${baseline_ms}ms -> ${current_ms}ms (${pct_change}%)"
