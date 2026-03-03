@@ -850,6 +850,11 @@ export async function revokeConnection(params: {
   const peerAssistantId = connection.peerAssistantId;
   const outboundCredential = connection.outboundCredential;
 
+  // Capture the original status before any async work — the event loop can
+  // yield during deliverRevocationNotification and handlePeerRevocationNotification
+  // can execute concurrently, changing the status to revoked_by_peer.
+  const originalStatus = connection.status;
+
   // Tombstone inbound credential immediately — blocks accepting messages
   // from this peer right away. Outbound credential is preserved so the
   // sweep timer can sign retry attempts if initial delivery fails.
@@ -887,8 +892,23 @@ export async function revokeConnection(params: {
     tombstoneOutboundCredential(params.connectionId);
   }
 
-  // Transition to the appropriate status
-  updateConnectionStatus(params.connectionId, finalStatus);
+  // CAS transition: only update if status hasn't been changed concurrently
+  // (e.g. by handlePeerRevocationNotification setting revoked_by_peer).
+  const updatedConnection = updateConnectionStatus(params.connectionId, finalStatus, originalStatus);
+
+  if (!updatedConnection) {
+    // Status was changed concurrently — re-read and return idempotent success.
+    // The peer likely revoked while we were delivering, so the connection is
+    // already in a terminal state.
+    const current = getConnection(params.connectionId);
+    const currentStatus = current?.status;
+    if (currentStatus === 'revoked' || currentStatus === 'revoked_by_peer' || currentStatus === 'revocation_pending') {
+      return { ok: true, status: currentStatus === 'revocation_pending' ? 'revocation_pending' : 'revoked' };
+    }
+    // Unexpected state — still return success since we've already tombstoned
+    // inbound credentials
+    return { ok: true, status: 'revoked' };
+  }
 
   // Emit notification signal: connection revoked (regardless of delivery outcome)
   void emitNotificationSignal({
@@ -929,13 +949,55 @@ export function handlePeerRevocationNotification(params: {
     return { ok: false, reason: 'not_found' };
   }
 
-  // Idempotent: already revoked by us or by peer
+  // Idempotent: already fully revoked by us or by peer
   if (
     connection.status === 'revoked' ||
-    connection.status === 'revoked_by_peer' ||
-    connection.status === 'revocation_pending'
+    connection.status === 'revoked_by_peer'
   ) {
     return { ok: false, reason: 'already_revoked' };
+  }
+
+  // When our local status is revocation_pending, the peer's revocation
+  // notification takes precedence — transition to revoked_by_peer, tombstone
+  // ALL credentials (outbound was preserved for sweep retries but now the
+  // peer has revoked so we no longer need it), and emit the lifecycle event.
+  if (connection.status === 'revocation_pending') {
+    // Tombstone both inbound and outbound credentials
+    updateConnectionCredentials(params.connectionId, {
+      outboundCredentialHash: '',
+      outboundCredential: '',
+      inboundCredentialHash: '',
+      inboundCredential: '',
+    });
+
+    // Transition to revoked_by_peer — stops unnecessary sweep retries
+    updateConnectionStatus(params.connectionId, 'revoked_by_peer', 'revocation_pending');
+
+    // Clean up any lingering handshake session
+    handshakeSessions.delete(params.connectionId);
+
+    // Emit notification signal
+    void emitNotificationSignal({
+      sourceEventName: 'a2a.connection_revoked',
+      sourceChannel: 'a2a',
+      sourceSessionId: params.connectionId,
+      assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
+      attentionHints: {
+        requiresAction: false,
+        urgency: 'low',
+        isAsyncBackground: false,
+        visibleInSourceNow: false,
+      },
+      contextPayload: {
+        connectionId: params.connectionId,
+        peerGatewayUrl: connection.peerGatewayUrl,
+        peerAssistantId: connection.peerAssistantId ?? null,
+        revokedByPeer: true,
+      },
+      dedupeKey: `a2a:connection-revoked-by-peer:${params.connectionId}`,
+    });
+
+    return { ok: true };
   }
 
   // Tombstone credentials
