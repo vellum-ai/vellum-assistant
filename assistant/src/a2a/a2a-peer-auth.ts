@@ -172,7 +172,33 @@ export class NonceStore {
 
   constructor(replayWindowMs: number = DEFAULT_REPLAY_WINDOW_MS) {
     this.replayWindowMs = replayWindowMs;
-    this.lastSweep = Date.now();
+    this.lastSweep = 0;
+  }
+
+  /**
+   * Check whether a nonce is already tracked (read-only, no side effects).
+   * Use this before HMAC verification to avoid polluting the store with
+   * unauthenticated nonces.
+   */
+  isKnown(nonce: string, now?: number): boolean {
+    const currentTime = now ?? Date.now();
+
+    // Opportunistic sweep: clean up every replay window interval
+    if (currentTime - this.lastSweep >= this.replayWindowMs) {
+      this.sweep(currentTime);
+    }
+
+    return this.seen.has(nonce);
+  }
+
+  /**
+   * Record a nonce after the request has been authenticated. Call this
+   * only after HMAC verification succeeds to prevent unauthenticated
+   * requests from polluting the nonce store.
+   */
+  record(nonce: string, now?: number): void {
+    const currentTime = now ?? Date.now();
+    this.seen.set(nonce, currentTime);
   }
 
   /**
@@ -180,6 +206,9 @@ export class NonceStore {
    * If it has been seen (replay), return true.
    *
    * Also performs opportunistic sweep of expired nonces.
+   *
+   * @deprecated Use `isKnown()` + `record()` instead to avoid polluting
+   * the store with unauthenticated nonces.
    */
   hasBeenSeen(nonce: string, now?: number): boolean {
     const currentTime = now ?? Date.now();
@@ -323,8 +352,8 @@ export function verifyRequest(
     return { ok: false, reason: 'timestamp_expired' };
   }
 
-  // 5. Check nonce not replayed
-  if (nonceStore.hasBeenSeen(nonce, currentTime)) {
+  // 5. Check nonce not replayed (read-only check before HMAC)
+  if (nonceStore.isKnown(nonce, currentTime)) {
     return { ok: false, reason: 'nonce_replayed' };
   }
 
@@ -335,6 +364,9 @@ export function verifyRequest(
   if (!timingSafeCompare(signature, expectedSignature)) {
     return { ok: false, reason: 'invalid_signature' };
   }
+
+  // Record nonce only after authentication succeeds
+  nonceStore.record(nonce, currentTime);
 
   return { ok: true, connectionId };
 }
@@ -376,8 +408,8 @@ export function verifySignature(params: {
     return { ok: false, reason: 'timestamp_expired' };
   }
 
-  // Nonce check
-  if (nonceStore.hasBeenSeen(nonce, currentTime)) {
+  // Nonce check (read-only before HMAC)
+  if (nonceStore.isKnown(nonce, currentTime)) {
     return { ok: false, reason: 'nonce_replayed' };
   }
 
@@ -388,6 +420,9 @@ export function verifySignature(params: {
   if (!timingSafeCompare(signature, expectedSignature)) {
     return { ok: false, reason: 'invalid_signature' };
   }
+
+  // Record nonce only after authentication succeeds
+  nonceStore.record(nonce, currentTime);
 
   return { ok: true };
 }
@@ -445,7 +480,7 @@ export function rotateCredentials(connectionId: string): RotateResult {
  * because `verifyRequest` checks connection status before signature
  * verification.
  */
-export function revokeCredentials(connectionId: string, reason?: string): RevokeResult {
+export function revokeCredentials(connectionId: string): RevokeResult {
   const connection = getConnection(connectionId);
   if (!connection) {
     return { ok: false, reason: 'connection_not_found' };

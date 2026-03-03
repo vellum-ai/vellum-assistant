@@ -251,10 +251,11 @@ describe('NonceStore', () => {
 
   test('sweep evicts nonces older than the replay window', () => {
     const store = new NonceStore(1000); // 1-second window
-    const baseTime = 1000000;
 
-    store.hasBeenSeen('old-nonce', baseTime);
-    store.hasBeenSeen('new-nonce', baseTime + 1500);
+    // Use record() to add nonces without triggering opportunistic sweep
+    const baseTime = 1000000;
+    store.record('old-nonce', baseTime);
+    store.record('new-nonce', baseTime + 1500);
     expect(store.size).toBe(2);
 
     // Sweep at time where old-nonce is expired but new-nonce is not
@@ -263,22 +264,25 @@ describe('NonceStore', () => {
     expect(store.size).toBe(1);
 
     // Verify old-nonce was evicted (can be re-used)
-    expect(store.hasBeenSeen('old-nonce', baseTime + 2000)).toBe(false);
+    expect(store.isKnown('old-nonce', baseTime + 2000)).toBe(false);
     // new-nonce is still tracked
-    expect(store.hasBeenSeen('new-nonce', baseTime + 2000)).toBe(true);
+    expect(store.isKnown('new-nonce', baseTime + 2000)).toBe(true);
   });
 
   test('opportunistic sweep triggers after replay window interval', () => {
     const store = new NonceStore(1000); // 1-second window
     const baseTime = 1000000;
 
-    store.hasBeenSeen('old', baseTime);
+    store.record('old', baseTime);
+    // Reset lastSweep so the next isKnown with enough time elapsed triggers sweep
+    store.sweep(baseTime);
     expect(store.size).toBe(1);
 
-    // This call triggers an opportunistic sweep because enough time has passed
-    store.hasBeenSeen('new', baseTime + 2000);
-    // old should have been evicted, new is added
-    expect(store.size).toBe(1);
+    // isKnown at baseTime + 2000 triggers opportunistic sweep (2000 >= 1000)
+    // old was recorded at baseTime, cutoff is (baseTime+2000) - 1000 = baseTime+1000
+    // baseTime < baseTime+1000 -> evicted
+    store.isKnown('new', baseTime + 2000);
+    expect(store.size).toBe(0);
   });
 
   test('clear resets the store', () => {
@@ -290,6 +294,75 @@ describe('NonceStore', () => {
     store.clear();
     expect(store.size).toBe(0);
     expect(store.hasBeenSeen('a')).toBe(false);
+  });
+
+  test('isKnown returns false for unseen nonce without recording it', () => {
+    const store = new NonceStore();
+    expect(store.isKnown('nonce-1')).toBe(false);
+    expect(store.size).toBe(0);
+    // Still unknown because isKnown does not record
+    expect(store.isKnown('nonce-1')).toBe(false);
+  });
+
+  test('isKnown returns true for a previously recorded nonce', () => {
+    const store = new NonceStore();
+    store.record('nonce-1');
+    expect(store.isKnown('nonce-1')).toBe(true);
+  });
+
+  test('record adds a nonce to the store', () => {
+    const store = new NonceStore();
+    expect(store.size).toBe(0);
+    store.record('nonce-1');
+    expect(store.size).toBe(1);
+    expect(store.isKnown('nonce-1')).toBe(true);
+  });
+
+  test('record with explicit timestamp', () => {
+    const store = new NonceStore(1000);
+    const baseTime = 1000000;
+    store.record('nonce-1', baseTime);
+    expect(store.isKnown('nonce-1', baseTime)).toBe(true);
+    expect(store.size).toBe(1);
+  });
+
+  test('isKnown triggers opportunistic sweep', () => {
+    const store = new NonceStore(1000);
+    const baseTime = 1000000;
+    store.record('old', baseTime);
+    expect(store.size).toBe(1);
+
+    // isKnown at a later time triggers sweep and evicts 'old'
+    expect(store.isKnown('new', baseTime + 2000)).toBe(false);
+    expect(store.size).toBe(0);
+  });
+
+  test('lastSweep initialized to 0 so first sweep triggers with explicit now', () => {
+    const store = new NonceStore(1000);
+    store.record('old', 500);
+    expect(store.size).toBe(1);
+
+    // At time 1000: lastSweep is 0, so 1000 - 0 >= 1000 triggers sweep.
+    // cutoff = 1000 - 1000 = 0, 'old' recorded at 500 > 0, not evicted. lastSweep = 1000.
+    store.isKnown('check', 1000);
+    expect(store.size).toBe(1);
+
+    // At time 2000: lastSweep is 1000, so 2000 - 1000 >= 1000 triggers sweep.
+    // cutoff = 2000 - 1000 = 1000, 'old' recorded at 500 < 1000 -> evicted.
+    store.isKnown('check2', 2000);
+    expect(store.size).toBe(0);
+  });
+
+  test('unauthenticated nonces do not pollute the store via isKnown', () => {
+    const store = new NonceStore();
+    // Simulate an unauthenticated request: isKnown check without record
+    expect(store.isKnown('attacker-nonce')).toBe(false);
+    expect(store.size).toBe(0);
+
+    // A legitimate request with the same nonce should still succeed
+    expect(store.isKnown('attacker-nonce')).toBe(false);
+    store.record('attacker-nonce');
+    expect(store.isKnown('attacker-nonce')).toBe(true);
   });
 });
 
@@ -440,6 +513,43 @@ describe('verifySignature', () => {
     });
     expect(result2.ok).toBe(false);
     if (!result2.ok) expect(result2.reason).toBe('nonce_replayed');
+  });
+
+  test('failed HMAC does not pollute the nonce store', () => {
+    const realCredential = generateCredentialToken();
+    const wrongCredential = generateCredentialToken();
+    const body = '{"data":"test"}';
+    const now = Date.now();
+    const nonceStore = new NonceStore();
+
+    const headers = signRequest('conn-1', realCredential, body, now);
+
+    // First attempt: wrong credential -> invalid_signature, nonce NOT recorded
+    const result1 = verifySignature({
+      signature: headers[HEADER_SIGNATURE],
+      timestamp: headers[HEADER_TIMESTAMP],
+      nonce: headers[HEADER_NONCE],
+      body,
+      credential: wrongCredential,
+      nonceStore,
+      now,
+    });
+    expect(result1.ok).toBe(false);
+    if (!result1.ok) expect(result1.reason).toBe('invalid_signature');
+    expect(nonceStore.size).toBe(0);
+
+    // Second attempt: correct credential -> should succeed (nonce was not recorded)
+    const result2 = verifySignature({
+      signature: headers[HEADER_SIGNATURE],
+      timestamp: headers[HEADER_TIMESTAMP],
+      nonce: headers[HEADER_NONCE],
+      body,
+      credential: realCredential,
+      nonceStore,
+      now,
+    });
+    expect(result2.ok).toBe(true);
+    expect(nonceStore.size).toBe(1);
   });
 });
 
