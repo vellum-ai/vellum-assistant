@@ -136,6 +136,8 @@ struct SettingsAccountTab: View {
                         isPlatformUrlFocused = true
                     }
                 }
+
+                Divider().background(VColor.surfaceBorder)
             }
 
             if authManager.isLoading {
@@ -275,12 +277,7 @@ struct SettingsAccountTab: View {
                     .foregroundColor(VColor.textPrimary)
 
                 ForEach(lockfileAssistants, id: \.assistantId) { assistant in
-                    let isActive = assistant.assistantId == selectedAssistantId
                     HStack(spacing: VSpacing.sm) {
-                        Image(systemName: isActive ? "largecircle.fill.circle" : "circle")
-                            .foregroundColor(isActive ? VColor.accent : VColor.textMuted)
-                            .font(.system(size: 18))
-
                         VStack(alignment: .leading, spacing: VSpacing.xxs) {
                             Text(assistant.assistantId)
                                 .font(VFont.bodyMedium)
@@ -289,13 +286,18 @@ struct SettingsAccountTab: View {
                                 .font(VFont.caption)
                                 .foregroundColor(VColor.textMuted)
                         }
-
                         Spacer()
+                        VToggle(isOn: Binding(
+                            get: { assistant.assistantId == selectedAssistantId },
+                            set: { isOn in
+                                if isOn { switchToAssistant(assistant) }
+                            }
+                        ))
                     }
                     .padding(.vertical, VSpacing.xs)
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        if !isActive {
+                        if assistant.assistantId != selectedAssistantId {
                             switchToAssistant(assistant)
                         }
                     }
