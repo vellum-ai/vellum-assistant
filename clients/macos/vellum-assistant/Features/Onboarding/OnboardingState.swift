@@ -187,7 +187,7 @@ final class OnboardingState {
 
         // Return to welcome screen and persist the reset
         currentStep = 0
-        persist()
+        if shouldPersist { persist() }
     }
 
     static func clearPersistedState() {
