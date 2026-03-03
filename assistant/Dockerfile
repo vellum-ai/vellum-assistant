@@ -81,7 +81,7 @@ RUN echo 'Dir::State "/data/dpkg";' > /etc/apt/apt.conf.d/99data-dir && \
     chown -R assistant:assistant /data/apt /data/dpkg
 
 ENV PATH="/data/usr/bin:/data/usr/sbin:${PATH}"
-ENV LD_LIBRARY_PATH="/data/usr/lib:/data/usr/lib/x86_64-linux-gnu:/data/usr/lib/aarch64-linux-gnu:${LD_LIBRARY_PATH}"
+ENV LD_LIBRARY_PATH="/data/usr/lib:/data/usr/lib/x86_64-linux-gnu:/data/usr/lib/aarch64-linux-gnu"
 
 USER root
 
