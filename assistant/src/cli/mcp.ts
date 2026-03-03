@@ -15,7 +15,7 @@ const log = getCliLogger('cli');
 export const HEALTH_CHECK_TIMEOUT_MS = 10_000;
 
 export async function checkServerHealth(serverId: string, config: McpServerConfig, timeoutMs = HEALTH_CHECK_TIMEOUT_MS): Promise<string> {
-  const client = new McpClient(serverId, { quiet: true });
+  const client = new McpClient(serverId);
   try {
     await Promise.race([
       client.connect(config.transport),
