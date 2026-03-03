@@ -145,35 +145,9 @@ struct HeartbeatAutomationSection: View {
 
     private var runsCard: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            HStack {
-                Text("Heartbeat Runs")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
-                Spacer()
-                if isRunning {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Running...")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                } else {
-                    VButton(label: "Run Now", style: .primary, size: .large) {
-                        isRunning = true
-                        runError = nil
-                        guard let client = daemonClient else {
-                            isRunning = false
-                            runError = "Daemon not available"
-                            return
-                        }
-                        do {
-                            try client.sendHeartbeatRunNow()
-                        } catch {
-                            isRunning = false
-                            runError = "Failed to send run request"
-                        }
-                    }
-                }
-            }
+            Text("Heartbeat Runs")
+                .font(VFont.sectionTitle)
+                .foregroundColor(VColor.textPrimary)
 
             if let error = runError {
                 Text(error)
@@ -181,13 +155,7 @@ struct HeartbeatAutomationSection: View {
                     .foregroundColor(VColor.error)
             }
 
-            if runs.isEmpty {
-                Text("No heartbeat runs yet")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.vertical, VSpacing.lg)
-            } else {
+            if !runs.isEmpty {
                 ForEach(runs, id: \.id) { run in
                     VStack(alignment: .leading, spacing: 0) {
                         Button {
@@ -236,6 +204,26 @@ struct HeartbeatAutomationSection: View {
 
                     if run.id != runs.last?.id {
                         Divider().background(VColor.surfaceBorder)
+                    }
+                }
+            }
+
+            if isRunning {
+                VButton(label: "Running...", style: .primary, size: .large, isDisabled: true) {}
+            } else {
+                VButton(label: "Run Now", style: .primary, size: .large) {
+                    isRunning = true
+                    runError = nil
+                    guard let client = daemonClient else {
+                        isRunning = false
+                        runError = "Daemon not available"
+                        return
+                    }
+                    do {
+                        try client.sendHeartbeatRunNow()
+                    } catch {
+                        isRunning = false
+                        runError = "Failed to send run request"
                     }
                 }
             }
