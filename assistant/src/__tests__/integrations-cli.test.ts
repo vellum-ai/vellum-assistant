@@ -1,0 +1,161 @@
+import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
+import { Command } from 'commander';
+
+let gatewayBase = 'http://gateway.test';
+let signingKeyInitialized = false;
+let initCalls = 0;
+let loadCalls = 0;
+let mintCalls = 0;
+
+mock.module('../config/env.js', () => ({
+  getGatewayInternalBaseUrl: () => gatewayBase,
+}));
+
+mock.module('../runtime/auth/token-service.js', () => ({
+  isSigningKeyInitialized: () => signingKeyInitialized,
+  initAuthSigningKey: (_key: Buffer) => {
+    signingKeyInitialized = true;
+    initCalls += 1;
+  },
+  loadOrCreateSigningKey: () => {
+    loadCalls += 1;
+    return Buffer.alloc(32, 7);
+  },
+  mintEdgeRelayToken: () => {
+    mintCalls += 1;
+    return 'minted-edge-token';
+  },
+}));
+
+const { registerIntegrationsCommand } = await import('../cli/integrations.js');
+
+type FetchCall = { url: string; authHeader: string | null };
+
+async function runCli(
+  args: string[],
+  responseBody: unknown,
+  responseStatus = 200,
+): Promise<{ exitCode: number; stdout: string; fetchCalls: FetchCall[] }> {
+  const originalFetch = globalThis.fetch;
+  const originalWrite = process.stdout.write.bind(process.stdout);
+  const originalEnvToken = process.env.GATEWAY_AUTH_TOKEN;
+
+  const fetchCalls: FetchCall[] = [];
+  const stdoutChunks: string[] = [];
+
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input.toString();
+    const headers = new Headers(init?.headers);
+    fetchCalls.push({
+      url,
+      authHeader: headers.get('authorization'),
+    });
+    return new Response(JSON.stringify(responseBody), {
+      status: responseStatus,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  process.stdout.write = ((chunk: unknown) => {
+    stdoutChunks.push(typeof chunk === 'string' ? chunk : String(chunk));
+    return true;
+  }) as typeof process.stdout.write;
+
+  process.exitCode = 0;
+
+  try {
+    const program = new Command();
+    registerIntegrationsCommand(program);
+    await program.parseAsync(['node', 'vellum', 'integrations', ...args]);
+  } finally {
+    process.stdout.write = originalWrite;
+    globalThis.fetch = originalFetch;
+    if (originalEnvToken === undefined) {
+      delete process.env.GATEWAY_AUTH_TOKEN;
+    } else {
+      process.env.GATEWAY_AUTH_TOKEN = originalEnvToken;
+    }
+  }
+
+  return {
+    exitCode: process.exitCode ?? 0,
+    stdout: stdoutChunks.join(''),
+    fetchCalls,
+  };
+}
+
+describe('vellum integrations CLI', () => {
+  beforeEach(() => {
+    gatewayBase = 'http://gateway.test';
+    signingKeyInitialized = false;
+    initCalls = 0;
+    loadCalls = 0;
+    mintCalls = 0;
+    delete process.env.GATEWAY_AUTH_TOKEN;
+    process.exitCode = 0;
+  });
+
+  afterEach(() => {
+    delete process.env.GATEWAY_AUTH_TOKEN;
+    process.exitCode = 0;
+  });
+
+  test('uses GATEWAY_AUTH_TOKEN from env when present', async () => {
+    process.env.GATEWAY_AUTH_TOKEN = 'env-token';
+    const result = await runCli(['--json', 'twilio', 'config'], { success: true });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.fetchCalls.length).toBe(1);
+    expect(result.fetchCalls[0]?.url).toBe('http://gateway.test/v1/integrations/twilio/config');
+    expect(result.fetchCalls[0]?.authHeader).toBe('Bearer env-token');
+    expect(loadCalls).toBe(0);
+    expect(initCalls).toBe(0);
+    expect(mintCalls).toBe(0);
+  });
+
+  test('mints a gateway token when no env token is provided', async () => {
+    const result = await runCli(['--json', 'telegram', 'config'], { success: true });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.fetchCalls[0]?.authHeader).toBe('Bearer minted-edge-token');
+    expect(loadCalls).toBe(1);
+    expect(initCalls).toBe(1);
+    expect(mintCalls).toBe(1);
+  });
+
+  test('passes channel query for guardian status', async () => {
+    const result = await runCli(['--json', 'guardian', 'status', '--channel', 'telegram'], { success: true });
+    expect(result.exitCode).toBe(0);
+    expect(result.fetchCalls[0]?.url).toBe('http://gateway.test/v1/integrations/guardian/status?channel=telegram');
+  });
+
+  test('passes filters for ingress members', async () => {
+    const result = await runCli(
+      [
+        '--json',
+        'ingress',
+        'members',
+        '--assistant-id',
+        'assistant-1',
+        '--source-channel',
+        'voice',
+        '--status',
+        'active',
+      ],
+      { ok: true, members: [] },
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.fetchCalls[0]?.url).toBe(
+      'http://gateway.test/v1/ingress/members?assistantId=assistant-1&sourceChannel=voice&status=active',
+    );
+  });
+
+  test('returns structured error output when gateway request fails', async () => {
+    const result = await runCli(['--json', 'twilio', 'numbers'], { error: 'Unauthorized' }, 401);
+    expect(result.exitCode).toBe(1);
+    expect(JSON.parse(result.stdout)).toEqual({
+      ok: false,
+      error: 'Unauthorized [401]',
+    });
+  });
+});
