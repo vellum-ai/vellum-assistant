@@ -77,7 +77,7 @@ function mockFetch(
       return new Response(body, { status, headers: responseHeaders });
     }
     return new Response(String(body), { status, headers: responseHeaders });
-  }) as typeof fetch;
+  }) as unknown as typeof fetch;
 }
 
 function runtimeConfig(overrides?: Partial<TransportConfig>): TransportConfig {
@@ -633,7 +633,7 @@ describe("retryValidationFlow", () => {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const options = makeExecutorOptions({
       destConfig: runtimeConfig({ fetchFn: sequentialFetch }),
@@ -720,7 +720,7 @@ describe("executeValidationFlow", () => {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const stateChanges: MigrationWizardState[] = [];
     const options = makeExecutorOptions({
@@ -1015,7 +1015,7 @@ describe("executeValidationFlow — onStateChange callbacks", () => {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const stateChanges: ValidationScreenState[] = [];
     const options = makeExecutorOptions({
