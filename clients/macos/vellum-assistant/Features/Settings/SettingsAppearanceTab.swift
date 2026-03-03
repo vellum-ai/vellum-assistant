@@ -12,7 +12,7 @@ struct SettingsAppearanceTab: View {
     @State private var flagsMonitor: Any?
     @State private var recordingDisplayString: String?
     @State private var shortcutConflictWarning: String?
-    @State private var showTimezonePicker = false
+    @State private var selectedTimezone: String = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
@@ -45,9 +45,6 @@ struct SettingsAppearanceTab: View {
                     .frame(width: 220)
                 }
 
-                Divider()
-                    .background(VColor.surfaceBorder)
-
                 HStack(alignment: .center, spacing: VSpacing.sm) {
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
                         Text("User timezone")
@@ -58,28 +55,23 @@ struct SettingsAppearanceTab: View {
                             .foregroundColor(VColor.textMuted)
                     }
                     Spacer()
-                    if let tz = store.userTimezone {
-                        Text(tz)
-                            .font(VFont.mono)
-                            .foregroundColor(VColor.textPrimary)
-                    } else {
-                        Text("Not set")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textMuted)
-                    }
-                    VButton(label: store.userTimezone != nil ? "Change" : "Set", style: .tertiary) {
-                        showTimezonePicker = true
-                    }
-                    .popover(isPresented: $showTimezonePicker, arrowEdge: .bottom) {
-                        TimezonePicker { selected in
-                            store.saveUserTimezone(selected)
-                            showTimezonePicker = false
+                    Picker("", selection: $selectedTimezone) {
+                        Text("Not Set").tag("")
+                        ForEach(TimeZone.knownTimeZoneIdentifiers.sorted(), id: \.self) { identifier in
+                            Text(identifier).tag(identifier)
                         }
                     }
-                    if store.userTimezone != nil {
-                        VButton(label: "Clear", style: .tertiary) {
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .onChange(of: selectedTimezone) { newValue in
+                        if newValue.isEmpty {
                             store.clearUserTimezone()
+                        } else {
+                            store.saveUserTimezone(newValue)
                         }
+                    }
+                    .onAppear {
+                        selectedTimezone = store.userTimezone ?? ""
                     }
                 }
 
@@ -240,12 +232,10 @@ struct SettingsAppearanceTab: View {
                         .padding(.vertical, VSpacing.xs)
                     }
 
-                    HStack {
-                        Spacer()
-                        VButton(label: "Reset to Defaults", style: .tertiary) {
-                            store.setMediaEmbedVideoAllowlistDomains(MediaEmbedSettings.defaultDomains)
-                        }
+                    VButton(label: "Reset to Defaults", style: .secondary, size: .large) {
+                        store.setMediaEmbedVideoAllowlistDomains(MediaEmbedSettings.defaultDomains)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
             .padding(VSpacing.lg)
