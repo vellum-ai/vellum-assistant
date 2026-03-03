@@ -344,4 +344,195 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       ),
     ).toBe(false);
   });
+
+  test("text fallback: request-code approve routes through guardian reply router", async () => {
+    listPendingByDestinationMock.mockReturnValue([
+      { id: "tool-req-code-1", kind: "tool_approval" },
+    ]);
+    listCanonicalMock.mockReturnValue([]);
+    routeGuardianReplyMock.mockResolvedValue({
+      consumed: true,
+      decisionApplied: true,
+      type: "canonical_decision_applied",
+      requestId: "tool-req-code-1",
+    });
+
+    const persistUserMessage = mock(async () => "should-not-be-called");
+    const runAgentLoop = mock(async () => undefined);
+    const session = {
+      setGuardianContext: () => {},
+      setStateSignalListener: () => {},
+      emitConfirmationStateChanged: () => {},
+      emitActivityState: () => {},
+      setTurnChannelContext: () => {},
+      setTurnInterfaceContext: () => {},
+      isProcessing: () => false,
+      hasAnyPendingConfirmation: () => true,
+      denyAllPendingConfirmations: () => {},
+      enqueueMessage: () => ({ queued: true, requestId: "queued-id" }),
+      persistUserMessage,
+      runAgentLoop,
+      getMessages: () => [] as unknown[],
+      assistantId: "self",
+      guardianContext: undefined,
+      hasPendingConfirmation: (id: string) => id === "tool-req-code-1",
+    } as unknown as import("../daemon/session.js").Session;
+
+    const req = new Request("http://localhost/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        conversationKey: "guardian-thread-key",
+        content: "A1B2C3 approve",
+        sourceChannel: "vellum",
+        interface: "macos",
+      }),
+    });
+
+    const res = await handleSendMessage(
+      req,
+      {
+        sendMessageDeps: {
+          getOrCreateSession: async () => session,
+          assistantEventHub: { publish: async () => {} } as any,
+          resolveAttachments: () => [],
+        },
+      },
+      testAuthContext,
+    );
+
+    expect(res.status).toBe(202);
+    expect(routeGuardianReplyMock).toHaveBeenCalledTimes(1);
+    const routerCall = (routeGuardianReplyMock as any).mock
+      .calls[0][0] as Record<string, unknown>;
+    // The message text should be the full request-code + decision text
+    expect(routerCall.messageText).toBe("A1B2C3 approve");
+    // Router consumed the message, so the agent loop should NOT run
+    expect(persistUserMessage).toHaveBeenCalledTimes(0);
+    expect(runAgentLoop).toHaveBeenCalledTimes(0);
+  });
+
+  test("text fallback: plain-text reject with single pending request routes through guardian reply router", async () => {
+    listPendingByDestinationMock.mockReturnValue([
+      { id: "pending-reject-1", kind: "tool_approval" },
+    ]);
+    listCanonicalMock.mockReturnValue([]);
+    routeGuardianReplyMock.mockResolvedValue({
+      consumed: true,
+      decisionApplied: true,
+      type: "canonical_decision_applied",
+      requestId: "pending-reject-1",
+    });
+
+    const persistUserMessage = mock(async () => "should-not-be-called");
+    const runAgentLoop = mock(async () => undefined);
+    const session = {
+      setGuardianContext: () => {},
+      setStateSignalListener: () => {},
+      emitConfirmationStateChanged: () => {},
+      emitActivityState: () => {},
+      setTurnChannelContext: () => {},
+      setTurnInterfaceContext: () => {},
+      isProcessing: () => false,
+      hasAnyPendingConfirmation: () => true,
+      denyAllPendingConfirmations: () => {},
+      enqueueMessage: () => ({ queued: true, requestId: "queued-id" }),
+      persistUserMessage,
+      runAgentLoop,
+      getMessages: () => [] as unknown[],
+      assistantId: "self",
+      guardianContext: undefined,
+      hasPendingConfirmation: (id: string) => id === "pending-reject-1",
+    } as unknown as import("../daemon/session.js").Session;
+
+    const req = new Request("http://localhost/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        conversationKey: "guardian-thread-key",
+        content: "reject",
+        sourceChannel: "vellum",
+        interface: "macos",
+      }),
+    });
+
+    const res = await handleSendMessage(
+      req,
+      {
+        sendMessageDeps: {
+          getOrCreateSession: async () => session,
+          assistantEventHub: { publish: async () => {} } as any,
+          resolveAttachments: () => [],
+        },
+      },
+      testAuthContext,
+    );
+
+    expect(res.status).toBe(202);
+    expect(routeGuardianReplyMock).toHaveBeenCalledTimes(1);
+    expect(persistUserMessage).toHaveBeenCalledTimes(0);
+    expect(runAgentLoop).toHaveBeenCalledTimes(0);
+  });
+
+  test("text fallback: non-consumed messages fall through to agent loop", async () => {
+    listPendingByDestinationMock.mockReturnValue([
+      { id: "pending-1", kind: "tool_approval" },
+    ]);
+    listCanonicalMock.mockReturnValue([]);
+    routeGuardianReplyMock.mockResolvedValue({
+      consumed: false,
+      decisionApplied: false,
+      type: "not_consumed",
+    });
+
+    const persistUserMessage = mock(async () => "persisted-user-id");
+    const runAgentLoop = mock(async () => undefined);
+    const session = {
+      setGuardianContext: () => {},
+      setStateSignalListener: () => {},
+      emitConfirmationStateChanged: () => {},
+      emitActivityState: () => {},
+      setTurnChannelContext: () => {},
+      setTurnInterfaceContext: () => {},
+      isProcessing: () => false,
+      hasAnyPendingConfirmation: () => true,
+      denyAllPendingConfirmations: () => {},
+      enqueueMessage: () => ({ queued: true, requestId: "queued-id" }),
+      persistUserMessage,
+      runAgentLoop,
+      getMessages: () => [] as unknown[],
+      assistantId: "self",
+      guardianContext: undefined,
+      hasPendingConfirmation: (id: string) => id === "pending-1",
+    } as unknown as import("../daemon/session.js").Session;
+
+    const req = new Request("http://localhost/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        conversationKey: "guardian-thread-key",
+        content: "tell me more about this request",
+        sourceChannel: "vellum",
+        interface: "macos",
+      }),
+    });
+
+    const res = await handleSendMessage(
+      req,
+      {
+        sendMessageDeps: {
+          getOrCreateSession: async () => session,
+          assistantEventHub: { publish: async () => {} } as any,
+          resolveAttachments: () => [],
+        },
+      },
+      testAuthContext,
+    );
+
+    expect(res.status).toBe(202);
+    expect(routeGuardianReplyMock).toHaveBeenCalledTimes(1);
+    // Router did not consume: message should fall through to agent loop
+    expect(persistUserMessage).toHaveBeenCalledTimes(1);
+    expect(runAgentLoop).toHaveBeenCalledTimes(1);
+  });
 });

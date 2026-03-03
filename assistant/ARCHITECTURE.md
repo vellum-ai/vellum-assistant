@@ -113,10 +113,18 @@ All guardian approval decisions — regardless of how they arrive — route thro
 - `approve_always` is downgraded to `approve_once` for guardian-on-behalf requests (guardians cannot permanently allowlist tools for requesters).
 - Scoped grant minting only fires on explicit approve for requests with tool metadata.
 
-**Dual-mode approval UX:** Guardians can respond to approval prompts via two modes, both routing through `applyGuardianDecision`:
+**Unified interaction model — buttons first, text fallback:** All guardian approval prompts follow a canonical "buttons first, text fallback" pattern. Structured button UIs are the primary interaction surface, but every prompt also carries deterministic text fallback instructions so guardians can always act even when buttons are unavailable or not used. This applies uniformly across all request kinds (`tool_approval`, `pending_question`, `access_request`) and all channels (macOS desktop, Telegram, SMS, WhatsApp).
 
-1. **Button UI (deterministic):** Desktop clients and channel adapters render structured `GuardianDecisionPrompt` objects as tappable buttons. Desktop clients use HTTP endpoints (`GET /v1/guardian-actions/pending`, `POST /v1/guardian-actions/decision`) or IPC (`guardian_actions_pending_request`, `guardian_action_decision`). Channel adapters (Telegram inline keyboards, WhatsApp) encode actions in callback data.
-2. **Conversational (NL parsing):** Text replies are classified by the conversational approval engine or parsed by the legacy text parser. The resulting `ApprovalDecisionResult` is passed to `applyGuardianDecision` identically.
+**Button-first path (deterministic):**
+- Desktop clients (macOS/iOS) render `GuardianDecisionPrompt` objects as tappable card UIs with kind-aware headers and action buttons. The `GuardianDecisionBubble` renders distinct headers for each kind: "Tool Approval Required", "Question Pending", or "Access Request".
+- Desktop clients submit decisions via HTTP (`POST /v1/guardian-actions/decision`) or IPC (`guardian_action_decision`). Both route through `applyCanonicalGuardianDecision`.
+- Channel adapters (Telegram inline keyboards, WhatsApp) encode actions as callback data (`apr:<requestId>:<action>`).
+
+**Text fallback path (always available):**
+- Every prompt includes a `requestCode` (6-char alphanumeric). Guardians can reply with `<requestCode> approve` or `<requestCode> reject` on any channel.
+- `access_request` prompts additionally embed explicit text directives in `questionText`: the request-code approve/reject directive and the `"open invite flow"` phrase for starting the Trusted Contacts invite flow.
+- `pending_question` prompts (voice-originated) support `<requestCode> <your answer>` for free-text answers.
+- The `routeGuardianReply` router processes text replies through a priority-ordered pipeline: callback parsing -> request code parsing -> NL classification. All paths converge on `applyCanonicalGuardianDecision`.
 
 **Shared type system:** `GuardianDecisionPrompt` and `GuardianDecisionAction` (in `src/runtime/guardian-decision-types.ts`) define the structured prompt model. `buildDecisionActions()` computes the action set respecting `persistentDecisionsAllowed` and `forGuardianOnBehalf` flags. `buildPlainTextFallback()` generates parser-compatible text instructions. Channel adapters map these to channel-specific formats via `toApprovalActionOptions()` in `channel-approval-types.ts`.
 
@@ -169,9 +177,9 @@ The canonical guardian request system provides a channel-agnostic, unified domai
 
 4. **Deterministic API (prompt listing and decision endpoints):** Desktop clients and API consumers use `GET /v1/guardian-actions/pending` and `POST /v1/guardian-actions/decision` (HTTP) or the equivalent IPC messages. These endpoints surface canonical requests alongside legacy pending interactions and channel approval records, with deduplication to avoid double-rendering.
 
-5. **Dual-mode (deterministic + conversational):** Guardians can respond via structured button UIs (deterministic path) or free-text conversation (NL path). Both paths converge on the same canonical primitive. Code-only messages (just a request code without decision text) return clarification instead of auto-approving. Disambiguation with multiple pending requests stays fail-closed — no auto-resolve when the target is ambiguous.
+5. **Buttons first, text fallback:** All request kinds (`tool_approval`, `pending_question`, `access_request`) are rendered as structured button cards when displayed in macOS/iOS guardian threads. Each prompt also embeds deterministic text fallback instructions (request-code-based approve/reject directives, and for `access_request` the "open invite flow" phrase) so text-based channels and manual fallback always work. Code-only messages (just a request code without decision text) return clarification instead of auto-approving. Disambiguation with multiple pending requests stays fail-closed — no auto-resolve when the target is ambiguous.
 
-**Resolver registry:** Kind-specific resolvers (`src/approvals/guardian-request-resolvers.ts`) handle side effects after CAS resolution. Built-in resolvers: `tool_approval` (channel/desktop approval path) and `pending_question` (voice call question path). New request kinds register resolvers without touching the core primitive.
+**Resolver registry:** Kind-specific resolvers (`src/approvals/guardian-request-resolvers.ts`) handle side effects after CAS resolution. Built-in resolvers: `tool_approval` (channel/desktop approval path), `pending_question` (voice call question path), and `access_request` (trusted-contact verification session creation). New request kinds register resolvers without touching the core primitive.
 
 **Expiry sweeps:** Three complementary sweeps run on 60-second intervals to clean up stale requests:
 

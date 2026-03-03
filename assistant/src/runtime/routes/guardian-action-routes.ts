@@ -208,20 +208,23 @@ export function listGuardianDecisionPrompts(params: {
 /**
  * Map a canonical guardian request to the client-facing prompt format.
  *
- * Generates an appropriate questionText based on the request kind, and
- * determines which actions are available. Pending questions surface as
- * informational prompts since they may require text input rather than
- * simple approve/reject buttons.
+ * Generates kind-specific questionText and action sets:
+ * - `tool_approval`: "Approve tool: <name>" with approve/reject actions
+ * - `pending_question`: voice-originated question with approve/reject actions
+ * - `access_request`: explicit "Access Request" label with approve/reject actions
+ *   and text fallback instructions (request code + "open invite flow")
+ *
+ * All kinds use `forGuardianOnBehalf: true` (no approve_always) since the
+ * guardian is acting on behalf of a requester.
  */
 function mapCanonicalRequestToPrompt(
   req: CanonicalGuardianRequest,
   conversationId: string,
 ): GuardianDecisionPrompt {
-  const questionText = req.questionText
-    ?? (req.toolName ? `Approve tool: ${req.toolName}` : `Guardian request: ${req.kind}`);
+  const questionText = buildKindAwareQuestionText(req);
 
-  // pending_question requests are typically voice-originated and need
-  // approve/reject only (no approve_always -- guardian-on-behalf invariant).
+  // All guardian-on-behalf prompts use approve_once + reject only
+  // (no approve_always, no temporary modes).
   const actions = buildDecisionActions({ forGuardianOnBehalf: true });
 
   const expiresAt = req.expiresAt
@@ -243,4 +246,26 @@ function mapCanonicalRequestToPrompt(
     callSessionId: req.callSessionId ?? null,
     kind: req.kind,
   };
+}
+
+/**
+ * Build kind-aware question text for the guardian prompt.
+ *
+ * For `access_request`, appends deterministic text fallback instructions
+ * (request-code approve/reject + "open invite flow") so the prompt remains
+ * actionable even when buttons are unavailable or not used.
+ */
+function buildKindAwareQuestionText(req: CanonicalGuardianRequest): string {
+  const baseText = req.questionText
+    ?? (req.toolName ? `Approve tool: ${req.toolName}` : `Guardian request: ${req.kind}`);
+
+  if (req.kind === 'access_request') {
+    const code = req.requestCode ?? req.id.slice(0, 6).toUpperCase();
+    const lines = [baseText];
+    lines.push(`\nReply "${code} approve" to grant access or "${code} reject" to deny.`);
+    lines.push('Reply "open invite flow" to start Trusted Contacts invite flow.');
+    return lines.join('\n');
+  }
+
+  return baseText;
 }
