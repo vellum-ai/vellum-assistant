@@ -53,8 +53,16 @@ export async function handleAddTrustRuleManage(
   if (!scope || typeof scope !== "string") {
     return httpError("BAD_REQUEST", "scope is required", 400);
   }
-  if (!decision || typeof decision !== "string") {
-    return httpError("BAD_REQUEST", "decision is required", 400);
+  const validDecisions = ["allow", "deny", "ask"] as const;
+  if (
+    !decision ||
+    !validDecisions.includes(decision as (typeof validDecisions)[number])
+  ) {
+    return httpError(
+      "BAD_REQUEST",
+      "decision must be one of: allow, deny, ask",
+      400,
+    );
   }
 
   try {
@@ -63,7 +71,7 @@ export async function handleAddTrustRuleManage(
       toolName,
       pattern,
       scope,
-      decision,
+      decision as "allow" | "deny" | "ask",
       undefined,
       hasMetadata ? { allowHighRisk, executionTarget } : undefined,
     );
