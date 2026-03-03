@@ -204,7 +204,7 @@ struct SettingsChannelsTab: View {
 
     private var emailCard: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("Email")
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
@@ -263,7 +263,7 @@ struct SettingsChannelsTab: View {
 
     private var telegramCard: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("Telegram")
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
@@ -415,7 +415,7 @@ struct SettingsChannelsTab: View {
 
     private var slackChannelCard: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("Slack")
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
@@ -519,7 +519,7 @@ struct SettingsChannelsTab: View {
 
     private var twilioCard: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("SMS")
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
@@ -594,7 +594,7 @@ struct SettingsChannelsTab: View {
 
     private var voiceCard: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("Phone Calling")
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
@@ -1444,7 +1444,7 @@ struct SettingsChannelsTab: View {
 
     private var mobileCard: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("Mobile (iOS)")
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
