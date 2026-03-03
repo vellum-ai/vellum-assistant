@@ -27,20 +27,20 @@ describe("session-approval-overrides", () => {
     test("setThreadMode stores a thread override", () => {
       setThreadMode("conv-1");
       const mode = getEffectiveMode("conv-1");
-      expect(mode).not.toBeNull();
+      expect(mode).not.toBeUndefined();
       expect(mode!.kind).toBe("thread");
     });
 
     test("thread mode persists across multiple reads", () => {
       setThreadMode("conv-1");
-      expect(getEffectiveMode("conv-1")).not.toBeNull();
-      expect(getEffectiveMode("conv-1")).not.toBeNull();
+      expect(getEffectiveMode("conv-1")).not.toBeUndefined();
+      expect(getEffectiveMode("conv-1")).not.toBeUndefined();
     });
 
     test("thread mode is scoped to a specific conversationId", () => {
       setThreadMode("conv-1");
-      expect(getEffectiveMode("conv-1")).not.toBeNull();
-      expect(getEffectiveMode("conv-2")).toBeNull();
+      expect(getEffectiveMode("conv-1")).not.toBeUndefined();
+      expect(getEffectiveMode("conv-2")).toBeUndefined();
     });
   });
 
@@ -54,7 +54,7 @@ describe("session-approval-overrides", () => {
       const after = Date.now();
 
       const mode = getEffectiveMode("conv-1");
-      expect(mode).not.toBeNull();
+      expect(mode).not.toBeUndefined();
       expect(mode!.kind).toBe("timed");
 
       const timed = mode!;
@@ -72,7 +72,7 @@ describe("session-approval-overrides", () => {
       const after = Date.now();
 
       const mode = getEffectiveMode("conv-1");
-      expect(mode).not.toBeNull();
+      expect(mode).not.toBeUndefined();
       const timed = mode!;
       if (timed.kind === "timed") {
         expect(timed.expiresAt).toBeGreaterThanOrEqual(before + 5000);
@@ -84,17 +84,17 @@ describe("session-approval-overrides", () => {
       setTimedMode("conv-1", 1); // 1ms TTL
       // Small delay to ensure expiry
       await new Promise((resolve) => setTimeout(resolve, 5));
-      expect(getEffectiveMode("conv-1")).toBeNull();
+      expect(getEffectiveMode("conv-1")).toBeUndefined();
     });
 
     test("expired timed mode is lazily cleaned up on read", async () => {
       setTimedMode("conv-1", 1);
       await new Promise((resolve) => setTimeout(resolve, 5));
 
-      // First read triggers cleanup and returns null
-      expect(getEffectiveMode("conv-1")).toBeNull();
-      // Subsequent read also returns null (entry was removed)
-      expect(getEffectiveMode("conv-1")).toBeNull();
+      // First read triggers cleanup and returns undefined
+      expect(getEffectiveMode("conv-1")).toBeUndefined();
+      // Subsequent read also returns undefined (entry was removed)
+      expect(getEffectiveMode("conv-1")).toBeUndefined();
     });
   });
 
@@ -107,7 +107,7 @@ describe("session-approval-overrides", () => {
       setTimedMode("conv-1", 60_000);
 
       const mode = getEffectiveMode("conv-1");
-      expect(mode).not.toBeNull();
+      expect(mode).not.toBeUndefined();
       expect(mode!.kind).toBe("timed");
     });
 
@@ -116,7 +116,7 @@ describe("session-approval-overrides", () => {
       setThreadMode("conv-1");
 
       const mode = getEffectiveMode("conv-1");
-      expect(mode).not.toBeNull();
+      expect(mode).not.toBeUndefined();
       expect(mode!.kind).toBe("thread");
     });
   });
@@ -128,19 +128,19 @@ describe("session-approval-overrides", () => {
     test("clearMode removes a thread override", () => {
       setThreadMode("conv-1");
       clearMode("conv-1");
-      expect(getEffectiveMode("conv-1")).toBeNull();
+      expect(getEffectiveMode("conv-1")).toBeUndefined();
     });
 
     test("clearMode removes a timed override", () => {
       setTimedMode("conv-1", 60_000);
       clearMode("conv-1");
-      expect(getEffectiveMode("conv-1")).toBeNull();
+      expect(getEffectiveMode("conv-1")).toBeUndefined();
     });
 
     test("clearMode is a no-op for unknown conversationId", () => {
       // Should not throw
       clearMode("nonexistent");
-      expect(getEffectiveMode("nonexistent")).toBeNull();
+      expect(getEffectiveMode("nonexistent")).toBeUndefined();
     });
   });
 
@@ -186,9 +186,9 @@ describe("session-approval-overrides", () => {
 
       clearAll();
 
-      expect(getEffectiveMode("conv-1")).toBeNull();
-      expect(getEffectiveMode("conv-2")).toBeNull();
-      expect(getEffectiveMode("conv-3")).toBeNull();
+      expect(getEffectiveMode("conv-1")).toBeUndefined();
+      expect(getEffectiveMode("conv-2")).toBeUndefined();
+      expect(getEffectiveMode("conv-3")).toBeUndefined();
     });
 
     test("clearAll is safe to call on empty store", () => {
@@ -201,7 +201,7 @@ describe("session-approval-overrides", () => {
   // -----------------------------------------------------------------------
   // getEffectiveMode with no override
   // -----------------------------------------------------------------------
-  test("getEffectiveMode returns null for unknown conversationId", () => {
-    expect(getEffectiveMode("nonexistent")).toBeNull();
+  test("getEffectiveMode returns undefined for unknown conversationId", () => {
+    expect(getEffectiveMode("nonexistent")).toBeUndefined();
   });
 });
