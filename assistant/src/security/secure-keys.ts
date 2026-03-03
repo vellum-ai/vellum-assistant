@@ -148,11 +148,19 @@ export function getSecureKey(account: string): string | undefined {
  * Returns `true` on success, `false` on failure.
  */
 export function setSecureKey(account: string, value: string): boolean {
-  return withKeychainFallback(
+  const result = withKeychainFallback(
     () => keychain.setKey(account, value),
     () => encryptedStore.setKey(account, value),
     false,
   );
+  // When writing to the encrypted store after a keychain downgrade, clean up
+  // any stale keychain entry so the gateway's credential-reader (which tries
+  // keychain first) does not read an outdated value.
+  if (result && downgradedFromKeychain && getBackend() === "encrypted") {
+    keychainMissCache.delete(account);
+    try { keychain.deleteKey(account); } catch { /* best-effort */ }
+  }
+  return result;
 }
 
 /**
@@ -278,7 +286,15 @@ export async function setSecureKeyAsync(
   value: string,
 ): Promise<boolean> {
   const backend = await getBackendAsync();
-  if (backend === "encrypted") return encryptedStore.setKey(account, value);
+  if (backend === "encrypted") {
+    const result = encryptedStore.setKey(account, value);
+    // Clean up stale keychain entry (mirrors setSecureKey logic).
+    if (result && downgradedFromKeychain) {
+      keychainMissCache.delete(account);
+      try { await keychain.deleteKeyAsync(account); } catch { /* best-effort */ }
+    }
+    return result;
+  }
   if (backend !== "keychain") return false;
 
   const result = await keychain.setKeyAsync(account, value);
