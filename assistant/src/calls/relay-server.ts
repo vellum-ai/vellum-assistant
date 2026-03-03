@@ -11,6 +11,7 @@ import { randomInt } from 'node:crypto';
 import type { ServerWebSocket } from 'bun';
 
 import { getConfig } from '../config/loader.js';
+import { resolveUserReference } from '../config/user-reference.js';
 import { getAssistantName } from '../daemon/identity-helpers.js';
 import { getCanonicalGuardianRequest } from '../memory/canonical-guardian-store.js';
 import { listActiveBindingsByAssistant } from '../memory/channel-guardian-store.js';
@@ -1662,7 +1663,8 @@ export class RelayConnection {
   /**
    * Resolve a human-readable guardian label for voice wait copy.
    * Prefers displayName from the guardian binding metadata, falls back
-   * to @username, then "my guardian".
+   * to @username, then the user's preferred name from USER.md, then
+   * "my guardian".
    */
   private resolveGuardianLabel(): string {
     const assistantId = this.accessRequestAssistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
@@ -1694,6 +1696,15 @@ export class RelayConnection {
         // ignore malformed metadata
       }
     }
+
+    // Fall back to the guardian's preferred name from USER.md (set during
+    // onboarding). Safe to share with unauthenticated callers — it's just
+    // a first name used in hold messages like "Still waiting on Noa".
+    const userRef = resolveUserReference();
+    if (userRef !== 'my human') {
+      return userRef;
+    }
+
     return 'my guardian';
   }
 
