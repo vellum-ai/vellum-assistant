@@ -413,12 +413,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends an `integration_connect_result` message.
     public var onIntegrationConnectResult: ((IPCIntegrationConnectResult) -> Void)?
 
-    /// Called when the daemon sends a `browser_frame` message with a new screenshot frame.
-    public var onBrowserFrame: ((BrowserFrameMessage) -> Void)?
-
-    /// Called when the daemon sends a `browser_interactive_mode_changed` message.
-    public var onBrowserInteractiveModeChanged: ((BrowserInteractiveModeChangedMessage) -> Void)?
-
     /// Called when the daemon sends a `browser_cdp_request` message.
     public var onBrowserCDPRequest: ((BrowserCDPRequestMessage) -> Void)?
 

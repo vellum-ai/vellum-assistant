@@ -41,7 +41,6 @@ import Foundation
 // │                                 │ LayoutConfig.swift (M1 / #2973)         │
 // │ SlotContentWire                 │ Temporary; canonical home is             │
 // │                                 │ LayoutConfig.swift (M1 / #2973)         │
-// │ BrowserFrameMessage             │ New message type for browser_view       │
 // │                                 │ surface frame updates; not yet in       │
 // │                                 │ generated contract                      │
 // │ SubagentEventMessage            │ Contains recursive ServerMessage ref;   │
@@ -1741,86 +1740,6 @@ public struct RegisterDeviceTokenMessage: Encodable, Sendable {
 }
 
 
-// MARK: - Browser Interactive Mode Messages
-
-/// Sent when user clicks in the interactive PiP browser view.
-public struct BrowserUserClickMessage: Encodable, Sendable {
-    public let type: String = "browser_user_click"
-    public let sessionId: String
-    public let surfaceId: String
-    public let x: Double
-    public let y: Double
-    public let button: String?
-    public let doubleClick: Bool?
-
-    public init(sessionId: String, surfaceId: String, x: Double, y: Double, button: String? = nil, doubleClick: Bool? = nil) {
-        self.sessionId = sessionId
-        self.surfaceId = surfaceId
-        self.x = x
-        self.y = y
-        self.button = button
-        self.doubleClick = doubleClick
-    }
-}
-
-/// Sent when user scrolls in the interactive PiP browser view.
-public struct BrowserUserScrollMessage: Encodable, Sendable {
-    public let type: String = "browser_user_scroll"
-    public let sessionId: String
-    public let surfaceId: String
-    public let deltaX: Double
-    public let deltaY: Double
-    public let x: Double
-    public let y: Double
-
-    public init(sessionId: String, surfaceId: String, deltaX: Double, deltaY: Double, x: Double, y: Double) {
-        self.sessionId = sessionId
-        self.surfaceId = surfaceId
-        self.deltaX = deltaX
-        self.deltaY = deltaY
-        self.x = x
-        self.y = y
-    }
-}
-
-/// Sent when user presses a key in the interactive PiP browser view.
-public struct BrowserUserKeypressMessage: Encodable, Sendable {
-    public let type: String = "browser_user_keypress"
-    public let sessionId: String
-    public let surfaceId: String
-    public let key: String
-    public let modifiers: [String]?
-
-    public init(sessionId: String, surfaceId: String, key: String, modifiers: [String]? = nil) {
-        self.sessionId = sessionId
-        self.surfaceId = surfaceId
-        self.key = key
-        self.modifiers = modifiers
-    }
-}
-
-/// Sent to toggle interactive mode on the browser PiP.
-public struct BrowserInteractiveModeMessage: Encodable, Sendable {
-    public let type: String = "browser_interactive_mode"
-    public let sessionId: String
-    public let surfaceId: String
-    public let enabled: Bool
-
-    public init(sessionId: String, surfaceId: String, enabled: Bool) {
-        self.sessionId = sessionId
-        self.surfaceId = surfaceId
-        self.enabled = enabled
-    }
-}
-
-/// Received when interactive mode state changes (confirmation or agent-initiated).
-public struct BrowserInteractiveModeChangedMessage: Decodable, Sendable {
-    public let sessionId: String
-    public let surfaceId: String
-    public let enabled: Bool
-    public let reason: String?
-    public let message: String?
-}
 
 // MARK: - Slack Webhook Messages (Manual)
 
@@ -2127,20 +2046,6 @@ public struct DiagnosticsExportResponseMessage: Decodable, Sendable {
     public let error: String?
 }
 
-/// Browser frame update from the daemon, delivering a new screenshot frame for an active browser session.
-/// Wire type: `"browser_frame"`
-public struct BrowserFrameMessage: Decodable, Sendable {
-    public let sessionId: String
-    public let surfaceId: String
-    public let frame: String // base64 JPEG
-
-    public init(sessionId: String, surfaceId: String, frame: String) {
-        self.sessionId = sessionId
-        self.surfaceId = surfaceId
-        self.frame = frame
-    }
-}
-
 /// Request daemon environment variables (debug only).
 /// Backed by generated `IPCEnvVarsRequest`.
 public typealias EnvVarsRequestMessage = IPCEnvVarsRequest
@@ -2320,8 +2225,6 @@ public enum ServerMessage: Decodable, Sendable {
     case appFilesChanged(AppFilesChangedMessage)
     case getSigningIdentity(IPCGetSigningIdentityRequest)
     case diagnosticsExportResponse(DiagnosticsExportResponseMessage)
-    case browserFrame(BrowserFrameMessage)
-    case browserInteractiveModeChanged(BrowserInteractiveModeChangedMessage)
     case browserCDPRequest(BrowserCDPRequestMessage)
     case envVarsResponse(EnvVarsResponseMessage)
     case workItemsListResponse(IPCWorkItemsListResponse)
@@ -2678,12 +2581,6 @@ public enum ServerMessage: Decodable, Sendable {
         case "diagnostics_export_response":
             let message = try DiagnosticsExportResponseMessage(from: decoder)
             self = .diagnosticsExportResponse(message)
-        case "browser_frame":
-            let message = try BrowserFrameMessage(from: decoder)
-            self = .browserFrame(message)
-        case "browser_interactive_mode_changed":
-            let message = try BrowserInteractiveModeChangedMessage(from: decoder)
-            self = .browserInteractiveModeChanged(message)
         case "browser_cdp_request":
             let message = try BrowserCDPRequestMessage(from: decoder)
             self = .browserCDPRequest(message)

@@ -12,16 +12,16 @@
  *   bun run ipc:check-swift-drift    # check for drift
  */
 
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from "fs";
+import * as path from "path";
 
-import { extractInventory } from '../../src/daemon/ipc-contract-inventory.js';
+import { extractInventory } from "../../src/daemon/ipc-contract-inventory.js";
 
-const ROOT = path.resolve(import.meta.dirname ?? __dirname, '../..');
-const CONTRACT_PATH = path.join(ROOT, 'src/daemon/ipc-contract.ts');
+const ROOT = path.resolve(import.meta.dirname ?? __dirname, "../..");
+const CONTRACT_PATH = path.join(ROOT, "src/daemon/ipc-contract.ts");
 const SWIFT_PATH = path.resolve(
   ROOT,
-  '../clients/shared/IPC/IPCMessages.swift',
+  "../clients/shared/IPC/IPCMessages.swift",
 );
 
 /**
@@ -31,37 +31,35 @@ const SWIFT_PATH = path.resolve(
  */
 const SWIFT_OMIT_ALLOWLIST = new Set<string>([
   // Server-internal events not surfaced to macOS client
-  'context_compacted',
-  'memory_recalled',
-  'model_info',
-  'secret_detected',
-  'sessions_clear_response',
-  'usage_response',
-  'usage_update',
+  "context_compacted",
+  "memory_recalled",
+  "model_info",
+  "secret_detected",
+  "sessions_clear_response",
+  "usage_response",
+  "usage_update",
   // Gallery and cloud sharing — not yet consumed by the macOS client
-  'gallery_install_response',
-  'gallery_list_response',
-  'share_app_cloud_response',
+  "gallery_install_response",
+  "gallery_list_response",
+  "share_app_cloud_response",
   // Page publishing — not yet consumed by the macOS client
-  'publish_page_response',
-  'unpublish_page_response',
+  "publish_page_response",
+  "unpublish_page_response",
   // Heartbeat alerts — not yet consumed by the macOS client
-  'heartbeat_alert',
-  // Browser handoff — not yet consumed by the macOS client
-  'browser_handoff_request',
+  "heartbeat_alert",
   // Guardian verification — daemon-internal for Telegram channel setup
-  'guardian_verification_response',
+  "guardian_verification_response",
   // Ingress invite/member management — not yet consumed by the macOS client
-  'ingress_invite_response',
-  'ingress_member_response',
+  "ingress_invite_response",
+  "ingress_member_response",
   // Inbox escalation — not yet consumed by the macOS client
-  'assistant_inbox_escalation_response',
+  "assistant_inbox_escalation_response",
   // Work item messages — not yet consumed by the macOS client
-  'work_item_get_response',
-  'work_item_run_task_response',
-  'work_item_status_changed',
-  'work_item_update_response',
-  'work_items_list_response',
+  "work_item_get_response",
+  "work_item_run_task_response",
+  "work_item_status_changed",
+  "work_item_update_response",
+  "work_items_list_response",
 ]);
 
 /**
@@ -72,7 +70,7 @@ const SWIFT_OMIT_ALLOWLIST = new Set<string>([
 const INVENTORY_UNEXTRACTABLE = new Set<string>([
   // UiSurfaceShow is a union of UiSurfaceShowCard | UiSurfaceShowForm | ...
   // The shared wire type 'ui_surface_show' comes from UiSurfaceShowBase.
-  'ui_surface_show',
+  "ui_surface_show",
 ]);
 
 /**
@@ -82,9 +80,9 @@ const INVENTORY_UNEXTRACTABLE = new Set<string>([
  */
 const SWIFT_AHEAD_ALLOWLIST = new Set<string>([
   // Defined in Swift LayoutConfig.swift ahead of daemon implementation
-  'ui_layout_config',
+  "ui_layout_config",
   // Defined in Swift HTTPDaemonClient ahead of daemon token rotation endpoint
-  'token_rotated',
+  "token_rotated",
 ]);
 
 // --- Extract Swift decode cases ---
@@ -97,9 +95,13 @@ function extractSwiftDecodeCases(swiftSource: string): Set<string> {
   let match: RegExpExecArray | null;
 
   // Only scan inside the ServerMessage init(from decoder:) block
-  const decoderStart = swiftSource.indexOf('public init(from decoder: Decoder) throws');
+  const decoderStart = swiftSource.indexOf(
+    "public init(from decoder: Decoder) throws",
+  );
   if (decoderStart === -1) {
-    throw new Error('Could not find ServerMessage decoder in IPCMessages.swift');
+    throw new Error(
+      "Could not find ServerMessage decoder in IPCMessages.swift",
+    );
   }
 
   const decoderSection = swiftSource.slice(decoderStart);
@@ -120,7 +122,7 @@ const contractServerTypes = new Set([
   ...INVENTORY_UNEXTRACTABLE,
 ]);
 
-const swiftSource = fs.readFileSync(SWIFT_PATH, 'utf-8');
+const swiftSource = fs.readFileSync(SWIFT_PATH, "utf-8");
 const swiftDecodeCases = extractSwiftDecodeCases(swiftSource);
 
 const diffs: string[] = [];
@@ -134,7 +136,10 @@ for (const wireType of contractServerTypes) {
 
 // Types decoded in Swift but not in contract
 for (const wireType of swiftDecodeCases) {
-  if (!contractServerTypes.has(wireType) && !SWIFT_AHEAD_ALLOWLIST.has(wireType)) {
+  if (
+    !contractServerTypes.has(wireType) &&
+    !SWIFT_AHEAD_ALLOWLIST.has(wireType)
+  ) {
     diffs.push(`  - Swift decodes "${wireType}" but it is not in the contract`);
   }
 }
@@ -142,30 +147,36 @@ for (const wireType of swiftDecodeCases) {
 // Stale allowlist entries
 for (const wireType of SWIFT_OMIT_ALLOWLIST) {
   if (!contractServerTypes.has(wireType)) {
-    diffs.push(`  ? Omit-allowlist entry "${wireType}" is not in the contract (stale?)`);
+    diffs.push(
+      `  ? Omit-allowlist entry "${wireType}" is not in the contract (stale?)`,
+    );
   }
 }
 for (const wireType of INVENTORY_UNEXTRACTABLE) {
   if (!swiftDecodeCases.has(wireType)) {
-    diffs.push(`  ? Unextractable entry "${wireType}" is not decoded in Swift (stale?)`);
+    diffs.push(
+      `  ? Unextractable entry "${wireType}" is not decoded in Swift (stale?)`,
+    );
   }
 }
 for (const wireType of SWIFT_AHEAD_ALLOWLIST) {
   if (contractServerTypes.has(wireType)) {
-    diffs.push(`  ? Ahead-allowlist entry "${wireType}" is now in the contract (remove from allowlist)`);
+    diffs.push(
+      `  ? Ahead-allowlist entry "${wireType}" is now in the contract (remove from allowlist)`,
+    );
   }
 }
 
 if (diffs.length > 0) {
-  console.error('IPC Swift decoder drift detected:\n');
+  console.error("IPC Swift decoder drift detected:\n");
   for (const line of diffs) {
     console.error(line);
   }
   console.error(
-    '\nFix: update IPCMessages.swift decode cases, the contract, or the',
-    'allowlist in check-swift-decoder-drift.ts.',
+    "\nFix: update IPCMessages.swift decode cases, the contract, or the",
+    "allowlist in check-swift-decoder-drift.ts.",
   );
   process.exit(1);
 }
 
-console.log('IPC Swift decoder is in sync with the contract.');
+console.log("IPC Swift decoder is in sync with the contract.");
