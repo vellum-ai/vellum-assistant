@@ -779,7 +779,7 @@ struct SettingsPanel: View {
                         .font(VFont.sectionTitle)
                         .foregroundColor(VColor.textPrimary)
 
-                    HStack {
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
                             Text("Manage Trust Rules")
                                 .font(VFont.body)
@@ -788,8 +788,7 @@ struct SettingsPanel: View {
                                 .font(VFont.caption)
                                 .foregroundColor(VColor.textMuted)
                         }
-                        Spacer()
-                        VButton(label: "Manage...", style: .tertiary) {
+                        VButton(label: "Manage...", style: .secondary, size: .large) {
                             daemonClient?.isTrustRulesSheetOpen = true
                             showingTrustRules = true
                         }
