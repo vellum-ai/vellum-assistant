@@ -1088,7 +1088,7 @@ export class RuntimeHttpServer {
       if (endpoint === "search" && req.method === "GET")
         return handleSearchConversations(url);
       if (endpoint === "search/global" && req.method === "GET")
-        return handleGlobalSearch(url);
+        return await handleGlobalSearch(url);
 
       if (endpoint === "messages" && req.method === "POST") {
         return await handleSendMessage(
