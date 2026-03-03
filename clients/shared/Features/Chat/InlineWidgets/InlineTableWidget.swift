@@ -1,5 +1,16 @@
 import SwiftUI
 
+private extension View {
+    @ViewBuilder
+    func columnFrame(_ width: Int?) -> some View {
+        if let w = width {
+            self.frame(width: CGFloat(w), alignment: .leading)
+        } else {
+            self.frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
 /// Inline table widget with selectable rows and action support.
 public struct InlineTableWidget: View {
     public let data: TableSurfaceData
@@ -44,7 +55,7 @@ public struct InlineTableWidget: View {
                     Text(column.label)
                         .font(VFont.captionMedium)
                         .foregroundColor(VColor.textMuted)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .columnFrame(column.width)
                         .textSelection(.enabled)
                 }
             }
@@ -99,7 +110,7 @@ public struct InlineTableWidget: View {
                     .font(VFont.body)
                     .foregroundColor(VColor.textPrimary)
                     .lineLimit(2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .columnFrame(column.width)
                     .textSelection(.enabled)
             }
         }
