@@ -42,7 +42,7 @@ When the user asks to "connect my email", "set up email", "manage my email", or 
 
 1. **Try connecting directly first.** Call `credential_store` with `action: "oauth2_connect"` and `service: "gmail"`. The tool auto-fills Google's OAuth endpoints and looks up any previously stored client credentials — so this single call may be all that's needed.
 2. **If it fails because no client_id is found:** The user needs to create Google Cloud OAuth credentials first. Load the **google-oauth-setup** skill (which depends on **public-ingress** for the redirect URI):
-   - Call `skill_load` with `skill_id: "google-oauth-setup"` to load the dependency skill.
+   - Call `skill_load` with `skill: "google-oauth-setup"` to load the dependency skill.
    - Tell the user Gmail isn't connected yet and briefly explain what the setup involves, then use `ui_show` with `surface_type: "confirmation"` to ask for permission to start:
      - **message:** "Ready to set up Gmail?"
      - **detail:** "I'll open a browser where you sign in to Google, then automate everything else — creating a project, enabling APIs, and connecting your account. Takes 2-3 minutes and you can watch in the browser preview panel."
@@ -55,7 +55,7 @@ When the user asks to "connect my email", "set up email", "manage my email", or 
 
 1. **Try connecting directly first.** Call `credential_store` with `action: "oauth2_connect"` and `service: "slack"`. The tool auto-fills Slack's OAuth endpoints and looks up any previously stored client credentials.
 2. **If it fails because no client_id is found:** The user needs to create a Slack App first. Load the **slack-oauth-setup** skill:
-   - Call `skill_load` with `skill_id: "slack-oauth-setup"` to load the dependency skill.
+   - Call `skill_load` with `skill: "slack-oauth-setup"` to load the dependency skill.
    - Tell the user Slack isn't connected yet and briefly explain what the setup involves, then use `ui_show` with `surface_type: "confirmation"` to ask for permission to start:
      - **message:** "Ready to set up Slack?"
      - **detail:** "I'll walk you through creating a Slack App and connecting your workspace. The process takes a few minutes, and I'll ask for your approval before each step."
@@ -68,7 +68,7 @@ When the user asks to "connect my email", "set up email", "manage my email", or 
 
 Telegram uses a bot token (not OAuth). Load the **telegram-setup** skill (which depends on **public-ingress** for the webhook URL) which automates the full setup:
 
-- Call `skill_load` with `skill_id: "telegram-setup"` to load the dependency skill.
+- Call `skill_load` with `skill: "telegram-setup"` to load the dependency skill.
 - Tell the user: _"I've loaded a setup guide for Telegram. It will walk you through connecting a Telegram bot to your assistant."_
 
 The telegram-setup skill handles: verifying the bot token from @BotFather, generating a webhook secret, registering bot commands, and storing credentials securely via the secure credential prompt flow. **Never accept a Telegram bot token pasted in plaintext chat — always use the secure prompt.** Webhook registration with Telegram is handled automatically by the gateway on startup and whenever credentials change.
@@ -79,7 +79,7 @@ The telegram-setup skill also includes **guardian verification**, which links yo
 
 SMS messaging uses Twilio as the telephony provider. Twilio credentials and phone number configuration are shared with the **phone-calls** skill. Load the **sms-setup** skill for complete SMS configuration including compliance and testing:
 
-- Call `skill_load` with `skill_id: "sms-setup"` to load the dependency skill.
+- Call `skill_load` with `skill: "sms-setup"` to load the dependency skill.
 - Tell the user: _"I've loaded the SMS setup guide. It will walk you through configuring Twilio, handling compliance requirements, and testing SMS delivery."_
 
 The sms-setup skill handles: Twilio credential storage (Account SID + Auth Token), phone number provisioning or assignment, public ingress setup, SMS compliance verification, and end-to-end test sending. Once SMS is set up, messaging is available automatically — no additional feature flag is needed.
@@ -90,7 +90,7 @@ The sms-setup skill also includes optional **guardian verification** for SMS, wh
 
 If the user asks to verify their guardian identity for any channel (SMS, voice, or Telegram), load the **guardian-verify-setup** skill:
 
-- Call `skill_load` with `skill_id: "guardian-verify-setup"` to load the dependency skill.
+- Call `skill_load` with `skill: "guardian-verify-setup"` to load the dependency skill.
 
 The guardian-verify-setup skill handles the full outbound verification flow for all supported channels. It collects the user's destination (phone number or Telegram chat ID/handle), initiates an outbound verification session, and guides the user through entering or replying with the verification code. This is the single source of truth for guardian verification setup -- do not duplicate the verification flow inline.
 
@@ -231,11 +231,36 @@ When searching Gmail, the query uses Gmail's search operators:
 | `has:attachment` | `has:attachment`         | Messages with attachments           |
 | `label:`         | `label:work`             | Messages with a specific label      |
 
-## Drafting vs Sending
+## Drafting vs Sending (Gmail)
 
-- Default to drafting (local draft or Gmail native draft) when the user wants to compose.
-- Only send when the user explicitly requests it.
-- When uncertain, always default to drafting.
+Gmail uses a **draft-first workflow**. All compose and reply tools create Gmail drafts automatically:
+
+- `messaging_send` (Gmail) → creates a draft in Gmail Drafts
+- `messaging_reply` (Gmail) → creates a threaded draft with reply-all recipients
+- `gmail_draft` → creates a draft
+- `gmail_send_with_attachments` → creates a draft with attachments
+- `gmail_forward` → creates a forward draft
+
+**To actually send**: Use `gmail_send_draft` with the draft ID after the user has reviewed it. Only call `gmail_send_draft` when the user explicitly says "send it" or equivalent.
+
+**Reply-all**: `messaging_reply` for Gmail automatically builds the reply-all recipient list from the thread. You do not need to manually look up recipients.
+
+Non-Gmail platforms (Slack, Telegram, SMS) send directly via `messaging_send` / `messaging_reply`.
+
+## Email Threading (Gmail)
+
+When replying to or continuing an email thread:
+
+- Use `messaging_reply` with the thread's `thread_id` — it automatically handles threading, reply-all recipients, and subject lines.
+- The `in_reply_to` field on `gmail_draft` requires the **RFC 822 Message-ID header** (looks like `<CABx...@mail.gmail.com>`), NOT the Gmail message ID (which looks like `18e4a5b2c3d4e5f6`). Get it by reading the thread messages and extracting the `Message-ID` header.
+
+## Date Verification
+
+Before composing any email that references a date or time:
+
+1. Check the `<temporal_context>` block in the current turn for today's date and upcoming dates
+2. Verify that "tomorrow" means the day after today's date, "next week" means the upcoming Monday–Friday, etc.
+3. If the email references a date from another message, cross-check it against the temporal context to ensure it's in the future
 
 ## Notifications vs Messages
 
@@ -291,9 +316,9 @@ When a user asks to declutter, clean up, or organize their email — start scann
    - **Show a `task_progress` card** with one step per selected sender (e.g., "Archiving TechCrunch (247 emails)"). Update each step from `in_progress` → `completed` as each sender finishes.
    - When all senders are processed, set the progress card's `status: "completed"`.
 4. **Act on selection**: For each selected sender:
-   - Use `gmail_batch_archive` (or `messaging_archive_by_sender` for non-Gmail) with the sender's `message_ids` array — this archives exactly the messages that were scanned and counted
+   - Use `gmail_batch_archive` (or `messaging_archive_by_sender` for non-Gmail) with `scan_id` + the selected senders' `id` values as `sender_ids` — this resolves message IDs server-side without putting them in context
    - If Gmail and the action is "Archive & Unsubscribe" and `has_unsubscribe` is true, call `gmail_unsubscribe` with the sender's `newest_message_id`
-5. **Accurate summary**: The scan counts are exact — the `message_count` shown in the table matches the number of `message_ids` that were archived. Format: "Cleaned up [total_archived] emails from [sender_count] senders." For Gmail, append: "Unsubscribed from [unsub_count]."
+5. **Accurate summary**: The scan counts are exact — the `message_count` shown in the table matches the number of messages archived. Format: "Cleaned up [total_archived] emails from [sender_count] senders." For Gmail, append: "Unsubscribed from [unsub_count]."
 6. **Ongoing protection offer (Gmail only)**: After reporting results, offer auto-archive filters:
    - "Want me to set up auto-archive filters so future emails from these senders skip your inbox?"
    - If yes, call `gmail_filters` with `action: "create"` for each sender with `from` set to the sender's email and `remove_label_ids: ["INBOX"]`.
@@ -303,10 +328,20 @@ When a user asks to declutter, clean up, or organize their email — start scann
 
 - **Zero results**: Tell the user "No newsletter emails found" and suggest broadening the query (e.g. removing the category filter or extending the date range)
 - **Unsubscribe failures**: Report per-sender success/failure; the existing `gmail_unsubscribe` tool handles edge cases
-- **Large sender counts**: The scan covers up to 2000 messages. If `truncated` is true in the top-level response, the scan was capped and there are more matching emails beyond what was scanned — tell the user the cleanup was partial and offer to run another pass. If `has_more` is true for a sender, it means they had more messages than could be tracked — mention this to the user in the summary
+- **Truncation handling**: The scan covers up to 5000 messages (default 2000). If `truncated` is true:
+  - **Default**: The top senders are captured — this is usually fine. Mention "partial scan" in the summary.
+  - **Comprehensive** (user said "full inbox", "everything", "all of it"): Silently continue scanning with `page_token`, merge results across passes, and present once when complete. Don't ask — just keep going until done.
+
+### Scan ID
+
+Scan tools (`gmail_sender_digest`, `gmail_outreach_scan`, `messaging_sender_digest`) return a `scan_id` that references message IDs stored server-side. This keeps thousands of message IDs out of the conversation context.
+
+- Pass `scan_id` + `sender_ids` to `gmail_batch_archive` instead of `message_ids`
+- Scan results expire after **30 minutes** — if archiving fails with an expiration error, re-run the scan
+- Raw `message_ids` still work as a fallback for non-scan workflows
 
 ## Batch Operations
 
-- Gmail batch tools (`gmail_batch_archive`, `gmail_batch_label`) accept arrays of message IDs.
-- First search or list messages to collect IDs, then apply batch actions.
+- Gmail batch tools (`gmail_batch_archive`, `gmail_batch_label`) support `scan_id` + `sender_ids` (preferred) or raw `message_ids`.
+- First scan to get a `scan_id`, then apply batch actions using it.
 - Always confirm with the user before batch operations on large numbers of messages.

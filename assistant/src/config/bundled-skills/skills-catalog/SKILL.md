@@ -19,19 +19,39 @@ The skill catalog shown in the system prompt lists all bundled skills with their
 
 ## Community skills (Clawhub)
 
-Community skills are published on [Clawhub](https://clawhub.com) and can be searched and installed on demand.
+Community skills are published on Clawhub and can be searched, inspected, and installed on demand using the `clawhub` CLI via bash.
 
 ### Searching for community skills
 
-Use the `skill_load` tool to search the catalog, or check the system prompt's available skills list. The IPC `skills_search` message searches both bundled and community skills.
+```bash
+npx clawhub search "<query>" --limit 10
+```
 
-### Installing a community skill
+Returns matching skills with their slug, version, and name. Use this when the user asks for a capability not covered by bundled skills.
 
-Community skills are installed via the IPC `skills_install` message with a `slug` parameter. Once installed, they appear in `~/.vellum/workspace/skills/<slug>/` and can be loaded with `skill_load` like any other skill.
+To browse trending/popular skills without a specific query:
+
+```bash
+npx clawhub explore --json --limit 10
+```
 
 ### Inspecting a community skill
 
-Before installing, you can inspect a community skill via the IPC `skills_inspect` message with a `slug` parameter. This returns metadata (author, stats, version) and optionally the skill's SKILL.md content so the user can review it.
+Before installing, inspect a skill to review its metadata, author, stats, and SKILL.md content:
+
+```bash
+npx clawhub inspect <slug> --json --files --file SKILL.md
+```
+
+Present the results to the user so they can decide whether to install.
+
+### Installing a community skill
+
+```bash
+npx clawhub install <slug> --force --workdir ~/.vellum/workspace
+```
+
+Once installed, the skill appears in `~/.vellum/workspace/skills/<slug>/` and can be loaded with `skill_load` like any other skill.
 
 ## Typical flow
 
@@ -41,9 +61,11 @@ Before installing, you can inspect a community skill via the IPC `skills_inspect
    - Load any that match with `skill_load`
 
 2. **User wants a capability not covered by bundled skills** — "Can you do X?"
-   - Search for community skills that provide the capability
+   - Search with `npx clawhub search "<query>"`
+   - Optionally inspect promising results with `npx clawhub inspect <slug> --json`
    - Present matching results with descriptions and install counts
-   - Install the chosen skill, then load it with `skill_load`
+   - Install the chosen skill with `npx clawhub install <slug> --force --workdir ~/.vellum/workspace`
+   - Load it with `skill_load`
 
 3. **Skill has dependencies** — if `includes` lists other skill IDs, load those first with `skill_load`
 
@@ -51,5 +73,6 @@ Before installing, you can inspect a community skill via the IPC `skills_inspect
 
 - Bundled skills are always available and do not need installation
 - Community skills are installed to `~/.vellum/workspace/skills/<slug>/`
-- After installing a community skill, it may need to be enabled in settings
+- After installing a community skill, it is auto-enabled and immediately loadable
 - Skills can be enabled or disabled via feature flags without uninstalling them
+- Run `npx clawhub --help` to discover additional CLI options

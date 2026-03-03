@@ -58,11 +58,18 @@ mock.module('../runtime/local-actor-identity.js', () => ({
   resolveLocalIpcGuardianContext: () => ({ trustClass: 'guardian', sourceChannel: 'vellum' }),
 }));
 
+import type { AuthContext } from '../runtime/auth/types.js';
 import { handleSendMessage } from '../runtime/routes/conversation-routes.js';
 
-const testServer = {
-  requestIP: () => ({ address: '127.0.0.1' }),
-} as unknown as import('../runtime/middleware/actor-token.js').ServerWithRequestIP;
+const testAuthContext: AuthContext = {
+  subject: 'actor:self:test-guardian',
+  principalType: 'actor',
+  assistantId: 'self',
+  actorPrincipalId: 'test-guardian',
+  scopeProfile: 'actor_client_v1',
+  scopes: new Set(['chat.read', 'chat.write', 'approval.read', 'approval.write', 'settings.read', 'settings.write', 'attachments.read', 'attachments.write', 'calls.read', 'calls.write', 'feature_flags.read', 'feature_flags.write']),
+  policyEpoch: 1,
+};
 
 describe('handleSendMessage canonical guardian reply interception', () => {
   beforeEach(() => {
@@ -121,7 +128,7 @@ describe('handleSendMessage canonical guardian reply interception', () => {
         assistantEventHub: { publish: async () => {} } as any,
         resolveAttachments: () => [],
       },
-    }, testServer);
+    }, testAuthContext);
 
     expect(res.status).toBe(202);
     const body = await res.json() as { accepted: boolean; messageId?: string };
@@ -184,7 +191,7 @@ describe('handleSendMessage canonical guardian reply interception', () => {
         assistantEventHub: { publish: async () => {} } as any,
         resolveAttachments: () => [],
       },
-    }, testServer);
+    }, testAuthContext);
 
     expect(res.status).toBe(202);
     expect(routeGuardianReplyMock).toHaveBeenCalledTimes(1);
@@ -245,7 +252,7 @@ describe('handleSendMessage canonical guardian reply interception', () => {
         assistantEventHub: { publish: async () => {} } as any,
         resolveAttachments: () => [],
       },
-    }, testServer);
+    }, testAuthContext);
 
     expect(res.status).toBe(202);
     expect(routeGuardianReplyMock).toHaveBeenCalledTimes(1);

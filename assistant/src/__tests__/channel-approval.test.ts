@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import { parseApprovalDecision } from '../runtime/channel-approval-parser.js';
+import { parseCallbackData } from '../runtime/routes/channel-route-shared.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Plain-text approval decision parser
@@ -29,6 +30,48 @@ describe('parseApprovalDecision', () => {
     const result = parseApprovalDecision(input);
     expect(result).not.toBeNull();
     expect(result!.action).toBe('approve_once');
+    expect(result!.source).toBe('plain_text');
+  });
+
+  // ── Approve for 10 minutes ────────────────────────────────────────
+
+  test.each([
+    'approve for 10 minutes',
+    'Approve for 10 minutes',
+    'APPROVE FOR 10 MINUTES',
+    'allow for 10 minutes',
+    'Allow for 10 minutes',
+    'ALLOW FOR 10 MINUTES',
+    'approve 10m',
+    'Approve 10m',
+    'APPROVE 10M',
+    'allow 10m',
+    'approve 10 min',
+    'allow 10 min',
+  ])('recognises "%s" as approve_10m', (input) => {
+    const result = parseApprovalDecision(input);
+    expect(result).not.toBeNull();
+    expect(result!.action).toBe('approve_10m');
+    expect(result!.source).toBe('plain_text');
+  });
+
+  // ── Approve for thread ────────────────────────────────────────────
+
+  test.each([
+    'approve for thread',
+    'Approve for thread',
+    'APPROVE FOR THREAD',
+    'allow for thread',
+    'Allow for thread',
+    'ALLOW FOR THREAD',
+    'approve thread',
+    'Approve thread',
+    'APPROVE THREAD',
+    'allow thread',
+  ])('recognises "%s" as approve_thread', (input) => {
+    const result = parseApprovalDecision(input);
+    expect(result).not.toBeNull();
+    expect(result!.action).toBe('approve_thread');
     expect(result!.source).toBe('plain_text');
   });
 
@@ -130,6 +173,20 @@ describe('parseApprovalDecision', () => {
     expect(result!.requestId).toBe('req-789');
   });
 
+  test('extracts requestId from [ref:...] tag with approve_10m decision', () => {
+    const result = parseApprovalDecision('approve for 10 minutes [ref:req-timer]');
+    expect(result).not.toBeNull();
+    expect(result!.action).toBe('approve_10m');
+    expect(result!.requestId).toBe('req-timer');
+  });
+
+  test('extracts requestId from [ref:...] tag with approve_thread decision', () => {
+    const result = parseApprovalDecision('approve for thread [ref:req-thread]');
+    expect(result).not.toBeNull();
+    expect(result!.action).toBe('approve_thread');
+    expect(result!.requestId).toBe('req-thread');
+  });
+
   test('handles ref tag on separate line', () => {
     const result = parseApprovalDecision('yes\n[ref:req-abc-123]');
     expect(result).not.toBeNull();
@@ -141,5 +198,48 @@ describe('parseApprovalDecision', () => {
     const result = parseApprovalDecision('yes');
     expect(result).not.toBeNull();
     expect(result!.requestId).toBeUndefined();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Callback data parser
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('parseCallbackData', () => {
+  test.each([
+    ['apr:req-123:approve_once', 'approve_once'],
+    ['apr:req-123:approve_10m', 'approve_10m'],
+    ['apr:req-123:approve_thread', 'approve_thread'],
+    ['apr:req-123:approve_always', 'approve_always'],
+    ['apr:req-123:reject', 'reject'],
+  ] as const)('parses "%s" as action "%s"', (data, expectedAction) => {
+    const result = parseCallbackData(data);
+    expect(result).not.toBeNull();
+    expect(result!.action).toBe(expectedAction);
+    expect(result!.requestId).toBe('req-123');
+    expect(result!.source).toBe('telegram_button');
+  });
+
+  test('parses whatsapp source channel', () => {
+    const result = parseCallbackData('apr:req-456:approve_10m', 'whatsapp');
+    expect(result).not.toBeNull();
+    expect(result!.action).toBe('approve_10m');
+    expect(result!.source).toBe('whatsapp_button');
+  });
+
+  test('returns null for unknown action', () => {
+    expect(parseCallbackData('apr:req-123:unknown_action')).toBeNull();
+  });
+
+  test('returns null for missing prefix', () => {
+    expect(parseCallbackData('xyz:req-123:approve_once')).toBeNull();
+  });
+
+  test('returns null for incomplete data', () => {
+    expect(parseCallbackData('apr:req-123')).toBeNull();
+  });
+
+  test('returns null for empty requestId', () => {
+    expect(parseCallbackData('apr::approve_once')).toBeNull();
   });
 });

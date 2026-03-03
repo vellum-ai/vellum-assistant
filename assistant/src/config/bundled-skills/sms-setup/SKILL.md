@@ -156,7 +156,7 @@ Now link the user's phone number as the trusted SMS guardian. Tell the user: "No
 
 Load the **guardian-verify-setup** skill to handle the verification flow:
 
-- Call `skill_load` with `skill_id: "guardian-verify-setup"` to load the dependency skill.
+- Call `skill_load` with `skill: "guardian-verify-setup"` to load the dependency skill.
 
 When invoking the skill, indicate the channel is `sms`. The guardian-verify-setup skill manages the full outbound verification flow, including:
 

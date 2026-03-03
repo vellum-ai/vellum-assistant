@@ -6,12 +6,18 @@ struct OnboardingFlowView: View {
     @Bindable var state: OnboardingState
     let daemonClient: DaemonClientProtocol
     @Bindable var authManager: AuthManager
+    let managedBootstrapEnabled: Bool
     var onComplete: () -> Void
     var onOpenSettings: () -> Void
 
     @State private var isAdvancingFromWakeUp = false
     @State private var isBootstrappingManaged = false
     @State private var managedBootstrapError: String?
+
+    private static let appIcon: NSImage? = {
+        guard let path = ResourceBundle.bundle.path(forResource: "vellum-app-icon", ofType: "png") else { return nil }
+        return NSImage(contentsOfFile: path)
+    }()
 
     private var maxOnboardingStep: Int {
         state.userHostedEnabled ? 2 : 1
@@ -44,8 +50,7 @@ struct OnboardingFlowView: View {
                 VStack(spacing: 0) {
                     Spacer()
 
-                    if let iconPath = ResourceBundle.bundle.path(forResource: "vellum-app-icon", ofType: "png"),
-                       let nsImage = NSImage(contentsOfFile: iconPath) {
+                    if let nsImage = Self.appIcon {
                         Image(nsImage: nsImage)
                             .resizable()
                             .aspectRatio(contentMode: .fit)
@@ -124,8 +129,12 @@ struct OnboardingFlowView: View {
         }
         .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
             if isAuthenticated {
-                Task {
-                    await performManagedBootstrap()
+                if managedBootstrapEnabled {
+                    Task {
+                        await performManagedBootstrap()
+                    }
+                } else {
+                    onComplete()
                 }
             }
         }
@@ -191,7 +200,9 @@ struct OnboardingFlowView: View {
             }
 
             let runtimeUrl = AuthService.shared.baseURL
-            let hatchedAt = ISO8601DateFormatter().string(from: Date())
+            let isoFormatter = ISO8601DateFormatter()
+            isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            let hatchedAt = isoFormatter.string(from: Date())
 
             let success = LockfileAssistant.upsertManagedEntry(
                 assistantId: assistant.id,
@@ -200,7 +211,6 @@ struct OnboardingFlowView: View {
             )
 
             guard success else {
-                isBootstrappingManaged = false
                 managedBootstrapError = "Failed to save assistant configuration. Please try again."
                 return
             }
@@ -221,6 +231,7 @@ struct OnboardingFlowView: View {
         state: OnboardingState(),
         daemonClient: DaemonClient(),
         authManager: AuthManager(),
+        managedBootstrapEnabled: true,
         onComplete: {},
         onOpenSettings: {}
     )

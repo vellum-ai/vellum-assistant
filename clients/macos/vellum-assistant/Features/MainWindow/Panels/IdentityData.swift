@@ -268,11 +268,18 @@ struct LockfileAssistant {
             return []
         }
 
-        let isoFormatter = ISO8601DateFormatter()
-        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let fractionalFormatter = ISO8601DateFormatter()
+        fractionalFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let plainFormatter = ISO8601DateFormatter()
+        plainFormatter.formatOptions = [.withInternetDateTime]
+
+        func parseISO8601(_ s: String) -> Date? {
+            fractionalFormatter.date(from: s) ?? plainFormatter.date(from: s)
+        }
+
         let sorted = assistants.sorted { a, b in
-            let dateA = (a["hatchedAt"] as? String).flatMap { isoFormatter.date(from: $0) } ?? .distantPast
-            let dateB = (b["hatchedAt"] as? String).flatMap { isoFormatter.date(from: $0) } ?? .distantPast
+            let dateA = (a["hatchedAt"] as? String).flatMap(parseISO8601) ?? .distantPast
+            let dateB = (b["hatchedAt"] as? String).flatMap(parseISO8601) ?? .distantPast
             return dateA > dateB
         }
 
@@ -335,11 +342,15 @@ struct LockfileAssistant {
         let path = lockfilePath ?? LockfilePaths.primaryPath
         let fileURL = URL(fileURLWithPath: path)
 
-        // Read existing lockfile or start fresh.
+        // Read existing lockfile: try primary first, then fall back to
+        // LockfilePaths.read() which includes legacy path migration.
         var lockfile: [String: Any]
         if let data = try? Data(contentsOf: fileURL),
            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             lockfile = json
+        } else if lockfilePath == nil, let legacy = LockfilePaths.read() {
+            // Primary doesn't exist but legacy does — migrate entries forward.
+            lockfile = legacy
         } else {
             lockfile = [:]
         }

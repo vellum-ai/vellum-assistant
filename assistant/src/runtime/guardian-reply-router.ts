@@ -108,6 +108,8 @@ export interface GuardianReplyResult {
 
 const VALID_ACTIONS: ReadonlySet<string> = new Set([
   'approve_once',
+  'approve_10m',
+  'approve_thread',
   'approve_always',
   'reject',
 ]);
@@ -476,9 +478,9 @@ export async function routeGuardianReply(
     // Decision-bearing disposition from the engine
     let decisionAction = engineResult.disposition as ApprovalAction;
 
-    // Guardians cannot approve_always — the canonical primitive enforces
-    // this too, but enforce it here for clarity.
-    if (decisionAction === 'approve_always') {
+    // Guardians cannot use broad allow modes — the canonical primitive
+    // enforces this too, but enforce it here for clarity.
+    if (decisionAction === 'approve_always' || decisionAction === 'approve_10m' || decisionAction === 'approve_thread') {
       decisionAction = 'approve_once';
     }
 

@@ -13,7 +13,7 @@ public class ActorCredentialRefresher {
 
     /// Attempts a single refresh. Thread-safe via @MainActor or serial dispatch.
     /// `baseURL` is the gateway URL (e.g. https://gateway.example.com).
-    /// `bearerToken` is the runtime bearer for auth.
+    /// `bearerToken` is the legacy runtime bearer (used only as fallback if no JWT yet).
     public static func refresh(baseURL: String, bearerToken: String?, platform: String, deviceId: String) async -> RefreshResult {
         guard let refreshToken = ActorTokenManager.getRefreshToken() else {
             return .terminalError(reason: "no_refresh_token")
@@ -32,12 +32,12 @@ public class ActorCredentialRefresher {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.timeoutInterval = 15
-        if let token = bearerToken, !token.isEmpty {
+        // Use the JWT access token as the sole Authorization bearer.
+        // Falls back to the legacy runtime bearer token if no JWT is available.
+        if let accessToken = ActorTokenManager.getToken(), !accessToken.isEmpty {
+            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        } else if let token = bearerToken, !token.isEmpty {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
-        // Attach current actor token for identification
-        if let actorToken = ActorTokenManager.getToken() {
-            request.setValue(actorToken, forHTTPHeaderField: "X-Actor-Token")
         }
 
         let body: [String: Any] = ["refreshToken": refreshToken, "platform": platform, "deviceId": deviceId]
@@ -52,17 +52,26 @@ public class ActorCredentialRefresher {
 
             if (200..<300).contains(http.statusCode) {
                 guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      let newActorToken = json["actorToken"] as? String,
                       let newRefreshToken = json["refreshToken"] as? String,
-                      let actorTokenExpiresAt = json["actorTokenExpiresAt"] as? Int,
                       let refreshTokenExpiresAt = json["refreshTokenExpiresAt"] as? Int,
                       let refreshAfter = json["refreshAfter"] as? Int else {
                     return .transientError
                 }
 
+                // Accept "accessTokenExpiresAt" (new) or legacy "actorTokenExpiresAt"
+                guard let accessTokenExpiresAt = (json["accessTokenExpiresAt"] as? Int) ?? (json["actorTokenExpiresAt"] as? Int) else {
+                    return .transientError
+                }
+
+                // Accept either "accessToken" (new) or "actorToken" (legacy) field name
+                let newAccessToken = (json["accessToken"] as? String) ?? (json["actorToken"] as? String)
+                guard let token = newAccessToken else {
+                    return .transientError
+                }
+
                 ActorTokenManager.storeCredentials(
-                    actorToken: newActorToken,
-                    actorTokenExpiresAt: actorTokenExpiresAt,
+                    actorToken: token,
+                    actorTokenExpiresAt: accessTokenExpiresAt,
                     refreshToken: newRefreshToken,
                     refreshTokenExpiresAt: refreshTokenExpiresAt,
                     refreshAfter: refreshAfter

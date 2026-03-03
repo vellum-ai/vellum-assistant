@@ -62,7 +62,7 @@ If `hasCredentials` is `true`, `phoneNumber` is set, and `calls.enabled` is `tru
 
 If Twilio is not yet configured, load the **twilio-setup** skill — it handles credential storage, phone number provisioning, and public ingress setup:
 
-- Call `skill_load` with `skill_id: "twilio-setup"` to load the dependency skill.
+- Call `skill_load` with `skill: "twilio-setup"` to load the dependency skill.
 
 Once twilio-setup completes, return here to enable calls.
 
@@ -293,7 +293,7 @@ No additional configuration is needed beyond Twilio setup and `calls.enabled` be
 
 ### Guardian voice verification for inbound calls
 
-For guardian verification setup, load the skill by calling `skill_load` with `skill_id: "guardian-verify-setup"`. This skill handles the full outbound verification flow; `phone-calls` does not orchestrate it inline. Do not use `call_start` to place guardian verification calls — the guardian outbound verification endpoints already place those calls.
+For guardian verification setup, load the skill by calling `skill_load` with `skill: "guardian-verify-setup"`. This skill handles the full outbound verification flow; `phone-calls` does not orchestrate it inline. Do not use `call_start` to place guardian verification calls — the guardian outbound verification endpoints already place those calls.
 
 Once a guardian binding exists for the voice channel, inbound callers may be prompted for verification before calls proceed. The relay server detects pending challenges and prompts callers: "Please enter your six-digit verification code using your keypad, or speak the digits now." If verification fails after 3 attempts, the call ends with "Verification failed. Goodbye."
 

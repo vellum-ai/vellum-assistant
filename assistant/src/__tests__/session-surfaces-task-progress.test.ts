@@ -180,4 +180,42 @@ describe('task_progress surface compatibility', () => {
     expect(templateData.status).toBe('completed');
     expect(Array.isArray(templateData.steps)).toBe(true);
   });
+
+  test('ui_show rejects new interactive surface when a non-dynamic_page pending surface exists', async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+
+    // Pre-populate a pending table surface (simulates a previously shown interactive surface)
+    ctx.pendingSurfaceActions.set('stale-surface-1', { surfaceType: 'table' });
+
+    const result = await surfaceProxyResolver(ctx, 'ui_show', {
+      surface_type: 'table',
+      title: 'New Table',
+      data: { columns: [], rows: [] },
+      actions: [{ id: 'archive', label: 'Archive' }],
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Another interactive surface is already awaiting user input');
+    // The stale entry should still be present (guard only rejects, doesn't clean up)
+    expect(ctx.pendingSurfaceActions.has('stale-surface-1')).toBe(true);
+  });
+
+  test('ui_show allows new interactive surface when only dynamic_page surfaces are pending', async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+
+    // dynamic_page pending entries should not block new interactive surfaces
+    ctx.pendingSurfaceActions.set('page-1', { surfaceType: 'dynamic_page' });
+
+    const result = await surfaceProxyResolver(ctx, 'ui_show', {
+      surface_type: 'table',
+      title: 'Email Table',
+      data: { columns: [], rows: [] },
+      actions: [{ id: 'archive', label: 'Archive' }],
+    });
+
+    expect(result.isError).toBe(false);
+    expect(sent.some(m => m.type === 'ui_surface_show')).toBe(true);
+  });
 });

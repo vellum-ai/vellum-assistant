@@ -1,5 +1,5 @@
+import { verifyToken } from "../../auth/token-service.js";
 import type { GatewayConfig } from "../../config.js";
-import { validateBearerToken } from "../auth/bearer.js";
 import { getLogger } from "../../logger.js";
 import { reconcileTelegramWebhook } from "../../telegram/webhook-manager.js";
 
@@ -22,19 +22,14 @@ export function createTelegramReconcileHandler(config: GatewayConfig) {
       return Response.json({ error: "Method not allowed" }, { status: 405 });
     }
 
-    // Fail-closed: require a bearer token to be configured.
-    if (!config.runtimeProxyBearerToken) {
-      return Response.json(
-        { error: "Service not configured: bearer token required" },
-        { status: 503 },
-      );
+    // Validate JWT bearer token (aud=vellum-daemon) from the daemon
+    const authHeader = req.headers.get("authorization");
+    if (!authHeader || !authHeader.toLowerCase().startsWith("bearer ")) {
+      return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
-
-    const authResult = validateBearerToken(
-      req.headers.get("authorization"),
-      config.runtimeProxyBearerToken,
-    );
-    if (!authResult.authorized) {
+    const token = authHeader.slice(7);
+    const authResult = verifyToken(token, 'vellum-daemon');
+    if (!authResult.ok) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 

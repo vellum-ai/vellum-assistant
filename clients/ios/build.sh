@@ -189,7 +189,7 @@ cat > "$EXPORT_OPTIONS" <<PLIST
     <string>manual</string>
     <key>provisioningProfiles</key>
     <dict>
-        <key>ai.vellum.assistant-ios</key>
+        <key>ai.vocify-inc.vellum-assistant-ios</key>
         <string>$PROVISIONING_PROFILE_NAME</string>
     </dict>
     <key>uploadSymbols</key>

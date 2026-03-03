@@ -1,4 +1,4 @@
-import { getAttachment, getMessage, sendMessageRaw } from '../../../../messaging/providers/gmail/client.js';
+import { createDraftRaw, getAttachment, getMessage } from '../../../../messaging/providers/gmail/client.js';
 import { buildMultipartMime } from '../../../../messaging/providers/gmail/mime-builder.js';
 import type { GmailMessagePart } from '../../../../messaging/providers/gmail/types.js';
 import { getMessagingProvider } from '../../../../messaging/registry.js';
@@ -88,14 +88,13 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
 
       if (attachments.length > 0) {
         const raw = buildMultipartMime({ to: forwardTo, subject, body: forwardHeader, attachments });
-        const result = await sendMessageRaw(token, raw);
-        return ok(`Message forwarded to ${forwardTo} with ${attachments.length} attachment(s) (ID: ${result.id}).`);
+        const draft = await createDraftRaw(token, raw);
+        return ok(`Forward draft created to ${forwardTo} with ${attachments.length} attachment(s) (Draft ID: ${draft.id}). Review in Gmail Drafts, then tell me to send it or send it yourself.`);
       }
 
-      // No attachments — use sendMessageRaw with a simple text MIME
       const raw = buildMultipartMime({ to: forwardTo, subject, body: forwardHeader, attachments: [] });
-      const result = await sendMessageRaw(token, raw);
-      return ok(`Message forwarded to ${forwardTo} (ID: ${result.id}).`);
+      const draft = await createDraftRaw(token, raw);
+      return ok(`Forward draft created to ${forwardTo} (Draft ID: ${draft.id}). Review in Gmail Drafts, then tell me to send it or send it yourself.`);
     });
   } catch (e) {
     return err(e instanceof Error ? e.message : String(e));

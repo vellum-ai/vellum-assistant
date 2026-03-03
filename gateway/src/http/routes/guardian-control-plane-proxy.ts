@@ -5,10 +5,10 @@
  * disabled, so skills and clients can use gateway URLs exclusively.
  */
 
+import { mintServiceToken } from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
 import { fetchImpl } from "../../fetch.js";
 import { getLogger } from "../../logger.js";
-import { GATEWAY_ORIGIN_HEADER } from "../../runtime/client.js";
 import { stripHopByHop } from "../../util/strip-hop-by-hop.js";
 
 const log = getLogger("guardian-control-plane-proxy");
@@ -26,15 +26,9 @@ export function createGuardianControlPlaneProxyHandler(config: GatewayConfig) {
     reqHeaders.delete("host");
     reqHeaders.delete("authorization");
 
-    // These endpoints are daemon-authenticated and must be called by
-    // the gateway using the runtime token.
-    if (config.runtimeBearerToken) {
-      reqHeaders.set("authorization", `Bearer ${config.runtimeBearerToken}`);
-    }
-    // Keep a consistent origin proof on all gateway->runtime calls.
-    if (config.runtimeGatewayOriginSecret) {
-      reqHeaders.set(GATEWAY_ORIGIN_HEADER, config.runtimeGatewayOriginSecret);
-    }
+    // Mint a short-lived service token for gateway->runtime auth.
+    // The token itself proves gateway origin (aud=vellum-daemon).
+    reqHeaders.set("authorization", `Bearer ${mintServiceToken()}`);
 
     const hasBody = req.method !== "GET" && req.method !== "HEAD";
     const bodyBuffer = hasBody ? await req.arrayBuffer() : null;

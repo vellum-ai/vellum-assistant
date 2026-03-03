@@ -1,9 +1,11 @@
 import Foundation
 
-/// Cross-platform actor-token storage using Keychain via APIKeyManager.
-/// The actor token is an HMAC-signed credential that binds an assistant,
-/// platform, device, and guardian principal. It is transmitted as
-/// `X-Actor-Token` on HTTP requests to the runtime.
+/// Cross-platform JWT access token storage using Keychain via APIKeyManager.
+/// The access token (JWT) serves as both authentication and identity for
+/// HTTP requests to the runtime, transmitted as `Authorization: Bearer <jwt>`.
+///
+/// Note: Keychain storage keys are intentionally unchanged from the original
+/// "actor-token" naming to avoid orphaning existing credentials on upgrade.
 ///
 /// Follows the same Keychain persistence pattern as SessionTokenManager.
 public enum ActorTokenManager {
@@ -147,11 +149,13 @@ public enum ActorTokenManager {
         return Self.extractGuardianPrincipalIdFromToken(token)
     }
 
-    /// Decode the base64url-encoded JWT payload from an actor token and
-    /// extract the `guardianPrincipalId` claim.
+    /// Decode the base64url-encoded JWT payload and extract the
+    /// `guardianPrincipalId` claim. JWT format: header.payload.signature
     static func extractGuardianPrincipalIdFromToken(_ token: String) -> String? {
-        let parts = token.split(separator: ".", maxSplits: 2)
-        guard let payloadSegment = parts.first else { return nil }
+        let parts = token.split(separator: ".")
+        // JWT payload is the second segment (index 1)
+        guard parts.count >= 2 else { return nil }
+        let payloadSegment = parts[1]
 
         // base64url -> base64
         var base64 = String(payloadSegment)

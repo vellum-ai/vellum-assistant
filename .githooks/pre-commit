@@ -559,11 +559,10 @@ while IFS= read -r -d '' FILE; do
 
     CHECKED_FILES=$((CHECKED_FILES + 1))
 
-    # Cache staged file content once (avoids repeated git show calls per pattern)
-    FILE_CONTENT=$(git show ":$FILE" 2>/dev/null) || continue
-
-    # Single grep with combined pattern instead of N separate greps
-    MATCHES=$(printf '%s\n' "$FILE_CONTENT" | grep -niE -- "$COMBINED_PATTERN" 2>/dev/null)
+    # Pipe git show directly to grep to avoid NUL byte dropping from command
+    # substitution (which would corrupt binary-ish staged files and cause
+    # false-positive secret detections).
+    MATCHES=$(git show ":$FILE" 2>/dev/null | grep -niE -- "$COMBINED_PATTERN" 2>/dev/null)
 
     if [ ! -z "$MATCHES" ]; then
         FILTERED_MATCHES=""
@@ -799,7 +798,7 @@ fi
 # Non-blocking reminder to consider whether changes belong in a skill or
 # one of the compiled source files (IDENTITY.md, SOUL.md, etc.) instead.
 
-if grep -zq 'assistant/src/config/system-prompt.ts' "$STAGED_ALL_FILE"; then
+if tr '\0' '\n' < "$STAGED_ALL_FILE" | grep -q 'assistant/src/config/system-prompt.ts'; then
     echo ""
     echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo -e "${YELLOW}⚠️  You are modifying system-prompt.ts — the core system prompt.${NC}"

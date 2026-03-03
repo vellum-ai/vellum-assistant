@@ -8,6 +8,8 @@ public struct ToolConfirmationBubble: View {
     public let onAllow: () -> Void
     public let onDeny: () -> Void
     public let onAlwaysAllow: (String, String, String, String) -> Void
+    /// Called when a temporary approval option is selected: (requestId, decision).
+    public let onTemporaryAllow: ((String, String) -> Void)?
     /// When `true` this bubble owns the keyboard monitor and shows selection
     /// highlights. When `false` the monitor is removed and keyboard-only state
     /// is cleared so a lower stacked bubble doesn't steal input.
@@ -26,12 +28,13 @@ public struct ToolConfirmationBubble: View {
     @State private var keyMonitor: Any?
     #endif
 
-    public init(confirmation: ToolConfirmationData, isKeyboardActive: Bool = true, onAllow: @escaping () -> Void, onDeny: @escaping () -> Void, onAlwaysAllow: @escaping (String, String, String, String) -> Void) {
+    public init(confirmation: ToolConfirmationData, isKeyboardActive: Bool = true, onAllow: @escaping () -> Void, onDeny: @escaping () -> Void, onAlwaysAllow: @escaping (String, String, String, String) -> Void, onTemporaryAllow: ((String, String) -> Void)? = nil) {
         self.confirmation = confirmation
         self.isKeyboardActive = isKeyboardActive
         self.onAllow = onAllow
         self.onDeny = onDeny
         self.onAlwaysAllow = onAlwaysAllow
+        self.onTemporaryAllow = onTemporaryAllow
     }
 
     private var hasRuleOptions: Bool {
@@ -50,6 +53,14 @@ public struct ToolConfirmationBubble: View {
         confirmation.state != .pending
     }
 
+    private var hasAllow10m: Bool {
+        confirmation.temporaryOptionsAvailable.contains("allow_10m")
+    }
+
+    private var hasAllowThread: Bool {
+        confirmation.temporaryOptionsAvailable.contains("allow_thread")
+    }
+
     /// The decision value to send when "Always Allow" is clicked.
     /// High-risk prompts use `always_allow_high_risk` so the daemon persists
     /// a rule with `allowHighRisk: true`.
@@ -61,6 +72,27 @@ public struct ToolConfirmationBubble: View {
     private var inlinePreviewText: String? {
         let preview = confirmation.fullInputPreview
         return preview.isEmpty ? nil : preview
+    }
+
+    /// Label shown in the collapsed state after a decision is made.
+    private var collapsedLabel: String {
+        switch confirmation.state {
+        case .approved:
+            switch confirmation.approvedDecision {
+            case "allow_10m":
+                return "\(confirmation.toolCategory) allowed for 10 minutes"
+            case "allow_thread":
+                return "\(confirmation.toolCategory) allowed for this thread"
+            default:
+                return "\(confirmation.toolCategory) allowed"
+            }
+        case .denied:
+            return "\(confirmation.toolCategory) denied"
+        case .timedOut:
+            return "Timed out"
+        case .pending:
+            return ""
+        }
     }
 
     /// Color for the risk level badge.
@@ -371,8 +403,12 @@ public struct ToolConfirmationBubble: View {
     // MARK: - Button Row
 
     /// Build the ordered list of top-level actions based on current confirmation state.
+    /// Temporary options come first (matching visual top-to-bottom, left-to-right order).
     private var topLevelActions: [ToolConfirmationKeyboardModel.Action] {
-        var actions: [ToolConfirmationKeyboardModel.Action] = [.allowOnce]
+        var actions: [ToolConfirmationKeyboardModel.Action] = []
+        if hasAllow10m { actions.append(.allow10m) }
+        if hasAllowThread { actions.append(.allowThread) }
+        actions.append(.allowOnce)
         if hasRuleOptions && confirmation.persistentDecisionsAllowed {
             actions.append(.alwaysAllow)
         }
@@ -380,24 +416,64 @@ public struct ToolConfirmationBubble: View {
         return actions
     }
 
+    private var hasTemporaryOptions: Bool {
+        hasAllow10m || hasAllowThread
+    }
+
     @ViewBuilder
     private var buttonRow: some View {
         let actions = topLevelActions
-        HStack(spacing: VSpacing.xs) {
-            confirmationButton(
-                "Allow Once",
-                isPrimary: true,
-                isDanger: false,
-                isKeyboardSelected: keyboardModel?.selectedAction == .allowOnce
-            ) { markCommandExplanationSeen(); onAllow() }
-            if hasRuleOptions && confirmation.persistentDecisionsAllowed { alwaysAllowInlineButton }
-            confirmationButton(
-                "Don\u{2019}t Allow",
-                isPrimary: false,
-                isDanger: false,
-                isKeyboardSelected: keyboardModel?.selectedAction == .dontAllow
-            ) { markCommandExplanationSeen(); onDeny() }
-            Spacer()
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            // Top group: temporary approval options (approve all future actions)
+            if hasTemporaryOptions {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Approve all actions")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                    HStack(spacing: VSpacing.xs) {
+                        if hasAllow10m {
+                            confirmationButton(
+                                "Allow for 10 minutes",
+                                isPrimary: true,
+                                isDanger: false,
+                                isKeyboardSelected: keyboardModel?.selectedAction == .allow10m
+                            ) { markCommandExplanationSeen(); onTemporaryAllow?(confirmation.requestId, "allow_10m") }
+                        }
+                        if hasAllowThread {
+                            confirmationButton(
+                                "Allow for this thread",
+                                isPrimary: true,
+                                isDanger: false,
+                                isKeyboardSelected: keyboardModel?.selectedAction == .allowThread
+                            ) { markCommandExplanationSeen(); onTemporaryAllow?(confirmation.requestId, "allow_thread") }
+                        }
+                    }
+                }
+            }
+            // Bottom group: per-action options
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                if hasTemporaryOptions {
+                    Text("This action only")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                }
+                HStack(spacing: VSpacing.xs) {
+                    confirmationButton(
+                        "Allow Once",
+                        isPrimary: !hasTemporaryOptions,
+                        isDanger: false,
+                        isKeyboardSelected: keyboardModel?.selectedAction == .allowOnce
+                    ) { markCommandExplanationSeen(); onAllow() }
+                    if hasRuleOptions && confirmation.persistentDecisionsAllowed { alwaysAllowInlineButton }
+                    confirmationButton(
+                        "Don\u{2019}t Allow",
+                        isPrimary: false,
+                        isDanger: false,
+                        isKeyboardSelected: keyboardModel?.selectedAction == .dontAllow
+                    ) { markCommandExplanationSeen(); onDeny() }
+                    Spacer()
+                }
+            }
         }
         .onAppear {
             if isKeyboardActive {
@@ -614,6 +690,10 @@ public struct ToolConfirmationBubble: View {
         switch action {
         case .allowOnce:
             onAllow()
+        case .allow10m:
+            onTemporaryAllow?(confirmation.requestId, "allow_10m")
+        case .allowThread:
+            onTemporaryAllow?(confirmation.requestId, "allow_thread")
         case .alwaysAllow:
             if confirmation.allowlistOptions.count > 1 {
                 withAnimation(VAnimation.fast) {
@@ -859,11 +939,7 @@ public struct ToolConfirmationBubble: View {
             }
             .font(.system(size: 12))
 
-            Text(confirmation.state == .approved
-                 ? "\(confirmation.toolCategory) allowed"
-                 : confirmation.state == .denied
-                 ? "\(confirmation.toolCategory) denied"
-                 : "Timed out")
+            Text(collapsedLabel)
                 .font(VFont.caption)
                 .foregroundColor(VColor.textSecondary)
 

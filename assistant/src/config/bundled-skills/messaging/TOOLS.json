@@ -114,7 +114,7 @@
     },
     {
       "name": "messaging_send",
-      "description": "Send a message on a platform. This is a high-risk action that always requires user approval. Include a confidence score (0-1).",
+      "description": "Compose a message. For Gmail, creates a draft for review; for other platforms, sends directly. High-risk action. Include a confidence score (0-1).",
       "category": "messaging",
       "risk": "high",
       "input_schema": {
@@ -156,7 +156,7 @@
     },
     {
       "name": "messaging_reply",
-      "description": "Reply in a thread. Medium-risk action. Include a confidence score (0-1).",
+      "description": "Reply in a thread. For Gmail, creates a threaded draft with reply-all recipients; for other platforms, sends directly. Include a confidence score (0-1).",
       "category": "messaging",
       "risk": "medium",
       "input_schema": {
@@ -219,96 +219,6 @@
         ]
       },
       "executor": "tools/messaging-mark-read.ts",
-      "execution_target": "host"
-    },
-    {
-      "name": "slack_add_reaction",
-      "description": "Add an emoji reaction to a Slack message. Include a confidence score (0-1).",
-      "category": "messaging",
-      "risk": "medium",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "channel": {
-            "type": "string",
-            "description": "Slack channel ID"
-          },
-          "timestamp": {
-            "type": "string",
-            "description": "Message timestamp (ts)"
-          },
-          "emoji": {
-            "type": "string",
-            "description": "Emoji name without colons (e.g. \"thumbsup\")"
-          },
-          "confidence": {
-            "type": "number",
-            "description": "Confidence score (0-1) for this action"
-          }
-        },
-        "required": [
-          "channel",
-          "timestamp",
-          "emoji",
-          "confidence"
-        ]
-      },
-      "executor": "tools/slack-add-reaction.ts",
-      "execution_target": "host"
-    },
-    {
-      "name": "slack_delete_message",
-      "description": "Delete a Slack message posted by the bot. Include a confidence score (0-1).",
-      "category": "messaging",
-      "risk": "high",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "channel": {
-            "type": "string",
-            "description": "Slack channel ID"
-          },
-          "timestamp": {
-            "type": "string",
-            "description": "Message timestamp (ts) to delete"
-          },
-          "confidence": {
-            "type": "number",
-            "description": "Confidence score (0-1) for this action"
-          }
-        },
-        "required": [
-          "channel",
-          "timestamp",
-          "confidence"
-        ]
-      },
-      "executor": "tools/slack-delete-message.ts",
-      "execution_target": "host"
-    },
-    {
-      "name": "slack_leave_channel",
-      "description": "Leave a Slack channel. Include a confidence score (0-1).",
-      "category": "messaging",
-      "risk": "medium",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "channel": {
-            "type": "string",
-            "description": "Slack channel ID to leave"
-          },
-          "confidence": {
-            "type": "number",
-            "description": "Confidence score (0-1) for this action"
-          }
-        },
-        "required": [
-          "channel",
-          "confidence"
-        ]
-      },
-      "executor": "tools/slack-leave-channel.ts",
       "execution_target": "host"
     },
     {
@@ -429,18 +339,29 @@
     },
     {
       "name": "gmail_batch_archive",
-      "description": "Archive multiple Gmail messages at once. Include a confidence score (0-1).",
+      "description": "Archive multiple Gmail messages at once. Prefer scan_id + sender_ids (from a prior scan) over raw message_ids. Include a confidence score (0-1).",
       "category": "messaging",
       "risk": "medium",
       "input_schema": {
         "type": "object",
         "properties": {
+          "scan_id": {
+            "type": "string",
+            "description": "Scan result ID from a prior gmail_sender_digest or gmail_outreach_scan call"
+          },
+          "sender_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Sender IDs to archive (used with scan_id to resolve message IDs server-side)"
+          },
           "message_ids": {
             "type": "array",
             "items": {
               "type": "string"
             },
-            "description": "Gmail message IDs to archive"
+            "description": "Gmail message IDs to archive (fallback — prefer scan_id + sender_ids)"
           },
           "confidence": {
             "type": "number",
@@ -448,7 +369,6 @@
           }
         },
         "required": [
-          "message_ids",
           "confidence"
         ]
       },
@@ -633,7 +553,15 @@
           },
           "in_reply_to": {
             "type": "string",
-            "description": "Message-ID header of the email being replied to"
+            "description": "RFC 822 Message-ID header value (e.g. `<CABx...@mail.gmail.com>`), NOT the Gmail message ID. Look up the original message's Message-ID header."
+          },
+          "cc": {
+            "type": "string",
+            "description": "CC recipients (comma-separated email addresses)"
+          },
+          "bcc": {
+            "type": "string",
+            "description": "BCC recipients (comma-separated email addresses)"
           }
         },
         "required": [
@@ -643,6 +571,31 @@
         ]
       },
       "executor": "tools/gmail-draft.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "gmail_send_draft",
+      "description": "Send an existing Gmail draft. Only use when the user has reviewed and explicitly approved sending.",
+      "category": "messaging",
+      "risk": "high",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "draft_id": {
+            "type": "string",
+            "description": "Gmail draft ID to send"
+          },
+          "confidence": {
+            "type": "number",
+            "description": "Confidence score (0-1) for this action"
+          }
+        },
+        "required": [
+          "draft_id",
+          "confidence"
+        ]
+      },
+      "executor": "tools/gmail-send-draft.ts",
       "execution_target": "host"
     },
     {
@@ -697,7 +650,7 @@
     },
     {
       "name": "gmail_send_with_attachments",
-      "description": "Send an email with file attachments. High-risk action requiring user approval. Include a confidence score (0-1).",
+      "description": "Create a Gmail draft with file attachments for review. Include a confidence score (0-1).",
       "category": "messaging",
       "risk": "high",
       "input_schema": {
@@ -748,7 +701,7 @@
     },
     {
       "name": "gmail_forward",
-      "description": "Forward a Gmail message to another recipient, preserving attachments. Include a confidence score (0-1).",
+      "description": "Create a draft forwarding a Gmail message to another recipient, preserving attachments. Include a confidence score (0-1).",
       "category": "messaging",
       "risk": "high",
       "input_schema": {
@@ -1006,11 +959,15 @@
           },
           "max_messages": {
             "type": "number",
-            "description": "Maximum messages to scan (default 2000, cap 2000)"
+            "description": "Maximum messages to scan (default 2000, cap 5000)"
           },
           "max_senders": {
             "type": "number",
             "description": "Maximum senders to return (default 30)"
+          },
+          "page_token": {
+            "type": "string",
+            "description": "Resume token from a previous scan's next_page_token to continue scanning beyond the cap"
           }
         }
       },
@@ -1040,6 +997,10 @@
           "max_senders": {
             "type": "number",
             "description": "Maximum senders to return (default 30)"
+          },
+          "page_token": {
+            "type": "string",
+            "description": "Resume token from a previous scan's next_page_token to continue scanning beyond the cap"
           }
         }
       },
@@ -1098,6 +1059,10 @@
           "min_confidence": {
             "type": "number",
             "description": "Minimum confidence threshold 0-1 (default 0.5)"
+          },
+          "page_token": {
+            "type": "string",
+            "description": "Resume token from a previous scan's next_page_token to continue scanning beyond the cap"
           }
         }
       },

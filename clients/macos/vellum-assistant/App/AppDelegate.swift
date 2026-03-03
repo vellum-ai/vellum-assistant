@@ -364,6 +364,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         setupDaemonClient(isFirstLaunch: isFirstLaunch)
         setupMenuBar()
         setupFileMenu()
+        setupViewMenu()
         setupHotKey()
         setupEscapeMonitor()
         setupVoiceInput()
@@ -841,6 +842,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             state: state,
             daemonClient: daemonClient,
             authManager: authManager,
+            managedBootstrapEnabled: isCurrentAssistantManaged,
             onComplete: { [weak self] in
                 self?.proceedToApp()
             },
@@ -1003,11 +1005,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         }
 
         if let name = assistantName {
-            // Stop processes FIRST while PID files and lockfile entry still exist.
-            // retire() internally tries to stop them again, which is idempotent.
-            daemonClient.disconnect()
-            assistantCli.stop()
-
             do {
                 try await assistantCli.retire(name: name)
             } catch {
@@ -1019,12 +1016,20 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                 alert.addButton(withTitle: "Force Remove")
                 alert.addButton(withTitle: "Cancel")
                 if alert.runModal() != .alertFirstButtonReturn {
+                    // Daemon is still running — user can continue using the app.
                     return false
                 }
-                // Retire failed but user chose Force Remove — clean the stale
-                // lockfile entry so onboarding can re-run with a fresh lockfile.
+                // Retire failed but user chose Force Remove — stop the daemon
+                // before cleaning up local state.
+                daemonClient.disconnect()
+                assistantCli.stop()
                 self.removeLockfileEntry(assistantId: name)
             }
+
+            // Stop processes after retire succeeds (or user chose Force Remove).
+            // This keeps the daemon alive if the user cancels a failed retire.
+            daemonClient.disconnect()
+            assistantCli.stop()
         } else {
             assistantCli.stop()
         }

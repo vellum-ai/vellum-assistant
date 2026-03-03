@@ -34,6 +34,8 @@ import { SecretPrompter } from '../permissions/secret-prompter.js';
 import type { UserDecision } from '../permissions/types.js';
 import type { Message } from '../providers/types.js';
 import type { Provider } from '../providers/types.js';
+import type { AuthContext } from '../runtime/auth/types.js';
+import * as approvalOverrides from '../runtime/session-approval-overrides.js';
 import { ToolExecutor } from '../tools/executor.js';
 import type { AssistantAttachmentDraft } from './assistant-attachments.js';
 import type { AssistantActivityState, ConfirmationStateChanged } from './ipc-contract/messages.js';
@@ -142,6 +144,7 @@ export class Session {
   /** @internal */ currentPage?: string;
   /** @internal */ channelCapabilities?: ChannelCapabilities;
   /** @internal */ guardianContext?: GuardianRuntimeContext;
+  /** @internal */ authContext?: AuthContext;
   /** @internal */ loadedHistoryTrustClass?: GuardianRuntimeContext['trustClass'];
   /** @internal */ voiceCallControlPrompt?: string;
   /** @internal */ assistantId?: string;
@@ -428,6 +431,7 @@ export class Session {
   }
 
   dispose(): void {
+    approvalOverrides.clearMode(this.conversationId);
     disposeSession(this);
   }
 
@@ -499,6 +503,12 @@ export class Session {
       decisionText?: string;
     },
   ): void {
+    // Guard: only proceed if the confirmation is still pending. Stale or
+    // already-resolved requests must not activate overrides or emit events.
+    if (!this.prompter.hasPendingRequest(requestId)) {
+      return;
+    }
+
     this.prompter.resolveConfirmation(
       requestId,
       decision,
@@ -506,6 +516,11 @@ export class Session {
       selectedScope,
       decisionContext,
     );
+
+    // Mode activation (setTimedMode / setThreadMode) is intentionally NOT
+    // done here. It is handled in permission-checker.ts where
+    // persistentDecisionsAllowed context is available — this prevents
+    // proxied bash commands from escalating into blanket auto-approval.
 
     // Emit authoritative confirmation state and activity transition centrally
     // so ALL callers (IPC handlers, /v1/confirm, channel bridges) get
@@ -566,6 +581,14 @@ export class Session {
     this.guardianContext = ctx ?? undefined;
   }
 
+  setAuthContext(ctx: AuthContext | null): void {
+    this.authContext = ctx ?? undefined;
+  }
+
+  getAuthContext(): AuthContext | undefined {
+    return this.authContext;
+  }
+
   setVoiceCallControlPrompt(prompt: string | null): void {
     this.voiceCallControlPrompt = prompt ?? undefined;
   }
@@ -617,7 +640,7 @@ export class Session {
     content: string,
     userMessageId: string,
     onEvent: (msg: ServerMessage) => void,
-    options?: { skipPreMessageRollback?: boolean; isInteractive?: boolean; titleText?: string },
+    options?: { skipPreMessageRollback?: boolean; isInteractive?: boolean; isUserMessage?: boolean; titleText?: string },
   ): Promise<void> {
     return runAgentLoopImpl(this, content, userMessageId, onEvent, options);
   }

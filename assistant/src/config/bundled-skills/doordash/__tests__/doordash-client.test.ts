@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { SessionExpiredError } from "../lib/client.js";
+import { RateLimitError, SessionExpiredError } from "../lib/client.js";
 
 describe("SessionExpiredError", () => {
   it("is an instance of Error", () => {
@@ -38,10 +38,12 @@ describe("expired session classification", () => {
   // the parsed response structure that cdpFetch evaluates.
 
   function classifyResponse(parsed: Record<string, unknown>): Error {
-    // Mirrors the classification logic from cdpFetch (client.ts lines 154-159)
+    // Mirrors the classification logic from cdpFetch (client.ts lines 188-200)
     if (parsed.__error) {
-      if (parsed.__status === 403 || parsed.__status === 401) {
+      if (parsed.__status === 401) {
         return new SessionExpiredError("DoorDash session has expired.");
+      } else if (parsed.__status === 403) {
+        return new RateLimitError("DoorDash rate limit hit (HTTP 403).");
       }
       return new Error(
         (parsed.__message as string) ??
@@ -61,14 +63,14 @@ describe("expired session classification", () => {
     expect(err.message).toBe("DoorDash session has expired.");
   });
 
-  it("classifies HTTP 403 as SessionExpiredError", () => {
+  it("classifies HTTP 403 as RateLimitError", () => {
     const err = classifyResponse({
       __error: true,
       __status: 403,
       __body: "Forbidden",
     });
-    expect(err).toBeInstanceOf(SessionExpiredError);
-    expect(err.message).toBe("DoorDash session has expired.");
+    expect(err).toBeInstanceOf(RateLimitError);
+    expect(err.message).toBe("DoorDash rate limit hit (HTTP 403).");
   });
 
   it("classifies HTTP 500 as a generic Error, not session expired", () => {

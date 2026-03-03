@@ -1,4 +1,5 @@
 import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
+import { storeScanResult } from './scan-result-store.js';
 import { err, ok, resolveProvider, withProviderToken } from './shared.js';
 
 export async function run(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
@@ -6,6 +7,7 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
   const query = (input.query as string) ?? 'category:promotions newer_than:90d';
   const maxMessages = input.max_messages as number | undefined;
   const maxSenders = input.max_senders as number | undefined;
+  const pageToken = input.page_token as string | undefined;
 
   try {
     const provider = resolveProvider(platform);
@@ -15,13 +17,14 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
     }
 
     return withProviderToken(provider, async (token) => {
-      const result = await provider.senderDigest!(token, query, { maxMessages, maxSenders });
+      const result = await provider.senderDigest!(token, query, { maxMessages, maxSenders, pageToken });
 
       if (result.senders.length === 0) {
         return ok(JSON.stringify({
           senders: [],
           total_scanned: result.totalScanned,
           query_used: result.queryUsed,
+          ...(result.truncated ? { truncated: true, next_page_token: result.nextPageToken } : {}),
           message: 'No emails found matching the query. Try broadening the search (e.g. remove category filter or extend date range).',
         }));
       }
@@ -35,16 +38,23 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
         has_unsubscribe: s.hasUnsubscribe,
         newest_message_id: s.newestMessageId,
         search_query: s.searchQuery,
-        message_ids: s.messageIds,
-        has_more: s.hasMore,
       }));
 
+      // Store message IDs server-side to keep them out of LLM context
+      const scanId = storeScanResult(result.senders.map((s) => ({
+        id: s.id,
+        messageIds: s.messageIds,
+        newestMessageId: s.newestMessageId,
+        newestUnsubscribableMessageId: null,
+      })));
+
       return ok(JSON.stringify({
+        scan_id: scanId,
         senders,
         total_scanned: result.totalScanned,
         query_used: result.queryUsed,
-        ...(result.truncated ? { truncated: true } : {}),
-        note: `message_count reflects emails found per sender within the ${result.totalScanned} messages scanned. Use the message_ids array with the archive tool to archive exactly these messages.`,
+        ...(result.truncated ? { truncated: true, next_page_token: result.nextPageToken } : {}),
+        note: `message_count reflects emails found per sender within the ${result.totalScanned} messages scanned. Use scan_id with the archive tool to archive messages (pass scan_id + sender_ids instead of message_ids).`,
       }));
     });
   } catch (e) {

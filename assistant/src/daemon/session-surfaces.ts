@@ -150,6 +150,7 @@ export interface SurfaceSessionContext {
     attachments: never[],
     onEvent: (msg: ServerMessage) => void,
     requestId: string,
+    activeSurfaceId?: string,
   ): { queued: boolean; rejected?: boolean; requestId: string };
   getQueueDepth(): number;
   processMessage(
@@ -425,7 +426,7 @@ export function handleSurfaceAction(ctx: SurfaceSessionContext, surfaceId: strin
     attributes: { source: 'surface_action', surfaceId, actionId },
   });
 
-  const result = ctx.enqueueMessage(content, [], onEvent, requestId);
+  const result = ctx.enqueueMessage(content, [], onEvent, requestId, surfaceId);
   if (result.queued) {
     const position = ctx.getQueueDepth();
     if (!retainPending) {
@@ -630,6 +631,21 @@ export async function surfaceProxyResolver(
         ? hasActions
         : INTERACTIVE_SURFACE_TYPES.includes(surfaceType);
     const awaitAction = (input.await_action as boolean) ?? isInteractive;
+
+    // Only one non-persistent interactive surface at a time. If another
+    // surface is already awaiting user input, reject this one so the LLM
+    // presents surfaces sequentially.
+    if (awaitAction) {
+      const hasExistingPending = [...ctx.pendingSurfaceActions.values()].some(
+        entry => entry.surfaceType !== 'dynamic_page'
+      );
+      if (hasExistingPending) {
+        return {
+          content: 'Another interactive surface is already awaiting user input. Present one at a time — wait for the user to respond to the current surface before showing the next.',
+          isError: true,
+        };
+      }
+    }
 
     // Track surface state for ui_update merging
     ctx.surfaceState.set(surfaceId, { surfaceType, data, title });

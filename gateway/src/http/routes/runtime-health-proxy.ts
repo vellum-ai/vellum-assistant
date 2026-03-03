@@ -5,10 +5,10 @@
  * proxy is disabled.
  */
 
+import { mintServiceToken } from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
 import { fetchImpl } from "../../fetch.js";
 import { getLogger } from "../../logger.js";
-import { GATEWAY_ORIGIN_HEADER } from "../../runtime/client.js";
 import { stripHopByHop } from "../../util/strip-hop-by-hop.js";
 
 const log = getLogger("runtime-health-proxy");
@@ -22,12 +22,7 @@ export function createRuntimeHealthProxyHandler(config: GatewayConfig) {
     reqHeaders.delete("host");
     reqHeaders.delete("authorization");
 
-    if (config.runtimeBearerToken) {
-      reqHeaders.set("authorization", `Bearer ${config.runtimeBearerToken}`);
-    }
-    if (config.runtimeGatewayOriginSecret) {
-      reqHeaders.set(GATEWAY_ORIGIN_HEADER, config.runtimeGatewayOriginSecret);
-    }
+    reqHeaders.set("authorization", `Bearer ${mintServiceToken()}`);
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => {

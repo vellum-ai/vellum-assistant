@@ -1,132 +1,23 @@
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
 import { inflateRawSync } from "node:zlib";
 
-import { Database } from "bun:sqlite";
 import { eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/bun-sqlite";
-import { integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { v4 as uuid } from "uuid";
 
+import {
+  addMessage,
+  createConversation,
+} from "../../../../memory/conversation-store.js";
+import { getDb } from "../../../../memory/db.js";
+import {
+  conversationKeys,
+  conversations,
+  messages as messagesTable,
+} from "../../../../memory/schema.js";
 import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
-
-// -- Inline schema (only the tables this tool touches) --
-
-const conversations = sqliteTable("conversations", {
-  id: text("id").primaryKey(),
-  title: text("title"),
-  createdAt: integer("created_at").notNull(),
-  updatedAt: integer("updated_at").notNull(),
-  totalInputTokens: integer("total_input_tokens").notNull().default(0),
-  totalOutputTokens: integer("total_output_tokens").notNull().default(0),
-  totalEstimatedCost: real("total_estimated_cost").notNull().default(0),
-  contextSummary: text("context_summary"),
-  contextCompactedMessageCount: integer("context_compacted_message_count")
-    .notNull()
-    .default(0),
-  contextCompactedAt: integer("context_compacted_at"),
-  threadType: text("thread_type").notNull().default("standard"),
-  memoryScopeId: text("memory_scope_id").notNull().default("default"),
-});
-
-const messagesTable = sqliteTable("messages", {
-  id: text("id").primaryKey(),
-  conversationId: text("conversation_id")
-    .notNull()
-    .references(() => conversations.id),
-  role: text("role").notNull(),
-  content: text("content").notNull(),
-  createdAt: integer("created_at").notNull(),
-  metadata: text("metadata"),
-});
-
-const conversationKeys = sqliteTable("conversation_keys", {
-  id: text("id").primaryKey(),
-  conversationKey: text("conversation_key").notNull(),
-  conversationId: text("conversation_id")
-    .notNull()
-    .references(() => conversations.id, { onDelete: "cascade" }),
-  createdAt: integer("created_at").notNull(),
-});
-
-// -- Inline DB access --
-
-const schema = { conversations, messages: messagesTable, conversationKeys };
-
-function getDbPath(): string {
-  const baseDir = process.env.BASE_DATA_DIR?.trim() || homedir();
-  return join(baseDir, ".vellum", "workspace", "data", "db", "assistant.db");
-}
-
-let db: ReturnType<typeof drizzle<typeof schema>> | null = null;
-
-function getDb() {
-  if (!db) {
-    const dbPath = getDbPath();
-    const dbDir = join(dbPath, "..");
-    mkdirSync(dbDir, { recursive: true });
-    const sqlite = new Database(dbPath);
-    sqlite.exec("PRAGMA journal_mode=WAL");
-    sqlite.exec("PRAGMA foreign_keys = ON");
-    db = drizzle(sqlite, { schema });
-  }
-  return db;
-}
-
-// -- Inline conversation helpers --
-
-let lastTimestamp = 0;
-function monotonicNow(): number {
-  const now = Date.now();
-  lastTimestamp = Math.max(now, lastTimestamp + 1);
-  return lastTimestamp;
-}
-
-function createConversation(title: string) {
-  const database = getDb();
-  const now = Date.now();
-  const id = uuid();
-  const conversation = {
-    id,
-    title,
-    createdAt: now,
-    updatedAt: now,
-    totalInputTokens: 0,
-    totalOutputTokens: 0,
-    totalEstimatedCost: 0,
-    contextSummary: null as string | null,
-    contextCompactedMessageCount: 0,
-    contextCompactedAt: null as number | null,
-    threadType: "standard" as const,
-    memoryScopeId: "default",
-  };
-  database.insert(conversations).values(conversation).run();
-  return conversation;
-}
-
-function addMessage(conversationId: string, role: string, content: string) {
-  const database = getDb();
-  const now = monotonicNow();
-  const message = {
-    id: uuid(),
-    conversationId,
-    role,
-    content,
-    createdAt: now,
-  };
-  database.transaction((tx) => {
-    tx.insert(messagesTable).values(message).run();
-    tx.update(conversations)
-      .set({ updatedAt: now })
-      .where(eq(conversations.id, conversationId))
-      .run();
-  });
-  return message;
-}
 
 // -- ChatGPT export format types --
 
@@ -209,7 +100,7 @@ export async function run(
     };
   }
 
-  const database = getDb();
+  const db = getDb();
   let importedCount = 0;
   let skippedCount = 0;
   let messageCount = 0;
@@ -217,7 +108,7 @@ export async function run(
   for (const conv of imported) {
     const convKey = `chatgpt:${conv.sourceId}`;
 
-    const existing = database
+    const existing = db
       .select()
       .from(conversationKeys)
       .where(eq(conversationKeys.conversationKey, convKey))
@@ -231,18 +122,18 @@ export async function run(
     const conversation = createConversation(conv.title);
 
     for (const msg of conv.messages) {
-      addMessage(conversation.id, msg.role, JSON.stringify(msg.content));
+      // Uses the daemon's addMessage which triggers memory indexing
+      await addMessage(conversation.id, msg.role, JSON.stringify(msg.content));
     }
 
     // Override timestamps to match ChatGPT originals
-    database
-      .update(conversations)
+    db.update(conversations)
       .set({ createdAt: conv.createdAt, updatedAt: conv.updatedAt })
       .where(eq(conversations.id, conversation.id))
       .run();
 
     // Update message timestamps to match ChatGPT originals
-    const dbMessages = database
+    const dbMessages = db
       .select({ id: messagesTable.id })
       .from(messagesTable)
       .where(eq(messagesTable.conversationId, conversation.id))
@@ -250,15 +141,13 @@ export async function run(
       .all();
 
     for (let i = 0; i < dbMessages.length && i < conv.messages.length; i++) {
-      database
-        .update(messagesTable)
+      db.update(messagesTable)
         .set({ createdAt: conv.messages[i].createdAt })
         .where(eq(messagesTable.id, dbMessages[i].id))
         .run();
     }
 
-    database
-      .insert(conversationKeys)
+    db.insert(conversationKeys)
       .values({
         id: uuid(),
         conversationKey: convKey,

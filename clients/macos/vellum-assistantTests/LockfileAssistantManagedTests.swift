@@ -1,0 +1,315 @@
+import XCTest
+@testable import VellumAssistantLib
+
+final class LockfileAssistantManagedTests: XCTestCase {
+    private var tempDir: URL!
+    private var lockfilePath: String!
+
+    override func setUp() {
+        super.setUp()
+        tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try! FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        lockfilePath = tempDir.appendingPathComponent(".vellum.lock.json").path
+    }
+
+    override func tearDown() {
+        try? FileManager.default.removeItem(at: tempDir)
+        super.tearDown()
+    }
+
+    // MARK: - upsertManagedEntry: insert when absent
+
+    func testUpsertInsertsWhenLockfileDoesNotExist() {
+        let result = LockfileAssistant.upsertManagedEntry(
+            assistantId: "test-id",
+            runtimeUrl: "https://platform.vellum.ai",
+            hatchedAt: "2024-01-01T00:00:00Z",
+            lockfilePath: lockfilePath
+        )
+        XCTAssertTrue(result)
+
+        let data = try! Data(contentsOf: URL(fileURLWithPath: lockfilePath))
+        let json = try! JSONSerialization.jsonObject(with: data) as! [String: Any]
+        let assistants = json["assistants"] as! [[String: Any]]
+        XCTAssertEqual(assistants.count, 1)
+        XCTAssertEqual(assistants[0]["assistantId"] as? String, "test-id")
+        XCTAssertEqual(assistants[0]["cloud"] as? String, "vellum")
+        XCTAssertEqual(assistants[0]["runtimeUrl"] as? String, "https://platform.vellum.ai")
+        XCTAssertEqual(assistants[0]["hatchedAt"] as? String, "2024-01-01T00:00:00Z")
+    }
+
+    func testUpsertInsertsIntoEmptyLockfile() {
+        // Pre-create an empty lockfile object.
+        let empty: [String: Any] = [:]
+        let data = try! JSONSerialization.data(withJSONObject: empty)
+        try! data.write(to: URL(fileURLWithPath: lockfilePath))
+
+        let result = LockfileAssistant.upsertManagedEntry(
+            assistantId: "new-id",
+            runtimeUrl: "https://platform.vellum.ai",
+            hatchedAt: "2024-03-01T00:00:00Z",
+            lockfilePath: lockfilePath
+        )
+        XCTAssertTrue(result)
+
+        let readData = try! Data(contentsOf: URL(fileURLWithPath: lockfilePath))
+        let json = try! JSONSerialization.jsonObject(with: readData) as! [String: Any]
+        let assistants = json["assistants"] as! [[String: Any]]
+        XCTAssertEqual(assistants.count, 1)
+        XCTAssertEqual(assistants[0]["assistantId"] as? String, "new-id")
+    }
+
+    // MARK: - upsertManagedEntry: update existing
+
+    func testUpsertUpdatesExistingEntryBySameAssistantId() {
+        // Insert first entry.
+        LockfileAssistant.upsertManagedEntry(
+            assistantId: "test-id",
+            runtimeUrl: "https://old.example.com",
+            hatchedAt: "2024-01-01T00:00:00Z",
+            lockfilePath: lockfilePath
+        )
+
+        // Update the same assistantId with new values.
+        let result = LockfileAssistant.upsertManagedEntry(
+            assistantId: "test-id",
+            runtimeUrl: "https://new.example.com",
+            hatchedAt: "2024-06-01T00:00:00Z",
+            lockfilePath: lockfilePath
+        )
+        XCTAssertTrue(result)
+
+        let data = try! Data(contentsOf: URL(fileURLWithPath: lockfilePath))
+        let json = try! JSONSerialization.jsonObject(with: data) as! [String: Any]
+        let assistants = json["assistants"] as! [[String: Any]]
+        XCTAssertEqual(assistants.count, 1, "Should have exactly 1 entry after update, not 2")
+        XCTAssertEqual(assistants[0]["runtimeUrl"] as? String, "https://new.example.com")
+        XCTAssertEqual(assistants[0]["hatchedAt"] as? String, "2024-06-01T00:00:00Z")
+    }
+
+    // MARK: - upsertManagedEntry: preserves other entries
+
+    func testUpsertPreservesOtherAssistantEntries() {
+        // Pre-populate with a local entry.
+        let existing: [String: Any] = [
+            "assistants": [
+                [
+                    "assistantId": "local-id",
+                    "cloud": "local",
+                    "runtimeUrl": "http://localhost:7821",
+                    "hatchedAt": "2024-01-01T00:00:00Z",
+                ] as [String: Any],
+            ]
+        ]
+        let data = try! JSONSerialization.data(withJSONObject: existing)
+        try! data.write(to: URL(fileURLWithPath: lockfilePath))
+
+        // Add a managed entry.
+        let result = LockfileAssistant.upsertManagedEntry(
+            assistantId: "managed-id",
+            runtimeUrl: "https://platform.vellum.ai",
+            hatchedAt: "2024-06-01T00:00:00Z",
+            lockfilePath: lockfilePath
+        )
+        XCTAssertTrue(result)
+
+        let readData = try! Data(contentsOf: URL(fileURLWithPath: lockfilePath))
+        let json = try! JSONSerialization.jsonObject(with: readData) as! [String: Any]
+        let assistants = json["assistants"] as! [[String: Any]]
+        XCTAssertEqual(assistants.count, 2)
+        XCTAssertTrue(assistants.contains(where: { ($0["assistantId"] as? String) == "local-id" }))
+        XCTAssertTrue(assistants.contains(where: { ($0["assistantId"] as? String) == "managed-id" }))
+    }
+
+    func testUpsertPreservesNonAssistantLockfileKeys() {
+        // Pre-populate with extra top-level keys.
+        let existing: [String: Any] = [
+            "version": 1,
+            "assistants": [] as [[String: Any]],
+        ]
+        let data = try! JSONSerialization.data(withJSONObject: existing)
+        try! data.write(to: URL(fileURLWithPath: lockfilePath))
+
+        LockfileAssistant.upsertManagedEntry(
+            assistantId: "test-id",
+            runtimeUrl: "https://platform.vellum.ai",
+            hatchedAt: "2024-01-01T00:00:00Z",
+            lockfilePath: lockfilePath
+        )
+
+        let readData = try! Data(contentsOf: URL(fileURLWithPath: lockfilePath))
+        let json = try! JSONSerialization.jsonObject(with: readData) as! [String: Any]
+        XCTAssertEqual(json["version"] as? Int, 1, "Non-assistant keys should be preserved")
+    }
+
+    // MARK: - upsertManagedEntry: always sets cloud to "vellum"
+
+    func testUpsertAlwaysSetsCloudToVellum() {
+        LockfileAssistant.upsertManagedEntry(
+            assistantId: "test-id",
+            runtimeUrl: "https://platform.vellum.ai",
+            hatchedAt: "2024-01-01T00:00:00Z",
+            lockfilePath: lockfilePath
+        )
+
+        let data = try! Data(contentsOf: URL(fileURLWithPath: lockfilePath))
+        let json = try! JSONSerialization.jsonObject(with: data) as! [String: Any]
+        let assistants = json["assistants"] as! [[String: Any]]
+        XCTAssertEqual(assistants[0]["cloud"] as? String, "vellum")
+    }
+
+    // MARK: - isManaged property
+
+    func testIsManagedReturnsTrueForVellumCloud() {
+        let assistant = LockfileAssistant(
+            assistantId: "test-id",
+            runtimeUrl: "https://platform.vellum.ai",
+            bearerToken: nil,
+            cloud: "vellum",
+            project: nil,
+            region: nil,
+            zone: nil,
+            instanceId: nil,
+            hatchedAt: "2024-01-01T00:00:00Z"
+        )
+        XCTAssertTrue(assistant.isManaged)
+    }
+
+    func testIsManagedReturnsFalseForLocalCloud() {
+        let assistant = LockfileAssistant(
+            assistantId: "test-id",
+            runtimeUrl: nil,
+            bearerToken: nil,
+            cloud: "local",
+            project: nil,
+            region: nil,
+            zone: nil,
+            instanceId: nil,
+            hatchedAt: nil
+        )
+        XCTAssertFalse(assistant.isManaged)
+    }
+
+    func testIsManagedReturnsFalseForGcpCloud() {
+        let assistant = LockfileAssistant(
+            assistantId: "test-id",
+            runtimeUrl: nil,
+            bearerToken: nil,
+            cloud: "gcp",
+            project: "my-project",
+            region: nil,
+            zone: "us-central1-a",
+            instanceId: "inst-1",
+            hatchedAt: nil
+        )
+        XCTAssertFalse(assistant.isManaged)
+    }
+
+    func testIsManagedIsCaseInsensitive() {
+        let assistant = LockfileAssistant(
+            assistantId: "test-id",
+            runtimeUrl: "https://platform.vellum.ai",
+            bearerToken: nil,
+            cloud: "Vellum",
+            project: nil,
+            region: nil,
+            zone: nil,
+            instanceId: nil,
+            hatchedAt: nil
+        )
+        XCTAssertTrue(assistant.isManaged, "isManaged should be case-insensitive")
+    }
+
+    // MARK: - isRemote property
+
+    func testIsRemoteReturnsFalseForLocal() {
+        let assistant = LockfileAssistant(
+            assistantId: "test-id",
+            runtimeUrl: nil,
+            bearerToken: nil,
+            cloud: "local",
+            project: nil,
+            region: nil,
+            zone: nil,
+            instanceId: nil,
+            hatchedAt: nil
+        )
+        XCTAssertFalse(assistant.isRemote)
+    }
+
+    func testIsRemoteReturnsTrueForVellum() {
+        let assistant = LockfileAssistant(
+            assistantId: "test-id",
+            runtimeUrl: "https://platform.vellum.ai",
+            bearerToken: nil,
+            cloud: "vellum",
+            project: nil,
+            region: nil,
+            zone: nil,
+            instanceId: nil,
+            hatchedAt: nil
+        )
+        XCTAssertTrue(assistant.isRemote)
+    }
+
+    func testIsRemoteReturnsTrueForGcp() {
+        let assistant = LockfileAssistant(
+            assistantId: "test-id",
+            runtimeUrl: nil,
+            bearerToken: nil,
+            cloud: "gcp",
+            project: nil,
+            region: nil,
+            zone: nil,
+            instanceId: nil,
+            hatchedAt: nil
+        )
+        XCTAssertTrue(assistant.isRemote)
+    }
+
+    // MARK: - home property for vellum cloud
+
+    func testHomeReturnsVellumVariantForManagedAssistant() {
+        let assistant = LockfileAssistant(
+            assistantId: "test-id",
+            runtimeUrl: "https://platform.vellum.ai",
+            bearerToken: nil,
+            cloud: "vellum",
+            project: nil,
+            region: nil,
+            zone: nil,
+            instanceId: nil,
+            hatchedAt: nil
+        )
+        if case .vellum(let runtimeUrl) = assistant.home {
+            XCTAssertEqual(runtimeUrl, "https://platform.vellum.ai")
+        } else {
+            XCTFail("Expected .vellum home for managed assistant, got \(assistant.home)")
+        }
+    }
+
+    // MARK: - upsertManagedEntry: multiple different assistants
+
+    func testUpsertMultipleDifferentAssistants() {
+        LockfileAssistant.upsertManagedEntry(
+            assistantId: "assistant-1",
+            runtimeUrl: "https://platform.vellum.ai",
+            hatchedAt: "2024-01-01T00:00:00Z",
+            lockfilePath: lockfilePath
+        )
+        LockfileAssistant.upsertManagedEntry(
+            assistantId: "assistant-2",
+            runtimeUrl: "https://platform.vellum.ai",
+            hatchedAt: "2024-02-01T00:00:00Z",
+            lockfilePath: lockfilePath
+        )
+
+        let data = try! Data(contentsOf: URL(fileURLWithPath: lockfilePath))
+        let json = try! JSONSerialization.jsonObject(with: data) as! [String: Any]
+        let assistants = json["assistants"] as! [[String: Any]]
+        XCTAssertEqual(assistants.count, 2)
+        XCTAssertEqual(assistants[0]["assistantId"] as? String, "assistant-1")
+        XCTAssertEqual(assistants[1]["assistantId"] as? String, "assistant-2")
+    }
+}

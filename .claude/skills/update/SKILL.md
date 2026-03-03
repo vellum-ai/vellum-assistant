@@ -1,12 +1,15 @@
 ---
 name: update
 description: >
-  Pull latest from main, use vellum ps/sleep/wake to manage daemon and gateway lifecycle, rebuild/launch the macOS app, and print a startup summary.
+  Pull latest from main (or a specified branch), use vellum ps/sleep/wake to manage daemon and gateway lifecycle, rebuild/launch the macOS app, and print a startup summary.
+args: "[branch]"
 ---
 
 # Update — Pull Latest and Restart Vellum
 
-Pull the latest changes from main, use `vellum` lifecycle CLI to stop and restart processes, rebuild/launch the macOS app.
+Pull the latest changes from main (or a specified branch), use `vellum` lifecycle CLI to stop and restart processes, rebuild/launch the macOS app.
+
+The user may pass an optional `branch` argument (e.g., `/update feature/phone-setup`). If provided, check out and pull that branch instead of `main`. If not provided, default to `main`.
 
 ## Steps
 
@@ -20,9 +23,10 @@ Pull the latest changes from main, use `vellum` lifecycle CLI to stop and restar
    vellum ps
    ```
 
-2. Kill the macOS app first (it manages its own daemon/gateway, so it must be stopped before quiescing processes):
+2. Kill the macOS app and any stale file-watcher processes first (old `build.sh run` watchers will detect git-pulled Swift changes and bounce the app repeatedly):
    ```bash
    pkill -x "Vellum" || true
+   pkill -f "build\.sh run" || true
    ```
 
 3. Quiesce with `vellum sleep` — stop daemon and gateway processes. This is directory-agnostic and stops processes globally regardless of CWD:
@@ -44,10 +48,15 @@ Pull the latest changes from main, use `vellum` lifecycle CLI to stop and restar
    ```
    After fallback cleanup, run `vellum ps` again to confirm all processes are stopped.
 
-5. Switch to main and pull latest:
+5. Determine the target branch and switch to it:
+   - If the user passed a `branch` argument, use that branch.
+   - Otherwise, default to `main`.
+
    ```bash
-   git checkout main
-   git pull origin main
+   # Replace <branch> with the resolved branch name
+   git fetch origin <branch>
+   git checkout <branch>
+   git pull origin <branch>
    ```
 
 6. Install any new dependencies:
@@ -61,12 +70,7 @@ Pull the latest changes from main, use `vellum` lifecycle CLI to stop and restar
    vellum wake
    ```
 
-8. Build the macOS app from source synchronously (wait for build to complete before launching to avoid opening a stale build), then launch with file-watching in the background:
-   ```bash
-   REPO_ROOT="$(pwd)"
-   cd clients/macos && VELLUM_GATEWAY_DIR="$REPO_ROOT/gateway" ./build.sh
-   ```
-
+8. Build and launch the macOS app with file-watching (`./build.sh run` builds synchronously before launching, so no stale build risk):
    ```bash
    REPO_ROOT="$(pwd)"
    cd clients/macos && VELLUM_GATEWAY_DIR="$REPO_ROOT/gateway" ./build.sh run &
