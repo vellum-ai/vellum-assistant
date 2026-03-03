@@ -262,7 +262,7 @@ CONFIG="debug"
 SWIFT_FLAGS=""
 if [ "$CMD" = "release" ]; then
     CONFIG="release"
-    SWIFT_FLAGS="-c release ${RELEASE_ARCH_FLAGS:---arch arm64 --arch x86_64}"
+    SWIFT_FLAGS="-c release ${RELEASE_ARCH_FLAGS:---arch arm64}"
     if [ -n "${PREBUILT_BIN_PATH:-}" ]; then
         # Using prebuilt binaries from parallel CI jobs — only clean dist
         echo "Release build: using prebuilt binaries, cleaning dist only..."
