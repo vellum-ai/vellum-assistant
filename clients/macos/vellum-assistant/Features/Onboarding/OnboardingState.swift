@@ -174,6 +174,9 @@ final class OnboardingState {
         hatchLogLines = []
         hasHatched = false
 
+        // Clear stored API key so the user starts fresh
+        APIKeyManager.deleteKey()
+
         // Reset cloud credentials (in-memory only; not persisted)
         cloudProvider = "local"
         gcpProjectId = ""
