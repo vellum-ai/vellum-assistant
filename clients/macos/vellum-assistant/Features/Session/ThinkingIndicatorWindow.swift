@@ -7,9 +7,13 @@ import SwiftUI
 }
 
 struct ThinkingIndicatorView: View {
+    var statusText: String?
     @AppStorage("completedConversationCount") private var completedConversationCount: Int = 0
 
     private var thinkingText: String {
+        if let statusText, !statusText.isEmpty {
+            return "\(statusText)..."
+        }
         if completedConversationCount <= 5, let name = IdentityInfo.load()?.name {
             return "\(name) is thinking..."
         }
@@ -26,7 +30,8 @@ struct ThinkingIndicatorView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(VColor.backgroundSubtle)
+        .background(VColor.surface)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
     }
 }
 
@@ -34,13 +39,16 @@ struct ThinkingIndicatorView: View {
 final class ThinkingIndicatorWindow {
     private var panel: NSPanel?
 
-    func show() {
-        let hostingView = NSHostingView(rootView: ThinkingIndicatorView())
+    private var currentStatusText: String?
+
+    func show(statusText: String? = nil) {
+        currentStatusText = statusText
+        let hostingView = NSHostingView(rootView: ThinkingIndicatorView(statusText: statusText))
         hostingView.setFrameSize(hostingView.fittingSize)
 
         let panel = NSPanel(
             contentRect: NSRect(origin: .zero, size: hostingView.fittingSize),
-            styleMask: [.titled, .nonactivatingPanel, .utilityWindow, .hudWindow],
+            styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
@@ -48,12 +56,9 @@ final class ThinkingIndicatorWindow {
         panel.isFloatingPanel = true
         panel.level = .floating
         panel.isMovableByWindowBackground = true
-        panel.titleVisibility = .hidden
-        panel.titlebarAppearsTransparent = true
         panel.hasShadow = true
-        panel.backgroundColor = NSColor.clear
+        panel.backgroundColor = .clear
         panel.isOpaque = false
-        panel.alphaValue = 0.95
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary]
 
@@ -70,8 +75,18 @@ final class ThinkingIndicatorWindow {
         self.panel = panel
     }
 
+    func update(statusText: String?) {
+        guard let panel else { return }
+        currentStatusText = statusText
+        let hostingView = NSHostingView(rootView: ThinkingIndicatorView(statusText: statusText))
+        hostingView.setFrameSize(hostingView.fittingSize)
+        panel.contentView = hostingView
+        panel.setContentSize(hostingView.fittingSize)
+    }
+
     func close() {
         panel?.close()
         panel = nil
+        currentStatusText = nil
     }
 }

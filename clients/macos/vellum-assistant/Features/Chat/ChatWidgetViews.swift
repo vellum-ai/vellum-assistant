@@ -19,6 +19,14 @@ struct RunningIndicator: View {
     @State private var startDate: Date = Date()
     @State private var isHovered: Bool = false
 
+    static func formatElapsed(_ elapsed: TimeInterval) -> String {
+        let seconds = Int(elapsed)
+        if seconds < 60 { return "\(seconds)s" }
+        let minutes = seconds / 60
+        let remainingSeconds = seconds % 60
+        return "\(minutes)m \(remainingSeconds)s"
+    }
+
     private func displayLabel(elapsed: TimeInterval) -> String {
         if progressiveLabels.isEmpty { return label }
         let index = min(Int(elapsed / labelInterval), progressiveLabels.count - 1)
@@ -62,6 +70,12 @@ struct RunningIndicator: View {
                         .fill(VColor.textSecondary)
                         .frame(width: 5, height: 5)
                         .opacity(phase == index ? 1.0 : 0.4)
+                }
+
+                if elapsed >= 5 {
+                    Text(Self.formatElapsed(elapsed))
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
                 }
 
                 if onTap != nil {

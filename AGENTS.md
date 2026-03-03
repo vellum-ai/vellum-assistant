@@ -289,7 +289,7 @@ New configuration and control endpoints MUST be exposed over HTTP on the runtime
 
 Existing IPC-only handlers should be migrated to HTTP when touched. The pattern: extract business logic into a shared function, add an HTTP route handler in `assistant/src/runtime/routes/`, keep the IPC handler as a thin wrapper that calls the same logic.
 
-When writing skills that need to call daemon configuration endpoints, use `curl` with the runtime HTTP API (bearer-authenticated via `~/.vellum/http-token`) rather than describing IPC socket protocol details. The assistant already knows how to use `curl`.
+When writing skills that need to call daemon configuration endpoints, use `curl` with the runtime HTTP API (JWT-authenticated via `Authorization: Bearer <jwt>`) rather than describing IPC socket protocol details. The assistant already knows how to use `curl`.
 
 ## Error Handling Conventions
 
@@ -381,9 +381,22 @@ Untrusted actors (`non-guardian`, `unverified_channel`) must never receive privi
 
 Do not add new tool registrations using the `class ____Tool implements Tool {` pattern.
 
-Prefer skills in `assistant/skills/vellum-skills/` that teach the model how to use CLI tools directly.
+Prefer skills in `assistant/src/config/bundled-skills/` that teach the model how to use CLI tools directly.
 
 Keep the system prompt as minimal as possible. Avoid adding instructions about how to use tools; only document what tools exist when they are basic, primitive, and universally useful. Prefer CLI programs that the assistant can progressively learn to use via `--help`.
+
+## Skill Independence
+
+New skills **MUST** be self-contained and portable. A skill should not be tightly coupled to daemon internals, registered tool implementations, repo-specific TypeScript modules, or any other part of this codebase.
+
+Concretely:
+- **No coupling to daemon tools or internals.** Do not reference or depend on registered `Tool` classes, daemon IPC message types, internal TypeScript modules, or any runtime-specific APIs from within a skill. If the daemon were swapped out, the skill should still work.
+- **Stand on your own.** A skill's SKILL.md instructions should be understandable and executable without knowledge of the daemon's implementation. Interact with the system through CLI programs, gateway HTTP APIs (`$INTERNAL_GATEWAY_BASE_URL`), or standard Unix tools — not through internal abstractions.
+- **Use a `scripts/` folder for supporting logic.** When a skill needs custom logic beyond what a one-liner CLI command provides, bundle it as an executable script in the skill's `scripts/` directory per the [skill.md spec](https://skill.md). Scripts should be self-contained with inline dependency declarations (PEP 723 for Python, `npm:` specifiers for Deno, auto-install for Bun) so no separate install step is required.
+- **No interactive prompts in scripts.** Agents run in non-interactive shells. Accept all input via CLI flags, environment variables, or stdin. Include `--help` output so the agent can discover the script's interface.
+- **Relative paths only.** Reference scripts, assets, and reference files using paths relative to the skill directory root — never use absolute paths or paths that reach outside the skill directory into the broader repo.
+
+Ask: "Could this skill be copied into a completely different project and still work?" If not, decouple it.
 
 ## Assistant-Driven Judgement
 

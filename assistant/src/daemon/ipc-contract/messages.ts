@@ -30,7 +30,7 @@ export interface UserMessage {
 export interface ConfirmationResponse {
   type: 'confirmation_response';
   requestId: string;
-  decision: 'allow' | 'always_allow' | 'always_allow_high_risk' | 'deny' | 'always_deny';
+  decision: 'allow' | 'allow_10m' | 'allow_thread' | 'always_allow' | 'always_allow_high_risk' | 'deny' | 'always_deny';
   selectedPattern?: string;
   selectedScope?: string;
 }
@@ -119,6 +119,8 @@ export interface ConfirmationRequest {
   sessionId?: string;
   /** When false, the client should hide "always allow" / trust-rule persistence affordances. */
   persistentDecisionsAllowed?: boolean;
+  /** Which temporary approval options the client should render (e.g. "Allow for 10 minutes", "Allow for this thread"). */
+  temporaryOptionsAvailable?: Array<'allow_10m' | 'allow_thread'>;
 }
 
 export interface SecretRequest {
@@ -243,6 +245,8 @@ export interface AssistantActivityState {
     | 'message_complete'
     | 'generation_cancelled'
     | 'error_terminal';
+  /** Human-readable description of what the assistant is currently doing. */
+  statusText?: string;
 }
 
 export type TraceEventKind =

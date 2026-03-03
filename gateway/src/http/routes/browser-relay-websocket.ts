@@ -1,6 +1,6 @@
+import { validateEdgeToken, mintServiceToken } from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
 import { getLogger } from "../../logger.js";
-import { validateBearerToken } from "../auth/bearer.js";
 
 const log = getLogger("browser-relay-ws");
 
@@ -41,7 +41,6 @@ function isPrivateNetworkPeer(server: import("bun").Server<unknown>, req: Reques
 export type BrowserRelaySocketData = {
   wsType: "browser-relay";
   config: GatewayConfig;
-  clientToken?: string;
   upstream?: WebSocket;
   pendingMessages?: (string | ArrayBuffer | Uint8Array)[];
 };
@@ -73,7 +72,6 @@ export function createBrowserRelayWebsocketHandler(config: GatewayConfig) {
       data: {
         wsType: "browser-relay",
         config,
-        clientToken: url.searchParams.get("token") ?? undefined,
       },
     });
 
@@ -93,17 +91,22 @@ function checkBrowserRelayAuth(
 ): Response | null {
   if (!config.runtimeProxyRequireAuth) return null;
 
-  if (!config.runtimeProxyBearerToken) {
-    log.error("Browser relay WS: no bearer token configured — rejecting (fail-closed)");
-    return new Response("Service not configured: bearer token required", { status: 503 });
-  }
-
+  // Accept JWT via Authorization header or query parameter (browser WebSocket
+  // upgrades cannot set custom headers, so the token query param is the
+  // primary mechanism for the Chrome extension).
   const authHeader = req.headers.get("authorization");
   const queryToken = url.searchParams.get("token");
-  const tokenSource = authHeader ?? (queryToken ? `Bearer ${queryToken}` : null);
+  const rawToken = authHeader
+    ? (authHeader.toLowerCase().startsWith("bearer ") ? authHeader.slice(7) : null)
+    : queryToken;
 
-  const result = validateBearerToken(tokenSource, config.runtimeProxyBearerToken);
-  if (!result.authorized) {
+  if (!rawToken) {
+    log.warn("Browser relay WS: no token provided");
+    return new Response("Unauthorized", { status: 401 });
+  }
+
+  const result = validateEdgeToken(rawToken);
+  if (!result.ok) {
     log.warn({ reason: result.reason }, "Browser relay WS: authentication failed");
     return new Response("Unauthorized", { status: 401 });
   }
@@ -123,10 +126,10 @@ export function getBrowserRelayWebsocketHandlers() {
       ws.data.pendingMessages = [];
 
       const runtimeBase = config.assistantRuntimeBaseUrl.replace(/^http/, "ws");
-      const upstreamToken = config.runtimeBearerToken || config.runtimeProxyBearerToken || ws.data.clientToken;
-      const query = upstreamToken ? `?token=${encodeURIComponent(upstreamToken)}` : "";
+      const upstreamToken = mintServiceToken();
+      const query = `?token=${encodeURIComponent(upstreamToken)}`;
       const upstreamUrl = `${runtimeBase}/v1/browser-relay${query}`;
-      const logSafeUpstreamUrl = `${runtimeBase}/v1/browser-relay${upstreamToken ? "?token=<redacted>" : ""}`;
+      const logSafeUpstreamUrl = `${runtimeBase}/v1/browser-relay?token=<redacted>`;
 
       log.info({ upstreamUrl: logSafeUpstreamUrl }, "Opening upstream browser relay WS to runtime");
 

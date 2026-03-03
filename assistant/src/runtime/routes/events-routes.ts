@@ -3,9 +3,10 @@
  *
  * GET /v1/events?conversationKey=...
  *
- * Bearer auth is enforced by RuntimeHttpServer before this handler is called.
- * Actor-token identity verification (with local CLI fallback) is performed
- * within this handler to bind the SSE stream to a verified actor identity.
+ * JWT bearer auth is enforced by RuntimeHttpServer before this handler
+ * is called. The AuthContext is threaded through from the HTTP server
+ * layer, so no additional actor-token verification is needed here.
+ *
  * Subscribers receive all assistant events scoped to the given conversation.
  */
 
@@ -14,8 +15,8 @@ import { formatSseFrame, formatSseHeartbeat } from '../assistant-event.js';
 import type { AssistantEventSubscription } from '../assistant-event-hub.js';
 import { AssistantEventHub,assistantEventHub } from '../assistant-event-hub.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
+import type { AuthContext } from '../auth/types.js';
 import { httpError } from '../http-errors.js';
-import { type ServerWithRequestIP, verifyHttpActorTokenWithLocalFallback } from '../middleware/actor-token.js';
 
 /** Keep-alive comment sent to idle clients every 30 s by default. */
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 30_000;
@@ -24,31 +25,23 @@ const DEFAULT_HEARTBEAT_INTERVAL_MS = 30_000;
  * Stream assistant events as Server-Sent Events for a specific conversation.
  *
  * Query params:
- *   conversationKey — required; scopes the stream to one conversation.
+ *   conversationKey -- required; scopes the stream to one conversation.
  *
  * Options (for testing):
- *   hub               — override the event hub (defaults to process singleton).
- *   heartbeatIntervalMs — how often to emit keep-alive comments (default 30 s).
+ *   hub               -- override the event hub (defaults to process singleton).
+ *   heartbeatIntervalMs -- how often to emit keep-alive comments (default 30 s).
  */
 export function handleSubscribeAssistantEvents(
   req: Request,
   url: URL,
   options?:
-    | { hub?: AssistantEventHub; heartbeatIntervalMs?: number; skipActorVerification?: false; server: ServerWithRequestIP }
+    | { hub?: AssistantEventHub; heartbeatIntervalMs?: number; authContext: AuthContext }
     | { hub?: AssistantEventHub; heartbeatIntervalMs?: number; skipActorVerification: true },
 ): Response {
-  // Verify actor-token identity for vellum channel requests, with local
-  // CLI fallback for bearer-authenticated clients without X-Actor-Token.
-  if (options && !options.skipActorVerification) {
-    const actorVerification = verifyHttpActorTokenWithLocalFallback(req, options.server);
-    if (!actorVerification.ok) {
-      return httpError(
-        actorVerification.status === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN',
-        actorVerification.message,
-        actorVerification.status,
-      );
-    }
-  }
+  // Auth is already verified upstream by JWT middleware. The AuthContext
+  // is available via options.authContext but we don't need to check it
+  // further here -- the route policy in http-server.ts already enforced
+  // scope and principal type requirements.
 
   const conversationKey = url.searchParams.get('conversationKey');
   if (!conversationKey) {
@@ -61,7 +54,7 @@ export function handleSubscribeAssistantEvents(
   const mapping = getOrCreateConversation(conversationKey);
   const encoder = new TextEncoder();
 
-  // ── Eager subscribe ──────────────────────────────────────────────────────
+  // -- Eager subscribe --------------------------------------------------------
   // Subscribe before creating the ReadableStream so the callback and onEvict
   // closures are in place before events can arrive.  `controllerRef` is set
   // synchronously inside ReadableStream's start(), so it is non-null by the
@@ -116,7 +109,7 @@ export function handleSubscribeAssistantEvents(
       controllerRef = controller;
 
       // If the client already disconnected before start() ran, clean up
-      // immediately — the abort event fires once and won't be re-dispatched.
+      // immediately -- the abort event fires once and won't be re-dispatched.
       if (req.signal.aborted) {
         sub.dispose();
         cleanup();

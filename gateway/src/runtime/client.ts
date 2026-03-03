@@ -1,4 +1,5 @@
 import type { ChannelId, InterfaceId } from '../channels/types.js';
+import { mintIngressToken, mintServiceToken } from '../auth/token-exchange.js';
 import type { GatewayConfig } from "../config.js";
 import { fetchImpl } from "../fetch.js";
 import { getLogger } from "../logger.js";
@@ -94,25 +95,21 @@ export function _resetCircuitBreaker(): void {
 }
 
 /**
- * Header name used to prove a request originated from the gateway.
- * The value is the dedicated gateway-origin secret (or the bearer token as
- * fallback). The runtime validates it to reject direct calls that bypass
- * the gateway's webhook-level verification.
+ * Build common headers for runtime requests using JWT auth.
+ *
+ * Mints a short-lived token (aud=vellum-daemon) per-request. The token
+ * itself proves gateway origin — only the gateway holds the signing key
+ * needed to mint daemon-audience tokens. No separate origin header needed.
  */
-export const GATEWAY_ORIGIN_HEADER = "X-Gateway-Origin";
-
-/** Build common headers for runtime requests, including auth when configured. */
-function runtimeHeaders(config: GatewayConfig, extra?: Record<string, string>): Record<string, string> {
+function runtimeIngressHeaders(config: GatewayConfig, extra?: Record<string, string>): Record<string, string> {
   const headers: Record<string, string> = { ...extra };
-  if (config.runtimeBearerToken) {
-    headers["Authorization"] = `Bearer ${config.runtimeBearerToken}`;
-  }
-  // Attach gateway-origin proof using the dedicated secret. When
-  // RUNTIME_GATEWAY_ORIGIN_SECRET is not set, this falls back to
-  // runtimeBearerToken via the config layer.
-  if (config.runtimeGatewayOriginSecret) {
-    headers[GATEWAY_ORIGIN_HEADER] = config.runtimeGatewayOriginSecret;
-  }
+  headers["Authorization"] = `Bearer ${mintIngressToken()}`;
+  return headers;
+}
+
+function runtimeServiceHeaders(config: GatewayConfig, extra?: Record<string, string>): Record<string, string> {
+  const headers: Record<string, string> = { ...extra };
+  headers["Authorization"] = `Bearer ${mintServiceToken()}`;
   return headers;
 }
 
@@ -206,7 +203,7 @@ export async function forwardToRuntime(
     try {
       const response = await fetchImpl(url, {
         method: "POST",
-        headers: runtimeHeaders(config, extraHeaders),
+        headers: runtimeIngressHeaders(config, extraHeaders),
         body: JSON.stringify(payload),
         signal: AbortSignal.timeout(config.runtimeTimeoutMs),
       });
@@ -271,7 +268,7 @@ export async function resetConversation(
   try {
     response = await fetchImpl(url, {
       method: "DELETE",
-      headers: runtimeHeaders(config, { "Content-Type": "application/json" }),
+      headers: runtimeServiceHeaders(config, { "Content-Type": "application/json" }),
       body: JSON.stringify({ sourceChannel, conversationExternalId }),
       signal: AbortSignal.timeout(config.runtimeTimeoutMs),
     });
@@ -311,7 +308,7 @@ export async function downloadAttachment(
   try {
     response = await fetchImpl(url, {
       method: "GET",
-      headers: runtimeHeaders(config),
+      headers: runtimeServiceHeaders(config),
       signal: AbortSignal.timeout(config.runtimeTimeoutMs),
     });
   } catch (err) {
@@ -358,7 +355,7 @@ export async function forwardTwilioVoiceWebhook(
   try {
     response = await fetchImpl(url, {
       method: "POST",
-      headers: runtimeHeaders(config, { "Content-Type": "application/json" }),
+      headers: runtimeServiceHeaders(config, { "Content-Type": "application/json" }),
       body: JSON.stringify({ params, originalUrl }),
       signal: AbortSignal.timeout(config.runtimeTimeoutMs),
     });
@@ -391,7 +388,7 @@ export async function forwardTwilioStatusWebhook(
   try {
     response = await fetchImpl(url, {
       method: "POST",
-      headers: runtimeHeaders(config, { "Content-Type": "application/json" }),
+      headers: runtimeServiceHeaders(config, { "Content-Type": "application/json" }),
       body: JSON.stringify({ params }),
       signal: AbortSignal.timeout(config.runtimeTimeoutMs),
     });
@@ -424,7 +421,7 @@ export async function forwardTwilioConnectActionWebhook(
   try {
     response = await fetchImpl(url, {
       method: "POST",
-      headers: runtimeHeaders(config, { "Content-Type": "application/json" }),
+      headers: runtimeServiceHeaders(config, { "Content-Type": "application/json" }),
       body: JSON.stringify({ params }),
       signal: AbortSignal.timeout(config.runtimeTimeoutMs),
     });
@@ -454,7 +451,7 @@ export async function uploadAttachment(
   try {
     response = await fetchImpl(url, {
       method: "POST",
-      headers: runtimeHeaders(config, { "Content-Type": "application/json" }),
+      headers: runtimeServiceHeaders(config, { "Content-Type": "application/json" }),
       body: JSON.stringify(input),
       signal: AbortSignal.timeout(config.runtimeTimeoutMs),
     });
@@ -508,7 +505,7 @@ export async function forwardOAuthCallback(
   try {
     response = await fetchImpl(url, {
       method: "POST",
-      headers: runtimeHeaders(config, { "Content-Type": "application/json" }),
+      headers: runtimeServiceHeaders(config, { "Content-Type": "application/json" }),
       body: JSON.stringify({ state, code, error }),
       signal: AbortSignal.timeout(config.runtimeTimeoutMs),
     });

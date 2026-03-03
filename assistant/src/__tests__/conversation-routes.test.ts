@@ -21,11 +21,18 @@ mock.module('../runtime/local-actor-identity.js', () => ({
   resolveLocalIpcGuardianContext: (sourceChannel: string) => ({ trustClass: 'guardian', sourceChannel }),
 }));
 
-import type { ServerWithRequestIP } from '../runtime/middleware/actor-token.js';
+import type { AuthContext } from '../runtime/auth/types.js';
 import { handleSendMessage } from '../runtime/routes/conversation-routes.js';
 
-const mockLoopbackServer: ServerWithRequestIP = {
-  requestIP: () => ({ address: '127.0.0.1', family: 'IPv4', port: 0 }),
+/** Synthetic AuthContext for tests — mimics a local actor with full scopes. */
+const mockAuthContext: AuthContext = {
+  subject: 'actor:self:test-principal',
+  principalType: 'actor',
+  assistantId: 'self',
+  actorPrincipalId: 'test-principal',
+  scopeProfile: 'actor_client_v1',
+  scopes: new Set(['chat.read', 'chat.write', 'approval.read', 'approval.write']),
+  policyEpoch: 1,
 };
 
 describe('handleSendMessage', () => {
@@ -50,7 +57,7 @@ describe('handleSendMessage', () => {
         capturedSourceChannel = sourceChannel;
         return { messageId: 'msg-legacy-fallback' };
       },
-    }, mockLoopbackServer);
+    }, mockAuthContext);
 
     const body = await res.json() as { accepted: boolean; messageId: string };
     expect(res.status).toBe(202);

@@ -1,9 +1,8 @@
+import { validateEdgeToken, mintExchangeToken, mintServiceToken } from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
 import { fetchImpl } from "../../fetch.js";
 import { getLogger } from "../../logger.js";
 import { stripHopByHop } from "../../util/strip-hop-by-hop.js";
-import { validateBearerToken } from "../auth/bearer.js";
-import { GATEWAY_ORIGIN_HEADER } from "../../runtime/client.js";
 
 const log = getLogger("runtime-proxy");
 
@@ -32,17 +31,26 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
       );
     }
 
+    // Validate the edge JWT (aud=vellum-gateway) when auth is required.
+    // On success, mint an exchange token (aud=vellum-daemon) for the runtime.
+    // When auth is not required (or OPTIONS), mint a service token instead —
+    // the gateway always authenticates itself to the daemon regardless of the
+    // client-facing auth setting.
+    let exchangeToken: string;
     if (config.runtimeProxyRequireAuth && req.method !== "OPTIONS") {
-      if (!config.runtimeProxyBearerToken) {
-        return Response.json({ error: "Server misconfigured" }, { status: 500 });
-      }
-      const authResult = validateBearerToken(
-        req.headers.get("authorization"),
-        config.runtimeProxyBearerToken,
-      );
-      if (!authResult.authorized) {
+      const authHeader = req.headers.get("authorization");
+      if (!authHeader || !authHeader.toLowerCase().startsWith("bearer ")) {
         return Response.json({ error: "Unauthorized" }, { status: 401 });
       }
+      const edgeJwt = authHeader.slice(7);
+      const result = validateEdgeToken(edgeJwt);
+      if (!result.ok) {
+        log.debug({ reason: result.reason }, "Edge token validation failed");
+        return Response.json({ error: "Unauthorized" }, { status: 401 });
+      }
+      exchangeToken = mintExchangeToken(result.claims, result.claims.scope_profile);
+    } else {
+      exchangeToken = mintServiceToken();
     }
 
     // The daemon uses flat /v1/... paths. Rewrite any legacy
@@ -57,12 +65,9 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
 
     const reqHeaders = stripHopByHop(new Headers(req.headers));
     reqHeaders.delete("host");
-    // Only strip the authorization header when the gateway consumed it for its
-    // own auth check. When auth is not required, the header may be intended for
-    // the upstream service and must be forwarded.
-    if (config.runtimeProxyRequireAuth) {
-      reqHeaders.delete("authorization");
-    }
+    // Always strip the incoming authorization — it was the edge token consumed
+    // above. The exchange token (or ingress token) replaces it below.
+    reqHeaders.delete("authorization");
 
     // Inject the real client IP so the runtime can rate-limit per-user,
     // overwriting any client-supplied value to prevent spoofing.
@@ -70,19 +75,8 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
       reqHeaders.set('x-forwarded-for', clientIp);
     }
 
-    // Add the runtime's bearer token so the upstream accepts the request
-    if (config.runtimeBearerToken) {
-      reqHeaders.set("authorization", `Bearer ${config.runtimeBearerToken}`);
-    }
-    // Attach gateway-origin proof using the dedicated secret (falls back
-    // to runtimeBearerToken via config when not explicitly configured).
-    if (config.runtimeGatewayOriginSecret) {
-      reqHeaders.set(GATEWAY_ORIGIN_HEADER, config.runtimeGatewayOriginSecret);
-    }
-
-    if (config.runtimeProxyBearerToken) {
-      reqHeaders.set("authorization", `Bearer ${config.runtimeProxyBearerToken}`);
-    }
+    // Replace with the exchange token for the runtime (proves gateway origin)
+    reqHeaders.set("authorization", `Bearer ${exchangeToken}`);
 
     // Use a manual AbortController so the timeout only covers the connection
     // phase (waiting for response headers). Once headers arrive, the timeout is

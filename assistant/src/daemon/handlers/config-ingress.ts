@@ -17,8 +17,8 @@ import {
   getTwilioVoiceWebhookUrl,
   type IngressConfig,
 } from '../../inbound/public-ingress-urls.js';
+import { mintDaemonDeliveryToken } from '../../runtime/auth/token-service.js';
 import { getSecureKey } from '../../security/secure-keys.js';
-import { readHttpToken } from '../../util/platform.js';
 import type { IngressConfigRequest } from '../ipc-protocol.js';
 import { CONFIG_RELOAD_DEBOUNCE_MS, defineHandlers, type HandlerContext,log } from './shared.js';
 
@@ -47,11 +47,7 @@ export function computeGatewayTarget(): string {
  */
 export function triggerGatewayReconcile(ingressPublicBaseUrl: string | undefined): void {
   const gatewayBase = computeGatewayTarget();
-  const token = readHttpToken();
-  if (!token) {
-    log.debug('Skipping gateway reconcile trigger: no HTTP bearer token available');
-    return;
-  }
+  const token = mintDaemonDeliveryToken();
 
   const url = `${gatewayBase}/internal/telegram/reconcile`;
   const body = JSON.stringify({ ingressPublicBaseUrl: ingressPublicBaseUrl ?? '' });

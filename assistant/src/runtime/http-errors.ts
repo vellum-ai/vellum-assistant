@@ -16,16 +16,17 @@
  * internal assistant-layer errors.
  */
 export type HttpErrorCode =
-  | 'BAD_REQUEST'
-  | 'UNAUTHORIZED'
-  | 'FORBIDDEN'
-  | 'NOT_FOUND'
-  | 'CONFLICT'
-  | 'GONE'
-  | 'RATE_LIMITED'
-  | 'UNPROCESSABLE_ENTITY'
-  | 'INTERNAL_ERROR'
-  | 'SERVICE_UNAVAILABLE';
+  | "BAD_REQUEST"
+  | "UNAUTHORIZED"
+  | "FORBIDDEN"
+  | "NOT_FOUND"
+  | "CONFLICT"
+  | "GONE"
+  | "RATE_LIMITED"
+  | "UNPROCESSABLE_ENTITY"
+  | "INTERNAL_ERROR"
+  | "NOT_IMPLEMENTED"
+  | "SERVICE_UNAVAILABLE";
 
 // ── Response type ────────────────────────────────────────────────────────────
 
@@ -79,15 +80,27 @@ export function httpError(
  */
 export function httpErrorCodeFromStatus(status: number): HttpErrorCode {
   switch (status) {
-    case 400: return 'BAD_REQUEST';
-    case 401: return 'UNAUTHORIZED';
-    case 403: return 'FORBIDDEN';
-    case 404: return 'NOT_FOUND';
-    case 409: return 'CONFLICT';
-    case 410: return 'GONE';
-    case 422: return 'UNPROCESSABLE_ENTITY';
-    case 429: return 'RATE_LIMITED';
-    case 503: return 'SERVICE_UNAVAILABLE';
-    default:  return 'INTERNAL_ERROR';
+    case 400:
+      return "BAD_REQUEST";
+    case 401:
+      return "UNAUTHORIZED";
+    case 403:
+      return "FORBIDDEN";
+    case 404:
+      return "NOT_FOUND";
+    case 409:
+      return "CONFLICT";
+    case 410:
+      return "GONE";
+    case 422:
+      return "UNPROCESSABLE_ENTITY";
+    case 429:
+      return "RATE_LIMITED";
+    case 501:
+      return "NOT_IMPLEMENTED";
+    case 503:
+      return "SERVICE_UNAVAILABLE";
+    default:
+      return "INTERNAL_ERROR";
   }
 }

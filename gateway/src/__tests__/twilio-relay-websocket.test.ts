@@ -1,9 +1,29 @@
 import { describe, test, expect, mock, beforeEach, afterAll } from "bun:test";
 import type { GatewayConfig } from "../config.js";
+import { initSigningKey, mintToken } from "../auth/token-service.js";
+import { CURRENT_POLICY_EPOCH } from "../auth/policy.js";
 import {
   createTwilioRelayWebsocketHandler,
   getRelayWebsocketHandlers,
 } from "../http/routes/twilio-relay-websocket.js";
+
+// ---------------------------------------------------------------------------
+// Auth setup — initialize signing key so JWT minting/validation works
+// ---------------------------------------------------------------------------
+
+const TEST_SIGNING_KEY = Buffer.from('test-signing-key-at-least-32-bytes-long');
+initSigningKey(TEST_SIGNING_KEY);
+
+/** Mint a valid edge JWT (aud=vellum-gateway) for test requests. */
+function mintEdgeToken(): string {
+  return mintToken({
+    aud: 'vellum-gateway',
+    sub: 'svc:gateway:self',
+    scope_profile: 'gateway_service_v1',
+    policy_epoch: CURRENT_POLICY_EPOCH,
+    ttlSeconds: 300,
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Preserve WebSocket readyState constants so mocking the constructor
@@ -27,11 +47,8 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     defaultAssistantId: undefined,
     unmappedPolicy: "reject",
     port: 7830,
-    runtimeBearerToken: undefined,
-    runtimeGatewayOriginSecret: undefined,
     runtimeProxyEnabled: false,
     runtimeProxyRequireAuth: true,
-    runtimeProxyBearerToken: undefined,
     shutdownDrainMs: 5000,
     runtimeTimeoutMs: 30000,
     runtimeMaxRetries: 2,
@@ -64,9 +81,6 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     trustProxy: false,
     ...overrides,
   };
-  if (merged.runtimeGatewayOriginSecret === undefined) {
-    merged.runtimeGatewayOriginSecret = merged.runtimeBearerToken;
-  }
   return merged;
 }
 
@@ -126,7 +140,7 @@ function createFakeUpstreamWs() {
 // ---------------------------------------------------------------------------
 
 describe("createTwilioRelayWebsocketHandler", () => {
-  const TEST_TOKEN = "test-relay-token-abc123";
+  const TEST_TOKEN = mintEdgeToken();
 
   test("returns 400 when callSessionId is missing", () => {
     const handler = createTwilioRelayWebsocketHandler(makeConfig());
@@ -140,7 +154,7 @@ describe("createTwilioRelayWebsocketHandler", () => {
   });
 
   test("calls server.upgrade with callSessionId and config on valid request with query token", () => {
-    const config = makeConfig({ runtimeProxyBearerToken: TEST_TOKEN });
+    const config = makeConfig({});
     const handler = createTwilioRelayWebsocketHandler(config);
     const req = new Request(
       `http://localhost:7830/ws/twilio/relay?callSessionId=sess-42&token=${TEST_TOKEN}`,
@@ -160,7 +174,7 @@ describe("createTwilioRelayWebsocketHandler", () => {
   });
 
   test("calls server.upgrade when Authorization header provides valid token", () => {
-    const config = makeConfig({ runtimeProxyBearerToken: TEST_TOKEN });
+    const config = makeConfig({});
     const handler = createTwilioRelayWebsocketHandler(config);
     const req = new Request(
       "http://localhost:7830/ws/twilio/relay?callSessionId=sess-42",
@@ -174,7 +188,7 @@ describe("createTwilioRelayWebsocketHandler", () => {
   });
 
   test("returns 500 when server.upgrade fails", () => {
-    const config = makeConfig({ runtimeProxyBearerToken: TEST_TOKEN });
+    const config = makeConfig({});
     const handler = createTwilioRelayWebsocketHandler(config);
     const req = new Request(
       `http://localhost:7830/ws/twilio/relay?callSessionId=sess-1&token=${TEST_TOKEN}`,
@@ -188,7 +202,7 @@ describe("createTwilioRelayWebsocketHandler", () => {
 
   // --- Auth tests ---
 
-  test("returns 503 when no bearer token is configured and bypass is off", () => {
+  test("returns 401 when no token provided and bypass is off", () => {
     const handler = createTwilioRelayWebsocketHandler(makeConfig());
     const req = new Request(
       "http://localhost:7830/ws/twilio/relay?callSessionId=sess-1",
@@ -197,7 +211,7 @@ describe("createTwilioRelayWebsocketHandler", () => {
     const res = handler(req, fakeServer);
 
     expect(res).toBeInstanceOf(Response);
-    expect(res!.status).toBe(503);
+    expect(res!.status).toBe(401);
     expect(fakeServer.upgrade).not.toHaveBeenCalled();
   });
 
@@ -215,7 +229,7 @@ describe("createTwilioRelayWebsocketHandler", () => {
   });
 
   test("returns 401 when token is missing from request", () => {
-    const config = makeConfig({ runtimeProxyBearerToken: TEST_TOKEN });
+    const config = makeConfig({});
     const handler = createTwilioRelayWebsocketHandler(config);
     const req = new Request(
       "http://localhost:7830/ws/twilio/relay?callSessionId=sess-1",
@@ -229,7 +243,7 @@ describe("createTwilioRelayWebsocketHandler", () => {
   });
 
   test("returns 401 when token is wrong", () => {
-    const config = makeConfig({ runtimeProxyBearerToken: TEST_TOKEN });
+    const config = makeConfig({});
     const handler = createTwilioRelayWebsocketHandler(config);
     const req = new Request(
       "http://localhost:7830/ws/twilio/relay?callSessionId=sess-1&token=wrong-token",
@@ -295,7 +309,8 @@ describe("getRelayWebsocketHandlers", () => {
 
     const ctorCall = (globalThis.WebSocket as unknown as ReturnType<typeof mock>).mock.calls[0] as unknown[];
     const url = ctorCall[0] as string;
-    expect(url).toBe("ws://runtime:8000/v1/calls/relay?callSessionId=s%26id%3D1");
+    // The URL includes a service JWT token parameter for runtime auth
+    expect(url).toStartWith("ws://runtime:8000/v1/calls/relay?callSessionId=s%26id%3D1&token=");
   });
 
   // --- message buffering before upstream open --------------------------------

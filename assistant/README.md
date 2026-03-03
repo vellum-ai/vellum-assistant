@@ -47,7 +47,7 @@ cp .env.example .env
 | `OLLAMA_API_KEY` | No | — | API key for authenticated Ollama deployments |
 | `OLLAMA_BASE_URL` | No | `http://127.0.0.1:11434/v1` | Ollama base URL |
 | `RUNTIME_HTTP_PORT` | No | — | Enable the HTTP server (required for gateway/web) |
-| `RUNTIME_GATEWAY_ORIGIN_SECRET` | No | — | Dedicated secret for the `X-Gateway-Origin` proof header on `/channels/inbound`. When not set, falls back to the bearer token. Both gateway and runtime must share the same value. |
+| `RUNTIME_GATEWAY_ORIGIN_SECRET` | No | — | **Deprecated.** Gateway origin is now proven by JWT principal type (`svc_gateway`), not a separate header. |
 | `VELLUM_DAEMON_SOCKET` | No | `~/.vellum/vellum.sock` | Override the daemon socket path |
 
 ## Update Bulletin
@@ -199,12 +199,10 @@ Internal forwarding routes (`/v1/internal/twilio/*`) are unaffected — these ac
 
 ### Gateway-Origin Ingress Contract
 
-The `/channels/inbound` endpoint requires a valid `X-Gateway-Origin` header to prove the request originated from the gateway. This ensures channel messages can only arrive via the gateway (which performs webhook-level verification) and not via direct HTTP calls that bypass signature checks.
+The `/channels/inbound` endpoint requires a JWT with the `svc_gateway` principal type and `ingress.write` scope to prove the request originated from the gateway. This ensures channel messages can only arrive via the gateway (which performs webhook-level verification) and not via direct HTTP calls that bypass signature checks.
 
-- **Dedicated secret (`RUNTIME_GATEWAY_ORIGIN_SECRET`):** When set, this is the expected value for the `X-Gateway-Origin` header. Both the gateway and the runtime must share this secret.
-- **Bearer token fallback:** When `RUNTIME_GATEWAY_ORIGIN_SECRET` is not set, the runtime falls back to validating against the bearer token for backward compatibility.
-- **Without any secret:** When neither a dedicated secret nor a bearer token is configured (local dev), gateway-origin validation is skipped entirely.
-- **Auth layer order:** Bearer token authentication (`Authorization` header) is checked first. Gateway-origin validation runs inside the handler.
+- **JWT-based enforcement:** The route policy in `route-policy.ts` restricts `/channels/inbound` to the `svc_gateway` principal type with `ingress.write` scope. Actor and IPC principals are rejected with 403.
+- **Dev bypass:** When `DISABLE_HTTP_AUTH` + `VELLUM_UNSAFE_AUTH_BYPASS=1` are set, JWT verification is skipped and a synthetic dev context is used.
 
 ## Twilio Setup Primitive
 
@@ -280,12 +278,12 @@ The channel guardian service generates verification challenge instructions with 
 
 ### Vellum Guardian Identity (Actor Tokens)
 
-The vellum channel (macOS, iOS, CLI) uses HMAC-SHA256 signed actor tokens to bind guardian identity to HTTP requests. This enables identity-based authentication for the local desktop/mobile channel, paralleling how external channels (Telegram, SMS) use `actorExternalId` for guardian identity.
+The vellum channel (macOS, iOS, CLI) uses JWTs to bind guardian identity to HTTP requests. This enables identity-based authentication for the local desktop/mobile channel, paralleling how external channels (Telegram, SMS) use `actorExternalId` for guardian identity.
 
-- **Bootstrap**: After hatch, the macOS client calls `POST /v1/integrations/guardian/vellum/bootstrap` with `{ platform, deviceId }`. Returns `{ guardianPrincipalId, actorToken, isNew }`. The endpoint is idempotent -- repeated calls with the same device return the same principal but mint a fresh token (revoking the previous one).
-- **iOS pairing**: The pairing response includes an `actorToken` automatically when a vellum guardian binding exists.
-- **IPC fallback**: Local IPC (Unix socket) connections resolve identity server-side via `resolveLocalIpcGuardianContext()` without requiring an actor token. CLI connections that pass bearer auth but lack an actor token also use this fallback (as long as the request is direct, not proxied through the gateway).
-- **HTTP enforcement**: Vellum HTTP routes require either an `X-Actor-Token` header or a provably-local connection (no `X-Forwarded-For` header). Gateway-proxied requests without an actor token are rejected.
+- **Bootstrap**: After hatch, the macOS client calls `POST /v1/integrations/guardian/vellum/bootstrap` with `{ platform, deviceId }`. Returns `{ guardianPrincipalId, accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt, refreshAfter, isNew }`. The endpoint is idempotent -- repeated calls with the same device return the same principal but mint fresh credentials.
+- **iOS pairing**: The pairing response includes `accessToken` and `refreshToken` credentials automatically when a vellum guardian binding exists.
+- **IPC fallback**: Local IPC (Unix socket) connections resolve identity server-side via `resolveLocalIpcGuardianContext()` without requiring a JWT.
+- **HTTP enforcement**: All vellum HTTP routes require a valid JWT via the `Authorization: Bearer <jwt>` header. The JWT carries identity claims (`sub` with principal type and ID) and scope permissions. Route-level enforcement in `route-policy.ts` checks scopes and principal types.
 - **Startup migration**: On daemon start, `ensureVellumGuardianBinding()` backfills a vellum guardian binding for existing installations so the identity system works without requiring a manual bootstrap step.
 
 ## Guardian Verification and Ingress ACL
@@ -502,7 +500,7 @@ The image runs as non-root user `assistant` (uid 1001) and exposes port `3001`.
 
 | Symptom | Cause | Resolution |
 |---------|-------|------------|
-| 403 `GATEWAY_ORIGIN_REQUIRED` on `/channels/inbound` | Missing or invalid `X-Gateway-Origin` header | Ensure `RUNTIME_GATEWAY_ORIGIN_SECRET` is set to the same value on both gateway and runtime. If not using a dedicated secret, ensure the bearer token (`RUNTIME_BEARER_TOKEN` or `~/.vellum/http-token`) is shared. |
+| 403 `FORBIDDEN` on `/channels/inbound` | JWT does not have `svc_gateway` principal type or `ingress.write` scope | Ensure the gateway is minting JWTs with the `gateway_ingress_v1` scope profile when forwarding channel inbound requests. |
 | Non-guardian actions silently denied | No guardian binding for the channel. The system is fail-closed for unverified channels. | Run the guardian verification flow from the desktop UI to bind a guardian. |
 | Guardian approval expired | The 30-minute TTL elapsed. The proactive sweep auto-denied the approval and notified both parties. | The requester must re-trigger the action. |
 | `forceStrictSideEffects` unexpectedly active | The sender is classified as `non-guardian` or `unverified_channel` | Verify the sender's `actorExternalId` matches the guardian binding, or set up a guardian binding for the channel. |

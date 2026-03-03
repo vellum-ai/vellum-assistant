@@ -37,6 +37,7 @@ const GREETING_PATTERNS = /^(hey|hi|hello|yo|sup|hiya|howdy|what'?s up|thanks|th
 
 const BUILD_KEYWORDS = /\b(build|implement|create|refactor|debug|deploy|migrate|scaffold|architect|redesign|generate|write|develop|fix|convert|add|remove|update|modify|change|delete|replace|integrate|setup|install|configure|optimize|rewrite)\b/i;
 
+const SURFACE_ACTION = /^\[User action on \w+ surface:/;
 const CODE_FENCE = /```/;
 const FILE_PATH = /(?:^|[\s"'(])(?:\/|~\/|\.\/)\S/;
 const MULTI_PARAGRAPH = /\n\s*\n/;
@@ -69,6 +70,7 @@ export function classifyResponseTierDetailed(message: string, _turnCount: number
   );
 
   // ── High signals (any match → high tier, high confidence) ──
+  if (SURFACE_ACTION.test(trimmed)) return tagged('high', 'surface_action', 'high');
   if (len > 500) return tagged('high', 'length>500', 'high');
   if (CODE_FENCE.test(trimmed)) return tagged('high', 'code_fence', 'high');
   if (FILE_PATH.test(trimmed)) return tagged('high', 'file_path', 'high');

@@ -1,7 +1,6 @@
 #if os(macOS)
 import CryptoKit
 import Foundation
-import Security
 import os
 
 private let log = Logger(
@@ -9,16 +8,20 @@ private let log = Logger(
     category: "SigningIdentityManager"
 )
 
-/// Manages the Ed25519 signing identity stored in the macOS Keychain.
-/// Key is generated on first access and persisted across launches.
+/// Manages the Ed25519 signing identity stored on disk in ~/.vellum/protected/.
+/// Previously used the macOS Keychain, which triggers repeated authorization
+/// prompts with ad-hoc code-signed builds.
 @MainActor
 public final class SigningIdentityManager {
     public static let shared = SigningIdentityManager()
 
-    private let service = "vellum-assistant"
-    private let account = "signing-key"
+    /// File path for the signing key: ~/.vellum/protected/app-signing-key
+    private var keyFilePath: URL {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        return home.appendingPathComponent(".vellum/protected/app-signing-key")
+    }
 
-    /// Cached private key to avoid repeated Keychain lookups.
+    /// Cached private key to avoid repeated file reads.
     private var cachedKey: Curve25519.Signing.PrivateKey?
 
     /// Get or create the Ed25519 signing private key.
@@ -27,15 +30,15 @@ public final class SigningIdentityManager {
             return cached
         }
 
-        // Try to load from Keychain
-        if let key = try loadFromKeychain() {
+        // Try to load from file
+        if let key = try loadFromFile() {
             cachedKey = key
             return key
         }
 
         // Generate a new key and store it
         let key = Curve25519.Signing.PrivateKey()
-        try saveToKeychain(key)
+        try saveToFile(key)
         cachedKey = key
         log.info("Generated new Ed25519 signing key")
         return key
@@ -59,83 +62,38 @@ public final class SigningIdentityManager {
         return try signingKey.signature(for: data)
     }
 
-    // MARK: - Keychain Helpers
+    // MARK: - File Storage
 
-    private func loadFromKeychain() throws -> Curve25519.Signing.PrivateKey? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
-
-        var result: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-
-        switch status {
-        case errSecSuccess:
-            guard let data = result as? Data else {
-                log.error("Keychain returned non-data result for signing key")
-                return nil
-            }
-            return try Curve25519.Signing.PrivateKey(rawRepresentation: data)
-
-        case errSecItemNotFound:
+    private func loadFromFile() throws -> Curve25519.Signing.PrivateKey? {
+        let path = keyFilePath
+        guard FileManager.default.fileExists(atPath: path.path) else {
             return nil
-
-        default:
-            log.error("Keychain read failed with status \(status)")
-            throw KeychainError.readFailed(status)
         }
+        let data = try Data(contentsOf: path)
+        return try Curve25519.Signing.PrivateKey(rawRepresentation: data)
     }
 
-    private func saveToKeychain(_ key: Curve25519.Signing.PrivateKey) throws {
+    private func saveToFile(_ key: Curve25519.Signing.PrivateKey) throws {
+        let path = keyFilePath
+        let dir = path.deletingLastPathComponent()
+
+        // Ensure directory exists with restrictive permissions
+        if !FileManager.default.fileExists(atPath: dir.path) {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            // Set directory permissions to owner-only
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o700],
+                ofItemAtPath: dir.path
+            )
+        }
+
         let rawData = key.rawRepresentation
-
-        let attributes: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecValueData as String: rawData,
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
-        ]
-
-        // Try to add; if it already exists, update it
-        var status = SecItemAdd(attributes as CFDictionary, nil)
-
-        if status == errSecDuplicateItem {
-            let query: [String: Any] = [
-                kSecClass as String: kSecClassGenericPassword,
-                kSecAttrService as String: service,
-                kSecAttrAccount as String: account,
-            ]
-            let update: [String: Any] = [
-                kSecValueData as String: rawData,
-            ]
-            status = SecItemUpdate(query as CFDictionary, update as CFDictionary)
-        }
-
-        guard status == errSecSuccess else {
-            log.error("Keychain write failed with status \(status)")
-            throw KeychainError.writeFailed(status)
-        }
-    }
-
-    // MARK: - Errors
-
-    enum KeychainError: Error, LocalizedError {
-        case readFailed(OSStatus)
-        case writeFailed(OSStatus)
-
-        var errorDescription: String? {
-            switch self {
-            case .readFailed(let status):
-                return "Failed to read signing key from Keychain (status \(status))"
-            case .writeFailed(let status):
-                return "Failed to write signing key to Keychain (status \(status))"
-            }
-        }
+        try rawData.write(to: path, options: .atomic)
+        // Set file permissions to owner read/write only
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o600],
+            ofItemAtPath: path.path
+        )
     }
 }
 #endif

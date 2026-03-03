@@ -4,6 +4,7 @@ import { batchGetMessages,listMessages } from '../../../../messaging/providers/g
 import { getMessagingProvider } from '../../../../messaging/registry.js';
 import { withValidToken } from '../../../../security/token-manager.js';
 import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
+import { storeScanResult } from './scan-result-store.js';
 import { err,ok } from './shared.js';
 
 const MAX_MESSAGES_CAP = 2000;
@@ -70,6 +71,7 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
   const maxSenders = (input.max_senders as number) ?? 30;
   const timeRange = (input.time_range as string) ?? '90d';
   const minConfidence = (input.min_confidence as number) ?? 0.5;
+  const inputPageToken = input.page_token as string | undefined;
 
   const query = `in:inbox -has:unsubscribe newer_than:${timeRange}`;
 
@@ -78,7 +80,8 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
     return withValidToken(provider.credentialService, async (token) => {
       // Paginate through listMessages to collect up to maxMessages IDs
       const allMessageIds: string[] = [];
-      let pageToken: string | undefined;
+      let pageToken: string | undefined = inputPageToken;
+      let truncated = false;
 
       while (allMessageIds.length < maxMessages) {
         const pageSize = Math.min(100, maxMessages - allMessageIds.length);
@@ -88,6 +91,10 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
         allMessageIds.push(...ids);
         pageToken = listResp.nextPageToken ?? undefined;
         if (!pageToken) break;
+      }
+
+      if (allMessageIds.length >= maxMessages && pageToken) {
+        truncated = true;
       }
 
       if (allMessageIds.length === 0) {
@@ -204,17 +211,25 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
         newest_message_id: s.newestMessageId,
         oldest_date: s.oldestDate,
         newest_date: s.newestDate,
-        message_ids: s.messageIds,
-        has_more: s.hasMore,
         search_query: `from:${s.email}`,
         sample_subjects: s.sampleSubjects,
         suggested_actions: buildSuggestedActions(s.email, s.messageCount),
       }));
 
+      // Store message IDs server-side to keep them out of LLM context
+      const scanId = storeScanResult(sorted.map((s) => ({
+        id: Buffer.from(s.email).toString('base64url'),
+        messageIds: s.messageIds,
+        newestMessageId: s.newestMessageId,
+        newestUnsubscribableMessageId: null,
+      })));
+
       return ok(JSON.stringify({
+        scan_id: scanId,
         senders,
         total_scanned: allMessageIds.length,
         outreach_detected: totalOutreachDetected,
+        ...(truncated ? { truncated: true, next_page_token: pageToken } : {}),
       }));
     });
   } catch (e) {

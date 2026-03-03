@@ -20,11 +20,8 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     defaultAssistantId: undefined,
     unmappedPolicy: "reject",
     port: 7830,
-    runtimeBearerToken: undefined,
-    runtimeGatewayOriginSecret: undefined,
     runtimeProxyEnabled: false,
     runtimeProxyRequireAuth: false,
-    runtimeProxyBearerToken: undefined,
     shutdownDrainMs: 5000,
     runtimeTimeoutMs: 30000,
     runtimeMaxRetries: 2,
@@ -57,9 +54,6 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     trustProxy: false,
     ...overrides,
   };
-  if (merged.runtimeGatewayOriginSecret === undefined) {
-    merged.runtimeGatewayOriginSecret = merged.runtimeBearerToken;
-  }
   return merged;
 }
 
@@ -568,7 +562,6 @@ describe("telegram webhook handler: gateway-origin marker", () => {
     const bearerToken = "secret-runtime-token";
     const config = makeConfig({
       routingEntries: [{ type: "conversation_id", key: "12345", assistantId: "assistant-a" }],
-      runtimeBearerToken: bearerToken,
     });
     installFetchMock();
     const { handler } = createTelegramWebhookHandler(config);
@@ -587,7 +580,6 @@ describe("telegram webhook handler: gateway-origin marker", () => {
   test("does not include X-Gateway-Origin header when no runtimeBearerToken", async () => {
     const config = makeConfig({
       routingEntries: [{ type: "conversation_id", key: "12345", assistantId: "assistant-a" }],
-      runtimeBearerToken: undefined,
     });
     installFetchMock();
     const { handler } = createTelegramWebhookHandler(config);

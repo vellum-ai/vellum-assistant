@@ -10,6 +10,7 @@ export interface Conversation {
   memberCount?: number;
   topic?: string;
   isArchived?: boolean;
+  isPrivate?: boolean;
   metadata?: Record<string, unknown>;
 }
 
@@ -99,6 +100,10 @@ export interface SenderDigestResult {
   senders: SenderDigestEntry[];
   totalScanned: number;
   queryUsed: string;
+  /** True when pagination was stopped because the scan cap was reached but more messages exist. */
+  truncated?: boolean;
+  /** Resume token for sequential scanning — present when truncated is true. */
+  nextPageToken?: string;
 }
 
 export interface ArchiveResult {

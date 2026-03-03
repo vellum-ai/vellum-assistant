@@ -2,10 +2,11 @@ import { batchGetMessages,listMessages } from '../../../../messaging/providers/g
 import { getMessagingProvider } from '../../../../messaging/registry.js';
 import { withValidToken } from '../../../../security/token-manager.js';
 import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
+import { storeScanResult } from './scan-result-store.js';
 import { err,ok } from './shared.js';
 
-const MAX_MESSAGES_CAP = 2000;
-const MAX_IDS_PER_SENDER = 1000;
+const MAX_MESSAGES_CAP = 5000;
+const MAX_IDS_PER_SENDER = 5000;
 const MAX_SAMPLE_SUBJECTS = 3;
 
 interface SenderAggregation {
@@ -36,15 +37,17 @@ function parseFrom(from: string): { displayName: string; email: string } {
 
 export async function run(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
   const query = (input.query as string) ?? 'category:promotions newer_than:90d';
-  const maxMessages = Math.min((input.max_messages as number) ?? 500, MAX_MESSAGES_CAP);
+  const maxMessages = Math.min((input.max_messages as number) ?? 2000, MAX_MESSAGES_CAP);
   const maxSenders = (input.max_senders as number) ?? 30;
+  const inputPageToken = input.page_token as string | undefined;
 
   try {
     const provider = getMessagingProvider('gmail');
     return withValidToken(provider.credentialService, async (token) => {
       // Paginate through listMessages to collect up to maxMessages IDs
       const allMessageIds: string[] = [];
-      let pageToken: string | undefined;
+      let pageToken: string | undefined = inputPageToken;
+      let truncated = false;
 
       while (allMessageIds.length < maxMessages) {
         const pageSize = Math.min(100, maxMessages - allMessageIds.length);
@@ -54,6 +57,11 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
         allMessageIds.push(...ids);
         pageToken = listResp.nextPageToken ?? undefined;
         if (!pageToken) break;
+      }
+
+      // If we stopped because we hit the cap but there were still more pages, flag truncation
+      if (allMessageIds.length >= maxMessages && pageToken) {
+        truncated = true;
       }
 
       if (allMessageIds.length === 0) {
@@ -142,7 +150,7 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
         .sort((a, b) => b.messageCount - a.messageCount)
         .slice(0, maxSenders);
 
-      const result = sorted.map((s) => ({
+      const resultSenders = sorted.map((s) => ({
         id: Buffer.from(s.email).toString('base64url'),
         display_name: s.displayName || s.email.split('@')[0],
         email: s.email,
@@ -154,18 +162,26 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
           : s.newestMessageId,
         oldest_date: s.oldestDate,
         newest_date: s.newestDate,
-        message_ids: s.messageIds,
-        has_more: s.hasMore,
         // Preserve original query filters so follow-up searches stay scoped
         search_query: `from:${s.email} ${query}`,
         sample_subjects: s.sampleSubjects,
       }));
 
+      // Store message IDs server-side to keep them out of LLM context
+      const scanId = storeScanResult(sorted.map((s) => ({
+        id: Buffer.from(s.email).toString('base64url'),
+        messageIds: s.messageIds,
+        newestMessageId: s.newestMessageId,
+        newestUnsubscribableMessageId: s.newestUnsubscribableMessageId,
+      })));
+
       return ok(JSON.stringify({
-        senders: result,
+        scan_id: scanId,
+        senders: resultSenders,
         total_scanned: allMessageIds.length,
         query_used: query,
-        note: `message_count reflects emails found per sender within the ${allMessageIds.length} messages scanned. The archive tool may find additional messages beyond this sample.`,
+        ...(truncated ? { truncated: true, next_page_token: pageToken } : {}),
+        note: `message_count reflects emails found per sender within the ${allMessageIds.length} messages scanned. Use scan_id with gmail_batch_archive to archive messages (pass scan_id + sender_ids instead of message_ids).`,
       }));
     });
   } catch (e) {

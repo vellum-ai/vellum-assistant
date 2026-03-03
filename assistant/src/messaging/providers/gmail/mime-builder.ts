@@ -16,6 +16,8 @@ export interface MimeMessageOptions {
   subject: string;
   body: string;
   inReplyTo?: string;
+  cc?: string;
+  bcc?: string;
   attachments: MimeAttachment[];
 }
 
@@ -32,7 +34,7 @@ function toBase64Url(input: Buffer): string {
  * Returns a base64url-encoded string ready for Gmail's messages.send `raw` field.
  */
 export function buildMultipartMime(options: MimeMessageOptions): string {
-  const { to, subject, body, inReplyTo, attachments } = options;
+  const { to, subject, body, inReplyTo, cc, bcc, attachments } = options;
   const boundary = `----=_Part_${randomBytes(16).toString('hex')}`;
 
   const headers = [
@@ -41,6 +43,8 @@ export function buildMultipartMime(options: MimeMessageOptions): string {
     'MIME-Version: 1.0',
     `Content-Type: multipart/mixed; boundary="${boundary}"`,
   ];
+  if (cc) headers.push(`Cc: ${cc}`);
+  if (bcc) headers.push(`Bcc: ${bcc}`);
   if (inReplyTo) {
     headers.push(`In-Reply-To: ${inReplyTo}`);
     headers.push(`References: ${inReplyTo}`);

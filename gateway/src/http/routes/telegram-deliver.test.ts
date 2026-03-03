@@ -32,11 +32,8 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     maxWebhookPayloadBytes: 1024 * 1024,
     port: 7830,
     routingEntries: [],
-    runtimeBearerToken: undefined,
-    runtimeGatewayOriginSecret: undefined,
     runtimeInitialBackoffMs: 500,
     runtimeMaxRetries: 2,
-    runtimeProxyBearerToken: undefined,
     runtimeProxyEnabled: false,
     runtimeProxyRequireAuth: true,
     runtimeTimeoutMs: 30000,
@@ -68,9 +65,6 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     trustProxy: false,
     ...overrides,
   };
-  if (merged.runtimeGatewayOriginSecret === undefined) {
-    merged.runtimeGatewayOriginSecret = merged.runtimeBearerToken;
-  }
   return merged;
 }
 
@@ -105,7 +99,7 @@ describe("telegram-deliver endpoint basics", () => {
 
   it("rejects when no bearer token and bypass not set with 503", async () => {
     const handler = createTelegramDeliverHandler(
-      makeConfig({ runtimeProxyBearerToken: undefined, telegramDeliverAuthBypass: false }),
+      makeConfig({ telegramDeliverAuthBypass: false }),
     );
     const req = makeRequest({ chatId: "123", text: "hello" });
     const res = await handler(req);
@@ -116,7 +110,7 @@ describe("telegram-deliver endpoint basics", () => {
 
   it("rejects request without Authorization header with 401", async () => {
     const handler = createTelegramDeliverHandler(
-      makeConfig({ runtimeProxyBearerToken: TOKEN, telegramDeliverAuthBypass: false }),
+      makeConfig({ telegramDeliverAuthBypass: false }),
     );
     const req = makeRequest({ chatId: "123", text: "hello" });
     const res = await handler(req);
@@ -127,7 +121,7 @@ describe("telegram-deliver endpoint basics", () => {
 
   it("rejects request with wrong bearer token with 401", async () => {
     const handler = createTelegramDeliverHandler(
-      makeConfig({ runtimeProxyBearerToken: TOKEN, telegramDeliverAuthBypass: false }),
+      makeConfig({ telegramDeliverAuthBypass: false }),
     );
     const req = makeRequest({ chatId: "123", text: "hello" }, {
       authorization: "Bearer wrong-token",
@@ -140,7 +134,7 @@ describe("telegram-deliver endpoint basics", () => {
 
   it("accepts request with correct bearer token", async () => {
     const handler = createTelegramDeliverHandler(
-      makeConfig({ runtimeProxyBearerToken: TOKEN, telegramDeliverAuthBypass: false }),
+      makeConfig({ telegramDeliverAuthBypass: false }),
     );
     const req = makeRequest({ chatId: "123", text: "hello" }, {
       authorization: `Bearer ${TOKEN}`,
@@ -153,7 +147,7 @@ describe("telegram-deliver endpoint basics", () => {
 
   it("allows unauthenticated access when bypass flag is set", async () => {
     const handler = createTelegramDeliverHandler(
-      makeConfig({ runtimeProxyBearerToken: undefined, telegramDeliverAuthBypass: true }),
+      makeConfig({ telegramDeliverAuthBypass: true }),
     );
     const req = makeRequest({ chatId: "123", text: "hello" });
     const res = await handler(req);

@@ -48,7 +48,7 @@ final class VoiceModeManager: ObservableObject {
     /// prematurely restart the 30s timer while the CU session is still running.
     private var conversationTimeoutPaused = false
     /// Permission request IDs currently being handled via voice.
-    private var pendingPermissionIds: [String] = []
+    var pendingPermissionIds: [String] = []
     /// Combine subscription to detect new confirmations in chat messages.
     private var messageCancellable: AnyCancellable?
     /// Combine subscription to pause/resume conversation timeout during tool execution.
@@ -413,7 +413,7 @@ final class VoiceModeManager: ObservableObject {
     ]
     private var lastPhraseIndex = -1
 
-    private func generatePermissionSummary(_ confirmations: [ToolConfirmationData]) -> String {
+    func generatePermissionSummary(_ confirmations: [ToolConfirmationData]) -> String {
         let descriptions = confirmations.map { describeAction($0) }
         let unique = Array(Set(descriptions))
 
@@ -555,7 +555,9 @@ final class VoiceModeManager: ObservableObject {
 
     private func startConversationTimeout() {
         cancelConversationTimeout()
-        let interval = conversationTimeoutInterval
+        // Read the user's preference each time so changes take effect immediately
+        let storedTimeout = UserDefaults.standard.integer(forKey: "wakeWordTimeoutSeconds")
+        let interval = storedTimeout > 0 ? TimeInterval(storedTimeout) : conversationTimeoutInterval
         let clampedInterval = max(1.0, interval.isFinite ? interval : 30.0)
         conversationTimeoutTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(clampedInterval * 1_000_000_000))

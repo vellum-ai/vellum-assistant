@@ -38,7 +38,7 @@ import { syncTwilioWebhooks } from '../../daemon/handlers/config-ingress.js';
 import type { IngressConfig } from '../../inbound/public-ingress-urls.js';
 import { deleteSecureKey, getSecureKey, setSecureKey } from '../../security/secure-keys.js';
 import { deleteCredentialMetadata, upsertCredentialMetadata } from '../../tools/credentials/metadata-store.js';
-import { readHttpToken } from '../../util/platform.js';
+import { mintDaemonDeliveryToken } from '../auth/token-service.js';
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -716,14 +716,14 @@ export async function handleSmsSendTest(req: Request): Promise<Response> {
   const text = body.text || 'Test SMS from your Vellum assistant';
 
   // Send via gateway's /deliver/sms endpoint
-  const bearerToken = readHttpToken();
+  const bearerToken = mintDaemonDeliveryToken();
   const gatewayUrl = getGatewayInternalBaseUrl();
 
   const sendResp = await fetch(`${gatewayUrl}/deliver/sms`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
+      Authorization: `Bearer ${bearerToken}`,
     },
     body: JSON.stringify({ to, text }),
     signal: AbortSignal.timeout(30_000),
