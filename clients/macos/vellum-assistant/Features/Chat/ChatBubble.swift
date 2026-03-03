@@ -314,6 +314,8 @@ struct ChatBubble: View {
                             .lineSpacing(6)
                             .foregroundColor(VColor.textPrimary)
                             .textSelection(.enabled)
+                            // Frame before fixedSize to bound horizontal measurement.
+                            .frame(maxWidth: .infinity, alignment: .leading)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 } else if hasText {
@@ -344,6 +346,8 @@ struct ChatBubble: View {
                             .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
                             .tint(isUser ? VColor.userBubbleText : VColor.accent)
                             .selectableText(!message.isStreaming)
+                            // Frame before fixedSize to bound horizontal measurement.
+                            .frame(maxWidth: .infinity, alignment: .leading)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 } else if !message.attachments.isEmpty {

@@ -34,8 +34,12 @@ struct MarkdownSegmentView: View {
                         .foregroundColor(textColor)
                         .tint(tintColor)
                         .selectableText(!isStreaming)
-                        .fixedSize(horizontal: false, vertical: true)
+                        // Bound horizontal space BEFORE fixedSize so SwiftUI can wrap text
+                        // within a finite width rather than measuring against an unconstrained
+                        // parent, which causes O(N²) layout passes and stack overflows on
+                        // messages with thousands of characters.
                         .frame(maxWidth: maxContentWidth ?? .infinity, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
 
                 case .heading(let level, let headingText):
                     let headingFont: Font = switch level {
@@ -48,8 +52,9 @@ struct MarkdownSegmentView: View {
                         .font(headingFont)
                         .foregroundColor(textColor)
                         .selectableText(!isStreaming)
-                        .fixedSize(horizontal: false, vertical: true)
+                        // Frame before fixedSize so the heading wraps within a known width.
                         .frame(maxWidth: maxContentWidth ?? .infinity, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
                         .padding(.top, level == 1 ? 4 : 2)
 
                 case .list(let items, _):
@@ -72,6 +77,9 @@ struct MarkdownSegmentView: View {
                                     .lineSpacing(4)
                                     .foregroundColor(textColor)
                                     .tint(tintColor)
+                                    // Frame before fixedSize so the text wraps within a
+                                    // known width rather than measuring unbounded horizontally.
+                                    .frame(maxWidth: .infinity, alignment: .leading)
                                     .fixedSize(horizontal: false, vertical: true)
                             }
                             .padding(.leading, leftPad)
