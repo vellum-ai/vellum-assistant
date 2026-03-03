@@ -521,16 +521,22 @@ export class AnthropicProvider implements Provider {
       }
 
       sentMessages = ensureToolPairing(formatted);
-      const { effort, ...restConfig } = (config ?? {}) as Record<
+      const { effort, output_config, ...restConfig } = (config ?? {}) as Record<
         string,
         unknown
-      > & { effort?: string };
+      > & { effort?: string; output_config?: Record<string, unknown> };
+      const mergedOutputConfig = {
+        ...(output_config ?? {}),
+        ...(effort ? { effort } : {}),
+      };
       const params: Anthropic.MessageCreateParams = {
         model: this.model,
         max_tokens: 64000,
         messages: sentMessages,
         ...restConfig,
-        ...(effort ? { output_config: { effort } } : {}),
+        ...(Object.keys(mergedOutputConfig).length > 0
+          ? { output_config: mergedOutputConfig }
+          : {}),
       };
 
       if (systemPrompt) {
@@ -752,7 +758,9 @@ export class AnthropicProvider implements Provider {
         );
       }
       throw new ProviderError(
-        `Anthropic request failed: ${error instanceof Error ? error.message : String(error)}`,
+        `Anthropic request failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
         "anthropic",
         undefined,
         { cause: error },
