@@ -24,7 +24,7 @@ targets:
         product: VellumAssistantShared
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: ai.vellum.assistant-ios
+        PRODUCT_BUNDLE_IDENTIFIER: ai.vocify-inc.vellum-assistant-ios
         INFOPLIST_FILE: Resources/Info.plist
         GENERATE_INFOPLIST_FILE: "NO"
         CODE_SIGN_ENTITLEMENTS: Resources/vellum-assistant-ios.entitlements
