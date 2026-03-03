@@ -125,8 +125,23 @@ struct GatewaySettingsCard: View {
                 .font(VFont.caption)
                 .foregroundColor(VColor.textSecondary)
 
-            VInlineActionField(text: $gatewayUrlText, placeholder: "https://your-tunnel.example.com", allowEmpty: true, isFocused: $isGatewayUrlFocused) {
-                store.saveIngressPublicBaseUrl(gatewayUrlText)
+            TextField("https://your-tunnel.example.com", text: $gatewayUrlText)
+                .vInputStyle()
+                .font(VFont.body)
+                .foregroundColor(VColor.textPrimary)
+
+            HStack(spacing: VSpacing.sm) {
+                VButton(label: "Save", style: .primary, size: .large) {
+                    store.saveIngressPublicBaseUrl(gatewayUrlText)
+                    isGatewayUrlFocused = false
+                    tunnelSetupExpanded = false
+                }
+                // No .disabled() — empty URL is valid (clears the tunnel target)
+                VButton(label: "Cancel", style: .secondary, size: .large) {
+                    gatewayUrlText = store.ingressPublicBaseUrl
+                    isGatewayUrlFocused = false
+                    tunnelSetupExpanded = false
+                }
             }
         }
     }
