@@ -1,4 +1,4 @@
-name: CI Main macOS Build
+name: CI Main macOS Tests
 
 on:
   workflow_dispatch:
@@ -10,127 +10,6 @@ on:
       - '.github/workflows/ci-main-macos.yaml'
 
 jobs:
-  build:
-    name: macOS Build
-    runs-on: macos-15
-    timeout-minutes: 15
-    env:
-      VELLUM_FLAG_FEATURE_FLAG_EDITOR_ENABLED: "true"
-      KEYCHAIN_NAME: build.keychain
-      KEYCHAIN_PASSWORD: temporary-ci-password
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Select Xcode 16.2
-        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
-
-      - name: Import code-signing certificate
-        env:
-          CERT_P12: ${{ secrets.DEVID_CERTIFICATE_P12 }}
-          CERT_PASSWORD: ${{ secrets.DEVID_CERTIFICATE_PASSWORD }}
-        run: |
-          KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
-
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
-          security set-keychain-settings -lut 3600 "$KEYCHAIN_PATH"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-
-          echo "$CERT_P12" | base64 -D > /tmp/certificate.p12
-          security import /tmp/certificate.p12 \
-            -k "$KEYCHAIN_PATH" \
-            -P "$CERT_PASSWORD" \
-            -T /usr/bin/codesign \
-            -T /usr/bin/security
-          rm /tmp/certificate.p12
-
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
-          security default-keychain -s "$KEYCHAIN_PATH"
-
-          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
-
-      - name: Cache SPM build artifacts
-        uses: actions/cache@v4
-        with:
-          path: clients/.build
-          key: macos-spm-${{ hashFiles('clients/Package.resolved') }}-${{ hashFiles('clients/**/*.swift') }}
-          restore-keys: |
-            macos-spm-${{ hashFiles('clients/Package.resolved') }}-
-            macos-spm-
-
-      - name: Cache Bun dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            assistant/node_modules
-            cli/node_modules
-            gateway/node_modules
-          key: macos-bun-${{ hashFiles('assistant/bun.lock', 'cli/bun.lock', 'gateway/bun.lock') }}
-          restore-keys: macos-bun-
-
-      - name: Install Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Build binaries
-        working-directory: clients/macos
-        run: ./build.sh binaries
-
-      - name: Build release .app
-        working-directory: clients/macos
-        run: |
-          SKIP_CLEAN=1 \
-          SKIP_RELEASE_OPTIMIZATIONS=1 \
-          RELEASE_ARCH_FLAGS="--arch arm64" \
-          ./build.sh release
-          ls -la "dist/Vellum.app"
-
-          codesign --verify --deep --strict "dist/Vellum.app"
-          echo "Code signature verified"
-
-      - name: Cleanup keychain
-        if: always()
-        run: |
-          KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
-          security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
-
-      - name: Track consecutive failures
-        if: always()
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          # github.workflow returns the display name, not the filename.
-          # Extract the filename from github.workflow_ref instead.
-          WORKFLOW_REF="${{ github.workflow_ref }}"
-          WORKFLOW_NAME="${WORKFLOW_REF%%@*}"
-          WORKFLOW_NAME="${WORKFLOW_NAME##*/}"
-
-          # Get the last 100 completed runs of this workflow on main (excluding current)
-          RUNS=$(gh api "/repos/${{ github.repository }}/actions/workflows/${WORKFLOW_NAME}/runs?branch=main&status=completed&per_page=100" \
-            --jq '[.workflow_runs[] | select(.id != '${{ github.run_id }}') | .conclusion]')
-
-          # Count consecutive failures from most recent
-          CONSECUTIVE=0
-          for conclusion in $(echo "$RUNS" | jq -r '.[]'); do
-            if [ "$conclusion" = "failure" ]; then
-              CONSECUTIVE=$((CONSECUTIVE + 1))
-            else
-              break
-            fi
-          done
-
-          # Add current run result
-          if [ "${{ job.status }}" = "failure" ]; then
-            CONSECUTIVE=$((CONSECUTIVE + 1))
-          else
-            CONSECUTIVE=0
-          fi
-
-          echo "Consecutive failures on main: $CONSECUTIVE"
-
   test:
     name: macOS Tests
     runs-on: macos-15
@@ -157,7 +36,7 @@ jobs:
 
   notify:
     name: Slack Notification
-    needs: [build, test]
+    needs: [test]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -169,11 +48,11 @@ jobs:
         run: |
           GITHUB_USER="${{ github.actor }}"
 
-          if [[ "${{ needs.build.result }}" == "failure" || "${{ needs.test.result }}" == "failure" ]]; then
+          if [[ "${{ needs.test.result }}" == "failure" ]]; then
             STATUS="failure"
-          elif [[ "${{ needs.build.result }}" == "cancelled" || "${{ needs.test.result }}" == "cancelled" ]]; then
+          elif [[ "${{ needs.test.result }}" == "cancelled" ]]; then
             STATUS="cancelled"
-          elif [[ "${{ needs.build.result }}" == "skipped" || "${{ needs.test.result }}" == "skipped" ]]; then
+          elif [[ "${{ needs.test.result }}" == "skipped" ]]; then
             STATUS="skipped"
           else
             STATUS="success"

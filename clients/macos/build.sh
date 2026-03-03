@@ -20,7 +20,6 @@ set -euo pipefail
 #   DISPLAY_VERSION   Override CFBundleShortVersionString (default: 0.1.0)
 #   BUILD_VERSION     Override CFBundleVersion (default: 1)
 #   SIGN_IDENTITY     Override code signing identity
-#   SKIP_RELEASE_OPTIMIZATIONS  Set to 1 to build release without Swift optimizations (CI check)
 
 # ---------------------------------------------------------------------------
 # swift_with_retry — run a swift command with retries for transient SPM
@@ -263,15 +262,7 @@ CONFIG="debug"
 SWIFT_FLAGS=""
 if [ "$CMD" = "release" ]; then
     CONFIG="release"
-    # SKIP_RELEASE_OPTIMIZATIONS=1 keeps -c release (so #if DEBUG guards and
-    # release-only compilation behavior are preserved) but disables the
-    # expensive optimiser passes. Useful for CI validation builds that verify
-    # compilation + codesigning without producing a distributable artifact.
-    if [ "${SKIP_RELEASE_OPTIMIZATIONS:-}" = "1" ]; then
-        SWIFT_FLAGS="-c release -Xswiftc -Onone ${RELEASE_ARCH_FLAGS:---arch arm64 --arch x86_64}"
-    else
-        SWIFT_FLAGS="-c release ${RELEASE_ARCH_FLAGS:---arch arm64 --arch x86_64}"
-    fi
+    SWIFT_FLAGS="-c release ${RELEASE_ARCH_FLAGS:---arch arm64 --arch x86_64}"
     if [ -n "${PREBUILT_BIN_PATH:-}" ]; then
         # Using prebuilt binaries from parallel CI jobs — only clean dist
         echo "Release build: using prebuilt binaries, cleaning dist only..."
