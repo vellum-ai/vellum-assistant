@@ -89,7 +89,7 @@ struct HeartbeatAutomationSection: View {
     @State private var expandedRunId: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.xl) {
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
             checklistCard
             runsCard
         }

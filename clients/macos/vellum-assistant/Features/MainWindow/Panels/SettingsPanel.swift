@@ -242,7 +242,7 @@ struct SettingsPanel: View {
     // MARK: - Integrations Tab
 
     private var integrationsContent: some View {
-        VStack(alignment: .leading, spacing: VSpacing.xl) {
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
             // ANTHROPIC section
             VStack(alignment: .leading, spacing: VSpacing.md) {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
@@ -709,7 +709,7 @@ struct SettingsPanel: View {
     // MARK: - Permissions Tab
 
     private var permissionsContent: some View {
-        VStack(alignment: .leading, spacing: VSpacing.xl) {
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
             // PERMISSIONS section (OS permissions)
             VStack(alignment: .leading, spacing: VSpacing.md) {
                 Text("macOS System Permissions")
