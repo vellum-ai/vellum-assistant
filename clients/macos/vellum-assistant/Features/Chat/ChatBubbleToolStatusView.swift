@@ -51,6 +51,17 @@ extension ChatBubble {
             // All tools done but model is still working (generating next tool call)
             LiveToolProgressView(toolCalls: message.toolCalls, isRunning: true, thinkingLabel: "Thinking")
                 .frame(maxWidth: 520, alignment: .leading)
+        } else if allToolCallsComplete && !permissionWasDenied && !message.toolCalls.isEmpty {
+            // All tools finished successfully — show a compact completed summary with expandable steps.
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .center, spacing: VSpacing.sm) {
+                    UsedToolsList(toolCalls: message.toolCalls, isExpanded: $stepsExpanded)
+                    Spacer()
+                }
+                if stepsExpanded {
+                    StepsSection(toolCalls: message.toolCalls, onRehydrate: onRehydrate)
+                }
+            }
         } else if hasPermission || (hasInProgressTools && permissionWasDenied) {
             // Completed tool steps are hidden — only show permission chip or denied tool chip.
             VStack(alignment: .leading, spacing: 0) {

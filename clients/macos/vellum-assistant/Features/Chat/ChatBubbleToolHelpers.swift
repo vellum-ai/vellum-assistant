@@ -103,8 +103,14 @@ extension ChatBubble {
         case "browser_screenshot":              return "Taking a screenshot"
         case "app_create":                      return "Building your app"
         case "app_update":                      return "Updating your app"
+        case "app_file_edit":                   return "Editing app files"
+        case "app_file_write":                  return "Writing app files"
         case "skill_load":
             if let name = inputSummary, !name.isEmpty {
+                // App-builder skill gets a more contextual label
+                if name.contains("app-builder") || name.contains("app_builder") {
+                    return "Using App Builder skill"
+                }
                 let display = name.replacingOccurrences(of: "-", with: " ").replacingOccurrences(of: "_", with: " ")
                 return "Loading \(display)"
             }
@@ -113,6 +119,27 @@ extension ChatBubble {
             // Convert raw snake_case name to a readable fallback
             let display = toolName.replacingOccurrences(of: "_", with: " ")
             return "Running \(display)"
+        }
+    }
+
+    /// Maps tool names to user-facing capability descriptions for completed states.
+    /// Returns nil for tools with no friendly mapping, letting callers fall back to a default.
+    /// When `buildingStatus` is present, it takes priority as it's already user-friendly.
+    static func friendlyCapabilityLabel(_ toolName: String, buildingStatus: String? = nil) -> String? {
+        if let status = buildingStatus { return status }
+        switch toolName {
+        case "app_create":                              return "Building your app"
+        case "app_update":                              return "Updating your app"
+        case "app_file_edit":                           return "Styling UI"
+        case "app_file_write":                          return "Writing interface code"
+        case "skill_load":                              return "Loading skill"
+        case "web_search":                              return "Researching"
+        case "web_fetch":                               return "Gathering information"
+        case "file_read", "host_file_read":             return "Reading files"
+        case "file_write", "host_file_write":           return "Creating files"
+        case "file_edit", "host_file_edit":             return "Editing files"
+        case "bash", "host_bash":                       return "Running commands"
+        default:                                        return nil
         }
     }
 
