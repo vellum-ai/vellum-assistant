@@ -46,7 +46,7 @@ export function createToolDomainEventPublisher(
             sessionId: event.sessionId,
             requestId: event.requestId,
             toolName: event.toolName,
-            decision: event.decision,
+            decision: event.decision as AssistantDomainEvents['tool.permission.decided']['decision'],
             riskLevel: event.riskLevel,
             decidedAtMs: Date.now(),
           });
@@ -70,7 +70,7 @@ export function createToolDomainEventPublisher(
             sessionId: event.sessionId,
             requestId: event.requestId,
             toolName: event.toolName,
-            decision: event.decision,
+            decision: event.decision as AssistantDomainEvents['tool.permission.decided']['decision'],
             riskLevel: event.riskLevel,
             decidedAtMs: Date.now(),
           });
