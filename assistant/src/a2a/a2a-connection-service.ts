@@ -647,7 +647,7 @@ export function submitVerificationCode(params: {
   // Generate and persist credentials only after successful status transition
   const credentials = generateCredentialPair();
 
-  updateConnectionCredentials(params.connectionId, {
+  const connectionWithCredentials = updateConnectionCredentials(params.connectionId, {
     outboundCredentialHash: credentials.outboundCredentialHash,
     inboundCredentialHash: credentials.inboundCredentialHash,
   });
@@ -655,7 +655,7 @@ export function submitVerificationCode(params: {
   // Clean up handshake session — connection is now active
   handshakeSessions.delete(params.connectionId);
 
-  return { ok: true, connection: updatedConnection };
+  return { ok: true, connection: connectionWithCredentials ?? updatedConnection };
 }
 
 /**
