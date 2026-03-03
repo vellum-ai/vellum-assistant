@@ -27,7 +27,7 @@ struct GatewaySettingsCard: View {
 
             // Gateway running status row
             if store.gatewayReachable == true {
-                VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .medium) {}
+                // Connected: show local target address + Connected/Disconnect, no URL input
                 tunnelConfigEntry
             } else if tunnelSetupExpanded || !gatewayUrlText.isEmpty {
                 tunnelConfigEntry
@@ -122,27 +122,40 @@ struct GatewaySettingsCard: View {
                     .foregroundColor(VColor.textSecondary)
             }
 
-            Text("Gateway URL")
-                .font(VFont.inputLabel)
-                .foregroundColor(VColor.textSecondary)
+            // Gateway URL input — hidden when connected
+            if store.gatewayReachable != true {
+                Text("Gateway URL")
+                    .font(VFont.inputLabel)
+                    .foregroundColor(VColor.textSecondary)
 
-            TextField("https://your-tunnel.example.com", text: $gatewayUrlText)
-                .vInputStyle()
-                .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
-                .focused($isGatewayUrlFocused)
+                TextField("https://your-tunnel.example.com", text: $gatewayUrlText)
+                    .vInputStyle()
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+                    .focused($isGatewayUrlFocused)
+            }
 
             HStack(spacing: VSpacing.sm) {
-                VButton(label: "Save", style: .secondary, size: .medium) {
-                    store.saveIngressPublicBaseUrl(gatewayUrlText)
-                    isGatewayUrlFocused = false
-                    tunnelSetupExpanded = false
-                }
-                // No .disabled() — empty URL is valid (clears the tunnel target)
-                VButton(label: "Cancel", style: .tertiary, size: .medium) {
-                    gatewayUrlText = store.ingressPublicBaseUrl
-                    isGatewayUrlFocused = false
-                    tunnelSetupExpanded = false
+                if store.gatewayReachable == true {
+                    // Connected: status indicator + disconnect
+                    VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .medium) {}
+                    VButton(label: "Disconnect", style: .danger, size: .medium) {
+                        store.saveIngressPublicBaseUrl("")
+                        tunnelSetupExpanded = false
+                    }
+                } else {
+                    // Not connected: save/cancel
+                    VButton(label: "Save", style: .secondary, size: .medium) {
+                        store.saveIngressPublicBaseUrl(gatewayUrlText)
+                        isGatewayUrlFocused = false
+                        tunnelSetupExpanded = false
+                    }
+                    // No .disabled() — empty URL is valid (clears the tunnel target)
+                    VButton(label: "Cancel", style: .tertiary, size: .medium) {
+                        gatewayUrlText = store.ingressPublicBaseUrl
+                        isGatewayUrlFocused = false
+                        tunnelSetupExpanded = false
+                    }
                 }
             }
         }
