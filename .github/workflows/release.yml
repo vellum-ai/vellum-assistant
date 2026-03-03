@@ -516,7 +516,7 @@ jobs:
             '{
               version: $version,
               released_at: $released_at,
-              is_stable: false,
+              is_stable: true,
               assistant_image: {
                 repository: $assistant_repo,
                 tag: $assistant_tag,
