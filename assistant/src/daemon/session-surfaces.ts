@@ -665,11 +665,13 @@ export async function surfaceProxyResolver(
     const actions = input.actions as Array<{ id: string; label: string; style?: string }> | undefined;
     // Interactive surfaces default to awaiting user action.
     const hasActions = Array.isArray(actions) && actions.length > 0;
-    const isInteractive = surfaceType === 'list'
+    const isInteractive = surfaceType === 'card'
       ? hasActions
-      : surfaceType === 'table'
+      : surfaceType === 'list'
         ? hasActions
-        : INTERACTIVE_SURFACE_TYPES.includes(surfaceType);
+        : surfaceType === 'table'
+          ? hasActions
+          : INTERACTIVE_SURFACE_TYPES.includes(surfaceType);
     const awaitAction = (input.await_action as boolean) ?? isInteractive;
 
     // Only one non-persistent interactive surface at a time. If another
