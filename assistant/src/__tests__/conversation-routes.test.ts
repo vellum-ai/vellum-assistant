@@ -20,12 +20,12 @@ mock.module("../memory/attachments-store.js", () => ({
   getAttachmentsByIds: () => [],
 }));
 
-mock.module("../runtime/guardian-context-resolver.js", () => ({
-  resolveGuardianContext: (input: { sourceChannel?: string }) => ({
+mock.module("../runtime/trust-context-resolver.js", () => ({
+  resolveTrustContext: (input: { sourceChannel?: string }) => ({
     trustClass: "guardian",
     sourceChannel: input.sourceChannel ?? "vellum",
   }),
-  toGuardianRuntimeContext: (
+  withSourceChannel: (
     sourceChannel: string,
     ctx: Record<string, unknown>,
   ) => ({

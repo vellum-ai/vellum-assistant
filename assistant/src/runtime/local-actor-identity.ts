@@ -6,7 +6,7 @@
  * deterministic local actor identity server-side by looking up the vellum
  * channel guardian binding.
  *
- * This routes IPC connections through the same `resolveGuardianContext`
+ * This routes IPC connections through the same `resolveTrustContext`
  * pathway used by HTTP channel ingress, producing equivalent
  * guardian-context behavior for the vellum channel.
  */
@@ -18,7 +18,7 @@ import { getActiveBinding } from '../memory/guardian-bindings.js';
 import { getLogger } from '../util/logger.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from './assistant-scope.js';
 import type { AuthContext } from './auth/types.js';
-import { resolveGuardianContext } from './guardian-context-resolver.js';
+import { resolveTrustContext } from './trust-context-resolver.js';
 import { ensureVellumGuardianBinding } from './guardian-vellum-migration.js';
 
 const log = getLogger('local-actor-identity');
@@ -27,7 +27,7 @@ const log = getLogger('local-actor-identity');
  * Resolve the guardian runtime context for a local IPC connection.
  *
  * Looks up the vellum guardian binding to obtain the `guardianPrincipalId`,
- * then passes it as the sender identity through `resolveGuardianContext` --
+ * then passes it as the sender identity through `resolveTrustContext` --
  * the same pathway HTTP channel routes use. This ensures IPC and HTTP
  * produce equivalent trust classification for the vellum channel.
  *
@@ -51,7 +51,7 @@ export function resolveLocalIpcGuardianContext(
     const principalId = ensureVellumGuardianBinding(assistantId);
 
     // Re-resolve through the shared pipeline now that the binding exists.
-    const guardianCtx = resolveGuardianContext({
+    const guardianCtx = resolveTrustContext({
       assistantId,
       sourceChannel: 'vellum',
       conversationExternalId: 'local',
@@ -69,7 +69,7 @@ export function resolveLocalIpcGuardianContext(
   // 'vellum' — otherwise resolveActorTrust would look up a different
   // channel's binding (e.g. telegram/sms) and the IDs wouldn't match,
   // causing a 'unknown' trust classification.
-  const guardianCtx = resolveGuardianContext({
+  const guardianCtx = resolveTrustContext({
     assistantId,
     sourceChannel: 'vellum',
     conversationExternalId: 'local',

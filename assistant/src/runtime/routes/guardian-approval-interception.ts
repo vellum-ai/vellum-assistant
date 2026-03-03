@@ -40,9 +40,9 @@ import {
   notifyRequesterOfDeliveryFailure,
   notifyRequesterOfDenial,
 } from './access-request-decision.js';
+import type { TrustContext } from '../../daemon/session-runtime-assembly.js';
 import {
   buildGuardianDenyContext,
-  type GuardianContext,
   parseCallbackData,
 } from './channel-route-shared.js';
 
@@ -57,7 +57,7 @@ export interface ApprovalInterceptionParams {
   actorExternalId?: string;
   replyCallbackUrl: string;
   bearerToken?: string;
-  guardianCtx: GuardianContext;
+  guardianCtx: TrustContext;
   assistantId: string;
   approvalCopyGenerator?: ApprovalCopyGenerator;
   approvalConversationGenerator?: ApprovalConversationGenerator;

@@ -48,7 +48,7 @@ import {
 } from '../channel-guardian-service.js';
 import { getTransport } from '../channel-invite-transport.js';
 import { deliverChannelReply } from '../gateway-client.js';
-import { resolveGuardianContext, resolveRoutingState } from '../guardian-context-resolver.js';
+import { resolveTrustContext, resolveRoutingState } from '../trust-context-resolver.js';
 import { routeGuardianReply } from '../guardian-reply-router.js';
 import {
   composeChannelVerifyReply,
@@ -66,10 +66,10 @@ import type {
 import { redeemInvite } from '../invite-redemption-service.js';
 import { getInviteRedemptionReply } from '../invite-redemption-templates.js';
 import { deliverReplyViaCallback } from './channel-delivery-routes.js';
+import type { TrustContext } from '../../daemon/session-runtime-assembly.js';
 import {
   canonicalChannelAssistantId,
   GUARDIAN_APPROVAL_TTL_MS,
-  type GuardianContext,
   stripVerificationFailurePrefix,
 } from './channel-route-shared.js';
 import { handleApprovalInterception } from './guardian-approval-interception.js';
@@ -919,7 +919,7 @@ export async function handleChannelInbound(
   // ── Actor role resolution ──
   // Uses shared channel-agnostic resolution so all ingress paths classify
   // guardian vs non-guardian actors the same way.
-  const guardianCtx: GuardianContext = resolveGuardianContext({
+  const guardianCtx: TrustContext = resolveTrustContext({
     assistantId: canonicalAssistantId,
     sourceChannel,
     conversationExternalId,
@@ -1342,7 +1342,7 @@ interface BackgroundProcessingParams {
   sourceChannel: ChannelId;
   sourceInterface: InterfaceId;
   externalChatId: string;
-  guardianCtx: GuardianContext;
+  guardianCtx: TrustContext;
   metadataHints: string[];
   metadataUxBrief?: string;
   replyCallbackUrl?: string;
@@ -1418,7 +1418,7 @@ function startPendingApprovalPromptWatcher(params: {
   conversationId: string;
   sourceChannel: ChannelId;
   externalChatId: string;
-  guardianTrustClass: GuardianContext['trustClass'];
+  guardianTrustClass: TrustContext['trustClass'];
   guardianExternalUserId?: string;
   requesterExternalUserId?: string;
   replyCallbackUrl: string;
@@ -1531,7 +1531,7 @@ function startTrustedContactApprovalNotifier(params: {
   conversationId: string;
   sourceChannel: ChannelId;
   externalChatId: string;
-  guardianTrustClass: GuardianContext['trustClass'];
+  guardianTrustClass: TrustContext['trustClass'];
   guardianExternalUserId?: string;
   replyCallbackUrl: string;
   mintBearerToken: () => string;

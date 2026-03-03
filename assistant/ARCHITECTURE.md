@@ -14,7 +14,7 @@ This document owns assistant-runtime architecture details. The repo-level archit
 
 ### Guardian Actor Context (Unified Across Channels)
 
-- Guardian/non-guardian/unverified classification is centralized in `assistant/src/runtime/guardian-context-resolver.ts`.
+- Guardian/non-guardian/unverified classification is centralized in `assistant/src/runtime/trust-context-resolver.ts`.
 - The same resolver is used by:
   - `/channels/inbound` (Telegram/SMS/WhatsApp path) before run orchestration.
   - Inbound Twilio voice setup (`RelayConnection.handleSetup`) to seed call-time actor context.

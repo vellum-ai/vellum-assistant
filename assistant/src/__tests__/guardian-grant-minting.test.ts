@@ -55,7 +55,7 @@ import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import * as approvalMessageComposer from "../runtime/approval-message-composer.js";
 import * as gatewayClient from "../runtime/gateway-client.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
-import type { GuardianContext } from "../runtime/routes/channel-route-shared.js";
+import type { TrustContext } from "../daemon/session-runtime-assembly.js";
 import { handleApprovalInterception } from "../runtime/routes/guardian-approval-interception.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 
@@ -145,7 +145,7 @@ function registerPendingInteraction(
   return handleConfirmationResponse;
 }
 
-function makeGuardianContext(): GuardianContext {
+function makeTrustContext(): TrustContext {
   return {
     sourceChannel: "telegram",
     trustClass: "guardian",
@@ -218,7 +218,7 @@ describe("guardian grant minting on tool-approval decisions", () => {
       sourceChannel: "telegram",
       actorExternalId: GUARDIAN_USER,
       replyCallbackUrl: "https://gateway.test/deliver",
-      guardianCtx: makeGuardianContext(),
+      guardianCtx: makeTrustContext(),
       assistantId: ASSISTANT_ID,
     });
 
@@ -266,7 +266,7 @@ describe("guardian grant minting on tool-approval decisions", () => {
       sourceChannel: "telegram",
       actorExternalId: GUARDIAN_USER,
       replyCallbackUrl: "https://gateway.test/deliver",
-      guardianCtx: makeGuardianContext(),
+      guardianCtx: makeTrustContext(),
       assistantId: ASSISTANT_ID,
     });
 
@@ -297,7 +297,7 @@ describe("guardian grant minting on tool-approval decisions", () => {
       sourceChannel: "telegram",
       actorExternalId: GUARDIAN_USER,
       replyCallbackUrl: "https://gateway.test/deliver",
-      guardianCtx: makeGuardianContext(),
+      guardianCtx: makeTrustContext(),
       assistantId: ASSISTANT_ID,
     });
 
@@ -341,7 +341,7 @@ describe("guardian grant minting on tool-approval decisions", () => {
       sourceChannel: "telegram",
       actorExternalId: GUARDIAN_USER,
       replyCallbackUrl: "https://gateway.test/deliver",
-      guardianCtx: makeGuardianContext(),
+      guardianCtx: makeTrustContext(),
       assistantId: ASSISTANT_ID,
     });
 
@@ -375,7 +375,7 @@ describe("guardian grant minting on tool-approval decisions", () => {
       sourceChannel: "telegram",
       actorExternalId: "wrong-guardian-user",
       replyCallbackUrl: "https://gateway.test/deliver",
-      guardianCtx: makeGuardianContext(),
+      guardianCtx: makeTrustContext(),
       assistantId: ASSISTANT_ID,
     });
 
@@ -406,7 +406,7 @@ describe("guardian grant minting on tool-approval decisions", () => {
       sourceChannel: "telegram",
       actorExternalId: GUARDIAN_USER,
       replyCallbackUrl: "https://gateway.test/deliver",
-      guardianCtx: makeGuardianContext(),
+      guardianCtx: makeTrustContext(),
       assistantId: ASSISTANT_ID,
     });
 
@@ -445,7 +445,7 @@ describe("guardian grant minting on tool-approval decisions", () => {
       sourceChannel: "telegram",
       actorExternalId: GUARDIAN_USER,
       replyCallbackUrl: "https://gateway.test/deliver",
-      guardianCtx: makeGuardianContext(),
+      guardianCtx: makeTrustContext(),
       assistantId: ASSISTANT_ID,
       approvalConversationGenerator: mockGenerator,
     });
@@ -491,7 +491,7 @@ describe("guardian grant minting on tool-approval decisions", () => {
       sourceChannel: "telegram",
       actorExternalId: GUARDIAN_USER,
       replyCallbackUrl: "https://gateway.test/deliver",
-      guardianCtx: makeGuardianContext(),
+      guardianCtx: makeTrustContext(),
       assistantId: ASSISTANT_ID,
       approvalConversationGenerator: mockGenerator,
     });
@@ -526,7 +526,7 @@ describe("guardian grant minting on tool-approval decisions", () => {
       sourceChannel: "telegram",
       actorExternalId: GUARDIAN_USER,
       replyCallbackUrl: "https://gateway.test/deliver",
-      guardianCtx: makeGuardianContext(),
+      guardianCtx: makeTrustContext(),
       assistantId: ASSISTANT_ID,
     });
 
@@ -567,7 +567,7 @@ describe("guardian grant minting on tool-approval decisions", () => {
       sourceChannel: "telegram",
       actorExternalId: GUARDIAN_USER,
       replyCallbackUrl: "https://gateway.test/deliver",
-      guardianCtx: makeGuardianContext(),
+      guardianCtx: makeTrustContext(),
       assistantId: ASSISTANT_ID,
     });
 

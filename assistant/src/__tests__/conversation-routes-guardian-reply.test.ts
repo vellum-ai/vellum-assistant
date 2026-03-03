@@ -79,12 +79,12 @@ mock.module("../runtime/local-actor-identity.js", () => ({
   }),
 }));
 
-mock.module("../runtime/guardian-context-resolver.js", () => ({
-  resolveGuardianContext: () => ({
+mock.module("../runtime/trust-context-resolver.js", () => ({
+  resolveTrustContext: () => ({
     trustClass: "guardian",
     sourceChannel: "vellum",
   }),
-  toGuardianRuntimeContext: (sourceChannel: unknown, ctx: unknown) => ({
+  withSourceChannel: (sourceChannel: unknown, ctx: unknown) => ({
     ...(ctx as Record<string, unknown>),
     sourceChannel,
   }),

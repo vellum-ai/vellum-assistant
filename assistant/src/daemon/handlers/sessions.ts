@@ -284,7 +284,7 @@ export async function handleUserMessage(
       session.setAssistantId(DAEMON_INTERNAL_ASSISTANT_ID);
       // Resolve local IPC actor identity through the same trust pipeline
       // used by HTTP channel ingress. The vellum guardian binding provides
-      // the guardianPrincipalId, and resolveGuardianContext classifies the
+      // the guardianPrincipalId, and resolveTrustContext classifies the
       // local user as 'guardian' via binding match.
       session.setGuardianContext(resolveLocalIpcGuardianContext(ipcChannel));
       // Align IPC sessions with the same AuthContext shape as HTTP sessions.

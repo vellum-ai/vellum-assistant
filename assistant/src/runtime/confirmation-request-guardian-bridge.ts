@@ -100,7 +100,7 @@ export function bridgeConfirmationRequestToGuardian(
   // new binding would leak requester/tool metadata to the wrong recipient.
   //
   // Both sides are canonicalized before comparison because the canonical request
-  // value was normalized by resolveGuardianContext() while the binding stores the
+  // value was normalized by resolveTrustContext() while the binding stores the
   // raw identity. On phone channels the same guardian can have format variance
   // (e.g. "+1 555-123-4567" vs "+15551234567") that would cause a false mismatch.
   const canonicalBindingId = canonicalizeInboundIdentity(sourceChannel, binding.guardianExternalUserId);

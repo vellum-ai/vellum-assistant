@@ -335,7 +335,7 @@ Guardian verification and ingress membership are complementary but independent s
 | File | Purpose |
 |------|---------|
 | `src/runtime/channel-guardian-service.ts` | Challenge lifecycle: `createVerificationChallenge`, `validateAndConsumeChallenge`, `getGuardianBinding`, `isGuardian` |
-| `src/runtime/guardian-context-resolver.ts` | Actor role classification: guardian / non-guardian / unverified_channel |
+| `src/runtime/trust-context-resolver.ts` | Actor role classification: guardian / non-guardian / unverified_channel |
 | `src/runtime/routes/inbound-message-handler.ts` | Ingress ACL enforcement, verification-code intercept, escalation creation |
 | `src/memory/ingress-member-store.ts` | Member CRUD: `findMember`, `upsertMember`, `revokeMember`, `blockMember` |
 | `src/memory/ingress-invite-store.ts` | Invite lifecycle: `createInvite`, `redeemInvite` (atomically creates member record) |

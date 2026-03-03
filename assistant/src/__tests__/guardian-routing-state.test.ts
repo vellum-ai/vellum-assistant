@@ -71,11 +71,11 @@ import { createBinding } from "../memory/channel-guardian-store.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { channelInboundEvents, messages } from "../memory/schema.js";
 import { sweepFailedEvents } from "../runtime/channel-retry-sweep.js";
+import type { TrustContext } from "../daemon/session-runtime-assembly.js";
 import {
-  type GuardianContext,
   resolveRoutingState,
   resolveRoutingStateFromRuntime,
-} from "../runtime/guardian-context-resolver.js";
+} from "../runtime/trust-context-resolver.js";
 import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
 
 initializeDb();
@@ -108,7 +108,7 @@ function resetTables(): void {
 
 describe("resolveRoutingState", () => {
   test("guardian actors are always interactive and route-resolvable", () => {
-    const ctx: GuardianContext = {
+    const ctx: TrustContext = {
       sourceChannel: "telegram",
       trustClass: "guardian",
       guardianExternalUserId: "guardian-123",
@@ -124,7 +124,7 @@ describe("resolveRoutingState", () => {
 
   test("guardian actors are interactive even without guardianExternalUserId", () => {
     // Edge case: guardian is chatting in their own chat, no separate binding needed
-    const ctx: GuardianContext = {
+    const ctx: TrustContext = {
       sourceChannel: "telegram",
       trustClass: "guardian",
     };
@@ -134,7 +134,7 @@ describe("resolveRoutingState", () => {
   });
 
   test("trusted contact with resolvable guardian route is interactive", () => {
-    const ctx: GuardianContext = {
+    const ctx: TrustContext = {
       sourceChannel: "telegram",
       trustClass: "trusted_contact",
       guardianExternalUserId: "guardian-456",
@@ -149,7 +149,7 @@ describe("resolveRoutingState", () => {
   });
 
   test("trusted contact without guardian route is NOT interactive (fail-fast)", () => {
-    const ctx: GuardianContext = {
+    const ctx: TrustContext = {
       sourceChannel: "telegram",
       trustClass: "trusted_contact",
       // No guardianExternalUserId — no guardian binding for this channel
@@ -163,12 +163,12 @@ describe("resolveRoutingState", () => {
   });
 
   test("unknown actors are never interactive regardless of guardian route", () => {
-    const withRoute: GuardianContext = {
+    const withRoute: TrustContext = {
       sourceChannel: "telegram",
       trustClass: "unknown",
       guardianExternalUserId: "guardian-789",
     };
-    const withoutRoute: GuardianContext = {
+    const withoutRoute: TrustContext = {
       sourceChannel: "telegram",
       trustClass: "unknown",
     };

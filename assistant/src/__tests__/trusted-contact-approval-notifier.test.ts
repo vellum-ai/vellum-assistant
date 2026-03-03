@@ -128,7 +128,7 @@ mock.module("../config/user-reference.js", () => ({
 // Import module under test AFTER mocks are set up
 import type { ChannelId } from "../channels/types.js";
 import { resolveUserReference } from "../config/user-reference.js";
-import type { GuardianContext } from "../runtime/guardian-context-resolver.js";
+import type { TrustContext } from "../daemon/session-runtime-assembly.js";
 
 // We need to test the private functions by importing the module.
 // Since startTrustedContactApprovalNotifier is not exported, we test it
@@ -156,7 +156,7 @@ async function simulateNotifierPoll(params: {
   conversationId: string;
   sourceChannel: ChannelId;
   externalChatId: string;
-  guardianTrustClass: GuardianContext["trustClass"];
+  guardianTrustClass: TrustContext["trustClass"];
   guardianExternalUserId?: string;
   replyCallbackUrl: string;
   bearerToken?: string;

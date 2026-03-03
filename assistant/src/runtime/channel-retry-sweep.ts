@@ -7,7 +7,7 @@ import type { TrustContext } from '../daemon/session-runtime-assembly.js';
 import * as channelDeliveryStore from '../memory/channel-delivery-store.js';
 import { getLogger } from '../util/logger.js';
 import { deliverReplyViaCallback } from './channel-reply-delivery.js';
-import { resolveRoutingStateFromRuntime } from './guardian-context-resolver.js';
+import { resolveRoutingStateFromRuntime } from './trust-context-resolver.js';
 import type { MessageProcessor } from './http-types.js';
 
 const log = getLogger('runtime-http');

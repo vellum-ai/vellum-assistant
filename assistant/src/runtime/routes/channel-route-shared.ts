@@ -8,8 +8,8 @@ import type {
   ApprovalDecisionResult,
   ApprovalUIMetadata,
 } from '../channel-approval-types.js';
-import type { DenialReason } from '../guardian-context-resolver.js';
-export type { ActorTrustClass, DenialReason, GuardianContext } from '../guardian-context-resolver.js';
+import type { DenialReason } from '../trust-context-resolver.js';
+export type { DenialReason } from '../trust-context-resolver.js';
 
 /** Canonicalize assistantId for channel ingress paths. */
 export function canonicalChannelAssistantId(_assistantId: string): string {

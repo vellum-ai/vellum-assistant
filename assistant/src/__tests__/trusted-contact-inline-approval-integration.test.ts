@@ -2,7 +2,7 @@
  * End-to-end integration tests for the trusted-contact inline guardian approval feature.
  *
  * Verifies the full integration of M1-M4 milestones:
- *   M1: RoutingState (guardian-context-resolver.ts)
+ *   M1: RoutingState (trust-context-resolver.ts)
  *   M2: Confirmation request guardian bridge (confirmation-request-guardian-bridge.ts)
  *   M3: Pending approval notifier (inbound-message-handler.ts)
  *   M4: Inline grant wait-and-resume (tool-approval-handler.ts) +
@@ -192,10 +192,10 @@ import {
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { scopedApprovalGrants } from "../memory/schema.js";
 import { bridgeConfirmationRequestToGuardian } from "../runtime/confirmation-request-guardian-bridge.js";
+import type { TrustContext } from "../daemon/session-runtime-assembly.js";
 import {
-  type GuardianContext,
   resolveRoutingState,
-} from "../runtime/guardian-context-resolver.js";
+} from "../runtime/trust-context-resolver.js";
 import {
   TC_GRANT_WAIT_MAX_MS,
   ToolApprovalHandler,
@@ -247,7 +247,7 @@ function guardianActor(overrides: Partial<ActorContext> = {}): ActorContext {
   };
 }
 
-function makeTrustedContactGuardianContext(): TrustContext {
+function makeTrustedContactTrustContext(): TrustContext {
   return {
     sourceChannel: "telegram",
     trustClass: "trusted_contact",
@@ -349,7 +349,7 @@ describe("(a) target flow: trusted-contact inline guardian approval end-to-end",
 
   test("complete flow: routing state allows interactive + bridge notifies guardian + tool resumes", async () => {
     // Step 1: Verify routing state allows interactive turns for trusted contacts
-    const guardianCtx: GuardianContext = {
+    const guardianCtx: TrustContext = {
       sourceChannel: "telegram",
       trustClass: "trusted_contact",
       guardianExternalUserId: "guardian-1",
@@ -431,7 +431,7 @@ describe("(b) prompt-path flow: confirmation_request bridges to guardian", () =>
       expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
     });
 
-    const guardianContext = makeTrustedContactGuardianContext();
+    const guardianContext = makeTrustedContactTrustContext();
 
     const result = bridgeConfirmationRequestToGuardian({
       canonicalRequest,
@@ -470,7 +470,7 @@ describe("(b) prompt-path flow: confirmation_request bridges to guardian", () =>
       expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
     });
 
-    const guardianContext = makeTrustedContactGuardianContext();
+    const guardianContext = makeTrustedContactTrustContext();
 
     bridgeConfirmationRequestToGuardian({
       canonicalRequest,
@@ -505,7 +505,7 @@ describe("(c) no-binding flow: trusted contact fails fast without guardian bindi
   });
 
   test("routing state blocks prompt waiting when no guardian binding exists", () => {
-    const ctx: GuardianContext = {
+    const ctx: TrustContext = {
       sourceChannel: "telegram",
       trustClass: "trusted_contact",
       // No guardianExternalUserId — mirrors no binding
@@ -569,7 +569,7 @@ describe("(c) no-binding flow: trusted contact fails fast without guardian bindi
       expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
     });
 
-    const guardianContext = makeTrustedContactGuardianContext();
+    const guardianContext = makeTrustedContactTrustContext();
 
     const result = bridgeConfirmationRequestToGuardian({
       canonicalRequest,
@@ -649,12 +649,12 @@ describe("(d) unknown actor flow: fail-closed with no interactive approval", () 
   });
 
   test("unknown actors have promptWaitingAllowed=false regardless of guardian route", () => {
-    const withRoute: GuardianContext = {
+    const withRoute: TrustContext = {
       sourceChannel: "telegram",
       trustClass: "unknown",
       guardianExternalUserId: "guardian-1",
     };
-    const withoutRoute: GuardianContext = {
+    const withoutRoute: TrustContext = {
       sourceChannel: "telegram",
       trustClass: "unknown",
     };
@@ -1054,7 +1054,7 @@ describe("cross-milestone integration checks", () => {
 
   test("M1+M4: routing state interactivity drives inline wait eligibility", async () => {
     // With guardian binding: interactive + inline wait allowed
-    const withBinding: GuardianContext = {
+    const withBinding: TrustContext = {
       sourceChannel: "telegram",
       trustClass: "trusted_contact",
       guardianExternalUserId: "guardian-1",
@@ -1062,7 +1062,7 @@ describe("cross-milestone integration checks", () => {
     expect(resolveRoutingState(withBinding).promptWaitingAllowed).toBe(true);
 
     // Without guardian binding: not interactive + inline wait should not enter dead-end
-    const withoutBinding: GuardianContext = {
+    const withoutBinding: TrustContext = {
       sourceChannel: "telegram",
       trustClass: "trusted_contact",
     };
@@ -1090,7 +1090,7 @@ describe("cross-milestone integration checks", () => {
       expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
     });
 
-    const guardianContext = makeTrustedContactGuardianContext();
+    const guardianContext = makeTrustedContactTrustContext();
 
     const bridgeResult = bridgeConfirmationRequestToGuardian({
       canonicalRequest,

@@ -28,9 +28,9 @@ import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
 import type { AuthContext } from '../auth/types.js';
 import { bridgeConfirmationRequestToGuardian } from '../confirmation-request-guardian-bridge.js';
 import {
-  resolveGuardianContext,
-  toGuardianRuntimeContext,
-} from '../guardian-context-resolver.js';
+  resolveTrustContext,
+  withSourceChannel,
+} from '../trust-context-resolver.js';
 import { routeGuardianReply } from '../guardian-reply-router.js';
 import { httpError } from '../http-errors.js';
 import type {
@@ -483,13 +483,13 @@ export async function handleSendMessage(
     // the same trust resolution pipeline that channel ingress uses.
     if (authContext.actorPrincipalId) {
       const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
-      const guardianCtx = resolveGuardianContext({
+      const guardianCtx = resolveTrustContext({
         assistantId,
         sourceChannel: 'vellum',
         conversationExternalId: 'local',
         actorExternalId: authContext.actorPrincipalId,
       });
-      session.setGuardianContext(toGuardianRuntimeContext(sourceChannel, guardianCtx));
+      session.setGuardianContext(withSourceChannel(sourceChannel, guardianCtx));
     } else {
       // Service principals (svc_gateway) or tokens without an actor ID
       // get a minimal guardian context so downstream code has something.
@@ -611,13 +611,13 @@ export async function handleSendMessage(
   // Resolve guardian context from AuthContext for the legacy path too.
   let guardianContext: import('../../daemon/session-runtime-assembly.js').TrustContext;
   if (authContext.actorPrincipalId) {
-    const legacyGuardianCtx = resolveGuardianContext({
+    const legacyGuardianCtx = resolveTrustContext({
       assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
       sourceChannel: 'vellum',
       conversationExternalId: 'local',
       actorExternalId: authContext.actorPrincipalId,
     });
-    guardianContext = toGuardianRuntimeContext(sourceChannel, legacyGuardianCtx);
+    guardianContext = withSourceChannel(sourceChannel, legacyGuardianCtx);
   } else {
     guardianContext = { trustClass: 'guardian' as const, sourceChannel };
   }
