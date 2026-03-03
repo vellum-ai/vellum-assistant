@@ -241,62 +241,7 @@ struct ThreadListView: View {
 
             // Scheduled threads grouped by scheduleJobId
             if !filteredScheduleThreads.isEmpty {
-                Section("Scheduled") {
-                    ForEach(scheduleThreadGroups, id: \.key) { group in
-                        if group.threads.count == 1, let thread = group.threads.first {
-                            // Single-thread group: render inline
-                            NavigationLink(value: thread.id) {
-                                threadRow(thread)
-                            }
-                            .swipeActions(edge: .trailing) {
-                                Button(role: .destructive) {
-                                    store.deleteThread(thread)
-                                } label: {
-                                    Label("Delete", systemImage: "trash")
-                                }
-                                Button {
-                                    store.archiveThread(thread)
-                                } label: {
-                                    Label("Archive", systemImage: "archivebox")
-                                }
-                                .tint(VColor.warning)
-                            }
-                        } else {
-                            // Multi-thread group: collapsible
-                            DisclosureGroup {
-                                ForEach(group.threads) { thread in
-                                    NavigationLink(value: thread.id) {
-                                        threadRow(thread)
-                                    }
-                                    .swipeActions(edge: .trailing) {
-                                        Button(role: .destructive) {
-                                            store.deleteThread(thread)
-                                        } label: {
-                                            Label("Delete", systemImage: "trash")
-                                        }
-                                        Button {
-                                            store.archiveThread(thread)
-                                        } label: {
-                                            Label("Archive", systemImage: "archivebox")
-                                        }
-                                        .tint(VColor.warning)
-                                    }
-                                }
-                            } label: {
-                                HStack(spacing: 6) {
-                                    Image(systemName: "clock.arrow.2.circlepath")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                    Text(group.label)
-                                        .lineLimit(1)
-                                    Text("\(group.threads.count)")
-                                        .font(.caption2)
-                                        .foregroundStyle(.tertiary)
-                                }
-                            }
-                        }
-                    }
-                }
+                scheduledSection
             }
 
             if !archivedThreads.isEmpty {
@@ -376,6 +321,72 @@ struct ThreadListView: View {
             }
         } message: {
             Text("Enter a new name for this chat")
+        }
+    }
+
+    // MARK: - Scheduled Section
+
+    private var scheduledSection: some View {
+        Section("Scheduled") {
+            ForEach(scheduleThreadGroups, id: \.key) { group in
+                scheduleGroupRow(group)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func scheduleGroupRow(_ group: (key: String, label: String, threads: [IOSThread])) -> some View {
+        if group.threads.count == 1, let thread = group.threads.first {
+            // Single-thread group: render inline
+            NavigationLink(value: thread.id) {
+                threadRow(thread)
+            }
+            .swipeActions(edge: .trailing) {
+                Button(role: .destructive) {
+                    store.deleteThread(thread)
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+                Button {
+                    store.archiveThread(thread)
+                } label: {
+                    Label("Archive", systemImage: "archivebox")
+                }
+                .tint(VColor.warning)
+            }
+        } else {
+            // Multi-thread group: collapsible
+            DisclosureGroup {
+                ForEach(group.threads) { thread in
+                    NavigationLink(value: thread.id) {
+                        threadRow(thread)
+                    }
+                    .swipeActions(edge: .trailing) {
+                        Button(role: .destructive) {
+                            store.deleteThread(thread)
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                        Button {
+                            store.archiveThread(thread)
+                        } label: {
+                            Label("Archive", systemImage: "archivebox")
+                        }
+                        .tint(VColor.warning)
+                    }
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "clock.arrow.2.circlepath")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(group.label)
+                        .lineLimit(1)
+                    Text("\(group.threads.count)")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+            }
         }
     }
 
