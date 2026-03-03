@@ -14,6 +14,14 @@ struct GatewaySettingsCard: View {
     @State private var gatewayTargetCopied: Bool = false
     @State private var tunnelSetupExpanded: Bool = false
 
+    /// True only when the local gateway is running AND a tunnel URL has been configured.
+    /// Gating on both conditions ensures Disconnect (which clears the URL) transitions
+    /// back to the setup form even though the local gateway process keeps running.
+    private var isGatewayConnected: Bool {
+        store.gatewayReachable == true &&
+        !store.ingressPublicBaseUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
@@ -26,8 +34,8 @@ struct GatewaySettingsCard: View {
             }
 
             // Gateway running status row
-            if store.gatewayReachable == true {
-                VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .medium) {}
+            if isGatewayConnected {
+                // Connected: show local target address + Connected/Disconnect, no URL input
                 tunnelConfigEntry
             } else if tunnelSetupExpanded || !gatewayUrlText.isEmpty {
                 tunnelConfigEntry
@@ -122,27 +130,41 @@ struct GatewaySettingsCard: View {
                     .foregroundColor(VColor.textSecondary)
             }
 
-            Text("Gateway URL")
-                .font(VFont.inputLabel)
-                .foregroundColor(VColor.textSecondary)
+            // Gateway URL input — hidden when connected (tunnel URL set + gateway running)
+            if !isGatewayConnected {
+                Text("Gateway URL")
+                    .font(VFont.inputLabel)
+                    .foregroundColor(VColor.textSecondary)
 
-            TextField("https://your-tunnel.example.com", text: $gatewayUrlText)
-                .vInputStyle()
-                .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
-                .focused($isGatewayUrlFocused)
+                TextField("https://your-tunnel.example.com", text: $gatewayUrlText)
+                    .vInputStyle()
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+                    .focused($isGatewayUrlFocused)
+            }
 
             HStack(spacing: VSpacing.sm) {
-                VButton(label: "Save", style: .secondary, size: .medium) {
-                    store.saveIngressPublicBaseUrl(gatewayUrlText)
-                    isGatewayUrlFocused = false
-                    tunnelSetupExpanded = false
-                }
-                // No .disabled() — empty URL is valid (clears the tunnel target)
-                VButton(label: "Cancel", style: .tertiary, size: .medium) {
-                    gatewayUrlText = store.ingressPublicBaseUrl
-                    isGatewayUrlFocused = false
-                    tunnelSetupExpanded = false
+                if isGatewayConnected {
+                    // Connected: status indicator + disconnect
+                    VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .medium) {}
+                    VButton(label: "Disconnect", style: .danger, size: .medium) {
+                        store.saveIngressPublicBaseUrl("")
+                        // Show setup form immediately so user can re-enter a URL
+                        tunnelSetupExpanded = true
+                    }
+                } else {
+                    // Not connected: save/cancel
+                    VButton(label: "Save", style: .secondary, size: .medium) {
+                        store.saveIngressPublicBaseUrl(gatewayUrlText)
+                        isGatewayUrlFocused = false
+                        tunnelSetupExpanded = false
+                    }
+                    // No .disabled() — empty URL is valid (clears the tunnel target)
+                    VButton(label: "Cancel", style: .tertiary, size: .medium) {
+                        gatewayUrlText = store.ingressPublicBaseUrl
+                        isGatewayUrlFocused = false
+                        tunnelSetupExpanded = false
+                    }
                 }
             }
         }
