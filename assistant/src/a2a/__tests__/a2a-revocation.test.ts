@@ -76,6 +76,7 @@ import {
 } from '../a2a-connection-service.js';
 import {
   getConnection,
+  tombstoneOutboundCredential,
   updateConnectionCredentials,
   updateConnectionStatus,
 } from '../a2a-peer-connection-store.js';
@@ -200,6 +201,12 @@ describe('a2a-revocation', () => {
     test('marks as revocation_pending when peer is unreachable (network error)', async () => {
       const connectionId = createActiveConnection();
 
+      // Capture the outbound credential before revocation
+      const activeCon = getConnection(connectionId);
+      const originalOutboundCredential = activeCon!.outboundCredential;
+      const originalOutboundCredentialHash = activeCon!.outboundCredentialHash;
+      expect(originalOutboundCredential).toBeTruthy();
+
       fetchShouldFail = true;
 
       const result = await revokeConnection({ connectionId });
@@ -213,15 +220,22 @@ describe('a2a-revocation', () => {
       expect(conn).not.toBeNull();
       expect(conn!.status).toBe('revocation_pending');
 
-      // Credentials should still be tombstoned locally
-      expect(conn!.outboundCredentialHash).toBe('');
-      expect(conn!.outboundCredential).toBe('');
+      // Inbound credential should be tombstoned immediately (blocks accepting messages)
       expect(conn!.inboundCredentialHash).toBe('');
       expect(conn!.inboundCredential).toBe('');
+
+      // Outbound credential should be preserved for sweep retry signing
+      expect(conn!.outboundCredential).toBe(originalOutboundCredential);
+      expect(conn!.outboundCredentialHash).toBe(originalOutboundCredentialHash);
     });
 
     test('marks as revocation_pending when peer times out', async () => {
       const connectionId = createActiveConnection();
+
+      // Capture the outbound credential before revocation
+      const activeCon = getConnection(connectionId);
+      const originalOutboundCredential = activeCon!.outboundCredential;
+      expect(originalOutboundCredential).toBeTruthy();
 
       fetchShouldTimeout = true;
 
@@ -234,6 +248,12 @@ describe('a2a-revocation', () => {
 
       const conn = getConnection(connectionId);
       expect(conn!.status).toBe('revocation_pending');
+
+      // Outbound credential preserved for sweep retries
+      expect(conn!.outboundCredential).toBe(originalOutboundCredential);
+
+      // Inbound credential tombstoned
+      expect(conn!.inboundCredential).toBe('');
     });
   });
 
@@ -357,56 +377,103 @@ describe('a2a-revocation', () => {
 
       const conn1 = getConnection(connectionId);
       expect(conn1!.status).toBe('revocation_pending');
+      // Outbound credential should still be available for sweep retry
+      expect(conn1!.outboundCredential).toBeTruthy();
 
       // Now make the peer reachable
       fetchShouldFail = false;
 
-      // Run the sweep — since credentials are tombstoned, it will force-revoke
-      // (no_credential path)
+      // Run the sweep — outbound credential is preserved so delivery succeeds
       const processed = await runRevocationSweep();
       expect(processed).toBe(1);
 
       const conn2 = getConnection(connectionId);
       expect(conn2!.status).toBe('revoked');
+
+      // After successful sweep delivery, outbound credential is tombstoned
+      expect(conn2!.outboundCredential).toBe('');
+      expect(conn2!.outboundCredentialHash).toBe('');
+
+      // Verify the sweep actually called fetch with the peer URL
+      expect(lastFetchUrl).toBe(`${PEER_GATEWAY_URL}/v1/a2a/revoke-notify`);
     });
 
     test('force-revokes after max attempts exceeded', async () => {
       const connectionId = createActiveConnection();
 
+      // Revoke with peer unreachable — goes to revocation_pending
       fetchShouldFail = true;
       await revokeConnection({ connectionId });
 
-      // Simulate reaching max attempts by setting the counter
+      // Outbound credential preserved for retries
+      const pendingConn = getConnection(connectionId);
+      expect(pendingConn!.outboundCredential).toBeTruthy();
+      expect(pendingConn!.status).toBe('revocation_pending');
+
+      // Run sweeps up to max attempts — each attempt fails but retries
       for (let i = 0; i < MAX_REVOCATION_ATTEMPTS; i++) {
         await runRevocationSweep();
+        // Connection should still be revocation_pending while retrying
+        const c = getConnection(connectionId);
+        expect(c!.status).toBe('revocation_pending');
       }
 
-      // Connection should still be revocation_pending (credentials tombstoned,
-      // so delivery fails with no_credential which forces revoked on first sweep)
-      // Actually, since credentials are already tombstoned, the sweep will
-      // force-revoke on the first pass due to no_credential.
+      // One more sweep exceeds max attempts — forces revoked
+      await runRevocationSweep();
+
       const conn = getConnection(connectionId);
       expect(conn!.status).toBe('revoked');
+
+      // Outbound credential should be tombstoned after force-revoke
+      expect(conn!.outboundCredential).toBe('');
+      expect(conn!.outboundCredentialHash).toBe('');
     });
 
     test('tracks attempt counts per connection', async () => {
       const connectionId = createActiveConnection();
 
-      // Create a connection with revocation_pending status but with credentials
-      // still available (simulating a state where tombstoning kept the credential)
+      // Revoke with peer unreachable — outbound credential preserved
       fetchShouldFail = true;
       await revokeConnection({ connectionId });
 
       expect(_getAttemptCount(connectionId)).toBe(0);
 
-      // Run sweep — will attempt delivery
+      // Run sweep — delivery fails, attempt count increments
+      await runRevocationSweep();
+      expect(_getAttemptCount(connectionId)).toBe(1);
+
+      // Connection should still be revocation_pending (retry later)
+      const conn = getConnection(connectionId);
+      expect(conn!.status).toBe('revocation_pending');
+
+      // Run another sweep
+      await runRevocationSweep();
+      expect(_getAttemptCount(connectionId)).toBe(2);
+    });
+
+    test('sweep retries delivery with valid outbound credential', async () => {
+      const connectionId = createActiveConnection();
+
+      // Capture the original outbound credential
+      const activeCon = getConnection(connectionId);
+      const originalOutbound = activeCon!.outboundCredential;
+
+      // Revoke with peer unreachable
+      fetchShouldFail = true;
+      await revokeConnection({ connectionId });
+
+      // Verify outbound credential is still there for sweep
+      const pendingConn = getConnection(connectionId);
+      expect(pendingConn!.outboundCredential).toBe(originalOutbound);
+
+      // Make peer reachable and run sweep
+      fetchShouldFail = false;
       await runRevocationSweep();
 
-      // After sweep, either it succeeded (no_credential -> forced revoked)
-      // or incremented the counter. Since credentials are tombstoned, it
-      // will hit no_credential and force-revoke.
-      const conn = getConnection(connectionId);
-      expect(conn!.status).toBe('revoked');
+      // Should have delivered successfully and tombstoned the outbound credential
+      const finalConn = getConnection(connectionId);
+      expect(finalConn!.status).toBe('revoked');
+      expect(finalConn!.outboundCredential).toBe('');
     });
   });
 

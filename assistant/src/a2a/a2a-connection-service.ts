@@ -15,6 +15,7 @@ import {
   createConnection,
   getConnection,
   listConnections as storeListConnections,
+  tombstoneOutboundCredential,
   updateConnectionCredentials,
   updateConnectionScopes as storeUpdateConnectionScopes,
   updateConnectionStatus,
@@ -821,10 +822,13 @@ export function submitVerificationCode(params: {
  * Revoke an active connection.
  *
  * Idempotent: revoking an already-revoked connection returns `{ ok: true }`.
- * Tombstones credentials locally and attempts to notify the peer. If peer
- * notification fails, the connection is marked `revocation_pending` and a
- * sweep timer retries delivery later. Local enforcement (credential
- * tombstoning, status transition) is immediate regardless of remote delivery.
+ * Tombstones the inbound credential immediately (blocks accepting messages
+ * from this peer). Attempts to notify the peer via signed outbound delivery.
+ *
+ * If delivery succeeds, tombstones the outbound credential and transitions
+ * to `revoked`. If delivery fails, the connection is marked
+ * `revocation_pending` with the outbound credential preserved so the sweep
+ * timer can sign retry delivery attempts.
  */
 export async function revokeConnection(params: {
   connectionId: string;
@@ -842,16 +846,14 @@ export async function revokeConnection(params: {
     return { ok: true, status: 'revocation_pending' };
   }
 
-  // Capture connection details before tombstoning — the outbound credential
-  // is needed to sign the revocation notification to the peer.
   const peerGatewayUrl = connection.peerGatewayUrl;
   const peerAssistantId = connection.peerAssistantId;
   const outboundCredential = connection.outboundCredential;
 
-  // Tombstone credentials immediately — local enforcement is unconditional
+  // Tombstone inbound credential immediately — blocks accepting messages
+  // from this peer right away. Outbound credential is preserved so the
+  // sweep timer can sign retry attempts if initial delivery fails.
   updateConnectionCredentials(params.connectionId, {
-    outboundCredentialHash: '',
-    outboundCredential: '',
     inboundCredentialHash: '',
     inboundCredential: '',
   });
@@ -877,6 +879,12 @@ export async function revokeConnection(params: {
       );
       finalStatus = 'revocation_pending';
     }
+  }
+
+  // Tombstone the outbound credential now if delivery succeeded (or there
+  // was no credential). When delivery failed, leave it intact for sweep retries.
+  if (finalStatus === 'revoked') {
+    tombstoneOutboundCredential(params.connectionId);
   }
 
   // Transition to the appropriate status

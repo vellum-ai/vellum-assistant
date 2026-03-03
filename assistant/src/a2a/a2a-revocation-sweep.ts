@@ -7,7 +7,7 @@
  * (local enforcement was already applied at revocation time).
  */
 
-import { listConnections, updateConnectionStatus } from './a2a-peer-connection-store.js';
+import { listConnections, tombstoneOutboundCredential, updateConnectionStatus } from './a2a-peer-connection-store.js';
 import { deliverRevocationNotification } from './a2a-revocation-delivery.js';
 import { getLogger } from '../util/logger.js';
 
@@ -77,22 +77,21 @@ export async function runRevocationSweep(): Promise<number> {
     attemptCounts.set(connection.id, attempts);
 
     // If we've exceeded max attempts, give up and mark as revoked.
-    // Local enforcement (credential tombstoning) was already applied.
+    // Tombstone the outbound credential since we're done retrying.
     if (attempts > MAX_REVOCATION_ATTEMPTS) {
       log.warn(
         { connectionId: connection.id, attempts },
         'Revocation sweep: max attempts exceeded, forcing revoked status',
       );
+      tombstoneOutboundCredential(connection.id);
       updateConnectionStatus(connection.id, 'revoked', 'revocation_pending');
       attemptCounts.delete(connection.id);
       processed++;
       continue;
     }
 
-    // The credentials were tombstoned at revocation time, so we can't sign
-    // the notification. We need to use whatever outbound credential we can
-    // salvage. Since credentials are already empty, the delivery will fail
-    // with no_credential — in that case, just force-transition to revoked.
+    // The outbound credential is preserved on revocation_pending connections
+    // so the sweep can sign retry delivery attempts.
     const result = await deliverRevocationNotification({
       connectionId: connection.id,
       peerGatewayUrl: connection.peerGatewayUrl,
@@ -104,10 +103,11 @@ export async function runRevocationSweep(): Promise<number> {
         { connectionId: connection.id, attempts },
         'Revocation sweep: notification delivered, transitioning to revoked',
       );
+      tombstoneOutboundCredential(connection.id);
       updateConnectionStatus(connection.id, 'revoked', 'revocation_pending');
       attemptCounts.delete(connection.id);
     } else if (result.reason === 'no_credential') {
-      // No credential available (already tombstoned) — force revoked
+      // No credential available — force revoked
       log.warn(
         { connectionId: connection.id },
         'Revocation sweep: no credential for signing, forcing revoked status',
