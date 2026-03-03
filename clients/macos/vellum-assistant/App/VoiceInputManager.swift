@@ -60,9 +60,6 @@ final class VoiceInputManager {
     private var holdTask: Task<Void, Never>?
     private var otherKeyPressedDuringHold = false  // True if any other key pressed while holding
     private static let holdDelay: UInt64 = 300_000_000 // 300ms in nanoseconds
-    /// Safety timeout for mouse activators: auto-stop if mouseUp is missed.
-    private static let mouseTimeoutSeconds: TimeInterval = 30
-    private var mouseTimeoutTask: Task<Void, Never>?
     private var lastAppSwitchTime: Date = .distantPast
     private var appSwitchObservers: [Any] = []
 
@@ -157,8 +154,6 @@ final class VoiceInputManager {
             NotificationCenter.default.removeObserver(observer)
         }
         appSwitchObservers = []
-        mouseTimeoutTask?.cancel()
-        mouseTimeoutTask = nil
         isActivatorHeld = false
         stopRecording()
         overlayWindow.dismiss()
@@ -210,14 +205,14 @@ final class VoiceInputManager {
         case .modifierOnly:
             setupModifierOnlyMonitors()
 
-        case .key:
-            setupKeyMonitors(activator: current)
-
-        case .modifierKey:
+        case .key, .modifierKey:
             setupKeyMonitors(activator: current)
 
         case .mouseButton:
-            setupMouseButtonMonitors(activator: current)
+            // Mouse button activators are not yet supported — fall back to
+            // the default Fn key behavior and log a warning.
+            log.warning("Mouse button activators are not yet supported, falling back to Fn")
+            setupModifierOnlyMonitors()
         }
     }
 
@@ -440,82 +435,6 @@ final class VoiceInputManager {
         isActivatorHeld = false
         holdTask?.cancel()
         holdTask = nil
-        if isRecording {
-            stopRecordingByMode()
-        }
-    }
-
-    // MARK: - Mouse Button Monitors
-
-    private func setupMouseButtonMonitors(activator: PTTActivator) {
-        guard let targetButton = activator.mouseButton, targetButton >= 2 else { return }
-
-        // Mouse monitors use MainActor.assumeIsolated instead of Task { @MainActor in }
-        // because Task { } provides no FIFO ordering guarantee — the mouseUp task can
-        // run before or simultaneously with the mouseDown task, causing recording to
-        // flash briefly on release instead of starting on press.
-        // NSEvent monitor callbacks already run on the main thread.
-        let globalMouseDown = NSEvent.addGlobalMonitorForEvents(matching: .otherMouseDown) { [weak self] event in
-            MainActor.assumeIsolated {
-                self?.handleMouseActivatorDown(event, targetButton: targetButton)
-            }
-        }
-        let localMouseDown = NSEvent.addLocalMonitorForEvents(matching: .otherMouseDown) { [weak self] event in
-            MainActor.assumeIsolated {
-                self?.handleMouseActivatorDown(event, targetButton: targetButton)
-            }
-            return event
-        }
-
-        let globalMouseUp = NSEvent.addGlobalMonitorForEvents(matching: .otherMouseUp) { [weak self] event in
-            MainActor.assumeIsolated {
-                self?.handleMouseActivatorUp(event, targetButton: targetButton)
-            }
-        }
-        let localMouseUp = NSEvent.addLocalMonitorForEvents(matching: .otherMouseUp) { [weak self] event in
-            MainActor.assumeIsolated {
-                self?.handleMouseActivatorUp(event, targetButton: targetButton)
-            }
-            return event
-        }
-
-        if let m = globalMouseDown { monitors.append(m) }
-        if let m = localMouseDown { monitors.append(m) }
-        if let m = globalMouseUp { monitors.append(m) }
-        if let m = localMouseUp { monitors.append(m) }
-    }
-
-    private func handleMouseActivatorDown(_ event: NSEvent, targetButton: Int) {
-        guard event.buttonNumber == targetButton else { return }
-        guard !isActivatorHeld else { return }
-
-        isActivatorHeld = true
-        guard !isRecording else { return }
-
-        // Mouse activators skip the 300ms hold delay and key polling — start immediately.
-        captureContextAndBeginRecording()
-
-        // Safety timeout: auto-stop if mouseUp is missed (e.g. focus lost).
-        mouseTimeoutTask?.cancel()
-        mouseTimeoutTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(Self.mouseTimeoutSeconds * 1_000_000_000))
-            guard !Task.isCancelled else { return }
-            guard let self = self else { return }
-            if self.isRecording && self.isActivatorHeld {
-                log.warning("Mouse activator safety timeout fired after \(Self.mouseTimeoutSeconds)s — stopping recording")
-                self.isActivatorHeld = false
-                self.stopRecordingByMode()
-            }
-        }
-    }
-
-    private func handleMouseActivatorUp(_ event: NSEvent, targetButton: Int) {
-        guard event.buttonNumber == targetButton else { return }
-        guard isActivatorHeld else { return }
-
-        isActivatorHeld = false
-        mouseTimeoutTask?.cancel()
-        mouseTimeoutTask = nil
         if isRecording {
             stopRecordingByMode()
         }

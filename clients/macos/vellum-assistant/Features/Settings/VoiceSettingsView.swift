@@ -116,7 +116,7 @@ struct VoiceSettingsView: View {
 
                         // Custom button / recording state
                         if isRecordingCustomKey {
-                            Button("Press any key or click a mouse button...") {
+                            Button("Press any key...") {
                                 stopRecordingCustomKey()
                             }
                             .buttonStyle(.plain)
@@ -211,21 +211,10 @@ struct VoiceSettingsView: View {
             return event
         }
 
-        // Monitor otherMouseDown for mouse buttons
-        let globalMouse = NSEvent.addGlobalMonitorForEvents(matching: .otherMouseDown) { [self] event in
-            handleRecordingMouseDown(event)
-        }
-        let localMouse = NSEvent.addLocalMonitorForEvents(matching: .otherMouseDown) { [self] event in
-            handleRecordingMouseDown(event)
-            return event
-        }
-
         if let m = globalFlags { recordingMonitors.append(m) }
         if let m = localFlags { recordingMonitors.append(m) }
         if let m = globalKeyDown { recordingMonitors.append(m) }
         if let m = localKeyDown { recordingMonitors.append(m) }
-        if let m = globalMouse { recordingMonitors.append(m) }
-        if let m = localMouse { recordingMonitors.append(m) }
     }
 
     private func stopRecordingCustomKey() {
@@ -282,18 +271,6 @@ struct VoiceSettingsView: View {
 
         selectActivator(activator)
         return true
-    }
-
-    private func handleRecordingMouseDown(_ event: NSEvent) {
-        // Exclude left (0) and right (1) mouse buttons
-        guard event.buttonNumber >= 2 else { return }
-
-        // Cancel modifier-only timer
-        modifierHoldTimer?.invalidate()
-        modifierHoldTimer = nil
-
-        let activator = PTTActivator.mouseButton(event.buttonNumber)
-        selectActivator(activator)
     }
 
     // MARK: - Wake Word Card
