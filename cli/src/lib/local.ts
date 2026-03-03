@@ -180,6 +180,10 @@ async function startDaemonFromSource(assistantIndex: string): Promise<void> {
   });
 }
 
+// NOTE: startDaemonWatchFromSource() is the CLI-side watch-mode daemon
+// launcher. Its lifecycle guards should eventually converge with
+// assistant/src/daemon/daemon-control.ts::startDaemon which is the
+// assistant-side equivalent.
 async function startDaemonWatchFromSource(assistantIndex: string): Promise<void> {
   const mainPath = resolveDaemonMainPath(assistantIndex);
   if (!existsSync(mainPath)) {
@@ -188,6 +192,45 @@ async function startDaemonWatchFromSource(assistantIndex: string): Promise<void>
 
   const vellumDir = join(homedir(), ".vellum");
   mkdirSync(vellumDir, { recursive: true });
+
+  const pidFile = join(vellumDir, "vellum.pid");
+  const socketFile = join(vellumDir, "vellum.sock");
+
+  // --- Lifecycle guard: prevent split-brain daemon state ---
+  // If a daemon is already running, skip spawning a new one.
+  if (existsSync(pidFile)) {
+    try {
+      const pid = parseInt(readFileSync(pidFile, "utf-8").trim(), 10);
+      if (!isNaN(pid)) {
+        try {
+          process.kill(pid, 0); // Check if alive
+          console.log(`   Daemon already running (pid ${pid})\n`);
+          return;
+        } catch {
+          // Process doesn't exist, clean up stale PID file
+          try { unlinkSync(pidFile); } catch {}
+        }
+      }
+    } catch {}
+  }
+
+  // PID file was stale or missing, but a daemon with a different PID may
+  // still be listening on the socket. Check before starting a new one.
+  if (await isSocketResponsive(socketFile)) {
+    const ownerPid = findSocketOwnerPid(socketFile);
+    if (ownerPid) {
+      writeFileSync(pidFile, String(ownerPid), "utf-8");
+      console.log(
+        `   Daemon socket is responsive (pid ${ownerPid}) — skipping restart\n`,
+      );
+    } else {
+      console.log("   Daemon socket is responsive — skipping restart\n");
+    }
+    return;
+  }
+
+  // Socket is unresponsive or missing — safe to clean up and start fresh.
+  try { unlinkSync(socketFile); } catch {}
 
   const env: Record<string, string | undefined> = {
     ...process.env,
@@ -209,7 +252,6 @@ async function startDaemonWatchFromSource(assistantIndex: string): Promise<void>
   }
 
   if (daemonPid) {
-    const pidFile = join(vellumDir, "vellum.pid");
     writeFileSync(pidFile, String(daemonPid), "utf-8");
   }
 
@@ -457,6 +499,10 @@ function getLocalLanIPv4(): string | undefined {
   return undefined;
 }
 
+// NOTE: startLocalDaemon() is the CLI-side daemon lifecycle manager.
+// It should eventually converge with
+// assistant/src/daemon/daemon-control.ts::startDaemon which is the
+// assistant-side equivalent.
 export async function startLocalDaemon(watch: boolean = false): Promise<void> {
   if (process.env.VELLUM_DESKTOP_APP && !watch) {
     // When running inside the desktop app, the CLI owns the daemon lifecycle.

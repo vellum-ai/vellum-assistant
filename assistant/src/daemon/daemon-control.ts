@@ -251,44 +251,9 @@ function releaseStartupLock(): void {
   try { unlinkSync(getStartupLockPath()); } catch { /* already removed */ }
 }
 
-/**
- * Shared pre-start cleanup used by both the parent process
- * (startDaemonLocked) and the daemon child (guardDaemonStartup):
- * kills any stale daemon from a prior run, ensures the root directory
- * exists, and removes the stale socket file so the new daemon can bind
- * cleanly.
- */
-function cleanupBeforeStart(): void {
-  killStaleDaemon();
-
-  const rootDir = getRootDir();
-  if (!existsSync(rootDir)) {
-    mkdirSync(rootDir, { recursive: true });
-  }
-
-  removeSocketFile(getSocketPath());
-}
-
-/**
- * Lifecycle guard: ensures only one daemon runs per workspace.
- *
- * Checks whether a healthy daemon is already running. If so, exits the
- * process (exit 0) to prevent split-brain state. Otherwise, runs shared
- * pre-start cleanup (kill stale daemon, ensure root dir, remove socket).
- *
- * Called from daemon/main.ts so that every entry point (normal start,
- * --watch, dev) is protected — not just the `daemon start` parent process.
- */
-export async function guardDaemonStartup(): Promise<void> {
-  const status = await getDaemonStatus();
-  if (status.running) {
-    log.info({ pid: status.pid }, 'Daemon already running — exiting');
-    process.exit(0);
-  }
-
-  cleanupBeforeStart();
-}
-
+// NOTE: startDaemon() is the assistant-side daemon lifecycle manager.
+// It should eventually converge with cli/src/lib/local.ts::startLocalDaemon
+// which is the CLI-side equivalent.
 export async function startDaemon(): Promise<{
   pid: number;
   alreadyRunning: boolean;
@@ -343,10 +308,22 @@ async function startDaemonLocked(): Promise<{
   pid: number;
   alreadyRunning: boolean;
 }> {
-  cleanupBeforeStart();
+  // Kill a stale daemon recorded in this workspace's PID file (e.g., after
+  // a crash where the process is alive but non-responsive).
+  killStaleDaemon();
 
+  // Only create the root dir for socket/PID — the daemon process itself
+  // handles migration + full ensureDataDir() in runDaemon(). Calling
+  // ensureDataDir() here would pre-create workspace destination dirs
+  // and cause migration moves to no-op.
   const rootDir = getRootDir();
+  if (!existsSync(rootDir)) {
+    mkdirSync(rootDir, { recursive: true });
+  }
+
+  // Clean up stale socket (only if it's actually a Unix socket)
   const socketPath = getSocketPath();
+  removeSocketFile(socketPath);
 
   // Spawn the daemon as a detached child process
   const mainPath = resolve(
