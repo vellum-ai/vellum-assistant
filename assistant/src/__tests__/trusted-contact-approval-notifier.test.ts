@@ -120,6 +120,11 @@ mock.module("../config/env.js", () => ({
   getGatewayInternalBaseUrl: () => "http://localhost:3000",
 }));
 
+// ── User reference mock ──
+mock.module("../config/user-reference.js", () => ({
+  resolveUserReference: () => "my human",
+}));
+
 // Import module under test AFTER mocks are set up
 import type { ChannelId } from "../channels/types.js";
 import type { GuardianContext } from "../runtime/guardian-context-resolver.js";
