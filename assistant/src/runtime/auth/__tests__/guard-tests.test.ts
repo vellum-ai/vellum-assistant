@@ -247,8 +247,11 @@ describe('scope profile contract', () => {
       'internal.write',
     ],
     gateway_service_v1: [
+      'chat.write',
       'settings.read',
       'settings.write',
+      'attachments.read',
+      'attachments.write',
       'internal.write',
     ],
     ipc_v1: [
