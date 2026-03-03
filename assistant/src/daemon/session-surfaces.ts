@@ -151,6 +151,10 @@ export interface SurfaceSessionContext {
     onEvent: (msg: ServerMessage) => void,
     requestId: string,
     activeSurfaceId?: string,
+    currentPage?: string,
+    metadata?: Record<string, unknown>,
+    options?: { isInteractive?: boolean },
+    displayContent?: string,
   ): { queued: boolean; rejected?: boolean; requestId: string };
   getQueueDepth(): number;
   processMessage(
@@ -158,6 +162,10 @@ export interface SurfaceSessionContext {
     attachments: never[],
     onEvent: (msg: ServerMessage) => void,
     requestId?: string,
+    activeSurfaceId?: string,
+    currentPage?: string,
+    options?: { isInteractive?: boolean },
+    displayContent?: string,
   ): Promise<string>;
   /** Serialize operations on a given surface to prevent read-modify-write races. */
   withSurface<T>(surfaceId: string, fn: () => T | Promise<T>): Promise<T>;
@@ -406,6 +414,8 @@ export function handleSurfaceAction(ctx: SurfaceSessionContext, surfaceId: strin
     fallbackContent += `\n\nAction data: ${JSON.stringify(data)}`;
   }
   const content = prompt || fallbackContent;
+  // Show the user plain-text instead of raw JSON action data.
+  const displayContent = prompt ? undefined : buildUserFacingLabel(pending.surfaceType, actionId, data);
 
   const requestId = uuid();
   ctx.surfaceActionRequestIds.add(requestId);
@@ -426,7 +436,7 @@ export function handleSurfaceAction(ctx: SurfaceSessionContext, surfaceId: strin
     attributes: { source: 'surface_action', surfaceId, actionId },
   });
 
-  const result = ctx.enqueueMessage(content, [], onEvent, requestId, surfaceId);
+  const result = ctx.enqueueMessage(content, [], onEvent, requestId, surfaceId, undefined, undefined, undefined, displayContent);
   if (result.queued) {
     const position = ctx.getQueueDepth();
     if (!retainPending) {
@@ -467,7 +477,7 @@ export function handleSurfaceAction(ctx: SurfaceSessionContext, surfaceId: strin
     ctx.pendingSurfaceActions.delete(surfaceId);
   }
   log.info({ surfaceId, actionId, requestId }, 'Processing surface action as follow-up');
-  ctx.processMessage(content, [], onEvent, requestId).catch((err) => {
+  ctx.processMessage(content, [], onEvent, requestId, undefined, undefined, undefined, displayContent).catch((err) => {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err, surfaceId, actionId }, 'Error processing surface action');
     onEvent({ type: 'error', message: `Failed to process surface action: ${message}` });
@@ -543,6 +553,36 @@ export function buildCompletionSummary(surfaceType: string | undefined, actionId
     if (selectedIds?.length) return `Selected ${selectedIds.length} rows${actionSuffix}`;
   }
   return actionId.charAt(0).toUpperCase() + actionId.slice(1);
+}
+
+/**
+ * Build a plain-text label shown to the user in the chat bubble for a
+ * surface action. Unlike `buildCompletionSummary` (which is for the LLM),
+ * this produces natural language the user can glance at.
+ */
+export function buildUserFacingLabel(surfaceType: string | undefined, actionId: string, data?: Record<string, unknown>): string {
+  const count = (data?.selectedIds as string[] | undefined)?.length;
+
+  if (surfaceType === 'confirmation') {
+    if (actionId === 'cancel') return 'Cancelled';
+    if (actionId === 'confirm') return 'Confirmed';
+    return `Selected: ${actionId}`;
+  }
+  if (surfaceType === 'form') return 'Submitted';
+
+  // Table / list selection actions
+  if (count) {
+    const noun = count === 1 ? 'item' : 'items';
+    const action = actionId
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+    return `${action} ${count} ${noun}`;
+  }
+
+  // Generic fallback — humanize the action ID
+  return actionId
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 /**
