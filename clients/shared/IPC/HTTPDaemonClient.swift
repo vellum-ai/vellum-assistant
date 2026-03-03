@@ -18,6 +18,14 @@ struct AssistantEvent: Decodable {
     let message: ServerMessage
 }
 
+/// NDJSON line wrapper. Each line from the events endpoint is a JSON object
+/// with `event`, `id`, and `data` fields.
+private struct NdjsonEventLine: Decodable {
+    let event: String
+    let id: String?
+    let data: AssistantEvent?
+}
+
 // MARK: - Conversations List Response
 
 /// Response shape from `GET /v1/conversations`.
@@ -404,7 +412,7 @@ public final class HTTPTransport {
         }
 
         var request = URLRequest(url: url)
-        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        request.setValue("application/x-ndjson", forHTTPHeaderField: "Accept")
         request.timeoutInterval = .infinity
         applyAuth(&request)
 
@@ -433,21 +441,12 @@ public final class HTTPTransport {
                 }
 
                 self.setSSEConnected(true)
-                log.info("SSE stream connected to \(url.absoluteString, privacy: .public)")
-
-                var dataBuffer = ""
+                log.info("NDJSON stream connected to \(url.absoluteString, privacy: .public)")
 
                 for try await line in bytes.lines {
                     if Task.isCancelled { break }
-
-                    if line.hasPrefix("data: ") {
-                        dataBuffer += String(line.dropFirst(6))
-                    } else if line.isEmpty && !dataBuffer.isEmpty {
-                        // End of SSE event — parse accumulated data
-                        self.parseSSEData(dataBuffer)
-                        dataBuffer = ""
-                    }
-                    // Skip event:, id:, retry: lines — we only need data:
+                    if line.isEmpty { continue }
+                    self.parseNdjsonLine(line)
                 }
             } catch {
                 if !Task.isCancelled {
@@ -461,20 +460,22 @@ public final class HTTPTransport {
         }
     }
 
-    private func parseSSEData(_ data: String) {
-        guard let jsonData = data.data(using: .utf8) else { return }
+    private func parseNdjsonLine(_ line: String) {
+        guard let jsonData = line.data(using: .utf8) else { return }
 
         do {
-            let event = try decoder.decode(AssistantEvent.self, from: jsonData)
+            let envelope = try decoder.decode(NdjsonEventLine.self, from: jsonData)
+            // Heartbeat events have no data — skip them.
+            guard let event = envelope.data else { return }
             handleServerMessage(event.message)
         } catch {
-            // Try decoding as a bare ServerMessage (some endpoints may send unwrapped)
+            // Fallback: try decoding as a bare AssistantEvent (backward compat)
             do {
-                let message = try decoder.decode(ServerMessage.self, from: jsonData)
-                handleServerMessage(message)
+                let event = try decoder.decode(AssistantEvent.self, from: jsonData)
+                handleServerMessage(event.message)
             } catch {
                 let byteCount = jsonData.count
-                log.error("Failed to decode SSE event: \(error.localizedDescription), bytes: \(byteCount)")
+                log.error("Failed to decode NDJSON event: \(error.localizedDescription), bytes: \(byteCount)")
             }
         }
     }

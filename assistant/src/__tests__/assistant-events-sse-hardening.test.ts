@@ -264,7 +264,8 @@ describe("SSE route — heartbeat", () => {
     reader.cancel();
 
     const text = new TextDecoder().decode(value);
-    expect(text).toBe(": heartbeat\n\n");
+    const parsed = JSON.parse(text.trim());
+    expect(parsed.event).toBe("heartbeat");
   });
 
   test("emits multiple heartbeats over time", async () => {
@@ -302,7 +303,12 @@ describe("SSE route — heartbeat", () => {
     reader.cancel();
 
     expect(chunks.length).toBeGreaterThan(0);
-    expect(chunks.every((c) => c === ": heartbeat\n\n")).toBe(true);
+    expect(chunks.every((c) => {
+      try {
+        const parsed = JSON.parse(c.trim());
+        return parsed.event === "heartbeat";
+      } catch { return false; }
+    })).toBe(true);
   });
 });
 

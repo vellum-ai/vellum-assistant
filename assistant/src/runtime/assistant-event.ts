@@ -53,31 +53,34 @@ export function buildAssistantEvent(
   };
 }
 
-// ── SSE framing ───────────────────────────────────────────────────────────────
+// ── NDJSON framing ────────────────────────────────────────────────────────────
 
 /**
- * Format an AssistantEvent as a Server-Sent Events frame.
+ * Format an AssistantEvent as an NDJSON line.
  *
- * The SSE spec (https://html.spec.whatwg.org/multipage/server-sent-events.html)
- * requires each field on its own line with a trailing blank line.
+ * Each event is serialized as a single JSON object on its own line,
+ * containing the SSE-equivalent fields (`event`, `id`, `data`).
  *
  * ```
- * event: assistant_event\n
- * id: <event.id>\n
- * data: <JSON>\n
- * \n
+ * {"event":"assistant_event","id":"<event.id>","data":{...}}\n
  * ```
  */
 export function formatSseFrame(event: AssistantEvent): string {
-  const sanitizedId = event.id.replace(/[\n\r]/g, '');
-  const data = JSON.stringify(event);
-  return `event: assistant_event\nid: ${sanitizedId}\ndata: ${data}\n\n`;
+  const line = JSON.stringify({
+    event: 'assistant_event',
+    id: event.id,
+    data: event,
+  });
+  return line + '\n';
 }
 
 /**
- * Format a keep-alive SSE comment.
- * Clients should ignore comment lines (`:`) per the SSE spec.
+ * Format a keep-alive heartbeat as an NDJSON line.
+ *
+ * ```
+ * {"event":"heartbeat"}\n
+ * ```
  */
 export function formatSseHeartbeat(): string {
-  return ': heartbeat\n\n';
+  return JSON.stringify({ event: 'heartbeat' }) + '\n';
 }

@@ -159,7 +159,7 @@ describe("SSE assistant-events endpoint", () => {
     const response = handleSubscribeAssistantEvents(req, new URL(req.url));
 
     expect(response.status).toBe(200);
-    expect(response.headers.get("content-type")).toContain("text/event-stream");
+    expect(response.headers.get("content-type")).toContain("application/x-ndjson");
 
     // start() is called synchronously during ReadableStream construction, so the
     // hub subscription is already registered before we publish.
@@ -173,9 +173,10 @@ describe("SSE assistant-events endpoint", () => {
 
     expect(done).toBe(false);
     const frame = new TextDecoder().decode(value);
-    expect(frame).toContain("event: assistant_event");
-    expect(frame).toContain(`"assistantId":"self"`);
-    expect(frame).toContain(`"sessionId":"${conversationId}"`);
-    expect(frame).toContain('"type":"pong"');
+    const parsed = JSON.parse(frame.trim());
+    expect(parsed.event).toBe("assistant_event");
+    expect(parsed.data.assistantId).toBe("self");
+    expect(parsed.data.sessionId).toBe(conversationId);
+    expect(parsed.data.message.type).toBe("pong");
   });
 });

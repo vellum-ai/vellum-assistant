@@ -110,10 +110,9 @@ async function publishAndReadFrame(
   ac.abort();
 
   const frame = new TextDecoder().decode(value);
-  // SSE frame: "event: assistant_event\nid: <id>\ndata: <json>\n\n"
-  const dataLine = frame.split("\n").find((l) => l.startsWith("data: "));
-  if (!dataLine) throw new Error(`No data line in SSE frame:\n${frame}`);
-  return JSON.parse(dataLine.slice("data: ".length)) as AssistantEvent;
+  // NDJSON line: {"event":"assistant_event","id":"<id>","data":{...}}\n
+  const parsed = JSON.parse(frame.trim()) as { event: string; id: string; data: AssistantEvent };
+  return parsed.data;
 }
 
 // ---------------------------------------------------------------------------
@@ -370,18 +369,16 @@ describe("SSE IPC parity — streaming/delta message types", () => {
     ac.abort();
 
     const frame = new TextDecoder().decode(value);
-    const dataLine = frame.split("\n").find((l) => l.startsWith("data: "))!;
-    const received = JSON.parse(
-      dataLine.slice("data: ".length),
-    ) as AssistantEvent;
+    const parsed = JSON.parse(frame.trim()) as { event: string; id: string; data: AssistantEvent };
+    const received = parsed.data;
 
     // Envelope fields
     expect(received.id).toBe(published.id);
     expect(received.assistantId).toBe("self");
     expect(received.sessionId).toBe(conversationId);
     expect(received.emittedAt).toBe(published.emittedAt);
-    // SSE frame fields
-    expect(frame).toContain("event: assistant_event");
-    expect(frame).toContain(`id: ${published.id}`);
+    // NDJSON wrapper fields
+    expect(parsed.event).toBe("assistant_event");
+    expect(parsed.id).toBe(published.id);
   });
 });
