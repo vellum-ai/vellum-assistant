@@ -28,7 +28,7 @@ struct SettingsAutomationTab: View {
                                 .font(VFont.caption)
                                 .foregroundColor(VColor.textMuted)
                         }
-                        VButton(label: "Manage...", style: .secondary, size: .large) {
+                        VButton(label: "Manage...", style: .secondary, size: .medium) {
                             showingReminders = true
                         }
                     }
@@ -52,7 +52,7 @@ struct SettingsAutomationTab: View {
                                 .font(VFont.caption)
                                 .foregroundColor(VColor.textMuted)
                         }
-                        VButton(label: "Manage...", style: .secondary, size: .large) {
+                        VButton(label: "Manage...", style: .secondary, size: .medium) {
                             showingScheduledTasks = true
                         }
                     }

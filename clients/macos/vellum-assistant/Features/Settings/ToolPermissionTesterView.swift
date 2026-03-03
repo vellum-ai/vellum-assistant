@@ -193,7 +193,7 @@ struct ToolPermissionTesterView: View {
     @ViewBuilder
     private var simulateButton: some View {
         HStack(spacing: VSpacing.sm) {
-            VButton(label: model.isSimulating ? "Simulating\u{2026}" : "Simulate", style: .primary, size: .large) {
+            VButton(label: model.isSimulating ? "Simulating\u{2026}" : "Simulate", style: .primary, size: .medium) {
                 model.simulate()
             }
             .disabled(!model.canSimulate)

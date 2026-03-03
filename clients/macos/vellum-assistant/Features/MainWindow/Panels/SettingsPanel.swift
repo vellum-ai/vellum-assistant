@@ -281,8 +281,8 @@ struct SettingsPanel: View {
                     }
 
                     HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .large) {}
-                        VButton(label: "Clear", style: .danger, size: .large) {
+                        VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .medium) {}
+                        VButton(label: "Clear", style: .danger, size: .medium) {
                             store.clearAPIKey()
                             apiKeyText = ""
                             anthropicSetupExpanded = false
@@ -312,20 +312,20 @@ struct SettingsPanel: View {
                         }
 
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Save", style: .primary, size: .large) {
+                            VButton(label: "Save", style: .primary, size: .medium) {
                                 store.saveAPIKey(apiKeyText)
                                 apiKeyText = ""
                                 anthropicSetupExpanded = false
                             }
                             .disabled(apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            VButton(label: "Cancel", style: .tertiary, size: .large) {
+                            VButton(label: "Cancel", style: .tertiary, size: .medium) {
                                 apiKeyText = ""
                                 anthropicSetupExpanded = false
                             }
                         }
                     }
                 } else {
-                    VButton(label: "Set Up", style: .secondary, size: .large) {
+                    VButton(label: "Set Up", style: .secondary, size: .medium) {
                         anthropicSetupExpanded = true
                     }
                 }
@@ -347,8 +347,8 @@ struct SettingsPanel: View {
 
                 if store.hasPerplexityKey {
                     HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .large) {}
-                        VButton(label: "Clear", style: .danger, size: .large) {
+                        VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .medium) {}
+                        VButton(label: "Clear", style: .danger, size: .medium) {
                             store.clearPerplexityKey()
                             perplexityKeyText = ""
                             perplexitySetupExpanded = false
@@ -378,20 +378,20 @@ struct SettingsPanel: View {
                         }
 
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Save", style: .primary, size: .large) {
+                            VButton(label: "Save", style: .primary, size: .medium) {
                                 store.savePerplexityKey(perplexityKeyText)
                                 perplexityKeyText = ""
                                 perplexitySetupExpanded = false
                             }
                             .disabled(perplexityKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            VButton(label: "Cancel", style: .tertiary, size: .large) {
+                            VButton(label: "Cancel", style: .tertiary, size: .medium) {
                                 perplexityKeyText = ""
                                 perplexitySetupExpanded = false
                             }
                         }
                     }
                 } else {
-                    VButton(label: "Set Up", style: .secondary, size: .large) {
+                    VButton(label: "Set Up", style: .secondary, size: .medium) {
                         perplexitySetupExpanded = true
                     }
                 }
@@ -413,8 +413,8 @@ struct SettingsPanel: View {
 
                 if store.hasBraveKey {
                     HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .large) {}
-                        VButton(label: "Clear", style: .danger, size: .large) {
+                        VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .medium) {}
+                        VButton(label: "Clear", style: .danger, size: .medium) {
                             store.clearBraveKey()
                             braveKeyText = ""
                             braveSetupExpanded = false
@@ -444,20 +444,20 @@ struct SettingsPanel: View {
                         }
 
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Save", style: .primary, size: .large) {
+                            VButton(label: "Save", style: .primary, size: .medium) {
                                 store.saveBraveKey(braveKeyText)
                                 braveKeyText = ""
                                 braveSetupExpanded = false
                             }
                             .disabled(braveKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            VButton(label: "Cancel", style: .tertiary, size: .large) {
+                            VButton(label: "Cancel", style: .tertiary, size: .medium) {
                                 braveKeyText = ""
                                 braveSetupExpanded = false
                             }
                         }
                     }
                 } else {
-                    VButton(label: "Set Up", style: .secondary, size: .large) {
+                    VButton(label: "Set Up", style: .secondary, size: .medium) {
                         braveSetupExpanded = true
                     }
                 }
@@ -479,8 +479,8 @@ struct SettingsPanel: View {
 
                 if store.hasImageGenKey {
                     HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .large) {}
-                        VButton(label: "Clear", style: .danger, size: .large) {
+                        VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .medium) {}
+                        VButton(label: "Clear", style: .danger, size: .medium) {
                             store.clearImageGenKey()
                             imageGenKeyText = ""
                             imageGenSetupExpanded = false
@@ -531,20 +531,20 @@ struct SettingsPanel: View {
                         }
 
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Save", style: .primary, size: .large) {
+                            VButton(label: "Save", style: .primary, size: .medium) {
                                 store.saveImageGenKey(imageGenKeyText)
                                 imageGenKeyText = ""
                                 imageGenSetupExpanded = false
                             }
                             .disabled(imageGenKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            VButton(label: "Cancel", style: .tertiary, size: .large) {
+                            VButton(label: "Cancel", style: .tertiary, size: .medium) {
                                 imageGenKeyText = ""
                                 imageGenSetupExpanded = false
                             }
                         }
                     }
                 } else {
-                    VButton(label: "Set Up", style: .secondary, size: .large) {
+                    VButton(label: "Set Up", style: .secondary, size: .medium) {
                         imageGenSetupExpanded = true
                     }
                 }
@@ -592,8 +592,8 @@ struct SettingsPanel: View {
                 // Connected state
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .large) {}
-                        VButton(label: "Disconnect", style: .danger, size: .large) {
+                        VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .medium) {}
+                        VButton(label: "Disconnect", style: .danger, size: .medium) {
                             store.disconnectTwitter()
                         }
                     }
@@ -608,7 +608,7 @@ struct SettingsPanel: View {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     if store.twitterAuthInProgress {
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Connect", style: .primary, size: .large) {}
+                            VButton(label: "Connect", style: .primary, size: .medium) {}
                                 .disabled(true)
                             ProgressView()
                                 .controlSize(.small)
@@ -618,11 +618,11 @@ struct SettingsPanel: View {
                         }
                     } else {
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Connect", style: .primary, size: .large) {
+                            VButton(label: "Connect", style: .primary, size: .medium) {
                                 store.connectTwitter()
                             }
                             // Reconfigure replaces the old "Clear App Config" footer button
-                            VButton(label: "Reconfigure", style: .secondary, size: .large) {
+                            VButton(label: "Reconfigure", style: .secondary, size: .medium) {
                                 store.clearTwitterLocalClient()
                                 twitterClientId = ""
                                 twitterClientSecret = ""
@@ -671,7 +671,7 @@ struct SettingsPanel: View {
                     }
 
                     HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Save", style: .primary, size: .large) {
+                        VButton(label: "Save", style: .primary, size: .medium) {
                             store.saveTwitterLocalClient(
                                 clientId: twitterClientId,
                                 clientSecret: twitterClientSecret.isEmpty ? nil : twitterClientSecret
@@ -681,7 +681,7 @@ struct SettingsPanel: View {
                             twitterSetupExpanded = false
                         }
                         .disabled(twitterClientId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        VButton(label: "Cancel", style: .tertiary, size: .large) {
+                        VButton(label: "Cancel", style: .tertiary, size: .medium) {
                             twitterSetupExpanded = false
                             twitterClientId = ""
                             twitterClientSecret = ""
@@ -691,7 +691,7 @@ struct SettingsPanel: View {
             } else {
                 // Not configured — show Set Up entry point
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    VButton(label: "Set Up", style: .secondary, size: .large) {
+                    VButton(label: "Set Up", style: .secondary, size: .medium) {
                         twitterSetupExpanded = true
                     }
                     // Managed mode is on the roadmap; surface it as a soft note
@@ -795,7 +795,7 @@ struct SettingsPanel: View {
                                 .font(VFont.caption)
                                 .foregroundColor(VColor.textMuted)
                         }
-                        VButton(label: "Manage...", style: .secondary, size: .large) {
+                        VButton(label: "Manage...", style: .secondary, size: .medium) {
                             daemonClient?.isTrustRulesSheetOpen = true
                             showingTrustRules = true
                         }
