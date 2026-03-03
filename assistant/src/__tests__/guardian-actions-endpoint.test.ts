@@ -58,6 +58,7 @@ mock.module("../approvals/guardian-decision-primitive.js", () => ({
 
 import { guardianActionsHandlers } from "../daemon/handlers/guardian-actions.js";
 import {
+  createCanonicalGuardianDelivery,
   createCanonicalGuardianRequest,
   generateCanonicalRequestCode,
 } from "../memory/canonical-guardian-store.js";
@@ -99,6 +100,7 @@ function ensureConversation(id: string): void {
 
 function resetTables(): void {
   const db = getDb();
+  db.run("DELETE FROM canonical_guardian_deliveries");
   db.run("DELETE FROM canonical_guardian_requests");
   db.run("DELETE FROM channel_guardian_approval_requests");
   db.run("DELETE FROM conversations");
@@ -277,6 +279,37 @@ describe("HTTP handleGuardianActionDecision", () => {
         requestId: "req-scope-2",
         action: "reject",
         conversationId: "conv-match",
+      }),
+    });
+    const res = await handleGuardianActionDecision(req, mockAuthContext);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.applied).toBe(true);
+  });
+
+  test("allows decision when conversationId matches a delivery destination", async () => {
+    createTestCanonicalRequest({
+      conversationId: "conv-source-http",
+      requestId: "req-dest-scope-http",
+      kind: "pending_question",
+    });
+    createCanonicalGuardianDelivery({
+      requestId: "req-dest-scope-http",
+      destinationChannel: "vellum",
+      destinationConversationId: "conv-guardian-thread",
+    });
+    mockApplyCanonicalGuardianDecision.mockResolvedValueOnce({
+      applied: true,
+      requestId: "req-dest-scope-http",
+      grantMinted: false,
+    });
+
+    const req = new Request("http://localhost/v1/guardian-actions/decision", {
+      method: "POST",
+      body: JSON.stringify({
+        requestId: "req-dest-scope-http",
+        action: "approve_once",
+        conversationId: "conv-guardian-thread",
       }),
     });
     const res = await handleGuardianActionDecision(req, mockAuthContext);
@@ -588,6 +621,67 @@ describe("listGuardianDecisionPrompts", () => {
     expect(promptsB).toHaveLength(1);
     expect(promptsB[0].requestId).toBe("req-b");
   });
+
+  test("includes requests delivered to the queried destination conversation", () => {
+    createTestCanonicalRequest({
+      conversationId: "conv-source",
+      requestId: "req-dest-1",
+      kind: "pending_question",
+      questionText: "What should I do?",
+    });
+    createCanonicalGuardianDelivery({
+      requestId: "req-dest-1",
+      destinationChannel: "vellum",
+      destinationConversationId: "conv-guardian-dest",
+    });
+
+    const prompts = listGuardianDecisionPrompts({
+      conversationId: "conv-guardian-dest",
+    });
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0].requestId).toBe("req-dest-1");
+    expect(prompts[0].questionText).toBe("What should I do?");
+  });
+
+  test("normalizes prompt conversationId to the queried thread ID", () => {
+    createTestCanonicalRequest({
+      conversationId: "conv-source-norm",
+      requestId: "req-norm-1",
+      kind: "access_request",
+      questionText: "Grant access?",
+    });
+    createCanonicalGuardianDelivery({
+      requestId: "req-norm-1",
+      destinationChannel: "vellum",
+      destinationConversationId: "conv-dest-norm",
+    });
+
+    const prompts = listGuardianDecisionPrompts({
+      conversationId: "conv-dest-norm",
+    });
+    expect(prompts).toHaveLength(1);
+    // conversationId should be normalized to the queried thread, not the source
+    expect(prompts[0].conversationId).toBe("conv-dest-norm");
+  });
+
+  test("deduplicates requests found by both source and destination", () => {
+    createTestCanonicalRequest({
+      conversationId: "conv-same",
+      requestId: "req-dedup-1",
+    });
+    // Deliver to the same conversation (source == destination)
+    createCanonicalGuardianDelivery({
+      requestId: "req-dedup-1",
+      destinationChannel: "vellum",
+      destinationConversationId: "conv-same",
+    });
+
+    const prompts = listGuardianDecisionPrompts({
+      conversationId: "conv-same",
+    });
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0].requestId).toBe("req-dedup-1");
+  });
 });
 
 // =========================================================================
@@ -705,6 +799,38 @@ describe("IPC guardian_action_decision", () => {
         requestId: "req-ipc-match",
         action: "reject",
         conversationId: "conv-ipc-match",
+      } as any,
+      socket as any,
+      ctx as any,
+    );
+    expect(sent).toHaveLength(1);
+    expect(sent[0].applied).toBe(true);
+  });
+
+  test("allows decision when conversationId matches a delivery destination", async () => {
+    createTestCanonicalRequest({
+      conversationId: "conv-ipc-source",
+      requestId: "req-ipc-dest-scope",
+      kind: "pending_question",
+    });
+    createCanonicalGuardianDelivery({
+      requestId: "req-ipc-dest-scope",
+      destinationChannel: "vellum",
+      destinationConversationId: "conv-ipc-guardian-thread",
+    });
+    mockApplyCanonicalGuardianDecision.mockResolvedValueOnce({
+      applied: true,
+      requestId: "req-ipc-dest-scope",
+      grantMinted: false,
+    });
+
+    const { socket, ctx, sent } = createIpcStub();
+    await handler(
+      {
+        type: "guardian_action_decision",
+        requestId: "req-ipc-dest-scope",
+        action: "approve_once",
+        conversationId: "conv-ipc-guardian-thread",
       } as any,
       socket as any,
       ctx as any,
@@ -848,5 +974,39 @@ describe("IPC guardian_actions_pending_request", () => {
     expect(sent).toHaveLength(1);
     const prompts = sent[0].prompts as unknown[];
     expect(prompts).toHaveLength(0);
+  });
+
+  test("returns prompts delivered to the queried destination conversation", () => {
+    createTestCanonicalRequest({
+      conversationId: "conv-ipc-source-list",
+      requestId: "req-ipc-dest-list",
+      kind: "pending_question",
+      questionText: "Voice question?",
+    });
+    createCanonicalGuardianDelivery({
+      requestId: "req-ipc-dest-list",
+      destinationChannel: "vellum",
+      destinationConversationId: "conv-ipc-dest-list",
+    });
+
+    const { socket, ctx, sent } = createIpcStub();
+    handler(
+      {
+        type: "guardian_actions_pending_request",
+        conversationId: "conv-ipc-dest-list",
+      } as any,
+      socket as any,
+      ctx as any,
+    );
+    expect(sent).toHaveLength(1);
+    const prompts = sent[0].prompts as Array<{
+      requestId: string;
+      questionText: string;
+      conversationId: string;
+    }>;
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0].requestId).toBe("req-ipc-dest-list");
+    expect(prompts[0].questionText).toBe("Voice question?");
+    expect(prompts[0].conversationId).toBe("conv-ipc-dest-list");
   });
 });

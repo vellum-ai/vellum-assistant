@@ -57,6 +57,19 @@ mock.module("../memory/canonical-guardian-store.js", () => ({
   ) => listPendingByDestinationMock(conversationId, sourceChannel),
   listCanonicalGuardianRequests: (filters?: Record<string, unknown>) =>
     listCanonicalMock(filters),
+  listPendingRequestsByConversationScope: (conversationId: string) => {
+    const byDest = listPendingByDestinationMock(conversationId);
+    const bySrc = listCanonicalMock({ status: "pending", conversationId });
+    const seen = new Set<string>();
+    const result: Array<{ id: string; kind?: string }> = [];
+    for (const r of [...bySrc, ...byDest]) {
+      if (!seen.has(r.id)) {
+        seen.add(r.id);
+        result.push(r);
+      }
+    }
+    return result;
+  },
 }));
 
 mock.module("../runtime/confirmation-request-guardian-bridge.js", () => ({

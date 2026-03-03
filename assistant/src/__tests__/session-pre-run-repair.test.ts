@@ -155,6 +155,7 @@ mock.module("../context/window-manager.js", () => ({
 mock.module("../memory/canonical-guardian-store.js", () => ({
   listPendingCanonicalGuardianRequestsByDestinationConversation: () => [],
   listCanonicalGuardianRequests: () => [],
+  listPendingRequestsByConversationScope: () => [],
   createCanonicalGuardianRequest: () => ({
     id: "mock-cg-id",
     code: "MOCK",

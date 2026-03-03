@@ -18,7 +18,8 @@ import { isHttpAuthDisabled } from '../../config/env.js';
 import {
   type CanonicalGuardianRequest,
   getCanonicalGuardianRequest,
-  listCanonicalGuardianRequests,
+  isRequestInConversationScope,
+  listPendingRequestsByConversationScope,
 } from '../../memory/canonical-guardian-store.js';
 import { getActiveBinding } from '../../memory/guardian-bindings.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
@@ -113,10 +114,11 @@ export async function handleGuardianActionDecision(req: Request, authContext: Au
   }
 
   // Verify conversationId scoping before applying the canonical decision.
-  // A caller must not be able to cross-resolve requests from a different conversation.
+  // The decision is allowed when the conversationId matches the request's
+  // source conversation OR a recorded delivery destination conversation.
   if (conversationId) {
     const canonicalRequest = getCanonicalGuardianRequest(requestId);
-    if (canonicalRequest && canonicalRequest.conversationId && canonicalRequest.conversationId !== conversationId) {
+    if (canonicalRequest && canonicalRequest.conversationId && !isRequestInConversationScope(requestId, conversationId)) {
       return httpError('NOT_FOUND', 'No pending guardian action found for this requestId', 404);
     }
   }
@@ -172,9 +174,13 @@ export async function handleGuardianActionDecision(req: Request, authContext: Au
 /**
  * Build a list of GuardianDecisionPrompt objects for the given conversation.
  *
- * Reads exclusively from the canonical guardian requests store. All request
- * kinds (tool_approval, pending_question, access_request, etc.) that have
- * been created as canonical requests will appear here.
+ * Uses the conversation scope helper to union requests whose source
+ * `conversationId` matches AND requests delivered to this conversation.
+ * This allows guardian destination threads (including macOS Vellum threads)
+ * to surface prompts for all canonical kinds.
+ *
+ * The returned prompts normalize `conversationId` to the queried thread ID
+ * for client rendering stability.
  */
 export function listGuardianDecisionPrompts(params: {
   conversationId: string;
@@ -182,10 +188,7 @@ export function listGuardianDecisionPrompts(params: {
   const { conversationId } = params;
   const prompts: GuardianDecisionPrompt[] = [];
 
-  const canonicalRequests = listCanonicalGuardianRequests({
-    conversationId,
-    status: 'pending',
-  });
+  const canonicalRequests = listPendingRequestsByConversationScope(conversationId);
 
   for (const req of canonicalRequests) {
     // Skip expired canonical requests
@@ -233,7 +236,10 @@ function mapCanonicalRequestToPrompt(
     toolName: req.toolName ?? null,
     actions,
     expiresAt,
-    conversationId: req.conversationId ?? conversationId,
+    // Normalize to the queried thread ID for client rendering stability.
+    // The canonical request's source conversationId may differ from the
+    // guardian destination thread the client is viewing.
+    conversationId,
     callSessionId: req.callSessionId ?? null,
     kind: req.kind,
   };
