@@ -13,14 +13,14 @@
  */
 
 import type { ChannelId } from '../channels/types.js';
-import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
+import type { TrustContext } from '../daemon/session-runtime-assembly.js';
 import type { IngressMember } from '../memory/ingress-member-store.js';
 import { findMember } from '../memory/ingress-member-store.js';
 import { canonicalizeInboundIdentity } from '../util/canonicalize-identity.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from './assistant-scope.js';
 import { getGuardianBinding } from './channel-guardian-service.js';
 
-export type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
+export type { TrustContext, GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -213,7 +213,7 @@ export function resolveActorTrust(input: ResolveActorTrustInput): ActorTrustCont
 export function toGuardianRuntimeContextFromTrust(
   ctx: ActorTrustContext,
   conversationExternalId: string,
-): GuardianRuntimeContext {
+): TrustContext {
   const canonicalGuardianExternalUserId = ctx.guardianBindingMatch?.guardianExternalUserId
     ? canonicalizeInboundIdentity(ctx.actorMetadata.channel, ctx.guardianBindingMatch.guardianExternalUserId) ?? undefined
     : undefined;

@@ -38,8 +38,8 @@ export interface ChannelCapabilities {
   microphonePermissionGranted?: boolean;
 }
 
-/** Guardian identity/trust context for external chat channels. */
-export interface GuardianRuntimeContext {
+/** Identity and trust context for external chat channels. */
+export interface TrustContext {
   sourceChannel: ChannelId;
   trustClass: "guardian" | "trusted_contact" | "unknown";
   guardianChatId?: string;
@@ -54,6 +54,9 @@ export interface GuardianRuntimeContext {
   requesterChatId?: string;
   denialReason?: "no_binding" | "no_identity";
 }
+
+/** @deprecated Use `TrustContext` instead. */
+export type GuardianRuntimeContext = TrustContext;
 
 /**
  * Inbound actor context for the `<inbound_actor_context>` block.
@@ -93,7 +96,7 @@ export interface InboundActorContext {
  * Maps the runtime trust class into the model-facing inbound actor context.
  */
 export function inboundActorContextFromGuardian(
-  ctx: GuardianRuntimeContext,
+  ctx: TrustContext,
 ): InboundActorContext {
   return {
     sourceChannel: ctx.sourceChannel,
