@@ -128,9 +128,11 @@ final class AssistantCli {
         if restart {
             arguments.append("--restart")
         }
-        #if DEBUG
-        arguments.append("--watch")
-        #endif
+        // NOTE: --watch runs daemon from source via `bun --watch` which breaks
+        // Playwright's CDP websocket connection. Omit it for now.
+        // #if DEBUG
+        // arguments.append("--watch")
+        // #endif
         if let name {
             arguments += ["--name", name]
         }

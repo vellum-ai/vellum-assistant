@@ -8,6 +8,7 @@ struct SettingsAutomationTab: View {
     @Binding var showingReminders: Bool
     @Binding var showingScheduledTasks: Bool
     @Binding var showingHeartbeatConfig: Bool
+    @Binding var showingHeartbeatRuns: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
@@ -63,7 +64,7 @@ struct SettingsAutomationTab: View {
             }
 
             // Heartbeat section (checklist + runs, minus configCard)
-            HeartbeatAutomationSection(daemonClient: daemonClient, showingHeartbeatConfig: $showingHeartbeatConfig)
+            HeartbeatAutomationSection(daemonClient: daemonClient, showingHeartbeatConfig: $showingHeartbeatConfig, showingHeartbeatRuns: $showingHeartbeatRuns)
         }
     }
 }
@@ -77,23 +78,19 @@ struct SettingsAutomationTab: View {
 struct HeartbeatAutomationSection: View {
     var daemonClient: DaemonClient?
     @Binding var showingHeartbeatConfig: Bool
+    @Binding var showingHeartbeatRuns: Bool
 
     // -- Checklist state --
     @State private var checklistContent: String = ""
     @State private var isDefaultChecklist: Bool = true
 
-    // -- Runs state --
-    @State private var runs: [IPCHeartbeatRunsListResponseRun] = []
+    // -- Run now state --
     @State private var isRunning: Bool = false
     @State private var runError: String?
-
-    // -- Expansion state --
-    @State private var expandedRunId: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             checklistCard
-            runsCard
         }
         .onAppear { setupCallbacks(); loadAll() }
         .onDisappear { clearCallbacks() }
@@ -113,9 +110,26 @@ struct HeartbeatAutomationSection: View {
                         .font(VFont.caption)
                         .foregroundColor(VColor.textMuted)
                 }
-                VIconButton(label: "Config", icon: "gearshape", iconOnly: true) {
+                if isRunning {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    VIconButton(label: "Run Now", icon: "play.fill", iconOnly: true, tooltip: "Run Now") {
+                        triggerRun()
+                    }
+                }
+                VIconButton(label: "History", icon: "clock.arrow.circlepath", iconOnly: true, tooltip: "History") {
+                    showingHeartbeatRuns = true
+                }
+                VIconButton(label: "Config", icon: "gearshape", iconOnly: true, tooltip: "Config") {
                     showingHeartbeatConfig = true
                 }
+            }
+
+            if let error = runError {
+                Text(error)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.error)
             }
 
             Text("Items the heartbeat checks on each run")
@@ -144,146 +158,28 @@ struct HeartbeatAutomationSection: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    // MARK: - Recent Runs Card
+    // MARK: - Actions
 
-    private var runsCard: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("Heartbeat Runs")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
-
-            if let error = runError {
-                Text(error)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.error)
-            }
-
-            if !runs.isEmpty {
-                ForEach(runs, id: \.id) { run in
-                    VStack(alignment: .leading, spacing: 0) {
-                        Button {
-                            withAnimation(VAnimation.fast) {
-                                expandedRunId = expandedRunId == run.id ? nil : run.id
-                            }
-                        } label: {
-                            HStack(spacing: VSpacing.md) {
-                                resultBadge(run.result)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(run.title)
-                                        .font(VFont.body)
-                                        .foregroundColor(VColor.textPrimary)
-                                        .lineLimit(1)
-                                    Text(formatTimestamp(run.createdAt))
-                                        .font(VFont.caption)
-                                        .foregroundColor(VColor.textMuted)
-                                }
-                                Spacer()
-                                Image(systemName: expandedRunId == run.id ? "chevron.down" : "chevron.right")
-                                    .font(.system(size: 10, weight: .semibold))
-                                    .foregroundColor(VColor.textMuted)
-                            }
-                            .padding(VSpacing.sm)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-
-                        if expandedRunId == run.id {
-                            Text(run.summary?.isEmpty == false ? run.summary! : "No summary available")
-                                .font(VFont.mono)
-                                .foregroundColor(VColor.textSecondary)
-                                .textSelection(.enabled)
-                                .padding(VSpacing.sm)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(VColor.surface)
-                                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: VRadius.md)
-                                        .stroke(VColor.surfaceBorder, lineWidth: 1)
-                                )
-                                .padding(.horizontal, VSpacing.sm)
-                                .padding(.bottom, VSpacing.sm)
-                        }
-                    }
-
-                    if run.id != runs.last?.id {
-                        Divider().background(VColor.surfaceBorder)
-                    }
-                }
-            }
-
-            if isRunning {
-                VButton(label: "Running...", style: .primary, size: .large, isDisabled: true) {}
-            } else {
-                VButton(label: "Run Now", style: .primary, size: .large) {
-                    isRunning = true
-                    runError = nil
-                    guard let client = daemonClient else {
-                        isRunning = false
-                        runError = "Daemon not available"
-                        return
-                    }
-                    do {
-                        try client.sendHeartbeatRunNow()
-                    } catch {
-                        isRunning = false
-                        runError = "Failed to send run request"
-                    }
-                }
-            }
+    private func triggerRun() {
+        isRunning = true
+        runError = nil
+        guard let client = daemonClient else {
+            isRunning = false
+            runError = "Daemon not available"
+            return
         }
-        .padding(VSpacing.lg)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .vCard(background: VColor.surfaceSubtle)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    // MARK: - Helpers
-
-    private func resultBadge(_ result: String) -> some View {
-        Group {
-            switch result {
-            case "ok":
-                HStack(spacing: VSpacing.xs) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(VColor.success)
-                    Text("OK")
-                        .font(VFont.captionMedium)
-                        .foregroundColor(VColor.success)
-                }
-            case "alert":
-                HStack(spacing: VSpacing.xs) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(VColor.warning)
-                    Text("ALERT")
-                        .font(VFont.captionMedium)
-                        .foregroundColor(VColor.warning)
-                }
-            default:
-                HStack(spacing: VSpacing.xs) {
-                    Image(systemName: "questionmark.circle")
-                        .foregroundColor(VColor.textMuted)
-                    Text("--")
-                        .font(VFont.captionMedium)
-                        .foregroundColor(VColor.textMuted)
-                }
-            }
+        do {
+            try client.sendHeartbeatRunNow()
+        } catch {
+            isRunning = false
+            runError = "Failed to send run request"
         }
-        .frame(width: 70, alignment: .leading)
-    }
-
-    private func formatTimestamp(_ ms: Int) -> String {
-        let date = Date(timeIntervalSince1970: Double(ms) / 1000.0)
-        let formatter = DateFormatter()
-        formatter.dateStyle = .short
-        formatter.timeStyle = .short
-        return formatter.string(from: date)
     }
 
     // MARK: - Data Loading
 
     private func loadAll() {
         try? daemonClient?.sendHeartbeatChecklistRead()
-        try? daemonClient?.sendHeartbeatRunsList(limit: 20)
     }
 
     private func setupCallbacks() {
@@ -293,19 +189,11 @@ struct HeartbeatAutomationSection: View {
                 self.isDefaultChecklist = response.isDefault
             }
         }
-        daemonClient?.onHeartbeatRunsListResponse = { response in
-            Task { @MainActor in
-                self.runs = response.runs
-            }
-        }
         daemonClient?.onHeartbeatRunNowResponse = { response in
             Task { @MainActor in
                 self.isRunning = false
                 if !response.success {
                     self.runError = response.error ?? "Run failed"
-                } else {
-                    // Refresh the runs list after a successful run
-                    try? self.daemonClient?.sendHeartbeatRunsList(limit: 20)
                 }
             }
         }
@@ -313,7 +201,6 @@ struct HeartbeatAutomationSection: View {
 
     private func clearCallbacks() {
         daemonClient?.onHeartbeatChecklistResponse = nil
-        daemonClient?.onHeartbeatRunsListResponse = nil
         daemonClient?.onHeartbeatRunNowResponse = nil
     }
 }

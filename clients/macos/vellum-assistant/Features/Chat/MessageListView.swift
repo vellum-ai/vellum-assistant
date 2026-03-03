@@ -300,9 +300,17 @@ struct MessageListView: View {
                     let hasActiveToolCall = currentTurnMessages.contains(where: {
                         $0.toolCalls.contains(where: { !$0.isComplete })
                     })
-                    let shouldShowThinkingIndicator = isSending
+                    // Determine whether a standalone thinking row would be shown
+                    // (before considering inlining).
+                    let wouldShowThinking = isSending
                         && (isThinking || !(lastVisible?.isStreaming == true))
                         && !hasActiveToolCall
+                    // When the last visible message is an assistant bubble, render
+                    // the indicator inline inside that bubble's trailingStatus
+                    // instead of spawning a standalone row (duplicate avatar).
+                    let lastVisibleIsAssistant = lastVisible?.role == .assistant
+                    let canInlineProcessing = wouldShowThinking && lastVisibleIsAssistant
+                    let shouldShowThinkingIndicator = wouldShowThinking && !canInlineProcessing
                     ForEach(Array(zip(displayMessages.indices, displayMessages)), id: \.1.id) { index, message in
                         if showTimestamp.contains(index) {
                             TimestampDivider(date: message.timestamp)
@@ -387,6 +395,8 @@ struct MessageListView: View {
                                 resolveHttpPort: resolveHttpPort,
                                 showAvatar: !previousIsAssistant,
                                 isLatestAssistantMessage: message.role == .assistant && message.id == latestAssistantId,
+                                isProcessingAfterTools: canInlineProcessing && message.id == latestAssistantId,
+                                processingStatusText: canInlineProcessing && message.id == latestAssistantId ? assistantStatusText : nil,
                                 activeSurfaceId: activeSurfaceId
                             )
                                 .id(message.id)

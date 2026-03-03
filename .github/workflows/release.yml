@@ -631,109 +631,13 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-  # Parallel Swift builds — each architecture compiles on its own runner,
-  # then build-macos merges them into a universal binary via lipo.
-  build-swift-arm64:
-    needs: bump-and-tag
-    runs-on: macos-14
-    timeout-minutes: 15
-    outputs:
-      version: ${{ needs.bump-and-tag.outputs.version }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: "v${{ needs.bump-and-tag.outputs.version }}"
-
-      - name: Select Xcode 16.2
-        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
-
-      - name: Build Swift (arm64)
-        working-directory: clients
-        run: |
-          for attempt in 1 2 3; do
-            if swift build -c release --arch arm64 --product vellum-assistant; then
-              exit 0
-            fi
-            echo "warning: swift build failed (attempt $attempt/3), retrying in 10s..."
-            sleep 10
-          done
-          echo "ERROR: swift build failed after 3 attempts"
-          exit 1
-
-      - name: Stage build artifacts
-        working-directory: clients
-        run: |
-          BIN_PATH=$(swift build -c release --arch arm64 --product vellum-assistant --show-bin-path)
-          mkdir -p /tmp/swift-arm64
-          cp "$BIN_PATH/vellum-assistant" /tmp/swift-arm64/
-          # Copy Sparkle framework and resource bundles (needed for app assembly)
-          if [ -d "$BIN_PATH/Sparkle.framework" ]; then
-            cp -R "$BIN_PATH/Sparkle.framework" /tmp/swift-arm64/
-          fi
-          for bundle in "$BIN_PATH"/*.bundle; do
-            [ -d "$bundle" ] && cp -R "$bundle" /tmp/swift-arm64/
-          done
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: swift-build-arm64
-          path: /tmp/swift-arm64
-          retention-days: 1
-
-  build-swift-x86_64:
-    needs: bump-and-tag
-    runs-on: macos-14
-    timeout-minutes: 15
-    outputs:
-      version: ${{ needs.bump-and-tag.outputs.version }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: "v${{ needs.bump-and-tag.outputs.version }}"
-
-      - name: Select Xcode 16.2
-        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
-
-      - name: Build Swift (x86_64)
-        working-directory: clients
-        run: |
-          for attempt in 1 2 3; do
-            if swift build -c release --arch x86_64 --product vellum-assistant; then
-              exit 0
-            fi
-            echo "warning: swift build failed (attempt $attempt/3), retrying in 10s..."
-            sleep 10
-          done
-          echo "ERROR: swift build failed after 3 attempts"
-          exit 1
-
-      - name: Stage build artifacts
-        working-directory: clients
-        run: |
-          BIN_PATH=$(swift build -c release --arch x86_64 --product vellum-assistant --show-bin-path)
-          mkdir -p /tmp/swift-x86_64
-          cp "$BIN_PATH/vellum-assistant" /tmp/swift-x86_64/
-          # Copy Sparkle framework and resource bundles (needed for app assembly)
-          if [ -d "$BIN_PATH/Sparkle.framework" ]; then
-            cp -R "$BIN_PATH/Sparkle.framework" /tmp/swift-x86_64/
-          fi
-          for bundle in "$BIN_PATH"/*.bundle; do
-            [ -d "$bundle" ] && cp -R "$bundle" /tmp/swift-x86_64/
-          done
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: swift-build-x86_64
-          path: /tmp/swift-x86_64
-          retention-days: 1
-
-  # arm64 macOS build — uses prebuilt Swift binary from build-swift-arm64,
-  # builds arm64-only Bun binaries, creates DMG, notarizes, staples, and
-  # generates the Sparkle appcast. This is the primary/default build.
+  # arm64 macOS build — builds Swift + Bun binaries in a single job,
+  # creates DMG, notarizes, staples, and generates the Sparkle appcast.
+  # This is the primary/default build.
   build-macos-arm64:
-    needs: build-swift-arm64
-    runs-on: macos-14
-    timeout-minutes: 30
+    needs: bump-and-tag
+    runs-on: macos-15
+    timeout-minutes: 45
     defaults:
       run:
         working-directory: clients/macos
@@ -744,10 +648,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: "v${{ needs.build-swift-arm64.outputs.version }}"
+          ref: "v${{ needs.bump-and-tag.outputs.version }}"
 
-      - name: Select Xcode 16.2
-        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+      - name: Select Xcode 26.2
+        run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
 
       - name: Import code-signing certificate
         env:
@@ -781,31 +685,11 @@ jobs:
       - name: Set version
         id: version
         run: |
-          DISPLAY_VERSION="${{ needs.build-swift-arm64.outputs.version }}"
+          DISPLAY_VERSION="${{ needs.bump-and-tag.outputs.version }}"
           BUILD_VERSION=$(date -u +%Y%m%d%H%M)
           echo "display_version=$DISPLAY_VERSION" >> "$GITHUB_OUTPUT"
           echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
           echo "Display version: $DISPLAY_VERSION / Build version: $BUILD_VERSION"
-
-      - name: Download Swift build (arm64)
-        uses: actions/download-artifact@v4
-        with:
-          name: swift-build-arm64
-          path: clients/macos/swift-arm64
-
-      - name: Prepare prebuilt binaries
-        run: |
-          mkdir -p prebuilt-bin
-          cp swift-arm64/vellum-assistant prebuilt-bin/vellum-assistant
-          # Copy Sparkle framework and resource bundles from arm64 build
-          if [ -d swift-arm64/Sparkle.framework ]; then
-            cp -R swift-arm64/Sparkle.framework prebuilt-bin/
-          fi
-          for bundle in swift-arm64/*.bundle; do
-            [ -d "$bundle" ] && cp -R "$bundle" prebuilt-bin/
-          done
-          echo "arm64 binary prepared:"
-          file prebuilt-bin/vellum-assistant
 
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
@@ -823,7 +707,6 @@ jobs:
           BUILD_VERSION="${{ steps.version.outputs.build_version }}" \
           SU_PUBLIC_ED_KEY="${{ secrets.SPARKLE_ED_PUBLIC_KEY }}" \
           SIGN_IDENTITY="Developer ID Application" \
-          PREBUILT_BIN_PATH="$(pwd)/prebuilt-bin" \
           RELEASE_ARCH_FLAGS="--arch arm64" \
           ./build.sh release
 
@@ -837,7 +720,7 @@ jobs:
 
       - name: Free disk space
         run: |
-          rm -rf .build daemon-bin cli-bin gateway-bin swift-arm64 prebuilt-bin
+          rm -rf .build daemon-bin cli-bin gateway-bin
           rm -rf ../../assistant/node_modules ../../cli/node_modules ../../gateway/node_modules
           rm -rf ~/Library/Developer/Xcode/DerivedData 2>/dev/null || true
           rm -rf ~/Library/Caches/org.swift.swiftpm 2>/dev/null || true
@@ -1037,12 +920,13 @@ jobs:
           security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
           rm -rf ~/.private_keys 2>/dev/null || true
 
-  # x86_64 macOS build — produces a separate DMG for Intel Macs.
+  # x86_64 macOS build — builds Swift + Bun binaries in a single job,
+  # produces a separate DMG for Intel Macs.
   # Runs in parallel with build-macos-arm64 and does NOT block the release job.
   build-macos-x64:
-    needs: build-swift-x86_64
-    runs-on: macos-14
-    timeout-minutes: 30
+    needs: bump-and-tag
+    runs-on: macos-15
+    timeout-minutes: 45
     continue-on-error: true
     defaults:
       run:
@@ -1054,10 +938,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: "v${{ needs.build-swift-x86_64.outputs.version }}"
+          ref: "v${{ needs.bump-and-tag.outputs.version }}"
 
-      - name: Select Xcode 16.2
-        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+      - name: Select Xcode 26.2
+        run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
 
       - name: Import code-signing certificate
         env:
@@ -1091,30 +975,10 @@ jobs:
       - name: Set version
         id: version
         run: |
-          DISPLAY_VERSION="${{ needs.build-swift-x86_64.outputs.version }}"
+          DISPLAY_VERSION="${{ needs.bump-and-tag.outputs.version }}"
           BUILD_VERSION=$(date -u +%Y%m%d%H%M)
           echo "display_version=$DISPLAY_VERSION" >> "$GITHUB_OUTPUT"
           echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
-
-      - name: Download Swift build (x86_64)
-        uses: actions/download-artifact@v4
-        with:
-          name: swift-build-x86_64
-          path: clients/macos/swift-x86_64
-
-      - name: Prepare prebuilt binaries
-        run: |
-          mkdir -p prebuilt-bin
-          cp swift-x86_64/vellum-assistant prebuilt-bin/vellum-assistant
-          # Copy Sparkle framework and resource bundles from x86_64 build
-          if [ -d swift-x86_64/Sparkle.framework ]; then
-            cp -R swift-x86_64/Sparkle.framework prebuilt-bin/
-          fi
-          for bundle in swift-x86_64/*.bundle; do
-            [ -d "$bundle" ] && cp -R "$bundle" prebuilt-bin/
-          done
-          echo "x86_64 binary prepared:"
-          file prebuilt-bin/vellum-assistant
 
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
@@ -1175,7 +1039,6 @@ jobs:
           DISPLAY_VERSION="${{ steps.version.outputs.display_version }}" \
           BUILD_VERSION="${{ steps.version.outputs.build_version }}" \
           SIGN_IDENTITY="Developer ID Application" \
-          PREBUILT_BIN_PATH="$(pwd)/prebuilt-bin" \
           RELEASE_ARCH_FLAGS="--arch x86_64" \
           ./build.sh release
 
@@ -1189,7 +1052,7 @@ jobs:
 
       - name: Free disk space
         run: |
-          rm -rf .build daemon-bin cli-bin gateway-bin swift-x86_64 prebuilt-bin
+          rm -rf .build daemon-bin cli-bin gateway-bin
           rm -rf ../../assistant/node_modules ../../cli/node_modules ../../gateway/node_modules
           rm -rf ~/Library/Developer/Xcode/DerivedData 2>/dev/null || true
           df -h .
@@ -1566,15 +1429,15 @@ jobs:
 
   build-ios:
     needs: bump-and-tag
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
           ref: "v${{ needs.bump-and-tag.outputs.version }}"
 
-      - name: Select Xcode 16.2
-        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+      - name: Select Xcode 26.2
+        run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
 
       - name: Install XcodeGen
         run: brew install xcodegen
@@ -1592,7 +1455,7 @@ jobs:
 
   release-ios:
     needs: [bump-and-tag, build-ios]
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 30
     env:
       KEYCHAIN_NAME: ios-build.keychain
@@ -1602,8 +1465,8 @@ jobs:
         with:
           ref: "v${{ needs.bump-and-tag.outputs.version }}"
 
-      - name: Select Xcode 16.2
-        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+      - name: Select Xcode 26.2
+        run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
 
       - name: Import code-signing certificate
         env:
@@ -1700,7 +1563,7 @@ jobs:
 
   ci-playwright:
     needs: [bump-and-tag, build-macos-arm64]
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 60
     permissions:
       contents: read

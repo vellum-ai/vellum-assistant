@@ -215,43 +215,35 @@ Confirm:
 
 Tell the user: **"Twilio is configured. Your assistant's phone number is {phoneNumber}. This number is used for both voice calls and SMS messaging."**
 
-## Step 5.5: Guardian Verification (SMS and Voice)
+## Step 5.5: Guardian Verification (Voice)
 
-Now link the user's phone number as the trusted guardian for SMS and/or voice channels. Tell the user: "Now let's verify your guardian identity. This links your phone number as the trusted guardian for messaging and calls."
+Now link the user's phone number as the trusted voice guardian. Tell the user: "Now let's verify your guardian identity for voice. This links your phone number so the assistant can verify inbound callers."
 
 Load the **guardian-verify-setup** skill to handle the verification flow:
 
 - Call `skill_load` with `skill: "guardian-verify-setup"` to load the dependency skill.
 
-The guardian-verify-setup skill manages the full outbound verification flow for **one channel at a time** (sms, voice, or telegram). Each invocation handles:
+When invoking the skill, indicate the channel is `voice`. The guardian-verify-setup skill manages the full outbound verification flow, including:
 
 - Collecting the user's phone number as the destination (accepts any common format -- the API normalizes to E.164)
-- Starting the outbound verification session via the gateway endpoint `POST /v1/integrations/guardian/outbound/start`
-- For **SMS**: sending a 6-digit code to the phone number that the user must reply with from the SMS channel
-- For **voice**: calling the phone number and providing a code for the user to enter via their phone's keypad
+- Starting the outbound verification session via the gateway endpoint `POST /v1/integrations/guardian/outbound/start` with `channel: "voice"`
+- Calling the phone number and providing a code for the user to enter via their phone's keypad
+- Proactively polling for completion (voice auto-check) so the user gets instant confirmation
 - Checking guardian status to confirm the binding was created
 - Handling resend, cancel, and error cases
 
-**If the user wants to verify both SMS and voice**, load the skill twice -- once for SMS and once for voice. Each channel requires its own separate verification session.
+Tell the user: _"I've loaded the guardian verification guide. It will walk you through linking your phone number as the trusted voice guardian."_
 
-Tell the user: _"I've loaded the guardian verification guide. It will walk you through linking your phone number as the trusted guardian. We'll verify one channel at a time."_
-
-After the guardian-verify-setup skill completes verification for a channel, load it again for the next channel if needed. Once all desired channels are verified (or the user skips), continue to Step 6.
+After the guardian-verify-setup skill completes (or the user skips), continue to Step 6.
 
 **Note:** Guardian verification is optional but recommended. If the user declines or wants to skip, proceed to Step 6 without blocking.
 
-To re-check guardian status later, query the channel(s) that were verified:
+To re-check guardian status later:
 
 ```bash
-# Check SMS guardian status
-curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/guardian/status?channel=sms" \
-  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN"
-# Check voice guardian status
 curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/guardian/status?channel=voice" \
   -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN"
 ```
-
-Check the status for whichever channel(s) the user actually verified (SMS, voice, or both). Report the guardian verification result per channel: **"Guardian identity — SMS: {verified | not configured}, Voice: {verified | not configured}."**
 
 ## Step 6: Enable Features
 

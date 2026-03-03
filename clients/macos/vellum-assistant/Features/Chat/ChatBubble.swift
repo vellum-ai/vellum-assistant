@@ -21,6 +21,12 @@ struct ChatBubble: View {
     var resolveHttpPort: (() -> Int?) = { nil }
     var showAvatar: Bool = true
     var isLatestAssistantMessage: Bool = false
+    /// When true, the assistant is still processing after tool calls completed.
+    /// Renders an inline loading indicator in trailingStatus to avoid a separate
+    /// standalone thinking row (which would stack a duplicate avatar).
+    var isProcessingAfterTools: Bool = false
+    /// Status text from the assistant activity state, forwarded for inline display.
+    var processingStatusText: String?
 
     @State private var appearance = AvatarAppearanceManager.shared
     @State private var isHovered = false

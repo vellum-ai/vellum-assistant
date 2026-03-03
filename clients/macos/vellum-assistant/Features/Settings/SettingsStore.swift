@@ -961,9 +961,22 @@ public final class SettingsStore: ObservableObject {
     // MARK: - Slack Channel Actions (HTTP-first)
 
     /// Resolves the runtime HTTP base URL and bearer token for direct HTTP calls.
+    ///
+    /// Uses the JWT access token from ActorTokenManager (issued via guardian bootstrap)
+    /// as the primary auth credential. Falls back to the legacy `~/.vellum/http-token`
+    /// hex string only during the brief bootstrap window before the first JWT is issued.
+    ///
+    /// The daemon's auth middleware requires JWT format (3 dot-separated parts) — the
+    /// legacy hex token will be rejected with 401 if the JWT path isn't available yet.
+    /// This matches the auth pattern used by HTTPDaemonClient and the Twilio endpoints.
     private func resolveRuntimeHTTP() -> (baseURL: String, token: String)? {
         let port = ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"]
             .flatMap(Int.init) ?? 7821
+        // Prefer JWT from guardian bootstrap (same pattern as HTTPDaemonClient line 1504)
+        if let jwt = ActorTokenManager.getToken(), !jwt.isEmpty {
+            return ("http://localhost:\(port)", jwt)
+        }
+        // Fallback to legacy http-token for pre-bootstrap window
         guard let token = readHttpToken() else { return nil }
         return ("http://localhost:\(port)", token)
     }

@@ -18,17 +18,20 @@ jobs:
     name: macOS Build
     runs-on: macos-15
     timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: clients/macos
     env:
-      VELLUM_FLAG_FEATURE_FLAG_EDITOR_ENABLED: "true"
       APP_DISPLAY_NAME: Vellum ${{ github.event.pull_request.number }}
+      DMG_PATH: build/vellum-assistant-pr-${{ github.event.pull_request.number }}.dmg
       KEYCHAIN_NAME: build.keychain
       KEYCHAIN_PASSWORD: temporary-ci-password
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Select Xcode 16.2
-        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+      - name: Select Xcode 26.2
+        run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
 
       - name: Import code-signing certificate
         env:
@@ -96,35 +99,35 @@ jobs:
           bun-version: latest
 
       - name: Build binaries
-        working-directory: clients/macos
         run: ./build.sh binaries
 
       - name: Build release .app
-        working-directory: clients/macos
         run: |
-          SKIP_CLEAN=1 \
           BUNDLE_DISPLAY_NAME="$APP_DISPLAY_NAME" \
           SIGN_IDENTITY="Developer ID Application" \
+          RELEASE_ARCH_FLAGS="--arch arm64" \
           ./build.sh release
-          ls -la "dist/$APP_DISPLAY_NAME.app"
 
-          codesign --verify --deep --strict "dist/$APP_DISPLAY_NAME.app"
+          APP_PATH="dist/$APP_DISPLAY_NAME.app"
+          ls -la "$APP_PATH"
+          codesign --verify --strict "$APP_PATH"
           echo "Code signature verified"
 
+          echo "Main executable architecture:"
+          file "$APP_PATH/Contents/MacOS/$APP_DISPLAY_NAME"
+
       - name: Run tests
-        working-directory: clients/macos
         run: ./build.sh test
 
       - name: Free disk space
-        working-directory: clients/macos
         run: |
           rm -rf .build daemon-bin cli-bin gateway-bin
+          rm -rf ../../assistant/node_modules ../../cli/node_modules ../../gateway/node_modules
           rm -rf ~/Library/Developer/Xcode/DerivedData 2>/dev/null || true
           rm -rf ~/Library/Caches/org.swift.swiftpm 2>/dev/null || true
           df -h .
 
       - name: Generate DMG background
-        working-directory: clients/macos
         run: |
           mkdir -p build
           swift dmg/generate-background.swift build/dmg-background@2x.png
@@ -133,9 +136,6 @@ jobs:
         run: brew install create-dmg
 
       - name: Create DMG
-        working-directory: clients/macos
-        env:
-          DMG_PATH: build/vellum-assistant-pr-${{ github.event.pull_request.number }}.dmg
         run: |
           APP_PATH="dist/$APP_DISPLAY_NAME.app"
 
@@ -171,9 +171,6 @@ jobs:
           ls -lh "$DMG_PATH"
 
       - name: Sign DMG
-        working-directory: clients/macos
-        env:
-          DMG_PATH: build/vellum-assistant-pr-${{ github.event.pull_request.number }}.dmg
         run: |
           codesign --sign "Developer ID Application" \
             --timestamp \
@@ -183,9 +180,7 @@ jobs:
           echo "DMG signature verified"
 
       - name: Notarize DMG
-        working-directory: clients/macos
         env:
-          DMG_PATH: build/vellum-assistant-pr-${{ github.event.pull_request.number }}.dmg
           ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
@@ -222,9 +217,6 @@ jobs:
           echo "Notarization succeeded (status: Accepted)"
 
       - name: Staple notarization ticket
-        working-directory: clients/macos
-        env:
-          DMG_PATH: build/vellum-assistant-pr-${{ github.event.pull_request.number }}.dmg
         run: |
           MAX_ATTEMPTS=15
           WAIT_SECS=60
