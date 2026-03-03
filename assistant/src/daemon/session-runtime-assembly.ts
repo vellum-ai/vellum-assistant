@@ -592,12 +592,14 @@ export function injectChannelCapabilityContext(
     lines.push(
       "- Do NOT reference the dashboard UI, settings panels, or visual preference pickers.",
     );
-    lines.push(
-      "- Do NOT use ui_show, ui_update, or app_create — this channel cannot render them.",
-    );
-    lines.push(
-      "- Present information as well-formatted text instead of dynamic UI.",
-    );
+    if (!caps.supportsDynamicUi) {
+      lines.push(
+        "- Do NOT use ui_show, ui_update, or app_create — this channel cannot render them.",
+      );
+      lines.push(
+        "- Present information as well-formatted text instead of dynamic UI.",
+      );
+    }
     lines.push(
       "- Defer dashboard-specific actions (e.g. accent color selection) by telling the user",
     );
