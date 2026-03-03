@@ -46,7 +46,7 @@ describe("generateTwiML with voice quality profile", () => {
     expect(twiml).toContain('voice="voice123-turbo_v2_5-1_0.5_0.75"');
   });
 
-  test("voice attribute reflects configured voice for twilio_standard mode", () => {
+  test("voice attribute reflects configured Google voice", () => {
     const twiml = generateTwiML(callSessionId, relayUrl, welcomeGreeting, {
       language: "en-US",
       transcriptionProvider: "Deepgram",
@@ -57,7 +57,7 @@ describe("generateTwiML with voice quality profile", () => {
     expect(twiml).toContain('voice="Google.en-US-Journey-O"');
   });
 
-  test("voice attribute reflects configured voice for twilio_elevenlabs_tts mode", () => {
+  test("voice attribute reflects configured ElevenLabs voice", () => {
     const twiml = generateTwiML(callSessionId, relayUrl, welcomeGreeting, {
       language: "en-US",
       transcriptionProvider: "Deepgram",

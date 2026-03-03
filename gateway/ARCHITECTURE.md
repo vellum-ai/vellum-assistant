@@ -1045,12 +1045,9 @@ Call behavior is controlled via the `calls` config block in the assistant config
 | `calls.disclosure.text` | string | *(default disclosure prompt)* | The disclosure instruction included in the system prompt. |
 | `calls.safety.denyCategories` | string[] | `[]` | Categories of calls to deny (e.g., emergency numbers are always denied regardless of this setting). |
 | `calls.model` | string | *(unset — uses default model)* | Optional override for the LLM model used in voice call conversations. |
-| `calls.voice.mode` | enum | `'twilio_standard'` | Voice quality mode. Options: `twilio_standard` (standard Twilio TTS with Google voices — fully supported), `twilio_elevenlabs_tts` (ElevenLabs voices through Twilio ConversationRelay — fully supported), `elevenlabs_agent` (full ElevenLabs conversational agent — experimental/restricted, blocked by runtime guard). |
 | `calls.voice.language` | string | `'en-US'` | Language code for TTS and transcription. |
 | `calls.voice.transcriptionProvider` | enum | `'Deepgram'` | Speech-to-text provider (`Deepgram` or `Google`). |
-| `calls.voice.fallbackToStandardOnError` | boolean | `true` | When an ElevenLabs mode is active, automatically fall back to standard Twilio TTS if ElevenLabs config is invalid or mode is restricted (e.g., `elevenlabs_agent` guard). When `false`, errors return HTTP 500 (invalid config) or 501 (restricted mode) instead of falling back. |
-| `calls.voice.elevenlabs.voiceId` | string | `''` | ElevenLabs voice ID, used by `twilio_elevenlabs_tts` mode. |
-| `calls.voice.elevenlabs.agentId` | string | `''` | ElevenLabs agent ID, used by `elevenlabs_agent` mode. |
+| `elevenlabs.voiceId` | string | `'21m00Tcm4TlvDq8ikWAM'` | ElevenLabs voice ID used by both in-app TTS and phone calls. Defaults to Rachel. |
 
 ### Caller Identity Resolution
 
@@ -1067,43 +1064,11 @@ Both the resolved mode and source are logged at info level on success, and rejec
 
 ### Voice Quality Profile Resolution
 
-Voice and TTS settings are configurable via the `calls.voice` config block — they are not hardcoded. The function `resolveVoiceQualityProfile()` in `voice-quality.ts` reads the current config and resolves it into an effective `VoiceQualityProfile` containing the TTS provider, voice spec string, language, transcription provider, and fallback policy.
+Voice and TTS settings are configurable via the `calls.voice` config block — they are not hardcoded. The function `resolveVoiceQualityProfile()` in `voice-quality.ts` reads the current config and resolves it into a `VoiceQualityProfile` containing the TTS provider, voice spec string, language, and transcription provider.
 
-The resolution logic works as follows:
+All calls use **ElevenLabs** as the TTS provider via Twilio ConversationRelay. The voice ID is read from the shared `elevenlabs.voiceId` config key (defaulting to Rachel — `21m00Tcm4TlvDq8ikWAM`). Optional call-specific tuning parameters (`voiceModelId`, `speed`, `stability`, `similarityBoost`) are read from `calls.voice.elevenlabs`. When `voiceModelId` is set, the emitted voice spec uses the Twilio ConversationRelay extended format: `voiceId-model-speed_stability_similarity`. When `voiceModelId` is empty (the default), only the bare `voiceId` is sent.
 
-- **`twilio_standard`** (fully supported) — Returns a profile using Google TTS with a default Google voice (`Google.en-US-Journey-O`). This is the default when no voice config is changed.
-- **`twilio_elevenlabs_tts`** (fully supported) — Builds an ElevenLabs voice spec string from `voiceId`, `voiceModelId`, and tuning parameters (speed, stability, similarity). The Twilio ConversationRelay format is `voiceId-model-speed_stability_similarity` where speed is 0.7–1.2 and stability/similarity are 0.0–1.0. If `voiceId` is empty and fallback is enabled, silently falls back to the `twilio_standard` profile.
-- **`elevenlabs_agent`** (experimental/restricted) — Requires `agentId` to be set. If `agentId` is empty and fallback is enabled, silently falls back to `twilio_standard`. Even when the profile resolves successfully, a runtime guard in `handleVoiceWebhook` blocks this mode before any ElevenLabs API calls are made (see below). No register-call flow is reachable while the guard is active.
-
-When `fallbackToStandardOnError` is `true` (default), any misconfiguration or runtime error in ElevenLabs modes causes a graceful fallback to standard Twilio TTS rather than a call failure. Validation errors are captured in `validationErrors` on the profile for logging.
-
-### Voice Mode Guardrails in `handleVoiceWebhook`
-
-The voice webhook (`twilio-routes.ts`) enforces two sequential guardrails before returning TwiML:
-
-**WS-A: Invalid profile guard** — If `isVoiceProfileValid(profile)` returns false (i.e., there are validation errors such as missing `voiceId` or `agentId`):
-- `fallbackToStandardOnError=true` (default): the profile has already been resolved to `twilio_standard` by the profile resolver; proceeds normally.
-- `fallbackToStandardOnError=false`: returns **HTTP 500** with the validation error details.
-
-**WS-B: `elevenlabs_agent` mode guard** — If the resolved profile mode is `elevenlabs_agent`, a guard fires *before* any ElevenLabs API calls because consultation bridging (`waiting_on_user`) is not yet supported in this mode. No ElevenLabs register-call or other API calls are attempted while this guard is active:
-- `fallbackToStandardOnError=true` (default): logs a warning, replaces the profile with `twilio_standard`, and returns standard ConversationRelay TwiML.
-- `fallbackToStandardOnError=false`: returns **HTTP 501** `"elevenlabs_agent mode is restricted: consultation bridging (waiting_on_user) is not yet supported."`.
-
-The guard order ensures invalid configs are caught first (WS-A), then mode-level restrictions are enforced (WS-B). For `twilio_standard` and `twilio_elevenlabs_tts` modes, both guards pass and the webhook proceeds to return ConversationRelay TwiML.
-
-```mermaid
-flowchart TD
-    A["handleVoiceWebhook"] --> B["resolveVoiceQualityProfile()"]
-    B --> C{"isVoiceProfileValid?<br/>(WS-A)"}
-    C -- "yes" --> D{"mode == elevenlabs_agent?<br/>(WS-B)"}
-    C -- "no, fallback=true" --> F["proceed with standard profile"]
-    C -- "no, fallback=false" --> G["HTTP 500: config error"]
-    D -- "no (twilio_standard /<br/>twilio_elevenlabs_tts)" --> H["return ConversationRelay TwiML"]
-    D -- "yes, fallback=true" --> I["warn + fallback to<br/>standard TwiML"]
-    D -- "yes, fallback=false" --> J["HTTP 501: consultation<br/>bridging not supported"]
-    F --> H
-    I --> H
-```
+The voice webhook in `twilio-routes.ts` calls `resolveVoiceQualityProfile()` and passes the result directly to `generateTwiML()` to produce ConversationRelay TwiML.
 
 ---
 

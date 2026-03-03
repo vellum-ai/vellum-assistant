@@ -1,14 +1,10 @@
 import { loadConfig } from '../config/loader.js';
 
 export interface VoiceQualityProfile {
-  mode: 'twilio_standard' | 'twilio_elevenlabs_tts' | 'elevenlabs_agent';
   language: string;
   transcriptionProvider: string;
   ttsProvider: string;
   voice: string;
-  agentId?: string;
-  fallbackToStandardOnError: boolean;
-  validationErrors: string[];
 }
 
 /**
@@ -45,70 +41,19 @@ export function buildElevenLabsVoiceSpec(config: {
 
 /**
  * Resolve the effective voice quality profile from config.
- * Returns a profile with all resolved values ready for use by TwiML generation
- * and call orchestration.
+ *
+ * Always uses ElevenLabs TTS via Twilio ConversationRelay.
+ * The voice ID comes from the shared `elevenlabs.voiceId` config
+ * (defaults to Rachel — 21m00Tcm4TlvDq8ikWAM).
  */
 export function resolveVoiceQualityProfile(config?: ReturnType<typeof loadConfig>): VoiceQualityProfile {
   const cfg = config ?? loadConfig();
   const voice = cfg.calls.voice;
-  const errors: string[] = [];
 
-  // Default/standard profile
-  const standardProfile: VoiceQualityProfile = {
-    mode: 'twilio_standard',
+  return {
     language: voice.language,
     transcriptionProvider: voice.transcriptionProvider,
-    ttsProvider: 'Google',
-    voice: 'Google.en-US-Journey-O',
-    fallbackToStandardOnError: voice.fallbackToStandardOnError,
-    validationErrors: [],
+    ttsProvider: 'ElevenLabs',
+    voice: buildElevenLabsVoiceSpec({ voiceId: cfg.elevenlabs.voiceId, ...voice.elevenlabs }),
   };
-
-  if (voice.mode === 'twilio_standard') {
-    return standardProfile;
-  }
-
-  if (voice.mode === 'twilio_elevenlabs_tts') {
-    if (!voice.elevenlabs.voiceId && !voice.fallbackToStandardOnError) {
-      errors.push('calls.voice.elevenlabs.voiceId is required for twilio_elevenlabs_tts mode when fallback is disabled');
-    }
-    if (!voice.elevenlabs.voiceId && voice.fallbackToStandardOnError) {
-      return { ...standardProfile, validationErrors: ['calls.voice.elevenlabs.voiceId is empty; falling back to twilio_standard'] };
-    }
-    return {
-      mode: 'twilio_elevenlabs_tts',
-      language: voice.language,
-      transcriptionProvider: voice.transcriptionProvider,
-      ttsProvider: 'ElevenLabs',
-      voice: buildElevenLabsVoiceSpec(voice.elevenlabs),
-      fallbackToStandardOnError: voice.fallbackToStandardOnError,
-      validationErrors: errors,
-    };
-  }
-
-  if (voice.mode === 'elevenlabs_agent') {
-    if (!voice.elevenlabs.agentId && !voice.fallbackToStandardOnError) {
-      errors.push('calls.voice.elevenlabs.agentId is required for elevenlabs_agent mode when fallback is disabled');
-    }
-    if (!voice.elevenlabs.agentId && voice.fallbackToStandardOnError) {
-      return { ...standardProfile, validationErrors: ['calls.voice.elevenlabs.agentId is empty; falling back to twilio_standard'] };
-    }
-    return {
-      mode: 'elevenlabs_agent',
-      language: voice.language,
-      transcriptionProvider: voice.transcriptionProvider,
-      ttsProvider: 'ElevenLabs',
-      voice: buildElevenLabsVoiceSpec(voice.elevenlabs),
-      agentId: voice.elevenlabs.agentId,
-      fallbackToStandardOnError: voice.fallbackToStandardOnError,
-      validationErrors: errors,
-    };
-  }
-
-  return standardProfile;
-}
-
-/** Returns false when the profile has any validation errors. */
-export function isVoiceProfileValid(profile: VoiceQualityProfile): boolean {
-  return profile.validationErrors.length === 0;
 }

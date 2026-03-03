@@ -670,20 +670,14 @@ describe("AssistantConfigSchema", () => {
         denyCategories: [],
       },
       voice: {
-        mode: "twilio_standard",
         language: "en-US",
         transcriptionProvider: "Deepgram",
-        fallbackToStandardOnError: true,
         elevenlabs: {
-          voiceId: "",
           voiceModelId: "",
           speed: 1.0,
           stability: 0.5,
           similarityBoost: 0.75,
           useSpeakerBoost: true,
-          agentId: "",
-          apiBaseUrl: "https://api.elevenlabs.io",
-          registerCallTimeoutMs: 5000,
         },
       },
       callerIdentity: {
@@ -789,21 +783,13 @@ describe("AssistantConfigSchema", () => {
 
   test("config without calls.voice parses correctly and produces defaults", () => {
     const result = AssistantConfigSchema.parse({});
-    expect(result.calls.voice.mode).toBe("twilio_standard");
     expect(result.calls.voice.language).toBe("en-US");
     expect(result.calls.voice.transcriptionProvider).toBe("Deepgram");
-    expect(result.calls.voice.fallbackToStandardOnError).toBe(true);
-    expect(result.calls.voice.elevenlabs.voiceId).toBe("");
     expect(result.calls.voice.elevenlabs.voiceModelId).toBe("");
     expect(result.calls.voice.elevenlabs.speed).toBe(1.0);
     expect(result.calls.voice.elevenlabs.stability).toBe(0.5);
     expect(result.calls.voice.elevenlabs.similarityBoost).toBe(0.75);
     expect(result.calls.voice.elevenlabs.useSpeakerBoost).toBe(true);
-    expect(result.calls.voice.elevenlabs.agentId).toBe("");
-    expect(result.calls.voice.elevenlabs.apiBaseUrl).toBe(
-      "https://api.elevenlabs.io",
-    );
-    expect(result.calls.voice.elevenlabs.registerCallTimeoutMs).toBe(5000);
   });
 
   test("legacy style field is silently stripped by schema", () => {
@@ -834,37 +820,20 @@ describe("AssistantConfigSchema", () => {
     const result = AssistantConfigSchema.parse({
       calls: {
         voice: {
-          mode: "twilio_elevenlabs_tts",
           language: "es-ES",
           transcriptionProvider: "Google",
-          fallbackToStandardOnError: false,
           elevenlabs: {
-            voiceId: "abc123",
             stability: 0.8,
           },
         },
       },
     });
-    expect(result.calls.voice.mode).toBe("twilio_elevenlabs_tts");
     expect(result.calls.voice.language).toBe("es-ES");
     expect(result.calls.voice.transcriptionProvider).toBe("Google");
-    expect(result.calls.voice.fallbackToStandardOnError).toBe(false);
-    expect(result.calls.voice.elevenlabs.voiceId).toBe("abc123");
     expect(result.calls.voice.elevenlabs.stability).toBe(0.8);
     // Defaults preserved for unset fields
     expect(result.calls.voice.elevenlabs.voiceModelId).toBe("");
     expect(result.calls.voice.elevenlabs.similarityBoost).toBe(0.75);
-  });
-
-  test("rejects invalid calls.voice.mode", () => {
-    const result = AssistantConfigSchema.safeParse({
-      calls: { voice: { mode: "invalid_mode" } },
-    });
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      const msgs = result.error.issues.map((i) => i.message);
-      expect(msgs.some((m) => m.includes("calls.voice.mode"))).toBe(true);
-    }
   });
 
   test("rejects invalid calls.voice.transcriptionProvider", () => {
@@ -883,20 +852,6 @@ describe("AssistantConfigSchema", () => {
   test("rejects calls.voice.elevenlabs.stability out of range", () => {
     const result = AssistantConfigSchema.safeParse({
       calls: { voice: { elevenlabs: { stability: 1.5 } } },
-    });
-    expect(result.success).toBe(false);
-  });
-
-  test("rejects calls.voice.elevenlabs.registerCallTimeoutMs below 1000", () => {
-    const result = AssistantConfigSchema.safeParse({
-      calls: { voice: { elevenlabs: { registerCallTimeoutMs: 500 } } },
-    });
-    expect(result.success).toBe(false);
-  });
-
-  test("rejects calls.voice.elevenlabs.registerCallTimeoutMs above 15000", () => {
-    const result = AssistantConfigSchema.safeParse({
-      calls: { voice: { elevenlabs: { registerCallTimeoutMs: 20000 } } },
     });
     expect(result.success).toBe(false);
   });
@@ -972,114 +927,44 @@ describe("AssistantConfigSchema", () => {
 // ---------------------------------------------------------------------------
 
 describe("resolveVoiceQualityProfile", () => {
-  test("returns correct profile for twilio_standard", () => {
+  test("always returns ElevenLabs ttsProvider", () => {
     const config = AssistantConfigSchema.parse({});
     const profile = resolveVoiceQualityProfile(config);
-    expect(profile.mode).toBe("twilio_standard");
-    expect(profile.ttsProvider).toBe("Google");
-    expect(profile.voice).toBe("Google.en-US-Journey-O");
+    expect(profile.ttsProvider).toBe("ElevenLabs");
     expect(profile.transcriptionProvider).toBe("Deepgram");
-    expect(profile.fallbackToStandardOnError).toBe(true);
-    expect(profile.validationErrors).toEqual([]);
   });
 
-  test("returns correct profile for twilio_elevenlabs_tts with valid voiceId", () => {
+  test("uses shared elevenlabs.voiceId for voice", () => {
     const config = AssistantConfigSchema.parse({
-      calls: {
-        voice: {
-          mode: "twilio_elevenlabs_tts",
-          elevenlabs: { voiceId: "test-voice-id" },
-        },
-      },
+      elevenlabs: { voiceId: "test-voice-id" },
     });
     const profile = resolveVoiceQualityProfile(config);
-    expect(profile.mode).toBe("twilio_elevenlabs_tts");
     expect(profile.ttsProvider).toBe("ElevenLabs");
     expect(profile.voice).toBe("test-voice-id");
-    expect(profile.validationErrors).toEqual([]);
   });
 
-  test("falls back for twilio_elevenlabs_tts with empty voiceId and fallback enabled", () => {
+  test("defaults to Rachel voice ID when elevenlabs.voiceId is not set", () => {
+    const config = AssistantConfigSchema.parse({});
+    const profile = resolveVoiceQualityProfile(config);
+    expect(profile.voice).toBe("21m00Tcm4TlvDq8ikWAM");
+  });
+
+  test("applies call-specific voice tuning params from calls.voice.elevenlabs", () => {
     const config = AssistantConfigSchema.parse({
+      elevenlabs: { voiceId: "abc123" },
       calls: {
         voice: {
-          mode: "twilio_elevenlabs_tts",
-          fallbackToStandardOnError: true,
-          elevenlabs: { voiceId: "" },
+          elevenlabs: {
+            voiceModelId: "turbo_v2_5",
+            speed: 0.9,
+            stability: 0.8,
+            similarityBoost: 0.9,
+          },
         },
       },
     });
     const profile = resolveVoiceQualityProfile(config);
-    expect(profile.mode).toBe("twilio_standard");
-    expect(profile.ttsProvider).toBe("Google");
-    expect(profile.voice).toBe("Google.en-US-Journey-O");
-    expect(profile.validationErrors.length).toBe(1);
-    expect(profile.validationErrors[0]).toContain("falling back");
-  });
-
-  test("returns errors for twilio_elevenlabs_tts with empty voiceId and fallback disabled", () => {
-    const config = AssistantConfigSchema.parse({
-      calls: {
-        voice: {
-          mode: "twilio_elevenlabs_tts",
-          fallbackToStandardOnError: false,
-          elevenlabs: { voiceId: "" },
-        },
-      },
-    });
-    const profile = resolveVoiceQualityProfile(config);
-    expect(profile.mode).toBe("twilio_elevenlabs_tts");
-    expect(profile.validationErrors.length).toBe(1);
-    expect(profile.validationErrors[0]).toContain("voiceId is required");
-  });
-
-  test("returns correct profile for elevenlabs_agent with valid agentId", () => {
-    const config = AssistantConfigSchema.parse({
-      calls: {
-        voice: {
-          mode: "elevenlabs_agent",
-          elevenlabs: { agentId: "agent-123", voiceId: "v1" },
-        },
-      },
-    });
-    const profile = resolveVoiceQualityProfile(config);
-    expect(profile.mode).toBe("elevenlabs_agent");
-    expect(profile.ttsProvider).toBe("ElevenLabs");
-    expect(profile.voice).toBe("v1");
-    expect(profile.agentId).toBe("agent-123");
-    expect(profile.validationErrors).toEqual([]);
-  });
-
-  test("falls back for elevenlabs_agent with empty agentId and fallback enabled", () => {
-    const config = AssistantConfigSchema.parse({
-      calls: {
-        voice: {
-          mode: "elevenlabs_agent",
-          fallbackToStandardOnError: true,
-          elevenlabs: { agentId: "" },
-        },
-      },
-    });
-    const profile = resolveVoiceQualityProfile(config);
-    expect(profile.mode).toBe("twilio_standard");
-    expect(profile.validationErrors.length).toBe(1);
-    expect(profile.validationErrors[0]).toContain("agentId is empty");
-  });
-
-  test("returns errors for elevenlabs_agent with empty agentId and fallback disabled", () => {
-    const config = AssistantConfigSchema.parse({
-      calls: {
-        voice: {
-          mode: "elevenlabs_agent",
-          fallbackToStandardOnError: false,
-          elevenlabs: { agentId: "" },
-        },
-      },
-    });
-    const profile = resolveVoiceQualityProfile(config);
-    expect(profile.mode).toBe("elevenlabs_agent");
-    expect(profile.validationErrors.length).toBe(1);
-    expect(profile.validationErrors[0]).toContain("agentId is required");
+    expect(profile.voice).toBe("abc123-turbo_v2_5-0.9_0.8_0.9");
   });
 });
 
@@ -1123,14 +1008,12 @@ describe("buildElevenLabsVoiceSpec", () => {
 
   test("default config uses a bare voiceId when no model override is set", () => {
     const config = AssistantConfigSchema.parse({
-      calls: {
-        voice: {
-          mode: "twilio_elevenlabs_tts",
-          elevenlabs: { voiceId: "test" },
-        },
-      },
+      elevenlabs: { voiceId: "test" },
     });
-    const spec = buildElevenLabsVoiceSpec(config.calls.voice.elevenlabs);
+    const spec = buildElevenLabsVoiceSpec({
+      voiceId: config.elevenlabs.voiceId,
+      ...config.calls.voice.elevenlabs,
+    });
     expect(spec).toBe("test");
   });
 });
@@ -1375,10 +1258,8 @@ describe("loadConfig with schema validation", () => {
     expect(config.calls.userConsultTimeoutSeconds).toBe(120);
     expect(config.calls.disclosure.enabled).toBe(true);
     expect(config.calls.safety.denyCategories).toEqual([]);
-    expect(config.calls.voice.mode).toBe("twilio_standard");
     expect(config.calls.voice.language).toBe("en-US");
     expect(config.calls.voice.transcriptionProvider).toBe("Deepgram");
-    expect(config.calls.voice.elevenlabs.voiceId).toBe("");
     expect(config.calls.model).toBeUndefined();
     expect(config.calls.callerIdentity).toEqual({
       allowPerCallOverride: true,

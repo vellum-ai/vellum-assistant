@@ -29,7 +29,7 @@ import {
 } from './call-store.js';
 import { getTwilioConfig } from './twilio-config.js';
 import type { CallStatus } from './types.js';
-import { isVoiceProfileValid,resolveVoiceQualityProfile } from './voice-quality.js';
+import { resolveVoiceQualityProfile } from './voice-quality.js';
 
 const log = getLogger('twilio-routes');
 
@@ -144,7 +144,7 @@ function mapTwilioStatus(twilioStatus: string): CallStatus | null {
  * Receives the initial voice webhook when Twilio connects the call.
  * Returns TwiML XML that tells Twilio to open a ConversationRelay WebSocket.
  *
- * Supports two modes:
+ * Supports two flows:
  * - **Outbound** (callSessionId present in query): uses the existing session
  * - **Inbound** (callSessionId absent): creates or reuses a session keyed
  *   by the Twilio CallSid. Uses daemon internal scope for assistant identity.
@@ -214,43 +214,9 @@ function buildVoiceWebhookTwiml(
   task: string | null,
   guardianVerificationSessionId?: string | null,
 ): Response {
-  let profile = resolveVoiceQualityProfile(loadConfig());
+  const profile = resolveVoiceQualityProfile(loadConfig());
 
-  log.info({ callSessionId, mode: profile.mode, ttsProvider: profile.ttsProvider, voice: profile.voice }, 'Voice quality profile resolved');
-
-  if (profile.validationErrors.length > 0) {
-    log.warn({ callSessionId, errors: profile.validationErrors }, 'Voice quality profile has validation warnings');
-  }
-
-  // WS-A: Enforce strict fallback semantics — reject invalid profiles when fallback is disabled
-  if (!isVoiceProfileValid(profile)) {
-    if (!profile.fallbackToStandardOnError) {
-      const errorMsg = `Voice quality configuration error: ${profile.validationErrors.join('; ')}`;
-      log.error({ callSessionId, errors: profile.validationErrors }, errorMsg);
-      return new Response(errorMsg, { status: 500 });
-    }
-    // Fallback is enabled — profile already resolved to standard; log explicitly
-    log.info({ callSessionId }, 'Profile invalid with fallback enabled; proceeding with standard mode');
-  }
-
-  // WS-B: Guard elevenlabs_agent until consultation bridge exists.
-  // This fires BEFORE any ElevenLabs API calls, blocking the entire mode.
-  if (profile.mode === 'elevenlabs_agent') {
-    if (!profile.fallbackToStandardOnError) {
-      const msg = 'elevenlabs_agent mode is restricted: consultation bridging (waiting_on_user) is not yet supported. Set calls.voice.fallbackToStandardOnError=true to fall back to standard mode.';
-      log.error({ callSessionId }, msg);
-      return new Response(msg, { status: 501 });
-    }
-    log.warn({ callSessionId }, 'elevenlabs_agent mode is restricted/experimental — consultation bridging is not yet supported; falling back to standard ConversationRelay TwiML');
-    const standardConfig = loadConfig();
-    profile = resolveVoiceQualityProfile({
-      ...standardConfig,
-      calls: {
-        ...standardConfig.calls,
-        voice: { ...standardConfig.calls.voice, mode: 'twilio_standard' },
-      },
-    });
-  }
+  log.info({ callSessionId, ttsProvider: profile.ttsProvider, voice: profile.voice }, 'Voice quality profile resolved');
 
   const twilioConfig = getTwilioConfig();
   let relayUrl: string;

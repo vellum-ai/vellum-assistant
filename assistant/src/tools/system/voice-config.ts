@@ -1,3 +1,4 @@
+import { invalidateConfigCache, loadRawConfig, saveRawConfig, setNestedValue } from '../../config/loader.js';
 import { normalizeActivationKey } from '../../daemon/handlers/config-voice.js';
 import { RiskLevel } from '../../permissions/types.js';
 import type { ToolDefinition } from '../../providers/types.js';
@@ -11,6 +12,7 @@ const VOICE_SETTINGS = {
   wake_word_enabled: { userDefaultsKey: 'wakeWordEnabled', type: 'boolean' as const },
   wake_word_keyword: { userDefaultsKey: 'wakeWordKeyword', type: 'string' as const },
   wake_word_timeout: { userDefaultsKey: 'wakeWordTimeoutSeconds', type: 'number' as const },
+  tts_voice_id: { userDefaultsKey: 'ttsVoiceId', type: 'string' as const },
 } as const;
 
 type VoiceSettingName = keyof typeof VOICE_SETTINGS;
@@ -55,6 +57,12 @@ function validateSetting(setting: string, value: unknown): { ok: true; coerced: 
       }
       return { ok: true, coerced: num };
     }
+    case 'tts_voice_id': {
+      if (typeof value !== 'string' || value.trim().length === 0) {
+        return { ok: false, error: 'tts_voice_id must be a non-empty string (ElevenLabs voice ID)' };
+      }
+      return { ok: true, coerced: value.trim() };
+    }
     default:
       return { ok: false, error: `Unknown setting "${setting}"` };
   }
@@ -65,6 +73,7 @@ const FRIENDLY_NAMES: Record<VoiceSettingName, string> = {
   wake_word_enabled: 'Wake word',
   wake_word_keyword: 'Wake word keyword',
   wake_word_timeout: 'Wake word timeout',
+  tts_voice_id: 'ElevenLabs voice',
 };
 
 export class VoiceConfigUpdateTool implements Tool {
@@ -139,6 +148,15 @@ export class VoiceConfigUpdateTool implements Tool {
         key: meta.userDefaultsKey,
         value: validation.coerced,
       });
+    }
+
+    // For tts_voice_id, also persist to the config file (elevenlabs.voiceId)
+    // so phone calls and other consumers pick it up.
+    if (setting === 'tts_voice_id') {
+      const raw = loadRawConfig();
+      setNestedValue(raw, 'elevenlabs.voiceId', validation.coerced);
+      saveRawConfig(raw);
+      invalidateConfigCache();
     }
 
     return {

@@ -1,7 +1,6 @@
 import { z } from 'zod';
 
 const VALID_CALL_PROVIDERS = ['twilio'] as const;
-const VALID_CALL_VOICE_MODES = ['twilio_standard', 'twilio_elevenlabs_tts', 'elevenlabs_agent'] as const;
 export const VALID_CALLER_IDENTITY_MODES = ['assistant_number', 'user_number'] as const;
 const VALID_CALL_TRANSCRIPTION_PROVIDERS = ['Deepgram', 'Google'] as const;
 
@@ -21,9 +20,6 @@ export const CallsSafetyConfigSchema = z.object({
 });
 
 export const CallsElevenLabsConfigSchema = z.object({
-  voiceId: z
-    .string({ error: 'calls.voice.elevenlabs.voiceId must be a string' })
-    .default(''),
   voiceModelId: z
     .string({ error: 'calls.voice.elevenlabs.voiceModelId must be a string' })
     .default(''),
@@ -45,26 +41,9 @@ export const CallsElevenLabsConfigSchema = z.object({
   useSpeakerBoost: z
     .boolean({ error: 'calls.voice.elevenlabs.useSpeakerBoost must be a boolean' })
     .default(true),
-  agentId: z
-    .string({ error: 'calls.voice.elevenlabs.agentId must be a string' })
-    .default(''),
-  apiBaseUrl: z
-    .string({ error: 'calls.voice.elevenlabs.apiBaseUrl must be a string' })
-    .default('https://api.elevenlabs.io'),
-  registerCallTimeoutMs: z
-    .number({ error: 'calls.voice.elevenlabs.registerCallTimeoutMs must be a number' })
-    .int('calls.voice.elevenlabs.registerCallTimeoutMs must be an integer')
-    .min(1000, 'calls.voice.elevenlabs.registerCallTimeoutMs must be >= 1000')
-    .max(15000, 'calls.voice.elevenlabs.registerCallTimeoutMs must be <= 15000')
-    .default(5000),
 });
 
 export const CallsVoiceConfigSchema = z.object({
-  mode: z
-    .enum(VALID_CALL_VOICE_MODES, {
-      error: `calls.voice.mode must be one of: ${VALID_CALL_VOICE_MODES.join(', ')}`,
-    })
-    .default('twilio_standard'),
   language: z
     .string({ error: 'calls.voice.language must be a string' })
     .default('en-US'),
@@ -73,9 +52,6 @@ export const CallsVoiceConfigSchema = z.object({
       error: `calls.voice.transcriptionProvider must be one of: ${VALID_CALL_TRANSCRIPTION_PROVIDERS.join(', ')}`,
     })
     .default('Deepgram'),
-  fallbackToStandardOnError: z
-    .boolean({ error: 'calls.voice.fallbackToStandardOnError must be a boolean' })
-    .default(true),
   elevenlabs: CallsElevenLabsConfigSchema.default(CallsElevenLabsConfigSchema.parse({})),
 });
 
