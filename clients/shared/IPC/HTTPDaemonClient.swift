@@ -1331,7 +1331,8 @@ public final class HTTPTransport {
     /// handleAuthenticationFailureAsync() directly.
     private func handleAuthenticationFailure(responseData: Data? = nil) {
         // Managed mode uses session tokens — the bearer refresh flow does not apply.
-        // Signal session expiry so the app can prompt re-authentication.
+        // Signal session expiry and disconnect to stop SSE/health-check loops
+        // from re-hitting the 401 and re-emitting the error indefinitely.
         if isManagedMode {
             log.warning("401 in managed mode — session token may be expired")
             onMessage?(.sessionError(SessionErrorMessage(
@@ -1340,6 +1341,7 @@ public final class HTTPTransport {
                 userMessage: "Session expired. Please sign in again.",
                 retryable: false
             )))
+            disconnect()
             return
         }
 
@@ -1361,7 +1363,8 @@ public final class HTTPTransport {
     /// `refresh_required`, `UNAUTHORIZED` (expired JWT), and unknown codes —
     /// are treated as refreshable.
     private func handleAuthenticationFailureAsync(responseData: Data? = nil) async -> AuthRefreshResult {
-        // Managed mode: no bearer refresh — emit session-expired and return terminal.
+        // Managed mode: no bearer refresh — emit session-expired, disconnect to
+        // stop loops, and return terminal so callers don't retry.
         if isManagedMode {
             log.warning("401 in managed mode — session token may be expired")
             onMessage?(.sessionError(SessionErrorMessage(
@@ -1370,6 +1373,7 @@ public final class HTTPTransport {
                 userMessage: "Session expired. Please sign in again.",
                 retryable: false
             )))
+            disconnect()
             return .terminalFailure
         }
 
