@@ -318,7 +318,7 @@ struct SettingsAccountTab: View {
                             set: { isOn in
                                 if isOn { switchToAssistant(assistant) }
                             }
-                        ))
+                        ), size: .medium)
                     }
                     .padding(.vertical, VSpacing.xs)
                     .contentShape(Rectangle())

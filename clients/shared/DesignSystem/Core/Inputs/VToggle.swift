@@ -3,7 +3,7 @@ import SwiftUI
 public struct VToggle: View {
     @Binding public var isOn: Bool
     public var label: String? = nil
-    public var size: Size = .medium
+    public var size: Size = .large
     @Environment(\.isEnabled) private var isEnabled
 
     public enum Size {
@@ -41,7 +41,7 @@ public struct VToggle: View {
         }
     }
 
-    public init(isOn: Binding<Bool>, label: String? = nil, size: Size = .medium) {
+    public init(isOn: Binding<Bool>, label: String? = nil, size: Size = .large) {
         self._isOn = isOn
         self.label = label
         self.size = size

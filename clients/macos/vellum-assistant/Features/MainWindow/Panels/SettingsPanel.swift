@@ -989,7 +989,7 @@ struct SettingsPanel: View {
 
                 Spacer()
 
-                VToggle(isOn: .constant(granted)).allowsHitTesting(false)
+                VToggle(isOn: .constant(granted), size: .medium).allowsHitTesting(false)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())

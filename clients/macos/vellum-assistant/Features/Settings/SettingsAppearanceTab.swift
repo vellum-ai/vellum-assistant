@@ -160,7 +160,7 @@ struct SettingsAppearanceTab: View {
                     VToggle(isOn: Binding(
                         get: { store.cmdEnterToSend },
                         set: { store.cmdEnterToSend = $0 }
-                    ))
+                    ), size: .medium)
                 }
                 .padding(.vertical, VSpacing.md)
             }
@@ -185,7 +185,7 @@ struct SettingsAppearanceTab: View {
                     VToggle(isOn: Binding(
                         get: { store.mediaEmbedsEnabled },
                         set: { store.setMediaEmbedsEnabled($0) }
-                    ))
+                    ), size: .medium)
                 }
 
                 Text("Automatically embed images, videos, and other media shared in chat messages.")

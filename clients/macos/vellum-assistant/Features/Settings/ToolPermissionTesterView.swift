@@ -55,11 +55,11 @@ struct ToolPermissionTesterView: View {
 
             // Toggles
             HStack(spacing: VSpacing.xl) {
-                VToggle(isOn: $model.isInteractive, label: "Interactive")
+                VToggle(isOn: $model.isInteractive, label: "Interactive", size: .medium)
                     .font(VFont.body)
                     .foregroundColor(VColor.textSecondary)
 
-                VToggle(isOn: $model.forcePromptSideEffects, label: "In Temporary Chat")
+                VToggle(isOn: $model.forcePromptSideEffects, label: "In Temporary Chat", size: .medium)
                     .font(VFont.body)
                     .foregroundColor(VColor.textSecondary)
             }
@@ -91,7 +91,7 @@ struct ToolPermissionTesterView: View {
             } else {
                 // Optional fields have a checkbox
                 HStack(spacing: VSpacing.xs) {
-                    VToggle(isOn: fieldEnabledBinding(for: field.id))
+                    VToggle(isOn: fieldEnabledBinding(for: field.id), size: .medium)
                     fieldNameLabel(field)
                 }
 
@@ -139,7 +139,7 @@ struct ToolPermissionTesterView: View {
                 .font(VFont.mono)
 
         case .boolean:
-            VToggle(isOn: fieldBoolBinding(for: field.id))
+            VToggle(isOn: fieldBoolBinding(for: field.id), size: .medium)
 
         case .enumeration(let values):
             VDropdown(

@@ -81,7 +81,7 @@ struct VoiceSettingsView: View {
                             selectActivator(.off)
                         }
                     }
-                ))
+                ), size: .medium)
                 .accessibilityLabel("Enable Push to Talk")
             }
 
@@ -298,7 +298,7 @@ struct VoiceSettingsView: View {
                         .foregroundColor(VColor.textMuted)
                 }
                 Spacer()
-                VToggle(isOn: $wakeWordEnabled)
+                VToggle(isOn: $wakeWordEnabled, size: .medium)
                     .accessibilityLabel("Enable wake word listening")
             }
 
