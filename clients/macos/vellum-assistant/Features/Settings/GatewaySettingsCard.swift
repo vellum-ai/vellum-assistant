@@ -12,16 +12,74 @@ struct GatewaySettingsCard: View {
     @State private var gatewayUrlText: String = ""
     @State private var isGatewayUrlFocused: Bool = false
     @State private var gatewayTargetCopied: Bool = false
+    @State private var tunnelSetupExpanded: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("Gateway")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text("Gateway")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+                Text("Local gateway that forwards requests to this assistant")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+            }
 
-            gatewayContent
+            // Gateway running status row
+            if store.gatewayReachable == true {
+                HStack(spacing: VSpacing.sm) {
+                    VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .large) {}
+
+                    // Copy the local gateway target address
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(store.localGatewayTarget, forType: .string)
+                        gatewayTargetCopied = true
+                        Task {
+                            try? await Task.sleep(nanoseconds: 2_000_000_000)
+                            gatewayTargetCopied = false
+                        }
+                    } label: {
+                        Image(systemName: gatewayTargetCopied ? "checkmark" : "doc.on.doc")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(gatewayTargetCopied ? VColor.success : VColor.textSecondary)
+                            .frame(width: 28, height: 28)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Copy gateway address")
+                    .help("Copy local gateway address: \(store.localGatewayTarget)")
+                }
+
+                // Show the local gateway target as a readable label
+                Text(store.localGatewayTarget)
+                    .font(VFont.mono)
+                    .foregroundColor(VColor.textMuted)
+                    .textSelection(.enabled)
+            } else if tunnelSetupExpanded {
+                tunnelConfigEntry
+            } else {
+                VButton(label: "Set Up Tunnel", style: .secondary, size: .large) {
+                    tunnelSetupExpanded = true
+                }
+            }
+
+            // Diagnostic message when gateway is up but tunnel is down
+            if store.gatewayReachable == true,
+               !store.ingressPublicBaseUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               store.ingressReachable == false {
+                HStack(spacing: VSpacing.sm) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(VColor.warning)
+                        .font(.system(size: 12))
+                    Text("Gateway is running but tunnel is unreachable. Check your tunnel configuration.")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.warning)
+                }
+            }
         }
         .padding(VSpacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
         .onAppear {
             store.refreshIngressConfig()
@@ -44,144 +102,59 @@ struct GatewaySettingsCard: View {
         }
     }
 
-    // MARK: - Gateway Content
+    // MARK: - Tunnel Configuration Entry
 
-    private var gatewayContent: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            // Local Gateway Target (read-only)
-            HStack(spacing: VSpacing.xs) {
+    private var tunnelConfigEntry: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("Local Gateway Target")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textSecondary)
+                HStack(spacing: VSpacing.sm) {
+                    Text(store.localGatewayTarget)
+                        .font(VFont.mono)
+                        .foregroundColor(VColor.textPrimary)
+                        .textSelection(.enabled)
+                        .padding(VSpacing.md)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(VColor.surface.opacity(0.5))
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.md)
+                                .stroke(VColor.surfaceBorder.opacity(0.3), lineWidth: 1)
+                        )
+
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(store.localGatewayTarget, forType: .string)
+                        gatewayTargetCopied = true
+                        Task {
+                            try? await Task.sleep(nanoseconds: 2_000_000_000)
+                            gatewayTargetCopied = false
+                        }
+                    } label: {
+                        Image(systemName: gatewayTargetCopied ? "checkmark" : "doc.on.doc")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(gatewayTargetCopied ? VColor.success : VColor.textSecondary)
+                            .frame(width: 28, height: 28)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Copy gateway address")
+                    .help("Copy address")
+                }
+                Text("Point your tunnel (ngrok, Cloudflare, etc.) to this address.")
                     .font(VFont.caption)
                     .foregroundColor(VColor.textSecondary)
             }
 
-            HStack(spacing: VSpacing.sm) {
-                Text(store.localGatewayTarget)
-                    .font(VFont.mono)
-                    .foregroundColor(VColor.textPrimary)
-                    .textSelection(.enabled)
-                    .padding(VSpacing.md)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(VColor.surface.opacity(0.5))
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.md)
-                            .stroke(VColor.surfaceBorder.opacity(0.3), lineWidth: 1)
-                    )
-
-                Button {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(store.localGatewayTarget, forType: .string)
-                    gatewayTargetCopied = true
-                    Task {
-                        try? await Task.sleep(nanoseconds: 2_000_000_000)
-                        gatewayTargetCopied = false
-                    }
-                } label: {
-                    Image(systemName: gatewayTargetCopied ? "checkmark" : "doc.on.doc")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(gatewayTargetCopied ? VColor.success : VColor.textSecondary)
-                        .frame(width: 28, height: 28)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Copy gateway address")
-                .help("Copy address")
-
-                InlineConnectionStatus(
-                    status: gatewayStatusInfo,
-                    isRefreshing: store.isCheckingGateway,
-                    lastChecked: store.gatewayLastChecked,
-                    accessibilityLabel: "gateway"
-                ) {
-                    Task { await store.testGatewayOnly() }
-                }
-            }
-
-            Text("Point your tunnel (ngrok, Cloudflare, etc.) to this address.")
-                .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
-
-            // Gateway URL field
             Text("Gateway URL")
                 .font(VFont.caption)
                 .foregroundColor(VColor.textSecondary)
 
-            HStack(spacing: VSpacing.sm) {
-                VInlineActionField(text: $gatewayUrlText, placeholder: "https://your-tunnel.example.com", allowEmpty: true, isFocused: $isGatewayUrlFocused) {
-                    store.saveIngressPublicBaseUrl(gatewayUrlText)
-                }
-
-                InlineConnectionStatus(
-                    status: tunnelStatusInfo,
-                    isRefreshing: store.isCheckingTunnel,
-                    lastChecked: store.tunnelLastChecked,
-                    accessibilityLabel: "tunnel"
-                ) {
-                    Task { await store.testTunnelOnly() }
-                }
+            VInlineActionField(text: $gatewayUrlText, placeholder: "https://your-tunnel.example.com", allowEmpty: true, isFocused: $isGatewayUrlFocused) {
+                store.saveIngressPublicBaseUrl(gatewayUrlText)
             }
-
-            // Diagnostic message when gateway is up but tunnel is down
-            if store.gatewayReachable == true,
-               !store.ingressPublicBaseUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-               store.ingressReachable == false {
-                HStack(spacing: VSpacing.sm) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(VColor.warning)
-                        .font(.system(size: 12))
-                    Text("Gateway is running but tunnel is unreachable. Check your tunnel configuration.")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.warning)
-                }
-            }
-
         }
     }
-
-    // MARK: - Connection Status Helpers
-
-    private var gatewayStatusInfo: ConnectionStatusInfo {
-        guard let reachable = store.gatewayReachable else {
-            return ConnectionStatusInfo(label: "Unknown", color: VColor.textMuted, icon: "questionmark.circle.fill")
-        }
-        if reachable {
-            return ConnectionStatusInfo(label: "Running", color: VColor.success, icon: "checkmark.circle.fill")
-        } else {
-            return ConnectionStatusInfo(label: "Stopped", color: VColor.error, icon: "xmark.circle.fill")
-        }
-    }
-
-    private var tunnelStatusInfo: ConnectionStatusInfo {
-        let trimmedUrl = store.ingressPublicBaseUrl.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        // No URL configured
-        if trimmedUrl.isEmpty {
-            return ConnectionStatusInfo(label: "Not configured", color: VColor.textMuted, icon: "minus.circle.fill")
-        }
-
-        // URL is non-empty but not a valid absolute HTTP(S) URL
-        if let parsed = URL(string: trimmedUrl), let scheme = parsed.scheme, ["http", "https"].contains(scheme.lowercased()) {
-            // valid — fall through to further checks below
-        } else {
-            return ConnectionStatusInfo(label: "Invalid URL format", color: VColor.error, icon: "exclamationmark.circle.fill")
-        }
-
-        // URL is set but ingress is disabled
-        if !store.ingressEnabled {
-            return ConnectionStatusInfo(label: "URL set but gateway not active", color: VColor.warning, icon: "exclamationmark.triangle.fill")
-        }
-
-        // Haven't tested yet
-        guard let reachable = store.ingressReachable else {
-            return ConnectionStatusInfo(label: "Unknown", color: VColor.textMuted, icon: "questionmark.circle.fill")
-        }
-
-        if reachable {
-            return ConnectionStatusInfo(label: "Reachable", color: VColor.success, icon: "checkmark.circle.fill")
-        } else {
-            return ConnectionStatusInfo(label: "Unreachable", color: VColor.error, icon: "xmark.circle.fill")
-        }
-    }
-
 }

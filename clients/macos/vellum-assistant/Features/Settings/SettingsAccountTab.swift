@@ -117,81 +117,43 @@ struct SettingsAccountTab: View {
                     .font(VFont.caption)
                     .foregroundColor(VColor.textSecondary)
 
-                HStack(spacing: VSpacing.sm) {
+                // When platform is reachable, show a Connected badge and hide the input field.
+                // When not reachable/configured, show the inline field for editing.
+                if store.vellumPlatformReachable == true {
+                    VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .large) {}
+                } else if isPlatformUrlFocused || !platformUrlText.isEmpty {
                     VInlineActionField(text: $platformUrlText, placeholder: "https://platform.vellum.ai", isFocused: $isPlatformUrlFocused) {
                         store.savePlatformBaseUrl(platformUrlText)
                         Task { await store.checkVellumPlatform() }
                     }
-
-                    InlineConnectionStatus(
-                        status: platformStatusInfo,
-                        isRefreshing: store.isCheckingVellumPlatform,
-                        lastChecked: store.platformLastChecked,
-                        accessibilityLabel: "platform"
-                    ) {
-                        Task { await store.checkVellumPlatform() }
+                } else {
+                    VButton(label: "Set Up", style: .secondary, size: .large) {
+                        isPlatformUrlFocused = true
                     }
-                }
-            } else {
-                HStack(spacing: VSpacing.sm) {
-                    InlineConnectionStatus(
-                        status: platformStatusInfo,
-                        isRefreshing: store.isCheckingVellumPlatform,
-                        lastChecked: store.platformLastChecked,
-                        accessibilityLabel: "platform"
-                    ) {
-                        Task { await store.checkVellumPlatform() }
-                    }
-                    Spacer()
                 }
             }
 
-            Divider().background(VColor.surfaceBorder)
-
             if authManager.isLoading {
                 HStack(spacing: VSpacing.sm) {
-                    Image(systemName: "arrow.triangle.2.circlepath")
-                        .foregroundColor(VColor.textMuted)
-                        .font(.system(size: 14))
+                    ProgressView()
+                        .controlSize(.small)
                     Text("Checking...")
                         .font(VFont.body)
                         .foregroundColor(VColor.textSecondary)
                 }
-            } else if let user = authManager.currentUser {
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    HStack(spacing: VSpacing.sm) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(VColor.success)
-                            .font(.system(size: 14))
-                        Text(user.email ?? user.display ?? "Signed in")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
-                        Spacer()
-                    }
-                    VButton(label: "Log Out", style: .danger, size: .large) {
-                        Task { await authManager.logout() }
-                    }
+            } else if authManager.currentUser != nil {
+                VButton(label: "Log Out", style: .danger, size: .large) {
+                    Task { await authManager.logout() }
                 }
             } else {
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    HStack(spacing: VSpacing.sm) {
-                        Image(systemName: "xmark.circle")
-                            .foregroundColor(VColor.textMuted)
-                            .font(.system(size: 14))
-                        Text("Not signed in")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
-                        Spacer()
-                    }
-                    VButton(
-                        label: authManager.isSubmitting ? "Signing in..." : "Log In",
-                        style: .primary,
-                        size: .large
-                    ) {
-                        Task { await authManager.startWorkOSLogin() }
-                    }
-                    .disabled(authManager.isSubmitting)
+                VButton(
+                    label: authManager.isSubmitting ? "Signing in..." : "Log In",
+                    style: .primary,
+                    size: .large
+                ) {
+                    Task { await authManager.startWorkOSLogin() }
                 }
+                .disabled(authManager.isSubmitting)
             }
 
             if let error = authManager.errorMessage {
@@ -203,19 +165,6 @@ struct SettingsAccountTab: View {
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
-    }
-
-    // MARK: - Platform Status
-
-    private var platformStatusInfo: ConnectionStatusInfo {
-        guard let reachable = store.vellumPlatformReachable else {
-            return ConnectionStatusInfo(label: "Unknown", color: VColor.textMuted, icon: "questionmark.circle.fill")
-        }
-        if reachable {
-            return ConnectionStatusInfo(label: "Reachable", color: VColor.success, icon: "checkmark.circle.fill")
-        } else {
-            return ConnectionStatusInfo(label: store.vellumPlatformError ?? "Unreachable", color: VColor.error, icon: "xmark.circle.fill")
-        }
     }
 
     // MARK: - Assistant Info
@@ -321,12 +270,11 @@ struct SettingsAccountTab: View {
                     .foregroundColor(VColor.textPrimary)
 
                 ForEach(lockfileAssistants, id: \.assistantId) { assistant in
+                    let isActive = assistant.assistantId == selectedAssistantId
                     HStack(spacing: VSpacing.sm) {
-                        Image(systemName: assistant.assistantId == selectedAssistantId
-                              ? "checkmark.circle.fill" : "circle")
-                            .foregroundColor(assistant.assistantId == selectedAssistantId
-                                             ? VColor.accent : VColor.textMuted)
-                            .font(.system(size: 16))
+                        Image(systemName: isActive ? "largecircle.fill.circle" : "circle")
+                            .foregroundColor(isActive ? VColor.accent : VColor.textMuted)
+                            .font(.system(size: 18))
 
                         VStack(alignment: .leading, spacing: VSpacing.xxs) {
                             Text(assistant.assistantId)
@@ -338,18 +286,14 @@ struct SettingsAccountTab: View {
                         }
 
                         Spacer()
-
-                        if assistant.assistantId != selectedAssistantId {
-                            VButton(label: "Switch", style: .primary) {
-                                switchToAssistant(assistant)
-                            }
-                        } else {
-                            Text("Active")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
-                        }
                     }
                     .padding(.vertical, VSpacing.xs)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        if !isActive {
+                            switchToAssistant(assistant)
+                        }
+                    }
                 }
             }
             .padding(VSpacing.lg)
