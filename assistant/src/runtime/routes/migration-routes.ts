@@ -11,6 +11,7 @@
  * results with is_valid flag and detailed error descriptions.
  */
 
+import { getSqlite } from "../../memory/db-connection.js";
 import { getLogger } from "../../util/logger.js";
 import { getDbPath, getWorkspaceConfigPath } from "../../util/platform.js";
 import { httpError } from "../http-errors.js";
@@ -134,6 +135,7 @@ export async function handleMigrationExport(req: Request): Promise<Response> {
       configPath: getWorkspaceConfigPath(),
       source: "runtime-export",
       description,
+      checkpoint: () => getSqlite().exec("PRAGMA wal_checkpoint(TRUNCATE)"),
     });
 
     const timestamp = manifest.created_at.replace(/[:.]/g, "-");
