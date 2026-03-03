@@ -10,6 +10,7 @@ import { randomUUID } from 'node:crypto';
 
 import { and, desc, eq } from 'drizzle-orm';
 
+import { validateScopeIds } from './a2a-scope-catalog.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
 import { getDb } from '../memory/db.js';
 import { rawChanges } from '../memory/raw-query.js';
@@ -252,10 +253,30 @@ export function updateConnectionStatus(
 // updateConnectionScopes
 // ---------------------------------------------------------------------------
 
+export type UpdateScopesResult =
+  | { ok: true; connection: A2APeerConnection }
+  | { ok: false; reason: 'not_found' | 'invalid_scopes'; detail?: string };
+
+/**
+ * Atomically replace a connection's granted scopes.
+ *
+ * Validates all scope IDs against the catalog before writing. Rejects
+ * undeclared scope IDs to prevent typos and undefined behavior.
+ */
 export function updateConnectionScopes(
   connectionId: string,
   scopes: string[],
-): A2APeerConnection | null {
+): UpdateScopesResult {
+  // Validate all scope IDs against the catalog
+  const validation = validateScopeIds(scopes);
+  if (!validation.valid) {
+    return {
+      ok: false,
+      reason: 'invalid_scopes',
+      detail: `Unrecognized scope IDs: ${validation.unrecognized.join(', ')}`,
+    };
+  }
+
   const db = getDb();
   const now = Date.now();
 
@@ -273,7 +294,11 @@ export function updateConnectionScopes(
     .where(eq(a2aPeerConnections.id, connectionId))
     .get();
 
-  return updated ? rowToConnection(updated) : null;
+  if (!updated) {
+    return { ok: false, reason: 'not_found' };
+  }
+
+  return { ok: true, connection: rowToConnection(updated) };
 }
 
 // ---------------------------------------------------------------------------

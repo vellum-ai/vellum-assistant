@@ -409,6 +409,7 @@ export async function handleA2ASendMessage(req: Request, connectionId: string): 
       not_found: 404,
       not_active: 409,
       not_enabled: 403,
+      scope_denied: 403,
       no_credential: 500,
       delivery_failed: 502,
     };
@@ -416,6 +417,7 @@ export async function handleA2ASendMessage(req: Request, connectionId: string): 
       not_found: 'NOT_FOUND',
       not_active: 'CONFLICT',
       not_enabled: 'FORBIDDEN',
+      scope_denied: 'FORBIDDEN',
       no_credential: 'INTERNAL_ERROR',
       delivery_failed: 'SERVICE_UNAVAILABLE',
     };

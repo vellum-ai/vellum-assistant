@@ -55,6 +55,7 @@ import {
   upsertOutboundBinding,
 } from '../memory/external-conversation-store.js';
 import { getOrCreateConversation } from '../memory/conversation-key-store.js';
+import { evaluateScope, type A2AScopedAction } from './a2a-scope-policy.js';
 import { isAssistantFeatureFlagEnabled } from '../config/assistant-feature-flags.js';
 import { getConfig } from '../config/loader.js';
 
@@ -127,7 +128,7 @@ export type ListConnectionsResult = {
 
 export type SendMessageResult =
   | { ok: true; messageId: string; conversationId: string }
-  | { ok: false; reason: 'not_found' | 'not_active' | 'not_enabled' | 'no_credential' | 'delivery_failed'; detail?: string };
+  | { ok: false; reason: 'not_found' | 'not_active' | 'not_enabled' | 'no_credential' | 'delivery_failed' | 'scope_denied'; detail?: string };
 
 // ---------------------------------------------------------------------------
 // Invite code encoding/decoding
@@ -917,6 +918,12 @@ export async function sendMessage(params: {
   // Validate connection is active
   if (connection.status !== 'active') {
     return { ok: false, reason: 'not_active', detail: `Connection status is ${connection.status}` };
+  }
+
+  // Scope check: the target connection must have the `message` scope granted
+  const scopeCheck = evaluateScope(connection.scopes, 'sendMessage');
+  if (!scopeCheck.allowed) {
+    return { ok: false, reason: 'scope_denied', detail: scopeCheck.reason };
   }
 
   // Validate outbound credential is available for signing
