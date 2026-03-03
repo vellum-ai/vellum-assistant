@@ -5,7 +5,6 @@ Comprehensive architecture reference for the A2A communications system. This doc
 Related docs:
 - [A2A Communications Design (constraints, threat model, protocol)](a2a-communications.md)
 - [A2A Scope Model (scope semantics, catalog, policy)](a2a-scope-model.md)
-- [A2A / Pairing Convergence Analysis (shared primitives evaluation)](a2a-pairing-convergence.md)
 - [Security (includes approval grants)](security.md)
 
 ---
