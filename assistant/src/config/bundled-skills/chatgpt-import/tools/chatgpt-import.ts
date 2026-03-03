@@ -160,16 +160,22 @@ export async function run(
 
       // Index with the original ChatGPT timestamp so memory segments
       // reflect actual message age, not import time
-      indexMessageNow(
-        {
-          messageId: dbMessages[i].id,
-          conversationId: conversation.id,
-          role: conv.messages[i].role,
-          content: JSON.stringify(conv.messages[i].content),
-          createdAt: originalTimestamp,
-        },
-        memoryConfig,
-      );
+      try {
+        indexMessageNow(
+          {
+            messageId: dbMessages[i].id,
+            conversationId: conversation.id,
+            role: conv.messages[i].role,
+            content: JSON.stringify(conv.messages[i].content),
+            createdAt: originalTimestamp,
+          },
+          memoryConfig,
+        );
+      } catch {
+        // Indexing failure is non-fatal — the message is already persisted,
+        // and failing here would abort the loop before conversationKeys is
+        // written, causing duplicate imports on retry.
+      }
     }
 
     db.insert(conversationKeys)
