@@ -170,6 +170,22 @@ export async function runAgentLoopImpl(
   const rlog = log.child({ conversationId: ctx.conversationId, requestId: reqId });
   let yieldedForHandoff = false;
 
+  // Auto-complete stale interactive surfaces from previous turns.
+  // When the user sends a new message (not a surface action response),
+  // any non-dynamic_page pending surfaces are effectively abandoned.
+  if (!ctx.surfaceActionRequestIds.has(reqId)) {
+    for (const [surfaceId, entry] of ctx.pendingSurfaceActions) {
+      if (entry.surfaceType === 'dynamic_page') continue;
+      onEvent({
+        type: 'ui_surface_complete',
+        sessionId: ctx.conversationId,
+        surfaceId,
+        summary: 'Dismissed',
+      });
+      ctx.pendingSurfaceActions.delete(surfaceId);
+    }
+  }
+
   // Capture the turn channel context *before* any awaits so a second
   // message from a different channel can't overwrite it mid-flight.
   // When context is unavailable (e.g. regenerate after daemon restart),

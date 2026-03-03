@@ -1107,6 +1107,65 @@ describe("session-agent-loop", () => {
     });
   });
 
+  describe("stale pending surface cleanup", () => {
+    test("auto-completes non-dynamic_page pending surfaces on regular user message", async () => {
+      const events: ServerMessage[] = [];
+
+      const ctx = makeCtx();
+      // Pre-populate a stale pending table surface
+      ctx.pendingSurfaceActions.set("stale-table-1", { surfaceType: "table" });
+      ctx.pendingSurfaceActions.set("stale-form-1", { surfaceType: "form" });
+      // dynamic_page should be preserved
+      ctx.pendingSurfaceActions.set("page-1", { surfaceType: "dynamic_page" });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+
+      // The stale table and form surfaces should have been auto-completed
+      const completeEvents = events.filter((e) => e.type === "ui_surface_complete");
+      expect(completeEvents).toHaveLength(2);
+      for (const evt of completeEvents) {
+        const typed = evt as { surfaceId: string; summary: string };
+        expect(typed.summary).toBe("Dismissed");
+        expect(["stale-table-1", "stale-form-1"]).toContain(typed.surfaceId);
+      }
+
+      // dynamic_page should still be pending
+      expect(ctx.pendingSurfaceActions.has("page-1")).toBe(true);
+      expect(ctx.pendingSurfaceActions.has("stale-table-1")).toBe(false);
+      expect(ctx.pendingSurfaceActions.has("stale-form-1")).toBe(false);
+    });
+
+    test("does not auto-complete surfaces when request is a surface action", async () => {
+      const events: ServerMessage[] = [];
+
+      const ctx = makeCtx();
+      ctx.pendingSurfaceActions.set("active-table-1", { surfaceType: "table" });
+      // Mark the request ID as a surface action response
+      ctx.currentRequestId = "surface-action-req";
+      ctx.surfaceActionRequestIds.add("surface-action-req");
+
+      await runAgentLoopImpl(ctx, "[User action on table surface]", "msg-1", (msg) => events.push(msg));
+
+      // No ui_surface_complete should have been emitted
+      const completeEvents = events.filter((e) => e.type === "ui_surface_complete");
+      expect(completeEvents).toHaveLength(0);
+      // The pending surface should still be there
+      expect(ctx.pendingSurfaceActions.has("active-table-1")).toBe(true);
+    });
+
+    test("no-op when no pending surfaces exist", async () => {
+      const events: ServerMessage[] = [];
+
+      const ctx = makeCtx();
+      // No pending surfaces
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+
+      const completeEvents = events.filter((e) => e.type === "ui_surface_complete");
+      expect(completeEvents).toHaveLength(0);
+    });
+  });
+
   describe("error-only response with no assistant text", () => {
     test("synthesizes error assistant message when provider returns no response", async () => {
       const events: ServerMessage[] = [];
