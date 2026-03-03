@@ -50,11 +50,15 @@ function parseAddressList(header: string): string[] {
  *   - `<user@example.com>`
  *   - `"Display Name" <user@example.com>`
  *   - `Display Name <user@example.com>`
+ *   - `"Team <Ops>" <user@example.com>`
+ *
+ * Matches the LAST angle-bracketed segment, since RFC 5322 places the
+ * actual mailbox last — display names with angle brackets come before it.
  * Returns the lowercase bare email, or the lowercased full string as fallback.
  */
 function extractEmail(address: string): string {
-  const match = address.match(/<([^>]+)>/);
-  return (match ? match[1] : address).trim().toLowerCase();
+  const matches = address.match(/.*<([^>]+)>/);
+  return (matches ? matches[1] : address).trim().toLowerCase();
 }
 
 export async function run(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
