@@ -6,12 +6,22 @@ import Foundation
 final class CommandPaletteViewModel {
     var query = ""
     var selectedIndex = 0
+    var isSearching = false
 
     /// Static actions (set once at palette creation).
     var actions: [CommandPaletteAction] = []
 
     /// Recent conversations (set once at palette creation from ThreadManager).
     var recentItems: [CommandPaletteRecentItem] = []
+
+    /// Server search results populated from the global search API.
+    var serverResults = GlobalSearchResults.empty
+
+    /// Debounce task for search queries.
+    private var searchTask: Task<Void, Never>?
+
+    /// Base URL and token resolver for runtime HTTP calls.
+    var runtimeHTTPResolver: (() -> (baseURL: String, token: String)?)?
 
     /// Filtered actions based on the current query.
     var filteredActions: [CommandPaletteAction] {
@@ -27,9 +37,16 @@ final class CommandPaletteViewModel {
         return recentItems.filter { $0.title.lowercased().contains(q) }
     }
 
-    /// All visible items in display order (actions first, then recents).
+    /// All visible items in display order (actions, recents, then server results by category).
     var allItems: [CommandPaletteItem] {
-        filteredActions.map { .action($0) } + filteredRecents.map { .recent($0) }
+        var items: [CommandPaletteItem] = []
+        items += filteredActions.map { .action($0) }
+        items += filteredRecents.map { .recent($0) }
+        items += serverResults.conversations.map { .conversation($0) }
+        items += serverResults.memories.map { .memory($0) }
+        items += serverResults.schedules.map { .schedule($0) }
+        items += serverResults.contacts.map { .contact($0) }
+        return items
     }
 
     /// Total count of visible items.
@@ -37,10 +54,22 @@ final class CommandPaletteViewModel {
         allItems.count
     }
 
+    /// Whether there are any server results to display.
+    var hasServerResults: Bool {
+        !serverResults.conversations.isEmpty ||
+        !serverResults.memories.isEmpty ||
+        !serverResults.schedules.isEmpty ||
+        !serverResults.contacts.isEmpty
+    }
+
     /// Resets state for a fresh palette opening.
     func reset() {
         query = ""
         selectedIndex = 0
+        isSearching = false
+        serverResults = .empty
+        searchTask?.cancel()
+        searchTask = nil
     }
 
     func moveSelectionUp() {
@@ -60,6 +89,65 @@ final class CommandPaletteViewModel {
         let maxIndex = max(0, totalItemCount - 1)
         if selectedIndex > maxIndex {
             selectedIndex = maxIndex
+        }
+    }
+
+    // MARK: - Server Search
+
+    /// Triggers a debounced server search. Call this when the query changes.
+    func triggerSearch() {
+        searchTask?.cancel()
+
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else {
+            serverResults = .empty
+            isSearching = false
+            return
+        }
+
+        isSearching = true
+
+        searchTask = Task { [weak self] in
+            // 150ms debounce
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            guard !Task.isCancelled else { return }
+
+            guard let self else { return }
+            let results = await self.performSearch(query: trimmed)
+
+            guard !Task.isCancelled else { return }
+            self.serverResults = results
+            self.isSearching = false
+            self.clampSelection()
+        }
+    }
+
+    private func performSearch(query: String) async -> GlobalSearchResults {
+        guard let resolver = runtimeHTTPResolver,
+              let http = resolver() else {
+            return .empty
+        }
+
+        let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
+        guard let url = URL(string: "\(http.baseURL)/v1/search/global?q=\(encoded)&limit=10") else {
+            return .empty
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(http.token)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 5
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse,
+                  httpResponse.statusCode == 200 else {
+                return .empty
+            }
+            let decoded = try JSONDecoder().decode(GlobalSearchResponse.self, from: data)
+            return decoded.results
+        } catch {
+            return .empty
         }
     }
 }
