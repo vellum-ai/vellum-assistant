@@ -212,7 +212,7 @@ export const gmailMessagingProvider: MessagingProvider = {
       const ids = (listResp.messages ?? []).map((m) => m.id);
       if (ids.length === 0) break;
       allMessageIds.push(...ids);
-      fetchPromises.push(gmail.batchGetMessages(token, ids, 'metadata', metadataHeaders));
+      fetchPromises.push(gmail.batchGetMessages(token, ids, 'metadata', metadataHeaders, 'id,internalDate,payload/headers'));
       pageToken = listResp.nextPageToken ?? undefined;
       if (!pageToken) break;
     }

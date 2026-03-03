@@ -120,11 +120,13 @@ export async function getMessage(
   messageId: string,
   format: GmailMessageFormat = 'full',
   metadataHeaders?: string[],
+  fields?: string,
 ): Promise<GmailMessage> {
   const params = new URLSearchParams({ format });
   if (format === 'metadata' && metadataHeaders) {
     for (const h of metadataHeaders) params.append('metadataHeaders', h);
   }
+  if (fields) params.set('fields', fields);
   return request<GmailMessage>(token, `/messages/${messageId}?${params}`);
 }
 
@@ -162,6 +164,7 @@ async function executeBatchCall(
   messageIds: string[],
   format: GmailMessageFormat,
   metadataHeaders: string[] | undefined,
+  fields?: string,
 ): Promise<{ messages: Array<{ index: number; msg: GmailMessage }>; failedIds: Array<{ index: number; id: string }> }> {
   const boundary = `batch_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 
@@ -170,6 +173,7 @@ async function executeBatchCall(
   if (format === 'metadata' && metadataHeaders) {
     for (const h of metadataHeaders) params.append('metadataHeaders', h);
   }
+  if (fields) params.set('fields', fields);
   const qs = params.toString();
 
   // Build multipart request body
@@ -244,12 +248,13 @@ export async function batchGetMessages(
   messageIds: string[],
   format: GmailMessageFormat = 'full',
   metadataHeaders?: string[],
+  fields?: string,
 ): Promise<GmailMessage[]> {
   if (messageIds.length === 0) return [];
 
   // Single message — just use getMessage directly
   if (messageIds.length === 1) {
-    return [await getMessage(token, messageIds[0], format, metadataHeaders)];
+    return [await getMessage(token, messageIds[0], format, metadataHeaders, fields)];
   }
 
   const results = new Array<GmailMessage | null>(messageIds.length).fill(null);
@@ -263,7 +268,7 @@ export async function batchGetMessages(
   for (let i = 0; i < chunks.length; i += BATCH_CONCURRENCY) {
     const wave = chunks.slice(i, i + BATCH_CONCURRENCY);
     const waveResults = await Promise.all(
-      wave.map((chunk) => executeBatchCall(token, chunk.ids, format, metadataHeaders)),
+      wave.map((chunk) => executeBatchCall(token, chunk.ids, format, metadataHeaders, fields)),
     );
 
     // Place successful messages into the result array
@@ -278,7 +283,7 @@ export async function batchGetMessages(
       // Retry failed sub-requests individually
       if (failedIds.length > 0) {
         const retried = await Promise.all(
-          failedIds.map(({ id }) => getMessage(token, id, format, metadataHeaders)),
+          failedIds.map(({ id }) => getMessage(token, id, format, metadataHeaders, fields)),
         );
         for (let r = 0; r < failedIds.length; r++) {
           results[baseIndex + failedIds[r].index] = retried[r];

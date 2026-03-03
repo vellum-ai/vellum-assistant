@@ -59,7 +59,7 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
         const ids = (listResp.messages ?? []).map((m) => m.id);
         if (ids.length === 0) break;
         allMessageIds.push(...ids);
-        fetchPromises.push(batchGetMessages(token, ids, 'metadata', metadataHeaders));
+        fetchPromises.push(batchGetMessages(token, ids, 'metadata', metadataHeaders, 'id,internalDate,payload/headers'));
         pageToken = listResp.nextPageToken ?? undefined;
         if (!pageToken) break;
       }
