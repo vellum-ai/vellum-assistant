@@ -451,6 +451,13 @@ exports[`IPC message snapshots ClientMessage types app_open_request serializes t
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types app_delete serializes to expected JSON 1`] = `
+{
+  "appId": "app-001",
+  "type": "app_delete",
+}
+`;
+
 exports[`IPC message snapshots ClientMessage types apps_list serializes to expected JSON 1`] = `
 {
   "type": "apps_list",
@@ -1928,6 +1935,15 @@ exports[`IPC message snapshots ServerMessage types trust_rules_list_response ser
 }
 `;
 
+exports[`IPC message snapshots ServerMessage types schedule_thread_created serializes to expected JSON 1`] = `
+{
+  "conversationId": "conv-sched-001",
+  "scheduleJobId": "sched-job-001",
+  "title": "Daily standup reminder",
+  "type": "schedule_thread_created",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types schedules_list_response serializes to expected JSON 1`] = `
 {
   "schedules": [
@@ -2061,6 +2077,13 @@ exports[`IPC message snapshots ServerMessage types shared_apps_list_response ser
     },
   ],
   "type": "shared_apps_list_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types app_delete_response serializes to expected JSON 1`] = `
+{
+  "success": true,
+  "type": "app_delete_response",
 }
 `;
 
