@@ -385,6 +385,19 @@ Prefer skills in `assistant/src/config/bundled-skills/` that teach the model how
 
 Keep the system prompt as minimal as possible. Avoid adding instructions about how to use tools; only document what tools exist when they are basic, primitive, and universally useful. Prefer CLI programs that the assistant can progressively learn to use via `--help`.
 
+## Skill Independence
+
+New skills **MUST** be self-contained and portable. A skill should not be tightly coupled to daemon internals, registered tool implementations, repo-specific TypeScript modules, or any other part of this codebase.
+
+Concretely:
+- **No coupling to daemon tools or internals.** Do not reference or depend on registered `Tool` classes, daemon IPC message types, internal TypeScript modules, or any runtime-specific APIs from within a skill. If the daemon were swapped out, the skill should still work.
+- **Stand on your own.** A skill's SKILL.md instructions should be understandable and executable without knowledge of the daemon's implementation. Interact with the system through CLI programs, gateway HTTP APIs (`$INTERNAL_GATEWAY_BASE_URL`), or standard Unix tools — not through internal abstractions.
+- **Use a `scripts/` folder for supporting logic.** When a skill needs custom logic beyond what a one-liner CLI command provides, bundle it as an executable script in the skill's `scripts/` directory per the [skill.md spec](https://skill.md). Scripts should be self-contained with inline dependency declarations (PEP 723 for Python, `npm:` specifiers for Deno, auto-install for Bun) so no separate install step is required.
+- **No interactive prompts in scripts.** Agents run in non-interactive shells. Accept all input via CLI flags, environment variables, or stdin. Include `--help` output so the agent can discover the script's interface.
+- **Relative paths only.** Reference scripts, assets, and reference files using paths relative to the skill directory root — never use absolute paths or paths that reach outside the skill directory into the broader repo.
+
+Ask: "Could this skill be copied into a completely different project and still work?" If not, decouple it.
+
 ## Assistant-Driven Judgement
 
 All judgement calls that affect the user's experience should be made by the assistant through the daemon process — not by hard-coded logic or deterministic heuristics in application code.
