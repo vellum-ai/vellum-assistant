@@ -1061,13 +1061,26 @@ export class CallController {
     }, maxDurationMs);
   }
 
+  /**
+   * Returns true when the caller is waiting on guardian input — either
+   * an inbound access-request wait (relay state) or an in-call
+   * consultation wait (controller state). Used to suppress the generic
+   * "Are you still there?" silence nudge.
+   */
+  private isAwaitingGuardianInput(): boolean {
+    return (
+      this.pendingConsultation !== null ||
+      this.relay.getConnectionState() === 'awaiting_guardian_decision'
+    );
+  }
+
   private resetSilenceTimer(): void {
     if (this.silenceTimer) clearTimeout(this.silenceTimer);
     this.silenceTimer = setTimeout(() => {
       // During guardian wait states, the relay heartbeat timer handles
       // periodic updates — suppress the generic "Are you still there?"
       // which is confusing when the caller is waiting on a decision.
-      if (this.relay.getConnectionState() === 'awaiting_guardian_decision') {
+      if (this.isAwaitingGuardianInput()) {
         log.debug({ callSessionId: this.callSessionId }, 'Silence timeout suppressed during guardian wait');
         return;
       }
