@@ -12,6 +12,7 @@ struct SettingsAccountTab: View {
 
     // -- Account / Vellum section state --
     @State private var platformUrlText: String = ""
+    @State private var platformUrlExpanded: Bool = false
     @FocusState private var isPlatformUrlFocused: Bool
 
     // -- Assistant Info state (from SettingsAdvancedTab) --
@@ -132,14 +133,16 @@ struct SettingsAccountTab: View {
                             store.savePlatformBaseUrl(platformUrlText)
                             Task { await store.checkVellumPlatform() }
                             isPlatformUrlFocused = false
+                            platformUrlExpanded = false
                         }
                         .disabled(platformUrlText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         VButton(label: "Cancel", style: .tertiary, size: .medium) {
                             platformUrlText = store.platformBaseUrl
                             isPlatformUrlFocused = false
+                            platformUrlExpanded = false
                         }
                     }
-                } else if isPlatformUrlFocused || !platformUrlText.isEmpty {
+                } else if isPlatformUrlFocused || platformUrlExpanded || !platformUrlText.isEmpty {
                     TextField("https://platform.vellum.ai", text: $platformUrlText)
                         .vInputStyle()
                         .font(VFont.body)
@@ -150,16 +153,18 @@ struct SettingsAccountTab: View {
                             store.savePlatformBaseUrl(platformUrlText)
                             Task { await store.checkVellumPlatform() }
                             isPlatformUrlFocused = false
+                            platformUrlExpanded = false
                         }
                         .disabled(platformUrlText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         VButton(label: "Cancel", style: .tertiary, size: .medium) {
                             platformUrlText = store.platformBaseUrl
                             isPlatformUrlFocused = false
+                            platformUrlExpanded = false
                         }
                     }
                 } else {
                     VButton(label: "Set Up", style: .secondary, size: .medium) {
-                        isPlatformUrlFocused = true
+                        platformUrlExpanded = true
                     }
                 }
 
