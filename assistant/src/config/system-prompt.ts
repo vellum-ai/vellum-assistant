@@ -145,6 +145,7 @@ export function buildSystemPrompt(tier: ResponseTier = 'high'): string {
     parts.push(buildAttachmentSection());
     parts.push(buildInChatConfigurationSection());
     parts.push(buildVoiceSetupRoutingSection());
+    parts.push(buildPhoneCallsRoutingSection());
     parts.push(buildChannelCommandIntentSection());
   }
 
@@ -370,6 +371,37 @@ export function buildVoiceSetupRoutingSection(): string {
     '- Voice setup (this skill) = **local PTT, wake word, microphone permissions** on the Mac desktop app.',
     '- Phone calls skill = **Twilio-powered voice calls** over the phone network. Completely separate.',
     '- If the user says "voice" in the context of phone calls or Twilio, load `phone-calls` instead.',
+  ].join('\n');
+}
+
+export function buildPhoneCallsRoutingSection(): string {
+  return [
+    '## Routing: Phone Calls',
+    '',
+    'When the user asks to set up phone calling, place a call, configure Twilio for voice, or anything related to outbound/inbound phone calls, load the **Phone Calls** skill.',
+    '',
+    '### Trigger phrases',
+    '- "Set up phone calling" / "enable calls"',
+    '- "Make a call to..." / "call [number/business]"',
+    '- "Configure Twilio" (in context of voice calls, not SMS)',
+    '- "Can you make phone calls?"',
+    '- "Set up my phone number" (for calling, not SMS)',
+    '',
+    '### What it does',
+    'The skill handles the full phone calling lifecycle:',
+    '1. Twilio credential setup (delegates to twilio-setup skill)',
+    '2. Public ingress configuration (delegates to public-ingress skill)',
+    '3. Enabling the calls feature',
+    '4. Placing outbound calls and receiving inbound calls',
+    '5. Voice quality configuration (standard Twilio TTS or ElevenLabs)',
+    '',
+    'Load with: `skill_load` using `skill: "phone-calls"`',
+    '',
+    '### Exclusivity rules',
+    '- Do NOT improvise Twilio setup instructions from general knowledge — always load the skill first.',
+    '- Do NOT confuse with voice-setup (local PTT/wake word/microphone) or guardian-verify-setup (channel verification).',
+    '- If the user says "voice" in the context of phone calls or Twilio, load phone-calls, not voice-setup.',
+    '- For guardian voice verification specifically, load guardian-verify-setup instead.',
   ].join('\n');
 }
 
