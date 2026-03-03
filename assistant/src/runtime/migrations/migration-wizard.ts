@@ -507,6 +507,13 @@ export async function executeTransferStep(
         { intervalMs: 2000, maxAttempts: 60 },
       );
 
+      // Update the stored export status so view models see the terminal state
+      current = {
+        ...current,
+        exportResult: { ...managedExport, status: finalStatus.status },
+      };
+      options.onStateChange?.(touch(current));
+
       if (finalStatus.status === "failed") {
         current = setStepStatus(current, "transfer", "error", {
           message: `Export job failed: ${finalStatus.error}`,

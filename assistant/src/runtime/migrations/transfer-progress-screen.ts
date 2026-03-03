@@ -144,8 +144,12 @@ function inferFailedPhase(
   // If export result exists but no import result, and error is transport-level,
   // it could be download failure or import failure
   if (state.exportResult && !state.importResult) {
-    // If it's a managed export and we have no import result, it could be polling or download
     if ("jobId" in state.exportResult) {
+      const managed = state.exportResult as ExportManagedResult;
+      // If the managed export completed, the failure was after export (download or import)
+      if (managed.status === "complete") {
+        return "import";
+      }
       return "poll";
     }
     return "import";
@@ -290,8 +294,13 @@ export async function retryTransferFlow(
   options: StepExecutorOptions,
 ): Promise<MigrationWizardState> {
   const reset = resetStepForRetry(state);
-  options.onStateChange?.(reset);
-  return executeTransferStep(reset, options);
+  const cleaned = {
+    ...reset,
+    exportResult: undefined,
+    importResult: undefined,
+  };
+  options.onStateChange?.(cleaned);
+  return executeTransferStep(cleaned, options);
 }
 
 /**
