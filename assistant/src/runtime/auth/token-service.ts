@@ -309,7 +309,7 @@ export function mintUiPageToken(): string {
   return mintToken({
     aud: 'vellum-gateway',
     sub: 'svc:daemon:self',
-    scope_profile: 'gateway_service_v1',
+    scope_profile: 'actor_client_v1',
     policy_epoch: CURRENT_POLICY_EPOCH,
     ttlSeconds: 3600,
   });
