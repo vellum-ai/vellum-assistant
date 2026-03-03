@@ -23,7 +23,7 @@ Community skills are published on [Clawhub](https://clawhub.com) and can be sear
 
 ### Searching for community skills
 
-Use the `skill_load` tool to search the catalog, or check the system prompt's available skills list. The IPC `skills_search` message searches both bundled and community skills.
+Use the `skill_load` tool to search the catalog, or check the system prompt's available skills list. The IPC `skills_search` message searches community skills on Clawhub. Bundled skills are already listed in the system prompt.
 
 ### Installing a community skill
 
