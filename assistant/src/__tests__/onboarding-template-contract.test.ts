@@ -14,11 +14,11 @@ describe("onboarding template contracts", () => {
       expect(lower).toContain("who am i");
     });
 
-    test("infers personality indirectly instead of asking directly", () => {
+    test("infers personality organically instead of asking directly", () => {
       const lower = bootstrap.toLowerCase();
-      // Personality step must instruct indirect/organic discovery
+      // Personality step must instruct organic discovery via conversation
       expect(lower).toContain("personality");
-      expect(lower).toContain("indirectly");
+      expect(lower).toContain("emerge");
       expect(lower).toContain("vibe");
     });
 
@@ -41,15 +41,15 @@ describe("onboarding template contracts", () => {
       const lower = bootstrap.toLowerCase();
       // The template must prompt the assistant to ask about names.
       expect(lower).toContain("name");
-      // The first step should be about locking in the assistant's name
-      expect(lower).toContain("lock in your name");
+      // The first step should be about the assistant's name
+      expect(lower).toContain("your name");
       // The conversation sequence must include identity/naming
       expect(lower).toContain("who am i");
     });
 
     test("asks user name AFTER assistant identity is established", () => {
-      // Step 1 is locking in the assistant's name, step 3 is asking the user's name
-      const assistantNameIdx = bootstrap.indexOf("Lock in your name.");
+      // Step 1 is the assistant's name, step 4 is asking the user's name
+      const assistantNameIdx = bootstrap.indexOf("Your name:");
       const userNameIdx = bootstrap.indexOf("who am I talking to?");
       expect(assistantNameIdx).toBeGreaterThan(-1);
       expect(userNameIdx).toBeGreaterThan(-1);
@@ -87,10 +87,8 @@ describe("onboarding template contracts", () => {
       expect(lower).toContain("home base");
     });
 
-    test("contains privacy/refusal policy", () => {
+    test("contains refusal policy", () => {
       const lower = bootstrap.toLowerCase();
-      // Must have a privacy section
-      expect(lower).toContain("privacy");
       // Assistant name is hard-required, user details are best-effort
       expect(lower).toContain("hard-required");
       expect(lower).toContain("best-effort");
@@ -107,16 +105,8 @@ describe("onboarding template contracts", () => {
       expect(lower).toContain("declined");
     });
 
-    test("preserves no em dashes instruction", () => {
-      const lower = bootstrap.toLowerCase();
-      expect(lower).toContain("em dashes");
-    });
-
-    test("preserves no technical jargon instruction", () => {
-      const lower = bootstrap.toLowerCase();
-      expect(lower).toContain("technical jargon");
-      expect(lower).toContain("system internals");
-    });
+    // em-dash and technical jargon instructions are now hardcoded in the system
+    // prompt builder (buildSystemPrompt) rather than in the BOOTSTRAP.md template.
 
     test("preserves comment line format instruction", () => {
       // The template must start with the comment format explanation

@@ -994,12 +994,12 @@ describe("sanitizePttActivationKey", () => {
     expect(sanitizePttActivationKey("none")).toBe("none");
   });
 
-  test('returns "unknown" for invalid keys', () => {
-    expect(sanitizePttActivationKey("malicious\nprompt injection")).toBe(
-      "unknown",
-    );
-    expect(sanitizePttActivationKey("arbitrary_value")).toBe("unknown");
-    expect(sanitizePttActivationKey("")).toBe("unknown");
+  test("returns undefined for invalid keys", () => {
+    expect(
+      sanitizePttActivationKey("malicious\nprompt injection"),
+    ).toBeUndefined();
+    expect(sanitizePttActivationKey("arbitrary_value")).toBeUndefined();
+    expect(sanitizePttActivationKey("")).toBeUndefined();
   });
 });
 
@@ -1015,11 +1015,11 @@ describe("resolveChannelCapabilities with PTT metadata", () => {
     expect(caps.pttActivationKey).toBe("fn");
   });
 
-  test("sanitizes invalid pttActivationKey to unknown", () => {
+  test("sanitizes invalid pttActivationKey to undefined", () => {
     const caps = resolveChannelCapabilities("macos", "macos", {
       pttActivationKey: "evil\nprompt",
     });
-    expect(caps.pttActivationKey).toBe("unknown");
+    expect(caps.pttActivationKey).toBeUndefined();
   });
 
   test("passes through microphonePermissionGranted", () => {
