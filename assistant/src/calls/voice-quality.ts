@@ -1,4 +1,4 @@
-import { loadConfig } from '../config/loader.js';
+import { loadConfig, loadRawConfig, getNestedValue } from '../config/loader.js';
 
 export interface VoiceQualityProfile {
   language: string;
@@ -40,6 +40,32 @@ export function buildElevenLabsVoiceSpec(config: {
 }
 
 /**
+ * Merge legacy `calls.voice.elevenlabs.*` config values into the top-level
+ * `elevenlabs` config as fallbacks. Previous versions stored tuning parameters
+ * under the nested path; this ensures those values are preserved on upgrade.
+ */
+function mergeWithLegacyElevenLabsConfig(elevenlabs: ReturnType<typeof loadConfig>['elevenlabs']): typeof elevenlabs {
+  const raw = loadRawConfig();
+  const legacyPrefix = 'calls.voice.elevenlabs';
+
+  const fields = ['voiceModelId', 'speed', 'stability', 'similarityBoost'] as const;
+  const topLevel = (raw.elevenlabs && typeof raw.elevenlabs === 'object') ? raw.elevenlabs as Record<string, unknown> : {};
+
+  const merged = { ...elevenlabs };
+  for (const field of fields) {
+    // Only fall back to legacy if the top-level config doesn't explicitly set this field
+    if (topLevel[field] === undefined) {
+      const legacyValue = getNestedValue(raw, `${legacyPrefix}.${field}`);
+      if (legacyValue !== undefined) {
+        (merged as Record<string, unknown>)[field] = legacyValue;
+      }
+    }
+  }
+
+  return merged;
+}
+
+/**
  * Resolve the effective voice quality profile from config.
  *
  * Always uses ElevenLabs TTS via Twilio ConversationRelay.
@@ -49,11 +75,12 @@ export function buildElevenLabsVoiceSpec(config: {
 export function resolveVoiceQualityProfile(config?: ReturnType<typeof loadConfig>): VoiceQualityProfile {
   const cfg = config ?? loadConfig();
   const voice = cfg.calls.voice;
+  const elevenlabs = mergeWithLegacyElevenLabsConfig(cfg.elevenlabs);
 
   return {
     language: voice.language,
     transcriptionProvider: voice.transcriptionProvider,
     ttsProvider: 'ElevenLabs',
-    voice: buildElevenLabsVoiceSpec(cfg.elevenlabs),
+    voice: buildElevenLabsVoiceSpec(elevenlabs),
   };
 }

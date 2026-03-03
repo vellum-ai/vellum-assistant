@@ -61,7 +61,11 @@ function validateSetting(setting: string, value: unknown): { ok: true; coerced: 
       if (typeof value !== 'string' || value.trim().length === 0) {
         return { ok: false, error: 'tts_voice_id must be a non-empty string (ElevenLabs voice ID)' };
       }
-      return { ok: true, coerced: value.trim() };
+      const trimmed = value.trim();
+      if (!/^[a-zA-Z0-9]+$/.test(trimmed)) {
+        return { ok: false, error: 'tts_voice_id must contain only alphanumeric characters (ElevenLabs voice ID format)' };
+      }
+      return { ok: true, coerced: trimmed };
     }
     default:
       return { ok: false, error: `Unknown setting "${setting}"` };
