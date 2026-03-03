@@ -95,14 +95,14 @@ struct GatewaySettingsCard: View {
                     .foregroundColor(VColor.textPrimary)
                     .focused($isGatewayUrlFocused)
 
-                InlineConnectionStatus(
-                    status: tunnelStatusInfo,
-                    isRefreshing: store.isCheckingTunnel,
-                    lastChecked: store.tunnelLastChecked,
-                    accessibilityLabel: "tunnel"
-                ) {
+                Button {
                     Task { await store.testTunnelOnly() }
+                } label: {
+                    SpinningRefreshIcon(isSpinning: store.isCheckingTunnel)
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Refresh tunnel status")
+                .help(store.tunnelLastChecked != nil ? "Last checked: \(relativeTunnelTime)" : "Test tunnel")
             }
 
             // Save button at the bottom
@@ -152,46 +152,16 @@ struct GatewaySettingsCard: View {
         }
     }
 
-    // MARK: - Connection Status Helpers
+    // MARK: - Helpers
 
-    private var relativeGatewayTime: String {
-        guard let date = store.gatewayLastChecked else { return "unknown" }
+    private var relativeGatewayTime: String { relativeTime(from: store.gatewayLastChecked) }
+    private var relativeTunnelTime: String { relativeTime(from: store.tunnelLastChecked) }
+
+    private func relativeTime(from date: Date?) -> String {
+        guard let date else { return "unknown" }
         let seconds = Int(-date.timeIntervalSinceNow)
         if seconds < 5 { return "just now" }
         if seconds < 60 { return "\(seconds)s ago" }
-        let minutes = seconds / 60
-        return "\(minutes)m ago"
-    }
-
-    private var tunnelStatusInfo: ConnectionStatusInfo {
-        let trimmedUrl = store.ingressPublicBaseUrl.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        // No URL entered yet
-        if trimmedUrl.isEmpty {
-            return ConnectionStatusInfo(label: "Not set", color: VColor.textMuted, icon: "questionmark.circle.fill")
-        }
-
-        // URL is non-empty but not a valid absolute HTTP(S) URL
-        if let parsed = URL(string: trimmedUrl), let scheme = parsed.scheme, ["http", "https"].contains(scheme.lowercased()) {
-            // valid — fall through to further checks below
-        } else {
-            return ConnectionStatusInfo(label: "Invalid URL format", color: VColor.error, icon: "exclamationmark.circle.fill")
-        }
-
-        // URL is set but ingress is disabled
-        if !store.ingressEnabled {
-            return ConnectionStatusInfo(label: "URL set but gateway not active", color: VColor.warning, icon: "exclamationmark.triangle.fill")
-        }
-
-        // Haven't tested yet
-        guard let reachable = store.ingressReachable else {
-            return ConnectionStatusInfo(label: "Unknown", color: VColor.textMuted, icon: "questionmark.circle.fill")
-        }
-
-        if reachable {
-            return ConnectionStatusInfo(label: "Reachable", color: VColor.success, icon: "checkmark.circle.fill")
-        } else {
-            return ConnectionStatusInfo(label: "Unreachable", color: VColor.error, icon: "xmark.circle.fill")
-        }
+        return "\(seconds / 60)m ago"
     }
 }
