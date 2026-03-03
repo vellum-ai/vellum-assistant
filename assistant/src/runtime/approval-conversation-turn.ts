@@ -21,6 +21,8 @@ import type {
 const VALID_DISPOSITIONS: ReadonlySet<ApprovalConversationDisposition> = new Set([
   'keep_pending',
   'approve_once',
+  'approve_10m',
+  'approve_thread',
   'approve_always',
   'reject',
 ]);
@@ -28,6 +30,8 @@ const VALID_DISPOSITIONS: ReadonlySet<ApprovalConversationDisposition> = new Set
 /** Dispositions that represent an actual decision (not just "keep waiting"). */
 const DECISION_BEARING_DISPOSITIONS: ReadonlySet<ApprovalConversationDisposition> = new Set([
   'approve_once',
+  'approve_10m',
+  'approve_thread',
   'approve_always',
   'reject',
 ]);

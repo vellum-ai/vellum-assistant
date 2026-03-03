@@ -10,6 +10,8 @@ struct ToolConfirmationKeyboardModel {
     /// The logical actions that can appear in the button row.
     enum Action: Equatable {
         case allowOnce
+        case allow10m
+        case allowThread
         case alwaysAllow
         case dontAllow
     }

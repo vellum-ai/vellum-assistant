@@ -10,7 +10,7 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
   }
 
   try {
-    return withSlackToken(async (token) => {
+    return await withSlackToken(async (token) => {
       const resp = await slack.conversationInfo(token, channelId);
       const conv = resp.channel;
 

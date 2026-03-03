@@ -30,6 +30,8 @@ export type ApprovalCopyGenerator = (
 export type ApprovalConversationDisposition =
   | "keep_pending"
   | "approve_once"
+  | "approve_10m"
+  | "approve_thread"
   | "approve_always"
   | "reject";
 
@@ -184,7 +186,15 @@ export interface RuntimeHttpServerOptions {
   /** Dependencies for the POST /v1/messages queue-if-busy handler. */
   sendMessageDeps?: SendMessageDeps;
   /** Lookup an active session by ID (for surface actions). Returns undefined if not found. */
-  findSession?: (sessionId: string) => Session | undefined;
+  findSession?: (sessionId: string) =>
+    | {
+        handleSurfaceAction(
+          surfaceId: string,
+          actionId: string,
+          data?: Record<string, unknown>,
+        ): void;
+      }
+    | undefined;
 }
 
 export interface RuntimeAttachmentMetadata {

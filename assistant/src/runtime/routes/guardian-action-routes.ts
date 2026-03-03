@@ -107,9 +107,9 @@ export async function handleGuardianActionDecision(req: Request, authContext: Au
     return httpError('BAD_REQUEST', 'action is required', 400);
   }
 
-  const VALID_ACTIONS = new Set<string>(['approve_once', 'approve_always', 'reject']);
+  const VALID_ACTIONS = new Set<string>(['approve_once', 'approve_10m', 'approve_thread', 'approve_always', 'reject']);
   if (!VALID_ACTIONS.has(action)) {
-    return httpError('BAD_REQUEST', `Invalid action: ${action}. Must be one of: approve_once, approve_always, reject`, 400);
+    return httpError('BAD_REQUEST', `Invalid action: ${action}. Must be one of: approve_once, approve_10m, approve_thread, approve_always, reject`, 400);
   }
 
   // Verify conversationId scoping before applying the canonical decision.

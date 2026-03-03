@@ -1069,7 +1069,8 @@ extension ChatViewModel {
                 allowlistOptions: msg.allowlistOptions,
                 scopeOptions: msg.scopeOptions,
                 executionTarget: msg.executionTarget,
-                persistentDecisionsAllowed: msg.persistentDecisionsAllowed ?? true
+                persistentDecisionsAllowed: msg.persistentDecisionsAllowed ?? true,
+                temporaryOptionsAvailable: msg.temporaryOptionsAvailable ?? []
             )
             let confirmMsg = ChatMessage(
                 role: .assistant,
@@ -1534,6 +1535,8 @@ extension ChatViewModel {
                 switch msg.state {
                 case "approved":
                     messages[i].confirmation?.state = .approved
+                    // Preserve approvedDecision if already set locally (the daemon
+                    // event doesn't carry the decision mode).
                 case "denied":
                     messages[i].confirmation?.state = .denied
                 case "timed_out":

@@ -2,6 +2,7 @@ import { AttachmentUploadError,linkAttachmentToMessage, setAttachmentThumbnail, 
 import { check, classifyRisk, generateAllowlistOptions, generateScopeOptions } from '../permissions/checker.js';
 import type { PermissionPrompter } from '../permissions/prompter.js';
 import { addRule } from '../permissions/trust-store.js';
+import { isAllowDecision } from '../permissions/types.js';
 import type { ContentBlock } from '../providers/types.js';
 import { getLogger } from '../util/logger.js';
 import {
@@ -67,7 +68,7 @@ export async function approveHostAttachmentRead(
     addRule(toolName, response.selectedPattern, response.selectedScope, 'deny');
   }
 
-  return response.decision === 'allow' || response.decision === 'always_allow' || response.decision === 'always_allow_high_risk';
+  return isAllowDecision(response.decision);
 }
 
 export function formatAttachmentWarnings(warnings: string[]): string | null {

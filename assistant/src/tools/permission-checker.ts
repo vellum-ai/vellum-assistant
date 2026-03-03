@@ -3,6 +3,7 @@ import { getHookManager } from '../hooks/manager.js';
 import { check, classifyRisk, generateAllowlistOptions, generateScopeOptions } from '../permissions/checker.js';
 import type { PermissionPrompter } from '../permissions/prompter.js';
 import { addRule } from '../permissions/trust-store.js';
+import { getEffectiveMode, setThreadMode, setTimedMode } from '../runtime/session-approval-overrides.js';
 import { getLogger } from '../util/logger.js';
 import { buildPolicyContext } from './policy-context.js';
 import { isSideEffectTool } from './side-effects.js';
@@ -110,6 +111,30 @@ export class PermissionChecker {
           };
         }
 
+        // Temporary approval override: if the guardian has enabled a
+        // conversation-scoped "allow all" mode (allow_10m or allow_thread),
+        // skip the interactive prompt and auto-approve. Only applies to
+        // guardian actors — untrusted actors cannot leverage this to bypass
+        // guardian-required gates (those are enforced in pre-execution gates).
+        // Proxied bash commands require per-invocation approval and must not
+        // be auto-approved by a temporary override — they are excluded here
+        // by requiring persistent decisions to be allowed.
+        const persistentDecisionsAllowedForOverride = !(
+          name === 'bash'
+          && input.network_mode === 'proxied'
+        );
+        if (
+          context.guardianTrustClass === 'guardian'
+          && persistentDecisionsAllowedForOverride
+          && getEffectiveMode(context.conversationId) !== null
+        ) {
+          log.info(
+            { toolName: name, riskLevel, conversationId: context.conversationId },
+            'Temporary approval override active — auto-approving without prompt',
+          );
+          return { allowed: true, decision: 'temporary_override', riskLevel };
+        }
+
         const allowlistOptions = await generateAllowlistOptions(name, input, context.signal);
         const scopeOptions = generateScopeOptions(context.workingDir, name);
         const previewDiff = computePreviewDiff(name, input, context.workingDir);
@@ -129,6 +154,14 @@ export class PermissionChecker {
           name === 'bash'
           && input.network_mode === 'proxied'
         );
+
+        // Only offer temporary approval options to guardians when persistent
+        // decisions are allowed (proxied bash is excluded since it requires
+        // per-invocation approval).
+        const temporaryOptionsAvailable: Array<'allow_10m' | 'allow_thread'> | undefined =
+          persistentDecisionsAllowed && context.guardianTrustClass === 'guardian'
+            ? ['allow_10m', 'allow_thread']
+            : undefined;
 
         emitLifecycleEvent({
           type: 'permission_prompt',
@@ -167,6 +200,7 @@ export class PermissionChecker {
           executionTarget,
           persistentDecisionsAllowed,
           context.signal,
+          temporaryOptionsAvailable,
         );
 
         const decision = response.decision;
@@ -265,6 +299,27 @@ export class PermissionChecker {
           if (effectiveScope) {
             addRule(name, response.selectedPattern, effectiveScope, 'allow', 100, hasOptions ? ruleOptions : undefined);
           }
+        }
+
+        // Activate temporary approval mode when the user chooses a
+        // time-limited or thread-scoped override. Subsequent tool
+        // invocations in this conversation will auto-approve without
+        // prompting (checked above in the temporary override block).
+        // Gated on persistentDecisionsAllowed so that proxied bash
+        // commands (which require per-invocation approval) cannot
+        // escalate into blanket auto-approval.
+        if (persistentDecisionsAllowed && response.decision === 'allow_10m') {
+          setTimedMode(context.conversationId);
+          log.info(
+            { toolName: name, conversationId: context.conversationId },
+            'Activated timed (10m) temporary approval mode',
+          );
+        } else if (persistentDecisionsAllowed && response.decision === 'allow_thread') {
+          setThreadMode(context.conversationId);
+          log.info(
+            { toolName: name, conversationId: context.conversationId },
+            'Activated thread-scoped temporary approval mode',
+          );
         }
 
         return { allowed: true, decision, riskLevel };

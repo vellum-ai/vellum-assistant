@@ -15,6 +15,7 @@ public enum ManagedBootstrapError: LocalizedError, Sendable {
     case networkError(String)
     case serverError(statusCode: Int, detail: String?)
     case hatchFailed(String)
+    case unexpectedResponse(String)
 
     public var errorDescription: String? {
         switch self {
@@ -26,6 +27,8 @@ public enum ManagedBootstrapError: LocalizedError, Sendable {
             return detail ?? "Server error (\(statusCode))"
         case .hatchFailed(let message):
             return "Failed to create assistant: \(message)"
+        case .unexpectedResponse(let message):
+            return "Unexpected response format: \(message)"
         }
     }
 }
@@ -92,7 +95,7 @@ public final class ManagedAssistantBootstrapService {
         case .invalidURL:
             return .serverError(statusCode: 0, detail: "Invalid URL configuration")
         case .decodingError(let message):
-            return .hatchFailed(message)
+            return .unexpectedResponse(message)
         }
     }
 }

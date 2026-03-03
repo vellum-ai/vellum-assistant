@@ -317,9 +317,15 @@ export class RuntimeHttpServer {
   private pairingStore = new PairingStore();
   private pairingBroadcast?: (msg: ServerMessage) => void;
   private sendMessageDeps?: SendMessageDeps;
-  private findSession?: (
-    sessionId: string,
-  ) => import("../daemon/session.js").Session | undefined;
+  private findSession?: (sessionId: string) =>
+    | {
+        handleSurfaceAction(
+          surfaceId: string,
+          actionId: string,
+          data?: Record<string, unknown>,
+        ): void;
+      }
+    | undefined;
 
   constructor(options: RuntimeHttpServerOptions = {}) {
     this.port = options.port ?? DEFAULT_PORT;

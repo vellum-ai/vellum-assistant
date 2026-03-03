@@ -123,6 +123,19 @@ export async function handleUpdateTrustRuleManage(
     priority?: number;
   };
 
+  if (body.decision !== undefined) {
+    const validDecisions = ["allow", "deny", "ask"] as const;
+    if (
+      !validDecisions.includes(body.decision as (typeof validDecisions)[number])
+    ) {
+      return httpError(
+        "BAD_REQUEST",
+        "decision must be one of: allow, deny, ask",
+        400,
+      );
+    }
+  }
+
   try {
     updateRule(id, {
       tool: body.tool,
