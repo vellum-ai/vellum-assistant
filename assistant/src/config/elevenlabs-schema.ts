@@ -8,6 +8,7 @@ export const DEFAULT_ELEVENLABS_VOICE_ID = '21m00Tcm4TlvDq8ikWAM';
 export const ElevenLabsConfigSchema = z.object({
   voiceId: z
     .string({ error: 'elevenlabs.voiceId must be a string' })
+    .min(1, 'elevenlabs.voiceId must not be empty')
     .default(DEFAULT_ELEVENLABS_VOICE_ID),
   voiceModelId: z
     .string({ error: 'elevenlabs.voiceModelId must be a string' })
