@@ -733,6 +733,11 @@ const a2aAccessRequestResolver: GuardianRequestResolver = {
         'A2A access request resolver: connection denied',
       );
 
+      // The approveConnection('deny') call above already emits
+      // a2a.connection_denied from the service layer. No additional
+      // notification signal needed here — the service-layer signal is
+      // the canonical lifecycle event.
+
       return {
         ok: true,
         applied: true,
@@ -772,6 +777,13 @@ const a2aAccessRequestResolver: GuardianRequestResolver = {
       },
       'A2A access request resolver: connection approved',
     );
+
+    // The approveConnection('approve') call above already emits
+    // a2a.connection_approved and a2a.verification_code_ready from the
+    // service layer. No additional notification signals needed here — the
+    // service-layer signals are the canonical lifecycle events. The
+    // verification code is propagated back to the guardian via
+    // guardianReplyText.
 
     const replyText = verificationCode
       ? `A2A connection approved. Verification code: ${verificationCode}. Share this code with the peer to complete the handshake.`
