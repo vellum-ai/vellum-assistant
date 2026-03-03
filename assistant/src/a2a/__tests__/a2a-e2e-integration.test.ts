@@ -388,7 +388,7 @@ describe('A2A E2E Integration', () => {
   // =========================================================================
 
   describe('expired invite', () => {
-    test('redeemInvite rejects expired invite', () => {
+    test('redeemInvite rejects expired invite', async () => {
       // Generate with a very short TTL so it expires immediately
       const inviteResult = generateInvite({
         gatewayUrl: ALICE_GATEWAY_URL,
@@ -397,7 +397,10 @@ describe('A2A E2E Integration', () => {
       expect(inviteResult.ok).toBe(true);
       if (!inviteResult.ok) return;
 
-      // Small delay to ensure TTL has elapsed (1ms is in the past after code runs)
+      // Wait to ensure the 1ms TTL has elapsed — without this, execution
+      // may stay within the same millisecond and the invite remains valid.
+      await Bun.sleep(5);
+
       const result = redeemInvite({ inviteCode: inviteResult.inviteCode });
       expect(result.ok).toBe(false);
       if (!result.ok) {
@@ -405,13 +408,17 @@ describe('A2A E2E Integration', () => {
       }
     });
 
-    test('initiateConnection rejects expired invite token', () => {
+    test('initiateConnection rejects expired invite token', async () => {
       const inviteResult = generateInvite({
         gatewayUrl: ALICE_GATEWAY_URL,
         expiresInMs: 1,
       });
       expect(inviteResult.ok).toBe(true);
       if (!inviteResult.ok) return;
+
+      // Wait to ensure the 1ms TTL has elapsed — without this, execution
+      // may stay within the same millisecond and the invite remains valid.
+      await Bun.sleep(5);
 
       const decoded = decodeInviteCode(inviteResult.inviteCode);
       expect(decoded).not.toBeNull();
