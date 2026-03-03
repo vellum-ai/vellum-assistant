@@ -1,8 +1,11 @@
-import * as slack from '../../../../messaging/providers/slack/client.js';
-import type { SlackConversation } from '../../../../messaging/providers/slack/types.js';
-import { getConfig } from '../../../../config/loader.js';
-import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
-import { err, ok, withSlackToken } from './shared.js';
+import { getConfig } from "../../../../config/loader.js";
+import * as slack from "../../../../messaging/providers/slack/client.js";
+import type { SlackConversation } from "../../../../messaging/providers/slack/types.js";
+import type {
+  ToolContext,
+  ToolExecutionResult,
+} from "../../../../tools/types.js";
+import { err, ok, withSlackToken } from "./shared.js";
 
 interface ThreadSummary {
   threadTs: string;
@@ -24,16 +27,17 @@ interface ChannelDigest {
 const userNameCache = new Map<string, string>();
 
 async function resolveUserName(token: string, userId: string): Promise<string> {
-  if (!userId) return 'unknown';
+  if (!userId) return "unknown";
   const cached = userNameCache.get(userId);
   if (cached) return cached;
 
   try {
     const resp = await slack.userInfo(token, userId);
-    const name = resp.user.profile?.display_name
-      || resp.user.profile?.real_name
-      || resp.user.real_name
-      || resp.user.name;
+    const name =
+      resp.user.profile?.display_name ||
+      resp.user.profile?.real_name ||
+      resp.user.real_name ||
+      resp.user.name;
     userNameCache.set(userId, name);
     return name;
   } catch {
@@ -52,7 +56,13 @@ async function scanChannel(
   const isPrivate = conv.is_private ?? conv.is_group ?? false;
 
   try {
-    const history = await slack.conversationHistory(token, channelId, 100, undefined, oldestTs);
+    const history = await slack.conversationHistory(
+      token,
+      channelId,
+      100,
+      undefined,
+      oldestTs,
+    );
     const messages = history.messages;
 
     const participantIds = new Set<string>();
@@ -76,7 +86,12 @@ async function scanChannel(
 
       if (includeThreads) {
         try {
-          const replies = await slack.conversationReplies(token, channelId, msg.ts, 10);
+          const replies = await slack.conversationReplies(
+            token,
+            channelId,
+            msg.ts,
+            10,
+          );
           const threadParticipantIds = new Set<string>();
           for (const reply of replies.messages) {
             if (reply.user) threadParticipantIds.add(reply.user);
@@ -85,7 +100,7 @@ async function scanChannel(
             participants.push(await resolveUserName(token, uid));
           }
         } catch {
-          participants = [await resolveUserName(token, msg.user ?? '')];
+          participants = [await resolveUserName(token, msg.user ?? "")];
         }
       }
 
@@ -120,10 +135,13 @@ async function scanChannel(
 
 function truncate(text: string, maxLen: number): string {
   if (text.length <= maxLen) return text;
-  return text.slice(0, maxLen - 3) + '...';
+  return text.slice(0, maxLen - 3) + "...";
 }
 
-export async function run(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
+export async function run(
+  input: Record<string, unknown>,
+  _context: ToolContext,
+): Promise<ToolExecutionResult> {
   const channelIds = input.channel_ids as string[] | undefined;
   const hoursBack = (input.hours_back as number) ?? 24;
   const includeThreads = (input.include_threads as boolean) ?? true;
@@ -141,26 +159,45 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
           channelIds.map((id) => slack.conversationInfo(token, id)),
         );
         channelsToScan = results
-          .filter((r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof slack.conversationInfo>>> => r.status === 'fulfilled')
+          .filter(
+            (
+              r,
+            ): r is PromiseFulfilledResult<
+              Awaited<ReturnType<typeof slack.conversationInfo>>
+            > => r.status === "fulfilled",
+          )
           .map((r) => r.value.channel);
-        failedLookups = results.filter((r) => r.status === 'rejected').length;
+        failedLookups = results.filter((r) => r.status === "rejected").length;
       } else {
         const config = getConfig();
-        const preferredIds = config.skills?.entries?.slack?.config?.preferredChannels as string[] | undefined;
+        const preferredIds = config.skills?.entries?.slack?.config
+          ?.preferredChannels as string[] | undefined;
 
         if (preferredIds?.length) {
           const results = await Promise.allSettled(
             preferredIds.map((id) => slack.conversationInfo(token, id)),
           );
           channelsToScan = results
-            .filter((r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof slack.conversationInfo>>> => r.status === 'fulfilled')
+            .filter(
+              (
+                r,
+              ): r is PromiseFulfilledResult<
+                Awaited<ReturnType<typeof slack.conversationInfo>>
+              > => r.status === "fulfilled",
+            )
             .map((r) => r.value.channel);
-          failedLookups = results.filter((r) => r.status === 'rejected').length;
+          failedLookups = results.filter((r) => r.status === "rejected").length;
         } else {
           const allChannels: SlackConversation[] = [];
           let cursor: string | undefined;
           do {
-            const resp = await slack.listConversations(token, 'public_channel,private_channel', true, 200, cursor);
+            const resp = await slack.listConversations(
+              token,
+              "public_channel,private_channel",
+              true,
+              200,
+              cursor,
+            );
             allChannels.push(...resp.channels);
             cursor = resp.response_metadata?.next_cursor || undefined;
           } while (cursor);
@@ -177,15 +214,22 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
       }
 
       const scanResults = await Promise.allSettled(
-        channelsToScan.map((conv) => scanChannel(token, conv, oldestTs, includeThreads)),
+        channelsToScan.map((conv) =>
+          scanChannel(token, conv, oldestTs, includeThreads),
+        ),
       );
 
       const digests: ChannelDigest[] = scanResults
-        .filter((r): r is PromiseFulfilledResult<ChannelDigest> => r.status === 'fulfilled')
+        .filter(
+          (r): r is PromiseFulfilledResult<ChannelDigest> =>
+            r.status === "fulfilled",
+        )
         .map((r) => r.value)
         .filter((d) => d.messageCount > 0 || d.error);
 
-      const skippedCount = scanResults.filter((r) => r.status === 'rejected').length;
+      const skippedCount = scanResults.filter(
+        (r) => r.status === "rejected",
+      ).length;
 
       const result = {
         scannedChannels: digests.length,
