@@ -1,6 +1,6 @@
-import { beforeEach, describe, expect, mock,test } from 'bun:test';
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { Message, ToolDefinition } from '../providers/types.js';
+import type { Message, ToolDefinition } from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
 // Mock Anthropic SDK — must be before importing the provider
@@ -10,15 +10,15 @@ let lastStreamParams: Record<string, unknown> | null = null;
 let _lastStreamOptions: Record<string, unknown> | null = null;
 
 const fakeResponse = {
-  content: [{ type: 'text', text: 'Hello' }],
-  model: 'claude-sonnet-4-6',
+  content: [{ type: "text", text: "Hello" }],
+  model: "claude-sonnet-4-6",
   usage: {
     input_tokens: 100,
     output_tokens: 20,
     cache_creation_input_tokens: 50,
     cache_read_input_tokens: 30,
   },
-  stop_reason: 'end_turn',
+  stop_reason: "end_turn",
 };
 
 class FakeAPIError extends Error {
@@ -26,16 +26,19 @@ class FakeAPIError extends Error {
   constructor(status: number, message: string) {
     super(message);
     this.status = status;
-    this.name = 'APIError';
+    this.name = "APIError";
   }
 }
 
-mock.module('@anthropic-ai/sdk', () => ({
+mock.module("@anthropic-ai/sdk", () => ({
   default: class MockAnthropic {
     static APIError = FakeAPIError;
     constructor() {}
     messages = {
-      stream: (params: Record<string, unknown>, options?: Record<string, unknown>) => {
+      stream: (
+        params: Record<string, unknown>,
+        options?: Record<string, unknown>,
+      ) => {
         lastStreamParams = JSON.parse(JSON.stringify(params));
         _lastStreamOptions = options ?? null;
         const handlers: Record<string, ((...args: unknown[]) => void)[]> = {};
@@ -46,7 +49,7 @@ mock.module('@anthropic-ai/sdk', () => ({
           },
           async finalMessage() {
             // Fire text events
-            for (const cb of handlers['text'] ?? []) cb('Hello');
+            for (const cb of handlers["text"] ?? []) cb("Hello");
             return fakeResponse;
           },
         };
@@ -56,66 +59,94 @@ mock.module('@anthropic-ai/sdk', () => ({
 }));
 
 // Import after mocking
-import { AnthropicProvider, PLACEHOLDER_BLOCKS_OMITTED,PLACEHOLDER_EMPTY_TURN } from '../providers/anthropic/client.js';
+import {
+  AnthropicProvider,
+  PLACEHOLDER_BLOCKS_OMITTED,
+  PLACEHOLDER_EMPTY_TURN,
+} from "../providers/anthropic/client.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 function userMsg(text: string): Message {
-  return { role: 'user', content: [{ type: 'text', text }] };
+  return { role: "user", content: [{ type: "text", text }] };
 }
 
 function assistantMsg(text: string): Message {
-  return { role: 'assistant', content: [{ type: 'text', text }] };
+  return { role: "assistant", content: [{ type: "text", text }] };
 }
 
 function toolUseMsg(id: string, name: string): Message {
   return {
-    role: 'assistant',
-    content: [{ type: 'tool_use', id, name, input: {} }],
+    role: "assistant",
+    content: [{ type: "tool_use", id, name, input: {} }],
   };
 }
 
 function toolResultMsg(toolUseId: string, content: string): Message {
   return {
-    role: 'user',
-    content: [{ type: 'tool_result', tool_use_id: toolUseId, content, is_error: false }],
+    role: "user",
+    content: [
+      { type: "tool_result", tool_use_id: toolUseId, content, is_error: false },
+    ],
   };
 }
 
 const sampleTools: ToolDefinition[] = [
-  { name: 'file_read', description: 'Read a file', input_schema: { type: 'object', properties: { path: { type: 'string' } } } },
-  { name: 'file_write', description: 'Write a file', input_schema: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } } } },
-  { name: 'bash', description: 'Run shell commands', input_schema: { type: 'object', properties: { command: { type: 'string' } } } },
+  {
+    name: "file_read",
+    description: "Read a file",
+    input_schema: { type: "object", properties: { path: { type: "string" } } },
+  },
+  {
+    name: "file_write",
+    description: "Write a file",
+    input_schema: {
+      type: "object",
+      properties: { path: { type: "string" }, content: { type: "string" } },
+    },
+  },
+  {
+    name: "bash",
+    description: "Run shell commands",
+    input_schema: {
+      type: "object",
+      properties: { command: { type: "string" } },
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------
 // Tests — Cache-Control Characterization
 // ---------------------------------------------------------------------------
 
-describe('AnthropicProvider — Cache-Control Characterization', () => {
+describe("AnthropicProvider — Cache-Control Characterization", () => {
   let provider: AnthropicProvider;
 
   beforeEach(() => {
     lastStreamParams = null;
     _lastStreamOptions = null;
-    provider = new AnthropicProvider('sk-ant-test', 'claude-sonnet-4-6');
+    provider = new AnthropicProvider("sk-ant-test", "claude-sonnet-4-6");
   });
 
   // -----------------------------------------------------------------------
   // System prompt cache control
   // -----------------------------------------------------------------------
-  test('system prompt has cache_control ephemeral', async () => {
-    await provider.sendMessage([userMsg('Hi')], undefined, 'You are helpful.');
+  test("system prompt has cache_control ephemeral", async () => {
+    await provider.sendMessage([userMsg("Hi")], undefined, "You are helpful.");
 
-    const system = lastStreamParams!.system as Array<{ type: string; text: string; cache_control?: { type: string } }>;
+    const system = lastStreamParams!.system as Array<{
+      type: string;
+      text: string;
+      cache_control?: { type: string };
+    }>;
     expect(system).toHaveLength(1);
-    expect(system[0].cache_control).toEqual({ type: 'ephemeral' });
+    expect(system[0].cache_control).toEqual({ type: "ephemeral" });
   });
 
-  test('no system param when system prompt is omitted', async () => {
-    await provider.sendMessage([userMsg('Hi')]);
+  test("no system param when system prompt is omitted", async () => {
+    await provider.sendMessage([userMsg("Hi")]);
 
     expect(lastStreamParams!.system).toBeUndefined();
   });
@@ -123,10 +154,13 @@ describe('AnthropicProvider — Cache-Control Characterization', () => {
   // -----------------------------------------------------------------------
   // Tool cache control
   // -----------------------------------------------------------------------
-  test('only last tool definition includes cache_control', async () => {
-    await provider.sendMessage([userMsg('Hi')], sampleTools);
+  test("only last tool definition includes cache_control", async () => {
+    await provider.sendMessage([userMsg("Hi")], sampleTools);
 
-    const tools = lastStreamParams!.tools as Array<{ name: string; cache_control?: { type: string } }>;
+    const tools = lastStreamParams!.tools as Array<{
+      name: string;
+      cache_control?: { type: string };
+    }>;
     expect(tools).toHaveLength(3);
 
     // First two tools: no cache_control
@@ -134,19 +168,22 @@ describe('AnthropicProvider — Cache-Control Characterization', () => {
     expect(tools[1].cache_control).toBeUndefined();
 
     // Last tool: cache_control ephemeral
-    expect(tools[2].cache_control).toEqual({ type: 'ephemeral' });
+    expect(tools[2].cache_control).toEqual({ type: "ephemeral" });
   });
 
-  test('single tool gets cache_control', async () => {
-    await provider.sendMessage([userMsg('Hi')], [sampleTools[0]]);
+  test("single tool gets cache_control", async () => {
+    await provider.sendMessage([userMsg("Hi")], [sampleTools[0]]);
 
-    const tools = lastStreamParams!.tools as Array<{ name: string; cache_control?: { type: string } }>;
+    const tools = lastStreamParams!.tools as Array<{
+      name: string;
+      cache_control?: { type: string };
+    }>;
     expect(tools).toHaveLength(1);
-    expect(tools[0].cache_control).toEqual({ type: 'ephemeral' });
+    expect(tools[0].cache_control).toEqual({ type: "ephemeral" });
   });
 
-  test('no tools param when tools are omitted', async () => {
-    await provider.sendMessage([userMsg('Hi')]);
+  test("no tools param when tools are omitted", async () => {
+    await provider.sendMessage([userMsg("Hi")]);
 
     expect(lastStreamParams!.tools).toBeUndefined();
   });
@@ -154,71 +191,89 @@ describe('AnthropicProvider — Cache-Control Characterization', () => {
   // -----------------------------------------------------------------------
   // User turn cache breakpoints — last two user turns
   // -----------------------------------------------------------------------
-  test('last user turn gets cache_control on trailing content block', async () => {
-    await provider.sendMessage([userMsg('Hello')]);
+  test("last user turn gets cache_control on trailing content block", async () => {
+    await provider.sendMessage([userMsg("Hello")]);
 
     const messages = lastStreamParams!.messages as Array<{
       role: string;
-      content: Array<{ type: string; text: string; cache_control?: { type: string } }>;
+      content: Array<{
+        type: string;
+        text: string;
+        cache_control?: { type: string };
+      }>;
     }>;
     const lastUser = messages[messages.length - 1];
-    expect(lastUser.role).toBe('user');
-    expect(lastUser.content[lastUser.content.length - 1].cache_control).toEqual({ type: 'ephemeral' });
+    expect(lastUser.role).toBe("user");
+    expect(lastUser.content[lastUser.content.length - 1].cache_control).toEqual(
+      { type: "ephemeral" },
+    );
   });
 
-  test('last two user turns get cache_control, earlier turns do not', async () => {
+  test("last two user turns get cache_control, earlier turns do not", async () => {
     const messages: Message[] = [
-      userMsg('Turn 1'),             // user turn 0 — no cache
-      assistantMsg('Response 1'),
-      userMsg('Turn 2'),             // user turn 1 — cache (second-to-last)
-      assistantMsg('Response 2'),
-      userMsg('Turn 3'),             // user turn 2 — cache (last)
+      userMsg("Turn 1"), // user turn 0 — no cache
+      assistantMsg("Response 1"),
+      userMsg("Turn 2"), // user turn 1 — cache (second-to-last)
+      assistantMsg("Response 2"),
+      userMsg("Turn 3"), // user turn 2 — cache (last)
     ];
     await provider.sendMessage(messages);
 
     const sent = lastStreamParams!.messages as Array<{
       role: string;
-      content: Array<{ type: string; text: string; cache_control?: { type: string } }>;
+      content: Array<{
+        type: string;
+        text: string;
+        cache_control?: { type: string };
+      }>;
     }>;
 
     // Find user messages in order
-    const userMessages = sent.filter(m => m.role === 'user');
+    const userMessages = sent.filter((m) => m.role === "user");
     expect(userMessages).toHaveLength(3);
 
     // First user turn: no cache_control
-    const firstUserLastBlock = userMessages[0].content[userMessages[0].content.length - 1];
+    const firstUserLastBlock =
+      userMessages[0].content[userMessages[0].content.length - 1];
     expect(firstUserLastBlock.cache_control).toBeUndefined();
 
     // Second user turn: cache_control ephemeral
-    const secondUserLastBlock = userMessages[1].content[userMessages[1].content.length - 1];
-    expect(secondUserLastBlock.cache_control).toEqual({ type: 'ephemeral' });
+    const secondUserLastBlock =
+      userMessages[1].content[userMessages[1].content.length - 1];
+    expect(secondUserLastBlock.cache_control).toEqual({ type: "ephemeral" });
 
     // Third user turn: cache_control ephemeral
-    const thirdUserLastBlock = userMessages[2].content[userMessages[2].content.length - 1];
-    expect(thirdUserLastBlock.cache_control).toEqual({ type: 'ephemeral' });
+    const thirdUserLastBlock =
+      userMessages[2].content[userMessages[2].content.length - 1];
+    expect(thirdUserLastBlock.cache_control).toEqual({ type: "ephemeral" });
   });
 
-  test('single user turn gets cache_control (only one user = last one)', async () => {
-    await provider.sendMessage([userMsg('Only turn')]);
+  test("single user turn gets cache_control (only one user = last one)", async () => {
+    await provider.sendMessage([userMsg("Only turn")]);
 
     const sent = lastStreamParams!.messages as Array<{
       role: string;
-      content: Array<{ type: string; text: string; cache_control?: { type: string } }>;
+      content: Array<{
+        type: string;
+        text: string;
+        cache_control?: { type: string };
+      }>;
     }>;
-    const userMessages = sent.filter(m => m.role === 'user');
+    const userMessages = sent.filter((m) => m.role === "user");
     expect(userMessages).toHaveLength(1);
-    expect(userMessages[0].content[userMessages[0].content.length - 1].cache_control)
-      .toEqual({ type: 'ephemeral' });
+    expect(
+      userMessages[0].content[userMessages[0].content.length - 1].cache_control,
+    ).toEqual({ type: "ephemeral" });
   });
 
   // -----------------------------------------------------------------------
   // User turn with tool_result — cache breakpoint on trailing block
   // -----------------------------------------------------------------------
-  test('user turn containing tool_result gets cache_control on last block', async () => {
+  test("user turn containing tool_result gets cache_control on last block", async () => {
     const messages: Message[] = [
-      userMsg('Read file'),
-      toolUseMsg('tu_1', 'file_read'),
-      toolResultMsg('tu_1', 'file contents here'),
+      userMsg("Read file"),
+      toolUseMsg("tu_1", "file_read"),
+      toolResultMsg("tu_1", "file contents here"),
     ];
     await provider.sendMessage(messages);
 
@@ -226,30 +281,34 @@ describe('AnthropicProvider — Cache-Control Characterization', () => {
       role: string;
       content: Array<{ type: string; cache_control?: { type: string } }>;
     }>;
-    const userMsgs = sent.filter(m => m.role === 'user');
+    const userMsgs = sent.filter((m) => m.role === "user");
     // Both user turns (first user msg + tool_result msg) should get cache
     for (const u of userMsgs) {
       const last = u.content[u.content.length - 1];
-      expect(last.cache_control).toEqual({ type: 'ephemeral' });
+      expect(last.cache_control).toEqual({ type: "ephemeral" });
     }
   });
 
   // -----------------------------------------------------------------------
   // Negative: assistant messages never get cache_control
   // -----------------------------------------------------------------------
-  test('assistant messages do not get cache_control', async () => {
+  test("assistant messages do not get cache_control", async () => {
     const messages: Message[] = [
-      userMsg('Hi'),
-      assistantMsg('Hello!'),
-      userMsg('How are you?'),
+      userMsg("Hi"),
+      assistantMsg("Hello!"),
+      userMsg("How are you?"),
     ];
     await provider.sendMessage(messages);
 
     const sent = lastStreamParams!.messages as Array<{
       role: string;
-      content: Array<{ type: string; text: string; cache_control?: { type: string } }>;
+      content: Array<{
+        type: string;
+        text: string;
+        cache_control?: { type: string };
+      }>;
     }>;
-    const assistantMsgs = sent.filter(m => m.role === 'assistant');
+    const assistantMsgs = sent.filter((m) => m.role === "assistant");
     for (const a of assistantMsgs) {
       if (Array.isArray(a.content)) {
         for (const block of a.content) {
@@ -262,30 +321,34 @@ describe('AnthropicProvider — Cache-Control Characterization', () => {
   // -----------------------------------------------------------------------
   // Multi-block user message: cache lands on LAST block
   // -----------------------------------------------------------------------
-  test('multi-block user message caches only the last block', async () => {
+  test("multi-block user message caches only the last block", async () => {
     const multiBlockUser: Message = {
-      role: 'user',
+      role: "user",
       content: [
-        { type: 'text', text: 'First block' },
-        { type: 'text', text: 'Second block' },
+        { type: "text", text: "First block" },
+        { type: "text", text: "Second block" },
       ],
     };
     await provider.sendMessage([multiBlockUser]);
 
     const sent = lastStreamParams!.messages as Array<{
       role: string;
-      content: Array<{ type: string; text: string; cache_control?: { type: string } }>;
+      content: Array<{
+        type: string;
+        text: string;
+        cache_control?: { type: string };
+      }>;
     }>;
     const user = sent[0];
     expect(user.content[0].cache_control).toBeUndefined();
-    expect(user.content[1].cache_control).toEqual({ type: 'ephemeral' });
+    expect(user.content[1].cache_control).toEqual({ type: "ephemeral" });
   });
 
   // -----------------------------------------------------------------------
   // Usage: cache tokens are aggregated into inputTokens
   // -----------------------------------------------------------------------
-  test('usage aggregates cache tokens into inputTokens', async () => {
-    const result = await provider.sendMessage([userMsg('Hi')]);
+  test("usage aggregates cache tokens into inputTokens", async () => {
+    const result = await provider.sendMessage([userMsg("Hi")]);
 
     expect(result.usage.inputTokens).toBe(100 + 50 + 30); // input + creation + read
     expect(result.usage.cacheCreationInputTokens).toBe(50);
@@ -295,44 +358,61 @@ describe('AnthropicProvider — Cache-Control Characterization', () => {
   // -----------------------------------------------------------------------
   // Cache compatibility with workspace context injection
   // -----------------------------------------------------------------------
-  test('workspace-prepended user message caches trailing block, not workspace block', async () => {
+  test("workspace-prepended user message caches trailing block, not workspace block", async () => {
     // Simulates what applyRuntimeInjections does: prepend workspace block, keep user text as trailing
     const workspaceInjectedUser: Message = {
-      role: 'user',
+      role: "user",
       content: [
-        { type: 'text', text: '<workspace_top_level>\nRoot: /sandbox\nDirectories: src, tests\n</workspace_top_level>' },
-        { type: 'text', text: 'What files are in src?' },
+        {
+          type: "text",
+          text: "<workspace_top_level>\nRoot: /sandbox\nDirectories: src, tests\n</workspace_top_level>",
+        },
+        { type: "text", text: "What files are in src?" },
       ],
     };
     await provider.sendMessage([workspaceInjectedUser]);
 
     const sent = lastStreamParams!.messages as Array<{
       role: string;
-      content: Array<{ type: string; text: string; cache_control?: { type: string } }>;
+      content: Array<{
+        type: string;
+        text: string;
+        cache_control?: { type: string };
+      }>;
     }>;
     const user = sent[0];
     expect(user.content).toHaveLength(2);
     // Workspace block (first): no cache_control
     expect(user.content[0].cache_control).toBeUndefined();
     // User text (last): gets cache_control
-    expect(user.content[1].cache_control).toEqual({ type: 'ephemeral' });
+    expect(user.content[1].cache_control).toEqual({ type: "ephemeral" });
   });
 
-  test('workspace + dynamic profile: cache still lands on trailing block', async () => {
+  test("workspace + dynamic profile: cache still lands on trailing block", async () => {
     // Simulates workspace prepended + dynamic profile appended
     const injectedUser: Message = {
-      role: 'user',
+      role: "user",
       content: [
-        { type: 'text', text: '<workspace_top_level>\nRoot: /sandbox\nDirectories: src, tests\n</workspace_top_level>' },
-        { type: 'text', text: 'Help me debug this' },
-        { type: 'text', text: '<dynamic_profile>\nUser prefers TypeScript.\n</dynamic_profile>' },
+        {
+          type: "text",
+          text: "<workspace_top_level>\nRoot: /sandbox\nDirectories: src, tests\n</workspace_top_level>",
+        },
+        { type: "text", text: "Help me debug this" },
+        {
+          type: "text",
+          text: "<dynamic_profile>\nUser prefers TypeScript.\n</dynamic_profile>",
+        },
       ],
     };
     await provider.sendMessage([injectedUser]);
 
     const sent = lastStreamParams!.messages as Array<{
       role: string;
-      content: Array<{ type: string; text: string; cache_control?: { type: string } }>;
+      content: Array<{
+        type: string;
+        text: string;
+        cache_control?: { type: string };
+      }>;
     }>;
     const user = sent[0];
     expect(user.content).toHaveLength(3);
@@ -341,41 +421,47 @@ describe('AnthropicProvider — Cache-Control Characterization', () => {
     // User text (middle): no cache
     expect(user.content[1].cache_control).toBeUndefined();
     // Dynamic profile (last): gets cache_control
-    expect(user.content[2].cache_control).toEqual({ type: 'ephemeral' });
+    expect(user.content[2].cache_control).toEqual({ type: "ephemeral" });
   });
 
   // -----------------------------------------------------------------------
   // ensureToolPairing — tool_use / tool_result pairing repair
   // -----------------------------------------------------------------------
 
-  test('tool_use with missing tool_result gets synthetic result injected', async () => {
+  test("tool_use with missing tool_result gets synthetic result injected", async () => {
     const messages: Message[] = [
-      userMsg('Do something'),
-      toolUseMsg('tu_1', 'file_read'),
-      userMsg('Thanks'),   // user text but no tool_result for tu_1
+      userMsg("Do something"),
+      toolUseMsg("tu_1", "file_read"),
+      userMsg("Thanks"), // user text but no tool_result for tu_1
     ];
     await provider.sendMessage(messages);
 
     const sent = lastStreamParams!.messages as Array<{
       role: string;
-      content: Array<{ type: string; tool_use_id?: string; is_error?: boolean }>;
+      content: Array<{
+        type: string;
+        tool_use_id?: string;
+        is_error?: boolean;
+      }>;
     }>;
 
     // The second user message (after assistant) should now contain a synthetic tool_result
     const userAfterAssistant = sent[2];
-    expect(userAfterAssistant.role).toBe('user');
+    expect(userAfterAssistant.role).toBe("user");
     // Anthropic expects tool_result blocks to start the immediate next user message.
-    expect(userAfterAssistant.content[0].type).toBe('tool_result');
-    const toolResults = userAfterAssistant.content.filter((b) => b.type === 'tool_result');
+    expect(userAfterAssistant.content[0].type).toBe("tool_result");
+    const toolResults = userAfterAssistant.content.filter(
+      (b) => b.type === "tool_result",
+    );
     expect(toolResults).toHaveLength(1);
-    expect(toolResults[0].tool_use_id).toBe('tu_1');
+    expect(toolResults[0].tool_use_id).toBe("tu_1");
     expect(toolResults[0].is_error).toBe(true);
   });
 
-  test('tool_use at end of messages gets synthetic user message appended', async () => {
+  test("tool_use at end of messages gets synthetic user message appended", async () => {
     const messages: Message[] = [
-      userMsg('Read file'),
-      toolUseMsg('tu_end', 'file_read'),
+      userMsg("Read file"),
+      toolUseMsg("tu_end", "file_read"),
     ];
     await provider.sendMessage(messages);
 
@@ -386,17 +472,17 @@ describe('AnthropicProvider — Cache-Control Characterization', () => {
 
     // A synthetic user message should have been appended
     expect(sent).toHaveLength(3);
-    expect(sent[2].role).toBe('user');
-    const toolResults = sent[2].content.filter((b) => b.type === 'tool_result');
+    expect(sent[2].role).toBe("user");
+    const toolResults = sent[2].content.filter((b) => b.type === "tool_result");
     expect(toolResults).toHaveLength(1);
-    expect(toolResults[0].tool_use_id).toBe('tu_end');
+    expect(toolResults[0].tool_use_id).toBe("tu_end");
   });
 
-  test('tool_use with matching tool_result passes through unchanged', async () => {
+  test("tool_use with matching tool_result passes through unchanged", async () => {
     const messages: Message[] = [
-      userMsg('Read file'),
-      toolUseMsg('tu_ok', 'file_read'),
-      toolResultMsg('tu_ok', 'file contents'),
+      userMsg("Read file"),
+      toolUseMsg("tu_ok", "file_read"),
+      toolResultMsg("tu_ok", "file contents"),
     ];
     await provider.sendMessage(messages);
 
@@ -407,30 +493,43 @@ describe('AnthropicProvider — Cache-Control Characterization', () => {
 
     // No synthetic messages or blocks added
     expect(sent).toHaveLength(3);
-    const toolResults = sent[2].content.filter((b) => b.type === 'tool_result');
+    const toolResults = sent[2].content.filter((b) => b.type === "tool_result");
     expect(toolResults).toHaveLength(1);
-    expect(toolResults[0].tool_use_id).toBe('tu_ok');
+    expect(toolResults[0].tool_use_id).toBe("tu_ok");
   });
 
-  test('reconstructs collapsed assistant/tool_result/user timeline before sending', async () => {
+  test("reconstructs collapsed assistant/tool_result/user timeline before sending", async () => {
     const messages: Message[] = [
-      userMsg('Read files'),
+      userMsg("Read files"),
       {
-        role: 'assistant',
+        role: "assistant",
         content: [
-          { type: 'text', text: 'Working on it.' },
-          { type: 'tool_use', id: 'tu_a', name: 'file_read', input: {} },
-          { type: 'tool_use', id: 'tu_b', name: 'bash', input: {} },
-          { type: 'text', text: 'One moment.' },
+          { type: "text", text: "Working on it." },
+          { type: "tool_use", id: "tu_a", name: "file_read", input: {} },
+          { type: "tool_use", id: "tu_b", name: "bash", input: {} },
+          { type: "text", text: "One moment." },
         ],
       },
       {
-        role: 'user',
+        role: "user",
         content: [
-          { type: 'text', text: '<workspace_top_level>\nRoot: /sandbox\n</workspace_top_level>' },
-          { type: 'tool_result', tool_use_id: 'tu_b', content: 'result B', is_error: false },
-          { type: 'text', text: 'continue please' },
-          { type: 'tool_result', tool_use_id: 'tu_a', content: 'result A', is_error: false },
+          {
+            type: "text",
+            text: "<workspace_top_level>\nRoot: /sandbox\n</workspace_top_level>",
+          },
+          {
+            type: "tool_result",
+            tool_use_id: "tu_b",
+            content: "result B",
+            is_error: false,
+          },
+          { type: "text", text: "continue please" },
+          {
+            type: "tool_result",
+            tool_use_id: "tu_a",
+            content: "result A",
+            is_error: false,
+          },
         ],
       },
     ];
@@ -445,66 +544,97 @@ describe('AnthropicProvider — Cache-Control Characterization', () => {
     // user, assistant(tool_use...), user(tool_results), assistant(carryover text), user(remaining text)
     expect(sent).toHaveLength(5);
 
-    expect(sent[1].role).toBe('assistant');
-    expect(sent[1].content.map((b) => b.type)).toEqual(['text', 'tool_use', 'tool_use']);
+    expect(sent[1].role).toBe("assistant");
+    expect(sent[1].content.map((b) => b.type)).toEqual([
+      "text",
+      "tool_use",
+      "tool_use",
+    ]);
 
-    expect(sent[2].role).toBe('user');
-    expect(sent[2].content[0]).toMatchObject({ type: 'tool_result', tool_use_id: 'tu_a' });
-    expect(sent[2].content[1]).toMatchObject({ type: 'tool_result', tool_use_id: 'tu_b' });
+    expect(sent[2].role).toBe("user");
+    expect(sent[2].content[0]).toMatchObject({
+      type: "tool_result",
+      tool_use_id: "tu_a",
+    });
+    expect(sent[2].content[1]).toMatchObject({
+      type: "tool_result",
+      tool_use_id: "tu_b",
+    });
     expect(sent[2].content).toHaveLength(2);
 
-    expect(sent[3].role).toBe('assistant');
-    expect(sent[3].content.map((b) => b.type)).toEqual(['text']);
+    expect(sent[3].role).toBe("assistant");
+    expect(sent[3].content.map((b) => b.type)).toEqual(["text"]);
 
-    expect(sent[4].role).toBe('user');
-    expect(sent[4].content.map((b) => b.type)).toEqual(['text', 'text']);
+    expect(sent[4].role).toBe("user");
+    expect(sent[4].content.map((b) => b.type)).toEqual(["text", "text"]);
   });
 
-  test('multiple tool_use with partial results gets missing ones filled', async () => {
+  test("multiple tool_use with partial results gets missing ones filled", async () => {
     const messages: Message[] = [
-      userMsg('Do things'),
+      userMsg("Do things"),
       {
-        role: 'assistant',
+        role: "assistant",
         content: [
-          { type: 'tool_use', id: 'tu_a', name: 'file_read', input: {} },
-          { type: 'tool_use', id: 'tu_b', name: 'file_write', input: {} },
-          { type: 'tool_use', id: 'tu_c', name: 'bash', input: {} },
+          { type: "tool_use", id: "tu_a", name: "file_read", input: {} },
+          { type: "tool_use", id: "tu_b", name: "file_write", input: {} },
+          { type: "tool_use", id: "tu_c", name: "bash", input: {} },
         ],
       },
       // Only tu_a has a result
-      toolResultMsg('tu_a', 'result A'),
+      toolResultMsg("tu_a", "result A"),
     ];
     await provider.sendMessage(messages);
 
     const sent = lastStreamParams!.messages as Array<{
       role: string;
-      content: Array<{ type: string; tool_use_id?: string; is_error?: boolean }>;
+      content: Array<{
+        type: string;
+        tool_use_id?: string;
+        is_error?: boolean;
+      }>;
     }>;
 
     const userAfterAssistant = sent[2];
-    const toolResults = userAfterAssistant.content.filter((b) => b.type === 'tool_result');
+    const toolResults = userAfterAssistant.content.filter(
+      (b) => b.type === "tool_result",
+    );
     expect(toolResults).toHaveLength(3);
-    expect(userAfterAssistant.content[0]).toMatchObject({ type: 'tool_result', tool_use_id: 'tu_a' });
-    expect(userAfterAssistant.content[1]).toMatchObject({ type: 'tool_result', tool_use_id: 'tu_b' });
-    expect(userAfterAssistant.content[2]).toMatchObject({ type: 'tool_result', tool_use_id: 'tu_c' });
+    expect(userAfterAssistant.content[0]).toMatchObject({
+      type: "tool_result",
+      tool_use_id: "tu_a",
+    });
+    expect(userAfterAssistant.content[1]).toMatchObject({
+      type: "tool_result",
+      tool_use_id: "tu_b",
+    });
+    expect(userAfterAssistant.content[2]).toMatchObject({
+      type: "tool_result",
+      tool_use_id: "tu_c",
+    });
 
     // tu_a: original result
-    expect(toolResults.find((r) => r.tool_use_id === 'tu_a')!.is_error).toBeFalsy();
+    expect(
+      toolResults.find((r) => r.tool_use_id === "tu_a")!.is_error,
+    ).toBeFalsy();
     // tu_b and tu_c: synthetic
-    expect(toolResults.find((r) => r.tool_use_id === 'tu_b')!.is_error).toBe(true);
-    expect(toolResults.find((r) => r.tool_use_id === 'tu_c')!.is_error).toBe(true);
+    expect(toolResults.find((r) => r.tool_use_id === "tu_b")!.is_error).toBe(
+      true,
+    );
+    expect(toolResults.find((r) => r.tool_use_id === "tu_c")!.is_error).toBe(
+      true,
+    );
   });
 
-  test('consecutive assistant messages with tool_use each get synthetic results', async () => {
+  test("consecutive assistant messages with tool_use each get synthetic results", async () => {
     const messages: Message[] = [
-      userMsg('Start'),
-      toolUseMsg('tu_1', 'file_read'),
+      userMsg("Start"),
+      toolUseMsg("tu_1", "file_read"),
       // missing tool_result for tu_1, then another assistant
       {
-        role: 'assistant',
-        content: [{ type: 'tool_use', id: 'tu_2', name: 'bash', input: {} }],
+        role: "assistant",
+        content: [{ type: "tool_use", id: "tu_2", name: "bash", input: {} }],
       },
-      userMsg('Done'),
+      userMsg("Done"),
     ];
     await provider.sendMessage(messages);
 
@@ -515,24 +645,34 @@ describe('AnthropicProvider — Cache-Control Characterization', () => {
 
     // Should be: user, assistant(tu_1), synthetic_user(tu_1), assistant(tu_2), user_with_synthetic(tu_2)
     expect(sent).toHaveLength(5);
-    expect(sent[0].role).toBe('user');
-    expect(sent[1].role).toBe('assistant');
-    expect(sent[2].role).toBe('user');
-    expect(sent[2].content.some((b) => b.type === 'tool_result' && b.tool_use_id === 'tu_1')).toBe(true);
-    expect(sent[3].role).toBe('assistant');
-    expect(sent[4].role).toBe('user');
-    expect(sent[4].content.some((b) => b.type === 'tool_result' && b.tool_use_id === 'tu_2')).toBe(true);
+    expect(sent[0].role).toBe("user");
+    expect(sent[1].role).toBe("assistant");
+    expect(sent[2].role).toBe("user");
+    expect(
+      sent[2].content.some(
+        (b) => b.type === "tool_result" && b.tool_use_id === "tu_1",
+      ),
+    ).toBe(true);
+    expect(sent[3].role).toBe("assistant");
+    expect(sent[4].role).toBe("user");
+    expect(
+      sent[4].content.some(
+        (b) => b.type === "tool_result" && b.tool_use_id === "tu_2",
+      ),
+    ).toBe(true);
   });
 
-  test('assistant message with only unknown blocks gets placeholder text', async () => {
+  test("assistant message with only unknown blocks gets placeholder text", async () => {
     const messages: Message[] = [
-      userMsg('Start'),
+      userMsg("Start"),
       // Assistant message with only ui_surface (unknown type) — will be filtered
       {
-        role: 'assistant',
-        content: [{ type: 'ui_surface' as 'text', text: 'this will be filtered' }],
+        role: "assistant",
+        content: [
+          { type: "ui_surface" as "text", text: "this will be filtered" },
+        ],
       },
-      userMsg('Continue'),
+      userMsg("Continue"),
     ];
     await provider.sendMessage(messages);
 
@@ -543,26 +683,26 @@ describe('AnthropicProvider — Cache-Control Characterization', () => {
 
     // Should preserve alternation: user, assistant (with placeholder), user
     expect(sent).toHaveLength(3);
-    expect(sent[0].role).toBe('user');
-    expect(sent[1].role).toBe('assistant');
+    expect(sent[0].role).toBe("user");
+    expect(sent[1].role).toBe("assistant");
     expect(sent[1].content).toHaveLength(1);
-    expect(sent[1].content[0].type).toBe('text');
+    expect(sent[1].content[0].type).toBe("text");
     expect(sent[1].content[0].text).toBe(PLACEHOLDER_BLOCKS_OMITTED);
-    expect(sent[2].role).toBe('user');
+    expect(sent[2].role).toBe("user");
   });
 
-  test('assistant message with mix of known and unknown blocks keeps known blocks', async () => {
+  test("assistant message with mix of known and unknown blocks keeps known blocks", async () => {
     const messages: Message[] = [
-      userMsg('Start'),
+      userMsg("Start"),
       {
-        role: 'assistant',
+        role: "assistant",
         content: [
-          { type: 'text', text: 'Valid text' },
-          { type: 'ui_surface' as 'text', text: 'this will be filtered' },
-          { type: 'text', text: 'More valid text' },
+          { type: "text", text: "Valid text" },
+          { type: "ui_surface" as "text", text: "this will be filtered" },
+          { type: "text", text: "More valid text" },
         ],
       },
-      userMsg('Continue'),
+      userMsg("Continue"),
     ];
     await provider.sendMessage(messages);
 
@@ -572,23 +712,23 @@ describe('AnthropicProvider — Cache-Control Characterization', () => {
     }>;
 
     expect(sent).toHaveLength(3);
-    expect(sent[1].role).toBe('assistant');
+    expect(sent[1].role).toBe("assistant");
     expect(sent[1].content).toHaveLength(2);
-    expect(sent[1].content[0].text).toBe('Valid text');
-    expect(sent[1].content[1].text).toBe('More valid text');
+    expect(sent[1].content[0].text).toBe("Valid text");
+    expect(sent[1].content[1].text).toBe("More valid text");
   });
 
-  test('assistant message with only whitespace text gets placeholder to preserve alternation', async () => {
+  test("assistant message with only whitespace text gets placeholder to preserve alternation", async () => {
     const messages: Message[] = [
-      userMsg('Start'),
+      userMsg("Start"),
       {
-        role: 'assistant',
+        role: "assistant",
         content: [
-          { type: 'text', text: '   ' },
-          { type: 'text', text: '\n\t' },
+          { type: "text", text: "   " },
+          { type: "text", text: "\n\t" },
         ],
       },
-      userMsg('Continue'),
+      userMsg("Continue"),
     ];
     await provider.sendMessage(messages);
 
@@ -600,32 +740,32 @@ describe('AnthropicProvider — Cache-Control Characterization', () => {
     // Whitespace-only assistant messages between user messages must be preserved
     // with a placeholder to maintain Anthropic's strict role alternation
     expect(sent).toHaveLength(3);
-    expect(sent[0].role).toBe('user');
-    expect(sent[0].content[0].text).toBe('Start');
-    expect(sent[1].role).toBe('assistant');
+    expect(sent[0].role).toBe("user");
+    expect(sent[0].content[0].text).toBe("Start");
+    expect(sent[1].role).toBe("assistant");
     expect(sent[1].content).toHaveLength(1);
-    expect(sent[1].content[0].type).toBe('text');
+    expect(sent[1].content[0].type).toBe("text");
     expect(sent[1].content[0].text).toBe(PLACEHOLDER_EMPTY_TURN);
-    expect(sent[2].role).toBe('user');
-    expect(sent[2].content[0].text).toBe('Continue');
+    expect(sent[2].role).toBe("user");
+    expect(sent[2].content[0].text).toBe("Continue");
   });
 
-  test('unknown-blocks-only assistant followed by empty user does not produce consecutive same-role messages', async () => {
+  test("unknown-blocks-only assistant followed by empty user does not produce consecutive same-role messages", async () => {
     // Same edge case as the empty-assistant test below, but triggered by an
     // assistant turn whose blocks are all unknown (e.g. ui_surface). The turn
     // becomes a [internal blocks omitted] placeholder which must also be
     // removed when adjacent to a real assistant message.
     const messages: Message[] = [
-      userMsg('Start'),
+      userMsg("Start"),
       {
-        role: 'assistant',
-        content: [{ type: 'ui_surface' as 'text', text: 'invisible' }], // unknown → placeholder
+        role: "assistant",
+        content: [{ type: "ui_surface" as "text", text: "invisible" }], // unknown → placeholder
       },
       {
-        role: 'user',
-        content: [{ type: 'text', text: '  \n  ' }], // whitespace-only → empty after filtering
+        role: "user",
+        content: [{ type: "text", text: "  \n  " }], // whitespace-only → empty after filtering
       },
-      assistantMsg('Real response'),
+      assistantMsg("Real response"),
     ];
     await provider.sendMessage(messages);
 
@@ -640,22 +780,22 @@ describe('AnthropicProvider — Cache-Control Characterization', () => {
     }
   });
 
-  test('empty assistant followed by empty user does not produce consecutive same-role messages', async () => {
+  test("empty assistant followed by empty user does not produce consecutive same-role messages", async () => {
     // Edge case: an empty assistant turn gets a placeholder injected, but if
     // the following user turn also filters to empty (e.g. whitespace-only),
     // the user turn is dropped and the placeholder ends up adjacent to the
     // next real assistant turn — producing consecutive assistant roles.
     const messages: Message[] = [
-      userMsg('Start'),
+      userMsg("Start"),
       {
-        role: 'assistant',
-        content: [{ type: 'text', text: '   ' }], // whitespace-only → empty after filtering
+        role: "assistant",
+        content: [{ type: "text", text: "   " }], // whitespace-only → empty after filtering
       },
       {
-        role: 'user',
-        content: [{ type: 'text', text: '  \n  ' }], // whitespace-only → empty after filtering
+        role: "user",
+        content: [{ type: "text", text: "  \n  " }], // whitespace-only → empty after filtering
       },
-      assistantMsg('Real response'),
+      assistantMsg("Real response"),
     ];
     await provider.sendMessage(messages);
 
@@ -674,27 +814,32 @@ describe('AnthropicProvider — Cache-Control Characterization', () => {
   // Workspace context injection + cache control
   // -----------------------------------------------------------------------
 
-  test('carryover with tool_result-only user turn emits synthetic user message', async () => {
+  test("carryover with tool_result-only user turn emits synthetic user message", async () => {
     // This tests the fix for consecutive assistant messages when:
     // - assistant has both tool_use blocks and trailing non-tool blocks (carryover)
     // - following user message contains ONLY tool_result blocks (no other content)
     const messages: Message[] = [
-      userMsg('Read file'),
+      userMsg("Read file"),
       {
-        role: 'assistant',
+        role: "assistant",
         content: [
-          { type: 'tool_use', id: 'tu_1', name: 'file_read', input: {} },
-          { type: 'text', text: 'Checking the file now.' }, // carryover content
+          { type: "tool_use", id: "tu_1", name: "file_read", input: {} },
+          { type: "text", text: "Checking the file now." }, // carryover content
         ],
       },
       {
-        role: 'user',
+        role: "user",
         content: [
           // ONLY tool_result, no other content
-          { type: 'tool_result', tool_use_id: 'tu_1', content: 'file contents', is_error: false },
+          {
+            type: "tool_result",
+            tool_use_id: "tu_1",
+            content: "file contents",
+            is_error: false,
+          },
         ],
       },
-      assistantMsg('Next response'),
+      assistantMsg("Next response"),
     ];
     await provider.sendMessage(messages);
 
@@ -711,47 +856,56 @@ describe('AnthropicProvider — Cache-Control Characterization', () => {
     // 5. user((continue))  <-- synthetic user message to maintain alternation
     // 6. assistant(Next response)
     expect(sent).toHaveLength(6);
-    expect(sent[0].role).toBe('user');
-    expect(sent[1].role).toBe('assistant');
-    expect(sent[1].content[0].type).toBe('tool_use');
-    expect(sent[2].role).toBe('user');
-    expect(sent[2].content[0].type).toBe('tool_result');
-    expect(sent[3].role).toBe('assistant');
-    expect(sent[3].content[0].type).toBe('text');
-    expect(sent[3].content[0].text).toBe('Checking the file now.');
-    expect(sent[4].role).toBe('user');
-    expect(sent[4].content[0].type).toBe('text');
-    expect(sent[4].content[0].text).toBe('(continue)');
-    expect(sent[5].role).toBe('assistant');
-    expect(sent[5].content[0].text).toBe('Next response');
+    expect(sent[0].role).toBe("user");
+    expect(sent[1].role).toBe("assistant");
+    expect(sent[1].content[0].type).toBe("tool_use");
+    expect(sent[2].role).toBe("user");
+    expect(sent[2].content[0].type).toBe("tool_result");
+    expect(sent[3].role).toBe("assistant");
+    expect(sent[3].content[0].type).toBe("text");
+    expect(sent[3].content[0].text).toBe("Checking the file now.");
+    expect(sent[4].role).toBe("user");
+    expect(sent[4].content[0].type).toBe("text");
+    expect(sent[4].content[0].text).toBe("(continue)");
+    expect(sent[5].role).toBe("assistant");
+    expect(sent[5].content[0].text).toBe("Next response");
   });
 
-  test('multi-turn with workspace injection: cache on last two user turns only', async () => {
+  test("multi-turn with workspace injection: cache on last two user turns only", async () => {
     const messages: Message[] = [
       // Turn 1: workspace + user text (should NOT get cache - it's the 3rd-to-last user turn)
       {
-        role: 'user',
+        role: "user",
         content: [
-          { type: 'text', text: '<workspace_top_level>\nRoot: /sandbox\nDirectories: src\n</workspace_top_level>' },
-          { type: 'text', text: 'Turn 1' },
+          {
+            type: "text",
+            text: "<workspace_top_level>\nRoot: /sandbox\nDirectories: src\n</workspace_top_level>",
+          },
+          { type: "text", text: "Turn 1" },
         ],
       },
-      assistantMsg('Response 1'),
+      assistantMsg("Response 1"),
       // Turn 2: workspace + user text (should get cache - second-to-last)
       {
-        role: 'user',
+        role: "user",
         content: [
-          { type: 'text', text: '<workspace_top_level>\nRoot: /sandbox\nDirectories: src, lib\n</workspace_top_level>' },
-          { type: 'text', text: 'Turn 2' },
+          {
+            type: "text",
+            text: "<workspace_top_level>\nRoot: /sandbox\nDirectories: src, lib\n</workspace_top_level>",
+          },
+          { type: "text", text: "Turn 2" },
         ],
       },
-      assistantMsg('Response 2'),
+      assistantMsg("Response 2"),
       // Turn 3: workspace + user text (should get cache - last)
       {
-        role: 'user',
+        role: "user",
         content: [
-          { type: 'text', text: '<workspace_top_level>\nRoot: /sandbox\nDirectories: src, lib, docs\n</workspace_top_level>' },
-          { type: 'text', text: 'Turn 3' },
+          {
+            type: "text",
+            text: "<workspace_top_level>\nRoot: /sandbox\nDirectories: src, lib, docs\n</workspace_top_level>",
+          },
+          { type: "text", text: "Turn 3" },
         ],
       },
     ];
@@ -759,9 +913,13 @@ describe('AnthropicProvider — Cache-Control Characterization', () => {
 
     const sent = lastStreamParams!.messages as Array<{
       role: string;
-      content: Array<{ type: string; text: string; cache_control?: { type: string } }>;
+      content: Array<{
+        type: string;
+        text: string;
+        cache_control?: { type: string };
+      }>;
     }>;
-    const userMsgs = sent.filter(m => m.role === 'user');
+    const userMsgs = sent.filter((m) => m.role === "user");
     expect(userMsgs).toHaveLength(3);
 
     // Turn 1: no cache on any block
@@ -770,10 +928,10 @@ describe('AnthropicProvider — Cache-Control Characterization', () => {
 
     // Turn 2: cache on last block only
     expect(userMsgs[1].content[0].cache_control).toBeUndefined();
-    expect(userMsgs[1].content[1].cache_control).toEqual({ type: 'ephemeral' });
+    expect(userMsgs[1].content[1].cache_control).toEqual({ type: "ephemeral" });
 
     // Turn 3: cache on last block only
     expect(userMsgs[2].content[0].cache_control).toBeUndefined();
-    expect(userMsgs[2].content[1].cache_control).toEqual({ type: 'ephemeral' });
+    expect(userMsgs[2].content[1].cache_control).toEqual({ type: "ephemeral" });
   });
 });

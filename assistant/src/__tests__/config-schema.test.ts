@@ -1,26 +1,28 @@
-import { randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-
-import { afterEach, beforeEach, describe, expect, mock,test } from 'bun:test';
+import { randomBytes } from "node:crypto";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Mocks — declared before imports that depend on platform/logger
 // ---------------------------------------------------------------------------
 
-const TEST_DIR = join(tmpdir(), `vellum-schema-test-${randomBytes(4).toString('hex')}`);
-const WORKSPACE_DIR = join(TEST_DIR, 'workspace');
-const CONFIG_PATH = join(WORKSPACE_DIR, 'config.json');
+const TEST_DIR = join(
+  tmpdir(),
+  `vellum-schema-test-${randomBytes(4).toString("hex")}`,
+);
+const WORKSPACE_DIR = join(TEST_DIR, "workspace");
+const CONFIG_PATH = join(WORKSPACE_DIR, "config.json");
 
 function ensureTestDir(): void {
   const dirs = [
     TEST_DIR,
     WORKSPACE_DIR,
-    join(TEST_DIR, 'data'),
-    join(TEST_DIR, 'memory'),
-    join(TEST_DIR, 'memory', 'knowledge'),
-    join(TEST_DIR, 'logs'),
+    join(TEST_DIR, "data"),
+    join(TEST_DIR, "memory"),
+    join(TEST_DIR, "memory", "knowledge"),
+    join(TEST_DIR, "logs"),
   ];
   for (const dir of dirs) {
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
@@ -29,33 +31,45 @@ function ensureTestDir(): void {
 
 function makeLoggerStub(): Record<string, unknown> {
   const stub: Record<string, unknown> = {};
-  for (const m of ['info', 'warn', 'error', 'debug', 'trace', 'fatal', 'silent', 'child']) {
-    stub[m] = m === 'child' ? () => makeLoggerStub() : () => {};
+  for (const m of [
+    "info",
+    "warn",
+    "error",
+    "debug",
+    "trace",
+    "fatal",
+    "silent",
+    "child",
+  ]) {
+    stub[m] = m === "child" ? () => makeLoggerStub() : () => {};
   }
   return stub;
 }
 
-mock.module('../util/logger.js', () => ({
+mock.module("../util/logger.js", () => ({
   getLogger: () => makeLoggerStub(),
 }));
 
-mock.module('../util/platform.js', () => ({
+mock.module("../util/platform.js", () => ({
   getRootDir: () => TEST_DIR,
   getWorkspaceDir: () => WORKSPACE_DIR,
   getWorkspaceConfigPath: () => CONFIG_PATH,
-  getDataDir: () => join(TEST_DIR, 'data'),
-  getLogPath: () => join(TEST_DIR, 'logs', 'vellum.log'),
+  getDataDir: () => join(TEST_DIR, "data"),
+  getLogPath: () => join(TEST_DIR, "logs", "vellum.log"),
   ensureDataDir: () => ensureTestDir(),
   isMacOS: () => false,
   isLinux: () => false,
   isWindows: () => false,
 }));
 
-import { buildElevenLabsVoiceSpec, resolveVoiceQualityProfile } from '../calls/voice-quality.js';
-import { invalidateConfigCache,loadConfig } from '../config/loader.js';
-import { AssistantConfigSchema } from '../config/schema.js';
-import { _setStorePath } from '../security/encrypted-store.js';
-import { _setBackend } from '../security/secure-keys.js';
+import {
+  buildElevenLabsVoiceSpec,
+  resolveVoiceQualityProfile,
+} from "../calls/voice-quality.js";
+import { invalidateConfigCache, loadConfig } from "../config/loader.js";
+import { AssistantConfigSchema } from "../config/schema.js";
+import { _setStorePath } from "../security/encrypted-store.js";
+import { _setBackend } from "../security/secure-keys.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -69,14 +83,18 @@ function writeConfig(obj: unknown): void {
 // Tests: Zod schema (unit)
 // ---------------------------------------------------------------------------
 
-describe('AssistantConfigSchema', () => {
-  test('parses empty object with full defaults', () => {
+describe("AssistantConfigSchema", () => {
+  test("parses empty object with full defaults", () => {
     const result = AssistantConfigSchema.parse({});
-    expect(result.provider).toBe('anthropic');
-    expect(result.model).toBe('claude-opus-4-6');
+    expect(result.provider).toBe("anthropic");
+    expect(result.model).toBe("claude-opus-4-6");
     expect(result.maxTokens).toBe(16000);
     expect(result.apiKeys).toEqual({});
-    expect(result.thinking).toEqual({ enabled: false, budgetTokens: 10000, streamThinking: false });
+    expect(result.thinking).toEqual({
+      enabled: false,
+      budgetTokens: 10000,
+      streamThinking: false,
+    });
     expect(result.contextWindow).toEqual({
       enabled: true,
       maxInputTokens: 200000,
@@ -96,74 +114,97 @@ describe('AssistantConfigSchema', () => {
     expect(result.sandbox).toEqual({
       enabled: true,
     });
-    expect(result.rateLimit).toEqual({ maxRequestsPerMinute: 0, maxTokensPerSession: 0 });
-    expect(result.secretDetection).toEqual({ enabled: true, action: 'redact', entropyThreshold: 4.0, allowOneTimeSend: false, blockIngress: true });
+    expect(result.rateLimit).toEqual({
+      maxRequestsPerMinute: 0,
+      maxTokensPerSession: 0,
+    });
+    expect(result.secretDetection).toEqual({
+      enabled: true,
+      action: "redact",
+      entropyThreshold: 4.0,
+      allowOneTimeSend: false,
+      blockIngress: true,
+    });
     expect(result.auditLog).toEqual({ retentionDays: 0 });
   });
 
-  test('accepts valid complete config', () => {
+  test("accepts valid complete config", () => {
     const input = {
-      provider: 'openai',
-      model: 'gpt-4',
+      provider: "openai",
+      model: "gpt-4",
       maxTokens: 4096,
-      apiKeys: { openai: 'sk-test' },
+      apiKeys: { openai: "sk-test" },
       thinking: { enabled: true, budgetTokens: 5000 },
-      timeouts: { shellDefaultTimeoutSec: 30, shellMaxTimeoutSec: 300, permissionTimeoutSec: 60 },
+      timeouts: {
+        shellDefaultTimeoutSec: 30,
+        shellMaxTimeoutSec: 300,
+        permissionTimeoutSec: 60,
+      },
       sandbox: { enabled: true },
       rateLimit: { maxRequestsPerMinute: 10, maxTokensPerSession: 100000 },
-      secretDetection: { enabled: false, action: 'block' as const, entropyThreshold: 5.5 },
+      secretDetection: {
+        enabled: false,
+        action: "block" as const,
+        entropyThreshold: 5.5,
+      },
       auditLog: { retentionDays: 30 },
     };
     const result = AssistantConfigSchema.parse(input);
-    expect(result.provider).toBe('openai');
-    expect(result.model).toBe('gpt-4');
+    expect(result.provider).toBe("openai");
+    expect(result.model).toBe("gpt-4");
     expect(result.maxTokens).toBe(4096);
     expect(result.thinking.enabled).toBe(true);
-    expect(result.secretDetection.action).toBe('block');
+    expect(result.secretDetection.action).toBe("block");
   });
 
-  test('applies memory.conflicts defaults', () => {
+  test("applies memory.conflicts defaults", () => {
     const result = AssistantConfigSchema.parse({});
     expect(result.memory.conflicts).toEqual({
       enabled: true,
-      gateMode: 'soft',
+      gateMode: "soft",
       reaskCooldownTurns: 3,
       resolverLlmTimeoutMs: 12000,
       relevanceThreshold: 0.3,
       askOnIrrelevantTurns: false,
-      conflictableKinds: ['preference', 'profile', 'constraint', 'instruction', 'style'],
+      conflictableKinds: [
+        "preference",
+        "profile",
+        "constraint",
+        "instruction",
+        "style",
+      ],
     });
   });
 
-  test('rejects invalid memory.conflicts.relevanceThreshold', () => {
+  test("rejects invalid memory.conflicts.relevanceThreshold", () => {
     const result = AssistantConfigSchema.safeParse({
       memory: { conflicts: { relevanceThreshold: 2 } },
     });
     expect(result.success).toBe(false);
   });
 
-  test('rejects invalid memory.conflicts.askOnIrrelevantTurns', () => {
+  test("rejects invalid memory.conflicts.askOnIrrelevantTurns", () => {
     const result = AssistantConfigSchema.safeParse({
       memory: { conflicts: { askOnIrrelevantTurns: 123 } },
     });
     expect(result.success).toBe(false);
   });
 
-  test('rejects invalid memory.conflicts.conflictableKinds entry', () => {
+  test("rejects invalid memory.conflicts.conflictableKinds entry", () => {
     const result = AssistantConfigSchema.safeParse({
-      memory: { conflicts: { conflictableKinds: ['invalid_kind'] } },
+      memory: { conflicts: { conflictableKinds: ["invalid_kind"] } },
     });
     expect(result.success).toBe(false);
   });
 
-  test('rejects empty memory.conflicts.conflictableKinds', () => {
+  test("rejects empty memory.conflicts.conflictableKinds", () => {
     const result = AssistantConfigSchema.safeParse({
       memory: { conflicts: { conflictableKinds: [] } },
     });
     expect(result.success).toBe(false);
   });
 
-  test('applies memory.profile defaults', () => {
+  test("applies memory.profile defaults", () => {
     const result = AssistantConfigSchema.parse({});
     expect(result.memory.profile).toEqual({
       enabled: true,
@@ -171,14 +212,14 @@ describe('AssistantConfigSchema', () => {
     });
   });
 
-  test('rejects invalid memory.profile.maxInjectTokens', () => {
+  test("rejects invalid memory.profile.maxInjectTokens", () => {
     const result = AssistantConfigSchema.safeParse({
       memory: { profile: { maxInjectTokens: 0 } },
     });
     expect(result.success).toBe(false);
   });
 
-  test('applies rollout defaults for dynamic budget and entity relation features', () => {
+  test("applies rollout defaults for dynamic budget and entity relation features", () => {
     const result = AssistantConfigSchema.parse({});
     expect(result.memory.retrieval.dynamicBudget).toEqual({
       enabled: true,
@@ -201,7 +242,7 @@ describe('AssistantConfigSchema', () => {
     });
   });
 
-  test('applies memory.cleanup defaults', () => {
+  test("applies memory.cleanup defaults", () => {
     const result = AssistantConfigSchema.parse({});
     expect(result.memory.cleanup).toEqual({
       enabled: true,
@@ -212,49 +253,61 @@ describe('AssistantConfigSchema', () => {
     });
   });
 
-  test('rejects invalid memory.cleanup.enqueueIntervalMs', () => {
+  test("rejects invalid memory.cleanup.enqueueIntervalMs", () => {
     const result = AssistantConfigSchema.safeParse({
       memory: { cleanup: { enqueueIntervalMs: 0 } },
     });
     expect(result.success).toBe(false);
   });
 
-  test('rejects invalid provider', () => {
-    const result = AssistantConfigSchema.safeParse({ provider: 'invalid' });
+  test("rejects invalid provider", () => {
+    const result = AssistantConfigSchema.safeParse({ provider: "invalid" });
     expect(result.success).toBe(false);
     if (!result.success) {
-      const msgs = result.error.issues.map(i => i.message);
-      expect(msgs.some(m => m.includes('provider'))).toBe(true);
+      const msgs = result.error.issues.map((i) => i.message);
+      expect(msgs.some((m) => m.includes("provider"))).toBe(true);
     }
   });
 
-  test('rejects negative maxTokens', () => {
+  test("rejects negative maxTokens", () => {
     const result = AssistantConfigSchema.safeParse({ maxTokens: -100 });
     expect(result.success).toBe(false);
     if (!result.success) {
-      expect(result.error.issues.some(i => i.path.includes('maxTokens'))).toBe(true);
+      expect(
+        result.error.issues.some((i) => i.path.includes("maxTokens")),
+      ).toBe(true);
     }
   });
 
-  test('rejects non-integer maxTokens', () => {
+  test("rejects non-integer maxTokens", () => {
     const result = AssistantConfigSchema.safeParse({ maxTokens: 3.14 });
     expect(result.success).toBe(false);
     if (!result.success) {
-      expect(result.error.issues.some(i => i.path.includes('maxTokens'))).toBe(true);
+      expect(
+        result.error.issues.some((i) => i.path.includes("maxTokens")),
+      ).toBe(true);
     }
   });
 
-  test('rejects string maxTokens', () => {
-    const result = AssistantConfigSchema.safeParse({ maxTokens: 'not-a-number' });
+  test("rejects string maxTokens", () => {
+    const result = AssistantConfigSchema.safeParse({
+      maxTokens: "not-a-number",
+    });
     expect(result.success).toBe(false);
     if (!result.success) {
-      expect(result.error.issues.some(i => i.path.includes('maxTokens'))).toBe(true);
+      expect(
+        result.error.issues.some((i) => i.path.includes("maxTokens")),
+      ).toBe(true);
     }
   });
 
-  test('rejects invalid timeout values', () => {
+  test("rejects invalid timeout values", () => {
     const result = AssistantConfigSchema.safeParse({
-      timeouts: { shellDefaultTimeoutSec: -5, shellMaxTimeoutSec: 'bad', permissionTimeoutSec: 0 },
+      timeouts: {
+        shellDefaultTimeoutSec: -5,
+        shellMaxTimeoutSec: "bad",
+        permissionTimeoutSec: 0,
+      },
     });
     expect(result.success).toBe(false);
     if (!result.success) {
@@ -262,9 +315,9 @@ describe('AssistantConfigSchema', () => {
     }
   });
 
-  test('rejects invalid thinking config', () => {
+  test("rejects invalid thinking config", () => {
     const result = AssistantConfigSchema.safeParse({
-      thinking: { enabled: 'yes', budgetTokens: -100 },
+      thinking: { enabled: "yes", budgetTokens: -100 },
     });
     expect(result.success).toBe(false);
     if (!result.success) {
@@ -272,7 +325,7 @@ describe('AssistantConfigSchema', () => {
     }
   });
 
-  test('rejects contextWindow targetInputTokens >= maxInputTokens', () => {
+  test("rejects contextWindow targetInputTokens >= maxInputTokens", () => {
     const result = AssistantConfigSchema.safeParse({
       contextWindow: { maxInputTokens: 1000, targetInputTokens: 1000 },
     });
@@ -281,60 +334,62 @@ describe('AssistantConfigSchema', () => {
       expect(
         result.error.issues.some(
           (issue) =>
-            issue.path.join('.') === 'contextWindow.targetInputTokens'
-            && issue.message.includes('must be less than contextWindow.maxInputTokens'),
+            issue.path.join(".") === "contextWindow.targetInputTokens" &&
+            issue.message.includes(
+              "must be less than contextWindow.maxInputTokens",
+            ),
         ),
       ).toBe(true);
     }
   });
 
-  test('rejects invalid secretDetection.action', () => {
+  test("rejects invalid secretDetection.action", () => {
     const result = AssistantConfigSchema.safeParse({
-      secretDetection: { action: 'explode' },
+      secretDetection: { action: "explode" },
     });
     expect(result.success).toBe(false);
     if (!result.success) {
-      const msgs = result.error.issues.map(i => i.message);
-      expect(msgs.some(m => m.includes('secretDetection.action'))).toBe(true);
+      const msgs = result.error.issues.map((i) => i.message);
+      expect(msgs.some((m) => m.includes("secretDetection.action"))).toBe(true);
     }
   });
 
-  test('rejects negative secretDetection.entropyThreshold', () => {
+  test("rejects negative secretDetection.entropyThreshold", () => {
     const result = AssistantConfigSchema.safeParse({
       secretDetection: { entropyThreshold: -1 },
     });
     expect(result.success).toBe(false);
   });
 
-  test('rejects negative rateLimit values', () => {
+  test("rejects negative rateLimit values", () => {
     const result = AssistantConfigSchema.safeParse({
       rateLimit: { maxRequestsPerMinute: -1 },
     });
     expect(result.success).toBe(false);
   });
 
-  test('rejects non-integer rateLimit values', () => {
+  test("rejects non-integer rateLimit values", () => {
     const result = AssistantConfigSchema.safeParse({
       rateLimit: { maxTokensPerSession: 3.5 },
     });
     expect(result.success).toBe(false);
   });
 
-  test('rejects negative auditLog.retentionDays', () => {
+  test("rejects negative auditLog.retentionDays", () => {
     const result = AssistantConfigSchema.safeParse({
       auditLog: { retentionDays: -7 },
     });
     expect(result.success).toBe(false);
   });
 
-  test('rejects non-string apiKeys values', () => {
+  test("rejects non-string apiKeys values", () => {
     const result = AssistantConfigSchema.safeParse({
       apiKeys: { anthropic: 123 },
     });
     expect(result.success).toBe(false);
   });
 
-  test('accepts partial nested objects with defaults', () => {
+  test("accepts partial nested objects with defaults", () => {
     const result = AssistantConfigSchema.parse({
       timeouts: { shellDefaultTimeoutSec: 30 },
     });
@@ -343,7 +398,7 @@ describe('AssistantConfigSchema', () => {
     expect(result.timeouts.permissionTimeoutSec).toBe(300);
   });
 
-  test('accepts zero for non-negative fields', () => {
+  test("accepts zero for non-negative fields", () => {
     const result = AssistantConfigSchema.parse({
       rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
       auditLog: { retentionDays: 0 },
@@ -353,90 +408,106 @@ describe('AssistantConfigSchema', () => {
     expect(result.auditLog.retentionDays).toBe(0);
   });
 
-  test('accepts all valid provider values', () => {
-    for (const provider of ['anthropic', 'openai', 'gemini', 'ollama'] as const) {
+  test("accepts all valid provider values", () => {
+    for (const provider of [
+      "anthropic",
+      "openai",
+      "gemini",
+      "ollama",
+    ] as const) {
       const result = AssistantConfigSchema.safeParse({ provider });
       expect(result.success).toBe(true);
     }
   });
 
-  test('accepts all valid secretDetection.action values', () => {
-    for (const action of ['redact', 'warn', 'block'] as const) {
-      const result = AssistantConfigSchema.safeParse({ secretDetection: { action } });
+  test("accepts all valid secretDetection.action values", () => {
+    for (const action of ["redact", "warn", "block"] as const) {
+      const result = AssistantConfigSchema.safeParse({
+        secretDetection: { action },
+      });
       expect(result.success).toBe(true);
     }
   });
 
-  test('provides helpful error messages', () => {
+  test("provides helpful error messages", () => {
     const result = AssistantConfigSchema.safeParse({
-      provider: 'invalid',
+      provider: "invalid",
       maxTokens: -1,
-      secretDetection: { action: 'explode' },
+      secretDetection: { action: "explode" },
     });
     expect(result.success).toBe(false);
     if (!result.success) {
-      const messages = result.error.issues.map(i => i.message);
+      const messages = result.error.issues.map((i) => i.message);
       // Should mention the valid options
-      expect(messages.some(m => m.includes('anthropic') && m.includes('openai'))).toBe(true);
-      expect(messages.some(m => m.includes('positive'))).toBe(true);
-      expect(messages.some(m => m.includes('redact') && m.includes('warn') && m.includes('block'))).toBe(true);
+      expect(
+        messages.some((m) => m.includes("anthropic") && m.includes("openai")),
+      ).toBe(true);
+      expect(messages.some((m) => m.includes("positive"))).toBe(true);
+      expect(
+        messages.some(
+          (m) =>
+            m.includes("redact") && m.includes("warn") && m.includes("block"),
+        ),
+      ).toBe(true);
     }
   });
 
-  test('sandbox with only enabled still parses', () => {
+  test("sandbox with only enabled still parses", () => {
     const result = AssistantConfigSchema.parse({ sandbox: { enabled: false } });
     expect(result.sandbox.enabled).toBe(false);
   });
 
-  test('rejects unknown sandbox fields', () => {
+  test("rejects unknown sandbox fields", () => {
     const result = AssistantConfigSchema.safeParse({
-      sandbox: { backend: 'docker' },
+      sandbox: { backend: "docker" },
     });
     // Unknown keys are stripped by Zod passthrough/strip, so parse should still succeed
     // but the unknown field should not appear in the output
     if (result.success) {
-      expect((result.data.sandbox as Record<string, unknown>)['backend']).toBeUndefined();
+      expect(
+        (result.data.sandbox as Record<string, unknown>)["backend"],
+      ).toBeUndefined();
     }
   });
 
-  test('defaults permissions.mode to workspace', () => {
+  test("defaults permissions.mode to workspace", () => {
     const result = AssistantConfigSchema.parse({});
-    expect(result.permissions).toEqual({ mode: 'workspace' });
+    expect(result.permissions).toEqual({ mode: "workspace" });
   });
 
-  test('accepts explicit permissions.mode strict', () => {
+  test("accepts explicit permissions.mode strict", () => {
     const result = AssistantConfigSchema.parse({
-      permissions: { mode: 'strict' },
+      permissions: { mode: "strict" },
     });
-    expect(result.permissions.mode).toBe('strict');
+    expect(result.permissions.mode).toBe("strict");
   });
 
-  test('accepts explicit permissions.mode legacy', () => {
+  test("accepts explicit permissions.mode legacy", () => {
     const result = AssistantConfigSchema.parse({
-      permissions: { mode: 'legacy' },
+      permissions: { mode: "legacy" },
     });
-    expect(result.permissions.mode).toBe('legacy');
+    expect(result.permissions.mode).toBe("legacy");
   });
 
-  test('accepts explicit permissions.mode workspace', () => {
+  test("accepts explicit permissions.mode workspace", () => {
     const result = AssistantConfigSchema.parse({
-      permissions: { mode: 'workspace' },
+      permissions: { mode: "workspace" },
     });
-    expect(result.permissions.mode).toBe('workspace');
+    expect(result.permissions.mode).toBe("workspace");
   });
 
-  test('rejects invalid permissions.mode', () => {
+  test("rejects invalid permissions.mode", () => {
     const result = AssistantConfigSchema.safeParse({
-      permissions: { mode: 'permissive' },
+      permissions: { mode: "permissive" },
     });
     expect(result.success).toBe(false);
     if (!result.success) {
-      const msgs = result.error.issues.map(i => i.message);
-      expect(msgs.some(m => m.includes('permissions.mode'))).toBe(true);
+      const msgs = result.error.issues.map((i) => i.message);
+      expect(msgs.some((m) => m.includes("permissions.mode"))).toBe(true);
     }
   });
 
-  test('applies workspaceGit defaults including interactiveGitTimeoutMs', () => {
+  test("applies workspaceGit defaults including interactiveGitTimeoutMs", () => {
     const result = AssistantConfigSchema.parse({});
     expect(result.workspaceGit).toEqual({
       turnCommitMaxWaitMs: 4000,
@@ -466,7 +537,7 @@ describe('AssistantConfigSchema', () => {
     });
   });
 
-  test('accepts custom workspaceGit.interactiveGitTimeoutMs', () => {
+  test("accepts custom workspaceGit.interactiveGitTimeoutMs", () => {
     const result = AssistantConfigSchema.parse({
       workspaceGit: { interactiveGitTimeoutMs: 5000 },
     });
@@ -475,7 +546,7 @@ describe('AssistantConfigSchema', () => {
     expect(result.workspaceGit.turnCommitMaxWaitMs).toBe(4000);
   });
 
-  test('rejects non-positive workspaceGit.interactiveGitTimeoutMs', () => {
+  test("rejects non-positive workspaceGit.interactiveGitTimeoutMs", () => {
     const zeroResult = AssistantConfigSchema.safeParse({
       workspaceGit: { interactiveGitTimeoutMs: 0 },
     });
@@ -487,23 +558,23 @@ describe('AssistantConfigSchema', () => {
     expect(negativeResult.success).toBe(false);
   });
 
-  test('rejects non-integer workspaceGit.interactiveGitTimeoutMs', () => {
+  test("rejects non-integer workspaceGit.interactiveGitTimeoutMs", () => {
     const result = AssistantConfigSchema.safeParse({
       workspaceGit: { interactiveGitTimeoutMs: 3.5 },
     });
     expect(result.success).toBe(false);
   });
 
-  test('rejects non-number workspaceGit.interactiveGitTimeoutMs', () => {
+  test("rejects non-number workspaceGit.interactiveGitTimeoutMs", () => {
     const result = AssistantConfigSchema.safeParse({
-      workspaceGit: { interactiveGitTimeoutMs: 'fast' },
+      workspaceGit: { interactiveGitTimeoutMs: "fast" },
     });
     expect(result.success).toBe(false);
   });
 
   // ── commitMessageLLM config ──────────────────────────────────────────
 
-  test('default commitMessageLLM values are correct', () => {
+  test("default commitMessageLLM values are correct", () => {
     const result = AssistantConfigSchema.parse({});
     const llm = result.workspaceGit.commitMessageLLM;
     expect(llm.enabled).toBe(false);
@@ -517,21 +588,21 @@ describe('AssistantConfigSchema', () => {
     expect(llm.minRemainingTurnBudgetMs).toBe(1000);
   });
 
-  test('rejects negative commitMessageLLM.timeoutMs', () => {
+  test("rejects negative commitMessageLLM.timeoutMs", () => {
     const result = AssistantConfigSchema.safeParse({
       workspaceGit: { commitMessageLLM: { timeoutMs: -1 } },
     });
     expect(result.success).toBe(false);
   });
 
-  test('rejects commitMessageLLM.temperature > 2', () => {
+  test("rejects commitMessageLLM.temperature > 2", () => {
     const result = AssistantConfigSchema.safeParse({
       workspaceGit: { commitMessageLLM: { temperature: 2.5 } },
     });
     expect(result.success).toBe(false);
   });
 
-  test('breaker settings have correct defaults', () => {
+  test("breaker settings have correct defaults", () => {
     const result = AssistantConfigSchema.parse({});
     const breaker = result.workspaceGit.commitMessageLLM.breaker;
     expect(breaker.openAfterFailures).toBe(3);
@@ -539,7 +610,7 @@ describe('AssistantConfigSchema', () => {
     expect(breaker.backoffMaxMs).toBe(60000);
   });
 
-  test('accepts valid commitMessageLLM overrides', () => {
+  test("accepts valid commitMessageLLM overrides", () => {
     const result = AssistantConfigSchema.parse({
       workspaceGit: {
         commitMessageLLM: {
@@ -553,19 +624,23 @@ describe('AssistantConfigSchema', () => {
     expect(result.workspaceGit.commitMessageLLM.enabled).toBe(true);
     expect(result.workspaceGit.commitMessageLLM.timeoutMs).toBe(1000);
     expect(result.workspaceGit.commitMessageLLM.temperature).toBe(0.5);
-    expect(result.workspaceGit.commitMessageLLM.breaker.openAfterFailures).toBe(5);
+    expect(result.workspaceGit.commitMessageLLM.breaker.openAfterFailures).toBe(
+      5,
+    );
     // Other breaker fields should still get defaults
-    expect(result.workspaceGit.commitMessageLLM.breaker.backoffBaseMs).toBe(2000);
+    expect(result.workspaceGit.commitMessageLLM.breaker.backoffBaseMs).toBe(
+      2000,
+    );
   });
 
-  test('rejects commitMessageLLM.temperature < 0', () => {
+  test("rejects commitMessageLLM.temperature < 0", () => {
     const result = AssistantConfigSchema.safeParse({
       workspaceGit: { commitMessageLLM: { temperature: -0.1 } },
     });
     expect(result.success).toBe(false);
   });
 
-  test('rejects non-integer commitMessageLLM.maxTokens', () => {
+  test("rejects non-integer commitMessageLLM.maxTokens", () => {
     const result = AssistantConfigSchema.safeParse({
       workspaceGit: { commitMessageLLM: { maxTokens: 3.5 } },
     });
@@ -574,11 +649,11 @@ describe('AssistantConfigSchema', () => {
 
   // ── Calls config ────────────────────────────────────────────────────
 
-  test('applies calls defaults', () => {
+  test("applies calls defaults", () => {
     const result = AssistantConfigSchema.parse({});
     expect(result.calls).toEqual({
       enabled: true,
-      provider: 'twilio',
+      provider: "twilio",
       maxDurationSeconds: 3600,
       userConsultTimeoutSeconds: 120,
       ttsPlaybackDelayMs: 3000,
@@ -595,19 +670,19 @@ describe('AssistantConfigSchema', () => {
         denyCategories: [],
       },
       voice: {
-        mode: 'twilio_standard',
-        language: 'en-US',
-        transcriptionProvider: 'Deepgram',
+        mode: "twilio_standard",
+        language: "en-US",
+        transcriptionProvider: "Deepgram",
         fallbackToStandardOnError: true,
         elevenlabs: {
-          voiceId: '',
-          voiceModelId: '',
+          voiceId: "",
+          voiceModelId: "",
           speed: 1.0,
           stability: 0.5,
           similarityBoost: 0.75,
           useSpeakerBoost: true,
-          agentId: '',
-          apiBaseUrl: 'https://api.elevenlabs.io',
+          agentId: "",
+          apiBaseUrl: "https://api.elevenlabs.io",
           registerCallTimeoutMs: 5000,
         },
       },
@@ -622,258 +697,269 @@ describe('AssistantConfigSchema', () => {
     });
   });
 
-  test('accepts valid calls config overrides', () => {
+  test("accepts valid calls config overrides", () => {
     const result = AssistantConfigSchema.parse({
       calls: {
         enabled: false,
         maxDurationSeconds: 1800,
         userConsultTimeoutSeconds: 60,
-        disclosure: { enabled: false, text: 'Custom disclosure' },
-        safety: { denyCategories: ['spam'] },
+        disclosure: { enabled: false, text: "Custom disclosure" },
+        safety: { denyCategories: ["spam"] },
       },
     });
     expect(result.calls.enabled).toBe(false);
     expect(result.calls.maxDurationSeconds).toBe(1800);
     expect(result.calls.userConsultTimeoutSeconds).toBe(60);
     expect(result.calls.disclosure.enabled).toBe(false);
-    expect(result.calls.disclosure.text).toBe('Custom disclosure');
-    expect(result.calls.safety.denyCategories).toEqual(['spam']);
+    expect(result.calls.disclosure.text).toBe("Custom disclosure");
+    expect(result.calls.safety.denyCategories).toEqual(["spam"]);
   });
 
-  test('accepts partial calls config with defaults for missing fields', () => {
+  test("accepts partial calls config with defaults for missing fields", () => {
     const result = AssistantConfigSchema.parse({
       calls: { maxDurationSeconds: 600 },
     });
     expect(result.calls.enabled).toBe(true);
     expect(result.calls.maxDurationSeconds).toBe(600);
     expect(result.calls.userConsultTimeoutSeconds).toBe(120);
-    expect(result.calls.provider).toBe('twilio');
+    expect(result.calls.provider).toBe("twilio");
   });
 
-  test('rejects invalid calls.enabled', () => {
+  test("rejects invalid calls.enabled", () => {
     const result = AssistantConfigSchema.safeParse({
-      calls: { enabled: 'yes' },
+      calls: { enabled: "yes" },
     });
     expect(result.success).toBe(false);
   });
 
-  test('rejects invalid calls.provider', () => {
+  test("rejects invalid calls.provider", () => {
     const result = AssistantConfigSchema.safeParse({
-      calls: { provider: 'vonage' },
+      calls: { provider: "vonage" },
     });
     expect(result.success).toBe(false);
     if (!result.success) {
-      const msgs = result.error.issues.map(i => i.message);
-      expect(msgs.some(m => m.includes('calls.provider'))).toBe(true);
+      const msgs = result.error.issues.map((i) => i.message);
+      expect(msgs.some((m) => m.includes("calls.provider"))).toBe(true);
     }
   });
 
-  test('rejects non-positive calls.maxDurationSeconds', () => {
+  test("rejects non-positive calls.maxDurationSeconds", () => {
     const result = AssistantConfigSchema.safeParse({
       calls: { maxDurationSeconds: 0 },
     });
     expect(result.success).toBe(false);
   });
 
-  test('rejects non-integer calls.maxDurationSeconds', () => {
+  test("rejects non-integer calls.maxDurationSeconds", () => {
     const result = AssistantConfigSchema.safeParse({
       calls: { maxDurationSeconds: 3.5 },
     });
     expect(result.success).toBe(false);
   });
 
-  test('rejects non-positive calls.userConsultTimeoutSeconds', () => {
+  test("rejects non-positive calls.userConsultTimeoutSeconds", () => {
     const result = AssistantConfigSchema.safeParse({
       calls: { userConsultTimeoutSeconds: -1 },
     });
     expect(result.success).toBe(false);
   });
 
-  test('rejects non-boolean calls.disclosure.enabled', () => {
+  test("rejects non-boolean calls.disclosure.enabled", () => {
     const result = AssistantConfigSchema.safeParse({
-      calls: { disclosure: { enabled: 'true' } },
+      calls: { disclosure: { enabled: "true" } },
     });
     expect(result.success).toBe(false);
   });
 
-  test('rejects non-string calls.disclosure.text', () => {
+  test("rejects non-string calls.disclosure.text", () => {
     const result = AssistantConfigSchema.safeParse({
       calls: { disclosure: { text: 123 } },
     });
     expect(result.success).toBe(false);
   });
 
-  test('rejects non-array calls.safety.denyCategories', () => {
+  test("rejects non-array calls.safety.denyCategories", () => {
     const result = AssistantConfigSchema.safeParse({
-      calls: { safety: { denyCategories: 'spam' } },
+      calls: { safety: { denyCategories: "spam" } },
     });
     expect(result.success).toBe(false);
   });
 
   // ── Calls voice config ──────────────────────────────────────────────
 
-  test('config without calls.voice parses correctly and produces defaults', () => {
+  test("config without calls.voice parses correctly and produces defaults", () => {
     const result = AssistantConfigSchema.parse({});
-    expect(result.calls.voice.mode).toBe('twilio_standard');
-    expect(result.calls.voice.language).toBe('en-US');
-    expect(result.calls.voice.transcriptionProvider).toBe('Deepgram');
+    expect(result.calls.voice.mode).toBe("twilio_standard");
+    expect(result.calls.voice.language).toBe("en-US");
+    expect(result.calls.voice.transcriptionProvider).toBe("Deepgram");
     expect(result.calls.voice.fallbackToStandardOnError).toBe(true);
-    expect(result.calls.voice.elevenlabs.voiceId).toBe('');
-    expect(result.calls.voice.elevenlabs.voiceModelId).toBe('');
+    expect(result.calls.voice.elevenlabs.voiceId).toBe("");
+    expect(result.calls.voice.elevenlabs.voiceModelId).toBe("");
     expect(result.calls.voice.elevenlabs.speed).toBe(1.0);
     expect(result.calls.voice.elevenlabs.stability).toBe(0.5);
     expect(result.calls.voice.elevenlabs.similarityBoost).toBe(0.75);
     expect(result.calls.voice.elevenlabs.useSpeakerBoost).toBe(true);
-    expect(result.calls.voice.elevenlabs.agentId).toBe('');
-    expect(result.calls.voice.elevenlabs.apiBaseUrl).toBe('https://api.elevenlabs.io');
+    expect(result.calls.voice.elevenlabs.agentId).toBe("");
+    expect(result.calls.voice.elevenlabs.apiBaseUrl).toBe(
+      "https://api.elevenlabs.io",
+    );
     expect(result.calls.voice.elevenlabs.registerCallTimeoutMs).toBe(5000);
   });
 
-  test('legacy style field is silently stripped by schema', () => {
+  test("legacy style field is silently stripped by schema", () => {
     const result = AssistantConfigSchema.parse({
       calls: { voice: { elevenlabs: { style: 0.5 } } },
     });
-    expect((result.calls.voice.elevenlabs as Record<string, unknown>).style).toBeUndefined();
+    expect(
+      (result.calls.voice.elevenlabs as Record<string, unknown>).style,
+    ).toBeUndefined();
     expect(result.calls.voice.elevenlabs.speed).toBe(1.0);
   });
 
-  test('rejects calls.voice.elevenlabs.speed below 0.7', () => {
+  test("rejects calls.voice.elevenlabs.speed below 0.7", () => {
     const result = AssistantConfigSchema.safeParse({
       calls: { voice: { elevenlabs: { speed: 0.5 } } },
     });
     expect(result.success).toBe(false);
   });
 
-  test('rejects calls.voice.elevenlabs.speed above 1.2', () => {
+  test("rejects calls.voice.elevenlabs.speed above 1.2", () => {
     const result = AssistantConfigSchema.safeParse({
       calls: { voice: { elevenlabs: { speed: 1.5 } } },
     });
     expect(result.success).toBe(false);
   });
 
-  test('accepts valid calls.voice overrides', () => {
+  test("accepts valid calls.voice overrides", () => {
     const result = AssistantConfigSchema.parse({
       calls: {
         voice: {
-          mode: 'twilio_elevenlabs_tts',
-          language: 'es-ES',
-          transcriptionProvider: 'Google',
+          mode: "twilio_elevenlabs_tts",
+          language: "es-ES",
+          transcriptionProvider: "Google",
           fallbackToStandardOnError: false,
           elevenlabs: {
-            voiceId: 'abc123',
+            voiceId: "abc123",
             stability: 0.8,
           },
         },
       },
     });
-    expect(result.calls.voice.mode).toBe('twilio_elevenlabs_tts');
-    expect(result.calls.voice.language).toBe('es-ES');
-    expect(result.calls.voice.transcriptionProvider).toBe('Google');
+    expect(result.calls.voice.mode).toBe("twilio_elevenlabs_tts");
+    expect(result.calls.voice.language).toBe("es-ES");
+    expect(result.calls.voice.transcriptionProvider).toBe("Google");
     expect(result.calls.voice.fallbackToStandardOnError).toBe(false);
-    expect(result.calls.voice.elevenlabs.voiceId).toBe('abc123');
+    expect(result.calls.voice.elevenlabs.voiceId).toBe("abc123");
     expect(result.calls.voice.elevenlabs.stability).toBe(0.8);
     // Defaults preserved for unset fields
-    expect(result.calls.voice.elevenlabs.voiceModelId).toBe('');
+    expect(result.calls.voice.elevenlabs.voiceModelId).toBe("");
     expect(result.calls.voice.elevenlabs.similarityBoost).toBe(0.75);
   });
 
-  test('rejects invalid calls.voice.mode', () => {
+  test("rejects invalid calls.voice.mode", () => {
     const result = AssistantConfigSchema.safeParse({
-      calls: { voice: { mode: 'invalid_mode' } },
+      calls: { voice: { mode: "invalid_mode" } },
     });
     expect(result.success).toBe(false);
     if (!result.success) {
-      const msgs = result.error.issues.map(i => i.message);
-      expect(msgs.some(m => m.includes('calls.voice.mode'))).toBe(true);
+      const msgs = result.error.issues.map((i) => i.message);
+      expect(msgs.some((m) => m.includes("calls.voice.mode"))).toBe(true);
     }
   });
 
-  test('rejects invalid calls.voice.transcriptionProvider', () => {
+  test("rejects invalid calls.voice.transcriptionProvider", () => {
     const result = AssistantConfigSchema.safeParse({
-      calls: { voice: { transcriptionProvider: 'AWS' } },
+      calls: { voice: { transcriptionProvider: "AWS" } },
     });
     expect(result.success).toBe(false);
     if (!result.success) {
-      const msgs = result.error.issues.map(i => i.message);
-      expect(msgs.some(m => m.includes('calls.voice.transcriptionProvider'))).toBe(true);
+      const msgs = result.error.issues.map((i) => i.message);
+      expect(
+        msgs.some((m) => m.includes("calls.voice.transcriptionProvider")),
+      ).toBe(true);
     }
   });
 
-  test('rejects calls.voice.elevenlabs.stability out of range', () => {
+  test("rejects calls.voice.elevenlabs.stability out of range", () => {
     const result = AssistantConfigSchema.safeParse({
       calls: { voice: { elevenlabs: { stability: 1.5 } } },
     });
     expect(result.success).toBe(false);
   });
 
-  test('rejects calls.voice.elevenlabs.registerCallTimeoutMs below 1000', () => {
+  test("rejects calls.voice.elevenlabs.registerCallTimeoutMs below 1000", () => {
     const result = AssistantConfigSchema.safeParse({
       calls: { voice: { elevenlabs: { registerCallTimeoutMs: 500 } } },
     });
     expect(result.success).toBe(false);
   });
 
-  test('rejects calls.voice.elevenlabs.registerCallTimeoutMs above 15000', () => {
+  test("rejects calls.voice.elevenlabs.registerCallTimeoutMs above 15000", () => {
     const result = AssistantConfigSchema.safeParse({
       calls: { voice: { elevenlabs: { registerCallTimeoutMs: 20000 } } },
     });
     expect(result.success).toBe(false);
   });
 
-  test('accepts optional calls.model', () => {
+  test("accepts optional calls.model", () => {
     const result = AssistantConfigSchema.parse({
-      calls: { model: 'claude-haiku-4-5-20251001' },
+      calls: { model: "claude-haiku-4-5-20251001" },
     });
-    expect(result.calls.model).toBe('claude-haiku-4-5-20251001');
+    expect(result.calls.model).toBe("claude-haiku-4-5-20251001");
   });
 
-  test('calls.model is undefined by default', () => {
+  test("calls.model is undefined by default", () => {
     const result = AssistantConfigSchema.parse({});
     expect(result.calls.model).toBeUndefined();
   });
 
   // ── Caller identity config ────────────────────────────────────────
 
-  test('applies calls.callerIdentity defaults', () => {
+  test("applies calls.callerIdentity defaults", () => {
     const result = AssistantConfigSchema.parse({});
     expect(result.calls.callerIdentity).toEqual({
       allowPerCallOverride: true,
     });
   });
 
-  test('accepts valid calls.callerIdentity overrides', () => {
+  test("accepts valid calls.callerIdentity overrides", () => {
     const result = AssistantConfigSchema.parse({
       calls: {
         callerIdentity: {
           allowPerCallOverride: false,
-          userNumber: '+14155559999',
+          userNumber: "+14155559999",
         },
       },
     });
     expect(result.calls.callerIdentity.allowPerCallOverride).toBe(false);
-    expect(result.calls.callerIdentity.userNumber).toBe('+14155559999');
+    expect(result.calls.callerIdentity.userNumber).toBe("+14155559999");
   });
 
-  test('legacy defaultMode field is silently stripped by schema', () => {
+  test("legacy defaultMode field is silently stripped by schema", () => {
     // Backward compatibility: existing configs with defaultMode should parse
     // without error — Zod strips unrecognized keys by default.
     const result = AssistantConfigSchema.parse({
       calls: {
-        callerIdentity: { defaultMode: 'user_number', allowPerCallOverride: true },
+        callerIdentity: {
+          defaultMode: "user_number",
+          allowPerCallOverride: true,
+        },
       },
     });
-    expect((result.calls.callerIdentity as Record<string, unknown>).defaultMode).toBeUndefined();
+    expect(
+      (result.calls.callerIdentity as Record<string, unknown>).defaultMode,
+    ).toBeUndefined();
     expect(result.calls.callerIdentity.allowPerCallOverride).toBe(true);
   });
 
-  test('rejects non-boolean calls.callerIdentity.allowPerCallOverride', () => {
+  test("rejects non-boolean calls.callerIdentity.allowPerCallOverride", () => {
     const result = AssistantConfigSchema.safeParse({
-      calls: { callerIdentity: { allowPerCallOverride: 'yes' } },
+      calls: { callerIdentity: { allowPerCallOverride: "yes" } },
     });
     expect(result.success).toBe(false);
   });
 
-  test('default behavior unchanged when callerIdentity omitted', () => {
+  test("default behavior unchanged when callerIdentity omitted", () => {
     const result = AssistantConfigSchema.parse({
       calls: { enabled: true },
     });
@@ -885,115 +971,115 @@ describe('AssistantConfigSchema', () => {
 // Tests: Voice quality profile resolver
 // ---------------------------------------------------------------------------
 
-describe('resolveVoiceQualityProfile', () => {
-  test('returns correct profile for twilio_standard', () => {
+describe("resolveVoiceQualityProfile", () => {
+  test("returns correct profile for twilio_standard", () => {
     const config = AssistantConfigSchema.parse({});
     const profile = resolveVoiceQualityProfile(config);
-    expect(profile.mode).toBe('twilio_standard');
-    expect(profile.ttsProvider).toBe('Google');
-    expect(profile.voice).toBe('Google.en-US-Journey-O');
-    expect(profile.transcriptionProvider).toBe('Deepgram');
+    expect(profile.mode).toBe("twilio_standard");
+    expect(profile.ttsProvider).toBe("Google");
+    expect(profile.voice).toBe("Google.en-US-Journey-O");
+    expect(profile.transcriptionProvider).toBe("Deepgram");
     expect(profile.fallbackToStandardOnError).toBe(true);
     expect(profile.validationErrors).toEqual([]);
   });
 
-  test('returns correct profile for twilio_elevenlabs_tts with valid voiceId', () => {
+  test("returns correct profile for twilio_elevenlabs_tts with valid voiceId", () => {
     const config = AssistantConfigSchema.parse({
       calls: {
         voice: {
-          mode: 'twilio_elevenlabs_tts',
-          elevenlabs: { voiceId: 'test-voice-id' },
+          mode: "twilio_elevenlabs_tts",
+          elevenlabs: { voiceId: "test-voice-id" },
         },
       },
     });
     const profile = resolveVoiceQualityProfile(config);
-    expect(profile.mode).toBe('twilio_elevenlabs_tts');
-    expect(profile.ttsProvider).toBe('ElevenLabs');
-    expect(profile.voice).toBe('test-voice-id');
+    expect(profile.mode).toBe("twilio_elevenlabs_tts");
+    expect(profile.ttsProvider).toBe("ElevenLabs");
+    expect(profile.voice).toBe("test-voice-id");
     expect(profile.validationErrors).toEqual([]);
   });
 
-  test('falls back for twilio_elevenlabs_tts with empty voiceId and fallback enabled', () => {
+  test("falls back for twilio_elevenlabs_tts with empty voiceId and fallback enabled", () => {
     const config = AssistantConfigSchema.parse({
       calls: {
         voice: {
-          mode: 'twilio_elevenlabs_tts',
+          mode: "twilio_elevenlabs_tts",
           fallbackToStandardOnError: true,
-          elevenlabs: { voiceId: '' },
+          elevenlabs: { voiceId: "" },
         },
       },
     });
     const profile = resolveVoiceQualityProfile(config);
-    expect(profile.mode).toBe('twilio_standard');
-    expect(profile.ttsProvider).toBe('Google');
-    expect(profile.voice).toBe('Google.en-US-Journey-O');
+    expect(profile.mode).toBe("twilio_standard");
+    expect(profile.ttsProvider).toBe("Google");
+    expect(profile.voice).toBe("Google.en-US-Journey-O");
     expect(profile.validationErrors.length).toBe(1);
-    expect(profile.validationErrors[0]).toContain('falling back');
+    expect(profile.validationErrors[0]).toContain("falling back");
   });
 
-  test('returns errors for twilio_elevenlabs_tts with empty voiceId and fallback disabled', () => {
+  test("returns errors for twilio_elevenlabs_tts with empty voiceId and fallback disabled", () => {
     const config = AssistantConfigSchema.parse({
       calls: {
         voice: {
-          mode: 'twilio_elevenlabs_tts',
+          mode: "twilio_elevenlabs_tts",
           fallbackToStandardOnError: false,
-          elevenlabs: { voiceId: '' },
+          elevenlabs: { voiceId: "" },
         },
       },
     });
     const profile = resolveVoiceQualityProfile(config);
-    expect(profile.mode).toBe('twilio_elevenlabs_tts');
+    expect(profile.mode).toBe("twilio_elevenlabs_tts");
     expect(profile.validationErrors.length).toBe(1);
-    expect(profile.validationErrors[0]).toContain('voiceId is required');
+    expect(profile.validationErrors[0]).toContain("voiceId is required");
   });
 
-  test('returns correct profile for elevenlabs_agent with valid agentId', () => {
+  test("returns correct profile for elevenlabs_agent with valid agentId", () => {
     const config = AssistantConfigSchema.parse({
       calls: {
         voice: {
-          mode: 'elevenlabs_agent',
-          elevenlabs: { agentId: 'agent-123', voiceId: 'v1' },
+          mode: "elevenlabs_agent",
+          elevenlabs: { agentId: "agent-123", voiceId: "v1" },
         },
       },
     });
     const profile = resolveVoiceQualityProfile(config);
-    expect(profile.mode).toBe('elevenlabs_agent');
-    expect(profile.ttsProvider).toBe('ElevenLabs');
-    expect(profile.voice).toBe('v1');
-    expect(profile.agentId).toBe('agent-123');
+    expect(profile.mode).toBe("elevenlabs_agent");
+    expect(profile.ttsProvider).toBe("ElevenLabs");
+    expect(profile.voice).toBe("v1");
+    expect(profile.agentId).toBe("agent-123");
     expect(profile.validationErrors).toEqual([]);
   });
 
-  test('falls back for elevenlabs_agent with empty agentId and fallback enabled', () => {
+  test("falls back for elevenlabs_agent with empty agentId and fallback enabled", () => {
     const config = AssistantConfigSchema.parse({
       calls: {
         voice: {
-          mode: 'elevenlabs_agent',
+          mode: "elevenlabs_agent",
           fallbackToStandardOnError: true,
-          elevenlabs: { agentId: '' },
+          elevenlabs: { agentId: "" },
         },
       },
     });
     const profile = resolveVoiceQualityProfile(config);
-    expect(profile.mode).toBe('twilio_standard');
+    expect(profile.mode).toBe("twilio_standard");
     expect(profile.validationErrors.length).toBe(1);
-    expect(profile.validationErrors[0]).toContain('agentId is empty');
+    expect(profile.validationErrors[0]).toContain("agentId is empty");
   });
 
-  test('returns errors for elevenlabs_agent with empty agentId and fallback disabled', () => {
+  test("returns errors for elevenlabs_agent with empty agentId and fallback disabled", () => {
     const config = AssistantConfigSchema.parse({
       calls: {
         voice: {
-          mode: 'elevenlabs_agent',
+          mode: "elevenlabs_agent",
           fallbackToStandardOnError: false,
-          elevenlabs: { agentId: '' },
+          elevenlabs: { agentId: "" },
         },
       },
     });
     const profile = resolveVoiceQualityProfile(config);
-    expect(profile.mode).toBe('elevenlabs_agent');
+    expect(profile.mode).toBe("elevenlabs_agent");
     expect(profile.validationErrors.length).toBe(1);
-    expect(profile.validationErrors[0]).toContain('agentId is required');
+    expect(profile.validationErrors[0]).toContain("agentId is required");
   });
 });
 
@@ -1001,51 +1087,51 @@ describe('resolveVoiceQualityProfile', () => {
 // Tests: buildElevenLabsVoiceSpec
 // ---------------------------------------------------------------------------
 
-describe('buildElevenLabsVoiceSpec', () => {
-  test('produces Twilio-compliant voice string: voiceId-model-speed_stability_similarity', () => {
+describe("buildElevenLabsVoiceSpec", () => {
+  test("produces Twilio-compliant voice string: voiceId-model-speed_stability_similarity", () => {
     const spec = buildElevenLabsVoiceSpec({
-      voiceId: 'abc123',
-      voiceModelId: 'turbo_v2_5',
+      voiceId: "abc123",
+      voiceModelId: "turbo_v2_5",
       speed: 1.0,
       stability: 0.5,
       similarityBoost: 0.75,
     });
-    expect(spec).toBe('abc123-turbo_v2_5-1_0.5_0.75');
+    expect(spec).toBe("abc123-turbo_v2_5-1_0.5_0.75");
   });
 
-  test('returns empty string when voiceId is empty', () => {
+  test("returns empty string when voiceId is empty", () => {
     const spec = buildElevenLabsVoiceSpec({
-      voiceId: '',
-      voiceModelId: 'turbo_v2_5',
+      voiceId: "",
+      voiceModelId: "turbo_v2_5",
       speed: 1.0,
       stability: 0.5,
       similarityBoost: 0.75,
     });
-    expect(spec).toBe('');
+    expect(spec).toBe("");
   });
 
-  test('formats custom parameters correctly', () => {
+  test("formats custom parameters correctly", () => {
     const spec = buildElevenLabsVoiceSpec({
-      voiceId: 'myVoice',
-      voiceModelId: 'eleven_multilingual_v2',
+      voiceId: "myVoice",
+      voiceModelId: "eleven_multilingual_v2",
       speed: 0.9,
       stability: 0.8,
       similarityBoost: 0.9,
     });
-    expect(spec).toBe('myVoice-eleven_multilingual_v2-0.9_0.8_0.9');
+    expect(spec).toBe("myVoice-eleven_multilingual_v2-0.9_0.8_0.9");
   });
 
-  test('default config uses a bare voiceId when no model override is set', () => {
+  test("default config uses a bare voiceId when no model override is set", () => {
     const config = AssistantConfigSchema.parse({
       calls: {
         voice: {
-          mode: 'twilio_elevenlabs_tts',
-          elevenlabs: { voiceId: 'test' },
+          mode: "twilio_elevenlabs_tts",
+          elevenlabs: { voiceId: "test" },
         },
       },
     });
     const spec = buildElevenLabsVoiceSpec(config.calls.voice.elevenlabs);
-    expect(spec).toBe('test');
+    expect(spec).toBe("test");
   });
 });
 
@@ -1053,15 +1139,15 @@ describe('buildElevenLabsVoiceSpec', () => {
 // Tests: loader integration (config file -> loadConfig with fallback)
 // ---------------------------------------------------------------------------
 
-describe('loadConfig with schema validation', () => {
+describe("loadConfig with schema validation", () => {
   beforeEach(() => {
     // Keep TEST_DIR and logs in place to avoid racing async logger stream init.
     ensureTestDir();
     const resetPaths = [
       CONFIG_PATH,
-      join(TEST_DIR, 'keys.enc'),
-      join(TEST_DIR, 'data'),
-      join(TEST_DIR, 'memory'),
+      join(TEST_DIR, "keys.enc"),
+      join(TEST_DIR, "data"),
+      join(TEST_DIR, "memory"),
     ];
     for (const path of resetPaths) {
       if (existsSync(path)) {
@@ -1069,8 +1155,8 @@ describe('loadConfig with schema validation', () => {
       }
     }
     ensureTestDir();
-    _setStorePath(join(TEST_DIR, 'keys.enc'));
-    _setBackend('encrypted');
+    _setStorePath(join(TEST_DIR, "keys.enc"));
+    _setBackend("encrypted");
     invalidateConfigCache();
   });
 
@@ -1083,25 +1169,29 @@ describe('loadConfig with schema validation', () => {
   // Intentionally do not remove TEST_DIR in afterAll.
   // A late async logger flush may still target logs under this path and can
   // intermittently trigger unhandled ENOENT in CI if the directory is removed.
-  test('loads valid config', () => {
+  test("loads valid config", () => {
     writeConfig({
-      provider: 'openai',
-      model: 'gpt-4',
+      provider: "openai",
+      model: "gpt-4",
       maxTokens: 4096,
     });
     const config = loadConfig();
-    expect(config.provider).toBe('openai');
-    expect(config.model).toBe('gpt-4');
+    expect(config.provider).toBe("openai");
+    expect(config.model).toBe("gpt-4");
     expect(config.maxTokens).toBe(4096);
   });
 
-  test('applies defaults for missing fields', () => {
+  test("applies defaults for missing fields", () => {
     writeConfig({});
     const config = loadConfig();
-    expect(config.provider).toBe('anthropic');
-    expect(config.model).toBe('claude-opus-4-6');
+    expect(config.provider).toBe("anthropic");
+    expect(config.model).toBe("claude-opus-4-6");
     expect(config.maxTokens).toBe(16000);
-    expect(config.thinking).toEqual({ enabled: false, budgetTokens: 10000, streamThinking: false });
+    expect(config.thinking).toEqual({
+      enabled: false,
+      budgetTokens: 10000,
+      streamThinking: false,
+    });
     expect(config.contextWindow).toEqual({
       enabled: true,
       maxInputTokens: 200000,
@@ -1113,21 +1203,21 @@ describe('loadConfig with schema validation', () => {
     });
   });
 
-  test('falls back to default for invalid provider', () => {
-    writeConfig({ provider: 'invalid-provider' });
+  test("falls back to default for invalid provider", () => {
+    writeConfig({ provider: "invalid-provider" });
     const config = loadConfig();
-    expect(config.provider).toBe('anthropic');
+    expect(config.provider).toBe("anthropic");
   });
 
-  test('falls back to default for invalid maxTokens', () => {
+  test("falls back to default for invalid maxTokens", () => {
     writeConfig({ maxTokens: -100 });
     const config = loadConfig();
     expect(config.maxTokens).toBe(16000);
   });
 
-  test('falls back to defaults for invalid nested values', () => {
+  test("falls back to defaults for invalid nested values", () => {
     writeConfig({
-      timeouts: { shellDefaultTimeoutSec: -5, shellMaxTimeoutSec: 'bad' },
+      timeouts: { shellDefaultTimeoutSec: -5, shellMaxTimeoutSec: "bad" },
     });
     const config = loadConfig();
     expect(config.timeouts.shellDefaultTimeoutSec).toBe(120);
@@ -1135,28 +1225,28 @@ describe('loadConfig with schema validation', () => {
     expect(config.timeouts.permissionTimeoutSec).toBe(300);
   });
 
-  test('preserves valid fields when other fields are invalid', () => {
+  test("preserves valid fields when other fields are invalid", () => {
     writeConfig({
-      provider: 'openai',
-      model: 'gpt-4',
+      provider: "openai",
+      model: "gpt-4",
       maxTokens: -1,
       thinking: { enabled: true, budgetTokens: 5000 },
     });
     const config = loadConfig();
-    expect(config.provider).toBe('openai');
-    expect(config.model).toBe('gpt-4');
+    expect(config.provider).toBe("openai");
+    expect(config.model).toBe("gpt-4");
     expect(config.thinking.enabled).toBe(true);
     expect(config.thinking.budgetTokens).toBe(5000);
     expect(config.maxTokens).toBe(16000);
   });
 
-  test('handles no config file', () => {
+  test("handles no config file", () => {
     const config = loadConfig();
-    expect(config.provider).toBe('anthropic');
+    expect(config.provider).toBe("anthropic");
     expect(config.maxTokens).toBe(16000);
   });
 
-  test('partial nested objects get defaults for missing fields', () => {
+  test("partial nested objects get defaults for missing fields", () => {
     writeConfig({
       timeouts: { shellDefaultTimeoutSec: 30 },
     });
@@ -1166,82 +1256,86 @@ describe('loadConfig with schema validation', () => {
     expect(config.timeouts.permissionTimeoutSec).toBe(300);
   });
 
-  test('falls back for invalid secretDetection.action', () => {
-    writeConfig({ secretDetection: { action: 'explode' } });
+  test("falls back for invalid secretDetection.action", () => {
+    writeConfig({ secretDetection: { action: "explode" } });
     const config = loadConfig();
-    expect(config.secretDetection.action).toBe('redact');
+    expect(config.secretDetection.action).toBe("redact");
   });
 
-  test('falls back for invalid sandbox.enabled', () => {
-    writeConfig({ sandbox: { enabled: 'yes' } });
+  test("falls back for invalid sandbox.enabled", () => {
+    writeConfig({ sandbox: { enabled: "yes" } });
     const config = loadConfig();
     expect(config.sandbox.enabled).toBe(true);
   });
 
-  test('loads sandbox with only enabled (backward compatibility)', () => {
+  test("loads sandbox with only enabled (backward compatibility)", () => {
     writeConfig({ sandbox: { enabled: false } });
     const config = loadConfig();
     expect(config.sandbox.enabled).toBe(false);
   });
 
-  test('strips unknown sandbox fields', () => {
-    writeConfig({ sandbox: { enabled: true, backend: 'docker' } });
+  test("strips unknown sandbox fields", () => {
+    writeConfig({ sandbox: { enabled: true, backend: "docker" } });
     const config = loadConfig();
     expect(config.sandbox.enabled).toBe(true);
-    expect('backend' in config.sandbox).toBe(false);
+    expect("backend" in config.sandbox).toBe(false);
   });
 
-  test('falls back for invalid contextWindow relationship', () => {
-    writeConfig({ contextWindow: { maxInputTokens: 1000, targetInputTokens: 1000 } });
+  test("falls back for invalid contextWindow relationship", () => {
+    writeConfig({
+      contextWindow: { maxInputTokens: 1000, targetInputTokens: 1000 },
+    });
     const config = loadConfig();
     expect(config.contextWindow.maxInputTokens).toBe(200000);
     expect(config.contextWindow.targetInputTokens).toBe(110000);
   });
 
-  test('falls back for invalid rateLimit values', () => {
-    writeConfig({ rateLimit: { maxRequestsPerMinute: -1, maxTokensPerSession: 3.5 } });
+  test("falls back for invalid rateLimit values", () => {
+    writeConfig({
+      rateLimit: { maxRequestsPerMinute: -1, maxTokensPerSession: 3.5 },
+    });
     const config = loadConfig();
     expect(config.rateLimit.maxRequestsPerMinute).toBe(0);
     expect(config.rateLimit.maxTokensPerSession).toBe(0);
   });
 
-  test('falls back for invalid auditLog.retentionDays', () => {
+  test("falls back for invalid auditLog.retentionDays", () => {
     writeConfig({ auditLog: { retentionDays: -7 } });
     const config = loadConfig();
     expect(config.auditLog.retentionDays).toBe(0);
   });
 
-  test('defaults permissions.mode to workspace when not specified', () => {
+  test("defaults permissions.mode to workspace when not specified", () => {
     writeConfig({});
     const config = loadConfig();
-    expect(config.permissions).toEqual({ mode: 'workspace' });
+    expect(config.permissions).toEqual({ mode: "workspace" });
   });
 
-  test('loads explicit permissions.mode strict', () => {
-    writeConfig({ permissions: { mode: 'strict' } });
+  test("loads explicit permissions.mode strict", () => {
+    writeConfig({ permissions: { mode: "strict" } });
     const config = loadConfig();
-    expect(config.permissions.mode).toBe('strict');
+    expect(config.permissions.mode).toBe("strict");
   });
 
-  test('falls back for invalid permissions.mode', () => {
-    writeConfig({ permissions: { mode: 'yolo' } });
+  test("falls back for invalid permissions.mode", () => {
+    writeConfig({ permissions: { mode: "yolo" } });
     const config = loadConfig();
-    expect(config.permissions.mode).toBe('workspace');
+    expect(config.permissions.mode).toBe("workspace");
   });
 
-  test('does not mutate default apiKeys when fallback config is overridden by env keys', () => {
+  test("does not mutate default apiKeys when fallback config is overridden by env keys", () => {
     const originalAnthropicApiKey = process.env.ANTHROPIC_API_KEY;
     try {
-      const testKey = ['test', 'in', 'memory', 'default', 'leak'].join('-');
+      const testKey = ["test", "in", "memory", "default", "leak"].join("-");
       process.env.ANTHROPIC_API_KEY = testKey;
-      writeConfig('this is not a config object');
+      writeConfig("this is not a config object");
 
       const configWithEnv = loadConfig();
       expect(configWithEnv.apiKeys.anthropic).toBe(testKey);
 
       invalidateConfigCache();
       delete process.env.ANTHROPIC_API_KEY;
-      writeConfig('still not a config object');
+      writeConfig("still not a config object");
 
       const configWithoutEnv = loadConfig();
       expect(configWithoutEnv.apiKeys.anthropic).toBeUndefined();
@@ -1256,7 +1350,7 @@ describe('loadConfig with schema validation', () => {
 
   // ── Calls config (loader integration) ──────────────────────────────
 
-  test('loads calls config from file', () => {
+  test("loads calls config from file", () => {
     writeConfig({
       calls: { enabled: false, maxDurationSeconds: 600 },
     });
@@ -1264,16 +1358,16 @@ describe('loadConfig with schema validation', () => {
     expect(config.calls.enabled).toBe(false);
     expect(config.calls.maxDurationSeconds).toBe(600);
     expect(config.calls.userConsultTimeoutSeconds).toBe(120);
-    expect(config.calls.provider).toBe('twilio');
+    expect(config.calls.provider).toBe("twilio");
   });
 
-  test('falls back for invalid calls.provider', () => {
-    writeConfig({ calls: { provider: 'vonage' } });
+  test("falls back for invalid calls.provider", () => {
+    writeConfig({ calls: { provider: "vonage" } });
     const config = loadConfig();
-    expect(config.calls.provider).toBe('twilio');
+    expect(config.calls.provider).toBe("twilio");
   });
 
-  test('applies calls defaults when not specified', () => {
+  test("applies calls defaults when not specified", () => {
     writeConfig({});
     const config = loadConfig();
     expect(config.calls.enabled).toBe(true);
@@ -1281,10 +1375,10 @@ describe('loadConfig with schema validation', () => {
     expect(config.calls.userConsultTimeoutSeconds).toBe(120);
     expect(config.calls.disclosure.enabled).toBe(true);
     expect(config.calls.safety.denyCategories).toEqual([]);
-    expect(config.calls.voice.mode).toBe('twilio_standard');
-    expect(config.calls.voice.language).toBe('en-US');
-    expect(config.calls.voice.transcriptionProvider).toBe('Deepgram');
-    expect(config.calls.voice.elevenlabs.voiceId).toBe('');
+    expect(config.calls.voice.mode).toBe("twilio_standard");
+    expect(config.calls.voice.language).toBe("en-US");
+    expect(config.calls.voice.transcriptionProvider).toBe("Deepgram");
+    expect(config.calls.voice.elevenlabs.voiceId).toBe("");
     expect(config.calls.model).toBeUndefined();
     expect(config.calls.callerIdentity).toEqual({
       allowPerCallOverride: true,
@@ -1296,14 +1390,14 @@ describe('loadConfig with schema validation', () => {
 // Tests: Call entrypoint gating
 // ---------------------------------------------------------------------------
 
-describe('Call entrypoint gating', () => {
+describe("Call entrypoint gating", () => {
   beforeEach(() => {
     ensureTestDir();
     const resetPaths = [
       CONFIG_PATH,
-      join(TEST_DIR, 'keys.enc'),
-      join(TEST_DIR, 'data'),
-      join(TEST_DIR, 'memory'),
+      join(TEST_DIR, "keys.enc"),
+      join(TEST_DIR, "data"),
+      join(TEST_DIR, "memory"),
     ];
     for (const path of resetPaths) {
       if (existsSync(path)) {
@@ -1311,8 +1405,8 @@ describe('Call entrypoint gating', () => {
       }
     }
     ensureTestDir();
-    _setStorePath(join(TEST_DIR, 'keys.enc'));
-    _setBackend('encrypted');
+    _setStorePath(join(TEST_DIR, "keys.enc"));
+    _setBackend("encrypted");
     invalidateConfigCache();
   });
 
@@ -1322,39 +1416,41 @@ describe('Call entrypoint gating', () => {
     invalidateConfigCache();
   });
 
-  test('call_start tool returns error when calls.enabled is false', async () => {
+  test("call_start tool returns error when calls.enabled is false", async () => {
     writeConfig({ calls: { enabled: false } });
     // Force config reload
     loadConfig();
 
-    const { executeCallStart: _executeCallStart } = await import('../tools/calls/call-start.js');
+    const { executeCallStart: _executeCallStart } =
+      await import("../tools/calls/call-start.js");
 
     // The tool is registered via side effect. We need to test the gating logic directly.
     // Since the module registers itself, we test by loading config and checking behavior.
-    const { getConfig } = await import('../config/loader.js');
+    const { getConfig } = await import("../config/loader.js");
     const config = getConfig();
     expect(config.calls.enabled).toBe(false);
   });
 
-  test('handleStartCall route returns 403 when calls.enabled is false', async () => {
+  test("handleStartCall route returns 403 when calls.enabled is false", async () => {
     writeConfig({ calls: { enabled: false } });
     loadConfig();
 
-    const { handleStartCall } = await import('../runtime/routes/call-routes.js');
-    const req = new Request('http://localhost/v1/calls/start', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    const { handleStartCall } =
+      await import("../runtime/routes/call-routes.js");
+    const req = new Request("http://localhost/v1/calls/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        phoneNumber: '+14155551234',
-        task: 'Test call',
-        conversationId: 'test-conv-id',
+        phoneNumber: "+14155551234",
+        task: "Test call",
+        conversationId: "test-conv-id",
       }),
     });
 
     const response = await handleStartCall(req);
     expect(response.status).toBe(403);
 
-    const body = await response.json() as { error: { message: string } };
-    expect(body.error.message).toContain('disabled');
+    const body = (await response.json()) as { error: { message: string } };
+    expect(body.error.message).toContain("disabled");
   });
 });

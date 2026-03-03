@@ -1,14 +1,13 @@
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test';
+const testRoot = mkdtempSync(join(tmpdir(), "home-base-bootstrap-test-"));
+const dataDir = join(testRoot, "data");
+const dbPath = join(testRoot, "assistant.db");
 
-const testRoot = mkdtempSync(join(tmpdir(), 'home-base-bootstrap-test-'));
-const dataDir = join(testRoot, 'data');
-const dbPath = join(testRoot, 'assistant.db');
-
-mock.module('../util/platform.js', () => ({
+mock.module("../util/platform.js", () => ({
   getDataDir: () => dataDir,
   getDbPath: () => dbPath,
   ensureDataDir: () => {
@@ -16,26 +15,30 @@ mock.module('../util/platform.js', () => ({
   },
   migrateToDataLayout: () => {},
   migrateToWorkspaceLayout: () => {},
-  isMacOS: () => process.platform === 'darwin',
-  isLinux: () => process.platform === 'linux',
-  isWindows: () => process.platform === 'win32',
-  getSocketPath: () => join(testRoot, 'test.sock'),
-  getPidPath: () => join(testRoot, 'test.pid'),
-  getLogPath: () => join(testRoot, 'test.log'),
+  isMacOS: () => process.platform === "darwin",
+  isLinux: () => process.platform === "linux",
+  isWindows: () => process.platform === "win32",
+  getSocketPath: () => join(testRoot, "test.sock"),
+  getPidPath: () => join(testRoot, "test.pid"),
+  getLogPath: () => join(testRoot, "test.log"),
 }));
 
-mock.module('../util/logger.js', () => ({
-  getLogger: () => new Proxy({} as Record<string, unknown>, {
-    get: () => () => {},
-  }),
+mock.module("../util/logger.js", () => ({
+  getLogger: () =>
+    new Proxy({} as Record<string, unknown>, {
+      get: () => () => {},
+    }),
 }));
 
-import { getHomeBaseAppLink } from '../home-base/app-link-store.js';
-import { bootstrapHomeBaseAppLink, resolveHomeBaseAppId } from '../home-base/bootstrap.js';
-import { deleteApp } from '../memory/app-store.js';
-import { initializeDb, resetDb } from '../memory/db.js';
+import { getHomeBaseAppLink } from "../home-base/app-link-store.js";
+import {
+  bootstrapHomeBaseAppLink,
+  resolveHomeBaseAppId,
+} from "../home-base/bootstrap.js";
+import { deleteApp } from "../memory/app-store.js";
+import { initializeDb, resetDb } from "../memory/db.js";
 
-describe('home base bootstrap', () => {
+describe("home base bootstrap", () => {
   beforeEach(() => {
     resetDb();
     rmSync(testRoot, { recursive: true, force: true });
@@ -48,7 +51,7 @@ describe('home base bootstrap', () => {
     rmSync(testRoot, { recursive: true, force: true });
   });
 
-  test('creates a durable Home Base link on first bootstrap', () => {
+  test("creates a durable Home Base link on first bootstrap", () => {
     const result = bootstrapHomeBaseAppLink();
     expect(result).not.toBeNull();
     const link = getHomeBaseAppLink();
@@ -59,7 +62,7 @@ describe('home base bootstrap', () => {
     expect(resolveHomeBaseAppId()).toBe(result!.appId);
   });
 
-  test('reuses existing link on repeated bootstrap calls', () => {
+  test("reuses existing link on repeated bootstrap calls", () => {
     const first = bootstrapHomeBaseAppLink();
     const second = bootstrapHomeBaseAppLink();
     expect(first).not.toBeNull();
@@ -69,7 +72,7 @@ describe('home base bootstrap', () => {
     expect(second!.created).toBe(false);
   });
 
-  test('relinks when stored app id is stale', () => {
+  test("relinks when stored app id is stale", () => {
     const first = bootstrapHomeBaseAppLink();
     expect(first).not.toBeNull();
     deleteApp(first!.appId);

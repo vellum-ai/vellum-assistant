@@ -1,36 +1,41 @@
-import { existsSync, mkdirSync, readFileSync,rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-
-import { afterEach,beforeEach, describe, expect, test } from 'bun:test';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 // Mock platform to use a temp directory
 const TEST_DIR = join(tmpdir(), `vellum-sysprompt-test-${crypto.randomUUID()}`);
 
-import { mock } from 'bun:test';
+import { mock } from "bun:test";
 
-mock.module('../util/platform.js', () => ({
+mock.module("../util/platform.js", () => ({
   getRootDir: () => TEST_DIR,
   getDataDir: () => TEST_DIR,
   getWorkspaceDir: () => TEST_DIR,
-  getWorkspaceConfigPath: () => join(TEST_DIR, 'config.json'),
-  getWorkspaceSkillsDir: () => join(TEST_DIR, 'skills'),
-  getWorkspaceHooksDir: () => join(TEST_DIR, 'hooks'),
+  getWorkspaceConfigPath: () => join(TEST_DIR, "config.json"),
+  getWorkspaceSkillsDir: () => join(TEST_DIR, "skills"),
+  getWorkspaceHooksDir: () => join(TEST_DIR, "hooks"),
   getWorkspacePromptPath: (file: string) => join(TEST_DIR, file),
   ensureDataDir: () => {},
-  getSocketPath: () => join(TEST_DIR, 'vellum.sock'),
-  getPidPath: () => join(TEST_DIR, 'vellum.pid'),
-  getDbPath: () => join(TEST_DIR, 'data', 'assistant.db'),
-  getLogPath: () => join(TEST_DIR, 'logs', 'vellum.log'),
-  getHistoryPath: () => join(TEST_DIR, 'history'),
-  getHooksDir: () => join(TEST_DIR, 'hooks'),
-  getIpcBlobDir: () => join(TEST_DIR, 'ipc-blobs'),
-  getSandboxRootDir: () => join(TEST_DIR, 'sandbox'),
+  getSocketPath: () => join(TEST_DIR, "vellum.sock"),
+  getPidPath: () => join(TEST_DIR, "vellum.pid"),
+  getDbPath: () => join(TEST_DIR, "data", "assistant.db"),
+  getLogPath: () => join(TEST_DIR, "logs", "vellum.log"),
+  getHistoryPath: () => join(TEST_DIR, "history"),
+  getHooksDir: () => join(TEST_DIR, "hooks"),
+  getIpcBlobDir: () => join(TEST_DIR, "ipc-blobs"),
+  getSandboxRootDir: () => join(TEST_DIR, "sandbox"),
   getSandboxWorkingDir: () => TEST_DIR,
-  getInterfacesDir: () => join(TEST_DIR, 'interfaces'),
-  isMacOS: () => process.platform === 'darwin',
-  isLinux: () => process.platform === 'linux',
-  isWindows: () => process.platform === 'win32',
+  getInterfacesDir: () => join(TEST_DIR, "interfaces"),
+  isMacOS: () => process.platform === "darwin",
+  isLinux: () => process.platform === "linux",
+  isWindows: () => process.platform === "win32",
   getPlatformName: () => process.platform,
   getClipboardCommand: () => null,
   removeSocketFile: () => {},
@@ -39,42 +44,55 @@ mock.module('../util/platform.js', () => ({
   migrateToDataLayout: () => {},
 }));
 
-mock.module('../util/logger.js', () => ({
-  getLogger: () => new Proxy({} as Record<string, unknown>, {
-    get: () => () => {},
-  }),
+mock.module("../util/logger.js", () => ({
+  getLogger: () =>
+    new Proxy({} as Record<string, unknown>, {
+      get: () => () => {},
+    }),
   isDebug: () => false,
   truncateForLog: (v: string) => v,
 }));
 
-mock.module('../config/loader.js', () => ({
+mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
-    
+
     sandbox: { enabled: true },
   }),
 }));
 
-mock.module('../config/user-reference.js', () => ({
-  resolveUserReference: () => 'John',
+mock.module("../config/user-reference.js", () => ({
+  resolveUserReference: () => "John",
   resolveUserPronouns: () => null,
 }));
 
 // Import after mock
-const { buildSystemPrompt, ensurePromptFiles, stripCommentLines, buildExternalCommsIdentitySection } = await import('../config/system-prompt.js');
+const {
+  buildSystemPrompt,
+  ensurePromptFiles,
+  stripCommentLines,
+  buildExternalCommsIdentitySection,
+} = await import("../config/system-prompt.js");
 
 /** Strip the Configuration and Skills sections so base-prompt tests stay focused. */
 function basePrompt(result: string): string {
   let s = result;
-  for (const heading of ['## Configuration', '## Skills Catalog', '## Available Skills']) {
-    if (s.startsWith(heading)) { s = ''; break; }
+  for (const heading of [
+    "## Configuration",
+    "## Skills Catalog",
+    "## Available Skills",
+  ]) {
+    if (s.startsWith(heading)) {
+      s = "";
+      break;
+    }
     const idx = s.indexOf(`\n\n${heading}`);
     if (idx !== -1) s = s.slice(0, idx);
   }
   return s;
 }
 
-describe('buildSystemPrompt', () => {
+describe("buildSystemPrompt", () => {
   beforeEach(() => {
     mkdirSync(TEST_DIR, { recursive: true });
   });
@@ -85,356 +103,372 @@ describe('buildSystemPrompt', () => {
     }
   });
 
-  test('returns empty string when no files exist', () => {
+  test("returns empty string when no files exist", () => {
     const result = buildSystemPrompt();
-    expect(basePrompt(result)).toBe('');
+    expect(basePrompt(result)).toBe("");
   });
 
-  test('uses SOUL.md when it exists', () => {
-    writeFileSync(join(TEST_DIR, 'SOUL.md'), '# My Soul\n\nBe awesome.');
+  test("uses SOUL.md when it exists", () => {
+    writeFileSync(join(TEST_DIR, "SOUL.md"), "# My Soul\n\nBe awesome.");
     const result = buildSystemPrompt();
-    expect(basePrompt(result)).toBe('# My Soul\n\nBe awesome.');
+    expect(basePrompt(result)).toBe("# My Soul\n\nBe awesome.");
   });
 
-  test('uses IDENTITY.md when it exists', () => {
-    writeFileSync(join(TEST_DIR, 'IDENTITY.md'), '# My Identity\n\nI am Vellum.');
-    const result = buildSystemPrompt();
-    expect(basePrompt(result)).toBe('# My Identity\n\nI am Vellum.');
-  });
-
-  test('composes IDENTITY.md + SOUL.md when both exist', () => {
-    writeFileSync(join(TEST_DIR, 'IDENTITY.md'), '# Identity\n\nI am Vellum.');
-    writeFileSync(join(TEST_DIR, 'SOUL.md'), '# Soul\n\nBe thoughtful.');
-    const result = buildSystemPrompt();
-    expect(basePrompt(result)).toBe('# Identity\n\nI am Vellum.\n\n# Soul\n\nBe thoughtful.');
-  });
-
-  test('ignores empty SOUL.md', () => {
-    writeFileSync(join(TEST_DIR, 'SOUL.md'), '   \n  \n  ');
-    const result = buildSystemPrompt();
-    expect(basePrompt(result)).toBe('');
-  });
-
-  test('ignores empty IDENTITY.md', () => {
-    writeFileSync(join(TEST_DIR, 'IDENTITY.md'), '');
-    const result = buildSystemPrompt();
-    expect(basePrompt(result)).toBe('');
-  });
-
-  test('trims whitespace from file content', () => {
-    writeFileSync(join(TEST_DIR, 'SOUL.md'), '\n  Be kind  \n\n');
-    const result = buildSystemPrompt();
-    expect(basePrompt(result)).toBe('Be kind');
-  });
-
-  test('appends skills catalog when skills are configured', () => {
-    const skillsDir = join(TEST_DIR, 'skills');
-    mkdirSync(join(skillsDir, 'release-checklist'), { recursive: true });
+  test("uses IDENTITY.md when it exists", () => {
     writeFileSync(
-      join(skillsDir, 'release-checklist', 'SKILL.md'),
+      join(TEST_DIR, "IDENTITY.md"),
+      "# My Identity\n\nI am Vellum.",
+    );
+    const result = buildSystemPrompt();
+    expect(basePrompt(result)).toBe("# My Identity\n\nI am Vellum.");
+  });
+
+  test("composes IDENTITY.md + SOUL.md when both exist", () => {
+    writeFileSync(join(TEST_DIR, "IDENTITY.md"), "# Identity\n\nI am Vellum.");
+    writeFileSync(join(TEST_DIR, "SOUL.md"), "# Soul\n\nBe thoughtful.");
+    const result = buildSystemPrompt();
+    expect(basePrompt(result)).toBe(
+      "# Identity\n\nI am Vellum.\n\n# Soul\n\nBe thoughtful.",
+    );
+  });
+
+  test("ignores empty SOUL.md", () => {
+    writeFileSync(join(TEST_DIR, "SOUL.md"), "   \n  \n  ");
+    const result = buildSystemPrompt();
+    expect(basePrompt(result)).toBe("");
+  });
+
+  test("ignores empty IDENTITY.md", () => {
+    writeFileSync(join(TEST_DIR, "IDENTITY.md"), "");
+    const result = buildSystemPrompt();
+    expect(basePrompt(result)).toBe("");
+  });
+
+  test("trims whitespace from file content", () => {
+    writeFileSync(join(TEST_DIR, "SOUL.md"), "\n  Be kind  \n\n");
+    const result = buildSystemPrompt();
+    expect(basePrompt(result)).toBe("Be kind");
+  });
+
+  test("appends skills catalog when skills are configured", () => {
+    const skillsDir = join(TEST_DIR, "skills");
+    mkdirSync(join(skillsDir, "release-checklist"), { recursive: true });
+    writeFileSync(
+      join(skillsDir, "release-checklist", "SKILL.md"),
       '---\nname: "Release Checklist"\ndescription: "Deployment checks."\n---\n\nRun checks.\n',
     );
-    writeFileSync(join(skillsDir, 'SKILLS.md'), '- release-checklist\n');
+    writeFileSync(join(skillsDir, "SKILLS.md"), "- release-checklist\n");
 
-    writeFileSync(join(TEST_DIR, 'IDENTITY.md'), 'Custom identity');
+    writeFileSync(join(TEST_DIR, "IDENTITY.md"), "Custom identity");
     const result = buildSystemPrompt();
-    expect(result).toContain('Custom identity');
-    expect(result).toContain('## Available Skills');
-    expect(result).toContain('<available_skills>');
+    expect(result).toContain("Custom identity");
+    expect(result).toContain("## Available Skills");
+    expect(result).toContain("<available_skills>");
     expect(result).toContain('id="release-checklist"');
     expect(result).toContain('name="Release Checklist"');
     expect(result).toContain('description="Deployment checks."');
-    expect(result).toContain('call the `skill_load` tool with its `id`');
+    expect(result).toContain("call the `skill_load` tool with its `id`");
   });
 
-  test('keeps SOUL.md and IDENTITY.md additive with skills', () => {
-    const skillsDir = join(TEST_DIR, 'skills');
-    mkdirSync(join(skillsDir, 'incident-response'), { recursive: true });
+  test("keeps SOUL.md and IDENTITY.md additive with skills", () => {
+    const skillsDir = join(TEST_DIR, "skills");
+    mkdirSync(join(skillsDir, "incident-response"), { recursive: true });
     writeFileSync(
-      join(skillsDir, 'incident-response', 'SKILL.md'),
+      join(skillsDir, "incident-response", "SKILL.md"),
       '---\nname: "Incident Response"\ndescription: "Triage and mitigation."\n---\n\nFollow runbook.\n',
     );
-    writeFileSync(join(skillsDir, 'SKILLS.md'), '- incident-response\n');
-    writeFileSync(join(TEST_DIR, 'IDENTITY.md'), 'Identity content');
-    writeFileSync(join(TEST_DIR, 'SOUL.md'), 'Soul content');
+    writeFileSync(join(skillsDir, "SKILLS.md"), "- incident-response\n");
+    writeFileSync(join(TEST_DIR, "IDENTITY.md"), "Identity content");
+    writeFileSync(join(TEST_DIR, "SOUL.md"), "Soul content");
 
     const result = buildSystemPrompt();
-    expect(result).toContain('Identity content\n\nSoul content');
-    expect(result).toContain('## Available Skills');
-    expect(result.indexOf('Soul content')).toBeLessThan(result.indexOf('## Available Skills'));
+    expect(result).toContain("Identity content\n\nSoul content");
+    expect(result).toContain("## Available Skills");
+    expect(result.indexOf("Soul content")).toBeLessThan(
+      result.indexOf("## Available Skills"),
+    );
   });
 
-  test('includes swarm guidance section', () => {
+  test("includes swarm guidance section", () => {
     const result = buildSystemPrompt();
-    expect(result).toContain('## Parallel Task Orchestration');
-    expect(result).toContain('swarm_delegate');
+    expect(result).toContain("## Parallel Task Orchestration");
+    expect(result).toContain("swarm_delegate");
   });
 
-  test('includes external service access preference section', () => {
+  test("includes external service access preference section", () => {
     const result = buildSystemPrompt();
-    expect(result).toContain('## External Service Access Preference');
-    expect(result).toContain('CLI tools via host_bash');
-    expect(result).toContain('Browser automation as last resort');
+    expect(result).toContain("## External Service Access Preference");
+    expect(result).toContain("CLI tools via host_bash");
+    expect(result).toContain("Browser automation as last resort");
   });
 
-  test('includes external comms identity section', () => {
+  test("includes external comms identity section", () => {
     const result = buildSystemPrompt();
-    expect(result).toContain('## External Communications Identity');
+    expect(result).toContain("## External Communications Identity");
   });
 
-  test('external comms identity section contains assistant guidance and resolved user reference', () => {
+  test("external comms identity section contains assistant guidance and resolved user reference", () => {
     const result = buildSystemPrompt();
-    expect(result).toContain('Refer to yourself as an **assistant**');
-    expect(result).toContain('on behalf of **John**');
+    expect(result).toContain("Refer to yourself as an **assistant**");
+    expect(result).toContain("on behalf of **John**");
   });
 
-  test('buildExternalCommsIdentitySection returns section with expected content', () => {
+  test("buildExternalCommsIdentitySection returns section with expected content", () => {
     const section = buildExternalCommsIdentitySection();
-    expect(section).toContain('## External Communications Identity');
-    expect(section).toContain('assistant');
-    expect(section).toContain('John');
-    expect(section).toContain('Do not volunteer that you are an AI unless directly asked');
-    expect(section).toContain('Occasional variations are acceptable');
+    expect(section).toContain("## External Communications Identity");
+    expect(section).toContain("assistant");
+    expect(section).toContain("John");
+    expect(section).toContain(
+      "Do not volunteer that you are an AI unless directly asked",
+    );
+    expect(section).toContain("Occasional variations are acceptable");
   });
 
-  test('includes memory persistence section in high tier', () => {
-    const result = buildSystemPrompt('high');
-    expect(result).toContain('## Memory Persistence');
-    expect(result).toContain('memory_save');
-    expect(result).toContain('Saved > unsaved. Always.');
+  test("includes memory persistence section in high tier", () => {
+    const result = buildSystemPrompt("high");
+    expect(result).toContain("## Memory Persistence");
+    expect(result).toContain("memory_save");
+    expect(result).toContain("Saved > unsaved. Always.");
   });
 
-  test('config section uses workspace directory from platform util', () => {
+  test("config section uses workspace directory from platform util", () => {
     const result = buildSystemPrompt();
-    expect(result).toContain(`Your configuration directory is \`${TEST_DIR}/\`.`);
+    expect(result).toContain(
+      `Your configuration directory is \`${TEST_DIR}/\`.`,
+    );
   });
 
-  test('omits user skills from catalog when none are configured', () => {
+  test("omits user skills from catalog when none are configured", () => {
     const result = buildSystemPrompt();
     // No user skill directories exist, so no user skills should appear.
     // Bundled skills (e.g. app-builder) may still be present.
-    expect(result).not.toContain('release-checklist');
-    expect(result).not.toContain('incident-response');
+    expect(result).not.toContain("release-checklist");
+    expect(result).not.toContain("incident-response");
   });
 
-  test('appends USER.md after base prompt', () => {
-    writeFileSync(join(TEST_DIR, 'IDENTITY.md'), 'Base prompt');
-    writeFileSync(join(TEST_DIR, 'USER.md'), '# User\n\nName: Alice');
+  test("appends USER.md after base prompt", () => {
+    writeFileSync(join(TEST_DIR, "IDENTITY.md"), "Base prompt");
+    writeFileSync(join(TEST_DIR, "USER.md"), "# User\n\nName: Alice");
     const result = buildSystemPrompt();
-    expect(basePrompt(result)).toBe('Base prompt\n\n# User\n\nName: Alice');
+    expect(basePrompt(result)).toBe("Base prompt\n\n# User\n\nName: Alice");
   });
 
-  test('appends USER.md after IDENTITY + SOUL', () => {
-    writeFileSync(join(TEST_DIR, 'IDENTITY.md'), 'Identity');
-    writeFileSync(join(TEST_DIR, 'SOUL.md'), 'Soul');
-    writeFileSync(join(TEST_DIR, 'USER.md'), 'User info');
+  test("appends USER.md after IDENTITY + SOUL", () => {
+    writeFileSync(join(TEST_DIR, "IDENTITY.md"), "Identity");
+    writeFileSync(join(TEST_DIR, "SOUL.md"), "Soul");
+    writeFileSync(join(TEST_DIR, "USER.md"), "User info");
     const result = buildSystemPrompt();
-    expect(basePrompt(result)).toBe('Identity\n\nSoul\n\nUser info');
+    expect(basePrompt(result)).toBe("Identity\n\nSoul\n\nUser info");
   });
 
-  test('USER.md alone becomes the prompt', () => {
-    writeFileSync(join(TEST_DIR, 'USER.md'), 'Just user');
+  test("USER.md alone becomes the prompt", () => {
+    writeFileSync(join(TEST_DIR, "USER.md"), "Just user");
     const result = buildSystemPrompt();
-    expect(basePrompt(result)).toBe('Just user');
+    expect(basePrompt(result)).toBe("Just user");
   });
 
-  test('ignores empty USER.md', () => {
-    writeFileSync(join(TEST_DIR, 'USER.md'), '  \n  ');
+  test("ignores empty USER.md", () => {
+    writeFileSync(join(TEST_DIR, "USER.md"), "  \n  ");
     const result = buildSystemPrompt();
-    expect(basePrompt(result)).toBe('');
+    expect(basePrompt(result)).toBe("");
   });
 
-  describe('app-builder tool ownership guidance', () => {
-    test('iteration guidance does not mention app_update for HTML changes', () => {
+  describe("app-builder tool ownership guidance", () => {
+    test("iteration guidance does not mention app_update for HTML changes", () => {
       const result = buildSystemPrompt();
       // The iteration line should not reference app_update for changing HTML
-      expect(result).not.toContain('use `app_update` to change the HTML');
+      expect(result).not.toContain("use `app_update` to change the HTML");
     });
 
-    test('onboarding playbook uses app_file_edit for accent color, not app_update', () => {
+    test("onboarding playbook uses app_file_edit for accent color, not app_update", () => {
       // Starter task playbooks only included during onboarding (BOOTSTRAP.md exists)
-      writeFileSync(join(TEST_DIR, 'BOOTSTRAP.md'), '# First run');
+      writeFileSync(join(TEST_DIR, "BOOTSTRAP.md"), "# First run");
       const result = buildSystemPrompt();
-      expect(result).toContain('using `app_file_edit` to update the theme styles');
-      expect(result).not.toContain('using `app_update` to regenerate the Home Base HTML');
+      expect(result).toContain(
+        "using `app_file_edit` to update the theme styles",
+      );
+      expect(result).not.toContain(
+        "using `app_update` to regenerate the Home Base HTML",
+      );
     });
   });
 
-  test('includes UPDATES.md content when file exists', () => {
-    writeFileSync(join(TEST_DIR, 'UPDATES.md'), '# v1.2\n\nNew feature added.');
+  test("includes UPDATES.md content when file exists", () => {
+    writeFileSync(join(TEST_DIR, "UPDATES.md"), "# v1.2\n\nNew feature added.");
     const result = buildSystemPrompt();
-    expect(result).toContain('## Recent Updates');
-    expect(result).toContain('New feature added.');
+    expect(result).toContain("## Recent Updates");
+    expect(result).toContain("New feature added.");
   });
 
-  test('omits updates section when UPDATES.md is empty', () => {
-    writeFileSync(join(TEST_DIR, 'UPDATES.md'), '   \n  \n  ');
+  test("omits updates section when UPDATES.md is empty", () => {
+    writeFileSync(join(TEST_DIR, "UPDATES.md"), "   \n  \n  ");
     const result = buildSystemPrompt();
-    expect(result).not.toContain('## Recent Updates');
+    expect(result).not.toContain("## Recent Updates");
   });
 
-  test('omits updates section when UPDATES.md does not exist', () => {
+  test("omits updates section when UPDATES.md does not exist", () => {
     const result = buildSystemPrompt();
-    expect(result).not.toContain('## Recent Updates');
+    expect(result).not.toContain("## Recent Updates");
   });
 
-  test('includes update handling instructions when UPDATES.md exists', () => {
-    writeFileSync(join(TEST_DIR, 'UPDATES.md'), '# v1.3\n\nSome update notes.');
+  test("includes update handling instructions when UPDATES.md exists", () => {
+    writeFileSync(join(TEST_DIR, "UPDATES.md"), "# v1.3\n\nSome update notes.");
     const result = buildSystemPrompt();
-    expect(result).toContain('### Update Handling');
-    expect(result).toContain('Use your judgment');
+    expect(result).toContain("### Update Handling");
+    expect(result).toContain("Use your judgment");
   });
 
-  test('omits update handling instructions when UPDATES.md is absent', () => {
+  test("omits update handling instructions when UPDATES.md is absent", () => {
     const result = buildSystemPrompt();
-    expect(result).not.toContain('### Update Handling');
+    expect(result).not.toContain("### Update Handling");
   });
 
-  test('config section lists UPDATES.md', () => {
+  test("config section lists UPDATES.md", () => {
     const result = buildSystemPrompt();
-    expect(result).toContain('`UPDATES.md`');
-    expect(result).toContain('Release update notes');
+    expect(result).toContain("`UPDATES.md`");
+    expect(result).toContain("Release update notes");
   });
 
-  test('strips comment lines starting with _ from prompt files', () => {
+  test("strips comment lines starting with _ from prompt files", () => {
     writeFileSync(
-      join(TEST_DIR, 'IDENTITY.md'),
-      '# Identity\n_ This is a comment\nI am Vellum.\n_ Another comment',
+      join(TEST_DIR, "IDENTITY.md"),
+      "# Identity\n_ This is a comment\nI am Vellum.\n_ Another comment",
     );
     const result = buildSystemPrompt();
-    expect(basePrompt(result)).toBe('# Identity\nI am Vellum.');
+    expect(basePrompt(result)).toBe("# Identity\nI am Vellum.");
   });
 
-  test('collapses whitespace around stripped comment lines', () => {
+  test("collapses whitespace around stripped comment lines", () => {
     writeFileSync(
-      join(TEST_DIR, 'SOUL.md'),
-      'First paragraph\n\n_ Comment between paragraphs\n\nSecond paragraph',
+      join(TEST_DIR, "SOUL.md"),
+      "First paragraph\n\n_ Comment between paragraphs\n\nSecond paragraph",
     );
     const result = buildSystemPrompt();
-    expect(basePrompt(result)).toBe('First paragraph\n\nSecond paragraph');
+    expect(basePrompt(result)).toBe("First paragraph\n\nSecond paragraph");
   });
 
-  test('file with only comment lines is treated as empty', () => {
-    writeFileSync(join(TEST_DIR, 'SOUL.md'), '_ All comments\n_ Nothing else');
+  test("file with only comment lines is treated as empty", () => {
+    writeFileSync(join(TEST_DIR, "SOUL.md"), "_ All comments\n_ Nothing else");
     const result = buildSystemPrompt();
-    expect(basePrompt(result)).toBe('');
+    expect(basePrompt(result)).toBe("");
   });
 });
 
-describe('stripCommentLines', () => {
-  test('removes lines starting with _', () => {
-    expect(stripCommentLines('hello\n_ comment\nworld')).toBe('hello\nworld');
+describe("stripCommentLines", () => {
+  test("removes lines starting with _", () => {
+    expect(stripCommentLines("hello\n_ comment\nworld")).toBe("hello\nworld");
   });
 
-  test('removes lines with leading whitespace before _', () => {
-    expect(stripCommentLines('hello\n  _ indented comment\nworld')).toBe('hello\nworld');
+  test("removes lines with leading whitespace before _", () => {
+    expect(stripCommentLines("hello\n  _ indented comment\nworld")).toBe(
+      "hello\nworld",
+    );
   });
 
-  test('preserves underscores mid-line', () => {
-    expect(stripCommentLines('hello_world\nsome_var = 1')).toBe('hello_world\nsome_var = 1');
+  test("preserves underscores mid-line", () => {
+    expect(stripCommentLines("hello_world\nsome_var = 1")).toBe(
+      "hello_world\nsome_var = 1",
+    );
   });
 
-  test('collapses triple+ newlines to double', () => {
-    expect(stripCommentLines('a\n\n_ removed\n\nb')).toBe('a\n\nb');
+  test("collapses triple+ newlines to double", () => {
+    expect(stripCommentLines("a\n\n_ removed\n\nb")).toBe("a\n\nb");
   });
 
-  test('returns empty string for all-comment content', () => {
-    expect(stripCommentLines('_ one\n_ two')).toBe('');
+  test("returns empty string for all-comment content", () => {
+    expect(stripCommentLines("_ one\n_ two")).toBe("");
   });
 
-  test('preserves _-prefixed lines inside fenced code blocks', () => {
+  test("preserves _-prefixed lines inside fenced code blocks", () => {
     const input = [
-      '## Example',
-      '',
-      '```python',
-      'class Singleton:',
-      '    _instance = None',
-      '    _private_var = 42',
-      '```',
-      '',
-      '_ This comment should be removed',
-      'After the block.',
-    ].join('\n');
+      "## Example",
+      "",
+      "```python",
+      "class Singleton:",
+      "    _instance = None",
+      "    _private_var = 42",
+      "```",
+      "",
+      "_ This comment should be removed",
+      "After the block.",
+    ].join("\n");
     const expected = [
-      '## Example',
-      '',
-      '```python',
-      'class Singleton:',
-      '    _instance = None',
-      '    _private_var = 42',
-      '```',
-      '',
-      'After the block.',
-    ].join('\n');
+      "## Example",
+      "",
+      "```python",
+      "class Singleton:",
+      "    _instance = None",
+      "    _private_var = 42",
+      "```",
+      "",
+      "After the block.",
+    ].join("\n");
     expect(stripCommentLines(input)).toBe(expected);
   });
 
-  test('handles multiple code blocks with _-prefixed lines', () => {
+  test("handles multiple code blocks with _-prefixed lines", () => {
     const input = [
-      '_ comment before',
-      '```',
-      '_keep_this',
-      '```',
-      '_ comment between',
-      '```js',
-      '_anotherVar = true',
-      '```',
-      '_ comment after',
-    ].join('\n');
+      "_ comment before",
+      "```",
+      "_keep_this",
+      "```",
+      "_ comment between",
+      "```js",
+      "_anotherVar = true",
+      "```",
+      "_ comment after",
+    ].join("\n");
     const expected = [
-      '```',
-      '_keep_this',
-      '```',
-      '```js',
-      '_anotherVar = true',
-      '```',
-    ].join('\n');
+      "```",
+      "_keep_this",
+      "```",
+      "```js",
+      "_anotherVar = true",
+      "```",
+    ].join("\n");
     expect(stripCommentLines(input)).toBe(expected);
   });
 
-  test('does not treat deeply indented backticks as fence delimiters', () => {
+  test("does not treat deeply indented backticks as fence delimiters", () => {
     const input = [
-      'Some text',
-      '    ```',
-      '_ this should be stripped',
-      'End',
-    ].join('\n');
-    expect(stripCommentLines(input)).toBe('Some text\n    ```\nEnd');
+      "Some text",
+      "    ```",
+      "_ this should be stripped",
+      "End",
+    ].join("\n");
+    expect(stripCommentLines(input)).toBe("Some text\n    ```\nEnd");
   });
 
-  test('recognizes tilde fences as code block delimiters', () => {
+  test("recognizes tilde fences as code block delimiters", () => {
+    const input = ["~~~", "_keep_this", "~~~", "_ strip this"].join("\n");
+    expect(stripCommentLines(input)).toBe("~~~\n_keep_this\n~~~");
+  });
+
+  test("allows up to 3 spaces before a fence delimiter", () => {
     const input = [
-      '~~~',
-      '_keep_this',
-      '~~~',
-      '_ strip this',
-    ].join('\n');
-    expect(stripCommentLines(input)).toBe('~~~\n_keep_this\n~~~');
+      "Start",
+      "   ```python",
+      "_keep = True",
+      "   ```",
+      "_ strip this",
+    ].join("\n");
+    expect(stripCommentLines(input)).toBe(
+      "Start\n   ```python\n_keep = True\n   ```",
+    );
   });
 
-  test('allows up to 3 spaces before a fence delimiter', () => {
-    const input = [
-      'Start',
-      '   ```python',
-      '_keep = True',
-      '   ```',
-      '_ strip this',
-    ].join('\n');
-    expect(stripCommentLines(input)).toBe('Start\n   ```python\n_keep = True\n   ```');
+  test("normalizes CRLF line endings before processing", () => {
+    const input = "First\r\n\r\n_ comment\r\n\r\nSecond";
+    expect(stripCommentLines(input)).toBe("First\n\nSecond");
   });
 
-  test('normalizes CRLF line endings before processing', () => {
-    const input = 'First\r\n\r\n_ comment\r\n\r\nSecond';
-    expect(stripCommentLines(input)).toBe('First\n\nSecond');
-  });
-
-  test('collapses blank lines correctly with CRLF input', () => {
-    const input = 'a\r\n\r\n_ removed\r\n\r\nb';
-    expect(stripCommentLines(input)).toBe('a\n\nb');
+  test("collapses blank lines correctly with CRLF input", () => {
+    const input = "a\r\n\r\n_ removed\r\n\r\nb";
+    expect(stripCommentLines(input)).toBe("a\n\nb");
   });
 });
 
-describe('ensurePromptFiles', () => {
+describe("ensurePromptFiles", () => {
   beforeEach(() => {
     mkdirSync(TEST_DIR, { recursive: true });
   });
@@ -445,32 +479,32 @@ describe('ensurePromptFiles', () => {
     }
   });
 
-  test('creates all 3 files from templates when none exist', () => {
+  test("creates all 3 files from templates when none exist", () => {
     ensurePromptFiles();
 
-    for (const file of ['SOUL.md', 'IDENTITY.md', 'USER.md']) {
+    for (const file of ["SOUL.md", "IDENTITY.md", "USER.md"]) {
       const dest = join(TEST_DIR, file);
       expect(existsSync(dest)).toBe(true);
-      const content = readFileSync(dest, 'utf-8');
+      const content = readFileSync(dest, "utf-8");
       expect(content.length).toBeGreaterThan(0);
     }
   });
 
-  test('does not overwrite existing files', () => {
-    const customContent = 'My custom identity';
-    writeFileSync(join(TEST_DIR, 'IDENTITY.md'), customContent);
+  test("does not overwrite existing files", () => {
+    const customContent = "My custom identity";
+    writeFileSync(join(TEST_DIR, "IDENTITY.md"), customContent);
 
     ensurePromptFiles();
 
-    const content = readFileSync(join(TEST_DIR, 'IDENTITY.md'), 'utf-8');
+    const content = readFileSync(join(TEST_DIR, "IDENTITY.md"), "utf-8");
     expect(content).toBe(customContent);
 
     // Other files should be created
-    expect(existsSync(join(TEST_DIR, 'SOUL.md'))).toBe(true);
-    expect(existsSync(join(TEST_DIR, 'USER.md'))).toBe(true);
+    expect(existsSync(join(TEST_DIR, "SOUL.md"))).toBe(true);
+    expect(existsSync(join(TEST_DIR, "USER.md"))).toBe(true);
   });
 
-  test('handles missing template gracefully (warn, no crash)', () => {
+  test("handles missing template gracefully (warn, no crash)", () => {
     // ensurePromptFiles resolves templates from the actual templates/ dir.
     // Since templates exist in the repo this test verifies the function
     // doesn't crash. A true "missing template" scenario would require
@@ -478,35 +512,35 @@ describe('ensurePromptFiles', () => {
     expect(() => ensurePromptFiles()).not.toThrow();
   });
 
-  test('creates BOOTSTRAP.md on first run when no prompt files exist', () => {
+  test("creates BOOTSTRAP.md on first run when no prompt files exist", () => {
     ensurePromptFiles();
 
-    const bootstrapPath = join(TEST_DIR, 'BOOTSTRAP.md');
+    const bootstrapPath = join(TEST_DIR, "BOOTSTRAP.md");
     expect(existsSync(bootstrapPath)).toBe(true);
-    const content = readFileSync(bootstrapPath, 'utf-8');
+    const content = readFileSync(bootstrapPath, "utf-8");
     expect(content.length).toBeGreaterThan(0);
   });
 
-  test('does not recreate BOOTSTRAP.md when other prompt files already exist', () => {
+  test("does not recreate BOOTSTRAP.md when other prompt files already exist", () => {
     // Simulate a workspace where onboarding completed: core files exist,
     // BOOTSTRAP.md was deleted by the user.
-    writeFileSync(join(TEST_DIR, 'IDENTITY.md'), 'My identity');
-    writeFileSync(join(TEST_DIR, 'SOUL.md'), 'My soul');
-    writeFileSync(join(TEST_DIR, 'USER.md'), 'My user');
+    writeFileSync(join(TEST_DIR, "IDENTITY.md"), "My identity");
+    writeFileSync(join(TEST_DIR, "SOUL.md"), "My soul");
+    writeFileSync(join(TEST_DIR, "USER.md"), "My user");
 
     ensurePromptFiles();
 
-    const bootstrapPath = join(TEST_DIR, 'BOOTSTRAP.md');
+    const bootstrapPath = join(TEST_DIR, "BOOTSTRAP.md");
     expect(existsSync(bootstrapPath)).toBe(false);
   });
 
-  test('does not recreate BOOTSTRAP.md when at least one prompt file exists', () => {
+  test("does not recreate BOOTSTRAP.md when at least one prompt file exists", () => {
     // Even if only one core file exists, it's not a fresh install.
-    writeFileSync(join(TEST_DIR, 'IDENTITY.md'), 'My identity');
+    writeFileSync(join(TEST_DIR, "IDENTITY.md"), "My identity");
 
     ensurePromptFiles();
 
-    const bootstrapPath = join(TEST_DIR, 'BOOTSTRAP.md');
+    const bootstrapPath = join(TEST_DIR, "BOOTSTRAP.md");
     expect(existsSync(bootstrapPath)).toBe(false);
   });
 });

@@ -1,30 +1,28 @@
- 
-import { mkdtempSync } from 'node:fs';
-import * as net from 'node:net';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { mkdtempSync } from "node:fs";
+import * as net from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { beforeEach, describe, expect, test } from "bun:test";
+import { mock } from "bun:test";
 
-import { beforeEach,describe, expect, test } from 'bun:test';
-import { mock } from 'bun:test';
+const testDir = mkdtempSync(join(tmpdir(), "trust-rule-metadata-test-"));
 
-const testDir = mkdtempSync(join(tmpdir(), 'trust-rule-metadata-test-'));
-
-mock.module('../util/platform.js', () => ({
+mock.module("../util/platform.js", () => ({
   getRootDir: () => testDir,
-  getDataDir: () => join(testDir, 'data'),
-  getWorkspaceSkillsDir: () => join(testDir, 'skills'),
-  isMacOS: () => process.platform === 'darwin',
-  isLinux: () => process.platform === 'linux',
-  isWindows: () => process.platform === 'win32',
-  getSocketPath: () => join(testDir, 'test.sock'),
-  getPidPath: () => join(testDir, 'test.pid'),
-  getDbPath: () => join(testDir, 'test.db'),
-  getLogPath: () => join(testDir, 'test.log'),
+  getDataDir: () => join(testDir, "data"),
+  getWorkspaceSkillsDir: () => join(testDir, "skills"),
+  isMacOS: () => process.platform === "darwin",
+  isLinux: () => process.platform === "linux",
+  isWindows: () => process.platform === "win32",
+  getSocketPath: () => join(testDir, "test.sock"),
+  getPidPath: () => join(testDir, "test.pid"),
+  getDbPath: () => join(testDir, "test.db"),
+  getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
-  getIpcBlobDir: () => join(testDir, 'ipc-blobs'),
+  getIpcBlobDir: () => join(testDir, "ipc-blobs"),
 }));
 
-mock.module('../util/logger.js', () => ({
+mock.module("../util/logger.js", () => ({
   getLogger: () => ({
     info: () => {},
     warn: () => {},
@@ -42,12 +40,12 @@ mock.module('../util/logger.js', () => ({
 }));
 
 const testConfig: Record<string, any> = {
-  permissions: { mode: 'legacy' as 'legacy' | 'strict' | 'workspace' },
+  permissions: { mode: "legacy" as "legacy" | "strict" | "workspace" },
   skills: { load: { extraDirs: [] as string[] } },
   sandbox: { enabled: true },
 };
 
-mock.module('../config/loader.js', () => ({
+mock.module("../config/loader.js", () => ({
   getConfig: () => testConfig,
   loadConfig: () => testConfig,
   invalidateConfigCache: () => {},
@@ -58,12 +56,16 @@ mock.module('../config/loader.js', () => ({
   setNestedValue: () => {},
 }));
 
-import type { HandlerContext } from '../daemon/handlers.js';
-import { handleAddTrustRule } from '../daemon/handlers/config.js';
-import type { AddTrustRule } from '../daemon/ipc-contract.js';
-import type { ServerMessage } from '../daemon/ipc-contract.js';
-import { clearAllRules, clearCache,getAllRules } from '../permissions/trust-store.js';
-import { DebouncerMap } from '../util/debounce.js';
+import type { HandlerContext } from "../daemon/handlers.js";
+import { handleAddTrustRule } from "../daemon/handlers/config.js";
+import type { AddTrustRule } from "../daemon/ipc-contract.js";
+import type { ServerMessage } from "../daemon/ipc-contract.js";
+import {
+  clearAllRules,
+  clearCache,
+  getAllRules,
+} from "../permissions/trust-store.js";
+import { DebouncerMap } from "../util/debounce.js";
 
 function createTestContext(): { ctx: HandlerContext; sent: ServerMessage[] } {
   const sent: ServerMessage[] = [];
@@ -79,73 +81,81 @@ function createTestContext(): { ctx: HandlerContext; sent: ServerMessage[] } {
     suppressConfigReload: false,
     setSuppressConfigReload: () => {},
     updateConfigFingerprint: () => {},
-    send: (_socket, msg) => { sent.push(msg); },
+    send: (_socket, msg) => {
+      sent.push(msg);
+    },
     broadcast: () => {},
     clearAllSessions: () => 0,
-    getOrCreateSession: () => { throw new Error('not implemented'); },
+    getOrCreateSession: () => {
+      throw new Error("not implemented");
+    },
     touchSession: () => {},
   };
   return { ctx, sent };
 }
 
-describe('handleAddTrustRule metadata plumbing', () => {
+describe("handleAddTrustRule metadata plumbing", () => {
   beforeEach(() => {
     clearAllRules();
     clearCache();
   });
 
-  test('persists allowHighRisk and executionTarget fields when provided', () => {
+  test("persists allowHighRisk and executionTarget fields when provided", () => {
     const { ctx } = createTestContext();
     const msg: AddTrustRule = {
-      type: 'add_trust_rule',
-      toolName: 'bash',
-      pattern: 'git *',
-      scope: '/projects/my-app',
-      decision: 'allow',
+      type: "add_trust_rule",
+      toolName: "bash",
+      pattern: "git *",
+      scope: "/projects/my-app",
+      decision: "allow",
       allowHighRisk: true,
-      executionTarget: 'host',
+      executionTarget: "host",
     };
 
     handleAddTrustRule(msg, {} as net.Socket, ctx);
 
     const rules = getAllRules();
-    const userRule = rules.find((r) => r.tool === 'bash' && r.pattern === 'git *');
+    const userRule = rules.find(
+      (r) => r.tool === "bash" && r.pattern === "git *",
+    );
     expect(userRule).toBeDefined();
     expect(userRule!.allowHighRisk).toBe(true);
-    expect(userRule!.executionTarget).toBe('host');
+    expect(userRule!.executionTarget).toBe("host");
   });
 
-  test('backward compatibility: rules work without any metadata fields', () => {
+  test("backward compatibility: rules work without any metadata fields", () => {
     const { ctx } = createTestContext();
     const msg: AddTrustRule = {
-      type: 'add_trust_rule',
-      toolName: 'file_write',
-      pattern: '**',
-      scope: 'everywhere',
-      decision: 'allow',
+      type: "add_trust_rule",
+      toolName: "file_write",
+      pattern: "**",
+      scope: "everywhere",
+      decision: "allow",
     };
 
     handleAddTrustRule(msg, {} as net.Socket, ctx);
 
     const rules = getAllRules();
-    const userRule = rules.find((r) => r.tool === 'file_write' && r.pattern === '**');
+    const userRule = rules.find(
+      (r) => r.tool === "file_write" && r.pattern === "**",
+    );
     expect(userRule).toBeDefined();
-    expect(userRule!.decision).toBe('allow');
+    expect(userRule!.decision).toBe("allow");
     // Metadata fields should be absent
     expect(userRule!.allowHighRisk).toBeUndefined();
     expect(userRule!.executionTarget).toBeUndefined();
   });
 
-  test('rule can be retrieved after being added with metadata', () => {
+  test("rule can be retrieved after being added with metadata", () => {
     const { ctx } = createTestContext();
     const msg: AddTrustRule = {
-      type: 'add_trust_rule',
-      toolName: 'bash',
-      pattern: 'npm install *',
-      scope: '/projects/web',
-      decision: 'allow',
+      type: "add_trust_rule",
+      toolName: "bash",
+      pattern: "npm install *",
+      scope: "/projects/web",
+      decision: "allow",
       allowHighRisk: false,
-      executionTarget: 'sandbox',
+      executionTarget: "sandbox",
     };
 
     handleAddTrustRule(msg, {} as net.Socket, ctx);
@@ -153,51 +163,57 @@ describe('handleAddTrustRule metadata plumbing', () => {
     // Force re-read from disk to verify persistence
     clearCache();
     const rules = getAllRules();
-    const userRule = rules.find((r) => r.tool === 'bash' && r.pattern === 'npm install *');
+    const userRule = rules.find(
+      (r) => r.tool === "bash" && r.pattern === "npm install *",
+    );
     expect(userRule).toBeDefined();
-    expect(userRule!.scope).toBe('/projects/web');
-    expect(userRule!.decision).toBe('allow');
+    expect(userRule!.scope).toBe("/projects/web");
+    expect(userRule!.decision).toBe("allow");
     expect(userRule!.allowHighRisk).toBe(false);
-    expect(userRule!.executionTarget).toBe('sandbox');
+    expect(userRule!.executionTarget).toBe("sandbox");
   });
 
-  test('partial metadata: only allowHighRisk is forwarded when others are absent', () => {
+  test("partial metadata: only allowHighRisk is forwarded when others are absent", () => {
     const { ctx } = createTestContext();
     const msg: AddTrustRule = {
-      type: 'add_trust_rule',
-      toolName: 'bash',
-      pattern: 'docker *',
-      scope: 'everywhere',
-      decision: 'allow',
+      type: "add_trust_rule",
+      toolName: "bash",
+      pattern: "docker *",
+      scope: "everywhere",
+      decision: "allow",
       allowHighRisk: true,
     };
 
     handleAddTrustRule(msg, {} as net.Socket, ctx);
 
     const rules = getAllRules();
-    const userRule = rules.find((r) => r.tool === 'bash' && r.pattern === 'docker *');
+    const userRule = rules.find(
+      (r) => r.tool === "bash" && r.pattern === "docker *",
+    );
     expect(userRule).toBeDefined();
     expect(userRule!.allowHighRisk).toBe(true);
     expect(userRule!.executionTarget).toBeUndefined();
   });
 
-  test('partial metadata: only executionTarget is forwarded when others are absent', () => {
+  test("partial metadata: only executionTarget is forwarded when others are absent", () => {
     const { ctx } = createTestContext();
     const msg: AddTrustRule = {
-      type: 'add_trust_rule',
-      toolName: 'bash',
-      pattern: 'curl *',
-      scope: 'everywhere',
-      decision: 'allow',
-      executionTarget: 'sandbox',
+      type: "add_trust_rule",
+      toolName: "bash",
+      pattern: "curl *",
+      scope: "everywhere",
+      decision: "allow",
+      executionTarget: "sandbox",
     };
 
     handleAddTrustRule(msg, {} as net.Socket, ctx);
 
     const rules = getAllRules();
-    const userRule = rules.find((r) => r.tool === 'bash' && r.pattern === 'curl *');
+    const userRule = rules.find(
+      (r) => r.tool === "bash" && r.pattern === "curl *",
+    );
     expect(userRule).toBeDefined();
-    expect(userRule!.executionTarget).toBe('sandbox');
+    expect(userRule!.executionTarget).toBe("sandbox");
     expect(userRule!.allowHighRisk).toBeUndefined();
   });
 });

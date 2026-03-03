@@ -7,7 +7,6 @@
 import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { ServerMessage } from "../daemon/ipc-protocol.js";
@@ -751,8 +750,10 @@ describe("standalone approval endpoints — HTTP layer", () => {
 
   describe("hub publisher registers pending interactions", () => {
     test("confirmation_request events register pending interactions", async () => {
-      const confirmReceived: Array<{ requestId: string; decision: string }> =
-        [];
+      const confirmReceived: Array<{
+        requestId: string;
+        decision: string;
+      }> = [];
 
       const session = makeConfirmationEmittingSession({
         confirmRequestId: "auto-req-1",

@@ -1,7 +1,6 @@
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-
-import { describe, expect, it } from 'bun:test';
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, it } from "bun:test";
 
 /**
  * Guard tests for the canonical trust-context model.
@@ -17,29 +16,31 @@ import { describe, expect, it } from 'bun:test';
  *      non-optional).
  */
 
-const srcDir = join(import.meta.dir, '..');
+const srcDir = join(import.meta.dir, "..");
 
-describe('trust-context guards', () => {
+describe("trust-context guards", () => {
   // -----------------------------------------------------------------------
   // (a) No `string | null` for guardianPrincipalId in runtime types
   // -----------------------------------------------------------------------
 
-  it('guardianPrincipalId is not typed as string | null in GuardianRuntimeContext', () => {
+  it("guardianPrincipalId is not typed as string | null in GuardianRuntimeContext", () => {
     const source = readFileSync(
-      join(srcDir, 'daemon', 'session-runtime-assembly.ts'),
-      'utf-8',
+      join(srcDir, "daemon", "session-runtime-assembly.ts"),
+      "utf-8",
     );
 
     // Extract the GuardianRuntimeContext interface block
-    const ifaceStart = source.indexOf('export interface GuardianRuntimeContext');
+    const ifaceStart = source.indexOf(
+      "export interface GuardianRuntimeContext",
+    );
     expect(ifaceStart).toBeGreaterThan(-1);
 
-    const blockStart = source.indexOf('{', ifaceStart);
+    const blockStart = source.indexOf("{", ifaceStart);
     let braceDepth = 0;
     let blockEnd = blockStart;
     for (let i = blockStart; i < source.length; i++) {
-      if (source[i] === '{') braceDepth++;
-      if (source[i] === '}') braceDepth--;
+      if (source[i] === "{") braceDepth++;
+      if (source[i] === "}") braceDepth--;
       if (braceDepth === 0) {
         blockEnd = i + 1;
         break;
@@ -48,18 +49,19 @@ describe('trust-context guards', () => {
     const block = source.slice(blockStart, blockEnd);
 
     // guardianPrincipalId should NOT be typed as `string | null`
-    const principalLine = block.split('\n').find((l) =>
-      l.includes('guardianPrincipalId'),
-    );
+    const principalLine = block
+      .split("\n")
+      .find((l) => l.includes("guardianPrincipalId"));
     expect(
       principalLine,
-      'Expected to find guardianPrincipalId in GuardianRuntimeContext',
+      "Expected to find guardianPrincipalId in GuardianRuntimeContext",
     ).toBeDefined();
 
     expect(
-      principalLine!.includes('string | null') || principalLine!.includes('null | string'),
-      'guardianPrincipalId must not be typed as nullable in GuardianRuntimeContext. ' +
-        'Use `guardianPrincipalId?: string` (optional, non-nullable) instead. ' +
+      principalLine!.includes("string | null") ||
+        principalLine!.includes("null | string"),
+      "guardianPrincipalId must not be typed as nullable in GuardianRuntimeContext. " +
+        "Use `guardianPrincipalId?: string` (optional, non-nullable) instead. " +
         `Found: "${principalLine!.trim()}"`,
     ).toBe(false);
 
@@ -67,8 +69,8 @@ describe('trust-context guards', () => {
     // principal exists should be able to omit it.
     expect(
       /guardianPrincipalId\s*\?/.test(principalLine!),
-      'guardianPrincipalId must remain optional (`?:`) in GuardianRuntimeContext. ' +
-        'Channels without a guardian principal need to omit this field. ' +
+      "guardianPrincipalId must remain optional (`?:`) in GuardianRuntimeContext. " +
+        "Channels without a guardian principal need to omit this field. " +
         `Found: "${principalLine!.trim()}"`,
     ).toBe(true);
   });
@@ -77,22 +79,19 @@ describe('trust-context guards', () => {
   // (b) guardianTrustClass is required in ToolContext
   // -----------------------------------------------------------------------
 
-  it('guardianTrustClass is a required field in ToolContext', () => {
-    const source = readFileSync(
-      join(srcDir, 'tools', 'types.ts'),
-      'utf-8',
-    );
+  it("guardianTrustClass is a required field in ToolContext", () => {
+    const source = readFileSync(join(srcDir, "tools", "types.ts"), "utf-8");
 
     // Extract the ToolContext interface block
-    const ifaceStart = source.indexOf('export interface ToolContext');
+    const ifaceStart = source.indexOf("export interface ToolContext");
     expect(ifaceStart).toBeGreaterThan(-1);
 
-    const blockStart = source.indexOf('{', ifaceStart);
+    const blockStart = source.indexOf("{", ifaceStart);
     let braceDepth = 0;
     let blockEnd = blockStart;
     for (let i = blockStart; i < source.length; i++) {
-      if (source[i] === '{') braceDepth++;
-      if (source[i] === '}') braceDepth--;
+      if (source[i] === "{") braceDepth++;
+      if (source[i] === "}") braceDepth--;
       if (braceDepth === 0) {
         blockEnd = i + 1;
         break;
@@ -100,19 +99,19 @@ describe('trust-context guards', () => {
     }
     const block = source.slice(blockStart, blockEnd);
 
-    const trustLine = block.split('\n').find((l) =>
-      l.includes('guardianTrustClass'),
-    );
+    const trustLine = block
+      .split("\n")
+      .find((l) => l.includes("guardianTrustClass"));
     expect(
       trustLine,
-      'Expected to find guardianTrustClass in ToolContext',
+      "Expected to find guardianTrustClass in ToolContext",
     ).toBeDefined();
 
     // The field must NOT have a `?` before the colon — it must be required.
     expect(
       /guardianTrustClass\s*\?/.test(trustLine!),
-      'guardianTrustClass must be a required field in ToolContext (no `?`). ' +
-        'Explicit trust gates must not be optional — every tool execution ' +
+      "guardianTrustClass must be a required field in ToolContext (no `?`). " +
+        "Explicit trust gates must not be optional — every tool execution " +
         `must carry a trust classification. Found: "${trustLine!.trim()}"`,
     ).toBe(false);
   });
@@ -121,26 +120,26 @@ describe('trust-context guards', () => {
   // (c) No actorRole fallback in channel retry sweep parser
   // -----------------------------------------------------------------------
 
-  it('channel retry sweep parser does not reference actorRole', () => {
+  it("channel retry sweep parser does not reference actorRole", () => {
     const source = readFileSync(
-      join(srcDir, 'runtime', 'channel-retry-sweep.ts'),
-      'utf-8',
+      join(srcDir, "runtime", "channel-retry-sweep.ts"),
+      "utf-8",
     );
 
     // The parseGuardianRuntimeContext function must use strict trustClass
     // parsing only — no legacy actorRole fallback.
-    const parserStart = source.indexOf('function parseGuardianRuntimeContext');
+    const parserStart = source.indexOf("function parseGuardianRuntimeContext");
     expect(parserStart).toBeGreaterThan(-1);
 
     // Find the end of the function (next function-level declaration or EOF)
     const parserBody = source.slice(parserStart);
-    const nextFn = parserBody.indexOf('\nexport ', 1);
+    const nextFn = parserBody.indexOf("\nexport ", 1);
     const parserSource = nextFn > 0 ? parserBody.slice(0, nextFn) : parserBody;
 
     expect(
-      parserSource.includes('actorRole'),
-      'parseGuardianRuntimeContext must not reference `actorRole`. ' +
-        'The retry sweep uses strict `trustClass` parsing — no legacy actorRole fallback.',
+      parserSource.includes("actorRole"),
+      "parseGuardianRuntimeContext must not reference `actorRole`. " +
+        "The retry sweep uses strict `trustClass` parsing — no legacy actorRole fallback.",
     ).toBe(false);
   });
 
@@ -148,10 +147,10 @@ describe('trust-context guards', () => {
   // (d) Retry sweep never passes undefined guardianContext to processMessage
   // -----------------------------------------------------------------------
 
-  it('retry sweep always provides an explicit guardianContext (never undefined)', () => {
+  it("retry sweep always provides an explicit guardianContext (never undefined)", () => {
     const source = readFileSync(
-      join(srcDir, 'runtime', 'channel-retry-sweep.ts'),
-      'utf-8',
+      join(srcDir, "runtime", "channel-retry-sweep.ts"),
+      "utf-8",
     );
 
     // The sweep must synthesize a trust context when guardianCtx is absent,
@@ -161,9 +160,9 @@ describe('trust-context guards', () => {
     // fallback that synthesizes trustClass: 'unknown'.
     expect(
       source.includes("trustClass: 'unknown'"),
-      'The retry sweep must synthesize an explicit `trustClass: \'unknown\'` context ' +
-        'when guardianCtx is absent from stored payloads. This prevents downstream ' +
-        'defaults from granting implicit guardian trust on replay.',
+      "The retry sweep must synthesize an explicit `trustClass: 'unknown'` context " +
+        "when guardianCtx is absent from stored payloads. This prevents downstream " +
+        "defaults from granting implicit guardian trust on replay.",
     ).toBe(true);
   });
 
@@ -171,22 +170,22 @@ describe('trust-context guards', () => {
   // (e) guardianPrincipalId is non-null in GuardianBinding
   // -----------------------------------------------------------------------
 
-  it('guardianPrincipalId is typed as string (non-null) in GuardianBinding', () => {
+  it("guardianPrincipalId is typed as string (non-null) in GuardianBinding", () => {
     const source = readFileSync(
-      join(srcDir, 'memory', 'guardian-bindings.ts'),
-      'utf-8',
+      join(srcDir, "memory", "guardian-bindings.ts"),
+      "utf-8",
     );
 
     // Extract the GuardianBinding interface block
-    const ifaceStart = source.indexOf('export interface GuardianBinding');
+    const ifaceStart = source.indexOf("export interface GuardianBinding");
     expect(ifaceStart).toBeGreaterThan(-1);
 
-    const blockStart = source.indexOf('{', ifaceStart);
+    const blockStart = source.indexOf("{", ifaceStart);
     let braceDepth = 0;
     let blockEnd = blockStart;
     for (let i = blockStart; i < source.length; i++) {
-      if (source[i] === '{') braceDepth++;
-      if (source[i] === '}') braceDepth--;
+      if (source[i] === "{") braceDepth++;
+      if (source[i] === "}") braceDepth--;
       if (braceDepth === 0) {
         blockEnd = i + 1;
         break;
@@ -194,24 +193,25 @@ describe('trust-context guards', () => {
     }
     const block = source.slice(blockStart, blockEnd);
 
-    const principalLine = block.split('\n').find((l) =>
-      l.includes('guardianPrincipalId'),
-    );
+    const principalLine = block
+      .split("\n")
+      .find((l) => l.includes("guardianPrincipalId"));
     expect(
       principalLine,
-      'Expected to find guardianPrincipalId in GuardianBinding',
+      "Expected to find guardianPrincipalId in GuardianBinding",
     ).toBeDefined();
 
     // Must be `guardianPrincipalId: string` — not optional, not nullable
     expect(
-      principalLine!.includes('string | null') || principalLine!.includes('null | string'),
-      'guardianPrincipalId must not be typed as nullable in GuardianBinding. ' +
+      principalLine!.includes("string | null") ||
+        principalLine!.includes("null | string"),
+      "guardianPrincipalId must not be typed as nullable in GuardianBinding. " +
         `Found: "${principalLine!.trim()}"`,
     ).toBe(false);
 
     expect(
       /guardianPrincipalId\s*\?/.test(principalLine!),
-      'guardianPrincipalId must not be optional in GuardianBinding. ' +
+      "guardianPrincipalId must not be optional in GuardianBinding. " +
         `Found: "${principalLine!.trim()}"`,
     ).toBe(false);
   });

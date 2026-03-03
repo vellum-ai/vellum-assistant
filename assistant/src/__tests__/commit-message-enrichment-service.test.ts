@@ -1,24 +1,38 @@
-import { execFileSync } from 'node:child_process';
-import { existsSync,mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-
-import { afterAll, afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from "bun:test";
 
 import {
   _resetEnrichmentService,
   CommitEnrichmentService,
   getEnrichmentService,
-} from '../workspace/commit-message-enrichment-service.js';
-import type { CommitContext } from '../workspace/commit-message-provider.js';
-import { _resetGitServiceRegistry,WorkspaceGitService } from '../workspace/git-service.js';
+} from "../workspace/commit-message-enrichment-service.js";
+import type { CommitContext } from "../workspace/commit-message-provider.js";
+import {
+  _resetGitServiceRegistry,
+  WorkspaceGitService,
+} from "../workspace/git-service.js";
 
-describe('CommitEnrichmentService', () => {
+describe("CommitEnrichmentService", () => {
   let testDir: string;
   let gitService: WorkspaceGitService;
 
   beforeEach(async () => {
-    testDir = join(tmpdir(), `vellum-enrichment-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    testDir = join(
+      tmpdir(),
+      `vellum-enrichment-test-${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2)}`,
+    );
     mkdirSync(testDir, { recursive: true });
     _resetGitServiceRegistry();
     _resetEnrichmentService();
@@ -28,7 +42,11 @@ describe('CommitEnrichmentService', () => {
   });
 
   afterEach(async () => {
-    try { await getEnrichmentService().shutdown(); } catch { /* ignore */ }
+    try {
+      await getEnrichmentService().shutdown();
+    } catch {
+      /* ignore */
+    }
     _resetEnrichmentService();
     if (existsSync(testDir)) {
       rmSync(testDir, { recursive: true, force: true });
@@ -36,39 +54,48 @@ describe('CommitEnrichmentService', () => {
   });
 
   afterAll(async () => {
-    try { await getEnrichmentService().shutdown(); } catch { /* ignore */ }
+    try {
+      await getEnrichmentService().shutdown();
+    } catch {
+      /* ignore */
+    }
     _resetEnrichmentService();
   });
 
   function makeContext(overrides?: Partial<CommitContext>): CommitContext {
     return {
       workspaceDir: testDir,
-      trigger: 'turn',
-      sessionId: 'sess_test',
+      trigger: "turn",
+      sessionId: "sess_test",
       turnNumber: 1,
-      changedFiles: ['file.txt'],
+      changedFiles: ["file.txt"],
       timestampMs: Date.now(),
       ...overrides,
     };
   }
 
   async function createCommit(): Promise<string> {
-    writeFileSync(join(testDir, `file-${Date.now()}.txt`), 'content');
-    await gitService.commitChanges('test commit');
+    writeFileSync(join(testDir, `file-${Date.now()}.txt`), "content");
+    await gitService.commitChanges("test commit");
     return await gitService.getHeadHash();
   }
 
-  async function waitForDrain(service: CommitEnrichmentService, timeoutMs = 5000): Promise<void> {
+  async function waitForDrain(
+    service: CommitEnrichmentService,
+    timeoutMs = 5000,
+  ): Promise<void> {
     const started = Date.now();
     while (service._getQueueSize() > 0 || service._getActiveWorkers() > 0) {
       if (Date.now() - started > timeoutMs) {
-        throw new Error(`Timed out waiting for enrichment queue to drain after ${timeoutMs}ms`);
+        throw new Error(
+          `Timed out waiting for enrichment queue to drain after ${timeoutMs}ms`,
+        );
       }
-      await new Promise(resolve => setTimeout(resolve, 50));
+      await new Promise((resolve) => setTimeout(resolve, 50));
     }
   }
 
-  test('enqueue and execute writes git note on success', async () => {
+  test("enqueue and execute writes git note on success", async () => {
     const commitHash = await createCommit();
     const service = new CommitEnrichmentService({
       maxQueueSize: 10,
@@ -88,21 +115,25 @@ describe('CommitEnrichmentService', () => {
     await service.shutdown();
 
     // Verify git note was written
-    const noteContent = execFileSync('git', ['notes', '--ref=vellum', 'show', commitHash], {
-      cwd: testDir,
-      encoding: 'utf-8',
-    });
+    const noteContent = execFileSync(
+      "git",
+      ["notes", "--ref=vellum", "show", commitHash],
+      {
+        cwd: testDir,
+        encoding: "utf-8",
+      },
+    );
 
     const note = JSON.parse(noteContent);
     expect(note.enriched).toBe(true);
-    expect(note.trigger).toBe('turn');
-    expect(note.sessionId).toBe('sess_test');
+    expect(note.trigger).toBe("turn");
+    expect(note.sessionId).toBe("sess_test");
     expect(note.turnNumber).toBe(1);
     expect(note.filesChanged).toBe(1);
     expect(service._getSucceededCount()).toBe(1);
   });
 
-  test('queue overflow drops oldest job', async () => {
+  test("queue overflow drops oldest job", async () => {
     const service = new CommitEnrichmentService({
       maxQueueSize: 2,
       maxConcurrency: 1,
@@ -116,9 +147,24 @@ describe('CommitEnrichmentService', () => {
 
     // Enqueue 3 jobs — hash1 starts immediately (active worker),
     // hash2 goes to queue (size=1), hash3 goes to queue (size=2), no overflow drop.
-    service.enqueue({ workspaceDir: testDir, commitHash: hash1, context: makeContext(), gitService });
-    service.enqueue({ workspaceDir: testDir, commitHash: hash2, context: makeContext(), gitService });
-    service.enqueue({ workspaceDir: testDir, commitHash: hash3, context: makeContext(), gitService });
+    service.enqueue({
+      workspaceDir: testDir,
+      commitHash: hash1,
+      context: makeContext(),
+      gitService,
+    });
+    service.enqueue({
+      workspaceDir: testDir,
+      commitHash: hash2,
+      context: makeContext(),
+      gitService,
+    });
+    service.enqueue({
+      workspaceDir: testDir,
+      commitHash: hash3,
+      context: makeContext(),
+      gitService,
+    });
 
     // No overflow drops — queue size 2 can hold 2 pending while 1 is active
     expect(service._getDroppedCount()).toBe(0);
@@ -130,7 +176,7 @@ describe('CommitEnrichmentService', () => {
     expect(service._getSucceededCount()).toBe(1);
   });
 
-  test('queue overflow actually drops when truly full', async () => {
+  test("queue overflow actually drops when truly full", async () => {
     // Create a service where the worker is slow
     const service = new CommitEnrichmentService({
       maxQueueSize: 1,
@@ -146,16 +192,31 @@ describe('CommitEnrichmentService', () => {
     // hash1 starts processing immediately (active worker = 1, queue empty)
     // hash2 goes to queue (queue size = 1)
     // hash3 tries to go to queue but it's full → drops hash2, adds hash3
-    service.enqueue({ workspaceDir: testDir, commitHash: hash1, context: makeContext(), gitService });
-    service.enqueue({ workspaceDir: testDir, commitHash: hash2, context: makeContext(), gitService });
-    service.enqueue({ workspaceDir: testDir, commitHash: hash3, context: makeContext(), gitService });
+    service.enqueue({
+      workspaceDir: testDir,
+      commitHash: hash1,
+      context: makeContext(),
+      gitService,
+    });
+    service.enqueue({
+      workspaceDir: testDir,
+      commitHash: hash2,
+      context: makeContext(),
+      gitService,
+    });
+    service.enqueue({
+      workspaceDir: testDir,
+      commitHash: hash3,
+      context: makeContext(),
+      gitService,
+    });
 
     expect(service._getDroppedCount()).toBe(1);
 
     await service.shutdown();
   });
 
-  test('fire-and-forget enqueue does not block caller', async () => {
+  test("fire-and-forget enqueue does not block caller", async () => {
     const commitHash = await createCommit();
     const service = new CommitEnrichmentService({
       maxQueueSize: 10,
@@ -179,7 +240,7 @@ describe('CommitEnrichmentService', () => {
     await service.shutdown();
   });
 
-  test('graceful shutdown drains in-flight and discards pending', async () => {
+  test("graceful shutdown drains in-flight and discards pending", async () => {
     const hash1 = await createCommit();
     const hash2 = await createCommit();
 
@@ -190,8 +251,18 @@ describe('CommitEnrichmentService', () => {
       maxRetries: 0,
     });
 
-    service.enqueue({ workspaceDir: testDir, commitHash: hash1, context: makeContext(), gitService });
-    service.enqueue({ workspaceDir: testDir, commitHash: hash2, context: makeContext(), gitService });
+    service.enqueue({
+      workspaceDir: testDir,
+      commitHash: hash1,
+      context: makeContext(),
+      gitService,
+    });
+    service.enqueue({
+      workspaceDir: testDir,
+      commitHash: hash2,
+      context: makeContext(),
+      gitService,
+    });
 
     // Shutdown should complete without hanging
     await service.shutdown();
@@ -203,7 +274,7 @@ describe('CommitEnrichmentService', () => {
     expect(service._getQueueSize()).toBe(0);
   });
 
-  test('shutdown discards all pending jobs and counts them as dropped', async () => {
+  test("shutdown discards all pending jobs and counts them as dropped", async () => {
     // Use maxConcurrency 1 so only one job starts processing; the rest stay pending.
     const hashes: string[] = [];
     for (let i = 0; i < 5; i++) {
@@ -218,7 +289,12 @@ describe('CommitEnrichmentService', () => {
     });
 
     for (const hash of hashes) {
-      service.enqueue({ workspaceDir: testDir, commitHash: hash, context: makeContext(), gitService });
+      service.enqueue({
+        workspaceDir: testDir,
+        commitHash: hash,
+        context: makeContext(),
+        gitService,
+      });
     }
 
     // First job is in-flight, remaining 4 are pending
@@ -229,7 +305,7 @@ describe('CommitEnrichmentService', () => {
     expect(service._getDroppedCount()).toBe(4);
   });
 
-  test('shutdown does not cause concurrency spike', async () => {
+  test("shutdown does not cause concurrency spike", async () => {
     const hashes: string[] = [];
     for (let i = 0; i < 3; i++) {
       hashes.push(await createCommit());
@@ -243,7 +319,12 @@ describe('CommitEnrichmentService', () => {
     });
 
     for (const hash of hashes) {
-      service.enqueue({ workspaceDir: testDir, commitHash: hash, context: makeContext(), gitService });
+      service.enqueue({
+        workspaceDir: testDir,
+        commitHash: hash,
+        context: makeContext(),
+        gitService,
+      });
     }
 
     await service.shutdown();
@@ -252,7 +333,7 @@ describe('CommitEnrichmentService', () => {
     expect(service._getActiveWorkers()).toBe(0);
   });
 
-  test('discards jobs enqueued after shutdown', async () => {
+  test("discards jobs enqueued after shutdown", async () => {
     const commitHash = await createCommit();
     const service = new CommitEnrichmentService({
       maxQueueSize: 10,
@@ -275,7 +356,7 @@ describe('CommitEnrichmentService', () => {
     expect(service._getSucceededCount()).toBe(0);
   });
 
-  test('multiple successful enrichments write separate git notes', async () => {
+  test("multiple successful enrichments write separate git notes", async () => {
     const hash1 = await createCommit();
     const hash2 = await createCommit();
 
@@ -304,19 +385,25 @@ describe('CommitEnrichmentService', () => {
     await service.shutdown();
 
     // Both notes should exist
-    const note1 = JSON.parse(execFileSync('git', ['notes', '--ref=vellum', 'show', hash1], {
-      cwd: testDir, encoding: 'utf-8',
-    }));
-    const note2 = JSON.parse(execFileSync('git', ['notes', '--ref=vellum', 'show', hash2], {
-      cwd: testDir, encoding: 'utf-8',
-    }));
+    const note1 = JSON.parse(
+      execFileSync("git", ["notes", "--ref=vellum", "show", hash1], {
+        cwd: testDir,
+        encoding: "utf-8",
+      }),
+    );
+    const note2 = JSON.parse(
+      execFileSync("git", ["notes", "--ref=vellum", "show", hash2], {
+        cwd: testDir,
+        encoding: "utf-8",
+      }),
+    );
 
     expect(note1.turnNumber).toBe(1);
     expect(note2.turnNumber).toBe(2);
     expect(service._getSucceededCount()).toBe(2);
   });
 
-  test('job timeout triggers retry with backoff then fails after max retries', async () => {
+  test("job timeout triggers retry with backoff then fails after max retries", async () => {
     const service = new CommitEnrichmentService({
       maxQueueSize: 10,
       maxConcurrency: 1,
@@ -349,7 +436,7 @@ describe('CommitEnrichmentService', () => {
     expect(service._getSucceededCount()).toBe(0);
   }, 15000); // Allow up to 15s for backoff delays
 
-  test('queue overflow drop behavior is deterministic', async () => {
+  test("queue overflow drop behavior is deterministic", async () => {
     // With maxQueueSize=2 and maxConcurrency=1:
     // - Job A starts processing immediately (in-flight)
     // - Job B enters queue (size=1)
@@ -369,17 +456,42 @@ describe('CommitEnrichmentService', () => {
     const hashD = await createCommit();
     const hashE = await createCommit();
 
-    service.enqueue({ workspaceDir: testDir, commitHash: hashA, context: makeContext({ turnNumber: 1 }), gitService });
-    service.enqueue({ workspaceDir: testDir, commitHash: hashB, context: makeContext({ turnNumber: 2 }), gitService });
-    service.enqueue({ workspaceDir: testDir, commitHash: hashC, context: makeContext({ turnNumber: 3 }), gitService });
+    service.enqueue({
+      workspaceDir: testDir,
+      commitHash: hashA,
+      context: makeContext({ turnNumber: 1 }),
+      gitService,
+    });
+    service.enqueue({
+      workspaceDir: testDir,
+      commitHash: hashB,
+      context: makeContext({ turnNumber: 2 }),
+      gitService,
+    });
+    service.enqueue({
+      workspaceDir: testDir,
+      commitHash: hashC,
+      context: makeContext({ turnNumber: 3 }),
+      gitService,
+    });
     // No drops yet: A is in-flight, B and C in queue (size=2)
     expect(service._getDroppedCount()).toBe(0);
 
-    service.enqueue({ workspaceDir: testDir, commitHash: hashD, context: makeContext({ turnNumber: 4 }), gitService });
+    service.enqueue({
+      workspaceDir: testDir,
+      commitHash: hashD,
+      context: makeContext({ turnNumber: 4 }),
+      gitService,
+    });
     // Queue was full (2), so oldest (B) was dropped
     expect(service._getDroppedCount()).toBe(1);
 
-    service.enqueue({ workspaceDir: testDir, commitHash: hashE, context: makeContext({ turnNumber: 5 }), gitService });
+    service.enqueue({
+      workspaceDir: testDir,
+      commitHash: hashE,
+      context: makeContext({ turnNumber: 5 }),
+      gitService,
+    });
     // Queue was full again (2), so oldest (C) was dropped
     expect(service._getDroppedCount()).toBe(2);
 
@@ -394,7 +506,7 @@ describe('CommitEnrichmentService', () => {
     expect(service._getDroppedCount()).toBe(4);
   });
 
-  test('timed-out enrichment work is cancelled via AbortSignal', async () => {
+  test("timed-out enrichment work is cancelled via AbortSignal", async () => {
     // Track whether the slow enrichment work actually ran to completion
     let enrichmentCompleted = false;
     const commitHash = await createCommit();
@@ -411,17 +523,25 @@ describe('CommitEnrichmentService', () => {
     // child process on abort. This mock replicates that behavior by rejecting
     // when the signal fires.
     const originalWriteNote = gitService.writeNote.bind(gitService);
-    gitService.writeNote = async (_hash: string, _note: string, signal?: AbortSignal) => {
+    gitService.writeNote = async (
+      _hash: string,
+      _note: string,
+      signal?: AbortSignal,
+    ) => {
       // Simulate slow work that is cancellable via AbortSignal
       await new Promise<void>((resolve, reject) => {
         const timer = setTimeout(() => {
           enrichmentCompleted = true;
           resolve();
         }, 2000);
-        signal?.addEventListener('abort', () => {
-          clearTimeout(timer);
-          reject(new Error('aborted'));
-        }, { once: true });
+        signal?.addEventListener(
+          "abort",
+          () => {
+            clearTimeout(timer);
+            reject(new Error("aborted"));
+          },
+          { once: true },
+        );
       });
     };
 
@@ -438,7 +558,7 @@ describe('CommitEnrichmentService', () => {
     // Allow any zombie work to settle — if abort didn't work, the 2s timer
     // would still be running and would set enrichmentCompleted=true. Wait
     // longer than the 2000ms mock delay to reliably catch the regression.
-    await new Promise(resolve => setTimeout(resolve, 2500));
+    await new Promise((resolve) => setTimeout(resolve, 2500));
 
     // The job should have timed out and been counted as failed
     expect(service._getFailedCount()).toBe(1);
@@ -450,7 +570,7 @@ describe('CommitEnrichmentService', () => {
     gitService.writeNote = originalWriteNote;
   });
 
-  test('shutdown does not hang on timed-out jobs', async () => {
+  test("shutdown does not hang on timed-out jobs", async () => {
     const commitHash = await createCommit();
 
     const service = new CommitEnrichmentService({
@@ -463,13 +583,21 @@ describe('CommitEnrichmentService', () => {
     // Make writeNote artificially slow so the job will always time out.
     // The mock respects the abort signal so the subprocess is killed on timeout.
     const originalWriteNote = gitService.writeNote.bind(gitService);
-    gitService.writeNote = async (_hash: string, _note: string, signal?: AbortSignal) => {
+    gitService.writeNote = async (
+      _hash: string,
+      _note: string,
+      signal?: AbortSignal,
+    ) => {
       await new Promise<void>((resolve, reject) => {
         const timer = setTimeout(resolve, 5000);
-        signal?.addEventListener('abort', () => {
-          clearTimeout(timer);
-          reject(new Error('aborted'));
-        }, { once: true });
+        signal?.addEventListener(
+          "abort",
+          () => {
+            clearTimeout(timer);
+            reject(new Error("aborted"));
+          },
+          { once: true },
+        );
       });
     };
 
@@ -492,7 +620,7 @@ describe('CommitEnrichmentService', () => {
     gitService.writeNote = originalWriteNote;
   }, 10000);
 
-  test('abort signal is triggered on non-timeout errors before retry', async () => {
+  test("abort signal is triggered on non-timeout errors before retry", async () => {
     const commitHash = await createCommit();
 
     const service = new CommitEnrichmentService({
@@ -508,7 +636,7 @@ describe('CommitEnrichmentService', () => {
       // Set up a listener on the abort controller's signal to track abortion.
       // We access the signal indirectly by throwing, which triggers the catch
       // block in executeJob where controller.abort() is called.
-      throw new Error('Simulated writeNote failure');
+      throw new Error("Simulated writeNote failure");
     };
 
     service.enqueue({
@@ -528,7 +656,7 @@ describe('CommitEnrichmentService', () => {
     gitService.writeNote = originalWriteNote;
   });
 
-  test('enqueue is fire-and-forget and never throws even when called rapidly', async () => {
+  test("enqueue is fire-and-forget and never throws even when called rapidly", async () => {
     const service = new CommitEnrichmentService({
       maxQueueSize: 3,
       maxConcurrency: 1,

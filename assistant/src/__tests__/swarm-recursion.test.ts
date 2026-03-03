@@ -1,4 +1,4 @@
-import { beforeEach,describe, expect, mock, test } from 'bun:test';
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Gate that the SDK mock waits on, letting us hold a swarm active while
@@ -9,7 +9,9 @@ let gate: { promise: Promise<void>; resolve: () => void } | null = null;
 
 function openGate() {
   let resolve!: () => void;
-  const promise = new Promise<void>((r) => { resolve = r; });
+  const promise = new Promise<void>((r) => {
+    resolve = r;
+  });
   gate = { promise, resolve };
 }
 
@@ -22,19 +24,20 @@ function closeGate() {
 // Mocks — declared before imports
 // ---------------------------------------------------------------------------
 
-mock.module('../util/logger.js', () => ({
-  getLogger: () => new Proxy({} as Record<string, unknown>, {
-    get: () => () => {},
-  }),
+mock.module("../util/logger.js", () => ({
+  getLogger: () =>
+    new Proxy({} as Record<string, unknown>, {
+      get: () => () => {},
+    }),
 }));
 
-mock.module('../config/loader.js', () => ({
+mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
-    
-    provider: 'anthropic',
-    providerOrder: ['anthropic'],
-    apiKeys: { anthropic: 'test-key' },
+
+    provider: "anthropic",
+    providerOrder: ["anthropic"],
+    apiKeys: { anthropic: "test-key" },
     swarm: {
       enabled: true,
       maxWorkers: 3,
@@ -42,70 +45,79 @@ mock.module('../config/loader.js', () => ({
       maxRetriesPerTask: 1,
       workerTimeoutSec: 900,
       roleTimeoutsSec: {},
-      plannerModelIntent: 'latency-optimized',
-      synthesizerModelIntent: 'quality-optimized',
+      plannerModelIntent: "latency-optimized",
+      synthesizerModelIntent: "quality-optimized",
     },
   }),
 }));
 
 const mockProvider = {
-  name: 'test',
+  name: "test",
   async sendMessage() {
     return {
-      content: [{ type: 'text', text: '{"tasks":[{"id":"t1","role":"coder","objective":"Do it","dependencies":[]}]}' }],
-      model: 'test',
+      content: [
+        {
+          type: "text",
+          text: '{"tasks":[{"id":"t1","role":"coder","objective":"Do it","dependencies":[]}]}',
+        },
+      ],
+      model: "test",
       usage: { inputTokens: 10, outputTokens: 10 },
-      stopReason: 'end_turn',
+      stopReason: "end_turn",
     };
   },
 };
-mock.module('../providers/registry.js', () => ({
+mock.module("../providers/registry.js", () => ({
   getProvider: () => mockProvider,
   getFailoverProvider: () => mockProvider,
 }));
 
-mock.module('@anthropic-ai/claude-agent-sdk', () => ({
+mock.module("@anthropic-ai/claude-agent-sdk", () => ({
   query: () => ({
     async *[Symbol.asyncIterator]() {
       // If a gate is open, wait on it — this holds the swarm active
       if (gate) await gate.promise;
       yield {
-        type: 'result' as const,
-        session_id: 'test-session',
-        subtype: 'success' as const,
-        result: '```json\n{"summary":"Done","artifacts":[],"issues":[],"nextSteps":[]}\n```',
+        type: "result" as const,
+        session_id: "test-session",
+        subtype: "success" as const,
+        result:
+          '```json\n{"summary":"Done","artifacts":[],"issues":[],"nextSteps":[]}\n```',
       };
     },
   }),
 }));
 
-import { _resetSwarmActive,swarmDelegateTool } from '../tools/swarm/delegate.js';
-import type { ToolContext } from '../tools/types.js';
+import {
+  _resetSwarmActive,
+  swarmDelegateTool,
+} from "../tools/swarm/delegate.js";
+import type { ToolContext } from "../tools/types.js";
 
 function makeContext(overrides?: Partial<ToolContext>): ToolContext {
   return {
-    sessionId: 'test-session',
-    conversationId: 'test-conv',
-    workingDir: '/tmp/test',
-    guardianTrustClass: 'guardian',
+    sessionId: "test-session",
+    conversationId: "test-conv",
+    workingDir: "/tmp/test",
+    guardianTrustClass: "guardian",
     onOutput: () => {},
     ...overrides,
   } as ToolContext;
 }
 
-describe('swarm recursion guard (concurrent)', () => {
+describe("swarm recursion guard (concurrent)", () => {
   beforeEach(() => {
     _resetSwarmActive();
     closeGate();
   });
 
-  test('rejects second invocation on same session while first is still active', async () => {
+  test("rejects second invocation on same session while first is still active", async () => {
     openGate();
 
     // Start first swarm — it will pause at the SDK mock
     const first = swarmDelegateTool.execute(
-      { objective: 'First task' },
-      makeContext({ sessionId: 'session-A' }),
+      { objective: "First task" },
+      makeContext({ sessionId: "session-A" }),
     );
 
     // Yield to let first reach the SDK gate (executeSwarm path)
@@ -113,11 +125,11 @@ describe('swarm recursion guard (concurrent)', () => {
 
     // Second invocation on the same session should be rejected
     const second = await swarmDelegateTool.execute(
-      { objective: 'Second task' },
-      makeContext({ sessionId: 'session-A' }),
+      { objective: "Second task" },
+      makeContext({ sessionId: "session-A" }),
     );
     expect(second.isError).toBe(true);
-    expect(second.content).toContain('already executing');
+    expect(second.content).toContain("already executing");
 
     // Release the gate so first completes
     closeGate();
@@ -125,13 +137,13 @@ describe('swarm recursion guard (concurrent)', () => {
     expect(firstResult.isError).toBeFalsy();
   });
 
-  test('allows concurrent swarms on different sessions', async () => {
+  test("allows concurrent swarms on different sessions", async () => {
     openGate();
 
     // Start first swarm on session A
     const first = swarmDelegateTool.execute(
-      { objective: 'Session A task' },
-      makeContext({ sessionId: 'session-A' }),
+      { objective: "Session A task" },
+      makeContext({ sessionId: "session-A" }),
     );
 
     // Yield to let first reach the gate
@@ -142,8 +154,8 @@ describe('swarm recursion guard (concurrent)', () => {
 
     // Second swarm on a different session should succeed
     const second = await swarmDelegateTool.execute(
-      { objective: 'Session B task' },
-      makeContext({ sessionId: 'session-B' }),
+      { objective: "Session B task" },
+      makeContext({ sessionId: "session-B" }),
     );
     expect(second.isError).toBeFalsy();
 
@@ -151,18 +163,18 @@ describe('swarm recursion guard (concurrent)', () => {
     expect(firstResult.isError).toBeFalsy();
   });
 
-  test('guard is released after first swarm completes', async () => {
+  test("guard is released after first swarm completes", async () => {
     // Run and complete first swarm (no gate)
     const first = await swarmDelegateTool.execute(
-      { objective: 'First task' },
-      makeContext({ sessionId: 'session-A' }),
+      { objective: "First task" },
+      makeContext({ sessionId: "session-A" }),
     );
     expect(first.isError).toBeFalsy();
 
     // Same session should now be allowed again
     const second = await swarmDelegateTool.execute(
-      { objective: 'Second task' },
-      makeContext({ sessionId: 'session-A' }),
+      { objective: "Second task" },
+      makeContext({ sessionId: "session-A" }),
     );
     expect(second.isError).toBeFalsy();
   });

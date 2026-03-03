@@ -1,15 +1,20 @@
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync,writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, test } from "bun:test";
 
-import { afterEach,describe, expect, test } from 'bun:test';
-
-import { computeSkillVersionHash } from '../skills/version-hash.js';
+import { computeSkillVersionHash } from "../skills/version-hash.js";
 
 const testDirs: string[] = [];
 
 function makeTempSkill(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'skill-hash-test-'));
+  const dir = mkdtempSync(join(tmpdir(), "skill-hash-test-"));
   testDirs.push(dir);
   return dir;
 }
@@ -20,163 +25,172 @@ afterEach(() => {
   }
 });
 
-describe('computeSkillVersionHash', () => {
-  test('returns a v1: prefixed sha256 hash', () => {
+describe("computeSkillVersionHash", () => {
+  test("returns a v1: prefixed sha256 hash", () => {
     const dir = makeTempSkill();
-    writeFileSync(join(dir, 'SKILL.md'), '# My Skill\n');
+    writeFileSync(join(dir, "SKILL.md"), "# My Skill\n");
     const hash = computeSkillVersionHash(dir);
     expect(hash).toMatch(/^v1:[0-9a-f]{64}$/);
   });
 
-  test('is deterministic for same content', () => {
+  test("is deterministic for same content", () => {
     const dir = makeTempSkill();
-    writeFileSync(join(dir, 'SKILL.md'), '# My Skill\n');
-    writeFileSync(join(dir, 'executor.ts'), 'export const run = () => {};');
+    writeFileSync(join(dir, "SKILL.md"), "# My Skill\n");
+    writeFileSync(join(dir, "executor.ts"), "export const run = () => {};");
     const hash1 = computeSkillVersionHash(dir);
     const hash2 = computeSkillVersionHash(dir);
     expect(hash1).toBe(hash2);
   });
 
-  test('changes when file content changes', () => {
+  test("changes when file content changes", () => {
     const dir = makeTempSkill();
-    writeFileSync(join(dir, 'executor.ts'), 'export const run = () => "v1";');
+    writeFileSync(join(dir, "executor.ts"), 'export const run = () => "v1";');
     const hash1 = computeSkillVersionHash(dir);
 
-    writeFileSync(join(dir, 'executor.ts'), 'export const run = () => "v2";');
+    writeFileSync(join(dir, "executor.ts"), 'export const run = () => "v2";');
     const hash2 = computeSkillVersionHash(dir);
 
     expect(hash1).not.toBe(hash2);
   });
 
-  test('changes when a new file is added', () => {
+  test("changes when a new file is added", () => {
     const dir = makeTempSkill();
-    writeFileSync(join(dir, 'SKILL.md'), '# Skill\n');
+    writeFileSync(join(dir, "SKILL.md"), "# Skill\n");
     const hash1 = computeSkillVersionHash(dir);
 
-    writeFileSync(join(dir, 'extra.ts'), 'export {};');
+    writeFileSync(join(dir, "extra.ts"), "export {};");
     const hash2 = computeSkillVersionHash(dir);
 
     expect(hash1).not.toBe(hash2);
   });
 
-  test('is insensitive to file traversal order', () => {
+  test("is insensitive to file traversal order", () => {
     // Create two directories with the same files in different creation order
     const dir1 = makeTempSkill();
-    writeFileSync(join(dir1, 'b.ts'), 'b');
-    writeFileSync(join(dir1, 'a.ts'), 'a');
+    writeFileSync(join(dir1, "b.ts"), "b");
+    writeFileSync(join(dir1, "a.ts"), "a");
 
     const dir2 = makeTempSkill();
-    writeFileSync(join(dir2, 'a.ts'), 'a');
-    writeFileSync(join(dir2, 'b.ts'), 'b');
+    writeFileSync(join(dir2, "a.ts"), "a");
+    writeFileSync(join(dir2, "b.ts"), "b");
 
     expect(computeSkillVersionHash(dir1)).toBe(computeSkillVersionHash(dir2));
   });
 
-  test('excludes .vellum-skill-run directory', () => {
+  test("excludes .vellum-skill-run directory", () => {
     const dir = makeTempSkill();
-    writeFileSync(join(dir, 'SKILL.md'), '# Skill\n');
+    writeFileSync(join(dir, "SKILL.md"), "# Skill\n");
     const hash1 = computeSkillVersionHash(dir);
 
-    mkdirSync(join(dir, '.vellum-skill-run'), { recursive: true });
-    writeFileSync(join(dir, '.vellum-skill-run', 'state.json'), '{}');
+    mkdirSync(join(dir, ".vellum-skill-run"), { recursive: true });
+    writeFileSync(join(dir, ".vellum-skill-run", "state.json"), "{}");
     const hash2 = computeSkillVersionHash(dir);
 
     expect(hash1).toBe(hash2);
   });
 
-  test('excludes node_modules directory', () => {
+  test("excludes node_modules directory", () => {
     const dir = makeTempSkill();
-    writeFileSync(join(dir, 'SKILL.md'), '# Skill\n');
+    writeFileSync(join(dir, "SKILL.md"), "# Skill\n");
     const hash1 = computeSkillVersionHash(dir);
 
-    mkdirSync(join(dir, 'node_modules', 'dep'), { recursive: true });
-    writeFileSync(join(dir, 'node_modules', 'dep', 'index.js'), 'module.exports = {};');
+    mkdirSync(join(dir, "node_modules", "dep"), { recursive: true });
+    writeFileSync(
+      join(dir, "node_modules", "dep", "index.js"),
+      "module.exports = {};",
+    );
     const hash2 = computeSkillVersionHash(dir);
 
     expect(hash1).toBe(hash2);
   });
 
-  test('includes subdirectory files', () => {
+  test("includes subdirectory files", () => {
     const dir = makeTempSkill();
-    writeFileSync(join(dir, 'SKILL.md'), '# Skill\n');
+    writeFileSync(join(dir, "SKILL.md"), "# Skill\n");
     const hash1 = computeSkillVersionHash(dir);
 
-    mkdirSync(join(dir, 'tools'), { recursive: true });
-    writeFileSync(join(dir, 'tools', 'helper.ts'), 'export {};');
+    mkdirSync(join(dir, "tools"), { recursive: true });
+    writeFileSync(join(dir, "tools", "helper.ts"), "export {};");
     const hash2 = computeSkillVersionHash(dir);
 
     expect(hash1).not.toBe(hash2);
   });
 
-  test('empty directory produces a consistent hash', () => {
+  test("empty directory produces a consistent hash", () => {
     const dir = makeTempSkill();
     const hash = computeSkillVersionHash(dir);
     expect(hash).toMatch(/^v1:[0-9a-f]{64}$/);
   });
 
-  test('skips symlinked directories that point back into skill dir', () => {
+  test("skips symlinked directories that point back into skill dir", () => {
     const dir = makeTempSkill();
-    writeFileSync(join(dir, 'SKILL.md'), '# Skill\n');
+    writeFileSync(join(dir, "SKILL.md"), "# Skill\n");
     const hash1 = computeSkillVersionHash(dir);
 
     // Create a symlink that points back to the skill dir (would loop)
-    symlinkSync(dir, join(dir, 'loop'));
+    symlinkSync(dir, join(dir, "loop"));
     const hash2 = computeSkillVersionHash(dir);
 
     expect(hash1).toBe(hash2);
   });
 
-  test('resolves symlinked files and includes their content', () => {
+  test("resolves symlinked files and includes their content", () => {
     const dir = makeTempSkill();
-    writeFileSync(join(dir, 'real.ts'), 'export {};');
+    writeFileSync(join(dir, "real.ts"), "export {};");
     const hash1 = computeSkillVersionHash(dir);
 
     // Add a symlink to an existing file — should be included
-    symlinkSync(join(dir, 'real.ts'), join(dir, 'linked.ts'));
+    symlinkSync(join(dir, "real.ts"), join(dir, "linked.ts"));
     const hash2 = computeSkillVersionHash(dir);
 
     expect(hash1).not.toBe(hash2);
   });
 
-  test('skips symlinked directories that point to parent (avoids infinite recursion)', () => {
+  test("skips symlinked directories that point to parent (avoids infinite recursion)", () => {
     // Create a controlled parent so the symlink doesn't traverse the OS temp dir
     const parent = makeTempSkill();
-    const skillDir = join(parent, 'skill');
+    const skillDir = join(parent, "skill");
     mkdirSync(skillDir);
-    writeFileSync(join(skillDir, 'SKILL.md'), '# Skill\n');
+    writeFileSync(join(skillDir, "SKILL.md"), "# Skill\n");
 
     // Symlink "up -> .." resolves to `parent`, which contains `skill` as a
     // normal child — without cycle detection this causes infinite recursion.
-    symlinkSync(parent, join(skillDir, 'up'));
+    symlinkSync(parent, join(skillDir, "up"));
     const hash = computeSkillVersionHash(skillDir);
 
     expect(hash).toMatch(/^v1:[0-9a-f]{64}$/);
   });
 
-  test('hash changes when symlink target content changes', () => {
+  test("hash changes when symlink target content changes", () => {
     const dir = makeTempSkill();
     const external = makeTempSkill();
-    writeFileSync(join(external, 'executor.ts'), 'export const run = () => "v1";');
-    symlinkSync(join(external, 'executor.ts'), join(dir, 'executor.ts'));
+    writeFileSync(
+      join(external, "executor.ts"),
+      'export const run = () => "v1";',
+    );
+    symlinkSync(join(external, "executor.ts"), join(dir, "executor.ts"));
     const hash1 = computeSkillVersionHash(dir);
 
-    writeFileSync(join(external, 'executor.ts'), 'export const run = () => "v2";');
+    writeFileSync(
+      join(external, "executor.ts"),
+      'export const run = () => "v2";',
+    );
     const hash2 = computeSkillVersionHash(dir);
 
     expect(hash1).not.toBe(hash2);
   });
 
-  test('two symlinks to same external dir both contribute to hash', () => {
+  test("two symlinks to same external dir both contribute to hash", () => {
     const dir = makeTempSkill();
     const external = makeTempSkill();
-    writeFileSync(join(external, 'lib.ts'), 'export const x = 1;');
+    writeFileSync(join(external, "lib.ts"), "export const x = 1;");
 
     // Only one symlink alias
-    symlinkSync(external, join(dir, 'alias-a'));
+    symlinkSync(external, join(dir, "alias-a"));
     const hash1 = computeSkillVersionHash(dir);
 
     // Add a second symlink alias to the same external dir
-    symlinkSync(external, join(dir, 'alias-b'));
+    symlinkSync(external, join(dir, "alias-b"));
     const hash2 = computeSkillVersionHash(dir);
 
     expect(hash1).not.toBe(hash2);

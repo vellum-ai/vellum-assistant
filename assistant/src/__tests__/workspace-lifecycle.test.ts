@@ -5,29 +5,35 @@
  * This test wires together WorkspaceGitService, commitTurnChanges, and WorkspaceHeartbeatService
  * in the same flow a real daemon session would follow.
  */
-import { execFileSync } from 'node:child_process';
-import { existsSync,mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-
-import { afterAll, afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from "bun:test";
 
 import {
   _resetEnrichmentService,
   getEnrichmentService,
-} from '../workspace/commit-message-enrichment-service.js';
+} from "../workspace/commit-message-enrichment-service.js";
 import {
   _resetGitServiceRegistry,
   getWorkspaceGitService,
   WorkspaceGitService,
-} from '../workspace/git-service.js';
+} from "../workspace/git-service.js";
 import {
   _resetHeartbeatState,
   WorkspaceHeartbeatService,
-} from '../workspace/heartbeat-service.js';
-import { commitTurnChanges } from '../workspace/turn-commit.js';
+} from "../workspace/heartbeat-service.js";
+import { commitTurnChanges } from "../workspace/turn-commit.js";
 
-describe('Workspace git lifecycle (integration)', () => {
+describe("Workspace git lifecycle (integration)", () => {
   let testDir: string;
 
   beforeEach(() => {
@@ -41,7 +47,11 @@ describe('Workspace git lifecycle (integration)', () => {
   });
 
   afterEach(async () => {
-    try { await getEnrichmentService().shutdown(); } catch { /* ignore */ }
+    try {
+      await getEnrichmentService().shutdown();
+    } catch {
+      /* ignore */
+    }
     _resetEnrichmentService();
     if (existsSync(testDir)) {
       rmSync(testDir, { recursive: true, force: true });
@@ -49,7 +59,11 @@ describe('Workspace git lifecycle (integration)', () => {
   });
 
   afterAll(async () => {
-    try { await getEnrichmentService().shutdown(); } catch { /* ignore */ }
+    try {
+      await getEnrichmentService().shutdown();
+    } catch {
+      /* ignore */
+    }
     _resetEnrichmentService();
   });
 
@@ -58,7 +72,7 @@ describe('Workspace git lifecycle (integration)', () => {
   function gitEnv(cwd: string): Record<string, string> {
     const env: Record<string, string> = {};
     for (const [key, value] of Object.entries(process.env)) {
-      if (value !== undefined && !key.startsWith('GIT_')) {
+      if (value !== undefined && !key.startsWith("GIT_")) {
         env[key] = value;
       }
     }
@@ -67,85 +81,102 @@ describe('Workspace git lifecycle (integration)', () => {
   }
 
   // Helper to read git log output
-  function gitLog(cwd: string, format = '--oneline'): string {
-    return execFileSync('git', ['log', format], { cwd, encoding: 'utf-8', env: gitEnv(cwd) }).trim();
+  function gitLog(cwd: string, format = "--oneline"): string {
+    return execFileSync("git", ["log", format], {
+      cwd,
+      encoding: "utf-8",
+      env: gitEnv(cwd),
+    }).trim();
   }
 
   function commitCount(cwd: string): number {
     return parseInt(
-      execFileSync('git', ['rev-list', '--count', 'HEAD'], { cwd, encoding: 'utf-8', env: gitEnv(cwd) }).trim(),
+      execFileSync("git", ["rev-list", "--count", "HEAD"], {
+        cwd,
+        encoding: "utf-8",
+        env: gitEnv(cwd),
+      }).trim(),
       10,
     );
   }
 
   function lastCommitMessage(cwd: string): string {
-    return execFileSync('git', ['log', '-1', '--pretty=%B'], { cwd, encoding: 'utf-8', env: gitEnv(cwd) }).trim();
+    return execFileSync("git", ["log", "-1", "--pretty=%B"], {
+      cwd,
+      encoding: "utf-8",
+      env: gitEnv(cwd),
+    }).trim();
   }
 
   function lastCommitFiles(cwd: string): string[] {
-    return execFileSync('git', ['diff', '--name-only', 'HEAD~1', 'HEAD'], {
+    return execFileSync("git", ["diff", "--name-only", "HEAD~1", "HEAD"], {
       cwd,
-      encoding: 'utf-8',
+      encoding: "utf-8",
       env: gitEnv(cwd),
     })
       .trim()
-      .split('\n')
+      .split("\n")
       .filter(Boolean);
   }
 
-  test('full lifecycle: init → turns → heartbeat → history', async () => {
-    const sessionId = 'sess_lifecycle_test';
+  test("full lifecycle: init → turns → heartbeat → history", async () => {
+    const sessionId = "sess_lifecycle_test";
 
     // ----------------------------------------------------------------
     // Step 1: Lazy initialization — workspace starts without a git repo
     // ----------------------------------------------------------------
-    expect(existsSync(join(testDir, '.git'))).toBe(false);
+    expect(existsSync(join(testDir, ".git"))).toBe(false);
 
     // Pre-populate workspace with files (simulates existing workspace)
-    writeFileSync(join(testDir, 'README.md'), '# My Project');
-    writeFileSync(join(testDir, 'config.json'), '{"version": 1}');
+    writeFileSync(join(testDir, "README.md"), "# My Project");
+    writeFileSync(join(testDir, "config.json"), '{"version": 1}');
 
     // Getting the service via the singleton registry is how session.ts does it
     const service = getWorkspaceGitService(testDir);
     await service.ensureInitialized();
 
     // Verify lazy init created the repo and the initial commit
-    expect(existsSync(join(testDir, '.git'))).toBe(true);
+    expect(existsSync(join(testDir, ".git"))).toBe(true);
     expect(commitCount(testDir)).toBe(1);
-    expect(lastCommitMessage(testDir)).toContain('Initial commit: migrated existing workspace');
+    expect(lastCommitMessage(testDir)).toContain(
+      "Initial commit: migrated existing workspace",
+    );
 
     // ----------------------------------------------------------------
     // Step 2: Turn 1 — assistant edits files, turn-boundary commit fires
     // ----------------------------------------------------------------
-    writeFileSync(join(testDir, 'hello.ts'), 'export const greeting = "hello";');
-    writeFileSync(join(testDir, 'config.json'), '{"version": 2}');
+    writeFileSync(
+      join(testDir, "hello.ts"),
+      'export const greeting = "hello";',
+    );
+    writeFileSync(join(testDir, "config.json"), '{"version": 2}');
 
     await commitTurnChanges(testDir, sessionId, 1);
 
     expect(commitCount(testDir)).toBe(2);
     const turn1Msg = lastCommitMessage(testDir);
-    expect(turn1Msg).toContain('Turn:');
-    expect(turn1Msg).toContain('Session: sess_lifecycle_test');
-    expect(turn1Msg).toContain('Turn: 1');
-    expect(turn1Msg).toContain('Files: 2 changed');
+    expect(turn1Msg).toContain("Turn:");
+    expect(turn1Msg).toContain("Session: sess_lifecycle_test");
+    expect(turn1Msg).toContain("Turn: 1");
+    expect(turn1Msg).toContain("Files: 2 changed");
     expect(turn1Msg).toMatch(/Timestamp: \d{4}-\d{2}-\d{2}T/);
 
     const turn1Files = lastCommitFiles(testDir);
-    expect(turn1Files).toContain('hello.ts');
-    expect(turn1Files).toContain('config.json');
+    expect(turn1Files).toContain("hello.ts");
+    expect(turn1Files).toContain("config.json");
 
     // ----------------------------------------------------------------
     // Step 3: Turn 2 — more edits
     // ----------------------------------------------------------------
-    mkdirSync(join(testDir, 'src'), { recursive: true });
-    writeFileSync(join(testDir, 'src', 'index.ts'), 'console.log("hello");');
+    mkdirSync(join(testDir, "src"), { recursive: true });
+    writeFileSync(join(testDir, "src", "index.ts"), 'console.log("hello");');
 
     await commitTurnChanges(testDir, sessionId, 2);
 
     expect(commitCount(testDir)).toBe(3);
     const turn2Msg = lastCommitMessage(testDir);
-    expect(turn2Msg).toContain('Turn: 2');
-    expect(turn2Msg).toContain('Files: 1 changed');
+    expect(turn2Msg).toContain("Turn: 2");
+    expect(turn2Msg).toContain("Files: 1 changed");
 
     // ----------------------------------------------------------------
     // Step 4: Turn 3 — no changes (should NOT create a commit)
@@ -157,7 +188,10 @@ describe('Workspace git lifecycle (integration)', () => {
     // Step 5: Heartbeat safety net — simulate uncommitted changes
     //         that linger past the age threshold
     // ----------------------------------------------------------------
-    writeFileSync(join(testDir, 'background-output.log.txt'), 'background process output');
+    writeFileSync(
+      join(testDir, "background-output.log.txt"),
+      "background process output",
+    );
 
     // Build a services map the way the heartbeat does at runtime
     const services = new Map<string, WorkspaceGitService>();
@@ -184,44 +218,44 @@ describe('Workspace git lifecycle (integration)', () => {
     expect(commitCount(testDir)).toBe(4);
 
     const heartbeatMsg = lastCommitMessage(testDir);
-    expect(heartbeatMsg).toContain('auto-commit');
-    expect(heartbeatMsg).toContain('heartbeat');
-    expect(heartbeatMsg).toContain('safety net');
+    expect(heartbeatMsg).toContain("auto-commit");
+    expect(heartbeatMsg).toContain("heartbeat");
+    expect(heartbeatMsg).toContain("safety net");
 
     // ----------------------------------------------------------------
     // Step 6: Verify full commit history has correct ordering/metadata
     // ----------------------------------------------------------------
-    const fullLog = gitLog(testDir, '--oneline');
-    const lines = fullLog.split('\n');
+    const fullLog = gitLog(testDir, "--oneline");
+    const lines = fullLog.split("\n");
     expect(lines.length).toBe(4);
 
     // Most recent first
-    expect(lines[0]).toContain('auto-commit');
-    expect(lines[1]).toContain('Turn:');
-    expect(lines[2]).toContain('Turn:');
-    expect(lines[3]).toContain('Initial commit');
+    expect(lines[0]).toContain("auto-commit");
+    expect(lines[1]).toContain("Turn:");
+    expect(lines[2]).toContain("Turn:");
+    expect(lines[3]).toContain("Initial commit");
 
     // ----------------------------------------------------------------
     // Step 7: Shutdown commit — one more file, then graceful shutdown
     // ----------------------------------------------------------------
-    writeFileSync(join(testDir, 'unsaved-work.txt'), 'important unsaved data');
+    writeFileSync(join(testDir, "unsaved-work.txt"), "important unsaved data");
 
     const shutdownResult = await heartbeat.commitAllPending();
     expect(shutdownResult.committed).toBe(1);
     expect(commitCount(testDir)).toBe(5);
-    expect(lastCommitMessage(testDir)).toContain('shutdown');
+    expect(lastCommitMessage(testDir)).toContain("shutdown");
   });
 
-  test('workspace recovers from corrupted .git directory', async () => {
+  test("workspace recovers from corrupted .git directory", async () => {
     // Initialize a real repo, then corrupt it by removing HEAD.
     // This is more realistic than an empty .git dir (which behaves
     // differently across git versions and CI environments).
-    execFileSync('git', ['init', '-b', 'main'], {
+    execFileSync("git", ["init", "-b", "main"], {
       cwd: testDir,
-      encoding: 'utf-8',
+      encoding: "utf-8",
       env: gitEnv(testDir),
     });
-    rmSync(join(testDir, '.git', 'HEAD'));
+    rmSync(join(testDir, ".git", "HEAD"));
 
     const service = new WorkspaceGitService(testDir);
 
@@ -237,7 +271,7 @@ describe('Workspace git lifecycle (integration)', () => {
     expect(service.isInitialized()).toBe(true);
   });
 
-  test('concurrent turn commits and heartbeats do not conflict', async () => {
+  test("concurrent turn commits and heartbeats do not conflict", async () => {
     const service = new WorkspaceGitService(testDir);
     await service.ensureInitialized();
 
@@ -255,7 +289,7 @@ describe('Workspace git lifecycle (integration)', () => {
     const operations: Promise<unknown>[] = [];
     for (let i = 0; i < 5; i++) {
       writeFileSync(join(testDir, `concurrent-${i}.txt`), `content ${i}`);
-      operations.push(commitTurnChanges(testDir, 'sess_concurrent', i + 1));
+      operations.push(commitTurnChanges(testDir, "sess_concurrent", i + 1));
       operations.push(heartbeat.check());
     }
 
@@ -267,17 +301,17 @@ describe('Workspace git lifecycle (integration)', () => {
     expect(status.clean).toBe(true);
   });
 
-  test('fire-and-forget pattern does not lose commits', async () => {
+  test("fire-and-forget pattern does not lose commits", async () => {
     const service = new WorkspaceGitService(testDir);
     await service.ensureInitialized();
 
     // Simulate the session.ts fire-and-forget pattern:
     // `void commitTurnChanges(...)` -- the void discards the promise
-    writeFileSync(join(testDir, 'fire-forget-1.txt'), 'content 1');
-    const p1 = commitTurnChanges(testDir, 'sess_ff', 1);
+    writeFileSync(join(testDir, "fire-forget-1.txt"), "content 1");
+    const p1 = commitTurnChanges(testDir, "sess_ff", 1);
 
-    writeFileSync(join(testDir, 'fire-forget-2.txt'), 'content 2');
-    const p2 = commitTurnChanges(testDir, 'sess_ff', 2);
+    writeFileSync(join(testDir, "fire-forget-2.txt"), "content 2");
+    const p2 = commitTurnChanges(testDir, "sess_ff", 2);
 
     // Even though session.ts doesn't await these, they should eventually complete
     await Promise.all([p1, p2]);
@@ -293,7 +327,7 @@ describe('Workspace git lifecycle (integration)', () => {
     expect(status.clean).toBe(true);
   });
 
-  test('getWorkspaceGitService returns same instance across turn commits and heartbeat', async () => {
+  test("getWorkspaceGitService returns same instance across turn commits and heartbeat", async () => {
     // Verify the singleton registry is coherent across all modules
     const fromTurnCommitPath = getWorkspaceGitService(testDir);
     const fromHeartbeatPath = getWorkspaceGitService(testDir);

@@ -1,12 +1,15 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, test } from "bun:test";
 
-import { isAssistantFeatureFlagEnabled } from '../config/assistant-feature-flags.js';
-import type { AssistantConfig } from '../config/schema.js';
-import { isSkillFeatureEnabled, resolveSkillStates } from '../config/skill-state.js';
-import type { SkillSummary } from '../config/skills.js';
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
+import type { AssistantConfig } from "../config/schema.js";
+import {
+  isSkillFeatureEnabled,
+  resolveSkillStates,
+} from "../config/skill-state.js";
+import type { SkillSummary } from "../config/skills.js";
 
-const DECLARED_FLAG_KEY = 'feature_flags.hatch-new-assistant.enabled';
-const DECLARED_SKILL_ID = 'hatch-new-assistant';
+const DECLARED_FLAG_KEY = "feature_flags.hatch-new-assistant.enabled";
+const DECLARED_SKILL_ID = "hatch-new-assistant";
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -17,24 +20,34 @@ function makeConfig(overrides: Partial<AssistantConfig> = {}): AssistantConfig {
     skills: {
       entries: {},
       load: { extraDirs: [], watch: true, watchDebounceMs: 250 },
-      install: { nodeManager: 'npm' },
+      install: { nodeManager: "npm" },
       allowBundled: null,
-      remoteProviders: { skillssh: { enabled: true }, clawhub: { enabled: true } },
-      remotePolicy: { blockSuspicious: true, blockMalware: true, maxSkillsShRisk: 'medium' },
+      remoteProviders: {
+        skillssh: { enabled: true },
+        clawhub: { enabled: true },
+      },
+      remotePolicy: {
+        blockSuspicious: true,
+        blockMalware: true,
+        maxSkillsShRisk: "medium",
+      },
     },
     ...overrides,
   } as AssistantConfig;
 }
 
 /** Create a minimal SkillSummary for testing. */
-function makeSkill(id: string, source: 'bundled' | 'managed' = 'bundled'): SkillSummary {
+function makeSkill(
+  id: string,
+  source: "bundled" | "managed" = "bundled",
+): SkillSummary {
   return {
     id,
     name: `${id} skill`,
     description: `Description for ${id}`,
     directoryPath: `/fake/skills/${id}`,
     skillFilePath: `/fake/skills/${id}/SKILL.md`,
-    bundled: source === 'bundled',
+    bundled: source === "bundled",
     userInvocable: true,
     disableModelInvocation: false,
     source,
@@ -45,20 +58,20 @@ function makeSkill(id: string, source: 'bundled' | 'managed' = 'bundled'): Skill
 // isSkillFeatureEnabled (legacy wrapper — backward compat)
 // ---------------------------------------------------------------------------
 
-describe('isSkillFeatureEnabled', () => {
-  test('returns true when no flag overrides', () => {
+describe("isSkillFeatureEnabled", () => {
+  test("returns true when no flag overrides", () => {
     const config = makeConfig();
     expect(isSkillFeatureEnabled(DECLARED_SKILL_ID, config)).toBe(true);
   });
 
-  test('returns true when skill key is explicitly true', () => {
+  test("returns true when skill key is explicitly true", () => {
     const config = makeConfig({
       assistantFeatureFlagValues: { [DECLARED_FLAG_KEY]: true },
     });
     expect(isSkillFeatureEnabled(DECLARED_SKILL_ID, config)).toBe(true);
   });
 
-  test('returns false when skill key is explicitly false', () => {
+  test("returns false when skill key is explicitly false", () => {
     const config = makeConfig({
       assistantFeatureFlagValues: { [DECLARED_FLAG_KEY]: false },
     });
@@ -70,36 +83,44 @@ describe('isSkillFeatureEnabled', () => {
 // isAssistantFeatureFlagEnabled (full canonical key)
 // ---------------------------------------------------------------------------
 
-describe('isAssistantFeatureFlagEnabled', () => {
-  test('returns true for unknown flags (open by default)', () => {
+describe("isAssistantFeatureFlagEnabled", () => {
+  test("returns true for unknown flags (open by default)", () => {
     const config = makeConfig();
-    expect(isAssistantFeatureFlagEnabled('feature_flags.unknown.enabled', config)).toBe(true);
+    expect(
+      isAssistantFeatureFlagEnabled("feature_flags.unknown.enabled", config),
+    ).toBe(true);
   });
 
-  test('assistantFeatureFlagValues overrides registry default', () => {
+  test("assistantFeatureFlagValues overrides registry default", () => {
     const config = {
       ...makeConfig(),
       assistantFeatureFlagValues: { [DECLARED_FLAG_KEY]: false },
     } as AssistantConfig;
-    expect(isAssistantFeatureFlagEnabled(DECLARED_FLAG_KEY, config)).toBe(false);
+    expect(isAssistantFeatureFlagEnabled(DECLARED_FLAG_KEY, config)).toBe(
+      false,
+    );
   });
 
-  test('falls back to registry default when no override', () => {
+  test("falls back to registry default when no override", () => {
     const config = makeConfig();
     // hatch-new-assistant defaults to true in the registry
     expect(isAssistantFeatureFlagEnabled(DECLARED_FLAG_KEY, config)).toBe(true);
   });
 
-  test('respects persisted overrides for undeclared keys', () => {
+  test("respects persisted overrides for undeclared keys", () => {
     const config = makeConfig({
-      assistantFeatureFlagValues: { 'feature_flags.browser.enabled': false },
+      assistantFeatureFlagValues: { "feature_flags.browser.enabled": false },
     });
-    expect(isAssistantFeatureFlagEnabled('feature_flags.browser.enabled', config)).toBe(false);
+    expect(
+      isAssistantFeatureFlagEnabled("feature_flags.browser.enabled", config),
+    ).toBe(false);
   });
 
-  test('undeclared keys with no persisted override default to enabled', () => {
+  test("undeclared keys with no persisted override default to enabled", () => {
     const config = makeConfig();
-    expect(isAssistantFeatureFlagEnabled('feature_flags.browser.enabled', config)).toBe(true);
+    expect(
+      isAssistantFeatureFlagEnabled("feature_flags.browser.enabled", config),
+    ).toBe(true);
   });
 });
 
@@ -107,9 +128,9 @@ describe('isAssistantFeatureFlagEnabled', () => {
 // resolveSkillStates — feature flag filtering
 // ---------------------------------------------------------------------------
 
-describe('resolveSkillStates with feature flags', () => {
-  test('flag OFF skill does not appear in resolved list', () => {
-    const catalog = [makeSkill(DECLARED_SKILL_ID), makeSkill('twitter')];
+describe("resolveSkillStates with feature flags", () => {
+  test("flag OFF skill does not appear in resolved list", () => {
+    const catalog = [makeSkill(DECLARED_SKILL_ID), makeSkill("twitter")];
     const config = makeConfig({
       assistantFeatureFlagValues: { [DECLARED_FLAG_KEY]: false },
     });
@@ -118,15 +139,15 @@ describe('resolveSkillStates with feature flags', () => {
     const ids = resolved.map((r) => r.summary.id);
 
     expect(ids).not.toContain(DECLARED_SKILL_ID);
-    expect(ids).toContain('twitter');
+    expect(ids).toContain("twitter");
   });
 
-  test('flag ON skill appears normally', () => {
-    const catalog = [makeSkill(DECLARED_SKILL_ID), makeSkill('twitter')];
+  test("flag ON skill appears normally", () => {
+    const catalog = [makeSkill(DECLARED_SKILL_ID), makeSkill("twitter")];
     const config = makeConfig({
       assistantFeatureFlagValues: {
         [DECLARED_FLAG_KEY]: true,
-        'feature_flags.twitter.enabled': true,
+        "feature_flags.twitter.enabled": true,
       },
     });
 
@@ -134,10 +155,10 @@ describe('resolveSkillStates with feature flags', () => {
     const ids = resolved.map((r) => r.summary.id);
 
     expect(ids).toContain(DECLARED_SKILL_ID);
-    expect(ids).toContain('twitter');
+    expect(ids).toContain("twitter");
   });
 
-  test('missing flag key defaults to enabled', () => {
+  test("missing flag key defaults to enabled", () => {
     const catalog = [makeSkill(DECLARED_SKILL_ID)];
     const config = makeConfig();
 
@@ -146,17 +167,24 @@ describe('resolveSkillStates with feature flags', () => {
     expect(resolved[0].summary.id).toBe(DECLARED_SKILL_ID);
   });
 
-  test('feature flag OFF takes precedence over user-enabled config entry', () => {
+  test("feature flag OFF takes precedence over user-enabled config entry", () => {
     const catalog = [makeSkill(DECLARED_SKILL_ID)];
     const config = makeConfig({
       assistantFeatureFlagValues: { [DECLARED_FLAG_KEY]: false },
       skills: {
         entries: { [DECLARED_SKILL_ID]: { enabled: true } },
         load: { extraDirs: [], watch: true, watchDebounceMs: 250 },
-        install: { nodeManager: 'npm' },
+        install: { nodeManager: "npm" },
         allowBundled: null,
-        remoteProviders: { skillssh: { enabled: true }, clawhub: { enabled: true } },
-        remotePolicy: { blockSuspicious: true, blockMalware: true, maxSkillsShRisk: 'medium' },
+        remoteProviders: {
+          skillssh: { enabled: true },
+          clawhub: { enabled: true },
+        },
+        remotePolicy: {
+          blockSuspicious: true,
+          blockMalware: true,
+          maxSkillsShRisk: "medium",
+        },
       },
     });
 
@@ -165,16 +193,16 @@ describe('resolveSkillStates with feature flags', () => {
     expect(resolved.length).toBe(0);
   });
 
-  test('multiple skills with mixed flags — persisted overrides respected', () => {
+  test("multiple skills with mixed flags — persisted overrides respected", () => {
     const catalog = [
       makeSkill(DECLARED_SKILL_ID),
-      makeSkill('twitter'),
-      makeSkill('deploy'),
+      makeSkill("twitter"),
+      makeSkill("deploy"),
     ];
     const config = makeConfig({
       assistantFeatureFlagValues: {
         [DECLARED_FLAG_KEY]: false,
-        'feature_flags.deploy.enabled': false,
+        "feature_flags.deploy.enabled": false,
       },
     });
 
@@ -183,6 +211,6 @@ describe('resolveSkillStates with feature flags', () => {
 
     // Both declared (hatch-new-assistant) and undeclared (deploy) skills with
     // persisted false overrides are filtered out; only twitter remains.
-    expect(ids).toEqual(['twitter']);
+    expect(ids).toEqual(["twitter"]);
   });
 });

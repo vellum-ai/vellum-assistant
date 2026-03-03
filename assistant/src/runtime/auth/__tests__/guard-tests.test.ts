@@ -12,48 +12,47 @@
  * 4. Scope profile contract — every profile resolves to the expected scopes.
  */
 
-import { execSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { execSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { describe, expect, test } from "bun:test";
 
-import { describe, expect, test } from 'bun:test';
-
-import { resolveScopeProfile } from '../scopes.js';
-import type { Scope, ScopeProfile } from '../types.js';
+import { resolveScopeProfile } from "../scopes.js";
+import type { Scope, ScopeProfile } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 /** Project root (one level above assistant/). */
-const PROJECT_ROOT = resolve(import.meta.dir, '../../../../..');
+const PROJECT_ROOT = resolve(import.meta.dir, "../../../../..");
 
 function isTestFile(filePath: string): boolean {
   return (
-    filePath.includes('/__tests__/') ||
-    filePath.endsWith('.test.ts') ||
-    filePath.endsWith('.test.js') ||
-    filePath.endsWith('.spec.ts') ||
-    filePath.endsWith('.spec.js')
+    filePath.includes("/__tests__/") ||
+    filePath.endsWith(".test.ts") ||
+    filePath.endsWith(".test.js") ||
+    filePath.endsWith(".spec.ts") ||
+    filePath.endsWith(".spec.js")
   );
 }
 
 function isDocFile(filePath: string): boolean {
-  return filePath.endsWith('.md');
+  return filePath.endsWith(".md");
 }
 
 // ---------------------------------------------------------------------------
 // 1. Route policy coverage
 // ---------------------------------------------------------------------------
 
-describe('route policy coverage', () => {
-  test('every endpoint dispatched in http-server.ts has a policy entry in route-policy.ts', () => {
+describe("route policy coverage", () => {
+  test("every endpoint dispatched in http-server.ts has a policy entry in route-policy.ts", () => {
     // Read both files as source text.
-    const httpServerPath = resolve(import.meta.dir, '../../http-server.ts');
-    const routePolicyPath = resolve(import.meta.dir, '../route-policy.ts');
+    const httpServerPath = resolve(import.meta.dir, "../../http-server.ts");
+    const routePolicyPath = resolve(import.meta.dir, "../route-policy.ts");
 
-    const httpServerSrc = readFileSync(httpServerPath, 'utf-8');
-    const routePolicySrc = readFileSync(routePolicyPath, 'utf-8');
+    const httpServerSrc = readFileSync(httpServerPath, "utf-8");
+    const routePolicySrc = readFileSync(routePolicyPath, "utf-8");
 
     // Extract endpoint strings from dispatchEndpoint. We look for patterns
     // like `endpoint === 'foo'` which is the dispatch pattern.
@@ -67,9 +66,7 @@ describe('route policy coverage', () => {
 
     // These endpoints are handled in dispatchEndpoint but intentionally
     // don't need a route policy (they are unprotected utility endpoints).
-    const UNPROTECTED_ENDPOINTS = new Set([
-      'health',
-    ]);
+    const UNPROTECTED_ENDPOINTS = new Set(["health"]);
 
     // Extract registered policy endpoint strings from route-policy.ts.
     // Match: `{ endpoint: 'foo' }` entries, `registerPolicy('foo', ...)`
@@ -103,8 +100,8 @@ describe('route policy coverage', () => {
 
       // Check if the plain endpoint or any method-qualified variant is registered
       const hasPlainPolicy = registeredPolicies.has(endpoint);
-      const hasMethodPolicy = [...registeredPolicies].some(
-        (p) => p.startsWith(endpoint + ':'),
+      const hasMethodPolicy = [...registeredPolicies].some((p) =>
+        p.startsWith(endpoint + ":"),
       );
 
       if (!hasPlainPolicy && !hasMethodPolicy) {
@@ -114,14 +111,14 @@ describe('route policy coverage', () => {
 
     if (missingPolicies.length > 0) {
       const message = [
-        'Endpoints dispatched in http-server.ts have no route policy in route-policy.ts:',
-        '',
+        "Endpoints dispatched in http-server.ts have no route policy in route-policy.ts:",
+        "",
         ...missingPolicies.map((e) => `  - ${e}`),
-        '',
-        'Every protected endpoint must have a policy entry.',
-        'Add a registerPolicy() call or ACTOR_ENDPOINTS entry in route-policy.ts.',
-        'If truly unprotected, add to UNPROTECTED_ENDPOINTS in this guard test.',
-      ].join('\n');
+        "",
+        "Every protected endpoint must have a policy entry.",
+        "Add a registerPolicy() call or ACTOR_ENDPOINTS entry in route-policy.ts.",
+        "If truly unprotected, add to UNPROTECTED_ENDPOINTS in this guard test.",
+      ].join("\n");
       expect(missingPolicies, message).toEqual([]);
     }
   });
@@ -131,13 +128,13 @@ describe('route policy coverage', () => {
 // 2. No X-Actor-Token references in production code
 // ---------------------------------------------------------------------------
 
-describe('no X-Actor-Token in production code', () => {
-  test('production files do not reference X-Actor-Token', () => {
-    let grepOutput = '';
+describe("no X-Actor-Token in production code", () => {
+  test("production files do not reference X-Actor-Token", () => {
+    let grepOutput = "";
     try {
       grepOutput = execSync(
         `git grep -liE "X-Actor-Token" -- '*.ts' '*.tsx' '*.js' '*.swift'`,
-        { encoding: 'utf-8', cwd: PROJECT_ROOT },
+        { encoding: "utf-8", cwd: PROJECT_ROOT },
       ).trim();
     } catch (err) {
       // Exit code 1 means no matches — that's the happy path.
@@ -145,13 +142,13 @@ describe('no X-Actor-Token in production code', () => {
       throw err;
     }
 
-    const files = grepOutput.split('\n').filter((f) => f.length > 0);
+    const files = grepOutput.split("\n").filter((f) => f.length > 0);
 
     // Files that are allowed to mention X-Actor-Token (comments explaining
     // the migration, or this guard test itself).
     const ALLOWLIST = new Set([
       // This guard test references it by definition
-      'assistant/src/runtime/auth/__tests__/guard-tests.test.ts',
+      "assistant/src/runtime/auth/__tests__/guard-tests.test.ts",
     ]);
 
     const violations = files.filter((f) => {
@@ -163,15 +160,15 @@ describe('no X-Actor-Token in production code', () => {
 
     if (violations.length > 0) {
       const message = [
-        'Production files still reference X-Actor-Token.',
-        'The old two-header auth model has been replaced by single JWT auth.',
-        '',
-        'Violations:',
+        "Production files still reference X-Actor-Token.",
+        "The old two-header auth model has been replaced by single JWT auth.",
+        "",
+        "Violations:",
         ...violations.map((f) => `  - ${f}`),
-        '',
-        'Remove or update these references.',
-        'If a comment explains the migration, that is fine — add the file to the ALLOWLIST.',
-      ].join('\n');
+        "",
+        "Remove or update these references.",
+        "If a comment explains the migration, that is fine — add the file to the ALLOWLIST.",
+      ].join("\n");
       expect(violations, message).toEqual([]);
     }
   });
@@ -181,23 +178,23 @@ describe('no X-Actor-Token in production code', () => {
 // 3. No legacy GATEWAY_ORIGIN_HEADER / verifyGatewayOrigin in production code
 // ---------------------------------------------------------------------------
 
-describe('no legacy gateway-origin proof in production code', () => {
-  test('production files do not import or use GATEWAY_ORIGIN_HEADER or verifyGatewayOrigin', () => {
-    let grepOutput = '';
+describe("no legacy gateway-origin proof in production code", () => {
+  test("production files do not import or use GATEWAY_ORIGIN_HEADER or verifyGatewayOrigin", () => {
+    let grepOutput = "";
     try {
       grepOutput = execSync(
         `git grep -lE "GATEWAY_ORIGIN_HEADER|verifyGatewayOrigin" -- '*.ts' '*.tsx'`,
-        { encoding: 'utf-8', cwd: PROJECT_ROOT },
+        { encoding: "utf-8", cwd: PROJECT_ROOT },
       ).trim();
     } catch (err) {
       if ((err as { status?: number }).status === 1) return;
       throw err;
     }
 
-    const files = grepOutput.split('\n').filter((f) => f.length > 0);
+    const files = grepOutput.split("\n").filter((f) => f.length > 0);
 
     const ALLOWLIST = new Set([
-      'assistant/src/runtime/auth/__tests__/guard-tests.test.ts',
+      "assistant/src/runtime/auth/__tests__/guard-tests.test.ts",
     ]);
 
     const violations = files.filter((f) => {
@@ -209,14 +206,14 @@ describe('no legacy gateway-origin proof in production code', () => {
 
     if (violations.length > 0) {
       const message = [
-        'Production files still reference GATEWAY_ORIGIN_HEADER or verifyGatewayOrigin.',
-        'Gateway origin is now proven by JWT principal type (svc_gateway), not a separate header.',
-        '',
-        'Violations:',
+        "Production files still reference GATEWAY_ORIGIN_HEADER or verifyGatewayOrigin.",
+        "Gateway origin is now proven by JWT principal type (svc_gateway), not a separate header.",
+        "",
+        "Violations:",
         ...violations.map((f) => `  - ${f}`),
-        '',
-        'Remove or update these references.',
-      ].join('\n');
+        "",
+        "Remove or update these references.",
+      ].join("\n");
       expect(violations, message).toEqual([]);
     }
   });
@@ -226,37 +223,32 @@ describe('no legacy gateway-origin proof in production code', () => {
 // 4. Scope profile contract
 // ---------------------------------------------------------------------------
 
-describe('scope profile contract', () => {
+describe("scope profile contract", () => {
   const EXPECTED_PROFILES: Record<ScopeProfile, Scope[]> = {
     actor_client_v1: [
-      'chat.read',
-      'chat.write',
-      'approval.read',
-      'approval.write',
-      'settings.read',
-      'settings.write',
-      'attachments.read',
-      'attachments.write',
-      'calls.read',
-      'calls.write',
-      'feature_flags.read',
-      'feature_flags.write',
+      "chat.read",
+      "chat.write",
+      "approval.read",
+      "approval.write",
+      "settings.read",
+      "settings.write",
+      "attachments.read",
+      "attachments.write",
+      "calls.read",
+      "calls.write",
+      "feature_flags.read",
+      "feature_flags.write",
     ],
-    gateway_ingress_v1: [
-      'ingress.write',
-      'internal.write',
-    ],
+    gateway_ingress_v1: ["ingress.write", "internal.write"],
     gateway_service_v1: [
-      'chat.write',
-      'settings.read',
-      'settings.write',
-      'attachments.read',
-      'attachments.write',
-      'internal.write',
+      "chat.write",
+      "settings.read",
+      "settings.write",
+      "attachments.read",
+      "attachments.write",
+      "internal.write",
     ],
-    ipc_v1: [
-      'ipc.all',
-    ],
+    ipc_v1: ["ipc.all"],
   };
 
   for (const [profile, expectedScopes] of Object.entries(EXPECTED_PROFILES)) {
@@ -270,15 +262,15 @@ describe('scope profile contract', () => {
     });
   }
 
-  test('all ScopeProfile values are covered by the contract test', () => {
+  test("all ScopeProfile values are covered by the contract test", () => {
     // The type system ensures EXPECTED_PROFILES covers all ScopeProfile
     // values via the Record<ScopeProfile, ...> type. This test verifies
     // that resolveScopeProfile returns a non-empty set for each.
     const profiles: ScopeProfile[] = [
-      'actor_client_v1',
-      'gateway_ingress_v1',
-      'gateway_service_v1',
-      'ipc_v1',
+      "actor_client_v1",
+      "gateway_ingress_v1",
+      "gateway_service_v1",
+      "ipc_v1",
     ];
 
     for (const profile of profiles) {

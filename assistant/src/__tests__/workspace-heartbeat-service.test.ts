@@ -1,28 +1,46 @@
-import { execFileSync } from 'node:child_process';
-import { existsSync,mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from "bun:test";
 
-import { afterAll,afterEach, beforeEach, describe, expect, test } from 'bun:test';
-
-import { _resetEnrichmentService, getEnrichmentService } from '../workspace/commit-message-enrichment-service.js';
-import type { CommitContext, CommitMessageProvider, CommitMessageResult } from '../workspace/commit-message-provider.js';
+import {
+  _resetEnrichmentService,
+  getEnrichmentService,
+} from "../workspace/commit-message-enrichment-service.js";
+import type {
+  CommitContext,
+  CommitMessageProvider,
+  CommitMessageResult,
+} from "../workspace/commit-message-provider.js";
 import {
   _resetGitServiceRegistry,
   WorkspaceGitService,
-} from '../workspace/git-service.js';
+} from "../workspace/git-service.js";
 import {
   _resetHeartbeatState,
   WorkspaceHeartbeatService,
-} from '../workspace/heartbeat-service.js';
+} from "../workspace/heartbeat-service.js";
 
-describe('WorkspaceHeartbeatService', () => {
+describe("WorkspaceHeartbeatService", () => {
   let testDir: string;
   let service: WorkspaceGitService;
   let services: Map<string, WorkspaceGitService>;
 
   beforeEach(async () => {
-    testDir = join(tmpdir(), `vellum-heartbeat-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    testDir = join(
+      tmpdir(),
+      `vellum-heartbeat-test-${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2)}`,
+    );
     mkdirSync(testDir, { recursive: true });
     _resetGitServiceRegistry();
     _resetHeartbeatState();
@@ -36,7 +54,11 @@ describe('WorkspaceHeartbeatService', () => {
 
   afterEach(async () => {
     // Shut down any in-flight enrichment work before removing the test directory
-    try { await getEnrichmentService().shutdown(); } catch { /* ignore */ }
+    try {
+      await getEnrichmentService().shutdown();
+    } catch {
+      /* ignore */
+    }
     _resetEnrichmentService();
     if (existsSync(testDir)) {
       rmSync(testDir, { recursive: true, force: true });
@@ -44,12 +66,16 @@ describe('WorkspaceHeartbeatService', () => {
   });
 
   afterAll(async () => {
-    try { await getEnrichmentService().shutdown(); } catch { /* ignore */ }
+    try {
+      await getEnrichmentService().shutdown();
+    } catch {
+      /* ignore */
+    }
     _resetEnrichmentService();
   });
 
-  describe('heartbeat check with age threshold', () => {
-    test('does not commit when workspace is clean', async () => {
+  describe("heartbeat check with age threshold", () => {
+    test("does not commit when workspace is clean", async () => {
       const heartbeat = new WorkspaceHeartbeatService({
         ageThresholdMs: 0, // Immediate
         fileThreshold: 1,
@@ -63,8 +89,8 @@ describe('WorkspaceHeartbeatService', () => {
       expect(result.skipped).toBe(1);
     });
 
-    test('does not commit when changes are below age and file thresholds', async () => {
-      writeFileSync(join(testDir, 'file.txt'), 'content');
+    test("does not commit when changes are below age and file thresholds", async () => {
+      writeFileSync(join(testDir, "file.txt"), "content");
 
       const heartbeat = new WorkspaceHeartbeatService({
         ageThresholdMs: 10 * 60 * 1000, // 10 minutes
@@ -79,8 +105,8 @@ describe('WorkspaceHeartbeatService', () => {
       expect(result.skipped).toBe(1);
     });
 
-    test('commits when changes exceed age threshold', async () => {
-      writeFileSync(join(testDir, 'file.txt'), 'content');
+    test("commits when changes exceed age threshold", async () => {
+      writeFileSync(join(testDir, "file.txt"), "content");
 
       let currentTime = 1000000;
       const heartbeat = new WorkspaceHeartbeatService({
@@ -101,16 +127,16 @@ describe('WorkspaceHeartbeatService', () => {
       expect(secondResult.committed).toBe(1);
 
       // Verify commit message
-      const commitMsg = execFileSync('git', ['log', '-1', '--pretty=%B'], {
+      const commitMsg = execFileSync("git", ["log", "-1", "--pretty=%B"], {
         cwd: testDir,
-        encoding: 'utf-8',
+        encoding: "utf-8",
       });
-      expect(commitMsg).toContain('auto-commit');
-      expect(commitMsg).toContain('heartbeat');
-      expect(commitMsg).toContain('safety net');
+      expect(commitMsg).toContain("auto-commit");
+      expect(commitMsg).toContain("heartbeat");
+      expect(commitMsg).toContain("safety net");
     });
 
-    test('commits when file count exceeds threshold', async () => {
+    test("commits when file count exceeds threshold", async () => {
       // Create enough files to exceed the threshold
       for (let i = 0; i < 25; i++) {
         writeFileSync(join(testDir, `file${i}.txt`), `content ${i}`);
@@ -127,16 +153,16 @@ describe('WorkspaceHeartbeatService', () => {
       expect(result.committed).toBe(1);
 
       // Verify commit message mentions file count
-      const commitMsg = execFileSync('git', ['log', '-1', '--pretty=%B'], {
+      const commitMsg = execFileSync("git", ["log", "-1", "--pretty=%B"], {
         cwd: testDir,
-        encoding: 'utf-8',
+        encoding: "utf-8",
       });
-      expect(commitMsg).toContain('25 files changed');
+      expect(commitMsg).toContain("25 files changed");
     });
   });
 
-  describe('normal operation does not create spurious commits', () => {
-    test('clean workspace produces no heartbeat commits', async () => {
+  describe("normal operation does not create spurious commits", () => {
+    test("clean workspace produces no heartbeat commits", async () => {
       const heartbeat = new WorkspaceHeartbeatService({
         ageThresholdMs: 0,
         fileThreshold: 1,
@@ -150,16 +176,16 @@ describe('WorkspaceHeartbeatService', () => {
       }
 
       // Only the initial commit should exist
-      const commitCount = execFileSync('git', ['rev-list', '--count', 'HEAD'], {
+      const commitCount = execFileSync("git", ["rev-list", "--count", "HEAD"], {
         cwd: testDir,
-        encoding: 'utf-8',
+        encoding: "utf-8",
       }).trim();
       expect(parseInt(commitCount, 10)).toBe(1);
     });
 
-    test('changes below both thresholds do not trigger heartbeat commit', async () => {
+    test("changes below both thresholds do not trigger heartbeat commit", async () => {
       // Create a small number of files (below file threshold)
-      writeFileSync(join(testDir, 'small-change.txt'), 'content');
+      writeFileSync(join(testDir, "small-change.txt"), "content");
 
       const heartbeat = new WorkspaceHeartbeatService({
         ageThresholdMs: 10 * 60 * 1000, // 10 minutes
@@ -172,8 +198,8 @@ describe('WorkspaceHeartbeatService', () => {
       expect(result.skipped).toBe(1);
     });
 
-    test('does not double-commit after turn-boundary commit clears changes', async () => {
-      writeFileSync(join(testDir, 'file.txt'), 'content');
+    test("does not double-commit after turn-boundary commit clears changes", async () => {
+      writeFileSync(join(testDir, "file.txt"), "content");
 
       let currentTime = 1000000;
       const heartbeat = new WorkspaceHeartbeatService({
@@ -187,7 +213,7 @@ describe('WorkspaceHeartbeatService', () => {
       await heartbeat.check();
 
       // Simulate a turn-boundary commit that clears the changes
-      await service.commitChanges('Turn-boundary commit');
+      await service.commitChanges("Turn-boundary commit");
 
       // Advance time past the threshold
       currentTime += 6 * 60 * 1000;
@@ -199,9 +225,9 @@ describe('WorkspaceHeartbeatService', () => {
     });
   });
 
-  describe('shutdown commits', () => {
-    test('commits pending changes on shutdown', async () => {
-      writeFileSync(join(testDir, 'unsaved.txt'), 'uncommitted content');
+  describe("shutdown commits", () => {
+    test("commits pending changes on shutdown", async () => {
+      writeFileSync(join(testDir, "unsaved.txt"), "uncommitted content");
 
       const heartbeat = new WorkspaceHeartbeatService({
         getServices: () => services,
@@ -213,16 +239,16 @@ describe('WorkspaceHeartbeatService', () => {
       expect(result.committed).toBe(1);
 
       // Verify commit message
-      const commitMsg = execFileSync('git', ['log', '-1', '--pretty=%B'], {
+      const commitMsg = execFileSync("git", ["log", "-1", "--pretty=%B"], {
         cwd: testDir,
-        encoding: 'utf-8',
+        encoding: "utf-8",
       });
-      expect(commitMsg).toContain('auto-commit');
-      expect(commitMsg).toContain('shutdown');
-      expect(commitMsg).toContain('safety net');
+      expect(commitMsg).toContain("auto-commit");
+      expect(commitMsg).toContain("shutdown");
+      expect(commitMsg).toContain("safety net");
     });
 
-    test('does not commit on shutdown when workspace is clean', async () => {
+    test("does not commit on shutdown when workspace is clean", async () => {
       const heartbeat = new WorkspaceHeartbeatService({
         getServices: () => services,
       });
@@ -234,15 +260,20 @@ describe('WorkspaceHeartbeatService', () => {
       expect(result.skipped).toBe(1);
     });
 
-    test('shutdown commits multiple workspaces', async () => {
-      const testDir2 = join(tmpdir(), `vellum-heartbeat-test2-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    test("shutdown commits multiple workspaces", async () => {
+      const testDir2 = join(
+        tmpdir(),
+        `vellum-heartbeat-test2-${Date.now()}-${Math.random()
+          .toString(36)
+          .slice(2)}`,
+      );
       mkdirSync(testDir2, { recursive: true });
       const service2 = new WorkspaceGitService(testDir2);
       await service2.ensureInitialized();
       services.set(testDir2, service2);
 
-      writeFileSync(join(testDir, 'file1.txt'), 'content1');
-      writeFileSync(join(testDir2, 'file2.txt'), 'content2');
+      writeFileSync(join(testDir, "file1.txt"), "content1");
+      writeFileSync(join(testDir2, "file2.txt"), "content2");
 
       const heartbeat = new WorkspaceHeartbeatService({
         getServices: () => services,
@@ -258,9 +289,12 @@ describe('WorkspaceHeartbeatService', () => {
     });
   });
 
-  describe('uninitialized workspaces', () => {
-    test('skips uninitialized workspaces', async () => {
-      const uninitDir = join(tmpdir(), `vellum-uninit-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  describe("uninitialized workspaces", () => {
+    test("skips uninitialized workspaces", async () => {
+      const uninitDir = join(
+        tmpdir(),
+        `vellum-uninit-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      );
       mkdirSync(uninitDir, { recursive: true });
 
       const uninitService = new WorkspaceGitService(uninitDir);
@@ -268,7 +302,7 @@ describe('WorkspaceHeartbeatService', () => {
       mixedServices.set(uninitDir, uninitService);
       mixedServices.set(testDir, service);
 
-      writeFileSync(join(testDir, 'file.txt'), 'content');
+      writeFileSync(join(testDir, "file.txt"), "content");
 
       const heartbeat = new WorkspaceHeartbeatService({
         ageThresholdMs: 0,
@@ -289,8 +323,8 @@ describe('WorkspaceHeartbeatService', () => {
     });
   });
 
-  describe('threshold behavior', () => {
-    test('resets dirty tracking after successful commit', async () => {
+  describe("threshold behavior", () => {
+    test("resets dirty tracking after successful commit", async () => {
       let currentTime = 1000000;
       const heartbeat = new WorkspaceHeartbeatService({
         ageThresholdMs: 5 * 60 * 1000,
@@ -300,7 +334,7 @@ describe('WorkspaceHeartbeatService', () => {
       });
 
       // Create changes and register dirty state
-      writeFileSync(join(testDir, 'file1.txt'), 'content');
+      writeFileSync(join(testDir, "file1.txt"), "content");
       await heartbeat.check(); // Records first-seen time
 
       // Advance past threshold and commit
@@ -309,7 +343,7 @@ describe('WorkspaceHeartbeatService', () => {
       expect(firstResult.committed).toBe(1);
 
       // Create new changes after the commit
-      writeFileSync(join(testDir, 'file2.txt'), 'more content');
+      writeFileSync(join(testDir, "file2.txt"), "more content");
 
       // Check again immediately -- should not commit (dirty timer was reset)
       const secondResult = await heartbeat.check();
@@ -321,8 +355,8 @@ describe('WorkspaceHeartbeatService', () => {
       expect(thirdResult.committed).toBe(1);
     });
 
-    test('commit message includes trigger metadata', async () => {
-      writeFileSync(join(testDir, 'file.txt'), 'content');
+    test("commit message includes trigger metadata", async () => {
+      writeFileSync(join(testDir, "file.txt"), "content");
 
       const heartbeat = new WorkspaceHeartbeatService({
         ageThresholdMs: 0,
@@ -334,16 +368,16 @@ describe('WorkspaceHeartbeatService', () => {
       await heartbeat.check();
       await heartbeat.check();
 
-      const commitMsg = execFileSync('git', ['log', '-1', '--pretty=%B'], {
+      const commitMsg = execFileSync("git", ["log", "-1", "--pretty=%B"], {
         cwd: testDir,
-        encoding: 'utf-8',
+        encoding: "utf-8",
       });
       expect(commitMsg).toContain('trigger: "heartbeat"');
     });
   });
 
-  describe('start and stop', () => {
-    test('start and stop are idempotent', async () => {
+  describe("start and stop", () => {
+    test("start and stop are idempotent", async () => {
       const heartbeat = new WorkspaceHeartbeatService({
         intervalMs: 60000,
         getServices: () => services,
@@ -357,9 +391,9 @@ describe('WorkspaceHeartbeatService', () => {
     });
   });
 
-  describe('custom commit message provider', () => {
-    test('heartbeat commit uses custom provider message', async () => {
-      writeFileSync(join(testDir, 'file.txt'), 'content');
+  describe("custom commit message provider", () => {
+    test("heartbeat commit uses custom provider message", async () => {
+      writeFileSync(join(testDir, "file.txt"), "content");
 
       const customProvider: CommitMessageProvider = {
         buildImmediateMessage(ctx: CommitContext): CommitMessageResult {
@@ -387,17 +421,17 @@ describe('WorkspaceHeartbeatService', () => {
       const result = await heartbeat.check();
       expect(result.committed).toBe(1);
 
-      const commitMsg = execFileSync('git', ['log', '-1', '--pretty=%B'], {
+      const commitMsg = execFileSync("git", ["log", "-1", "--pretty=%B"], {
         cwd: testDir,
-        encoding: 'utf-8',
+        encoding: "utf-8",
       });
-      expect(commitMsg).toContain('CUSTOM-HEARTBEAT:');
-      expect(commitMsg).toContain('via heartbeat');
-      expect(commitMsg).toContain('customProvider: true');
+      expect(commitMsg).toContain("CUSTOM-HEARTBEAT:");
+      expect(commitMsg).toContain("via heartbeat");
+      expect(commitMsg).toContain("customProvider: true");
     });
 
-    test('shutdown commit uses custom provider message', async () => {
-      writeFileSync(join(testDir, 'unsaved.txt'), 'uncommitted content');
+    test("shutdown commit uses custom provider message", async () => {
+      writeFileSync(join(testDir, "unsaved.txt"), "uncommitted content");
 
       const customProvider: CommitMessageProvider = {
         buildImmediateMessage(ctx: CommitContext): CommitMessageResult {
@@ -416,23 +450,23 @@ describe('WorkspaceHeartbeatService', () => {
       const result = await heartbeat.commitAllPending();
       expect(result.committed).toBe(1);
 
-      const commitMsg = execFileSync('git', ['log', '-1', '--pretty=%B'], {
+      const commitMsg = execFileSync("git", ["log", "-1", "--pretty=%B"], {
         cwd: testDir,
-        encoding: 'utf-8',
+        encoding: "utf-8",
       });
-      expect(commitMsg).toContain('CUSTOM-SHUTDOWN: saving');
-      expect(commitMsg).toContain('shutdownProvider: true');
+      expect(commitMsg).toContain("CUSTOM-SHUTDOWN: saving");
+      expect(commitMsg).toContain("shutdownProvider: true");
     });
 
-    test('custom provider receives correct context fields for heartbeat trigger', async () => {
-      writeFileSync(join(testDir, 'a.txt'), 'a');
-      writeFileSync(join(testDir, 'b.txt'), 'b');
+    test("custom provider receives correct context fields for heartbeat trigger", async () => {
+      writeFileSync(join(testDir, "a.txt"), "a");
+      writeFileSync(join(testDir, "b.txt"), "b");
 
       let capturedCtx: CommitContext | null = null;
       const customProvider: CommitMessageProvider = {
         buildImmediateMessage(ctx: CommitContext): CommitMessageResult {
           capturedCtx = ctx;
-          return { message: 'capture-context' };
+          return { message: "capture-context" };
         },
       };
 
@@ -452,22 +486,22 @@ describe('WorkspaceHeartbeatService', () => {
       await heartbeat.check();
 
       expect(capturedCtx).not.toBeNull();
-      expect(capturedCtx!.trigger).toBe('heartbeat');
+      expect(capturedCtx!.trigger).toBe("heartbeat");
       expect(capturedCtx!.workspaceDir).toBe(testDir);
-      expect(capturedCtx!.changedFiles).toContain('a.txt');
-      expect(capturedCtx!.changedFiles).toContain('b.txt');
+      expect(capturedCtx!.changedFiles).toContain("a.txt");
+      expect(capturedCtx!.changedFiles).toContain("b.txt");
       expect(capturedCtx!.timestampMs).toBe(currentTime);
       expect(capturedCtx!.reason).toBeDefined();
     });
 
-    test('custom provider receives correct context fields for shutdown trigger', async () => {
-      writeFileSync(join(testDir, 'shutdown-file.txt'), 'data');
+    test("custom provider receives correct context fields for shutdown trigger", async () => {
+      writeFileSync(join(testDir, "shutdown-file.txt"), "data");
 
       let capturedCtx: CommitContext | null = null;
       const customProvider: CommitMessageProvider = {
         buildImmediateMessage(ctx: CommitContext): CommitMessageResult {
           capturedCtx = ctx;
-          return { message: 'capture-shutdown-context' };
+          return { message: "capture-shutdown-context" };
         },
       };
 
@@ -479,9 +513,9 @@ describe('WorkspaceHeartbeatService', () => {
       await heartbeat.commitAllPending();
 
       expect(capturedCtx).not.toBeNull();
-      expect(capturedCtx!.trigger).toBe('shutdown');
+      expect(capturedCtx!.trigger).toBe("shutdown");
       expect(capturedCtx!.workspaceDir).toBe(testDir);
-      expect(capturedCtx!.changedFiles).toContain('shutdown-file.txt');
+      expect(capturedCtx!.changedFiles).toContain("shutdown-file.txt");
     });
   });
 });

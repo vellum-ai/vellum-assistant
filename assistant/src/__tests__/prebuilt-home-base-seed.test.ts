@@ -1,33 +1,36 @@
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test';
+const testDir = mkdtempSync(join(tmpdir(), "home-base-seed-test-"));
 
-const testDir = mkdtempSync(join(tmpdir(), 'home-base-seed-test-'));
-
-mock.module('../util/platform.js', () => ({
+mock.module("../util/platform.js", () => ({
   getDataDir: () => testDir,
-  isMacOS: () => process.platform === 'darwin',
-  isLinux: () => process.platform === 'linux',
-  isWindows: () => process.platform === 'win32',
-  getSocketPath: () => join(testDir, 'test.sock'),
-  getPidPath: () => join(testDir, 'test.pid'),
-  getDbPath: () => join(testDir, 'test.db'),
-  getLogPath: () => join(testDir, 'test.log'),
+  isMacOS: () => process.platform === "darwin",
+  isLinux: () => process.platform === "linux",
+  isWindows: () => process.platform === "win32",
+  getSocketPath: () => join(testDir, "test.sock"),
+  getPidPath: () => join(testDir, "test.pid"),
+  getDbPath: () => join(testDir, "test.db"),
+  getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
 }));
 
-mock.module('../util/logger.js', () => ({
-  getLogger: () => new Proxy({} as Record<string, unknown>, {
-    get: () => () => {},
-  }),
+mock.module("../util/logger.js", () => ({
+  getLogger: () =>
+    new Proxy({} as Record<string, unknown>, {
+      get: () => () => {},
+    }),
 }));
 
-import { ensurePrebuiltHomeBaseSeeded, findSeededHomeBaseApp } from '../home-base/prebuilt/seed.js';
-import { getApp, listApps, updateApp } from '../memory/app-store.js';
+import {
+  ensurePrebuiltHomeBaseSeeded,
+  findSeededHomeBaseApp,
+} from "../home-base/prebuilt/seed.js";
+import { getApp, listApps, updateApp } from "../memory/app-store.js";
 
-describe('prebuilt home base seed', () => {
+describe("prebuilt home base seed", () => {
   beforeEach(() => {
     rmSync(testDir, { recursive: true, force: true });
     mkdirSync(testDir, { recursive: true });
@@ -37,7 +40,7 @@ describe('prebuilt home base seed', () => {
     rmSync(testDir, { recursive: true, force: true });
   });
 
-  test('seeds a prebuilt Home Base app and is idempotent', () => {
+  test("seeds a prebuilt Home Base app and is idempotent", () => {
     const first = ensurePrebuiltHomeBaseSeeded();
     const second = ensurePrebuiltHomeBaseSeeded();
 
@@ -46,10 +49,10 @@ describe('prebuilt home base seed', () => {
     expect(first!.created).toBe(true);
     expect(second!.created).toBe(false);
     expect(second!.appId).toBe(first!.appId);
-    expect(listApps().filter((app) => app.name === 'Home Base').length).toBe(1);
+    expect(listApps().filter((app) => app.name === "Home Base").length).toBe(1);
   });
 
-  test('findSeededHomeBaseApp resolves the seeded app', () => {
+  test("findSeededHomeBaseApp resolves the seeded app", () => {
     const seeded = ensurePrebuiltHomeBaseSeeded();
     expect(seeded).not.toBeNull();
     const found = findSeededHomeBaseApp();
@@ -60,10 +63,10 @@ describe('prebuilt home base seed', () => {
     // in the JSON file — it is persisted as index.html on disk.
     // Use getApp() to load the full definition including htmlDefinition.
     const fullApp = getApp(found!.id);
-    expect(fullApp?.htmlDefinition).toContain('home-base-starter-lane');
+    expect(fullApp?.htmlDefinition).toContain("home-base-starter-lane");
   });
 
-  test('rejects updates that remove required Home Base anchors', () => {
+  test("rejects updates that remove required Home Base anchors", () => {
     const seeded = ensurePrebuiltHomeBaseSeeded();
     expect(seeded).not.toBeNull();
 
@@ -71,6 +74,6 @@ describe('prebuilt home base seed', () => {
       updateApp(seeded!.appId, {
         htmlDefinition: '<main id="home-base-root"></main>',
       });
-    }).toThrow('missing required anchors');
+    }).toThrow("missing required anchors");
   });
 });

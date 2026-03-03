@@ -1,65 +1,80 @@
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { afterAll, beforeEach, describe, expect, mock,test } from 'bun:test';
+const testDir = mkdtempSync(join(tmpdir(), "scheduler-recurrence-test-"));
 
-const testDir = mkdtempSync(join(tmpdir(), 'scheduler-recurrence-test-'));
-
-mock.module('../util/platform.js', () => ({
+mock.module("../util/platform.js", () => ({
   getDataDir: () => testDir,
-  isMacOS: () => process.platform === 'darwin',
-  isLinux: () => process.platform === 'linux',
-  isWindows: () => process.platform === 'win32',
-  getSocketPath: () => join(testDir, 'test.sock'),
-  getPidPath: () => join(testDir, 'test.pid'),
-  getDbPath: () => join(testDir, 'test.db'),
-  getLogPath: () => join(testDir, 'test.log'),
+  isMacOS: () => process.platform === "darwin",
+  isLinux: () => process.platform === "linux",
+  isWindows: () => process.platform === "win32",
+  getSocketPath: () => join(testDir, "test.sock"),
+  getPidPath: () => join(testDir, "test.pid"),
+  getDbPath: () => join(testDir, "test.db"),
+  getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
   migrateToDataLayout: () => {},
   migrateToWorkspaceLayout: () => {},
 }));
 
-mock.module('../util/logger.js', () => ({
-  getLogger: () => new Proxy({} as Record<string, unknown>, {
-    get: () => () => {},
-  }),
+mock.module("../util/logger.js", () => ({
+  getLogger: () =>
+    new Proxy({} as Record<string, unknown>, {
+      get: () => () => {},
+    }),
   isDebug: () => false,
   truncateForLog: (value: string) => value,
 }));
 
-import { getDb, initializeDb, resetDb } from '../memory/db.js';
+import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import {
   createSchedule,
   getSchedule,
   getScheduleRuns,
-} from '../schedule/schedule-store.js';
-import { startScheduler } from '../schedule/scheduler.js';
-import { createTask } from '../tasks/task-store.js';
-import { getReminder, insertReminder } from '../tools/reminder/reminder-store.js';
+} from "../schedule/schedule-store.js";
+import { startScheduler } from "../schedule/scheduler.js";
+import { createTask } from "../tasks/task-store.js";
+import {
+  getReminder,
+  insertReminder,
+} from "../tools/reminder/reminder-store.js";
 
 initializeDb();
 
 /** Access the underlying bun:sqlite Database for raw parameterized queries. */
-function getRawDb(): import('bun:sqlite').Database {
-  return (getDb() as unknown as { $client: import('bun:sqlite').Database }).$client;
+function getRawDb(): import("bun:sqlite").Database {
+  return (getDb() as unknown as { $client: import("bun:sqlite").Database })
+    .$client;
 }
 
 /** Force a schedule to be due by setting next_run_at in the past. */
 function forceScheduleDue(scheduleId: string): void {
-  getRawDb().run('UPDATE cron_jobs SET next_run_at = ? WHERE id = ?', [Date.now() - 1000, scheduleId]);
+  getRawDb().run("UPDATE cron_jobs SET next_run_at = ? WHERE id = ?", [
+    Date.now() - 1000,
+    scheduleId,
+  ]);
 }
 
 afterAll(() => {
   resetDb();
-  try { rmSync(testDir, { recursive: true }); } catch { /* best effort */ }
+  try {
+    rmSync(testDir, { recursive: true });
+  } catch {
+    /* best effort */
+  }
 });
 
 // Build an RRULE expression anchored at the given start date, recurring every minute.
 // This ensures the rule always has future occurrences relative to the test clock.
 function buildEveryMinuteRrule(dtstart: Date = new Date()): string {
-  const pad = (n: number) => String(n).padStart(2, '0');
-  const ds = `${dtstart.getUTCFullYear()}${pad(dtstart.getUTCMonth() + 1)}${pad(dtstart.getUTCDate())}T${pad(dtstart.getUTCHours())}${pad(dtstart.getUTCMinutes())}${pad(dtstart.getUTCSeconds())}Z`;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const ds = `${dtstart.getUTCFullYear()}${pad(dtstart.getUTCMonth() + 1)}${pad(
+    dtstart.getUTCDate(),
+  )}T${pad(dtstart.getUTCHours())}${pad(dtstart.getUTCMinutes())}${pad(
+    dtstart.getUTCSeconds(),
+  )}Z`;
   return `DTSTART:${ds}\nRRULE:FREQ=MINUTELY;INTERVAL=1`;
 }
 
@@ -67,40 +82,44 @@ function buildEveryMinuteRrule(dtstart: Date = new Date()): string {
 function buildEndedRrule(): string {
   const past = new Date(Date.now() - 86_400_000 * 30); // 30 days ago
   const until = new Date(Date.now() - 86_400_000); // 1 day ago
-  const pad = (n: number) => String(n).padStart(2, '0');
-  const ds = `${past.getUTCFullYear()}${pad(past.getUTCMonth() + 1)}${pad(past.getUTCDate())}T000000Z`;
-  const us = `${until.getUTCFullYear()}${pad(until.getUTCMonth() + 1)}${pad(until.getUTCDate())}T235959Z`;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const ds = `${past.getUTCFullYear()}${pad(past.getUTCMonth() + 1)}${pad(
+    past.getUTCDate(),
+  )}T000000Z`;
+  const us = `${until.getUTCFullYear()}${pad(until.getUTCMonth() + 1)}${pad(
+    until.getUTCDate(),
+  )}T235959Z`;
   return `DTSTART:${ds}\nRRULE:FREQ=DAILY;INTERVAL=1;UNTIL=${us}`;
 }
 
 // ── RRULE schedule fires through the scheduler ──────────────────────
 
-describe('scheduler RRULE execution', () => {
+describe("scheduler RRULE execution", () => {
   beforeEach(() => {
     const db = getDb();
-    db.run('DELETE FROM cron_runs');
-    db.run('DELETE FROM cron_jobs');
-    db.run('DELETE FROM reminders');
-    db.run('DELETE FROM task_runs');
-    db.run('DELETE FROM tasks');
-    db.run('DELETE FROM messages');
-    db.run('DELETE FROM conversations');
+    db.run("DELETE FROM cron_runs");
+    db.run("DELETE FROM cron_jobs");
+    db.run("DELETE FROM reminders");
+    db.run("DELETE FROM task_runs");
+    db.run("DELETE FROM tasks");
+    db.run("DELETE FROM messages");
+    db.run("DELETE FROM conversations");
   });
 
-  test('RRULE schedule fires and creates cron_runs entry', async () => {
+  test("RRULE schedule fires and creates cron_runs entry", async () => {
     const rruleExpr = buildEveryMinuteRrule();
     const schedule = createSchedule({
-      name: 'RRULE Test',
+      name: "RRULE Test",
       cronExpression: rruleExpr,
-      message: 'Hello from RRULE',
-      syntax: 'rrule',
+      message: "Hello from RRULE",
+      syntax: "rrule",
       expression: rruleExpr,
     });
 
     // Verify it was stored with rrule syntax
     const stored = getSchedule(schedule.id);
     expect(stored).not.toBeNull();
-    expect(stored!.syntax).toBe('rrule');
+    expect(stored!.syntax).toBe("rrule");
 
     // Force it to be due
     forceScheduleDue(schedule.id);
@@ -110,31 +129,37 @@ describe('scheduler RRULE execution', () => {
       processedMessages.push({ conversationId, message });
     };
 
-    const scheduler = startScheduler(processMessage, () => {}, () => {});
-    await new Promise(resolve => setTimeout(resolve, 500));
+    const scheduler = startScheduler(
+      processMessage,
+      () => {},
+      () => {},
+    );
+    await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler.stop();
 
     // processMessage should have been called with the RRULE message
-    expect(processedMessages.some(m => m.message === 'Hello from RRULE')).toBe(true);
+    expect(
+      processedMessages.some((m) => m.message === "Hello from RRULE"),
+    ).toBe(true);
 
     // A cron_runs entry should have been created
     const runs = getScheduleRuns(schedule.id);
     expect(runs.length).toBeGreaterThanOrEqual(1);
-    expect(runs[0].status).toBe('ok');
+    expect(runs[0].status).toBe("ok");
   });
 
-  test('RRULE run_task:<id> triggers task runner', async () => {
+  test("RRULE run_task:<id> triggers task runner", async () => {
     const task = createTask({
-      title: 'RRULE Task',
-      template: 'Execute RRULE task',
+      title: "RRULE Task",
+      template: "Execute RRULE task",
     });
 
     const rruleExpr = buildEveryMinuteRrule();
     const schedule = createSchedule({
-      name: 'RRULE Task Schedule',
+      name: "RRULE Task Schedule",
       cronExpression: rruleExpr,
       message: `run_task:${task.id}`,
-      syntax: 'rrule',
+      syntax: "rrule",
       expression: rruleExpr,
     });
 
@@ -145,13 +170,21 @@ describe('scheduler RRULE execution', () => {
       directCalls.push({ conversationId, message });
     };
 
-    const scheduler = startScheduler(processMessage, () => {}, () => {});
-    await new Promise(resolve => setTimeout(resolve, 500));
+    const scheduler = startScheduler(
+      processMessage,
+      () => {},
+      () => {},
+    );
+    await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler.stop();
 
     // runTask renders the template, so processMessage gets the template text
-    const runTaskCalls = directCalls.filter(c => c.message === 'Execute RRULE task');
-    const rawCalls = directCalls.filter(c => c.message.startsWith('run_task:'));
+    const runTaskCalls = directCalls.filter(
+      (c) => c.message === "Execute RRULE task",
+    );
+    const rawCalls = directCalls.filter((c) =>
+      c.message.startsWith("run_task:"),
+    );
 
     expect(runTaskCalls.length).toBe(1);
     expect(rawCalls.length).toBe(0);
@@ -161,7 +194,7 @@ describe('scheduler RRULE execution', () => {
     expect(runs.length).toBeGreaterThanOrEqual(1);
   });
 
-  test('expired RRULE fires one final due run then is disabled', async () => {
+  test("expired RRULE fires one final due run then is disabled", async () => {
     const endedExpr = buildEndedRrule();
 
     // Insert directly via raw SQL because createSchedule would throw when
@@ -172,7 +205,22 @@ describe('scheduler RRULE execution', () => {
     getRawDb().run(
       `INSERT INTO cron_jobs (id, name, enabled, cron_expression, schedule_syntax, timezone, message, next_run_at, last_run_at, last_status, retry_count, created_by, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, 'Ended RRULE', 1, endedExpr, 'rrule', null, 'Final expired run', now - 1000, null, null, 0, 'agent', now, now],
+      [
+        id,
+        "Ended RRULE",
+        1,
+        endedExpr,
+        "rrule",
+        null,
+        "Final expired run",
+        now - 1000,
+        null,
+        null,
+        0,
+        "agent",
+        now,
+        now,
+      ],
     );
 
     const processedMessages: string[] = [];
@@ -181,17 +229,21 @@ describe('scheduler RRULE execution', () => {
     };
 
     // First tick: the expired schedule should fire its final due run
-    const scheduler1 = startScheduler(processMessage, () => {}, () => {});
-    await new Promise(resolve => setTimeout(resolve, 500));
+    const scheduler1 = startScheduler(
+      processMessage,
+      () => {},
+      () => {},
+    );
+    await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler1.stop();
 
     // The message IS delivered once
-    expect(processedMessages).toContain('Final expired run');
+    expect(processedMessages).toContain("Final expired run");
 
     // One run record IS created with status 'ok'
     const runs = getScheduleRuns(id);
     expect(runs.length).toBe(1);
-    expect(runs[0].status).toBe('ok');
+    expect(runs[0].status).toBe("ok");
 
     // After firing, the schedule is disabled with nextRunAt=0
     const afterSchedule = getSchedule(id);
@@ -201,27 +253,31 @@ describe('scheduler RRULE execution', () => {
 
     // Second tick: the disabled schedule must NOT fire again
     processedMessages.length = 0;
-    const scheduler2 = startScheduler(processMessage, () => {}, () => {});
-    await new Promise(resolve => setTimeout(resolve, 500));
+    const scheduler2 = startScheduler(
+      processMessage,
+      () => {},
+      () => {},
+    );
+    await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler2.stop();
 
-    expect(processedMessages).not.toContain('Final expired run');
+    expect(processedMessages).not.toContain("Final expired run");
     // No additional runs
     const runsAfter = getScheduleRuns(id);
     expect(runsAfter.length).toBe(1);
   });
 
-  test('existing cron schedule behavior is unchanged', async () => {
+  test("existing cron schedule behavior is unchanged", async () => {
     const schedule = createSchedule({
-      name: 'Cron Schedule',
-      cronExpression: '* * * * *',
-      message: 'Cron message',
+      name: "Cron Schedule",
+      cronExpression: "* * * * *",
+      message: "Cron message",
     });
 
     // Verify it defaults to cron syntax
     const stored = getSchedule(schedule.id);
     expect(stored).not.toBeNull();
-    expect(stored!.syntax).toBe('cron');
+    expect(stored!.syntax).toBe("cron");
 
     forceScheduleDue(schedule.id);
 
@@ -230,43 +286,59 @@ describe('scheduler RRULE execution', () => {
       processedMessages.push({ conversationId, message });
     };
 
-    const scheduler = startScheduler(processMessage, () => {}, () => {});
-    await new Promise(resolve => setTimeout(resolve, 500));
+    const scheduler = startScheduler(
+      processMessage,
+      () => {},
+      () => {},
+    );
+    await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler.stop();
 
     // processMessage should have been called with the cron message
-    expect(processedMessages.some(m => m.message === 'Cron message')).toBe(true);
+    expect(processedMessages.some((m) => m.message === "Cron message")).toBe(
+      true,
+    );
 
     // A cron_runs entry should have been created
     const runs = getScheduleRuns(schedule.id);
     expect(runs.length).toBeGreaterThanOrEqual(1);
-    expect(runs[0].status).toBe('ok');
+    expect(runs[0].status).toBe("ok");
   });
 
-  test('RRULE set with EXDATE skips excluded occurrence and advances to next valid date', async () => {
+  test("RRULE set with EXDATE skips excluded occurrence and advances to next valid date", async () => {
     // Build an RRULE set that fires every minute but excludes the next immediate occurrence.
     // The scheduler should skip the excluded date and advance to the one after.
     const now = new Date();
-    const pad = (n: number) => String(n).padStart(2, '0');
+    const pad = (n: number) => String(n).padStart(2, "0");
 
     // DTSTART one hour ago so there are plenty of past occurrences
     const pastDate = new Date(now.getTime() - 3_600_000);
-    const ds = `${pastDate.getUTCFullYear()}${pad(pastDate.getUTCMonth() + 1)}${pad(pastDate.getUTCDate())}T${pad(pastDate.getUTCHours())}${pad(pastDate.getUTCMinutes())}${pad(pastDate.getUTCSeconds())}Z`;
+    const ds = `${pastDate.getUTCFullYear()}${pad(
+      pastDate.getUTCMonth() + 1,
+    )}${pad(pastDate.getUTCDate())}T${pad(pastDate.getUTCHours())}${pad(
+      pastDate.getUTCMinutes(),
+    )}${pad(pastDate.getUTCSeconds())}Z`;
 
     // Exclude the current minute's occurrence
     const currentMinuteDate = new Date(now);
     currentMinuteDate.setUTCSeconds(0);
     currentMinuteDate.setUTCMilliseconds(0);
     // Seconds must match DTSTART so the EXDATE aligns with a recurrence instance
-    const exDate = `${currentMinuteDate.getUTCFullYear()}${pad(currentMinuteDate.getUTCMonth() + 1)}${pad(currentMinuteDate.getUTCDate())}T${pad(currentMinuteDate.getUTCHours())}${pad(currentMinuteDate.getUTCMinutes())}${pad(pastDate.getUTCSeconds())}Z`;
+    const exDate = `${currentMinuteDate.getUTCFullYear()}${pad(
+      currentMinuteDate.getUTCMonth() + 1,
+    )}${pad(currentMinuteDate.getUTCDate())}T${pad(
+      currentMinuteDate.getUTCHours(),
+    )}${pad(currentMinuteDate.getUTCMinutes())}${pad(
+      pastDate.getUTCSeconds(),
+    )}Z`;
 
     const expression = `DTSTART:${ds}\nRRULE:FREQ=MINUTELY;INTERVAL=1\nEXDATE:${exDate}`;
 
     const schedule = createSchedule({
-      name: 'RRULE set EXDATE test',
+      name: "RRULE set EXDATE test",
       cronExpression: expression,
-      message: 'Set exclusion test',
-      syntax: 'rrule',
+      message: "Set exclusion test",
+      syntax: "rrule",
       expression,
     });
 
@@ -278,8 +350,12 @@ describe('scheduler RRULE execution', () => {
       processedMessages.push(message);
     };
 
-    const scheduler = startScheduler(processMessage, () => {}, () => {});
-    await new Promise(resolve => setTimeout(resolve, 500));
+    const scheduler = startScheduler(
+      processMessage,
+      () => {},
+      () => {},
+    );
+    await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler.stop();
 
     // The schedule should have been claimed and nextRunAt advanced
@@ -290,25 +366,33 @@ describe('scheduler RRULE execution', () => {
     expect(after!.nextRunAt).toBeGreaterThan(Date.now() - 5000);
   });
 
-  test('RRULE set schedule fires and creates cron_runs entry', async () => {
+  test("RRULE set schedule fires and creates cron_runs entry", async () => {
     // Use a recent DTSTART (1 hour ago) so rrule doesn't iterate through hundreds of
     // thousands of occurrences when computing the next run.
     const pastDate = new Date(Date.now() - 3_600_000);
-    const pad = (n: number) => String(n).padStart(2, '0');
-    const ds = `${pastDate.getUTCFullYear()}${pad(pastDate.getUTCMonth() + 1)}${pad(pastDate.getUTCDate())}T${pad(pastDate.getUTCHours())}${pad(pastDate.getUTCMinutes())}${pad(pastDate.getUTCSeconds())}Z`;
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const ds = `${pastDate.getUTCFullYear()}${pad(
+      pastDate.getUTCMonth() + 1,
+    )}${pad(pastDate.getUTCDate())}T${pad(pastDate.getUTCHours())}${pad(
+      pastDate.getUTCMinutes(),
+    )}${pad(pastDate.getUTCSeconds())}Z`;
     const exMinute = new Date(pastDate.getTime() + 60_000);
-    const exDs = `${exMinute.getUTCFullYear()}${pad(exMinute.getUTCMonth() + 1)}${pad(exMinute.getUTCDate())}T${pad(exMinute.getUTCHours())}${pad(exMinute.getUTCMinutes())}${pad(exMinute.getUTCSeconds())}Z`;
+    const exDs = `${exMinute.getUTCFullYear()}${pad(
+      exMinute.getUTCMonth() + 1,
+    )}${pad(exMinute.getUTCDate())}T${pad(exMinute.getUTCHours())}${pad(
+      exMinute.getUTCMinutes(),
+    )}${pad(exMinute.getUTCSeconds())}Z`;
     const expression = [
       `DTSTART:${ds}`,
-      'RRULE:FREQ=MINUTELY;INTERVAL=1',
+      "RRULE:FREQ=MINUTELY;INTERVAL=1",
       `EXDATE:${exDs}`,
-    ].join('\n');
+    ].join("\n");
 
     const schedule = createSchedule({
-      name: 'Set schedule fire test',
+      name: "Set schedule fire test",
       cronExpression: expression,
-      message: 'Set fire test',
-      syntax: 'rrule',
+      message: "Set fire test",
+      syntax: "rrule",
       expression,
     });
 
@@ -319,18 +403,22 @@ describe('scheduler RRULE execution', () => {
       processedMessages.push(message);
     };
 
-    const scheduler = startScheduler(processMessage, () => {}, () => {});
-    await new Promise(resolve => setTimeout(resolve, 500));
+    const scheduler = startScheduler(
+      processMessage,
+      () => {},
+      () => {},
+    );
+    await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler.stop();
 
-    expect(processedMessages).toContain('Set fire test');
+    expect(processedMessages).toContain("Set fire test");
 
     const runs = getScheduleRuns(schedule.id);
     expect(runs.length).toBeGreaterThanOrEqual(1);
-    expect(runs[0].status).toBe('ok');
+    expect(runs[0].status).toBe("ok");
   });
 
-  test('EXRULE schedule skips excluded occurrence and advances to next valid date', async () => {
+  test("EXRULE schedule skips excluded occurrence and advances to next valid date", async () => {
     // RRULE: every minute from a known dtstart
     // EXRULE: every 2nd minute from the same dtstart (excludes offsets 0, 2, 4, ...)
     //
@@ -353,47 +441,61 @@ describe('scheduler RRULE execution', () => {
     Date.now = () => frozenNow.getTime();
 
     try {
-      const pad = (n: number) => String(n).padStart(2, '0');
+      const pad = (n: number) => String(n).padStart(2, "0");
       const pastDate = new Date(frozenNow.getTime() - 59 * 60_000);
       pastDate.setUTCSeconds(0);
       pastDate.setUTCMilliseconds(0);
-      const ds = `${pastDate.getUTCFullYear()}${pad(pastDate.getUTCMonth() + 1)}${pad(pastDate.getUTCDate())}T${pad(pastDate.getUTCHours())}${pad(pastDate.getUTCMinutes())}00Z`;
+      const ds = `${pastDate.getUTCFullYear()}${pad(
+        pastDate.getUTCMonth() + 1,
+      )}${pad(pastDate.getUTCDate())}T${pad(pastDate.getUTCHours())}${pad(
+        pastDate.getUTCMinutes(),
+      )}00Z`;
 
       const expression = `DTSTART:${ds}\nRRULE:FREQ=MINUTELY;INTERVAL=1\nEXRULE:FREQ=MINUTELY;INTERVAL=2`;
 
       // Compute what the next occurrence would be WITHOUT EXRULE — this should
       // be at an even offset that EXRULE must exclude.
       const withoutExrule = `DTSTART:${ds}\nRRULE:FREQ=MINUTELY;INTERVAL=1`;
-      const { computeNextRunAt } = await import('../schedule/recurrence-engine.js');
+      const { computeNextRunAt } =
+        await import("../schedule/recurrence-engine.js");
       const nextWithoutExrule = computeNextRunAt(
-        { syntax: 'rrule', expression: withoutExrule },
+        { syntax: "rrule", expression: withoutExrule },
         frozenNow.getTime(),
       );
-      const offsetWithout = Math.round((nextWithoutExrule - pastDate.getTime()) / 60_000);
+      const offsetWithout = Math.round(
+        (nextWithoutExrule - pastDate.getTime()) / 60_000,
+      );
       // Sanity: the without-EXRULE occurrence must be even (would be excluded)
       expect(offsetWithout % 2).toBe(0);
 
       const schedule = createSchedule({
-        name: 'EXRULE scheduler test',
+        name: "EXRULE scheduler test",
         cronExpression: expression,
-        message: 'EXRULE scheduler fire',
-        syntax: 'rrule',
+        message: "EXRULE scheduler fire",
+        syntax: "rrule",
         expression,
       });
 
       forceScheduleDue(schedule.id);
 
       const processedMessages: string[] = [];
-      const processMessage = async (_conversationId: string, message: string) => {
+      const processMessage = async (
+        _conversationId: string,
+        message: string,
+      ) => {
         processedMessages.push(message);
       };
 
-      const scheduler = startScheduler(processMessage, () => {}, () => {});
-      await new Promise(resolve => setTimeout(resolve, 500));
+      const scheduler = startScheduler(
+        processMessage,
+        () => {},
+        () => {},
+      );
+      await new Promise((resolve) => setTimeout(resolve, 500));
       scheduler.stop();
 
       // The schedule should have fired
-      expect(processedMessages).toContain('EXRULE scheduler fire');
+      expect(processedMessages).toContain("EXRULE scheduler fire");
 
       const after = getSchedule(schedule.id);
       expect(after).not.toBeNull();
@@ -412,13 +514,13 @@ describe('scheduler RRULE execution', () => {
     }
   });
 
-  test('RRULE schedule advances nextRunAt after firing', async () => {
+  test("RRULE schedule advances nextRunAt after firing", async () => {
     const rruleExpr = buildEveryMinuteRrule();
     const schedule = createSchedule({
-      name: 'Advancing RRULE',
+      name: "Advancing RRULE",
       cronExpression: rruleExpr,
-      message: 'Advance test',
-      syntax: 'rrule',
+      message: "Advance test",
+      syntax: "rrule",
       expression: rruleExpr,
     });
 
@@ -427,8 +529,12 @@ describe('scheduler RRULE execution', () => {
     const forcedDueAt = getSchedule(schedule.id)!.nextRunAt;
 
     const processMessage = async () => {};
-    const scheduler = startScheduler(processMessage, () => {}, () => {});
-    await new Promise(resolve => setTimeout(resolve, 500));
+    const scheduler = startScheduler(
+      processMessage,
+      () => {},
+      () => {},
+    );
+    await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler.stop();
 
     const after = getSchedule(schedule.id);
@@ -440,16 +546,16 @@ describe('scheduler RRULE execution', () => {
     expect(after!.lastRunAt).not.toBeNull();
   });
 
-  test('notify reminder passes routing metadata to notifyReminder callback', async () => {
+  test("notify reminder passes routing metadata to notifyReminder callback", async () => {
     const reminder = insertReminder({
-      label: 'Route this reminder',
-      message: 'Reminder body',
+      label: "Route this reminder",
+      message: "Reminder body",
       fireAt: Date.now() - 1000,
-      mode: 'notify',
-      routingIntent: 'multi_channel',
+      mode: "notify",
+      routingIntent: "multi_channel",
       routingHints: {
         requestedByUser: true,
-        channelMentions: ['telegram', 'sms'],
+        channelMentions: ["telegram", "sms"],
       },
     });
 
@@ -457,21 +563,25 @@ describe('scheduler RRULE execution', () => {
       id: string;
       label: string;
       message: string;
-      routingIntent: 'single_channel' | 'multi_channel' | 'all_channels';
+      routingIntent: "single_channel" | "multi_channel" | "all_channels";
       routingHints: Record<string, unknown>;
     }> = [];
     const notifyReminder = (payload: {
       id: string;
       label: string;
       message: string;
-      routingIntent: 'single_channel' | 'multi_channel' | 'all_channels';
+      routingIntent: "single_channel" | "multi_channel" | "all_channels";
       routingHints: Record<string, unknown>;
     }) => {
       notifyCalls.push(payload);
     };
 
-    const scheduler = startScheduler(async () => {}, notifyReminder, () => {});
-    await new Promise(resolve => setTimeout(resolve, 500));
+    const scheduler = startScheduler(
+      async () => {},
+      notifyReminder,
+      () => {},
+    );
+    await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler.stop();
 
     expect(notifyCalls).toHaveLength(1);
@@ -479,12 +589,12 @@ describe('scheduler RRULE execution', () => {
       id: reminder.id,
       label: reminder.label,
       message: reminder.message,
-      routingIntent: 'multi_channel',
+      routingIntent: "multi_channel",
       routingHints: {
         requestedByUser: true,
-        channelMentions: ['telegram', 'sms'],
+        channelMentions: ["telegram", "sms"],
       },
     });
-    expect(getReminder(reminder.id)?.status).toBe('fired');
+    expect(getReminder(reminder.id)?.status).toBe("fired");
   });
 });

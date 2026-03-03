@@ -1,23 +1,27 @@
-import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
-import { dirname,join } from 'node:path';
-
-import { afterEach,beforeEach, describe, expect, test } from 'bun:test';
+import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 // Stub the root dir before importing trust-store so it uses our temp directory
-const TEST_ROOT = join(import.meta.dirname ?? __dirname, '..', '..', '.test-starter-bundle-' + process.pid);
-const TRUST_PATH = join(TEST_ROOT, 'protected', 'trust.json');
+const TEST_ROOT = join(
+  import.meta.dirname ?? __dirname,
+  "..",
+  "..",
+  ".test-starter-bundle-" + process.pid,
+);
+const TRUST_PATH = join(TEST_ROOT, "protected", "trust.json");
 
 // We need to mock getRootDir before importing trust-store
-import { mock } from 'bun:test';
+import { mock } from "bun:test";
 
 // Mock the platform module to use our test root
-mock.module('../util/platform.js', () => ({
+mock.module("../util/platform.js", () => ({
   getRootDir: () => TEST_ROOT,
 }));
 
 // Mock the skills config module used by defaults.ts
-mock.module('../config/skills.js', () => ({
-  getBundledSkillsDir: () => join(TEST_ROOT, 'bundled-skills'),
+mock.module("../config/skills.js", () => ({
+  getBundledSkillsDir: () => join(TEST_ROOT, "bundled-skills"),
 }));
 
 // Now import trust-store (which uses the mocked platform)
@@ -27,9 +31,9 @@ import {
   getAllRules,
   getStarterBundleRules,
   isStarterBundleAccepted,
-} from '../permissions/trust-store.js';
+} from "../permissions/trust-store.js";
 
-describe('Starter approval bundle', () => {
+describe("Starter approval bundle", () => {
   beforeEach(() => {
     // Create the test directory structure
     const protectedDir = dirname(TRUST_PATH);
@@ -51,23 +55,23 @@ describe('Starter approval bundle', () => {
     clearCache();
   });
 
-  test('getStarterBundleRules returns a non-empty array of allow rules', () => {
+  test("getStarterBundleRules returns a non-empty array of allow rules", () => {
     const rules = getStarterBundleRules();
     expect(rules.length).toBeGreaterThan(0);
     for (const rule of rules) {
-      expect(rule.decision).toBe('allow');
+      expect(rule.decision).toBe("allow");
       expect(rule.id).toMatch(/^starter:/);
       expect(rule.tool).toBeTruthy();
       expect(rule.pattern).toBeTruthy();
-      expect(rule.scope).toBe('everywhere');
+      expect(rule.scope).toBe("everywhere");
     }
   });
 
-  test('starter bundle is not accepted by default', () => {
+  test("starter bundle is not accepted by default", () => {
     expect(isStarterBundleAccepted()).toBe(false);
   });
 
-  test('acceptStarterBundle seeds rules and marks bundle as accepted', () => {
+  test("acceptStarterBundle seeds rules and marks bundle as accepted", () => {
     const result = acceptStarterBundle();
 
     expect(result.accepted).toBe(true);
@@ -84,7 +88,7 @@ describe('Starter approval bundle', () => {
     expect(foundStarterRules.length).toBe(getStarterBundleRules().length);
   });
 
-  test('acceptStarterBundle is idempotent — second call adds no rules', () => {
+  test("acceptStarterBundle is idempotent — second call adds no rules", () => {
     const first = acceptStarterBundle();
     expect(first.rulesAdded).toBeGreaterThan(0);
     expect(first.alreadyAccepted).toBe(false);
@@ -95,7 +99,7 @@ describe('Starter approval bundle', () => {
     expect(second.rulesAdded).toBe(0);
   });
 
-  test('starter bundle flag persists across cache clears', () => {
+  test("starter bundle flag persists across cache clears", () => {
     acceptStarterBundle();
     expect(isStarterBundleAccepted()).toBe(true);
 
@@ -105,16 +109,16 @@ describe('Starter approval bundle', () => {
     expect(isStarterBundleAccepted()).toBe(true);
   });
 
-  test('starter bundle flag is persisted in the trust file', () => {
+  test("starter bundle flag is persisted in the trust file", () => {
     acceptStarterBundle();
 
     // Read the raw file and verify the flag
-    const raw = readFileSync(TRUST_PATH, 'utf-8');
+    const raw = readFileSync(TRUST_PATH, "utf-8");
     const data = JSON.parse(raw);
     expect(data.starterBundleAccepted).toBe(true);
   });
 
-  test('bundle is opt-in only — rules do not appear without explicit acceptance', () => {
+  test("bundle is opt-in only — rules do not appear without explicit acceptance", () => {
     // Load rules normally (triggers backfill of default rules)
     const allRules = getAllRules();
 
@@ -124,7 +128,7 @@ describe('Starter approval bundle', () => {
     expect(foundStarterRules.length).toBe(0);
   });
 
-  test('starter rules have unique IDs that do not collide with defaults', () => {
+  test("starter rules have unique IDs that do not collide with defaults", () => {
     // Load default rules first
     const defaultRules = getAllRules();
     const defaultIds = new Set(defaultRules.map((r) => r.id));

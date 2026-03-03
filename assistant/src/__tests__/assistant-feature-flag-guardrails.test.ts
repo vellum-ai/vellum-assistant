@@ -12,11 +12,10 @@
  *    allowing skills to exist without corresponding feature flags.
  */
 
-import { execSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-
-import { describe, expect, test } from 'bun:test';
+import { execSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -24,7 +23,7 @@ import { describe, expect, test } from 'bun:test';
 
 /** Resolve the repo root from the assistant/ package directory. */
 function getRepoRoot(): string {
-  return join(process.cwd(), '..');
+  return join(process.cwd(), "..");
 }
 
 interface RegistryFlag {
@@ -42,8 +41,13 @@ interface Registry {
 }
 
 function loadRegistry(): Registry {
-  const registryPath = join(getRepoRoot(), 'meta', 'feature-flags', 'feature-flag-registry.json');
-  return JSON.parse(readFileSync(registryPath, 'utf-8'));
+  const registryPath = join(
+    getRepoRoot(),
+    "meta",
+    "feature-flags",
+    "feature-flag-registry.json",
+  );
+  return JSON.parse(readFileSync(registryPath, "utf-8"));
 }
 
 /**
@@ -53,20 +57,20 @@ function loadRegistry(): Registry {
  */
 const LEGACY_KEY_ALLOWLIST = new Set([
   // Legacy wrapper (deprecated, kept for migration)
-  'assistant/src/config/skill-state.ts',
+  "assistant/src/config/skill-state.ts",
   // Type definitions documenting the legacy format
-  'assistant/src/config/types.ts',
+  "assistant/src/config/types.ts",
   // macOS client: fallback reads from legacy config section
-  'clients/macos/vellum-assistant/Features/Settings/SettingsAccountTab.swift',
+  "clients/macos/vellum-assistant/Features/Settings/SettingsAccountTab.swift",
 ]);
 
 function isTestFile(filePath: string): boolean {
   return (
-    filePath.includes('/__tests__/') ||
-    filePath.endsWith('.test.ts') ||
-    filePath.endsWith('.test.js') ||
-    filePath.endsWith('.spec.ts') ||
-    filePath.endsWith('.spec.js')
+    filePath.includes("/__tests__/") ||
+    filePath.endsWith(".test.ts") ||
+    filePath.endsWith(".test.js") ||
+    filePath.endsWith(".spec.ts") ||
+    filePath.endsWith(".spec.js")
   );
 }
 
@@ -74,8 +78,8 @@ function isTestFile(filePath: string): boolean {
 // Guard 1: Key format — no stale `skills.<id>.enabled` in production code
 // ---------------------------------------------------------------------------
 
-describe('assistant feature flag key format guard', () => {
-  test('no production TypeScript files use skills.<id>.enabled outside allowlist', () => {
+describe("assistant feature flag key format guard", () => {
+  test("no production TypeScript files use skills.<id>.enabled outside allowlist", () => {
     const repoRoot = getRepoRoot();
 
     // Search for string literals and template literals containing
@@ -84,11 +88,11 @@ describe('assistant feature flag key format guard', () => {
     // allowlisted paths). The pattern catches both literal keys
     // (e.g., `skills.foo.enabled`) and template literal forms
     // (e.g., `skills.${skillId}.enabled`).
-    let grepOutput = '';
+    let grepOutput = "";
     try {
       grepOutput = execSync(
         `git grep -lE "skills\\.[a-z0-9_-]+\\.enabled|skills\\.\\$\\{" -- 'assistant/src/**/*.ts' 'gateway/src/**/*.ts'`,
-        { encoding: 'utf-8', cwd: repoRoot },
+        { encoding: "utf-8", cwd: repoRoot },
       ).trim();
     } catch (err) {
       // Exit code 1 means no matches — happy path
@@ -98,7 +102,7 @@ describe('assistant feature flag key format guard', () => {
       throw err;
     }
 
-    const files = grepOutput.split('\n').filter((f) => f.length > 0);
+    const files = grepOutput.split("\n").filter((f) => f.length > 0);
     const violations = files.filter((f) => {
       if (isTestFile(f)) return false;
       if (LEGACY_KEY_ALLOWLIST.has(f)) return false;
@@ -107,16 +111,16 @@ describe('assistant feature flag key format guard', () => {
 
     if (violations.length > 0) {
       const message = [
-        'Found production TypeScript files using legacy `skills.<id>.enabled` key format.',
-        'Use the canonical `feature_flags.<id>.enabled` format instead.',
-        'Call `isAssistantFeatureFlagEnabled(`feature_flags.${skillId}.enabled`, config)` to check skill flags.',
-        '',
-        'Violations:',
+        "Found production TypeScript files using legacy `skills.<id>.enabled` key format.",
+        "Use the canonical `feature_flags.<id>.enabled` format instead.",
+        "Call `isAssistantFeatureFlagEnabled(`feature_flags.${skillId}.enabled`, config)` to check skill flags.",
+        "",
+        "Violations:",
         ...violations.map((f) => `  - ${f}`),
-        '',
-        'If this is a legitimate backward-compat path, add it to LEGACY_KEY_ALLOWLIST in',
-        'assistant-feature-flag-guardrails.test.ts.',
-      ].join('\n');
+        "",
+        "If this is a legitimate backward-compat path, add it to LEGACY_KEY_ALLOWLIST in",
+        "assistant-feature-flag-guardrails.test.ts.",
+      ].join("\n");
 
       expect(violations, message).toEqual([]);
     }
@@ -127,16 +131,14 @@ describe('assistant feature flag key format guard', () => {
 // Guard 2: Declaration coverage for literal key usage
 // ---------------------------------------------------------------------------
 
-describe('assistant feature flag declaration coverage guard', () => {
-  test('all literal flag keys in isAssistantFeatureFlagEnabled calls are declared in the unified registry', () => {
+describe("assistant feature flag declaration coverage guard", () => {
+  test("all literal flag keys in isAssistantFeatureFlagEnabled calls are declared in the unified registry", () => {
     const repoRoot = getRepoRoot();
 
     // Load the unified registry and extract assistant-scope keys
     const registry = loadRegistry();
     const declaredKeys = new Set(
-      registry.flags
-        .filter((f) => f.scope === 'assistant')
-        .map((f) => f.key),
+      registry.flags.filter((f) => f.scope === "assistant").map((f) => f.key),
     );
 
     // Extract full keys from isAssistantFeatureFlagEnabled('<key>', ...) calls
@@ -149,11 +151,11 @@ describe('assistant feature flag declaration coverage guard', () => {
     //   )
     //
     const usedKeys = new Set<string>();
-    let matchingFiles = '';
+    let matchingFiles = "";
     try {
       matchingFiles = execSync(
         `git grep -l "isAssistantFeatureFlagEnabled" -- 'assistant/src/**/*.ts' ':!assistant/src/__tests__/**'`,
-        { encoding: 'utf-8', cwd: repoRoot },
+        { encoding: "utf-8", cwd: repoRoot },
       ).trim();
     } catch (err) {
       if ((err as { status?: number }).status !== 1) throw err;
@@ -162,11 +164,12 @@ describe('assistant feature flag declaration coverage guard', () => {
     if (matchingFiles) {
       // Multiline regex: match the function name, optional whitespace/newlines,
       // opening paren, optional whitespace/newlines, then a quoted string key.
-      const multilinePattern = /isAssistantFeatureFlagEnabled\(\s*['"]([^'"]+)['"]/g;
-      for (const relPath of matchingFiles.split('\n')) {
+      const multilinePattern =
+        /isAssistantFeatureFlagEnabled\(\s*['"]([^'"]+)['"]/g;
+      for (const relPath of matchingFiles.split("\n")) {
         if (!relPath) continue;
         const absPath = join(repoRoot, relPath);
-        const content = readFileSync(absPath, 'utf-8');
+        const content = readFileSync(absPath, "utf-8");
         for (const match of content.matchAll(multilinePattern)) {
           usedKeys.add(match[1]);
         }
@@ -183,14 +186,14 @@ describe('assistant feature flag declaration coverage guard', () => {
 
     if (undeclared.length > 0) {
       const message = [
-        'Found feature flag keys used in production code that are NOT declared in the unified registry.',
+        "Found feature flag keys used in production code that are NOT declared in the unified registry.",
         `Registry: meta/feature-flags/feature-flag-registry.json`,
-        '',
-        'Undeclared keys:',
+        "",
+        "Undeclared keys:",
         ...undeclared.map((k) => `  - ${k}`),
-        '',
+        "",
         'To fix: add the missing key(s) to the unified registry with scope "assistant".',
-      ].join('\n');
+      ].join("\n");
 
       expect(undeclared, message).toEqual([]);
     }

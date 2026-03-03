@@ -5,9 +5,9 @@
  * suggestAlternative, oauthError) is preserved in CLI output while
  * maintaining backward-compatible error codes.
  */
-import { describe, expect,test } from 'bun:test';
+import { describe, expect, test } from "bun:test";
 
-import { SessionExpiredError } from '../twitter/client.js';
+import { SessionExpiredError } from "../twitter/client.js";
 
 // ---------------------------------------------------------------------------
 // We test the error-shaping logic directly by reproducing the branching in
@@ -18,8 +18,8 @@ import { SessionExpiredError } from '../twitter/client.js';
 // ---------------------------------------------------------------------------
 
 const SESSION_EXPIRED_MSG =
-  'Your Twitter session has expired. Please sign in to Twitter in Chrome — ' +
-  'run `vellum twitter refresh` to capture your session automatically.';
+  "Your Twitter session has expired. Please sign in to Twitter in Chrome — " +
+  "run `vellum twitter refresh` to capture your session automatically.";
 
 /**
  * Replicates the error-to-payload logic from `run()` in twitter.ts.
@@ -31,22 +31,29 @@ function buildErrorPayload(err: unknown): Record<string, unknown> | null {
   if (err instanceof SessionExpiredError) {
     const payload: Record<string, unknown> = {
       ok: false,
-      error: 'session_expired',
+      error: "session_expired",
       message: SESSION_EXPIRED_MSG,
     };
     if (meta.pathUsed !== undefined) payload.pathUsed = meta.pathUsed;
-    if (meta.suggestAlternative !== undefined) payload.suggestAlternative = meta.suggestAlternative;
+    if (meta.suggestAlternative !== undefined)
+      payload.suggestAlternative = meta.suggestAlternative;
     if (meta.oauthError !== undefined) payload.oauthError = meta.oauthError;
     return payload;
   }
 
-  if (err instanceof Error && (meta.pathUsed !== undefined || meta.suggestAlternative !== undefined || meta.oauthError !== undefined)) {
+  if (
+    err instanceof Error &&
+    (meta.pathUsed !== undefined ||
+      meta.suggestAlternative !== undefined ||
+      meta.oauthError !== undefined)
+  ) {
     const payload: Record<string, unknown> = {
       ok: false,
       error: err.message,
     };
     if (meta.pathUsed !== undefined) payload.pathUsed = meta.pathUsed;
-    if (meta.suggestAlternative !== undefined) payload.suggestAlternative = meta.suggestAlternative;
+    if (meta.suggestAlternative !== undefined)
+      payload.suggestAlternative = meta.suggestAlternative;
     if (meta.oauthError !== undefined) payload.oauthError = meta.oauthError;
     return payload;
   }
@@ -55,155 +62,163 @@ function buildErrorPayload(err: unknown): Record<string, unknown> | null {
   return { ok: false, error: err instanceof Error ? err.message : String(err) };
 }
 
-describe('CLI error shaping', () => {
-  test('plain SessionExpiredError preserves backward-compatible error code', () => {
-    const err = new SessionExpiredError('No Twitter session found.');
+describe("CLI error shaping", () => {
+  test("plain SessionExpiredError preserves backward-compatible error code", () => {
+    const err = new SessionExpiredError("No Twitter session found.");
     const payload = buildErrorPayload(err);
 
     expect(payload).toEqual({
       ok: false,
-      error: 'session_expired',
+      error: "session_expired",
       message: SESSION_EXPIRED_MSG,
     });
   });
 
-  test('SessionExpiredError from browser path preserves pathUsed and suggestAlternative', () => {
-    const err = Object.assign(new SessionExpiredError('Session cookies expired'), {
-      pathUsed: 'browser' as const,
-      suggestAlternative: 'oauth' as const,
-    });
-    const payload = buildErrorPayload(err);
-
-    expect(payload).toEqual({
-      ok: false,
-      error: 'session_expired',
-      message: SESSION_EXPIRED_MSG,
-      pathUsed: 'browser',
-      suggestAlternative: 'oauth',
-    });
-  });
-
-  test('SessionExpiredError from auto path preserves pathUsed and oauthError', () => {
-    const err = Object.assign(new SessionExpiredError('Session cookies expired'), {
-      pathUsed: 'auto' as const,
-      oauthError: 'Token revoked',
-    });
-    const payload = buildErrorPayload(err);
-
-    expect(payload).toEqual({
-      ok: false,
-      error: 'session_expired',
-      message: SESSION_EXPIRED_MSG,
-      pathUsed: 'auto',
-      oauthError: 'Token revoked',
-    });
-  });
-
-  test('routed non-session error with suggestAlternative emits structured JSON', () => {
+  test("SessionExpiredError from browser path preserves pathUsed and suggestAlternative", () => {
     const err = Object.assign(
-      new Error('OAuth is not configured. Provide your X developer credentials here in the chat to set up OAuth, or switch to browser strategy.'),
+      new SessionExpiredError("Session cookies expired"),
       {
-        pathUsed: 'oauth' as const,
-        suggestAlternative: 'browser' as const,
+        pathUsed: "browser" as const,
+        suggestAlternative: "oauth" as const,
       },
     );
     const payload = buildErrorPayload(err);
 
     expect(payload).toEqual({
       ok: false,
-      error: 'OAuth is not configured. Provide your X developer credentials here in the chat to set up OAuth, or switch to browser strategy.',
-      pathUsed: 'oauth',
-      suggestAlternative: 'browser',
+      error: "session_expired",
+      message: SESSION_EXPIRED_MSG,
+      pathUsed: "browser",
+      suggestAlternative: "oauth",
     });
   });
 
-  test('routed auto-mode error with oauthError and suggestAlternative', () => {
+  test("SessionExpiredError from auto path preserves pathUsed and oauthError", () => {
     const err = Object.assign(
-      new Error('Both OAuth and browser paths failed'),
+      new SessionExpiredError("Session cookies expired"),
       {
-        pathUsed: 'auto' as const,
-        suggestAlternative: 'browser' as const,
-        oauthError: 'Twitter API error (401)',
+        pathUsed: "auto" as const,
+        oauthError: "Token revoked",
       },
     );
     const payload = buildErrorPayload(err);
 
     expect(payload).toEqual({
       ok: false,
-      error: 'Both OAuth and browser paths failed',
-      pathUsed: 'auto',
-      suggestAlternative: 'browser',
-      oauthError: 'Twitter API error (401)',
+      error: "session_expired",
+      message: SESSION_EXPIRED_MSG,
+      pathUsed: "auto",
+      oauthError: "Token revoked",
     });
   });
 
-  test('auto-mode error with pathUsed and oauthError but no suggestAlternative preserves metadata', () => {
+  test("routed non-session error with suggestAlternative emits structured JSON", () => {
+    const err = Object.assign(
+      new Error(
+        "OAuth is not configured. Provide your X developer credentials here in the chat to set up OAuth, or switch to browser strategy.",
+      ),
+      {
+        pathUsed: "oauth" as const,
+        suggestAlternative: "browser" as const,
+      },
+    );
+    const payload = buildErrorPayload(err);
+
+    expect(payload).toEqual({
+      ok: false,
+      error:
+        "OAuth is not configured. Provide your X developer credentials here in the chat to set up OAuth, or switch to browser strategy.",
+      pathUsed: "oauth",
+      suggestAlternative: "browser",
+    });
+  });
+
+  test("routed auto-mode error with oauthError and suggestAlternative", () => {
+    const err = Object.assign(
+      new Error("Both OAuth and browser paths failed"),
+      {
+        pathUsed: "auto" as const,
+        suggestAlternative: "browser" as const,
+        oauthError: "Twitter API error (401)",
+      },
+    );
+    const payload = buildErrorPayload(err);
+
+    expect(payload).toEqual({
+      ok: false,
+      error: "Both OAuth and browser paths failed",
+      pathUsed: "auto",
+      suggestAlternative: "browser",
+      oauthError: "Twitter API error (401)",
+    });
+  });
+
+  test("auto-mode error with pathUsed and oauthError but no suggestAlternative preserves metadata", () => {
     // This is the scenario flagged by Codex: routedPostTweet in auto mode tries
     // OAuth (fails), then browser (fails with non-SessionExpiredError). The thrown
     // error has pathUsed and oauthError but no suggestAlternative.
     const err = Object.assign(
-      new Error('Browser automation failed: element not found'),
+      new Error("Browser automation failed: element not found"),
       {
-        pathUsed: 'auto' as const,
-        oauthError: 'Twitter API error (401)',
+        pathUsed: "auto" as const,
+        oauthError: "Twitter API error (401)",
       },
     );
     const payload = buildErrorPayload(err);
 
     expect(payload).toEqual({
       ok: false,
-      error: 'Browser automation failed: element not found',
-      pathUsed: 'auto',
-      oauthError: 'Twitter API error (401)',
+      error: "Browser automation failed: element not found",
+      pathUsed: "auto",
+      oauthError: "Twitter API error (401)",
     });
   });
 
-  test('error with only pathUsed (no oauthError or suggestAlternative) preserves metadata', () => {
-    const err = Object.assign(
-      new Error('Something went wrong'),
-      { pathUsed: 'browser' as const },
-    );
+  test("error with only pathUsed (no oauthError or suggestAlternative) preserves metadata", () => {
+    const err = Object.assign(new Error("Something went wrong"), {
+      pathUsed: "browser" as const,
+    });
     const payload = buildErrorPayload(err);
 
     expect(payload).toEqual({
       ok: false,
-      error: 'Something went wrong',
-      pathUsed: 'browser',
+      error: "Something went wrong",
+      pathUsed: "browser",
     });
   });
 
-  test('generic error without router metadata falls back to plain error', () => {
-    const err = new Error('Network connection failed');
+  test("generic error without router metadata falls back to plain error", () => {
+    const err = new Error("Network connection failed");
     const payload = buildErrorPayload(err);
 
     expect(payload).toEqual({
       ok: false,
-      error: 'Network connection failed',
+      error: "Network connection failed",
     });
   });
 
-  test('non-Error value falls back to stringified error', () => {
-    const payload = buildErrorPayload('some string error');
+  test("non-Error value falls back to stringified error", () => {
+    const payload = buildErrorPayload("some string error");
 
     expect(payload).toEqual({
       ok: false,
-      error: 'some string error',
+      error: "some string error",
     });
   });
 
-  test('backward compatibility: session_expired error code is always preserved', () => {
+  test("backward compatibility: session_expired error code is always preserved", () => {
     // Even with metadata, the error code stays 'session_expired'
-    const err = Object.assign(new SessionExpiredError('expired'), {
-      pathUsed: 'auto' as const,
-      suggestAlternative: 'oauth' as const,
-      oauthError: 'token expired',
+    const err = Object.assign(new SessionExpiredError("expired"), {
+      pathUsed: "auto" as const,
+      suggestAlternative: "oauth" as const,
+      oauthError: "token expired",
     });
     const payload = buildErrorPayload(err);
 
-    expect(payload!.error).toBe('session_expired');
+    expect(payload!.error).toBe("session_expired");
     expect(payload!.ok).toBe(false);
-    expect(payload!.pathUsed).toBe('auto');
-    expect(payload!.suggestAlternative).toBe('oauth');
-    expect(payload!.oauthError).toBe('token expired');
+    expect(payload!.pathUsed).toBe("auto");
+    expect(payload!.suggestAlternative).toBe("oauth");
+    expect(payload!.oauthError).toBe("token expired");
   });
 });

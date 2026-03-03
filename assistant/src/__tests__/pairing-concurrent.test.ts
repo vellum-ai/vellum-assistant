@@ -7,30 +7,36 @@
  * registration when an active (non-terminal) pairing request already exists.
  */
 
-import { randomBytes, randomUUID } from 'node:crypto';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { randomBytes, randomUUID } from "node:crypto";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from "bun:test";
 
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
-
-import { PairingStore } from '../daemon/pairing-store.js';
+import { PairingStore } from "../daemon/pairing-store.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
-const GATEWAY_URL = 'https://gateway.test';
+const GATEWAY_URL = "https://gateway.test";
 
 function buildRegisterParams() {
   return {
     pairingRequestId: randomUUID(),
-    pairingSecret: randomBytes(32).toString('hex'),
+    pairingSecret: randomBytes(32).toString("hex"),
     gatewayUrl: GATEWAY_URL,
   };
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────
 
-describe('PairingStore.register — concurrent pairing guard', () => {
+describe("PairingStore.register — concurrent pairing guard", () => {
   let store: PairingStore;
   let tmpBase: string;
   let origBaseDataDir: string | undefined;
@@ -38,7 +44,7 @@ describe('PairingStore.register — concurrent pairing guard', () => {
   beforeAll(() => {
     // Isolate disk writes to a temp directory so this test does not
     // pollute ~/.vellum or interfere with other test files.
-    tmpBase = mkdtempSync(join(tmpdir(), 'pairing-test-'));
+    tmpBase = mkdtempSync(join(tmpdir(), "pairing-test-"));
     origBaseDataDir = process.env.BASE_DATA_DIR;
     process.env.BASE_DATA_DIR = tmpBase;
   });
@@ -56,7 +62,7 @@ describe('PairingStore.register — concurrent pairing guard', () => {
     store = new PairingStore();
   });
 
-  test('rejects a second registration while one is already in progress', () => {
+  test("rejects a second registration while one is already in progress", () => {
     /**
      * Tests that the store rejects a second pairing registration when
      * an active (registered/pending) pairing request already exists.
