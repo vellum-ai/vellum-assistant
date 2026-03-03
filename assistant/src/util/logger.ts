@@ -156,7 +156,10 @@ function getRootLogger(): pino.Logger {
 
     try {
       const logPath = getLogPath();
-      const fileDest = pino.destination({ dest: logPath, sync: false, mkdir: true, mode: 0o600 });
+      // Use sync: true so the fd is opened immediately. This prevents
+      // "sonic boom is not ready yet" errors when commander calls
+      // process.exit(0) for --help/--version before the async fd is ready.
+      const fileDest = pino.destination({ dest: logPath, sync: true, mkdir: true, mode: 0o600 });
       // Tighten permissions on pre-existing log files that may have been created with looser modes
       try { chmodSync(logPath, 0o600); } catch { /* best-effort */ }
       const fileStream = pinoPretty(prettyOpts({ destination: fileDest, colorize: false }));

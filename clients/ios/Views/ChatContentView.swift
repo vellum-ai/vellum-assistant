@@ -47,8 +47,21 @@ struct ChatContentView: View {
                 genericErrorBanner(errorText)
             }
 
+
             // Input bar
-            inputBar
+            InputBarView(
+                text: $viewModel.inputText,
+                isInputFocused: $isInputFocused,
+                isGenerating: (viewModel.isSending && !viewModel.hasPendingConfirmation) || viewModel.isThinking,
+                isCancelling: viewModel.isCancelling,
+                onSend: { viewModel.sendMessage() },
+                onStop: { viewModel.stopGenerating() },
+                onVoiceResult: { _ in
+                    viewModel.pendingVoiceMessage = true
+                    viewModel.sendMessage()
+                },
+                viewModel: viewModel
+            )
         }
         .background(alignment: .bottom) { chatBackground }
         .background(VColor.chatBackground)
@@ -61,24 +74,6 @@ struct ChatContentView: View {
         }
     }
 
-    // MARK: - Input Bar
-
-    private var inputBar: some View {
-        InputBarView(
-            text: $viewModel.inputText,
-            isInputFocused: $isInputFocused,
-            isGenerating: (viewModel.isSending && !viewModel.hasPendingConfirmation) || viewModel.isThinking,
-            isCancelling: viewModel.isCancelling,
-            onSend: { viewModel.sendMessage() },
-            onStop: { viewModel.stopGenerating() },
-            onVoiceResult: { _ in
-                viewModel.pendingVoiceMessage = true
-                viewModel.sendMessage()
-            },
-            viewModel: viewModel
-        )
-    }
-
     // MARK: - Messages Scroll View
 
     private var messagesScrollView: some View {
@@ -89,7 +84,7 @@ struct ChatContentView: View {
 
                     let messages = visibleMessages
                     ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
-                        messageRow(message: message, index: index, totalCount: messages.count)
+                        messageBubble(message: message, index: index, messages: messages)
 
                         // Subagent chips anchored to the message that spawned them
                         ForEach(viewModel.activeSubagents.filter { $0.parentMessageId == message.id }) { subagent in
@@ -106,7 +101,7 @@ struct ChatContentView: View {
                             .id("subagent-\(subagent.id)")
                     }
 
-                    typingIndicator
+                    typingIndicatorSection
 
                     // Invisible anchor at the very bottom of all content
                     Color.clear.frame(height: 1)
@@ -177,10 +172,10 @@ struct ChatContentView: View {
         }
     }
 
-    // MARK: - Message Row
+    // MARK: - Message Bubble
 
     @ViewBuilder
-    private func messageRow(message: ChatMessage, index: Int, totalCount: Int) -> some View {
+    private func messageBubble(message: ChatMessage, index: Int, messages: [ChatMessage]) -> some View {
         if message.modelPicker != nil {
             ModelPickerBubble(
                 models: ModelListBubble.anthropicModels.map { (id: $0.model, name: $0.display) },
@@ -209,52 +204,47 @@ struct ChatContentView: View {
                     removal: .opacity
                 ))
         } else {
-            messageBubbleRow(message: message, index: index, totalCount: totalCount)
-        }
-    }
+            let isLastAssistant = message.role == .assistant
+                && !message.isStreaming
+                && (index == messages.count - 1
+                    || (index == messages.count - 2
+                        && messages[messages.count - 1].confirmation != nil
+                        && messages[messages.count - 1].confirmation?.state != .pending))
+                && !viewModel.isSending
+                && !viewModel.isThinking
+            MessageBubbleView(
+                message: message,
+                onConfirmationResponse: { requestId, decision in
+                    viewModel.respondToConfirmation(requestId: requestId, decision: decision)
+                },
+                onSurfaceAction: { surfaceId, actionId, data in
+                    viewModel.sendSurfaceAction(surfaceId: surfaceId, actionId: actionId, data: data)
+                },
+                onRegenerate: isLastAssistant ? { viewModel.regenerateLastMessage() } : nil,
+                onAlwaysAllow: { requestId, selectedPattern, selectedScope, decision in
+                    viewModel.respondToAlwaysAllow(requestId: requestId, selectedPattern: selectedPattern, selectedScope: selectedScope, decision: decision)
+                },
+                onGuardianAction: { requestId, action in
+                    viewModel.submitGuardianDecision(requestId: requestId, action: action)
+                }
+            )
+            .id(message.id)
+            .transition(.asymmetric(
+                insertion: .move(edge: .bottom).combined(with: .opacity),
+                removal: .opacity
+            ))
 
-    @ViewBuilder
-    private func messageBubbleRow(message: ChatMessage, index: Int, totalCount: Int) -> some View {
-        let isLastAssistant = message.role == .assistant
-            && !message.isStreaming
-            && (index == totalCount - 1
-                || (index == totalCount - 2
-                    && viewModel.messages.last?.confirmation != nil
-                    && viewModel.messages.last?.confirmation?.state != .pending))
-            && !viewModel.isSending
-            && !viewModel.isThinking
-        MessageBubbleView(
-            message: message,
-            onConfirmationResponse: { requestId, decision in
-                viewModel.respondToConfirmation(requestId: requestId, decision: decision)
-            },
-            onSurfaceAction: { surfaceId, actionId, data in
-                viewModel.sendSurfaceAction(surfaceId: surfaceId, actionId: actionId, data: data)
-            },
-            onRegenerate: isLastAssistant ? { viewModel.regenerateLastMessage() } : nil,
-            onAlwaysAllow: { requestId, selectedPattern, selectedScope, decision in
-                viewModel.respondToAlwaysAllow(requestId: requestId, selectedPattern: selectedPattern, selectedScope: selectedScope, decision: decision)
-            },
-            onGuardianAction: { requestId, action in
-                viewModel.submitGuardianDecision(requestId: requestId, action: action)
+            // Inline media embeds (images, videos)
+            if !message.text.isEmpty && !message.isStreaming {
+                MessageMediaEmbedsView(message: message)
             }
-        )
-        .id(message.id)
-        .transition(.asymmetric(
-            insertion: .move(edge: .bottom).combined(with: .opacity),
-            removal: .opacity
-        ))
-
-        // Inline media embeds (images, videos)
-        if !message.text.isEmpty && !message.isStreaming {
-            MessageMediaEmbedsView(message: message)
         }
     }
 
     // MARK: - Typing Indicator
 
     @ViewBuilder
-    private var typingIndicator: some View {
+    private var typingIndicatorSection: some View {
         // Typing / step indicator shown while generating
         // Suppress the indicator while awaiting a confirmation prompt —
         // the user should see the confirmation UI, not a spinner.

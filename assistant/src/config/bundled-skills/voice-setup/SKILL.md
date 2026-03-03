@@ -9,7 +9,7 @@ You are helping the user set up and troubleshoot voice features (push-to-talk, w
 
 ## Available Tools
 
-- `voice_config_update` — Change any voice setting (PTT key, wake word enabled/keyword/timeout)
+- `voice_config_update` — Change any voice setting (PTT key, wake word enabled/keyword/timeout, TTS voice ID)
 - `open_system_settings` — Open macOS System Settings to a specific privacy pane
 - `navigate_settings_tab` — Open the Vellum settings panel to the Voice tab
 - `credential_store` — Collect API keys securely (for ElevenLabs TTS)
@@ -65,6 +65,41 @@ Ask if they want high-quality text-to-speech voices via ElevenLabs (optional —
 1. Tell them they need an ElevenLabs API key. They can get one at https://elevenlabs.io (free tier available).
 2. Use `credential_store` with `action: "prompt"`, `service: "elevenlabs"`, `field: "api_key"` to show a secure input dialog.
 3. After the key is stored, confirm success.
+
+#### Choose an ElevenLabs voice
+
+After storing the API key, let the user pick their preferred voice. The shared config key `elevenlabs.voiceId` controls the voice for **both** in-app TTS and phone calls (defaulting to Rachel).
+
+Check the current voice:
+
+```bash
+vellum config get elevenlabs.voiceId
+```
+
+Ask the user if they want to change their TTS voice. If yes, use `voice_config_update` with `setting: "tts_voice_id"` and the chosen voice ID. This writes to both the config file (`elevenlabs.voiceId`) and pushes to the macOS app via IPC in one call.
+
+Common choices from the curated ElevenLabs list:
+- **Rachel** (`21m00Tcm4TlvDq8ikWAM`) — Calm, warm, conversational (default)
+- **Sarah** (`EXAVITQu4vr4xnSDxMaL`) — Soft, young, approachable
+- **Charlotte** (`XB0fDUnXU5powFXDhCwa`) — Warm, Swedish-accented
+- **Josh** (`TxGEqnHWrfWFTfGW9XjX`) — Deep, young, clear
+- **Adam** (`pNInz6obpgDQGcFmaJgB`) — Deep, middle-aged, professional
+
+If the user wants to browse more voices, they can search at https://elevenlabs.io/voice-library or use the ElevenLabs API with their key.
+
+#### Sync with phone calls
+
+After setting the voice, check whether phone calls are configured:
+
+```bash
+vellum config get calls.enabled
+```
+
+**If phone calls are enabled** (`calls.enabled` is `true`):
+- Tell the user their phone calls will automatically use the same voice they just chose, since both in-app TTS and phone calls read from `elevenlabs.voiceId`.
+
+**If phone calls are not yet configured** (`calls.enabled` is `false` or not set):
+- Tell the user: "When you set up phone calls later, they'll automatically use the same voice for a consistent experience."
 
 ### 5. Verification
 

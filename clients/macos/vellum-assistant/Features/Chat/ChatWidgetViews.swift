@@ -86,7 +86,7 @@ struct RunningIndicator: View {
 
                 Spacer()
             }
-            .padding(.horizontal, VSpacing.sm)
+            .padding(.horizontal, onTap != nil ? VSpacing.sm : 0)
             .padding(.vertical, VSpacing.xs)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.lg)

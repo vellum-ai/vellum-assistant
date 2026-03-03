@@ -12,7 +12,7 @@ concurrency:
 jobs:
   release-build:
     name: macOS Release Build
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 30
     env:
       KEYCHAIN_NAME: build.keychain
@@ -22,8 +22,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Select Xcode 16.2
-        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+      - name: Select Xcode 26.2
+        run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
 
       - name: Cache SPM build artifacts
         uses: actions/cache@v4

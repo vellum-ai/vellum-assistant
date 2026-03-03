@@ -75,7 +75,8 @@ export class McpClient {
 
       if (isHttpTransport) {
         const isAuthError = err instanceof UnauthorizedError
-          || (err instanceof Error && /\b(401|403|unauthorized|forbidden)\b/i.test(err.message));
+          || (err instanceof Error && /\b(401|403|unauthorized|forbidden)\b/i.test(err.message))
+          || (err != null && typeof err === 'object' && 'code' in err && (err.code === 401 || err.code === 403));
 
         if (isAuthError) {
           // Auth-related — user can run `vellum mcp auth <name>` to authenticate.

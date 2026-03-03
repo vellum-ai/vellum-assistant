@@ -11,6 +11,7 @@ import { randomInt } from 'node:crypto';
 import type { ServerWebSocket } from 'bun';
 
 import { getConfig } from '../config/loader.js';
+import { resolveUserReference } from '../config/user-reference.js';
 import { getAssistantName } from '../daemon/identity-helpers.js';
 import { getCanonicalGuardianRequest } from '../memory/canonical-guardian-store.js';
 import { listActiveBindingsByAssistant } from '../memory/channel-guardian-store.js';
@@ -1214,10 +1215,14 @@ export class RelayConnection {
 
     updateCallSession(this.callSessionId, { status: 'waiting_on_user' });
 
-    // Start the heartbeat timer for periodic progress updates
-    this.accessRequestWaitStartedAt = Date.now();
+    // Start the heartbeat timer for periodic progress updates.
+    // Delay the first heartbeat by the estimated TTS playback duration so
+    // the initial hold message finishes before any heartbeat fires.
     this.heartbeatSequence = 0;
-    this.scheduleNextHeartbeat();
+    this.accessRequestHeartbeatTimer = setTimeout(() => {
+      this.accessRequestWaitStartedAt = Date.now();
+      this.scheduleNextHeartbeat();
+    }, getTtsPlaybackDelayMs());
 
     // Poll the canonical request status
     this.accessRequestPollTimer = setInterval(() => {
@@ -1658,7 +1663,7 @@ export class RelayConnection {
   /**
    * Resolve a human-readable guardian label for voice wait copy.
    * Prefers displayName from the guardian binding metadata, falls back
-   * to @username, then "my guardian".
+   * to @username, then the user's preferred name from USER.md.
    */
   private resolveGuardianLabel(): string {
     const assistantId = this.accessRequestAssistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
@@ -1690,7 +1695,8 @@ export class RelayConnection {
         // ignore malformed metadata
       }
     }
-    return 'my guardian';
+
+    return resolveUserReference();
   }
 
   /**

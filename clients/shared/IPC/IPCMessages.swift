@@ -2225,7 +2225,6 @@ public enum ServerMessage: Decodable, Sendable {
     case appFilesChanged(AppFilesChangedMessage)
     case getSigningIdentity(IPCGetSigningIdentityRequest)
     case diagnosticsExportResponse(DiagnosticsExportResponseMessage)
-    case browserCDPRequest(BrowserCDPRequestMessage)
     case envVarsResponse(EnvVarsResponseMessage)
     case workItemsListResponse(IPCWorkItemsListResponse)
     case workItemStatusChanged(IPCWorkItemStatusChanged)
@@ -2582,9 +2581,6 @@ public enum ServerMessage: Decodable, Sendable {
         case "diagnostics_export_response":
             let message = try DiagnosticsExportResponseMessage(from: decoder)
             self = .diagnosticsExportResponse(message)
-        case "browser_cdp_request":
-            let message = try BrowserCDPRequestMessage(from: decoder)
-            self = .browserCDPRequest(message)
         case "env_vars_response":
             let message = try EnvVarsResponseMessage(from: decoder)
             self = .envVarsResponse(message)
@@ -2724,28 +2720,6 @@ public struct TokenRotatedMessage: Decodable, Sendable {
     public let newToken: String
     public let expiresOldAt: Double
 }
-
-// MARK: - Browser CDP Messages
-
-/// Received when daemon needs Chrome restarted with CDP.
-public struct BrowserCDPRequestMessage: Decodable, Sendable {
-    public let sessionId: String
-}
-
-/// Sent back to daemon after Chrome restart attempt.
-public struct BrowserCDPResponseMessage: Encodable, Sendable {
-    public let type: String = "browser_cdp_response"
-    public let sessionId: String
-    public let success: Bool
-    public let declined: Bool?
-
-    public init(sessionId: String, success: Bool, declined: Bool? = nil) {
-        self.sessionId = sessionId
-        self.success = success
-        self.declined = declined
-    }
-}
-
 
 // MARK: - App Files Changed
 

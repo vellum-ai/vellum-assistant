@@ -553,30 +553,6 @@ public struct IPCAvatarUpdated: Codable, Sendable {
     }
 }
 
-public struct IPCBrowserCDPRequest: Codable, Sendable {
-    public let type: String
-    public let sessionId: String
-
-    public init(type: String, sessionId: String) {
-        self.type = type
-        self.sessionId = sessionId
-    }
-}
-
-public struct IPCBrowserCDPResponse: Codable, Sendable {
-    public let type: String
-    public let sessionId: String
-    public let success: Bool
-    public let declined: Bool?
-
-    public init(type: String, sessionId: String, success: Bool, declined: Bool? = nil) {
-        self.type = type
-        self.sessionId = sessionId
-        self.success = success
-        self.declined = declined
-    }
-}
-
 public struct IPCBundleAppRequest: Codable, Sendable {
     public let type: String
     public let appId: String
