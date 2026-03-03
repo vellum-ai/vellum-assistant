@@ -2297,6 +2297,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
     // MARK: - Wake Word Coordinator
 
+    private var wakeWordErrorCancellable: AnyCancellable?
+
     private func setupWakeWordCoordinator() {
         guard let mainWindow else {
             log.warning("Cannot set up wake word coordinator — main window not available")
@@ -2313,6 +2315,22 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             threadManager: mainWindow.threadManager,
             voiceInputManager: voiceInput
         )
+
+        // Show a toast when the wake word engine hits a persistent error
+        // (e.g. Dictation disabled at the OS level).
+        wakeWordErrorCancellable = audioMonitor.$persistentErrorMessage
+            .compactMap { $0 }
+            .sink { [weak self] message in
+                self?.mainWindow?.windowState.showToast(
+                    message: message,
+                    style: .warning,
+                    primaryAction: VToastAction(label: "Open Settings") {
+                        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.keyboard?Dictation") {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
+                )
+            }
 
         if UserDefaults.standard.bool(forKey: "wakeWordEnabled") {
             audioMonitor.startMonitoring()
