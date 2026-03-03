@@ -11,7 +11,8 @@
  * results with is_valid flag and detailed error descriptions.
  */
 
-import { getSqlite } from "../../memory/db-connection.js";
+import { invalidateConfigCache } from "../../config/loader.js";
+import { getSqlite, resetDb } from "../../memory/db-connection.js";
 import { getLogger } from "../../util/logger.js";
 import { getDbPath, getWorkspaceConfigPath } from "../../util/platform.js";
 import { httpError } from "../http-errors.js";
@@ -343,6 +344,10 @@ export async function handleMigrationImport(req: Request): Promise<Response> {
       getWorkspaceConfigPath(),
     );
 
+    // Close the live SQLite connection before overwriting assistant.db on disk.
+    // The singleton will be lazily reopened on the next getDb() call.
+    resetDb();
+
     const result = commitImport({
       archiveData: fileData,
       pathResolver,
@@ -381,6 +386,9 @@ export async function handleMigrationImport(req: Request): Promise<Response> {
         { status: 500 },
       );
     }
+
+    // Invalidate in-process config cache so imported settings.json takes effect
+    invalidateConfigCache();
 
     return Response.json(result.report);
   } catch (err) {
