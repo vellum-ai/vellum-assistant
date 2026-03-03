@@ -1004,9 +1004,7 @@ export class RelayConnection {
     });
 
     if (this.controller) {
-      this.controller.setTrustContext(
-        toTrustContext(updatedTrust, fromNumber),
-      );
+      this.controller.setTrustContext(toTrustContext(updatedTrust, fromNumber));
     }
 
     this.connectionState = "connected";
@@ -1245,7 +1243,7 @@ export class RelayConnection {
         }
 
         setTimeout(() => {
-          this.endSession("Guardian verification succeeded");
+          this.endSession("Verified — guardian challenge passed");
         }, getTtsPlaybackDelayMs());
       } else if (result.verificationType === "trusted_contact") {
         // Inbound trusted-contact verification: activate and continue
@@ -1356,7 +1354,7 @@ export class RelayConnection {
         }
 
         setTimeout(() => {
-          this.endSession("Guardian verification failed");
+          this.endSession("Verification failed — challenge rejected");
         }, getTtsPlaybackDelayMs());
       } else {
         const retryText = isOutbound

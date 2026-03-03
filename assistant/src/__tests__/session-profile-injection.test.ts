@@ -319,7 +319,7 @@ function makeSession(memoryPolicy?: SessionMemoryPolicy): Session {
       };
     },
   };
-  return new Session(
+  const session = new Session(
     "conv-1",
     provider,
     "system prompt",
@@ -329,6 +329,8 @@ function makeSession(memoryPolicy?: SessionMemoryPolicy): Session {
     undefined,
     memoryPolicy,
   );
+  session.setTrustContext({ trustClass: "guardian", sourceChannel: "vellum" });
+  return session;
 }
 
 function messageText(message: Message): string {

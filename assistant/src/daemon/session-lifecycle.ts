@@ -4,32 +4,41 @@
  * can delegate without exposing its full surface.
  */
 
-import { createContextSummaryMessage } from '../context/window-manager.js';
-import type { EventBus } from '../events/bus.js';
-import type { AssistantDomainEvents } from '../events/domain-events.js';
-import type { ToolProfiler } from '../events/tool-profiling-listener.js';
-import { getHookManager } from '../hooks/manager.js';
-import * as conversationStore from '../memory/conversation-store.js';
-import type { PermissionPrompter } from '../permissions/prompter.js';
-import type { SecretPrompter } from '../permissions/secret-prompter.js';
-import type { ContentBlock,Message } from '../providers/types.js';
-import { unregisterSessionSender } from '../tools/browser/browser-screencast.js';
-import { getLogger } from '../util/logger.js';
-import { repairHistory } from './history-repair.js';
-import type { SurfaceData,SurfaceType, UsageStats } from './ipc-protocol.js';
-import { unregisterCallNotifiers,unregisterWatchNotifiers } from './session-notifiers.js';
-import type { MessageQueue } from './session-queue-manager.js';
-import type { TrustClass } from '../runtime/actor-trust-resolver.js';
-import { resetSkillToolProjection } from './session-skill-tools.js';
+import { createContextSummaryMessage } from "../context/window-manager.js";
+import type { EventBus } from "../events/bus.js";
+import type { AssistantDomainEvents } from "../events/domain-events.js";
+import type { ToolProfiler } from "../events/tool-profiling-listener.js";
+import { getHookManager } from "../hooks/manager.js";
+import * as conversationStore from "../memory/conversation-store.js";
+import type { PermissionPrompter } from "../permissions/prompter.js";
+import type { SecretPrompter } from "../permissions/secret-prompter.js";
+import type { ContentBlock, Message } from "../providers/types.js";
+import type { TrustClass } from "../runtime/actor-trust-resolver.js";
+import { unregisterSessionSender } from "../tools/browser/browser-screencast.js";
+import { getLogger } from "../util/logger.js";
+import { repairHistory } from "./history-repair.js";
+import type { SurfaceData, SurfaceType, UsageStats } from "./ipc-protocol.js";
+import {
+  unregisterCallNotifiers,
+  unregisterWatchNotifiers,
+} from "./session-notifiers.js";
+import type { MessageQueue } from "./session-queue-manager.js";
+import { resetSkillToolProjection } from "./session-skill-tools.js";
 
-const log = getLogger('session-lifecycle');
+const log = getLogger("session-lifecycle");
 
-function parseProvenanceTrustClass(metadata: string | null): TrustClass | undefined {
+function parseProvenanceTrustClass(
+  metadata: string | null,
+): TrustClass | undefined {
   if (!metadata) return undefined;
   try {
     const parsed = JSON.parse(metadata) as { provenanceTrustClass?: unknown };
     const trustClass = parsed?.provenanceTrustClass;
-    if (trustClass === 'guardian' || trustClass === 'trusted_contact' || trustClass === 'unknown') {
+    if (
+      trustClass === "guardian" ||
+      trustClass === "trusted_contact" ||
+      trustClass === "unknown"
+    ) {
       return trustClass;
     }
   } catch {
@@ -39,13 +48,18 @@ function parseProvenanceTrustClass(metadata: string | null): TrustClass | undefi
 }
 
 function isUntrustedTrustClass(trustClass: TrustClass | undefined): boolean {
-  return trustClass === 'trusted_contact' || trustClass === 'unknown';
+  return trustClass === "trusted_contact" || trustClass === "unknown";
 }
 
-function filterMessagesForUntrustedActor(messages: conversationStore.MessageRow[]): conversationStore.MessageRow[] {
+function filterMessagesForUntrustedActor(
+  messages: conversationStore.MessageRow[],
+): conversationStore.MessageRow[] {
   return messages.filter((m) => {
     const provenanceTrustClass = parseProvenanceTrustClass(m.metadata);
-    return provenanceTrustClass === 'trusted_contact' || provenanceTrustClass === 'unknown';
+    return (
+      provenanceTrustClass === "trusted_contact" ||
+      provenanceTrustClass === "unknown"
+    );
   });
 }
 
@@ -69,7 +83,10 @@ export interface AbortContext {
   secretPrompter: SecretPrompter;
   pendingSurfaceActions: Map<string, { surfaceType: SurfaceType }>;
   surfaceActionRequestIds: Set<string>;
-  surfaceState: Map<string, { surfaceType: SurfaceType; data: SurfaceData; title?: string }>;
+  surfaceState: Map<
+    string,
+    { surfaceType: SurfaceType; data: SurfaceData; title?: string }
+  >;
   readonly queue: MessageQueue;
 }
 
@@ -114,21 +131,34 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
   const parsedMessages: Message[] = dbMessages
     .slice(ctx.contextCompactedMessageCount)
     .map((m) => {
-      const role = m.role as 'user' | 'assistant';
+      const role = m.role as "user" | "assistant";
       let content: ContentBlock[];
       try {
         const parsed = JSON.parse(m.content);
-        content = Array.isArray(parsed) ? parsed : [{ type: 'text', text: m.content }];
+        content = Array.isArray(parsed)
+          ? parsed
+          : [{ type: "text", text: m.content }];
       } catch {
-        log.warn({ conversationId: ctx.conversationId, messageId: m.id }, 'Invalid JSON in persisted message content, replacing with safe text block');
-        content = [{ type: 'text', text: m.content }];
+        log.warn(
+          { conversationId: ctx.conversationId, messageId: m.id },
+          "Invalid JSON in persisted message content, replacing with safe text block",
+        );
+        content = [{ type: "text", text: m.content }];
       }
       return { role, content };
     });
 
   const { messages: repairedMessages, stats } = repairHistory(parsedMessages);
-  if (stats.assistantToolResultsMigrated > 0 || stats.missingToolResultsInserted > 0 || stats.orphanToolResultsDowngraded > 0 || stats.consecutiveSameRoleMerged > 0) {
-    log.warn({ conversationId: ctx.conversationId, phase: 'load', ...stats }, 'Repaired persisted history');
+  if (
+    stats.assistantToolResultsMigrated > 0 ||
+    stats.missingToolResultsInserted > 0 ||
+    stats.orphanToolResultsDowngraded > 0 ||
+    stats.consecutiveSameRoleMerged > 0
+  ) {
+    log.warn(
+      { conversationId: ctx.conversationId, phase: "load", ...stats },
+      "Repaired persisted history",
+    );
   }
   ctx.messages = repairedMessages;
 
@@ -146,14 +176,20 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
 
   ctx.loadedHistoryTrustClass = trustClass;
 
-  log.info({ conversationId: ctx.conversationId, count: ctx.messages.length }, 'Loaded messages from DB');
+  log.info(
+    { conversationId: ctx.conversationId, count: ctx.messages.length },
+    "Loaded messages from DB",
+  );
 }
 
 // ── abort ─────────────────────────────────────────────────────────────
 
 export function abortSession(ctx: AbortContext): void {
   if (ctx.processing) {
-    log.info({ conversationId: ctx.conversationId }, 'Aborting in-flight processing');
+    log.info(
+      { conversationId: ctx.conversationId },
+      "Aborting in-flight processing",
+    );
     ctx.abortController?.abort();
     ctx.prompter.dispose();
     ctx.secretPrompter.dispose();
@@ -162,7 +198,10 @@ export function abortSession(ctx: AbortContext): void {
     ctx.surfaceState.clear();
     unregisterWatchNotifiers(ctx.conversationId);
     for (const queued of ctx.queue) {
-      queued.onEvent({ type: 'generation_cancelled', sessionId: ctx.conversationId });
+      queued.onEvent({
+        type: "generation_cancelled",
+        sessionId: ctx.conversationId,
+      });
     }
     ctx.queue.clear();
   }
@@ -171,7 +210,7 @@ export function abortSession(ctx: AbortContext): void {
 // ── dispose ──────────────────────────────────────────────────────────
 
 export function disposeSession(ctx: DisposeContext): void {
-  void getHookManager().trigger('session-end', {
+  void getHookManager().trigger("session-end", {
     sessionId: ctx.conversationId,
   });
   ctx.abort();

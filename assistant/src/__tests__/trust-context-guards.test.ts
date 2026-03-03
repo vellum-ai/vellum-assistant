@@ -155,7 +155,7 @@ describe("trust-context guards", () => {
     // a `const trustContext: TrustContext = parsedTrustContext ?? {`
     // fallback that synthesizes trustClass: 'unknown'.
     expect(
-      source.includes("trustClass: 'unknown'"),
+      source.includes('trustClass: "unknown"'),
       "The retry sweep must synthesize an explicit `trustClass: 'unknown'` context " +
         "when trustCtx is absent from stored payloads. This prevents downstream " +
         "defaults from granting implicit guardian trust on replay.",
