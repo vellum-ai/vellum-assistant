@@ -23,6 +23,7 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
           senders: [],
           total_scanned: result.totalScanned,
           query_used: result.queryUsed,
+          ...(result.truncated ? { truncated: true, next_page_token: result.nextPageToken } : {}),
           message: 'No emails found matching the query. Try broadening the search (e.g. remove category filter or extend date range).',
         }));
       }
