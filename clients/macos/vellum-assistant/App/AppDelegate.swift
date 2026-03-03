@@ -926,6 +926,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             }
             voiceInput?.stop()
             voiceInput = nil
+            wakeWordErrorCancellable?.cancel()
+            wakeWordErrorCancellable = nil
             wakeWordCoordinator = nil
             ambientAgent.teardown()
 
@@ -1114,6 +1116,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         }
         voiceInput?.stop()
         voiceInput = nil
+        wakeWordErrorCancellable?.cancel()
+        wakeWordErrorCancellable = nil
         wakeWordCoordinator = nil
         ambientAgent.teardown()
 
