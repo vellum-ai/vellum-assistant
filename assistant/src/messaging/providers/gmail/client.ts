@@ -16,9 +16,12 @@ import type {
 } from './types.js';
 
 const GMAIL_API_BASE = 'https://gmail.googleapis.com/gmail/v1/users/me';
+const GMAIL_BATCH_URL = 'https://www.googleapis.com/batch/gmail/v1';
 
-/** Max concurrent requests for batch operations */
-const BATCH_CONCURRENCY = 50;
+/** Max sub-requests per batch HTTP call (Gmail API limit) */
+const BATCH_SUB_LIMIT = 100;
+/** Max concurrent batch calls */
+const BATCH_CONCURRENCY = 5;
 
 export class GmailApiError extends Error {
   constructor(
@@ -125,22 +128,166 @@ export async function getMessage(
   return request<GmailMessage>(token, `/messages/${messageId}?${params}`);
 }
 
-/** Get multiple messages in parallel with capped concurrency. */
+/**
+ * Parse a single part from a multipart batch response into its HTTP status and JSON body.
+ * Each part contains MIME headers, then an embedded HTTP response (status line, headers, body).
+ */
+function parseSubResponse(part: string): { index: number; status: number; json: string | null } | null {
+  const idMatch = part.match(/Content-ID:\s*<response-(\d+)>/i);
+  if (!idMatch) return null;
+  const index = parseInt(idMatch[1], 10);
+
+  // Split MIME headers from the embedded HTTP response (separated by blank line)
+  const mimeEnd = part.search(/\r?\n\r?\n/);
+  if (mimeEnd === -1) return null;
+  const httpResponse = part.slice(mimeEnd).replace(/^(\r?\n){2}/, '');
+
+  const statusMatch = httpResponse.match(/^HTTP\/[\d.]+ (\d+)/);
+  const status = statusMatch ? parseInt(statusMatch[1], 10) : 0;
+
+  // Split HTTP headers from body (separated by blank line)
+  const bodyStart = httpResponse.search(/\r?\n\r?\n/);
+  if (bodyStart === -1) return { index, status, json: null };
+  const json = httpResponse.slice(bodyStart).replace(/^(\r?\n){2}/, '').trim();
+
+  return { index, status, json: json || null };
+}
+
+/**
+ * Execute a single batch HTTP call packing up to 100 getMessage sub-requests.
+ * Returns successfully parsed messages and a list of IDs that failed (for individual retry).
+ */
+async function executeBatchCall(
+  token: string,
+  messageIds: string[],
+  format: GmailMessageFormat,
+  metadataHeaders: string[] | undefined,
+): Promise<{ messages: Array<{ index: number; msg: GmailMessage }>; failedIds: Array<{ index: number; id: string }> }> {
+  const boundary = `batch_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+
+  // Build query string once (shared by all sub-requests)
+  const params = new URLSearchParams({ format });
+  if (format === 'metadata' && metadataHeaders) {
+    for (const h of metadataHeaders) params.append('metadataHeaders', h);
+  }
+  const qs = params.toString();
+
+  // Build multipart request body
+  const parts = messageIds.map((id, i) =>
+    `--${boundary}\r\nContent-Type: application/http\r\nContent-ID: <${i}>\r\n\r\nGET /gmail/v1/users/me/messages/${id}?${qs}\r\n`,
+  );
+  const body = parts.join('') + `--${boundary}--\r\n`;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const resp = await fetch(GMAIL_BATCH_URL, {
+      method: 'POST',
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS * 2),
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': `multipart/mixed; boundary=${boundary}`,
+      },
+      body,
+    });
+
+    if (!resp.ok) {
+      if (isRetryable(resp.status) && attempt < MAX_RETRIES) {
+        const retryAfter = resp.headers.get('retry-after');
+        const delayMs = retryAfter
+          ? parseInt(retryAfter, 10) * 1000
+          : INITIAL_BACKOFF_MS * Math.pow(2, attempt);
+        await new Promise((r) => setTimeout(r, delayMs));
+        continue;
+      }
+      const errBody = await resp.text().catch(() => '');
+      throw new GmailApiError(resp.status, resp.statusText, `Gmail batch API ${resp.status}: ${errBody}`);
+    }
+
+    const contentType = resp.headers.get('content-type') ?? '';
+    const responseText = await resp.text();
+
+    const boundaryMatch = contentType.match(/boundary=(?:"([^"]+)"|([^\s;]+))/);
+    const respBoundary = boundaryMatch?.[1] ?? boundaryMatch?.[2];
+    if (!respBoundary) throw new Error('Missing boundary in Gmail batch response');
+
+    const respParts = responseText.split(`--${respBoundary}`);
+    const messages: Array<{ index: number; msg: GmailMessage }> = [];
+    const failedIds: Array<{ index: number; id: string }> = [];
+
+    for (const rp of respParts) {
+      const parsed = parseSubResponse(rp);
+      if (!parsed) continue;
+
+      if (parsed.status >= 200 && parsed.status < 300 && parsed.json) {
+        try {
+          messages.push({ index: parsed.index, msg: JSON.parse(parsed.json) as GmailMessage });
+        } catch {
+          failedIds.push({ index: parsed.index, id: messageIds[parsed.index] });
+        }
+      } else {
+        failedIds.push({ index: parsed.index, id: messageIds[parsed.index] });
+      }
+    }
+
+    return { messages, failedIds };
+  }
+
+  throw new Error('Unreachable: batch retry loop exited without returning or throwing');
+}
+
+/**
+ * Get multiple messages using Gmail's batch HTTP endpoint.
+ * Packs up to 100 sub-requests per HTTP call and runs up to BATCH_CONCURRENCY calls in parallel.
+ * Falls back to individual getMessage for any sub-requests that fail within a batch.
+ */
 export async function batchGetMessages(
   token: string,
   messageIds: string[],
   format: GmailMessageFormat = 'full',
   metadataHeaders?: string[],
 ): Promise<GmailMessage[]> {
-  const results: GmailMessage[] = [];
-  for (let i = 0; i < messageIds.length; i += BATCH_CONCURRENCY) {
-    const batch = messageIds.slice(i, i + BATCH_CONCURRENCY);
-    const batchResults = await Promise.all(
-      batch.map((id) => getMessage(token, id, format, metadataHeaders)),
-    );
-    results.push(...batchResults);
+  if (messageIds.length === 0) return [];
+
+  // Single message — just use getMessage directly
+  if (messageIds.length === 1) {
+    return [await getMessage(token, messageIds[0], format, metadataHeaders)];
   }
-  return results;
+
+  const results = new Array<GmailMessage | null>(messageIds.length).fill(null);
+
+  // Chunk into groups of BATCH_SUB_LIMIT, then run BATCH_CONCURRENCY in parallel
+  const chunks: Array<{ startIndex: number; ids: string[] }> = [];
+  for (let i = 0; i < messageIds.length; i += BATCH_SUB_LIMIT) {
+    chunks.push({ startIndex: i, ids: messageIds.slice(i, i + BATCH_SUB_LIMIT) });
+  }
+
+  for (let i = 0; i < chunks.length; i += BATCH_CONCURRENCY) {
+    const wave = chunks.slice(i, i + BATCH_CONCURRENCY);
+    const waveResults = await Promise.all(
+      wave.map((chunk) => executeBatchCall(token, chunk.ids, format, metadataHeaders)),
+    );
+
+    // Place successful messages into the result array
+    for (let w = 0; w < wave.length; w++) {
+      const { messages, failedIds } = waveResults[w];
+      const baseIndex = wave[w].startIndex;
+
+      for (const { index, msg } of messages) {
+        results[baseIndex + index] = msg;
+      }
+
+      // Retry failed sub-requests individually
+      if (failedIds.length > 0) {
+        const retried = await Promise.all(
+          failedIds.map(({ id }) => getMessage(token, id, format, metadataHeaders)),
+        );
+        for (let r = 0; r < failedIds.length; r++) {
+          results[baseIndex + failedIds[r].index] = retried[r];
+        }
+      }
+    }
+  }
+
+  return results.filter((m): m is GmailMessage => m !== null);
 }
 
 /** Modify labels on a single message. */
