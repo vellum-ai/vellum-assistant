@@ -183,6 +183,7 @@ import {
 } from "./routes/integration-routes.js";
 import {
   handleMigrationExport,
+  handleMigrationImportPreflight,
   handleMigrationValidate,
 } from "./routes/migration-routes.js";
 import type { PairingHandlerContext } from "./routes/pairing-routes.js";
@@ -1436,6 +1437,8 @@ export class RuntimeHttpServer {
         return await handleMigrationValidate(req);
       if (endpoint === "migrations/export" && req.method === "POST")
         return await handleMigrationExport(req);
+      if (endpoint === "migrations/import-preflight" && req.method === "POST")
+        return await handleMigrationImportPreflight(req);
 
       // Internal OAuth callback endpoint (gateway -> runtime)
       if (endpoint === "internal/oauth/callback" && req.method === "POST") {

@@ -1,8 +1,9 @@
 /**
  * Route handlers for migration endpoints.
  *
- * POST /v1/migrations/validate — validate a .vbundle archive upload.
- * POST /v1/migrations/export  — generate and download a .vbundle archive.
+ * POST /v1/migrations/validate        — validate a .vbundle archive upload.
+ * POST /v1/migrations/export          — generate and download a .vbundle archive.
+ * POST /v1/migrations/import-preflight — dry-run import analysis of a .vbundle archive.
  *
  * Accepts raw binary body (Content-Type: application/octet-stream) or
  * multipart form data with a "file" field. Returns structured validation
@@ -13,6 +14,10 @@ import { getLogger } from "../../util/logger.js";
 import { getDbPath, getWorkspaceConfigPath } from "../../util/platform.js";
 import { httpError } from "../http-errors.js";
 import { buildExportVBundle } from "../migrations/vbundle-builder.js";
+import {
+  analyzeImport,
+  DefaultPathResolver,
+} from "../migrations/vbundle-import-analyzer.js";
 import { validateVBundle } from "../migrations/vbundle-validator.js";
 
 const log = getLogger("migration-routes");
@@ -147,6 +152,130 @@ export async function handleMigrationExport(req: Request): Promise<Response> {
     return httpError(
       "INTERNAL_ERROR",
       err instanceof Error ? err.message : "Unexpected export error",
+      500,
+    );
+  }
+}
+
+/**
+ * Extract file data from a request body, supporting both raw binary
+ * and multipart form data uploads.
+ *
+ * Shared between validate and import-preflight handlers.
+ */
+async function extractFileData(
+  req: Request,
+): Promise<{ data: Uint8Array } | { error: Response }> {
+  const contentType = req.headers.get("content-type") ?? "";
+
+  if (contentType.includes("multipart/form-data")) {
+    try {
+      const formData = await req.formData();
+      const file = formData.get("file");
+      if (!file || !(file instanceof Blob)) {
+        return {
+          error: httpError(
+            "BAD_REQUEST",
+            'Multipart upload requires a "file" field',
+            400,
+          ),
+        };
+      }
+      return { data: new Uint8Array(await file.arrayBuffer()) };
+    } catch (err) {
+      log.error({ err }, "Failed to parse multipart form data");
+      return {
+        error: httpError("BAD_REQUEST", "Invalid multipart form data", 400),
+      };
+    }
+  }
+
+  // Treat as raw binary body
+  try {
+    const arrayBuffer = await req.arrayBuffer();
+    return { data: new Uint8Array(arrayBuffer) };
+  } catch (err) {
+    log.error({ err }, "Failed to read request body");
+    return {
+      error: httpError("BAD_REQUEST", "Failed to read request body", 400),
+    };
+  }
+}
+
+/**
+ * POST /v1/migrations/import-preflight
+ *
+ * Dry-run import analysis. Accepts a .vbundle archive upload, validates it,
+ * and returns a detailed report of what would change if the bundle were
+ * actually imported — without modifying any data on disk.
+ *
+ * The file can be sent as:
+ * - Raw binary body with Content-Type: application/octet-stream
+ * - Multipart form data with a "file" field
+ *
+ * Returns:
+ *   200: {
+ *     can_import: boolean,
+ *     summary: { total_files, files_to_create, files_to_overwrite, files_unchanged },
+ *     files: [{ path, action, bundle_size, current_size, bundle_sha256, current_sha256 }],
+ *     conflicts: [{ code, message, path? }],
+ *     manifest: { ... }
+ *   }
+ *   200: { can_import: false, validation: { is_valid: false, errors: [...] } }
+ *        (when the bundle itself is invalid)
+ *   400: Standard error envelope for missing/empty body
+ *   500: Standard error envelope for unexpected failures
+ *
+ * Auth: Requires settings.write scope. Allowed for actor, svc_gateway, ipc.
+ */
+export async function handleMigrationImportPreflight(
+  req: Request,
+): Promise<Response> {
+  const extracted = await extractFileData(req);
+  if ("error" in extracted) {
+    return extracted.error;
+  }
+
+  const fileData = extracted.data;
+  if (fileData.length === 0) {
+    return httpError(
+      "BAD_REQUEST",
+      "Request body is empty — a .vbundle file is required",
+      400,
+    );
+  }
+
+  try {
+    // Step 1: Validate the bundle
+    const validationResult = validateVBundle(fileData);
+
+    if (!validationResult.is_valid || !validationResult.manifest) {
+      return Response.json({
+        can_import: false,
+        validation: {
+          is_valid: false,
+          errors: validationResult.errors,
+        },
+      });
+    }
+
+    // Step 2: Analyze what would change on import
+    const pathResolver = new DefaultPathResolver(
+      getDbPath(),
+      getWorkspaceConfigPath(),
+    );
+
+    const report = analyzeImport({
+      manifest: validationResult.manifest,
+      pathResolver,
+    });
+
+    return Response.json(report);
+  } catch (err) {
+    log.error({ err }, "Unexpected error during import preflight analysis");
+    return httpError(
+      "INTERNAL_ERROR",
+      err instanceof Error ? err.message : "Unexpected import preflight error",
       500,
     );
   }
