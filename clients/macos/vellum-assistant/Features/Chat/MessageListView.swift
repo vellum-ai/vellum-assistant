@@ -595,7 +595,22 @@ struct MessageListView: View {
                 }
             }
             .onChange(of: anchorMessageId) {
-                if let id = anchorMessageId {
+                guard let id = anchorMessageId else { return }
+                // Only scroll and clear if the target message is already loaded;
+                // otherwise leave the anchor set so the messages-change handler
+                // can retry once history finishes loading.
+                if messages.contains(where: { $0.id == id }) {
+                    withAnimation {
+                        proxy.scrollTo(id, anchor: .center)
+                    }
+                    anchorMessageId = nil
+                }
+            }
+            .onChange(of: messages) {
+                // Retry anchor scroll when messages update (e.g., history loads
+                // after a thread switch triggered by a notification deep-link).
+                guard let id = anchorMessageId else { return }
+                if messages.contains(where: { $0.id == id }) {
                     withAnimation {
                         proxy.scrollTo(id, anchor: .center)
                     }
