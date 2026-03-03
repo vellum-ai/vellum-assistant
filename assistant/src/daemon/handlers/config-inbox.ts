@@ -25,8 +25,7 @@ import {
   upsertIngressMember,
 } from '../../runtime/ingress-service.js';
 import type { AssistantInboxEscalationRequest, IngressInviteRequest, IngressMemberRequest } from '../ipc-protocol.js';
-import { defineHandlers, type HandlerContext, log } from './shared.js';
-import { renderHistoryContent } from './shared.js';
+import { defineHandlers, type HandlerContext, log, renderHistoryContent } from './shared.js';
 
 export function handleIngressInvite(
   msg: IngressInviteRequest,
