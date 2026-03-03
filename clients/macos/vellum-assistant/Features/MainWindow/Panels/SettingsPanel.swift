@@ -97,15 +97,14 @@ struct SettingsPanel: View {
             settingsNav
                 .frame(width: 200)
 
-            // Right: tab content in a subtle background panel (nav is outside)
+            // Right: tab content — panel background on content only, nav floats on window chrome
             ScrollView {
                 selectedTabContent
                     .padding(VSpacing.lg)
                     .frame(maxWidth: .infinity, alignment: .top)
             }
-            .background(VColor.background)
-            .padding(.trailing, VSpacing.lg)
-            .padding(.vertical, VSpacing.lg)
+            .background(VColor.backgroundSubtle)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         }
         .task {
             // Refresh permission status when the view appears
@@ -255,15 +254,6 @@ struct SettingsPanel: View {
                 }
 
                 if store.hasKey {
-                    HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .large) {}
-                        VButton(label: "Clear", style: .danger, size: .large) {
-                            store.clearAPIKey()
-                            apiKeyText = ""
-                            anthropicSetupExpanded = false
-                        }
-                    }
-
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
                         Text("Active Model")
                             .font(VFont.body)
@@ -282,6 +272,15 @@ struct SettingsPanel: View {
                             }
                         )
                         .frame(width: 360)
+                    }
+
+                    HStack(spacing: VSpacing.sm) {
+                        VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .large) {}
+                        VButton(label: "Clear", style: .danger, size: .large) {
+                            store.clearAPIKey()
+                            apiKeyText = ""
+                            anthropicSetupExpanded = false
+                        }
                     }
                 } else if anthropicSetupExpanded {
                     VStack(alignment: .leading, spacing: VSpacing.sm) {

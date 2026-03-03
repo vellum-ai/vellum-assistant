@@ -438,7 +438,6 @@ extension MainWindowView {
         switch panel {
         case .settings:
             SettingsPanel(onClose: { windowState.dismissOverlay() }, store: settingsStore, daemonClient: daemonClient, threadManager: threadManager, authManager: authManager)
-                .background(adaptiveColor(light: Moss._50, dark: Moss._950))
         case .debug:
             DebugPanel(
                 traceStore: traceStore,
