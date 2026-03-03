@@ -365,8 +365,10 @@ export function verifyRequest(
     return { ok: false, reason: 'invalid_signature' };
   }
 
-  // Record nonce only after authentication succeeds
-  nonceStore.record(nonce, currentTime);
+  // Record nonce only after authentication succeeds.
+  // Anchor retention to the later of currentTime and requestTime so that
+  // a valid request near the replay-window limit isn't evicted prematurely.
+  nonceStore.record(nonce, Math.max(currentTime, requestTime));
 
   return { ok: true, connectionId };
 }
@@ -421,8 +423,10 @@ export function verifySignature(params: {
     return { ok: false, reason: 'invalid_signature' };
   }
 
-  // Record nonce only after authentication succeeds
-  nonceStore.record(nonce, currentTime);
+  // Record nonce only after authentication succeeds.
+  // Anchor retention to the later of currentTime and requestTime so that
+  // a valid request near the replay-window limit isn't evicted prematurely.
+  nonceStore.record(nonce, Math.max(currentTime, requestTime));
 
   return { ok: true };
 }
