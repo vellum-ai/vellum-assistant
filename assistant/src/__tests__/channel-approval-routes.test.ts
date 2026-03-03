@@ -1209,7 +1209,7 @@ describe('expired guardian approval auto-denies via sweep', () => {
     });
 
     // Run the sweep
-    sweepExpiredGuardianApprovals('https://gateway.test', 'token');
+    sweepExpiredGuardianApprovals('https://gateway.test', () => 'token');
 
     // Wait for async notifications
     await new Promise((resolve) => setTimeout(resolve, 200));
@@ -1262,7 +1262,7 @@ describe('expired guardian approval auto-denies via sweep', () => {
       expiresAt: Date.now() + 300_000, // still valid
     });
 
-    sweepExpiredGuardianApprovals('https://gateway.test', 'token');
+    sweepExpiredGuardianApprovals('https://gateway.test', () => 'token');
 
     await new Promise((resolve) => setTimeout(resolve, 200));
 

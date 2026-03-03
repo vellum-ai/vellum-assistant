@@ -34,7 +34,7 @@ let expirySweepTimer: ReturnType<typeof setInterval> | null = null;
  */
 export function sweepExpiredGuardianApprovals(
   gatewayBaseUrl: string,
-  bearerToken?: string,
+  mintBearerToken?: () => string,
   approvalCopyGenerator?: ApprovalCopyGenerator,
 ): void {
   const expired = getExpiredPendingApprovals();
@@ -63,7 +63,7 @@ export function sweepExpiredGuardianApprovals(
         chatId: approval.requesterChatId,
         text: requesterText,
         assistantId: approval.assistantId,
-      }, bearerToken);
+      }, mintBearerToken?.());
     })().catch((err) => {
       log.error({ err, approvalId: approval.id }, 'Failed to notify requester of guardian approval expiry');
     });
@@ -80,7 +80,7 @@ export function sweepExpiredGuardianApprovals(
         chatId: approval.guardianChatId,
         text: guardianText,
         assistantId: approval.assistantId,
-      }, bearerToken);
+      }, mintBearerToken?.());
     })().catch((err) => {
       log.error({ err, approvalId: approval.id }, 'Failed to notify guardian of approval expiry');
     });
@@ -98,13 +98,13 @@ export function sweepExpiredGuardianApprovals(
  */
 export function startGuardianExpirySweep(
   gatewayBaseUrl: string,
-  bearerToken?: string,
+  mintBearerToken?: () => string,
   approvalCopyGenerator?: ApprovalCopyGenerator,
 ): void {
   if (expirySweepTimer) return;
   expirySweepTimer = setInterval(() => {
     try {
-      sweepExpiredGuardianApprovals(gatewayBaseUrl, bearerToken, approvalCopyGenerator);
+      sweepExpiredGuardianApprovals(gatewayBaseUrl, mintBearerToken, approvalCopyGenerator);
     } catch (err) {
       log.error({ err }, 'Guardian expiry sweep failed');
     }
