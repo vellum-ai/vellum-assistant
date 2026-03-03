@@ -635,6 +635,7 @@ struct SettingsPanel: View {
             // TWITTER / X section
             twitterSection
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Twitter Section
