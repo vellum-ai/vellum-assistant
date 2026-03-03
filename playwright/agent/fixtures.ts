@@ -198,32 +198,15 @@ function ensureVellumInPath(appDisplayName: string): void {
  * Ensures an assistant is hatched, the lockfile is populated, and the
  * assistant is healthy before returning.
  *
- * Checks `vellum ps` for an existing assistant. If none is found,
- * runs `vellum hatch` to create one. Then verifies the lockfile has
- * an assistant entry and polls `/healthz` until it reports healthy.
+ * Checks the lockfile for an existing assistant. If none is found,
+ * runs `vellum hatch` to create one. Then polls `/healthz` until
+ * the assistant reports healthy.
  */
 async function ensureAssistantHatched(): Promise<void> {
-  let psOutput: string;
-  try {
-    psOutput = execSync("vellum ps", {
-      encoding: "utf-8",
-      timeout: 30_000,
-      shell: "/bin/bash",
-    });
-  } catch {
-    // vellum ps failed — try hatching
-    psOutput = "";
-  }
-
-  const lines = psOutput
-    .split("\n")
-    .filter((l) => l.trim() && !l.includes("NAME") && !l.startsWith("  -"));
-
   let hatchOutput = "";
-  if (lines.length === 0) {
-    // No assistant found — hatch one
+  if (!hasAssistantInLockfile()) {
     try {
-      hatchOutput = execSync("vellum hatch", {
+      hatchOutput = execSync("vellum hatch 2>&1", {
         encoding: "utf-8",
         timeout: 300_000,
         shell: "/bin/bash",
@@ -269,6 +252,19 @@ async function ensureAssistantHatched(): Promise<void> {
   throw new Error(
     `Assistant at ${runtimeUrl} did not become healthy within ${maxWaitMs / 1_000}s`,
   );
+}
+
+/** Returns true if the lockfile exists and contains at least one assistant. */
+function hasAssistantInLockfile(): boolean {
+  const lockfilePath = path.join(getBaseDir(), ".vellum.lock.json");
+  if (!existsSync(lockfilePath)) return false;
+  try {
+    const raw = readFileSync(lockfilePath, "utf-8");
+    const data = JSON.parse(raw) as { assistants?: unknown[] };
+    return Array.isArray(data.assistants) && data.assistants.length > 0;
+  } catch {
+    return false;
+  }
 }
 
 /**
