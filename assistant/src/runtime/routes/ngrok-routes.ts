@@ -67,10 +67,14 @@ export async function handleNgrokAuth(req: Request): Promise<Response> {
   }
 
   // If the token was provided in the body, persist it to secure storage
+  let warning: string | undefined;
   if (body.authToken) {
     const stored = setSecureKey('credential:ngrok:authtoken', body.authToken);
     if (stored) {
       upsertCredentialMetadata('ngrok', 'authtoken', {});
+    } else {
+      log.warn('Failed to persist ngrok auth token to secure storage');
+      warning = 'ngrok was configured successfully, but the token could not be persisted to secure storage. It may need to be provided again next time.';
     }
   }
 
@@ -78,5 +82,6 @@ export async function handleNgrokAuth(req: Request): Promise<Response> {
     success: true,
     hasToken: true,
     source,
+    ...(warning ? { warning } : {}),
   });
 }

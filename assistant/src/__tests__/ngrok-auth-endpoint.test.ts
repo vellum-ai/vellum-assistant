@@ -38,9 +38,14 @@ mock.module('../util/logger.js', () => ({
 
 // Mock secure keys storage
 const secureStore = new Map<string, string>();
+let setSecureKeyShouldFail = false;
 mock.module('../security/secure-keys.js', () => ({
   getSecureKey: (key: string) => secureStore.get(key),
-  setSecureKey: (key: string, value: string) => { secureStore.set(key, value); return true; },
+  setSecureKey: (key: string, value: string) => {
+    if (setSecureKeyShouldFail) return false;
+    secureStore.set(key, value);
+    return true;
+  },
   deleteSecureKey: (key: string) => secureStore.delete(key),
 }));
 
@@ -94,6 +99,7 @@ beforeEach(() => {
   metadataUpserts.length = 0;
   spawnExitCode = 0;
   spawnArgs = [];
+  setSecureKeyShouldFail = false;
 });
 
 describe('ngrok auth endpoint', () => {
@@ -163,6 +169,29 @@ describe('ngrok auth endpoint', () => {
 
     expect(data.success).toBe(false);
     expect(data.error).toContain('ngrok config add-authtoken failed');
+  });
+
+  test('setSecureKey failure returns success with warning', async () => {
+    setSecureKeyShouldFail = true;
+
+    const req = new Request('http://localhost/v1/integrations/public-ingress/ngrok/auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ authToken: 'ngrok_token_456' }),
+    });
+
+    const res = await handleNgrokAuth(req);
+    const data = await res.json() as { success: boolean; hasToken: boolean; source: string; warning?: string };
+
+    expect(data.success).toBe(true);
+    expect(data.hasToken).toBe(true);
+    expect(data.source).toBe('body');
+    expect(data.warning).toBeDefined();
+    expect(data.warning).toContain('could not be persisted');
+    // Token should not be in the store since setSecureKey failed
+    expect(secureStore.has('credential:ngrok:authtoken')).toBe(false);
+    // Metadata should not be upserted since storage failed
+    expect(metadataUpserts).not.toContainEqual({ service: 'ngrok', field: 'authtoken' });
   });
 
   test('body-provided token is not persisted when ngrok command fails', async () => {

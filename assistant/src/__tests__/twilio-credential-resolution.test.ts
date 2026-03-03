@@ -44,9 +44,14 @@ mock.module('../config/env.js', () => ({
 
 // Mock secure keys storage
 const secureStore = new Map<string, string>();
+const setSecureKeyCalls: Array<{ key: string; value: string }> = [];
 mock.module('../security/secure-keys.js', () => ({
   getSecureKey: (key: string) => secureStore.get(key),
-  setSecureKey: (key: string, value: string) => { secureStore.set(key, value); return true; },
+  setSecureKey: (key: string, value: string) => {
+    setSecureKeyCalls.push({ key, value });
+    secureStore.set(key, value);
+    return true;
+  },
   deleteSecureKey: (key: string) => secureStore.delete(key),
 }));
 
@@ -104,6 +109,7 @@ afterAll(() => {
 
 beforeEach(() => {
   secureStore.clear();
+  setSecureKeyCalls.length = 0;
   metadataUpserts.length = 0;
   lastFetchUrl = '';
   fetchShouldSucceed = true;
@@ -200,6 +206,30 @@ describe('Twilio credentials endpoint server-side resolution', () => {
     expect(data.success).toBe(true);
     expect(lastFetchUrl).toContain('ACoverride');
     expect(secureStore.get('credential:twilio:account_sid')).toBe('ACoverride');
+  });
+
+  test('empty body does not rewrite credentials to secure storage', async () => {
+    secureStore.set('credential:twilio:account_sid', 'ACstored');
+    secureStore.set('credential:twilio:auth_token', 'storedToken');
+    // Clear the tracking arrays after seeding the store so we only see calls from the handler
+    setSecureKeyCalls.length = 0;
+    metadataUpserts.length = 0;
+
+    const req = new Request('http://localhost/v1/integrations/twilio/credentials', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+
+    const res = await handleSetTwilioCredentials(req);
+    const data = await res.json() as { success: boolean; hasCredentials: boolean };
+
+    expect(data.success).toBe(true);
+    expect(data.hasCredentials).toBe(true);
+    // The handler should NOT have called setSecureKey when credentials came from storage
+    expect(setSecureKeyCalls).toEqual([]);
+    // No metadata upserts should have been made either
+    expect(metadataUpserts).toEqual([]);
   });
 
   test('invalid credentials from Twilio API return error', async () => {

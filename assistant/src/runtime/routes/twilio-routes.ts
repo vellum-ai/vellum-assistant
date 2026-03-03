@@ -152,9 +152,11 @@ export function handleGetTwilioConfig(): Response {
 export async function handleSetTwilioCredentials(req: Request): Promise<Response> {
   const body = (await req.json().catch(() => ({}))) as { accountSid?: string; authToken?: string };
 
-  // Resolve credentials: prefer explicit body values, fall back to secure storage
+  // Resolve credentials: prefer explicit body values, fall back to secure storage.
+  // Track provenance so we only persist when credentials were provided in the body.
   const accountSid = body.accountSid || getSecureKey('credential:twilio:account_sid');
   const authToken = body.authToken || getSecureKey('credential:twilio:auth_token');
+  const credentialsFromBody = !!(body.accountSid || body.authToken);
 
   if (!accountSid || !authToken) {
     const missing: string[] = [];
@@ -191,28 +193,32 @@ export async function handleSetTwilioCredentials(req: Request): Promise<Response
     });
   }
 
-  // Store credentials securely
-  const sidStored = setSecureKey('credential:twilio:account_sid', accountSid);
-  if (!sidStored) {
-    return Response.json({
-      success: false,
-      hasCredentials: false,
-      error: 'Failed to store Account SID in secure storage',
-    });
-  }
+  // Only persist credentials when they were provided in the request body.
+  // When resolved from secure storage, skip the write path to avoid turning
+  // a read/validate call into a mutating one.
+  if (credentialsFromBody) {
+    const sidStored = setSecureKey('credential:twilio:account_sid', accountSid);
+    if (!sidStored) {
+      return Response.json({
+        success: false,
+        hasCredentials: false,
+        error: 'Failed to store Account SID in secure storage',
+      });
+    }
 
-  const tokenStored = setSecureKey('credential:twilio:auth_token', authToken);
-  if (!tokenStored) {
-    deleteSecureKey('credential:twilio:account_sid');
-    return Response.json({
-      success: false,
-      hasCredentials: false,
-      error: 'Failed to store Auth Token in secure storage',
-    });
-  }
+    const tokenStored = setSecureKey('credential:twilio:auth_token', authToken);
+    if (!tokenStored) {
+      deleteSecureKey('credential:twilio:account_sid');
+      return Response.json({
+        success: false,
+        hasCredentials: false,
+        error: 'Failed to store Auth Token in secure storage',
+      });
+    }
 
-  upsertCredentialMetadata('twilio', 'account_sid', {});
-  upsertCredentialMetadata('twilio', 'auth_token', {});
+    upsertCredentialMetadata('twilio', 'account_sid', {});
+    upsertCredentialMetadata('twilio', 'auth_token', {});
+  }
 
   return Response.json({ success: true, hasCredentials: true });
 }
