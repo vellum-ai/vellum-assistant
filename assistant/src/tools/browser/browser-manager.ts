@@ -3,16 +3,10 @@ import { join } from "node:path";
 
 import { getLogger } from "../../util/logger.js";
 import { getDataDir } from "../../util/platform.js";
-import { silentlyWithLog } from "../../util/silently.js";
 import { authSessionCache } from "./auth-cache.js";
 import type { ExtractedCredential } from "./network-recording-types.js";
 
 const log = getLogger("browser-manager");
-
-// Screencast capture dimensions — used by coordinate math across the browser module
-// to map between page coordinates and screencast-frame coordinates.
-export const SCREENCAST_WIDTH = 1280;
-export const SCREENCAST_HEIGHT = 800;
 
 function getDownloadsDir(): string {
   const dir = join(getDataDir(), "browser-downloads");
@@ -103,14 +97,6 @@ export type Page = {
   on(event: string, handler: (...args: unknown[]) => void): void;
 };
 
-type ScreencastFrameMetadata = {
-  offsetTop: number;
-  pageScaleFactor: number;
-  scrollOffsetX: number;
-  scrollOffsetY: number;
-  timestamp: number;
-};
-
 type CDPSession = {
   send(method: string, params?: Record<string, unknown>): Promise<unknown>;
   on(event: string, handler: (params: Record<string, unknown>) => void): void;
@@ -143,10 +129,6 @@ class BrowserManager {
   private pages = new Map<string, Page>();
   private rawPages = new Map<string, unknown>();
   private cdpSessions = new Map<string, CDPSession>();
-  private screencastCallbacks = new Map<
-    string,
-    (frame: { data: string; metadata: ScreencastFrameMetadata }) => void
-  >();
   private snapshotMaps = new Map<string, Map<string, string>>();
   private cdpUrl: string = "http://localhost:9222";
   private cdpBrowser: unknown = null; // Store CDP browser reference separately
@@ -351,7 +333,7 @@ class BrowserManager {
           this.pages.clear();
           this.rawPages.clear();
           this.cdpSessions.clear();
-          this.screencastCallbacks.clear();
+
           this.snapshotMaps.clear();
           this.downloads.clear();
           for (const pending of this.pendingDownloads.values()) {
@@ -551,55 +533,6 @@ class BrowserManager {
     }
   }
 
-  async startScreencast(
-    sessionId: string,
-    onFrame: (frame: {
-      data: string;
-      metadata: ScreencastFrameMetadata;
-    }) => void,
-  ): Promise<void> {
-    const rawPage = this.rawPages.get(sessionId) as
-      | RawPlaywrightPage
-      | undefined;
-    if (!rawPage) throw new Error("No page for session");
-
-    // Stop any existing screencast before creating a new CDP session
-    await this.stopScreencast(sessionId);
-
-    const cdp = await rawPage.context().newCDPSession(rawPage);
-    this.cdpSessions.set(sessionId, cdp);
-    this.screencastCallbacks.set(sessionId, onFrame);
-
-    // Keep screencast intentionally low-frequency to avoid Chrome renderer /
-    // WindowServer spikes while users type in interactive auth flows.
-    const MIN_FRAME_INTERVAL_MS = 1000;
-    let lastFrameTime = 0;
-
-    cdp.on("Page.screencastFrame", (params) => {
-      const now = Date.now();
-      if (now - lastFrameTime >= MIN_FRAME_INTERVAL_MS) {
-        lastFrameTime = now;
-        onFrame({
-          data: params.data as string,
-          metadata: params.metadata as ScreencastFrameMetadata,
-        });
-      }
-      // Always ack so CDP continues delivering frames (otherwise it stalls)
-      silentlyWithLog(
-        cdp.send("Page.screencastFrameAck", { sessionId: params.sessionId }),
-        "screencast frame ack",
-      );
-    });
-
-    await cdp.send("Page.startScreencast", {
-      format: "jpeg",
-      quality: 45,
-      maxWidth: SCREENCAST_WIDTH,
-      maxHeight: SCREENCAST_HEIGHT,
-      everyNthFrame: 4,
-    });
-  }
-
   async stopScreencast(sessionId: string): Promise<void> {
     const cdp = this.cdpSessions.get(sessionId);
     if (cdp) {
@@ -613,12 +546,7 @@ class BrowserManager {
         );
       }
       this.cdpSessions.delete(sessionId);
-      this.screencastCallbacks.delete(sessionId);
     }
-  }
-
-  isScreencasting(sessionId: string): boolean {
-    return this.cdpSessions.has(sessionId);
   }
 
   storeSnapshotMap(sessionId: string, map: Map<string, string>): void {

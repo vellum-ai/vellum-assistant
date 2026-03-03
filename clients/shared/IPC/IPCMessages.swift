@@ -1741,15 +1741,6 @@ public struct RegisterDeviceTokenMessage: Encodable, Sendable {
 
 
 
-/// Received when interactive mode state changes (confirmation or agent-initiated).
-public struct BrowserInteractiveModeChangedMessage: Decodable, Sendable {
-    public let sessionId: String
-    public let surfaceId: String
-    public let enabled: Bool
-    public let reason: String?
-    public let message: String?
-}
-
 // MARK: - Slack Webhook Messages (Manual)
 
 public struct ShareToSlackRequestMessage: Encodable, Sendable {
@@ -2234,7 +2225,6 @@ public enum ServerMessage: Decodable, Sendable {
     case appFilesChanged(AppFilesChangedMessage)
     case getSigningIdentity(IPCGetSigningIdentityRequest)
     case diagnosticsExportResponse(DiagnosticsExportResponseMessage)
-    case browserInteractiveModeChanged(BrowserInteractiveModeChangedMessage)
     case browserCDPRequest(BrowserCDPRequestMessage)
     case envVarsResponse(EnvVarsResponseMessage)
     case workItemsListResponse(IPCWorkItemsListResponse)
@@ -2591,9 +2581,6 @@ public enum ServerMessage: Decodable, Sendable {
         case "diagnostics_export_response":
             let message = try DiagnosticsExportResponseMessage(from: decoder)
             self = .diagnosticsExportResponse(message)
-        case "browser_interactive_mode_changed":
-            let message = try BrowserInteractiveModeChangedMessage(from: decoder)
-            self = .browserInteractiveModeChanged(message)
         case "browser_cdp_request":
             let message = try BrowserCDPRequestMessage(from: decoder)
             self = .browserCDPRequest(message)

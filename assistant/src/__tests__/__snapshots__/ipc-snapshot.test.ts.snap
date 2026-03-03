@@ -776,15 +776,6 @@ exports[`IPC message snapshots ClientMessage types browser_cdp_response serializ
 }
 `;
 
-exports[`IPC message snapshots ClientMessage types browser_interactive_mode serializes to expected JSON 1`] = `
-{
-  "enabled": true,
-  "sessionId": "test-session",
-  "surfaceId": "test-surface",
-  "type": "browser_interactive_mode",
-}
-`;
-
 exports[`IPC message snapshots ClientMessage types work_items_list serializes to expected JSON 1`] = `
 {
   "status": "queued",
@@ -2468,25 +2459,6 @@ exports[`IPC message snapshots ServerMessage types browser_cdp_request serialize
 {
   "sessionId": "test-session",
   "type": "browser_cdp_request",
-}
-`;
-
-exports[`IPC message snapshots ServerMessage types browser_interactive_mode_changed serializes to expected JSON 1`] = `
-{
-  "enabled": true,
-  "sessionId": "test-session",
-  "surfaceId": "test-surface",
-  "type": "browser_interactive_mode_changed",
-}
-`;
-
-exports[`IPC message snapshots ServerMessage types browser_handoff_request serializes to expected JSON 1`] = `
-{
-  "message": "Login required",
-  "reason": "auth",
-  "sessionId": "test-session",
-  "surfaceId": "test-surface",
-  "type": "browser_handoff_request",
 }
 `;
 

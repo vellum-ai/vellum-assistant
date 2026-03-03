@@ -577,106 +577,6 @@ public struct IPCBrowserCDPResponse: Codable, Sendable {
     }
 }
 
-public struct IPCBrowserHandoffRequest: Codable, Sendable {
-    public let type: String
-    public let sessionId: String
-    public let surfaceId: String
-    public let reason: String
-    public let message: String
-    public let bringToFront: Bool?
-
-    public init(type: String, sessionId: String, surfaceId: String, reason: String, message: String, bringToFront: Bool? = nil) {
-        self.type = type
-        self.sessionId = sessionId
-        self.surfaceId = surfaceId
-        self.reason = reason
-        self.message = message
-        self.bringToFront = bringToFront
-    }
-}
-
-public struct IPCBrowserInteractiveMode: Codable, Sendable {
-    public let type: String
-    public let sessionId: String
-    public let surfaceId: String
-    public let enabled: Bool
-
-    public init(type: String, sessionId: String, surfaceId: String, enabled: Bool) {
-        self.type = type
-        self.sessionId = sessionId
-        self.surfaceId = surfaceId
-        self.enabled = enabled
-    }
-}
-
-public struct IPCBrowserInteractiveModeChanged: Codable, Sendable {
-    public let type: String
-    public let sessionId: String
-    public let surfaceId: String
-    public let enabled: Bool
-    public let reason: String?
-    public let message: String?
-
-    public init(type: String, sessionId: String, surfaceId: String, enabled: Bool, reason: String? = nil, message: String? = nil) {
-        self.type = type
-        self.sessionId = sessionId
-        self.surfaceId = surfaceId
-        self.enabled = enabled
-        self.reason = reason
-        self.message = message
-    }
-}
-
-public struct IPCBrowserViewSurfaceData: Codable, Sendable {
-    public let sessionId: String
-    public let currentUrl: String
-    public let status: String
-    public let frame: String?
-    public let actionText: String?
-    public let highlights: [IPCBrowserViewSurfaceDataHighlight]?
-    public let pages: [IPCBrowserViewSurfaceDataPage]?
-
-    public init(sessionId: String, currentUrl: String, status: String, frame: String? = nil, actionText: String? = nil, highlights: [IPCBrowserViewSurfaceDataHighlight]? = nil, pages: [IPCBrowserViewSurfaceDataPage]? = nil) {
-        self.sessionId = sessionId
-        self.currentUrl = currentUrl
-        self.status = status
-        self.frame = frame
-        self.actionText = actionText
-        self.highlights = highlights
-        self.pages = pages
-    }
-}
-
-public struct IPCBrowserViewSurfaceDataHighlight: Codable, Sendable {
-    public let x: Double
-    public let y: Double
-    public let w: Double
-    public let h: Double
-    public let label: String
-
-    public init(x: Double, y: Double, w: Double, h: Double, label: String) {
-        self.x = x
-        self.y = y
-        self.w = w
-        self.h = h
-        self.label = label
-    }
-}
-
-public struct IPCBrowserViewSurfaceDataPage: Codable, Sendable {
-    public let id: String
-    public let title: String
-    public let url: String
-    public let active: Bool
-
-    public init(id: String, title: String, url: String, active: Bool) {
-        self.id = id
-        self.title = title
-        self.url = url
-        self.active = active
-    }
-}
-
 public struct IPCBundleAppRequest: Codable, Sendable {
     public let type: String
     public let appId: String
@@ -5146,31 +5046,6 @@ public struct IPCUiSurfaceDismiss: Codable, Sendable {
         self.type = type
         self.sessionId = sessionId
         self.surfaceId = surfaceId
-    }
-}
-
-public struct IPCUiSurfaceShowBrowserView: Codable, Sendable {
-    public let surfaceType: String
-    public let data: IPCBrowserViewSurfaceData
-    public let type: String
-    public let sessionId: String
-    public let surfaceId: String
-    public let title: String?
-    public let actions: [IPCSurfaceAction]?
-    public let display: String?
-    /// The message ID that this surface belongs to (for history loading).
-    public let messageId: String?
-
-    public init(surfaceType: String, data: IPCBrowserViewSurfaceData, type: String, sessionId: String, surfaceId: String, title: String? = nil, actions: [IPCSurfaceAction]? = nil, display: String? = nil, messageId: String? = nil) {
-        self.surfaceType = surfaceType
-        self.data = data
-        self.type = type
-        self.sessionId = sessionId
-        self.surfaceId = surfaceId
-        self.title = title
-        self.actions = actions
-        self.display = display
-        self.messageId = messageId
     }
 }
 

@@ -16,20 +16,12 @@ import {
   formatAuthChallenge,
 } from "./auth-detector.js";
 import type { PageResponse, RouteHandler } from "./browser-manager.js";
-import {
-  browserManager,
-  SCREENCAST_HEIGHT,
-  SCREENCAST_WIDTH,
-} from "./browser-manager.js";
+import { browserManager } from "./browser-manager.js";
 import {
   ensureScreencast,
-  getElementBounds,
   getSender,
   stopAllScreencasts,
   stopBrowserScreencast,
-  updateBrowserStatus,
-  updateHighlights,
-  updatePagesList,
 } from "./browser-screencast.js";
 
 const log = getLogger("headless-browser");
@@ -159,13 +151,7 @@ export async function executeBrowserNavigate(
   // Start screencast if a sender is registered for this session
   const sender = getSender(context.sessionId);
   if (sender) {
-    await ensureScreencast(context.sessionId, sender);
-    updateBrowserStatus(
-      context.sessionId,
-      sender,
-      "navigating",
-      `Navigating to ${safeRequestedUrl}`,
-    );
+    await ensureScreencast(context.sessionId);
   }
 
   try {
@@ -299,9 +285,6 @@ export async function executeBrowserNavigate(
     }
 
     if (blockedUrl) {
-      if (sender) {
-        updateBrowserStatus(context.sessionId, sender, "idle");
-      }
       return {
         content: `Error: Navigation blocked. A request targeted a local/private network address (${blockedUrl}). Set allow_private_network=true if you explicitly need it.`,
         isError: true,
@@ -371,7 +354,6 @@ export async function executeBrowserNavigate(
         log.info("CAPTCHA detected, waiting up to 5s for auto-resolve");
         for (let i = 0; i < 5; i++) {
           if (context.signal?.aborted) {
-            if (sender) updateBrowserStatus(context.sessionId, sender, "idle");
             return { content: "Navigation cancelled.", isError: true };
           }
           await new Promise((r) => setTimeout(r, 1000));
@@ -391,7 +373,7 @@ export async function executeBrowserNavigate(
           // CAPTCHA persisted after auto-resolve wait — hand off to user
           if (sender) {
             const { startHandoff } = await import("./browser-handoff.js");
-            await startHandoff(context.sessionId, sender, {
+            await startHandoff(context.sessionId, {
               reason: "captcha",
               message:
                 "Cloudflare verification detected. Please solve the CAPTCHA in the Chrome window. The browser will automatically detect when you're done and resume.",
@@ -462,11 +444,6 @@ export async function executeBrowserNavigate(
       // Auth/CAPTCHA detection is best-effort; don't fail navigation
     }
 
-    if (sender) {
-      updateBrowserStatus(context.sessionId, sender, "idle");
-      await updatePagesList(context.sessionId, sender);
-    }
-
     return { content: lines.join("\n"), isError: false };
   } catch (err) {
     // Best-effort cleanup of route handler on error
@@ -485,9 +462,6 @@ export async function executeBrowserNavigate(
     // page.goto() throws. Return the clear security message instead of the
     // raw Playwright error (which could leak credentials from the URL).
     if (blockedUrl) {
-      if (sender) {
-        updateBrowserStatus(context.sessionId, sender, "idle");
-      }
       return {
         content: `Error: Navigation blocked. A request targeted a local/private network address (${blockedUrl}). Set allow_private_network=true if you explicitly need it.`,
         isError: true,
@@ -496,9 +470,6 @@ export async function executeBrowserNavigate(
 
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ err, url: safeRequestedUrl }, "Navigation failed");
-    if (sender) {
-      updateBrowserStatus(context.sessionId, sender, "idle");
-    }
     return { content: `Error: Navigation failed: ${msg}`, isError: true };
   }
 }
@@ -628,7 +599,7 @@ export async function executeBrowserClose(
   try {
     const sender = getSender(context.sessionId);
     if (sender) {
-      await stopBrowserScreencast(context.sessionId, sender);
+      await stopBrowserScreencast(context.sessionId);
     }
 
     if (input.close_all_pages === true) {
@@ -657,41 +628,16 @@ export async function executeBrowserClick(
   const { selector, error } = resolveSelector(context.sessionId, input);
   if (error) return { content: error, isError: true };
 
-  const sender = getSender(context.sessionId);
-  if (sender) {
-    await ensureScreencast(context.sessionId, sender);
-    updateBrowserStatus(
-      context.sessionId,
-      sender,
-      "interacting",
-      "Clicking element",
-    );
-    const bounds = await getElementBounds(context.sessionId, selector!);
-    if (bounds) {
-      updateHighlights(context.sessionId, sender, [
-        { ...bounds, label: "Clicking element" },
-      ]);
-    }
-  }
-
   const timeout =
     typeof input.timeout === "number" ? input.timeout : ACTION_TIMEOUT_MS;
 
   try {
     const page = await browserManager.getOrCreateSessionPage(context.sessionId);
     await page.click(selector!, { timeout });
-    if (sender) {
-      updateHighlights(context.sessionId, sender, []);
-      updateBrowserStatus(context.sessionId, sender, "idle");
-    }
     return { content: `Clicked element: ${selector}`, isError: false };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ err, selector }, "Click failed");
-    if (sender) {
-      updateHighlights(context.sessionId, sender, []);
-      updateBrowserStatus(context.sessionId, sender, "idle");
-    }
     return { content: `Error: Click failed: ${msg}`, isError: true };
   }
 }
@@ -712,23 +658,6 @@ export async function executeBrowserType(
 
   const clearFirst = input.clear_first !== false; // default true
   const pressEnter = input.press_enter === true;
-
-  const sender = getSender(context.sessionId);
-  if (sender) {
-    await ensureScreencast(context.sessionId, sender);
-    updateBrowserStatus(
-      context.sessionId,
-      sender,
-      "interacting",
-      "Typing text",
-    );
-    const bounds = await getElementBounds(context.sessionId, selector!);
-    if (bounds) {
-      updateHighlights(context.sessionId, sender, [
-        { ...bounds, label: "Typing" },
-      ]);
-    }
-  }
 
   try {
     const page = await browserManager.getOrCreateSessionPage(context.sessionId);
@@ -752,11 +681,6 @@ export async function executeBrowserType(
       await page.press(selector!, "Enter");
     }
 
-    if (sender) {
-      updateHighlights(context.sessionId, sender, []);
-      updateBrowserStatus(context.sessionId, sender, "idle");
-    }
-
     const lines = [`Typed into element: ${selector}`];
     if (clearFirst) lines.push("(cleared existing content first)");
     if (pressEnter) lines.push("(pressed Enter after typing)");
@@ -764,10 +688,6 @@ export async function executeBrowserType(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ err, selector }, "Type failed");
-    if (sender) {
-      updateHighlights(context.sessionId, sender, []);
-      updateBrowserStatus(context.sessionId, sender, "idle");
-    }
     return { content: `Error: Type failed: ${msg}`, isError: true };
   }
 }
@@ -783,17 +703,6 @@ export async function executeBrowserPressKey(
     return { content: "Error: key is required.", isError: true };
   }
 
-  const sender = getSender(context.sessionId);
-  if (sender) {
-    await ensureScreencast(context.sessionId, sender);
-    updateBrowserStatus(
-      context.sessionId,
-      sender,
-      "interacting",
-      `Pressing ${key}`,
-    );
-  }
-
   try {
     const page = await browserManager.getOrCreateSessionPage(context.sessionId);
 
@@ -806,24 +715,9 @@ export async function executeBrowserPressKey(
     if (elementId || rawSelector) {
       const { selector, error } = resolveSelector(context.sessionId, input);
       if (error) {
-        if (sender) {
-          updateBrowserStatus(context.sessionId, sender, "idle");
-        }
         return { content: error, isError: true };
       }
-      if (sender) {
-        const bounds = await getElementBounds(context.sessionId, selector!);
-        if (bounds) {
-          updateHighlights(context.sessionId, sender, [
-            { ...bounds, label: `Pressing ${key}` },
-          ]);
-        }
-      }
       await page.press(selector!, key);
-      if (sender) {
-        updateHighlights(context.sessionId, sender, []);
-        updateBrowserStatus(context.sessionId, sender, "idle");
-      }
       return {
         content: `Pressed "${key}" on element: ${selector}`,
         isError: false,
@@ -832,17 +726,10 @@ export async function executeBrowserPressKey(
 
     // No target -> press key on the page (focused element)
     await page.keyboard.press(key);
-    if (sender) {
-      updateBrowserStatus(context.sessionId, sender, "idle");
-    }
     return { content: `Pressed "${key}"`, isError: false };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ err, key }, "Press key failed");
-    if (sender) {
-      updateHighlights(context.sessionId, sender, []);
-      updateBrowserStatus(context.sessionId, sender, "idle");
-    }
     return { content: `Error: Press key failed: ${msg}`, isError: true };
   }
 }
@@ -865,48 +752,8 @@ export async function executeBrowserScroll(
   const amount =
     typeof input.amount === "number" ? Math.abs(input.amount) : 500;
 
-  const sender = getSender(context.sessionId);
-  if (sender) {
-    await ensureScreencast(context.sessionId, sender);
-    updateBrowserStatus(
-      context.sessionId,
-      sender,
-      "interacting",
-      `Scrolling ${direction}`,
-    );
-  }
-
   try {
     const page = await browserManager.getOrCreateSessionPage(context.sessionId);
-
-    // If element_id or selector is provided, scroll within that element
-    const elementId =
-      typeof input.element_id === "string" ? input.element_id : null;
-    const rawSelector =
-      typeof input.selector === "string" ? input.selector : null;
-
-    if (elementId || rawSelector) {
-      const { selector, error } = resolveSelector(context.sessionId, input);
-      if (error) {
-        if (sender) updateBrowserStatus(context.sessionId, sender, "idle");
-        return { content: error, isError: true };
-      }
-      // Move mouse to element center before scrolling
-      const bounds = await getElementBounds(context.sessionId, selector!);
-      if (bounds) {
-        // Convert screencast coords back to page coords for mouse.move
-        const result = (await page.evaluate(
-          `(() => ({ vw: window.innerWidth, vh: window.innerHeight }))()`,
-        )) as { vw: number; vh: number };
-        const scale = Math.min(
-          SCREENCAST_WIDTH / result.vw,
-          SCREENCAST_HEIGHT / result.vh,
-        );
-        const pageX = (bounds.x + bounds.w / 2) / scale;
-        const pageY = (bounds.y + bounds.h / 2) / scale;
-        await page.mouse.move(pageX, pageY);
-      }
-    }
 
     let deltaX = 0;
     let deltaY = 0;
@@ -927,16 +774,10 @@ export async function executeBrowserScroll(
 
     await page.mouse.wheel(deltaX, deltaY);
 
-    if (sender) {
-      updateBrowserStatus(context.sessionId, sender, "idle");
-    }
     return { content: `Scrolled ${direction} by ${amount}px`, isError: false };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ err, direction }, "Scroll failed");
-    if (sender) {
-      updateBrowserStatus(context.sessionId, sender, "idle");
-    }
     return { content: `Error: Scroll failed: ${msg}`, isError: true };
   }
 }
@@ -961,23 +802,6 @@ export async function executeBrowserSelectOption(
     };
   }
 
-  const sender = getSender(context.sessionId);
-  if (sender) {
-    await ensureScreencast(context.sessionId, sender);
-    updateBrowserStatus(
-      context.sessionId,
-      sender,
-      "interacting",
-      "Selecting option",
-    );
-    const bounds = await getElementBounds(context.sessionId, selector!);
-    if (bounds) {
-      updateHighlights(context.sessionId, sender, [
-        { ...bounds, label: "Selecting option" },
-      ]);
-    }
-  }
-
   try {
     const page = await browserManager.getOrCreateSessionPage(context.sessionId);
 
@@ -987,11 +811,6 @@ export async function executeBrowserSelectOption(
     else if (index !== undefined) option.index = index;
 
     await page.selectOption(selector!, option);
-
-    if (sender) {
-      updateHighlights(context.sessionId, sender, []);
-      updateBrowserStatus(context.sessionId, sender, "idle");
-    }
 
     const desc =
       value !== undefined
@@ -1006,10 +825,6 @@ export async function executeBrowserSelectOption(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ err, selector }, "Select option failed");
-    if (sender) {
-      updateHighlights(context.sessionId, sender, []);
-      updateBrowserStatus(context.sessionId, sender, "idle");
-    }
     return { content: `Error: Select option failed: ${msg}`, isError: true };
   }
 }
@@ -1023,39 +838,14 @@ export async function executeBrowserHover(
   const { selector, error } = resolveSelector(context.sessionId, input);
   if (error) return { content: error, isError: true };
 
-  const sender = getSender(context.sessionId);
-  if (sender) {
-    await ensureScreencast(context.sessionId, sender);
-    updateBrowserStatus(
-      context.sessionId,
-      sender,
-      "interacting",
-      "Hovering element",
-    );
-    const bounds = await getElementBounds(context.sessionId, selector!);
-    if (bounds) {
-      updateHighlights(context.sessionId, sender, [
-        { ...bounds, label: "Hovering" },
-      ]);
-    }
-  }
-
   try {
     const page = await browserManager.getOrCreateSessionPage(context.sessionId);
     await page.hover(selector!, { timeout: ACTION_TIMEOUT_MS });
 
-    if (sender) {
-      updateHighlights(context.sessionId, sender, []);
-      updateBrowserStatus(context.sessionId, sender, "idle");
-    }
     return { content: `Hovered element: ${selector}`, isError: false };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ err, selector }, "Hover failed");
-    if (sender) {
-      updateHighlights(context.sessionId, sender, []);
-      updateBrowserStatus(context.sessionId, sender, "idle");
-    }
     return { content: `Error: Hover failed: ${msg}`, isError: true };
   }
 }

@@ -481,12 +481,6 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     sessionId: "test-session",
     success: true,
   },
-  browser_interactive_mode: {
-    type: "browser_interactive_mode",
-    sessionId: "test-session",
-    surfaceId: "test-surface",
-    enabled: true,
-  },
   work_items_list: {
     type: "work_items_list",
     status: "queued",
@@ -1601,19 +1595,6 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   browser_cdp_request: {
     type: "browser_cdp_request",
     sessionId: "test-session",
-  },
-  browser_interactive_mode_changed: {
-    type: "browser_interactive_mode_changed",
-    sessionId: "test-session",
-    surfaceId: "test-surface",
-    enabled: true,
-  },
-  browser_handoff_request: {
-    type: "browser_handoff_request",
-    sessionId: "test-session",
-    surfaceId: "test-surface",
-    reason: "auth" as const,
-    message: "Login required",
   },
   document_editor_show: {
     type: "document_editor_show",
