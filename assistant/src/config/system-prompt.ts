@@ -117,7 +117,6 @@ export function buildSystemPrompt(): string {
 
   // ── Core sections ──
   const parts: string[] = [];
-  parts.push('IMPORTANT: Never use em dashes (—) in your messages. Use commas, periods, or just start a new sentence instead.');
   if (identity) parts.push(identity);
   if (soul) parts.push(soul);
   if (user) parts.push(user);
@@ -146,6 +145,7 @@ export function buildSystemPrompt(): string {
     );
   }
   if (getIsContainerized()) parts.push(buildContainerizedSection());
+  parts.push(buildStyleGuidelinesSection());
   parts.push(buildConfigSection());
   parts.push(buildPostToolResponseSection());
   parts.push(buildExternalCommsIdentitySection());
@@ -697,6 +697,14 @@ function buildContainerizedSection(): string {
     "- Never write persistent data to system directories, `/tmp`, or paths outside the mounted volume",
     "- When in doubt, prefer paths nested under the data directory",
     "- If you create a file that is only needed temporarily (scratch files, intermediate outputs, download staging), delete it when you are done — disk space on the persistent volume is finite and will grow unboundedly if temp files are not cleaned up",
+  ].join("\n");
+}
+
+function buildStyleGuidelinesSection(): string {
+  return [
+    "## Style Guidelines",
+    "",
+    "IMPORTANT: Never use em dashes (\u2014) in your messages. Use commas, periods, or just start a new sentence instead.",
   ].join("\n");
 }
 
