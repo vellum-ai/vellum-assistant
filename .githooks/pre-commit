@@ -731,7 +731,9 @@ if [ $IPC_CHANGED -eq 1 ]; then
         echo -e "${YELLOW}⚠️  bun not found — skipping IPC generation check${NC}"
         echo "  Install bun or run 'cd assistant && bun run generate:ipc' manually."
     else
-        if ! (cd assistant && "$BUN" run check:ipc-generated) 2>/dev/null; then
+        # Invoke script files directly instead of `bun run <script-name>` to
+        # skip package.json resolution and shell indirection (3 processes vs 9).
+        if ! (cd assistant && "$BUN" scripts/ipc/generate-swift.ts --check) 2>/dev/null; then
             echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
             echo -e "${RED}Generated IPC Swift models are out of date!${NC}"
             echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -742,7 +744,7 @@ if [ $IPC_CHANGED -eq 1 ]; then
         fi
         echo "✅ Generated IPC Swift models are up to date"
 
-        if ! (cd assistant && "$BUN" run ipc:inventory) 2>/dev/null; then
+        if ! (cd assistant && "$BUN" scripts/ipc/check-contract-inventory.ts) 2>/dev/null; then
             echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
             echo -e "${RED}IPC contract inventory snapshot is out of date!${NC}"
             echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -753,7 +755,7 @@ if [ $IPC_CHANGED -eq 1 ]; then
         fi
         echo "✅ IPC contract inventory is up to date"
 
-        if ! (cd assistant && "$BUN" run ipc:check-swift-drift) 2>/dev/null; then
+        if ! (cd assistant && "$BUN" scripts/ipc/check-swift-decoder-drift.ts) 2>/dev/null; then
             echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
             echo -e "${RED}Swift decoder is out of sync with the IPC contract!${NC}"
             echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
