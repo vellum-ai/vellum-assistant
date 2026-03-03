@@ -62,16 +62,11 @@ struct GatewaySettingsCard: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Copy gateway address")
                 .help("Copy address")
+            }
 
-                // Running status inline at end of address row
-                InlineConnectionStatus(
-                    status: gatewayStatusInfo,
-                    isRefreshing: store.isCheckingGateway,
-                    lastChecked: store.gatewayLastChecked,
-                    accessibilityLabel: "gateway"
-                ) {
-                    Task { await store.testGatewayOnly() }
-                }
+            // Running badge — only shown when gateway is reachable
+            if store.gatewayReachable == true {
+                VButton(label: "Running", leftIcon: "checkmark.circle.fill", style: .success, size: .medium) {}
             }
 
             Text("Point your tunnel (ngrok, Cloudflare, etc.) to this address.")
@@ -151,17 +146,6 @@ struct GatewaySettingsCard: View {
     }
 
     // MARK: - Connection Status Helpers
-
-    private var gatewayStatusInfo: ConnectionStatusInfo {
-        guard let reachable = store.gatewayReachable else {
-            return ConnectionStatusInfo(label: "Unknown", color: VColor.textMuted, icon: "questionmark.circle.fill")
-        }
-        if reachable {
-            return ConnectionStatusInfo(label: "Running", color: VColor.success, icon: "checkmark.circle.fill")
-        } else {
-            return ConnectionStatusInfo(label: "Stopped", color: VColor.error, icon: "xmark.circle.fill")
-        }
-    }
 
     private var tunnelStatusInfo: ConnectionStatusInfo {
         let trimmedUrl = store.ingressPublicBaseUrl.trimmingCharacters(in: .whitespacesAndNewlines)
