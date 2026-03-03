@@ -2197,13 +2197,12 @@ describe("call-controller", () => {
       createMockVoiceTurn(["Great news, your guardian approved the request."]),
     );
     await controller.handleUserAnswer("Yes, approved");
-    // Allow the answer-driven turn to complete
-    await new Promise((r) => setTimeout(r, 100));
 
-    // Guardian input request should now be cleared
+    // Guardian input request should now be cleared (synchronously in handleUserAnswer)
     expect(controller.getPendingConsultationQuestionId()).toBeNull();
 
-    // Clear tokens from the answer turn
+    // Clear tokens from the answer turn immediately — before the silence
+    // timer (50 ms) fires — so the subsequent wait captures only the nudge.
     relay.sentTokens.length = 0;
 
     // Wait for the silence timeout to fire again
