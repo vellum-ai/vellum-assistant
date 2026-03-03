@@ -161,7 +161,7 @@ export function setSecureKey(account: string, value: string): boolean {
     try {
       // Only attempt deletion if the key actually exists in keychain to
       // avoid spawning a subprocess on every write.
-      if (keychain.getKey(account) !== undefined) {
+      if (keychain.getKey(account) != null) {
         keychain.deleteKey(account);
       }
     } catch { /* best-effort */ }
@@ -301,7 +301,7 @@ export async function setSecureKeyAsync(
         // Only attempt deletion if the key actually exists in keychain to
         // avoid spawning a subprocess on every write.
         const exists = await keychain.getKeyAsync(account);
-        if (exists !== undefined) {
+        if (exists != null) {
           await keychain.deleteKeyAsync(account);
         }
       } catch { /* best-effort */ }
@@ -323,7 +323,7 @@ export async function setSecureKeyAsync(
       keychainMissCache.delete(account);
       try {
         const exists = await keychain.getKeyAsync(account);
-        if (exists !== undefined) {
+        if (exists != null) {
           await keychain.deleteKeyAsync(account);
         }
       } catch { /* best-effort */ }
