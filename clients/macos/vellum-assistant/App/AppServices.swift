@@ -8,7 +8,6 @@ public final class AppServices {
     public let authManager = AuthManager()
     public let ambientAgent = AmbientAgent()
     let surfaceManager = SurfaceManager()
-    let browserPiPManager = BrowserPiPManager()
     let secretPromptManager = SecretPromptManager()
     let zoomManager = ZoomManager()
     let conversationZoomManager = ConversationZoomManager()

@@ -146,7 +146,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var daemonClient: DaemonClient { services.daemonClient }
     var ambientAgent: AmbientAgent { services.ambientAgent }
     var surfaceManager: SurfaceManager { services.surfaceManager }
-    var browserPiPManager: BrowserPiPManager { services.browserPiPManager }
     private var secretPromptManager: SecretPromptManager { services.secretPromptManager }
     var zoomManager: ZoomManager { services.zoomManager }
     var conversationZoomManager: ConversationZoomManager { services.conversationZoomManager }
@@ -1647,38 +1646,18 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     }
 
     private func setupSurfaceManager() {
-        // Wire daemon surface messages to SurfaceManager (or BrowserPiPManager for browser_view)
         daemonClient.onSurfaceShow = { [weak self] msg in
             guard let self else { return }
-            if msg.surfaceType == SurfaceType.browserView.rawValue {
-                self.browserPiPManager.showPanel(for: msg)
-            } else {
-                self.surfaceManager.showSurface(msg)
-            }
+            self.surfaceManager.showSurface(msg)
         }
         daemonClient.onSurfaceUpdate = { [weak self] msg in
             guard let self else { return }
-            self.browserPiPManager.updateSurface(msg)
             self.surfaceManager.updateSurface(msg)
         }
         daemonClient.onSurfaceDismiss = { [weak self] msg in
             guard let self else { return }
-            self.browserPiPManager.dismissIfMatching(surfaceId: msg.surfaceId)
             self.surfaceManager.dismissSurface(msg)
         }
-
-        // Wire browser frame updates to BrowserPiPManager
-        daemonClient.onBrowserFrame = { [weak self] msg in
-            self?.browserPiPManager.updateFrame(msg)
-        }
-
-        // Wire browser interactive mode changes to BrowserPiPManager
-        daemonClient.onBrowserInteractiveModeChanged = { [weak self] msg in
-            self?.browserPiPManager.handleInteractiveModeChanged(msg)
-        }
-
-        // Give BrowserPiPManager a reference to DaemonClient for sending interactive input
-        browserPiPManager.daemonClient = daemonClient
 
         daemonClient.onBrowserCDPRequest = { [weak self] msg in
             Task { @MainActor in
@@ -2696,7 +2675,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         alert.informativeText = "A separate Chrome window will open for the assistant to control. Your existing Chrome and tabs will not be affected."
         alert.alertStyle = .informational
         alert.addButton(withTitle: "Open Browser")
-        alert.addButton(withTitle: "Use Background Browser")
+        alert.addButton(withTitle: "Cancel")
 
         // Add "Always launch" checkbox
         let checkbox = NSButton(checkboxWithTitle: "Always launch Chrome with remote debugging", target: nil, action: nil)
@@ -2719,11 +2698,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                 log.error("Failed to send browser CDP response (open): \(error)")
             }
         } else {
-            // User chose background browser
+            // User cancelled — decline so the daemon knows
             do {
                 try daemonClient.send(BrowserCDPResponseMessage(sessionId: msg.sessionId, success: false, declined: true))
             } catch {
-                log.error("Failed to send browser CDP response (background): \(error)")
+                log.error("Failed to send browser CDP response (declined): \(error)")
             }
         }
     }

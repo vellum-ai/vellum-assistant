@@ -577,38 +577,6 @@ public struct IPCBrowserCDPResponse: Codable, Sendable {
     }
 }
 
-public struct IPCBrowserFrame: Codable, Sendable {
-    public let type: String
-    public let sessionId: String
-    public let surfaceId: String
-    public let frame: String
-    public let metadata: IPCBrowserFrameMetadata?
-
-    public init(type: String, sessionId: String, surfaceId: String, frame: String, metadata: IPCBrowserFrameMetadata? = nil) {
-        self.type = type
-        self.sessionId = sessionId
-        self.surfaceId = surfaceId
-        self.frame = frame
-        self.metadata = metadata
-    }
-}
-
-public struct IPCBrowserFrameMetadata: Codable, Sendable {
-    public let offsetTop: Double
-    public let pageScaleFactor: Double
-    public let scrollOffsetX: Double
-    public let scrollOffsetY: Double
-    public let timestamp: Double
-
-    public init(offsetTop: Double, pageScaleFactor: Double, scrollOffsetX: Double, scrollOffsetY: Double, timestamp: Double) {
-        self.offsetTop = offsetTop
-        self.pageScaleFactor = pageScaleFactor
-        self.scrollOffsetX = scrollOffsetX
-        self.scrollOffsetY = scrollOffsetY
-        self.timestamp = timestamp
-    }
-}
-
 public struct IPCBrowserHandoffRequest: Codable, Sendable {
     public let type: String
     public let sessionId: String
@@ -656,62 +624,6 @@ public struct IPCBrowserInteractiveModeChanged: Codable, Sendable {
         self.enabled = enabled
         self.reason = reason
         self.message = message
-    }
-}
-
-public struct IPCBrowserUserClick: Codable, Sendable {
-    public let type: String
-    public let sessionId: String
-    public let surfaceId: String
-    public let x: Double
-    public let y: Double
-    public let button: String?
-    public let doubleClick: Bool?
-
-    public init(type: String, sessionId: String, surfaceId: String, x: Double, y: Double, button: String? = nil, doubleClick: Bool? = nil) {
-        self.type = type
-        self.sessionId = sessionId
-        self.surfaceId = surfaceId
-        self.x = x
-        self.y = y
-        self.button = button
-        self.doubleClick = doubleClick
-    }
-}
-
-public struct IPCBrowserUserKeypress: Codable, Sendable {
-    public let type: String
-    public let sessionId: String
-    public let surfaceId: String
-    public let key: String
-    public let modifiers: [String]?
-
-    public init(type: String, sessionId: String, surfaceId: String, key: String, modifiers: [String]? = nil) {
-        self.type = type
-        self.sessionId = sessionId
-        self.surfaceId = surfaceId
-        self.key = key
-        self.modifiers = modifiers
-    }
-}
-
-public struct IPCBrowserUserScroll: Codable, Sendable {
-    public let type: String
-    public let sessionId: String
-    public let surfaceId: String
-    public let deltaX: Double
-    public let deltaY: Double
-    public let x: Double
-    public let y: Double
-
-    public init(type: String, sessionId: String, surfaceId: String, deltaX: Double, deltaY: Double, x: Double, y: Double) {
-        self.type = type
-        self.sessionId = sessionId
-        self.surfaceId = surfaceId
-        self.deltaX = deltaX
-        self.deltaY = deltaY
-        self.x = x
-        self.y = y
     }
 }
 

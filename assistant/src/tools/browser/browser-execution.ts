@@ -1,18 +1,26 @@
-import type { ImageContent } from '../../providers/types.js';
-import { getLogger } from '../../util/logger.js';
-import { truncate } from '../../util/truncate.js';
-import { credentialBroker } from '../credentials/broker.js';
+import type { ImageContent } from "../../providers/types.js";
+import { getLogger } from "../../util/logger.js";
+import { truncate } from "../../util/truncate.js";
+import { credentialBroker } from "../credentials/broker.js";
 import {
   isPrivateOrLocalHost,
   parseUrl,
   resolveHostAddresses,
   resolveRequestAddress,
   sanitizeUrlForOutput,
-} from '../network/url-safety.js';
-import type { ToolContext, ToolExecutionResult } from '../types.js';
-import { detectAuthChallenge, detectCaptchaChallenge, formatAuthChallenge } from './auth-detector.js';
-import type { PageResponse,RouteHandler } from './browser-manager.js';
-import { browserManager, SCREENCAST_HEIGHT,SCREENCAST_WIDTH } from './browser-manager.js';
+} from "../network/url-safety.js";
+import type { ToolContext, ToolExecutionResult } from "../types.js";
+import {
+  detectAuthChallenge,
+  detectCaptchaChallenge,
+  formatAuthChallenge,
+} from "./auth-detector.js";
+import type { PageResponse, RouteHandler } from "./browser-manager.js";
+import {
+  browserManager,
+  SCREENCAST_HEIGHT,
+  SCREENCAST_WIDTH,
+} from "./browser-manager.js";
 import {
   ensureScreencast,
   getElementBounds,
@@ -22,9 +30,9 @@ import {
   updateBrowserStatus,
   updateHighlights,
   updatePagesList,
-} from './browser-screencast.js';
+} from "./browser-screencast.js";
 
-const log = getLogger('headless-browser');
+const log = getLogger("headless-browser");
 
 // ── Constants ────────────────────────────────────────────────────────
 
@@ -35,11 +43,11 @@ export const ACTION_TIMEOUT_MS = 10_000;
 export const MAX_SNAPSHOT_ELEMENTS = 150;
 
 export const INTERACTIVE_SELECTOR = [
-  'a[href]',
-  'button',
-  'input',
-  'select',
-  'textarea',
+  "a[href]",
+  "button",
+  "input",
+  "select",
+  "textarea",
   '[role="button"]',
   '[role="link"]',
   '[role="checkbox"]',
@@ -50,7 +58,7 @@ export const INTERACTIVE_SELECTOR = [
   '[role="combobox"]',
   '[role="listbox"]',
   '[contenteditable="true"]',
-].join(', ');
+].join(", ");
 
 export type SnapshotElement = {
   eid: string;
@@ -69,15 +77,23 @@ export function resolveSelector(
   sessionId: string,
   input: Record<string, unknown>,
 ): { selector: string | null; error: string | null } {
-  const elementId = typeof input.element_id === 'string' ? input.element_id : null;
-  const rawSelector = typeof input.selector === 'string' ? input.selector : null;
+  const elementId =
+    typeof input.element_id === "string" ? input.element_id : null;
+  const rawSelector =
+    typeof input.selector === "string" ? input.selector : null;
 
   if (!elementId && !rawSelector) {
-    return { selector: null, error: 'Error: Either element_id or selector is required.' };
+    return {
+      selector: null,
+      error: "Error: Either element_id or selector is required.",
+    };
   }
 
   if (elementId) {
-    const resolved = browserManager.resolveSnapshotSelector(sessionId, elementId);
+    const resolved = browserManager.resolveSnapshotSelector(
+      sessionId,
+      elementId,
+    );
     if (!resolved) {
       return {
         selector: null,
@@ -97,15 +113,18 @@ export async function executeBrowserNavigate(
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
   if (context.signal?.aborted) {
-    return { content: 'Error: operation was cancelled', isError: true };
+    return { content: "Error: operation was cancelled", isError: true };
   }
 
   const parsedUrl = parseUrl(input.url);
   if (!parsedUrl) {
-    return { content: 'Error: url is required and must be a valid HTTP(S) URL', isError: true };
+    return {
+      content: "Error: url is required and must be a valid HTTP(S) URL",
+      isError: true,
+    };
   }
-  if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
-    return { content: 'Error: url must use http or https', isError: true };
+  if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+    return { content: "Error: url must use http or https", isError: true };
   }
 
   const allowPrivateNetwork = input.allow_private_network === true;
@@ -141,12 +160,20 @@ export async function executeBrowserNavigate(
   const sender = getSender(context.sessionId);
   if (sender) {
     await ensureScreencast(context.sessionId, sender);
-    updateBrowserStatus(context.sessionId, sender, 'navigating', `Navigating to ${safeRequestedUrl}`);
+    updateBrowserStatus(
+      context.sessionId,
+      sender,
+      "navigating",
+      `Navigating to ${safeRequestedUrl}`,
+    );
   }
 
   try {
     const page = await browserManager.getOrCreateSessionPage(context.sessionId);
-    log.debug({ url: safeRequestedUrl, sessionId: context.sessionId }, 'Navigating');
+    log.debug(
+      { url: safeRequestedUrl, sessionId: context.sessionId },
+      "Navigating",
+    );
 
     // Install request interception to block redirects/sub-requests to private networks.
     // This prevents SSRF bypass via server-side redirects and DNS rebinding attacks,
@@ -159,7 +186,10 @@ export async function executeBrowserNavigate(
       // resolves to a public IP then later to a private one. Blocked results are
       // never cached so they are always re-resolved.
       const DNS_CACHE_TTL_MS = 5_000;
-      const dnsCache = new Map<string, { addresses: string[]; blockedAddress?: string; cachedAt: number }>();
+      const dnsCache = new Map<
+        string,
+        { addresses: string[]; blockedAddress?: string; cachedAt: number }
+      >();
       routeHandler = async (route, request) => {
         try {
           const reqUrl = request.url();
@@ -174,8 +204,11 @@ export async function executeBrowserNavigate(
           // Check hostname against private/local patterns
           if (isPrivateOrLocalHost(reqParsed.hostname)) {
             blockedUrl = sanitizeUrlForOutput(reqParsed);
-            log.warn({ blockedUrl }, 'Blocked navigation to private network target via redirect');
-            await route.abort('blockedbyclient');
+            log.warn(
+              { blockedUrl },
+              "Blocked navigation to private network target via redirect",
+            );
+            await route.abort("blockedbyclient");
             return;
           }
 
@@ -184,36 +217,44 @@ export async function executeBrowserNavigate(
           // DNS rebinding where a hostname flips from public to private IP.
           let cached = dnsCache.get(reqParsed.hostname);
           const now = Date.now();
-          if (cached && (now - cached.cachedAt > DNS_CACHE_TTL_MS)) {
+          if (cached && now - cached.cachedAt > DNS_CACHE_TTL_MS) {
             dnsCache.delete(reqParsed.hostname);
             cached = undefined;
           }
-          const resolution = cached ?? await (async () => {
-            const res = await resolveRequestAddress(
-              reqParsed.hostname,
-              resolveHostAddresses,
-              false,
-            );
-            // Only cache allowed results; blocked results must be re-resolved
-            if (!res.blockedAddress) {
-              dnsCache.set(reqParsed.hostname, { ...res, cachedAt: now });
-            }
-            return res;
-          })();
+          const resolution =
+            cached ??
+            (await (async () => {
+              const res = await resolveRequestAddress(
+                reqParsed.hostname,
+                resolveHostAddresses,
+                false,
+              );
+              // Only cache allowed results; blocked results must be re-resolved
+              if (!res.blockedAddress) {
+                dnsCache.set(reqParsed.hostname, { ...res, cachedAt: now });
+              }
+              return res;
+            })());
           if (resolution.blockedAddress) {
             blockedUrl = sanitizeUrlForOutput(reqParsed);
-            log.warn({ blockedUrl, resolvedTo: resolution.blockedAddress }, 'Blocked navigation: DNS resolves to private address');
-            await route.abort('blockedbyclient');
+            log.warn(
+              { blockedUrl, resolvedTo: resolution.blockedAddress },
+              "Blocked navigation: DNS resolves to private address",
+            );
+            await route.abort("blockedbyclient");
             return;
           }
 
           await route.continue();
         } catch (err) {
           // Route may already be handled if the page navigated or was closed
-          log.debug({ err }, 'Route handler error (route likely already handled)');
+          log.debug(
+            { err },
+            "Route handler error (route likely already handled)",
+          );
         }
       };
-      await page.route('**/*', routeHandler);
+      await page.route("**/*", routeHandler);
     }
 
     // Use domcontentloaded but with a shorter timeout — if it times out,
@@ -224,19 +265,22 @@ export async function executeBrowserNavigate(
     const urlBeforeNav = page.url();
     try {
       response = await page.goto(parsedUrl.href, {
-        waitUntil: 'domcontentloaded',
+        waitUntil: "domcontentloaded",
         timeout: NAVIGATE_TIMEOUT_MS,
       });
     } catch (navErr) {
       const navMsg = navErr instanceof Error ? navErr.message : String(navErr);
-      if (navMsg.includes('Timeout') || navMsg.includes('timeout')) {
+      if (navMsg.includes("Timeout") || navMsg.includes("timeout")) {
         // If the page URL never changed from before navigation, the page
         // never actually loaded — re-throw instead of reporting success.
         if (page.url() === urlBeforeNav && urlBeforeNav !== parsedUrl.href) {
           throw navErr;
         }
         navigationTimedOut = true;
-        log.info({ url: safeRequestedUrl }, 'Navigation timed out waiting for domcontentloaded, continuing with partial load');
+        log.info(
+          { url: safeRequestedUrl },
+          "Navigation timed out waiting for domcontentloaded, continuing with partial load",
+        );
       } else {
         throw navErr;
       }
@@ -244,7 +288,7 @@ export async function executeBrowserNavigate(
 
     // Remove the route handler now that navigation is complete
     if (routeHandler) {
-      await page.unroute('**/*', routeHandler);
+      await page.unroute("**/*", routeHandler);
       routeHandler = null;
     }
 
@@ -256,7 +300,7 @@ export async function executeBrowserNavigate(
 
     if (blockedUrl) {
       if (sender) {
-        updateBrowserStatus(context.sessionId, sender, 'idle');
+        updateBrowserStatus(context.sessionId, sender, "idle");
       }
       return {
         content: `Error: Navigation blocked. A request targeted a local/private network address (${blockedUrl}). Set allow_private_network=true if you explicitly need it.`,
@@ -300,12 +344,14 @@ export async function executeBrowserNavigate(
     const lines: string[] = [
       `Requested URL: ${safeRequestedUrl}`,
       `Final URL: ${safeFinalUrl}`,
-      `Status: ${status ?? 'unknown'}`,
-      `Title: ${title || '(none)'}`,
+      `Status: ${status ?? "unknown"}`,
+      `Title: ${title || "(none)"}`,
     ];
 
     if (navigationTimedOut) {
-      lines.push(`Note: Page is still loading (domcontentloaded timed out). The page should still be interactive — use browser_snapshot to check.`);
+      lines.push(
+        `Note: Page is still loading (domcontentloaded timed out). The page should still be interactive — use browser_snapshot to check.`,
+      );
     }
 
     if (finalUrl !== parsedUrl.href) {
@@ -321,17 +367,17 @@ export async function executeBrowserNavigate(
 
       // Many CAPTCHA interstitials (e.g. Cloudflare "Just a moment") auto-resolve
       // within a few seconds. Wait and re-check before handing off to the user.
-      if (challenge?.type === 'captcha') {
-        log.info('CAPTCHA detected, waiting up to 5s for auto-resolve');
+      if (challenge?.type === "captcha") {
+        log.info("CAPTCHA detected, waiting up to 5s for auto-resolve");
         for (let i = 0; i < 5; i++) {
           if (context.signal?.aborted) {
-            if (sender) updateBrowserStatus(context.sessionId, sender, 'idle');
-            return { content: 'Navigation cancelled.', isError: true };
+            if (sender) updateBrowserStatus(context.sessionId, sender, "idle");
+            return { content: "Navigation cancelled.", isError: true };
           }
           await new Promise((r) => setTimeout(r, 1000));
           const still = await detectCaptchaChallenge(page);
           if (!still) {
-            log.info('CAPTCHA auto-resolved');
+            log.info("CAPTCHA auto-resolved");
             // Re-check for auth challenge now that CAPTCHA is gone —
             // the page may have loaded a login form behind it.
             challenge = await detectAuthChallenge(page);
@@ -341,48 +387,75 @@ export async function executeBrowserNavigate(
       }
 
       if (challenge) {
-        if (challenge.type === 'captcha') {
+        if (challenge.type === "captcha") {
           // CAPTCHA persisted after auto-resolve wait — hand off to user
-          if (browserManager.browserMode === 'cdp' && sender) {
-            const { startHandoff } = await import('./browser-handoff.js');
+          if (sender) {
+            const { startHandoff } = await import("./browser-handoff.js");
             await startHandoff(context.sessionId, sender, {
-              reason: 'captcha',
-              message: 'Cloudflare verification detected. Please solve the CAPTCHA in the Chrome window that just opened (not the preview panel — CAPTCHA providers detect preview clicks as automated). Click "Hand back" when done.',
+              reason: "captcha",
+              message:
+                'Cloudflare verification detected. Please solve the CAPTCHA in the Chrome window that just opened (not the preview panel — CAPTCHA providers detect preview clicks as automated). Click "Hand back" when done.',
               bringToFront: true,
             });
             const newUrl = page.url();
             const newTitle = await page.title();
-            lines.push('');
-            lines.push(`CAPTCHA solved by user. Current page: ${newTitle} (${newUrl})`);
+            lines.push("");
+            lines.push(
+              `CAPTCHA solved by user. Current page: ${newTitle} (${newUrl})`,
+            );
 
             // Re-check for auth challenges — the page behind the CAPTCHA may have a login form
             const postCaptchaAuth = await detectAuthChallenge(page);
             if (postCaptchaAuth) {
-              lines.push('');
+              lines.push("");
               lines.push(formatAuthChallenge(postCaptchaAuth));
-              lines.push('');
-              lines.push('Handle this by using browser tools to interact with the login form:');
-              lines.push('1. Use browser_snapshot to find the sign-in form elements');
-              lines.push('2. Use browser_fill_credential to fill email/password from credential_store');
-              lines.push('3. For SMS/email verification codes, use ui_show with a form to ask the user for the code mid-turn');
-              lines.push('4. Do NOT give up or tell the user to sign in manually — handle the login flow yourself');
+              lines.push("");
+              lines.push(
+                "Handle this by using browser tools to interact with the login form:",
+              );
+              lines.push(
+                "1. Use browser_snapshot to find the sign-in form elements",
+              );
+              lines.push(
+                "2. Use browser_fill_credential to fill email/password from credential_store",
+              );
+              lines.push(
+                "3. For SMS/email verification codes, use ui_show with a form to ask the user for the code mid-turn",
+              );
+              lines.push(
+                "4. Do NOT give up or tell the user to sign in manually — handle the login flow yourself",
+              );
             }
           } else {
-            lines.push('');
-            lines.push('⚠️ CAPTCHA/Cloudflare verification detected on this page.');
-            lines.push('The user needs to solve this challenge manually. Please inform the user that the page requires human verification before the content can be accessed.');
+            lines.push("");
+            lines.push(
+              "⚠️ CAPTCHA/Cloudflare verification detected on this page.",
+            );
+            lines.push(
+              "The user needs to solve this challenge manually. Please inform the user that the page requires human verification before the content can be accessed.",
+            );
           }
         } else {
           // Login / 2FA / OAuth — the agent should handle these itself
           // using browser tools + credential_store. Don't hand off.
-          lines.push('');
+          lines.push("");
           lines.push(formatAuthChallenge(challenge));
-          lines.push('');
-          lines.push('Handle this by using browser tools to interact with the login form:');
-          lines.push('1. Use browser_snapshot to find the sign-in form elements');
-          lines.push('2. Use browser_fill_credential to fill email/password from credential_store');
-          lines.push('3. For SMS/email verification codes, use ui_show with a form to ask the user for the code mid-turn');
-          lines.push('4. Do NOT give up or tell the user to sign in manually — handle the login flow yourself');
+          lines.push("");
+          lines.push(
+            "Handle this by using browser tools to interact with the login form:",
+          );
+          lines.push(
+            "1. Use browser_snapshot to find the sign-in form elements",
+          );
+          lines.push(
+            "2. Use browser_fill_credential to fill email/password from credential_store",
+          );
+          lines.push(
+            "3. For SMS/email verification codes, use ui_show with a form to ask the user for the code mid-turn",
+          );
+          lines.push(
+            "4. Do NOT give up or tell the user to sign in manually — handle the login flow yourself",
+          );
         }
       }
     } catch {
@@ -390,18 +463,22 @@ export async function executeBrowserNavigate(
     }
 
     if (sender) {
-      updateBrowserStatus(context.sessionId, sender, 'idle');
+      updateBrowserStatus(context.sessionId, sender, "idle");
       await updatePagesList(context.sessionId, sender);
     }
 
-    return { content: lines.join('\n'), isError: false };
+    return { content: lines.join("\n"), isError: false };
   } catch (err) {
     // Best-effort cleanup of route handler on error
     if (routeHandler) {
       try {
-        const page = await browserManager.getOrCreateSessionPage(context.sessionId);
-        await page.unroute('**/*', routeHandler);
-      } catch { /* ignore cleanup errors */ }
+        const page = await browserManager.getOrCreateSessionPage(
+          context.sessionId,
+        );
+        await page.unroute("**/*", routeHandler);
+      } catch {
+        /* ignore cleanup errors */
+      }
     }
 
     // If the route handler blocked a redirect to a private network address,
@@ -409,7 +486,7 @@ export async function executeBrowserNavigate(
     // raw Playwright error (which could leak credentials from the URL).
     if (blockedUrl) {
       if (sender) {
-        updateBrowserStatus(context.sessionId, sender, 'idle');
+        updateBrowserStatus(context.sessionId, sender, "idle");
       }
       return {
         content: `Error: Navigation blocked. A request targeted a local/private network address (${blockedUrl}). Set allow_private_network=true if you explicitly need it.`,
@@ -418,9 +495,9 @@ export async function executeBrowserNavigate(
     }
 
     const msg = err instanceof Error ? err.message : String(err);
-    log.error({ err, url: safeRequestedUrl }, 'Navigation failed');
+    log.error({ err, url: safeRequestedUrl }, "Navigation failed");
     if (sender) {
-      updateBrowserStatus(context.sessionId, sender, 'idle');
+      updateBrowserStatus(context.sessionId, sender, "idle");
     }
     return { content: `Error: Navigation failed: ${msg}`, isError: true };
   }
@@ -472,32 +549,34 @@ export async function executeBrowserSnapshot(
     // Format output
     const lines: string[] = [
       `URL: ${currentUrl}`,
-      `Title: ${title || '(none)'}`,
-      '',
+      `Title: ${title || "(none)"}`,
+      "",
     ];
 
     if (elements.length === 0) {
-      lines.push('(no interactive elements found)');
+      lines.push("(no interactive elements found)");
     } else {
       for (const el of elements) {
         let desc = `<${el.tag}`;
         for (const [key, val] of Object.entries(el.attrs)) {
           desc += ` ${key}="${val}"`;
         }
-        desc += '>';
+        desc += ">";
         if (el.text) {
           desc += ` ${el.text}`;
         }
         lines.push(`[${el.eid}] ${desc}`);
       }
-      lines.push('');
-      lines.push(`${elements.length} interactive element${elements.length === 1 ? '' : 's'} found.`);
+      lines.push("");
+      lines.push(
+        `${elements.length} interactive element${elements.length === 1 ? "" : "s"} found.`,
+      );
     }
 
-    return { content: lines.join('\n'), isError: false };
+    return { content: lines.join("\n"), isError: false };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    log.error({ err }, 'Snapshot failed');
+    log.error({ err }, "Snapshot failed");
     return { content: `Error: Snapshot failed: ${msg}`, isError: true };
   }
 }
@@ -512,26 +591,30 @@ export async function executeBrowserScreenshot(
 
   try {
     const page = await browserManager.getOrCreateSessionPage(context.sessionId);
-    const buffer = await page.screenshot({ type: 'jpeg', quality: 80, fullPage });
-    const base64Data = buffer.toString('base64');
+    const buffer = await page.screenshot({
+      type: "jpeg",
+      quality: 80,
+      fullPage,
+    });
+    const base64Data = buffer.toString("base64");
 
     const imageBlock: ImageContent = {
-      type: 'image' as const,
+      type: "image" as const,
       source: {
-        type: 'base64' as const,
-        media_type: 'image/jpeg',
+        type: "base64" as const,
+        media_type: "image/jpeg",
         data: base64Data,
       },
     };
 
     return {
-      content: `Screenshot captured (${buffer.length} bytes, ${fullPage ? 'full page' : 'viewport'})`,
+      content: `Screenshot captured (${buffer.length} bytes, ${fullPage ? "full page" : "viewport"})`,
       isError: false,
       contentBlocks: [imageBlock],
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    log.error({ err }, 'Screenshot failed');
+    log.error({ err }, "Screenshot failed");
     return { content: `Error: Screenshot failed: ${msg}`, isError: true };
   }
 }
@@ -551,13 +634,16 @@ export async function executeBrowserClose(
     if (input.close_all_pages === true) {
       await stopAllScreencasts();
       await browserManager.closeAllPages();
-      return { content: 'All browser pages and context closed.', isError: false };
+      return {
+        content: "All browser pages and context closed.",
+        isError: false,
+      };
     }
     await browserManager.closeSessionPage(context.sessionId);
-    return { content: 'Browser page closed for this session.', isError: false };
+    return { content: "Browser page closed for this session.", isError: false };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    log.error({ err }, 'Close failed');
+    log.error({ err }, "Close failed");
     return { content: `Error: Close failed: ${msg}`, isError: true };
   }
 }
@@ -574,29 +660,37 @@ export async function executeBrowserClick(
   const sender = getSender(context.sessionId);
   if (sender) {
     await ensureScreencast(context.sessionId, sender);
-    updateBrowserStatus(context.sessionId, sender, 'interacting', 'Clicking element');
+    updateBrowserStatus(
+      context.sessionId,
+      sender,
+      "interacting",
+      "Clicking element",
+    );
     const bounds = await getElementBounds(context.sessionId, selector!);
     if (bounds) {
-      updateHighlights(context.sessionId, sender, [{ ...bounds, label: 'Clicking element' }]);
+      updateHighlights(context.sessionId, sender, [
+        { ...bounds, label: "Clicking element" },
+      ]);
     }
   }
 
-  const timeout = typeof input.timeout === 'number' ? input.timeout : ACTION_TIMEOUT_MS;
+  const timeout =
+    typeof input.timeout === "number" ? input.timeout : ACTION_TIMEOUT_MS;
 
   try {
     const page = await browserManager.getOrCreateSessionPage(context.sessionId);
     await page.click(selector!, { timeout });
     if (sender) {
       updateHighlights(context.sessionId, sender, []);
-      updateBrowserStatus(context.sessionId, sender, 'idle');
+      updateBrowserStatus(context.sessionId, sender, "idle");
     }
     return { content: `Clicked element: ${selector}`, isError: false };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    log.error({ err, selector }, 'Click failed');
+    log.error({ err, selector }, "Click failed");
     if (sender) {
       updateHighlights(context.sessionId, sender, []);
-      updateBrowserStatus(context.sessionId, sender, 'idle');
+      updateBrowserStatus(context.sessionId, sender, "idle");
     }
     return { content: `Error: Click failed: ${msg}`, isError: true };
   }
@@ -611,9 +705,9 @@ export async function executeBrowserType(
   const { selector, error } = resolveSelector(context.sessionId, input);
   if (error) return { content: error, isError: true };
 
-  const text = typeof input.text === 'string' ? input.text : '';
+  const text = typeof input.text === "string" ? input.text : "";
   if (!text) {
-    return { content: 'Error: text is required.', isError: true };
+    return { content: "Error: text is required.", isError: true };
   }
 
   const clearFirst = input.clear_first !== false; // default true
@@ -622,17 +716,25 @@ export async function executeBrowserType(
   const sender = getSender(context.sessionId);
   if (sender) {
     await ensureScreencast(context.sessionId, sender);
-    updateBrowserStatus(context.sessionId, sender, 'interacting', 'Typing text');
+    updateBrowserStatus(
+      context.sessionId,
+      sender,
+      "interacting",
+      "Typing text",
+    );
     const bounds = await getElementBounds(context.sessionId, selector!);
     if (bounds) {
-      updateHighlights(context.sessionId, sender, [{ ...bounds, label: 'Typing' }]);
+      updateHighlights(context.sessionId, sender, [
+        { ...bounds, label: "Typing" },
+      ]);
     }
   }
 
   try {
     const page = await browserManager.getOrCreateSessionPage(context.sessionId);
 
-    const fillTimeout = typeof input.timeout === 'number' ? input.timeout : ACTION_TIMEOUT_MS;
+    const fillTimeout =
+      typeof input.timeout === "number" ? input.timeout : ACTION_TIMEOUT_MS;
 
     if (clearFirst) {
       await page.fill(selector!, text, { timeout: fillTimeout });
@@ -647,24 +749,24 @@ export async function executeBrowserType(
     }
 
     if (pressEnter) {
-      await page.press(selector!, 'Enter');
+      await page.press(selector!, "Enter");
     }
 
     if (sender) {
       updateHighlights(context.sessionId, sender, []);
-      updateBrowserStatus(context.sessionId, sender, 'idle');
+      updateBrowserStatus(context.sessionId, sender, "idle");
     }
 
     const lines = [`Typed into element: ${selector}`];
-    if (clearFirst) lines.push('(cleared existing content first)');
-    if (pressEnter) lines.push('(pressed Enter after typing)');
-    return { content: lines.join('\n'), isError: false };
+    if (clearFirst) lines.push("(cleared existing content first)");
+    if (pressEnter) lines.push("(pressed Enter after typing)");
+    return { content: lines.join("\n"), isError: false };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    log.error({ err, selector }, 'Type failed');
+    log.error({ err, selector }, "Type failed");
     if (sender) {
       updateHighlights(context.sessionId, sender, []);
-      updateBrowserStatus(context.sessionId, sender, 'idle');
+      updateBrowserStatus(context.sessionId, sender, "idle");
     }
     return { content: `Error: Type failed: ${msg}`, isError: true };
   }
@@ -676,63 +778,74 @@ export async function executeBrowserPressKey(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const key = typeof input.key === 'string' ? input.key : '';
+  const key = typeof input.key === "string" ? input.key : "";
   if (!key) {
-    return { content: 'Error: key is required.', isError: true };
+    return { content: "Error: key is required.", isError: true };
   }
 
   const sender = getSender(context.sessionId);
   if (sender) {
     await ensureScreencast(context.sessionId, sender);
-    updateBrowserStatus(context.sessionId, sender, 'interacting', `Pressing ${key}`);
+    updateBrowserStatus(
+      context.sessionId,
+      sender,
+      "interacting",
+      `Pressing ${key}`,
+    );
   }
 
   try {
     const page = await browserManager.getOrCreateSessionPage(context.sessionId);
 
     // If element_id or selector is provided, press key on that element
-    const elementId = typeof input.element_id === 'string' ? input.element_id : null;
-    const rawSelector = typeof input.selector === 'string' ? input.selector : null;
+    const elementId =
+      typeof input.element_id === "string" ? input.element_id : null;
+    const rawSelector =
+      typeof input.selector === "string" ? input.selector : null;
 
     if (elementId || rawSelector) {
       const { selector, error } = resolveSelector(context.sessionId, input);
       if (error) {
         if (sender) {
-          updateBrowserStatus(context.sessionId, sender, 'idle');
+          updateBrowserStatus(context.sessionId, sender, "idle");
         }
         return { content: error, isError: true };
       }
       if (sender) {
         const bounds = await getElementBounds(context.sessionId, selector!);
         if (bounds) {
-          updateHighlights(context.sessionId, sender, [{ ...bounds, label: `Pressing ${key}` }]);
+          updateHighlights(context.sessionId, sender, [
+            { ...bounds, label: `Pressing ${key}` },
+          ]);
         }
       }
       await page.press(selector!, key);
       if (sender) {
         updateHighlights(context.sessionId, sender, []);
-        updateBrowserStatus(context.sessionId, sender, 'idle');
+        updateBrowserStatus(context.sessionId, sender, "idle");
       }
-      return { content: `Pressed "${key}" on element: ${selector}`, isError: false };
+      return {
+        content: `Pressed "${key}" on element: ${selector}`,
+        isError: false,
+      };
     }
 
     // No target -> press key on the page (focused element)
     await page.keyboard.press(key);
     if (sender) {
-      updateBrowserStatus(context.sessionId, sender, 'idle');
+      updateBrowserStatus(context.sessionId, sender, "idle");
     }
     return { content: `Pressed "${key}"`, isError: false };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    log.error({ err, key }, 'Press key failed');
+    log.error({ err, key }, "Press key failed");
     if (sender) {
       updateHighlights(context.sessionId, sender, []);
-      updateBrowserStatus(context.sessionId, sender, 'idle');
+      updateBrowserStatus(context.sessionId, sender, "idle");
     }
     return { content: `Error: Press key failed: ${msg}`, isError: true };
   }
 }
-
 
 // ── browser_scroll ───────────────────────────────────────────────────
 
@@ -740,38 +853,55 @@ export async function executeBrowserScroll(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const direction = typeof input.direction === 'string' ? input.direction : '';
-  if (!direction || !['up', 'down', 'left', 'right'].includes(direction)) {
-    return { content: 'Error: direction is required and must be one of: up, down, left, right.', isError: true };
+  const direction = typeof input.direction === "string" ? input.direction : "";
+  if (!direction || !["up", "down", "left", "right"].includes(direction)) {
+    return {
+      content:
+        "Error: direction is required and must be one of: up, down, left, right.",
+      isError: true,
+    };
   }
 
-  const amount = typeof input.amount === 'number' ? Math.abs(input.amount) : 500;
+  const amount =
+    typeof input.amount === "number" ? Math.abs(input.amount) : 500;
 
   const sender = getSender(context.sessionId);
   if (sender) {
     await ensureScreencast(context.sessionId, sender);
-    updateBrowserStatus(context.sessionId, sender, 'interacting', `Scrolling ${direction}`);
+    updateBrowserStatus(
+      context.sessionId,
+      sender,
+      "interacting",
+      `Scrolling ${direction}`,
+    );
   }
 
   try {
     const page = await browserManager.getOrCreateSessionPage(context.sessionId);
 
     // If element_id or selector is provided, scroll within that element
-    const elementId = typeof input.element_id === 'string' ? input.element_id : null;
-    const rawSelector = typeof input.selector === 'string' ? input.selector : null;
+    const elementId =
+      typeof input.element_id === "string" ? input.element_id : null;
+    const rawSelector =
+      typeof input.selector === "string" ? input.selector : null;
 
     if (elementId || rawSelector) {
       const { selector, error } = resolveSelector(context.sessionId, input);
       if (error) {
-        if (sender) updateBrowserStatus(context.sessionId, sender, 'idle');
+        if (sender) updateBrowserStatus(context.sessionId, sender, "idle");
         return { content: error, isError: true };
       }
       // Move mouse to element center before scrolling
       const bounds = await getElementBounds(context.sessionId, selector!);
       if (bounds) {
         // Convert screencast coords back to page coords for mouse.move
-        const result = await page.evaluate(`(() => ({ vw: window.innerWidth, vh: window.innerHeight }))()`) as { vw: number; vh: number };
-        const scale = Math.min(SCREENCAST_WIDTH / result.vw, SCREENCAST_HEIGHT / result.vh);
+        const result = (await page.evaluate(
+          `(() => ({ vw: window.innerWidth, vh: window.innerHeight }))()`,
+        )) as { vw: number; vh: number };
+        const scale = Math.min(
+          SCREENCAST_WIDTH / result.vw,
+          SCREENCAST_HEIGHT / result.vh,
+        );
         const pageX = (bounds.x + bounds.w / 2) / scale;
         const pageY = (bounds.y + bounds.h / 2) / scale;
         await page.mouse.move(pageX, pageY);
@@ -781,23 +911,31 @@ export async function executeBrowserScroll(
     let deltaX = 0;
     let deltaY = 0;
     switch (direction) {
-      case 'up': deltaY = -amount; break;
-      case 'down': deltaY = amount; break;
-      case 'left': deltaX = -amount; break;
-      case 'right': deltaX = amount; break;
+      case "up":
+        deltaY = -amount;
+        break;
+      case "down":
+        deltaY = amount;
+        break;
+      case "left":
+        deltaX = -amount;
+        break;
+      case "right":
+        deltaX = amount;
+        break;
     }
 
     await page.mouse.wheel(deltaX, deltaY);
 
     if (sender) {
-      updateBrowserStatus(context.sessionId, sender, 'idle');
+      updateBrowserStatus(context.sessionId, sender, "idle");
     }
     return { content: `Scrolled ${direction} by ${amount}px`, isError: false };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    log.error({ err, direction }, 'Scroll failed');
+    log.error({ err, direction }, "Scroll failed");
     if (sender) {
-      updateBrowserStatus(context.sessionId, sender, 'idle');
+      updateBrowserStatus(context.sessionId, sender, "idle");
     }
     return { content: `Error: Scroll failed: ${msg}`, isError: true };
   }
@@ -812,21 +950,31 @@ export async function executeBrowserSelectOption(
   const { selector, error } = resolveSelector(context.sessionId, input);
   if (error) return { content: error, isError: true };
 
-  const value = typeof input.value === 'string' ? input.value : undefined;
-  const label = typeof input.label === 'string' ? input.label : undefined;
-  const index = typeof input.index === 'number' ? input.index : undefined;
+  const value = typeof input.value === "string" ? input.value : undefined;
+  const label = typeof input.label === "string" ? input.label : undefined;
+  const index = typeof input.index === "number" ? input.index : undefined;
 
   if (value === undefined && label === undefined && index === undefined) {
-    return { content: 'Error: One of value, label, or index is required.', isError: true };
+    return {
+      content: "Error: One of value, label, or index is required.",
+      isError: true,
+    };
   }
 
   const sender = getSender(context.sessionId);
   if (sender) {
     await ensureScreencast(context.sessionId, sender);
-    updateBrowserStatus(context.sessionId, sender, 'interacting', 'Selecting option');
+    updateBrowserStatus(
+      context.sessionId,
+      sender,
+      "interacting",
+      "Selecting option",
+    );
     const bounds = await getElementBounds(context.sessionId, selector!);
     if (bounds) {
-      updateHighlights(context.sessionId, sender, [{ ...bounds, label: 'Selecting option' }]);
+      updateHighlights(context.sessionId, sender, [
+        { ...bounds, label: "Selecting option" },
+      ]);
     }
   }
 
@@ -842,17 +990,25 @@ export async function executeBrowserSelectOption(
 
     if (sender) {
       updateHighlights(context.sessionId, sender, []);
-      updateBrowserStatus(context.sessionId, sender, 'idle');
+      updateBrowserStatus(context.sessionId, sender, "idle");
     }
 
-    const desc = value !== undefined ? `value="${value}"` : label !== undefined ? `label="${label}"` : `index=${index}`;
-    return { content: `Selected option (${desc}) on element: ${selector}`, isError: false };
+    const desc =
+      value !== undefined
+        ? `value="${value}"`
+        : label !== undefined
+          ? `label="${label}"`
+          : `index=${index}`;
+    return {
+      content: `Selected option (${desc}) on element: ${selector}`,
+      isError: false,
+    };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    log.error({ err, selector }, 'Select option failed');
+    log.error({ err, selector }, "Select option failed");
     if (sender) {
       updateHighlights(context.sessionId, sender, []);
-      updateBrowserStatus(context.sessionId, sender, 'idle');
+      updateBrowserStatus(context.sessionId, sender, "idle");
     }
     return { content: `Error: Select option failed: ${msg}`, isError: true };
   }
@@ -870,10 +1026,17 @@ export async function executeBrowserHover(
   const sender = getSender(context.sessionId);
   if (sender) {
     await ensureScreencast(context.sessionId, sender);
-    updateBrowserStatus(context.sessionId, sender, 'interacting', 'Hovering element');
+    updateBrowserStatus(
+      context.sessionId,
+      sender,
+      "interacting",
+      "Hovering element",
+    );
     const bounds = await getElementBounds(context.sessionId, selector!);
     if (bounds) {
-      updateHighlights(context.sessionId, sender, [{ ...bounds, label: 'Hovering' }]);
+      updateHighlights(context.sessionId, sender, [
+        { ...bounds, label: "Hovering" },
+      ]);
     }
   }
 
@@ -883,15 +1046,15 @@ export async function executeBrowserHover(
 
     if (sender) {
       updateHighlights(context.sessionId, sender, []);
-      updateBrowserStatus(context.sessionId, sender, 'idle');
+      updateBrowserStatus(context.sessionId, sender, "idle");
     }
     return { content: `Hovered element: ${selector}`, isError: false };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    log.error({ err, selector }, 'Hover failed');
+    log.error({ err, selector }, "Hover failed");
     if (sender) {
       updateHighlights(context.sessionId, sender, []);
-      updateBrowserStatus(context.sessionId, sender, 'idle');
+      updateBrowserStatus(context.sessionId, sender, "idle");
     }
     return { content: `Error: Hover failed: ${msg}`, isError: true };
   }
@@ -904,31 +1067,45 @@ export async function executeBrowserWaitFor(
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
   if (context.signal?.aborted) {
-    return { content: 'Error: operation was cancelled', isError: true };
+    return { content: "Error: operation was cancelled", isError: true };
   }
 
-  const selector = typeof input.selector === 'string' && input.selector ? input.selector : null;
-  const text = typeof input.text === 'string' && input.text ? input.text : null;
-  const duration = typeof input.duration === 'number' ? input.duration : null;
+  const selector =
+    typeof input.selector === "string" && input.selector
+      ? input.selector
+      : null;
+  const text = typeof input.text === "string" && input.text ? input.text : null;
+  const duration = typeof input.duration === "number" ? input.duration : null;
 
   const modeCount = [selector, text, duration].filter((v) => v != null).length;
   if (modeCount === 0) {
-    return { content: 'Error: Exactly one of selector, text, or duration is required.', isError: true };
+    return {
+      content: "Error: Exactly one of selector, text, or duration is required.",
+      isError: true,
+    };
   }
   if (modeCount > 1) {
-    return { content: 'Error: Provide exactly one of selector, text, or duration (not multiple).', isError: true };
+    return {
+      content:
+        "Error: Provide exactly one of selector, text, or duration (not multiple).",
+      isError: true,
+    };
   }
 
-  const timeout = typeof input.timeout === 'number'
-    ? Math.min(input.timeout, MAX_WAIT_MS)
-    : MAX_WAIT_MS;
+  const timeout =
+    typeof input.timeout === "number"
+      ? Math.min(input.timeout, MAX_WAIT_MS)
+      : MAX_WAIT_MS;
 
   try {
     const page = await browserManager.getOrCreateSessionPage(context.sessionId);
 
     if (selector) {
       await page.waitForSelector(selector, { timeout });
-      return { content: `Element matching "${selector}" appeared.`, isError: false };
+      return {
+        content: `Element matching "${selector}" appeared.`,
+        isError: false,
+      };
     }
 
     if (text) {
@@ -937,7 +1114,10 @@ export async function executeBrowserWaitFor(
         `document.body?.innerText?.includes(${escaped})`,
         { timeout },
       );
-      return { content: `Text "${truncate(text, 80)}" appeared on page.`, isError: false };
+      return {
+        content: `Text "${truncate(text, 80)}" appeared on page.`,
+        isError: false,
+      };
     }
 
     // duration mode (milliseconds)
@@ -946,7 +1126,7 @@ export async function executeBrowserWaitFor(
     return { content: `Waited ${waitMs}ms.`, isError: false };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    log.error({ err }, 'Wait failed');
+    log.error({ err }, "Wait failed");
     return { content: `Error: Wait failed: ${msg}`, isError: true };
   }
 }
@@ -969,14 +1149,15 @@ export async function executeBrowserExtract(
     )) as string;
 
     if (textContent.length > MAX_EXTRACT_LENGTH) {
-      textContent = textContent.slice(0, MAX_EXTRACT_LENGTH) + '\n... (truncated)';
+      textContent =
+        textContent.slice(0, MAX_EXTRACT_LENGTH) + "\n... (truncated)";
     }
 
     const lines: string[] = [
       `URL: ${currentUrl}`,
-      `Title: ${title || '(none)'}`,
-      '',
-      textContent || '(empty page)',
+      `Title: ${title || "(none)"}`,
+      "",
+      textContent || "(empty page)",
     ];
 
     if (includeLinks) {
@@ -991,18 +1172,18 @@ export async function executeBrowserExtract(
       `)) as Array<{ text: string; href: string }>;
 
       if (links.length > 0) {
-        lines.push('');
-        lines.push('Links:');
+        lines.push("");
+        lines.push("Links:");
         for (const link of links) {
-          lines.push(`  [${link.text || '(no text)'}](${link.href})`);
+          lines.push(`  [${link.text || "(no text)"}](${link.href})`);
         }
       }
     }
 
-    return { content: lines.join('\n'), isError: false };
+    return { content: lines.join("\n"), isError: false };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    log.error({ err }, 'Extract failed');
+    log.error({ err }, "Extract failed");
     return { content: `Error: Extract failed: ${msg}`, isError: true };
   }
 }
@@ -1013,14 +1194,14 @@ export async function executeBrowserFillCredential(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const service = typeof input.service === 'string' ? input.service : '';
-  const field = typeof input.field === 'string' ? input.field : '';
+  const service = typeof input.service === "string" ? input.service : "";
+  const field = typeof input.field === "string" ? input.field : "";
 
   if (!service) {
-    return { content: 'Error: service is required.', isError: true };
+    return { content: "Error: service is required.", isError: true };
   }
   if (!field) {
-    return { content: 'Error: field is required.', isError: true };
+    return { content: "Error: field is required.", isError: true };
   }
 
   const { selector, error } = resolveSelector(context.sessionId, input);
@@ -1035,7 +1216,7 @@ export async function executeBrowserFillCredential(
     let pageDomain: string | undefined;
     try {
       const pageUrl = page.url();
-      if (pageUrl && pageUrl !== 'about:blank') {
+      if (pageUrl && pageUrl !== "about:blank") {
         const parsed = new URL(pageUrl);
         pageDomain = parsed.hostname;
       }
@@ -1046,7 +1227,7 @@ export async function executeBrowserFillCredential(
     const result = await credentialBroker.browserFill({
       service,
       field,
-      toolName: 'browser_fill_credential',
+      toolName: "browser_fill_credential",
       domain: pageDomain,
       fill: async (value) => {
         await page.fill(selector!, value);
@@ -1054,37 +1235,49 @@ export async function executeBrowserFillCredential(
     });
 
     if (!result.success) {
-      const reason = result.reason ?? 'unknown error';
-      if (reason.includes('No credential found') || reason.includes('no stored value')) {
+      const reason = result.reason ?? "unknown error";
+      if (
+        reason.includes("No credential found") ||
+        reason.includes("no stored value")
+      ) {
         return {
           content: `No credential stored for ${service}/${field}. Use credential_store to save it first.`,
           isError: true,
         };
       }
-      if (reason.includes('not allowed to use credential')) {
+      if (reason.includes("not allowed to use credential")) {
         return {
           content: `Policy denied: ${reason} Update the credential's allowed_tools via credential_store if this tool should have access.`,
           isError: true,
         };
       }
-      if (reason.includes('not allowed for credential') || reason.includes('no page domain was provided')) {
+      if (
+        reason.includes("not allowed for credential") ||
+        reason.includes("no page domain was provided")
+      ) {
         return {
           content: `Domain policy denied: ${reason} Navigate to an allowed domain before filling this credential.`,
           isError: true,
         };
       }
-      log.error({ selector, reason }, 'Fill credential failed');
-      return { content: `Error: Fill credential failed: ${reason}`, isError: true };
+      log.error({ selector, reason }, "Fill credential failed");
+      return {
+        content: `Error: Fill credential failed: ${reason}`,
+        isError: true,
+      };
     }
 
     if (pressEnter) {
-      await page.press(selector!, 'Enter');
+      await page.press(selector!, "Enter");
     }
 
-    return { content: `Filled ${field} for ${service} into the target element.`, isError: false };
+    return {
+      content: `Filled ${field} for ${service} into the target element.`,
+      isError: false,
+    };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    log.error({ err }, 'Fill credential failed');
+    log.error({ err }, "Fill credential failed");
     return { content: `Error: Fill credential failed: ${msg}`, isError: true };
   }
 }
