@@ -38,7 +38,7 @@ export const definition: Anthropic.Tool = {
 };
 
 export async function execute(
-  _page: Page,
+  page: Page,
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolHandlerResult> {
@@ -51,6 +51,24 @@ export async function execute(
       result: {
         success: false,
         data: `Environment variable ${envVar} is not set`,
+      },
+    };
+  }
+
+  // Guard: only allow typing env var values into password or secret input
+  // fields to prevent accidental exposure of sensitive values.
+  const isSecretInput = await page.evaluate(() => {
+    const el = document.activeElement;
+    if (!el || el.tagName.toLowerCase() !== "input") return false;
+    const type = (el.getAttribute("type") || "text").toLowerCase();
+    return type === "password";
+  });
+
+  if (!isSecretInput) {
+    return {
+      result: {
+        success: false,
+        data: `Cannot type environment variable ${envVar}: the focused element is not a password or secret input field`,
       },
     };
   }
