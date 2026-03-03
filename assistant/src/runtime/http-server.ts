@@ -5,44 +5,55 @@
  * configured port (default: 7821).
  */
 
-import { existsSync, readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
 
-import type { ServerWebSocket } from 'bun';
+import type { ServerWebSocket } from "bun";
 
-import type { BrowserRelayWebSocketData } from '../browser-extension-relay/server.js';
-import { extensionRelayServer } from '../browser-extension-relay/server.js';
+import type { BrowserRelayWebSocketData } from "../browser-extension-relay/server.js";
+import { extensionRelayServer } from "../browser-extension-relay/server.js";
 import {
   startGuardianActionSweep,
   stopGuardianActionSweep,
-} from '../calls/guardian-action-sweep.js';
-import type { RelayWebSocketData } from '../calls/relay-server.js';
-import { activeRelayConnections,RelayConnection } from '../calls/relay-server.js';
+} from "../calls/guardian-action-sweep.js";
+import type { RelayWebSocketData } from "../calls/relay-server.js";
+import {
+  activeRelayConnections,
+  RelayConnection,
+} from "../calls/relay-server.js";
 import {
   handleConnectAction,
   handleStatusCallback,
   handleVoiceWebhook,
-} from '../calls/twilio-routes.js';
-import { parseChannelId } from '../channels/types.js';
+} from "../calls/twilio-routes.js";
+import { parseChannelId } from "../channels/types.js";
 import {
   getGatewayInternalBaseUrl,
   getRuntimeGatewayOriginSecret,
   hasUngatedHttpAuthDisabled,
   isHttpAuthDisabled,
-} from '../config/env.js';
-import type { ServerMessage } from '../daemon/ipc-contract.js';
-import { PairingStore } from '../daemon/pairing-store.js';
-import { type Confidence, getAttentionStateByConversationIds, recordConversationSeenSignal,type SignalType } from '../memory/conversation-attention-store.js';
-import * as conversationStore from '../memory/conversation-store.js';
-import * as externalConversationStore from '../memory/external-conversation-store.js';
-import { consumeCallback, consumeCallbackError } from '../security/oauth-callback-registry.js';
-import { getLogger } from '../util/logger.js';
-import { buildAssistantEvent } from './assistant-event.js';
-import { assistantEventHub } from './assistant-event-hub.js';
-import { DAEMON_INTERNAL_ASSISTANT_ID } from './assistant-scope.js';
-import { sweepFailedEvents } from './channel-retry-sweep.js';
-import { httpError } from './http-errors.js';
+} from "../config/env.js";
+import type { ServerMessage } from "../daemon/ipc-contract.js";
+import { PairingStore } from "../daemon/pairing-store.js";
+import {
+  type Confidence,
+  getAttentionStateByConversationIds,
+  recordConversationSeenSignal,
+  type SignalType,
+} from "../memory/conversation-attention-store.js";
+import * as conversationStore from "../memory/conversation-store.js";
+import * as externalConversationStore from "../memory/external-conversation-store.js";
+import {
+  consumeCallback,
+  consumeCallbackError,
+} from "../security/oauth-callback-registry.js";
+import { getLogger } from "../util/logger.js";
+import { buildAssistantEvent } from "./assistant-event.js";
+import { assistantEventHub } from "./assistant-event-hub.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
+import { sweepFailedEvents } from "./channel-retry-sweep.js";
+import { httpError } from "./http-errors.js";
 // Middleware
 import {
   extractBearerToken,
@@ -50,16 +61,16 @@ import {
   isPrivateNetworkOrigin,
   isPrivateNetworkPeer,
   verifyBearerToken,
-} from './middleware/auth.js';
-import { withErrorHandling } from './middleware/error-handler.js';
+} from "./middleware/auth.js";
+import { withErrorHandling } from "./middleware/error-handler.js";
 import {
   apiRateLimiter,
   extractClientIp,
   ipRateLimiter,
   rateLimitHeaders,
   rateLimitResponse,
-} from './middleware/rate-limiter.js';
-import { withRequestLogging } from './middleware/request-logger.js';
+} from "./middleware/rate-limiter.js";
+import { withRequestLogging } from "./middleware/request-logger.js";
 import {
   cloneRequestWithBody,
   GATEWAY_ONLY_BLOCKED_SUBPATHS,
@@ -67,42 +78,46 @@ import {
   TWILIO_GATEWAY_WEBHOOK_RE,
   TWILIO_WEBHOOK_RE,
   validateTwilioWebhook,
-} from './middleware/twilio-validation.js';
+} from "./middleware/twilio-validation.js";
 import {
   handleDeleteSharedApp,
   handleDownloadSharedApp,
   handleGetSharedAppMetadata,
   handleServePage,
   handleShareApp,
-} from './routes/app-routes.js';
+} from "./routes/app-routes.js";
 import {
   handleConfirm,
   handleListPendingInteractions,
   handleSecret,
   handleTrustRule,
-} from './routes/approval-routes.js';
+} from "./routes/approval-routes.js";
 import {
   handleDeleteAttachment,
   handleGetAttachment,
   handleGetAttachmentContent,
   handleUploadAttachment,
-} from './routes/attachment-routes.js';
-import { handleGetBrainGraph, handleServeBrainGraphUI, handleServeHomeBaseUI } from './routes/brain-graph-routes.js';
+} from "./routes/attachment-routes.js";
+import {
+  handleGetBrainGraph,
+  handleServeBrainGraphUI,
+  handleServeHomeBaseUI,
+} from "./routes/brain-graph-routes.js";
 import {
   handleAnswerCall,
   handleCancelCall,
   handleGetCallStatus,
   handleInstructionCall,
   handleStartCall,
-} from './routes/call-routes.js';
+} from "./routes/call-routes.js";
 import {
   startCanonicalGuardianExpirySweep,
   stopCanonicalGuardianExpirySweep,
-} from './routes/canonical-guardian-expiry-sweep.js';
+} from "./routes/canonical-guardian-expiry-sweep.js";
 import {
   handleGetChannelReadiness,
   handleRefreshChannelReadiness,
-} from './routes/channel-readiness-routes.js';
+} from "./routes/channel-readiness-routes.js";
 import {
   handleChannelDeliveryAck,
   handleChannelInbound,
@@ -111,29 +126,29 @@ import {
   handleReplayDeadLetters,
   startGuardianExpirySweep,
   stopGuardianExpirySweep,
-} from './routes/channel-routes.js';
+} from "./routes/channel-routes.js";
 import {
   handleGetContact,
   handleListContacts,
   handleMergeContacts,
-} from './routes/contact-routes.js';
-import { handleListConversationAttention } from './routes/conversation-attention-routes.js';
+} from "./routes/contact-routes.js";
+import { handleListConversationAttention } from "./routes/conversation-attention-routes.js";
 // Route handlers — grouped by domain
 import {
   handleGetSuggestion,
   handleListMessages,
   handleSearchConversations,
   handleSendMessage,
-} from './routes/conversation-routes.js';
-import { handleDebug } from './routes/debug-routes.js';
-import { handleSubscribeAssistantEvents } from './routes/events-routes.js';
+} from "./routes/conversation-routes.js";
+import { handleDebug } from "./routes/debug-routes.js";
+import { handleSubscribeAssistantEvents } from "./routes/events-routes.js";
 import {
   handleGuardianActionDecision,
   handleGuardianActionsPending,
-} from './routes/guardian-action-routes.js';
-import { handleGuardianBootstrap } from './routes/guardian-bootstrap-routes.js';
-import { handleGuardianRefresh } from './routes/guardian-refresh-routes.js';
-import { handleGetIdentity,handleHealth } from './routes/identity-routes.js';
+} from "./routes/guardian-action-routes.js";
+import { handleGuardianBootstrap } from "./routes/guardian-bootstrap-routes.js";
+import { handleGuardianRefresh } from "./routes/guardian-refresh-routes.js";
+import { handleGetIdentity, handleHealth } from "./routes/identity-routes.js";
 import {
   handleBlockMember,
   handleCreateInvite,
@@ -143,7 +158,7 @@ import {
   handleRevokeInvite,
   handleRevokeMember,
   handleUpsertMember,
-} from './routes/ingress-routes.js';
+} from "./routes/ingress-routes.js";
 import {
   handleCancelOutbound,
   handleClearSlackChannelConfig,
@@ -158,15 +173,22 @@ import {
   handleSetTelegramConfig,
   handleSetupTelegram,
   handleStartOutbound,
-} from './routes/integration-routes.js';
-import type { PairingHandlerContext } from './routes/pairing-routes.js';
+} from "./routes/integration-routes.js";
+import type { PairingHandlerContext } from "./routes/pairing-routes.js";
 // Extracted route handlers
 import {
   handlePairingRegister,
   handlePairingRequest,
   handlePairingStatus,
-} from './routes/pairing-routes.js';
-import { handleAddSecret, handleDeleteSecret } from './routes/secret-routes.js';
+} from "./routes/pairing-routes.js";
+import { handleAddSecret, handleDeleteSecret } from "./routes/secret-routes.js";
+import { handleSurfaceAction } from "./routes/surface-action-routes.js";
+import {
+  handleAddTrustRuleManage,
+  handleListTrustRules,
+  handleRemoveTrustRuleManage,
+  handleUpdateTrustRuleManage,
+} from "./routes/trust-rules-routes.js";
 import {
   handleAssignTwilioNumber,
   handleClearTwilioCredentials,
@@ -181,10 +203,10 @@ import {
   handleSmsSendTest,
   handleSubmitTollfreeVerification,
   handleUpdateTollfreeVerification,
-} from './routes/twilio-routes.js';
+} from "./routes/twilio-routes.js";
 
 // Re-export for consumers
-export { isPrivateAddress } from './middleware/auth.js';
+export { isPrivateAddress } from "./middleware/auth.js";
 
 // Re-export shared types so existing consumers don't need to update imports
 export type {
@@ -198,7 +220,7 @@ export type {
   RuntimeHttpServerOptions,
   RuntimeMessageSessionOptions,
   SendMessageDeps,
-} from './http-types.js';
+} from "./http-types.js";
 
 import type {
   ApprovalConversationGenerator,
@@ -209,12 +231,12 @@ import type {
   NonBlockingMessageProcessor,
   RuntimeHttpServerOptions,
   SendMessageDeps,
-} from './http-types.js';
+} from "./http-types.js";
 
-const log = getLogger('runtime-http');
+const log = getLogger("runtime-http");
 
 const DEFAULT_PORT = 7821;
-const DEFAULT_HOSTNAME = '127.0.0.1';
+const DEFAULT_HOSTNAME = "127.0.0.1";
 
 /** Global hard cap on request body size (50 MB). */
 const MAX_REQUEST_BODY_BYTES = 50 * 1024 * 1024;
@@ -238,6 +260,9 @@ export class RuntimeHttpServer {
   private pairingStore = new PairingStore();
   private pairingBroadcast?: (msg: ServerMessage) => void;
   private sendMessageDeps?: SendMessageDeps;
+  private findSession?: (
+    sessionId: string,
+  ) => import("../daemon/session.js").Session | undefined;
 
   constructor(options: RuntimeHttpServerOptions = {}) {
     this.port = options.port ?? DEFAULT_PORT;
@@ -248,9 +273,11 @@ export class RuntimeHttpServer {
     this.approvalCopyGenerator = options.approvalCopyGenerator;
     this.approvalConversationGenerator = options.approvalConversationGenerator;
     this.guardianActionCopyGenerator = options.guardianActionCopyGenerator;
-    this.guardianFollowUpConversationGenerator = options.guardianFollowUpConversationGenerator;
+    this.guardianFollowUpConversationGenerator =
+      options.guardianFollowUpConversationGenerator;
     this.interfacesDir = options.interfacesDir ?? null;
     this.sendMessageDeps = options.sendMessageDeps;
+    this.findSession = options.findSession;
   }
 
   /** The port the server is actually listening on (resolved after start). */
@@ -272,8 +299,8 @@ export class RuntimeHttpServer {
   private readFeatureFlagToken(): string | undefined {
     try {
       const baseDir = process.env.BASE_DATA_DIR?.trim() || homedir();
-      const tokenPath = join(baseDir, '.vellum', 'feature-flag-token');
-      const token = readFileSync(tokenPath, 'utf-8').trim();
+      const tokenPath = join(baseDir, ".vellum", "feature-flag-token");
+      const token = readFileSync(tokenPath, "utf-8").trim();
       return token || undefined;
     } catch {
       return undefined;
@@ -292,7 +319,9 @@ export class RuntimeHttpServer {
             ipcBroadcast(msg);
             // Also publish to the event hub so HTTP/SSE clients (e.g. macOS
             // app with localHttpEnabled) receive pairing approval requests.
-            void assistantEventHub.publish(buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, msg));
+            void assistantEventHub.publish(
+              buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, msg),
+            );
           }
         : undefined,
     };
@@ -309,22 +338,33 @@ export class RuntimeHttpServer {
       websocket: {
         open(ws) {
           const data = ws.data as AllWebSocketData;
-          if ('wsType' in data && data.wsType === 'browser-relay') {
-            extensionRelayServer.handleOpen(ws as ServerWebSocket<BrowserRelayWebSocketData>);
+          if ("wsType" in data && data.wsType === "browser-relay") {
+            extensionRelayServer.handleOpen(
+              ws as ServerWebSocket<BrowserRelayWebSocketData>,
+            );
             return;
           }
           const callSessionId = (data as RelayWebSocketData).callSessionId;
-          log.info({ callSessionId }, 'ConversationRelay WebSocket opened');
+          log.info({ callSessionId }, "ConversationRelay WebSocket opened");
           if (callSessionId) {
-            const connection = new RelayConnection(ws as ServerWebSocket<RelayWebSocketData>, callSessionId);
+            const connection = new RelayConnection(
+              ws as ServerWebSocket<RelayWebSocketData>,
+              callSessionId,
+            );
             activeRelayConnections.set(callSessionId, connection);
           }
         },
         message(ws, message) {
           const data = ws.data as AllWebSocketData;
-          const raw = typeof message === 'string' ? message : new TextDecoder().decode(message);
-          if ('wsType' in data && data.wsType === 'browser-relay') {
-            extensionRelayServer.handleMessage(ws as ServerWebSocket<BrowserRelayWebSocketData>, raw);
+          const raw =
+            typeof message === "string"
+              ? message
+              : new TextDecoder().decode(message);
+          if ("wsType" in data && data.wsType === "browser-relay") {
+            extensionRelayServer.handleMessage(
+              ws as ServerWebSocket<BrowserRelayWebSocketData>,
+              raw,
+            );
             return;
           }
           const callSessionId = (data as RelayWebSocketData).callSessionId;
@@ -335,12 +375,19 @@ export class RuntimeHttpServer {
         },
         close(ws, code, reason) {
           const data = ws.data as AllWebSocketData;
-          if ('wsType' in data && data.wsType === 'browser-relay') {
-            extensionRelayServer.handleClose(ws as ServerWebSocket<BrowserRelayWebSocketData>, code, reason?.toString());
+          if ("wsType" in data && data.wsType === "browser-relay") {
+            extensionRelayServer.handleClose(
+              ws as ServerWebSocket<BrowserRelayWebSocketData>,
+              code,
+              reason?.toString(),
+            );
             return;
           }
           const callSessionId = (data as RelayWebSocketData).callSessionId;
-          log.info({ callSessionId, code, reason: reason?.toString() }, 'ConversationRelay WebSocket closed');
+          log.info(
+            { callSessionId, code, reason: reason?.toString() },
+            "ConversationRelay WebSocket closed",
+          );
           if (callSessionId) {
             const connection = activeRelayConnections.get(callSessionId);
             connection?.handleTransportClosed(code, reason?.toString());
@@ -357,33 +404,58 @@ export class RuntimeHttpServer {
       this.retrySweepTimer = setInterval(() => {
         if (this.sweepInProgress) return;
         this.sweepInProgress = true;
-        sweepFailedEvents(pm, bt).finally(() => { this.sweepInProgress = false; });
+        sweepFailedEvents(pm, bt).finally(() => {
+          this.sweepInProgress = false;
+        });
       }, 30_000);
     }
 
-    startGuardianExpirySweep(getGatewayInternalBaseUrl(), this.bearerToken, this.approvalCopyGenerator);
-    log.info('Guardian approval expiry sweep started');
+    startGuardianExpirySweep(
+      getGatewayInternalBaseUrl(),
+      this.bearerToken,
+      this.approvalCopyGenerator,
+    );
+    log.info("Guardian approval expiry sweep started");
 
-    startGuardianActionSweep(getGatewayInternalBaseUrl(), this.bearerToken, this.guardianActionCopyGenerator);
-    log.info('Guardian action expiry sweep started');
+    startGuardianActionSweep(
+      getGatewayInternalBaseUrl(),
+      this.bearerToken,
+      this.guardianActionCopyGenerator,
+    );
+    log.info("Guardian action expiry sweep started");
 
     startCanonicalGuardianExpirySweep();
-    log.info('Canonical guardian request expiry sweep started');
+    log.info("Canonical guardian request expiry sweep started");
 
-    log.info('Running in gateway-only ingress mode. Direct webhook routes disabled.');
+    log.info(
+      "Running in gateway-only ingress mode. Direct webhook routes disabled.",
+    );
     if (!isLoopbackHost(this.hostname)) {
-      log.warn('RUNTIME_HTTP_HOST is not bound to loopback. This may expose the runtime to direct public access.');
+      log.warn(
+        "RUNTIME_HTTP_HOST is not bound to loopback. This may expose the runtime to direct public access.",
+      );
     }
 
     this.pairingStore.start();
 
     if (hasUngatedHttpAuthDisabled()) {
-      log.warn('DISABLE_HTTP_AUTH is set but VELLUM_UNSAFE_AUTH_BYPASS=1 is not — auth bypass is IGNORED and HTTP authentication remains enabled. Set VELLUM_UNSAFE_AUTH_BYPASS=1 to confirm the bypass.');
+      log.warn(
+        "DISABLE_HTTP_AUTH is set but VELLUM_UNSAFE_AUTH_BYPASS=1 is not — auth bypass is IGNORED and HTTP authentication remains enabled. Set VELLUM_UNSAFE_AUTH_BYPASS=1 to confirm the bypass.",
+      );
     } else if (isHttpAuthDisabled()) {
-      log.warn('DISABLE_HTTP_AUTH is set — HTTP API authentication is DISABLED. All API endpoints are accessible without a bearer token. Do not use in production.');
+      log.warn(
+        "DISABLE_HTTP_AUTH is set — HTTP API authentication is DISABLED. All API endpoints are accessible without a bearer token. Do not use in production.",
+      );
     }
 
-    log.info({ port: this.actualPort, hostname: this.hostname, auth: !!this.bearerToken }, 'Runtime HTTP server listening');
+    log.info(
+      {
+        port: this.actualPort,
+        hostname: this.hostname,
+        auth: !!this.bearerToken,
+      },
+      "Runtime HTTP server listening",
+    );
   }
 
   async stop(): Promise<void> {
@@ -398,36 +470,48 @@ export class RuntimeHttpServer {
     if (this.server) {
       this.server.stop(true);
       this.server = null;
-      log.info('Runtime HTTP server stopped');
+      log.info("Runtime HTTP server stopped");
     }
   }
 
-  private async handleRequest(req: Request, server: ReturnType<typeof Bun.serve>): Promise<Response> {
+  private async handleRequest(
+    req: Request,
+    server: ReturnType<typeof Bun.serve>,
+  ): Promise<Response> {
     server.timeout(req, 1800);
     // Skip request logging for health-check probes to reduce log noise.
     const url = new URL(req.url);
-    if (url.pathname === '/healthz' && req.method === 'GET') {
+    if (url.pathname === "/healthz" && req.method === "GET") {
       return this.routeRequest(req, server);
     }
     return withRequestLogging(req, () => this.routeRequest(req, server));
   }
 
-  private async routeRequest(req: Request, server: ReturnType<typeof Bun.serve>): Promise<Response> {
+  private async routeRequest(
+    req: Request,
+    server: ReturnType<typeof Bun.serve>,
+  ): Promise<Response> {
     const url = new URL(req.url);
     const path = url.pathname;
 
-    if (path === '/healthz' && req.method === 'GET') {
+    if (path === "/healthz" && req.method === "GET") {
       return handleHealth();
     }
 
     // WebSocket upgrade for the Chrome extension browser relay.
-    if (path === '/v1/browser-relay' && req.headers.get('upgrade')?.toLowerCase() === 'websocket') {
+    if (
+      path === "/v1/browser-relay" &&
+      req.headers.get("upgrade")?.toLowerCase() === "websocket"
+    ) {
       return this.handleBrowserRelayUpgrade(req, server);
     }
 
     // WebSocket upgrade for ConversationRelay — before auth check because
     // Twilio WebSocket connections don't use bearer tokens.
-    if (path.startsWith('/v1/calls/relay') && req.headers.get('upgrade')?.toLowerCase() === 'websocket') {
+    if (
+      path.startsWith("/v1/calls/relay") &&
+      req.headers.get("upgrade")?.toLowerCase() === "websocket"
+    ) {
       return this.handleRelayUpgrade(req, server);
     }
 
@@ -437,10 +521,10 @@ export class RuntimeHttpServer {
     if (twilioResponse) return twilioResponse;
 
     // Pairing endpoints (unauthenticated, secret-gated)
-    if (path === '/v1/pairing/request' && req.method === 'POST') {
+    if (path === "/v1/pairing/request" && req.method === "POST") {
       return await handlePairingRequest(req, this.pairingContext);
     }
-    if (path === '/v1/pairing/status' && req.method === 'GET') {
+    if (path === "/v1/pairing/status" && req.method === "GET") {
       return handlePairingStatus(url, this.pairingContext);
     }
 
@@ -448,7 +532,7 @@ export class RuntimeHttpServer {
     if (!isHttpAuthDisabled() && this.bearerToken) {
       const token = extractBearerToken(req);
       if (!token || !verifyBearerToken(token, this.bearerToken)) {
-        return httpError('UNAUTHORIZED', 'Unauthorized', 401);
+        return httpError("UNAUTHORIZED", "Unauthorized", 401);
       }
     }
 
@@ -457,7 +541,7 @@ export class RuntimeHttpServer {
     // abuse surface. We key on IP rather than bearer token because the gateway
     // uses a single shared token for all proxied requests, which would collapse
     // all users into one bucket.
-    if (path.startsWith('/v1/')) {
+    if (path.startsWith("/v1/")) {
       const clientIp = extractClientIp(req, server);
       const token = extractBearerToken(req);
       const result = token
@@ -467,7 +551,12 @@ export class RuntimeHttpServer {
         return rateLimitResponse(result);
       }
       // Attach rate limit headers to the eventual response
-      const originalResponse = await this.handleAuthenticatedRequest(req, url, path, server);
+      const originalResponse = await this.handleAuthenticatedRequest(
+        req,
+        url,
+        path,
+        server,
+      );
       const headers = new Headers(originalResponse.headers);
       for (const [k, v] of Object.entries(rateLimitHeaders(result))) {
         headers.set(k, v);
@@ -485,67 +574,98 @@ export class RuntimeHttpServer {
   /**
    * Handle requests that have already passed auth and rate limiting.
    */
-  private async handleAuthenticatedRequest(req: Request, url: URL, path: string, server: ReturnType<typeof Bun.serve>): Promise<Response> {
+  private async handleAuthenticatedRequest(
+    req: Request,
+    url: URL,
+    path: string,
+    server: ReturnType<typeof Bun.serve>,
+  ): Promise<Response> {
     // Pairing registration (bearer-authenticated)
-    if (path === '/v1/pairing/register' && req.method === 'POST') {
+    if (path === "/v1/pairing/register" && req.method === "POST") {
       return await handlePairingRegister(req, this.pairingContext);
     }
 
     // Serve shareable app pages
     const pagesMatch = path.match(/^\/pages\/([^/]+)$/);
-    if (pagesMatch && req.method === 'GET') {
+    if (pagesMatch && req.method === "GET") {
       try {
         return handleServePage(pagesMatch[1]);
       } catch (err) {
-        log.error({ err, appId: pagesMatch[1] }, 'Runtime HTTP handler error serving page');
-        return httpError('INTERNAL_ERROR', 'Internal server error', 500);
+        log.error(
+          { err, appId: pagesMatch[1] },
+          "Runtime HTTP handler error serving page",
+        );
+        return httpError("INTERNAL_ERROR", "Internal server error", 500);
       }
     }
 
     // Cloud sharing endpoints
-    if (path === '/v1/apps/share' && req.method === 'POST') {
-      try { return await handleShareApp(req); } catch (err) {
-        log.error({ err }, 'Runtime HTTP handler error sharing app');
-        return httpError('INTERNAL_ERROR', 'Internal server error', 500);
+    if (path === "/v1/apps/share" && req.method === "POST") {
+      try {
+        return await handleShareApp(req);
+      } catch (err) {
+        log.error({ err }, "Runtime HTTP handler error sharing app");
+        return httpError("INTERNAL_ERROR", "Internal server error", 500);
       }
     }
 
     const sharedTokenMatch = path.match(/^\/v1\/apps\/shared\/([^/]+)$/);
     if (sharedTokenMatch) {
       const shareToken = sharedTokenMatch[1];
-      if (req.method === 'GET') {
-        try { return handleDownloadSharedApp(shareToken); } catch (err) {
-          log.error({ err, shareToken }, 'Runtime HTTP handler error downloading shared app');
-          return httpError('INTERNAL_ERROR', 'Internal server error', 500);
+      if (req.method === "GET") {
+        try {
+          return handleDownloadSharedApp(shareToken);
+        } catch (err) {
+          log.error(
+            { err, shareToken },
+            "Runtime HTTP handler error downloading shared app",
+          );
+          return httpError("INTERNAL_ERROR", "Internal server error", 500);
         }
       }
-      if (req.method === 'DELETE') {
-        try { return handleDeleteSharedApp(shareToken); } catch (err) {
-          log.error({ err, shareToken }, 'Runtime HTTP handler error deleting shared app');
-          return httpError('INTERNAL_ERROR', 'Internal server error', 500);
+      if (req.method === "DELETE") {
+        try {
+          return handleDeleteSharedApp(shareToken);
+        } catch (err) {
+          log.error(
+            { err, shareToken },
+            "Runtime HTTP handler error deleting shared app",
+          );
+          return httpError("INTERNAL_ERROR", "Internal server error", 500);
         }
       }
     }
 
-    const sharedMetadataMatch = path.match(/^\/v1\/apps\/shared\/([^/]+)\/metadata$/);
-    if (sharedMetadataMatch && req.method === 'GET') {
-      try { return handleGetSharedAppMetadata(sharedMetadataMatch[1]); } catch (err) {
-        log.error({ err, shareToken: sharedMetadataMatch[1] }, 'Runtime HTTP handler error getting shared app metadata');
-        return httpError('INTERNAL_ERROR', 'Internal server error', 500);
+    const sharedMetadataMatch = path.match(
+      /^\/v1\/apps\/shared\/([^/]+)\/metadata$/,
+    );
+    if (sharedMetadataMatch && req.method === "GET") {
+      try {
+        return handleGetSharedAppMetadata(sharedMetadataMatch[1]);
+      } catch (err) {
+        log.error(
+          { err, shareToken: sharedMetadataMatch[1] },
+          "Runtime HTTP handler error getting shared app metadata",
+        );
+        return httpError("INTERNAL_ERROR", "Internal server error", 500);
       }
     }
 
     // Secret management endpoint
-    if (path === '/v1/secrets' && req.method === 'POST') {
-      try { return await handleAddSecret(req); } catch (err) {
-        log.error({ err }, 'Runtime HTTP handler error adding secret');
-        return httpError('INTERNAL_ERROR', 'Internal server error', 500);
+    if (path === "/v1/secrets" && req.method === "POST") {
+      try {
+        return await handleAddSecret(req);
+      } catch (err) {
+        log.error({ err }, "Runtime HTTP handler error adding secret");
+        return httpError("INTERNAL_ERROR", "Internal server error", 500);
       }
     }
-    if (path === '/v1/secrets' && req.method === 'DELETE') {
-      try { return await handleDeleteSecret(req); } catch (err) {
-        log.error({ err }, 'Runtime HTTP handler error deleting secret');
-        return httpError('INTERNAL_ERROR', 'Internal server error', 500);
+    if (path === "/v1/secrets" && req.method === "DELETE") {
+      try {
+        return await handleDeleteSecret(req);
+      } catch (err) {
+        log.error({ err }, "Runtime HTTP handler error deleting secret");
+        return httpError("INTERNAL_ERROR", "Internal server error", 500);
       }
     }
 
@@ -555,65 +675,94 @@ export class RuntimeHttpServer {
       return this.dispatchEndpoint(routeMatch[1], req, url, server);
     }
 
-    return httpError('NOT_FOUND', 'Not found', 404);
+    return httpError("NOT_FOUND", "Not found", 404);
   }
 
-  private handleBrowserRelayUpgrade(req: Request, server: ReturnType<typeof Bun.serve>): Response {
-    if (!isLoopbackHost(new URL(req.url).hostname) && !isPrivateNetworkPeer(server, req)) {
-      return httpError('FORBIDDEN', 'Browser relay only accepts connections from localhost', 403);
+  private handleBrowserRelayUpgrade(
+    req: Request,
+    server: ReturnType<typeof Bun.serve>,
+  ): Response {
+    if (
+      !isLoopbackHost(new URL(req.url).hostname) &&
+      !isPrivateNetworkPeer(server, req)
+    ) {
+      return httpError(
+        "FORBIDDEN",
+        "Browser relay only accepts connections from localhost",
+        403,
+      );
     }
 
     if (!isHttpAuthDisabled() && this.bearerToken) {
       const wsUrl = new URL(req.url);
-      const token = wsUrl.searchParams.get('token');
+      const token = wsUrl.searchParams.get("token");
       if (!token || !verifyBearerToken(token, this.bearerToken)) {
-        return httpError('UNAUTHORIZED', 'Unauthorized', 401);
+        return httpError("UNAUTHORIZED", "Unauthorized", 401);
       }
     }
 
     const connectionId = crypto.randomUUID();
     const upgraded = server.upgrade(req, {
-      data: { wsType: 'browser-relay', connectionId } satisfies BrowserRelayWebSocketData,
+      data: {
+        wsType: "browser-relay",
+        connectionId,
+      } satisfies BrowserRelayWebSocketData,
     });
     if (!upgraded) {
-      return new Response('WebSocket upgrade failed', { status: 500 });
+      return new Response("WebSocket upgrade failed", { status: 500 });
     }
     // Bun's WebSocket upgrade consumes the request — no Response is sent.
     return undefined!;
   }
 
-  private handleRelayUpgrade(req: Request, server: ReturnType<typeof Bun.serve>): Response {
+  private handleRelayUpgrade(
+    req: Request,
+    server: ReturnType<typeof Bun.serve>,
+  ): Response {
     if (!isPrivateNetworkPeer(server, req) || !isPrivateNetworkOrigin(req)) {
-      return httpError('FORBIDDEN', 'Direct relay access disabled — only private network peers allowed', 403);
+      return httpError(
+        "FORBIDDEN",
+        "Direct relay access disabled — only private network peers allowed",
+        403,
+      );
     }
 
     const wsUrl = new URL(req.url);
-    const callSessionId = wsUrl.searchParams.get('callSessionId');
+    const callSessionId = wsUrl.searchParams.get("callSessionId");
     if (!callSessionId) {
-      return new Response('Missing callSessionId', { status: 400 });
+      return new Response("Missing callSessionId", { status: 400 });
     }
     const upgraded = server.upgrade(req, { data: { callSessionId } });
     if (!upgraded) {
-      return new Response('WebSocket upgrade failed', { status: 500 });
+      return new Response("WebSocket upgrade failed", { status: 500 });
     }
     // Bun's WebSocket upgrade consumes the request — no Response is sent.
     return undefined!;
   }
 
-  private async handleTwilioWebhook(req: Request, path: string): Promise<Response | null> {
+  private async handleTwilioWebhook(
+    req: Request,
+    path: string,
+  ): Promise<Response | null> {
     const twilioMatch = path.match(TWILIO_WEBHOOK_RE);
-    const gatewayTwilioMatch = !twilioMatch ? path.match(TWILIO_GATEWAY_WEBHOOK_RE) : null;
+    const gatewayTwilioMatch = !twilioMatch
+      ? path.match(TWILIO_GATEWAY_WEBHOOK_RE)
+      : null;
     const resolvedTwilioSubpath = twilioMatch
       ? twilioMatch[1]
       : gatewayTwilioMatch
         ? GATEWAY_SUBPATH_MAP[gatewayTwilioMatch[1]]
         : null;
-    if (!resolvedTwilioSubpath || req.method !== 'POST') return null;
+    if (!resolvedTwilioSubpath || req.method !== "POST") return null;
 
     const twilioSubpath = resolvedTwilioSubpath;
 
     if (GATEWAY_ONLY_BLOCKED_SUBPATHS.has(twilioSubpath)) {
-      return httpError('GONE', 'Direct webhook access disabled. Use the gateway.', 410);
+      return httpError(
+        "GONE",
+        "Direct webhook access disabled. Use the gateway.",
+        410,
+      );
     }
 
     const validation = await validateTwilioWebhook(req);
@@ -621,9 +770,12 @@ export class RuntimeHttpServer {
 
     const validatedReq = cloneRequestWithBody(req, validation.body);
 
-    if (twilioSubpath === 'voice-webhook') return await handleVoiceWebhook(validatedReq);
-    if (twilioSubpath === 'status') return await handleStatusCallback(validatedReq);
-    if (twilioSubpath === 'connect-action') return await handleConnectAction(validatedReq);
+    if (twilioSubpath === "voice-webhook")
+      return await handleVoiceWebhook(validatedReq);
+    if (twilioSubpath === "status")
+      return await handleStatusCallback(validatedReq);
+    if (twilioSubpath === "connect-action")
+      return await handleConnectAction(validatedReq);
 
     return null;
   }
@@ -639,61 +791,100 @@ export class RuntimeHttpServer {
   ): Promise<Response> {
     const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
     return withErrorHandling(endpoint, async () => {
-      if (endpoint === 'health' && req.method === 'GET') return handleHealth();
-      if (endpoint === 'debug' && req.method === 'GET') return handleDebug();
+      if (endpoint === "health" && req.method === "GET") return handleHealth();
+      if (endpoint === "debug" && req.method === "GET") return handleDebug();
 
-      if (endpoint === 'browser-relay/status' && req.method === 'GET') {
+      if (endpoint === "browser-relay/status" && req.method === "GET") {
         return Response.json(extensionRelayServer.getStatus());
       }
 
-      if (endpoint === 'browser-relay/command' && req.method === 'POST') {
+      if (endpoint === "browser-relay/command" && req.method === "POST") {
         try {
-          const body = await req.json() as Record<string, unknown>;
-          const resp = await extensionRelayServer.sendCommand(body as Omit<import('../browser-extension-relay/protocol.js').ExtensionCommand, 'id'>);
+          const body = (await req.json()) as Record<string, unknown>;
+          const resp = await extensionRelayServer.sendCommand(
+            body as Omit<
+              import("../browser-extension-relay/protocol.js").ExtensionCommand,
+              "id"
+            >,
+          );
           return Response.json(resp);
         } catch (err) {
-          return httpError('INTERNAL_ERROR', err instanceof Error ? err.message : String(err), 500);
+          return httpError(
+            "INTERNAL_ERROR",
+            err instanceof Error ? err.message : String(err),
+            500,
+          );
         }
       }
 
-      if (endpoint === 'conversations' && req.method === 'GET') {
-        const limit = Number(url.searchParams.get('limit') ?? 50);
-        const offset = Number(url.searchParams.get('offset') ?? 0);
-        const conversations = conversationStore.listConversations(limit, false, offset);
+      if (endpoint === "conversations" && req.method === "GET") {
+        const limit = Number(url.searchParams.get("limit") ?? 50);
+        const offset = Number(url.searchParams.get("offset") ?? 0);
+        const conversations = conversationStore.listConversations(
+          limit,
+          false,
+          offset,
+        );
         const totalCount = conversationStore.countConversations();
         const conversationIds = conversations.map((c) => c.id);
-        const bindings = externalConversationStore.getBindingsForConversations(conversationIds);
-        const attentionStates = getAttentionStateByConversationIds(conversationIds);
+        const bindings =
+          externalConversationStore.getBindingsForConversations(
+            conversationIds,
+          );
+        const attentionStates =
+          getAttentionStateByConversationIds(conversationIds);
         return Response.json({
           sessions: conversations.map((c) => {
             const binding = bindings.get(c.id);
             const originChannel = parseChannelId(c.originChannel);
             const attn = attentionStates.get(c.id);
-            const assistantAttention = attn ? {
-              hasUnseenLatestAssistantMessage: attn.latestAssistantMessageAt != null &&
-                (attn.lastSeenAssistantMessageAt == null || attn.lastSeenAssistantMessageAt < attn.latestAssistantMessageAt),
-              ...(attn.latestAssistantMessageAt != null ? { latestAssistantMessageAt: attn.latestAssistantMessageAt } : {}),
-              ...(attn.lastSeenAssistantMessageAt != null ? { lastSeenAssistantMessageAt: attn.lastSeenAssistantMessageAt } : {}),
-              ...(attn.lastSeenConfidence != null ? { lastSeenConfidence: attn.lastSeenConfidence } : {}),
-              ...(attn.lastSeenSignalType != null ? { lastSeenSignalType: attn.lastSeenSignalType } : {}),
-            } : undefined;
+            const assistantAttention = attn
+              ? {
+                  hasUnseenLatestAssistantMessage:
+                    attn.latestAssistantMessageAt != null &&
+                    (attn.lastSeenAssistantMessageAt == null ||
+                      attn.lastSeenAssistantMessageAt <
+                        attn.latestAssistantMessageAt),
+                  ...(attn.latestAssistantMessageAt != null
+                    ? {
+                        latestAssistantMessageAt: attn.latestAssistantMessageAt,
+                      }
+                    : {}),
+                  ...(attn.lastSeenAssistantMessageAt != null
+                    ? {
+                        lastSeenAssistantMessageAt:
+                          attn.lastSeenAssistantMessageAt,
+                      }
+                    : {}),
+                  ...(attn.lastSeenConfidence != null
+                    ? { lastSeenConfidence: attn.lastSeenConfidence }
+                    : {}),
+                  ...(attn.lastSeenSignalType != null
+                    ? { lastSeenSignalType: attn.lastSeenSignalType }
+                    : {}),
+                }
+              : undefined;
             return {
               id: c.id,
-              title: c.title ?? 'Untitled',
+              title: c.title ?? "Untitled",
               createdAt: c.createdAt,
               updatedAt: c.updatedAt,
-              threadType: c.threadType === 'private' ? 'private' : 'standard',
-              source: c.source ?? 'user',
-              ...(binding ? {
-                channelBinding: {
-                  sourceChannel: binding.sourceChannel,
-                  externalChatId: binding.externalChatId,
-                  externalUserId: binding.externalUserId,
-                  displayName: binding.displayName,
-                  username: binding.username,
-                },
-              } : {}),
-              ...(originChannel ? { conversationOriginChannel: originChannel } : {}),
+              threadType: c.threadType === "private" ? "private" : "standard",
+              source: c.source ?? "user",
+              ...(binding
+                ? {
+                    channelBinding: {
+                      sourceChannel: binding.sourceChannel,
+                      externalChatId: binding.externalChatId,
+                      externalUserId: binding.externalUserId,
+                      displayName: binding.displayName,
+                      username: binding.username,
+                    },
+                  }
+                : {}),
+              ...(originChannel
+                ? { conversationOriginChannel: originChannel }
+                : {}),
               ...(assistantAttention ? { assistantAttention } : {}),
             };
           }),
@@ -701,132 +892,288 @@ export class RuntimeHttpServer {
         });
       }
 
-      if (endpoint === 'conversations/attention' && req.method === 'GET') return handleListConversationAttention(url);
+      if (endpoint === "conversations/attention" && req.method === "GET")
+        return handleListConversationAttention(url);
 
-      if (endpoint === 'conversations/seen' && req.method === 'POST') {
-        const body = await req.json() as Record<string, unknown>;
+      if (endpoint === "conversations/seen" && req.method === "POST") {
+        const body = (await req.json()) as Record<string, unknown>;
         const conversationId = body.conversationId as string | undefined;
-        if (!conversationId) return httpError('BAD_REQUEST', 'Missing conversationId', 400);
+        if (!conversationId)
+          return httpError("BAD_REQUEST", "Missing conversationId", 400);
         try {
           recordConversationSeenSignal({
             conversationId,
             assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
-            sourceChannel: (body.sourceChannel as string) ?? 'vellum',
-            signalType: (body.signalType as string ?? 'macos_conversation_opened') as SignalType,
-            confidence: (body.confidence as string ?? 'explicit') as Confidence,
-            source: (body.source as string) ?? 'http-api',
+            sourceChannel: (body.sourceChannel as string) ?? "vellum",
+            signalType: ((body.signalType as string) ??
+              "macos_conversation_opened") as SignalType,
+            confidence: ((body.confidence as string) ??
+              "explicit") as Confidence,
+            source: (body.source as string) ?? "http-api",
             evidenceText: body.evidenceText as string | undefined,
             metadata: body.metadata as Record<string, unknown> | undefined,
             observedAt: body.observedAt as number | undefined,
           });
           return Response.json({ ok: true });
         } catch (err) {
-          log.error({ err, conversationId }, 'POST /v1/conversations/seen: failed');
-          return httpError('INTERNAL_ERROR', 'Failed to record seen signal', 500);
+          log.error(
+            { err, conversationId },
+            "POST /v1/conversations/seen: failed",
+          );
+          return httpError(
+            "INTERNAL_ERROR",
+            "Failed to record seen signal",
+            500,
+          );
         }
       }
 
-      if (endpoint === 'messages' && req.method === 'GET') return handleListMessages(url, this.interfacesDir);
-      if (endpoint === 'search' && req.method === 'GET') return handleSearchConversations(url);
+      if (endpoint === "messages" && req.method === "GET")
+        return handleListMessages(url, this.interfacesDir);
+      if (endpoint === "search" && req.method === "GET")
+        return handleSearchConversations(url);
 
-      if (endpoint === 'messages' && req.method === 'POST') {
-        return await handleSendMessage(req, {
-          processMessage: this.processMessage,
-          persistAndProcessMessage: this.persistAndProcessMessage,
-          sendMessageDeps: this.sendMessageDeps,
-          approvalConversationGenerator: this.approvalConversationGenerator,
-        }, server);
+      if (endpoint === "messages" && req.method === "POST") {
+        return await handleSendMessage(
+          req,
+          {
+            processMessage: this.processMessage,
+            persistAndProcessMessage: this.persistAndProcessMessage,
+            sendMessageDeps: this.sendMessageDeps,
+            approvalConversationGenerator: this.approvalConversationGenerator,
+          },
+          server,
+        );
       }
 
       // Standalone approval endpoints — keyed by requestId, orthogonal to message sending
-      if (endpoint === 'confirm' && req.method === 'POST') return await handleConfirm(req, server);
-      if (endpoint === 'secret' && req.method === 'POST') return await handleSecret(req, server);
-      if (endpoint === 'trust-rules' && req.method === 'POST') return await handleTrustRule(req, server);
-      if (endpoint === 'pending-interactions' && req.method === 'GET') return handleListPendingInteractions(url, req, server);
+      if (endpoint === "confirm" && req.method === "POST")
+        return await handleConfirm(req, server);
+      if (endpoint === "secret" && req.method === "POST")
+        return await handleSecret(req, server);
+      if (endpoint === "trust-rules" && req.method === "POST")
+        return await handleTrustRule(req, server);
+      if (endpoint === "pending-interactions" && req.method === "GET")
+        return handleListPendingInteractions(url, req, server);
+
+      // Trust rule CRUD — standalone management (not approval-flow)
+      if (endpoint === "trust-rules/manage" && req.method === "GET")
+        return handleListTrustRules();
+      if (endpoint === "trust-rules/manage" && req.method === "POST")
+        return await handleAddTrustRuleManage(req);
+      const trustRuleManageMatch = endpoint.match(
+        /^trust-rules\/manage\/([^/]+)$/,
+      );
+      if (trustRuleManageMatch && req.method === "DELETE")
+        return handleRemoveTrustRuleManage(trustRuleManageMatch[1]);
+      if (trustRuleManageMatch && req.method === "PATCH")
+        return await handleUpdateTrustRuleManage(req, trustRuleManageMatch[1]);
+
+      // Surface action dispatch
+      if (endpoint === "surface-actions" && req.method === "POST") {
+        if (!this.findSession) {
+          return httpError(
+            "NOT_IMPLEMENTED",
+            "Surface actions not available",
+            501,
+          );
+        }
+        return await handleSurfaceAction(req, this.findSession);
+      }
 
       // Guardian action endpoints — deterministic button-based decisions
-      if (endpoint === 'guardian-actions/pending' && req.method === 'GET') return handleGuardianActionsPending(req, server);
-      if (endpoint === 'guardian-actions/decision' && req.method === 'POST') return await handleGuardianActionDecision(req, server);
+      if (endpoint === "guardian-actions/pending" && req.method === "GET")
+        return handleGuardianActionsPending(req, server);
+      if (endpoint === "guardian-actions/decision" && req.method === "POST")
+        return await handleGuardianActionDecision(req, server);
 
       // Contacts
-      if (endpoint === 'contacts' && req.method === 'GET') return handleListContacts(url);
-      if (endpoint === 'contacts/merge' && req.method === 'POST') return await handleMergeContacts(req);
+      if (endpoint === "contacts" && req.method === "GET")
+        return handleListContacts(url);
+      if (endpoint === "contacts/merge" && req.method === "POST")
+        return await handleMergeContacts(req);
       const contactMatch = endpoint.match(/^contacts\/([^/]+)$/);
-      if (contactMatch && req.method === 'GET') return handleGetContact(contactMatch[1]);
+      if (contactMatch && req.method === "GET")
+        return handleGetContact(contactMatch[1]);
 
       // Ingress members
-      if (endpoint === 'ingress/members' && req.method === 'GET') return handleListMembers(url);
-      if (endpoint === 'ingress/members' && req.method === 'POST') return await handleUpsertMember(req);
-      const memberBlockMatch = endpoint.match(/^ingress\/members\/([^/]+)\/block$/);
-      if (memberBlockMatch && req.method === 'POST') return await handleBlockMember(req, memberBlockMatch[1]);
+      if (endpoint === "ingress/members" && req.method === "GET")
+        return handleListMembers(url);
+      if (endpoint === "ingress/members" && req.method === "POST")
+        return await handleUpsertMember(req);
+      const memberBlockMatch = endpoint.match(
+        /^ingress\/members\/([^/]+)\/block$/,
+      );
+      if (memberBlockMatch && req.method === "POST")
+        return await handleBlockMember(req, memberBlockMatch[1]);
       const memberMatch = endpoint.match(/^ingress\/members\/([^/]+)$/);
-      if (memberMatch && req.method === 'DELETE') return await handleRevokeMember(req, memberMatch[1]);
+      if (memberMatch && req.method === "DELETE")
+        return await handleRevokeMember(req, memberMatch[1]);
 
       // Ingress invites
-      if (endpoint === 'ingress/invites' && req.method === 'GET') return handleListInvites(url);
-      if (endpoint === 'ingress/invites' && req.method === 'POST') return await handleCreateInvite(req);
-      if (endpoint === 'ingress/invites/redeem' && req.method === 'POST') return await handleRedeemInvite(req);
+      if (endpoint === "ingress/invites" && req.method === "GET")
+        return handleListInvites(url);
+      if (endpoint === "ingress/invites" && req.method === "POST")
+        return await handleCreateInvite(req);
+      if (endpoint === "ingress/invites/redeem" && req.method === "POST")
+        return await handleRedeemInvite(req);
       const inviteMatch = endpoint.match(/^ingress\/invites\/([^/]+)$/);
-      if (inviteMatch && req.method === 'DELETE') return handleRevokeInvite(inviteMatch[1]);
+      if (inviteMatch && req.method === "DELETE")
+        return handleRevokeInvite(inviteMatch[1]);
 
       // Integrations — Telegram config
-      if (endpoint === 'integrations/telegram/config' && req.method === 'GET') return handleGetTelegramConfig();
-      if (endpoint === 'integrations/telegram/config' && req.method === 'POST') return await handleSetTelegramConfig(req);
-      if (endpoint === 'integrations/telegram/config' && req.method === 'DELETE') return await handleClearTelegramConfig();
-      if (endpoint === 'integrations/telegram/commands' && req.method === 'POST') return await handleSetTelegramCommands(req);
-      if (endpoint === 'integrations/telegram/setup' && req.method === 'POST') return await handleSetupTelegram(req);
+      if (endpoint === "integrations/telegram/config" && req.method === "GET")
+        return handleGetTelegramConfig();
+      if (endpoint === "integrations/telegram/config" && req.method === "POST")
+        return await handleSetTelegramConfig(req);
+      if (
+        endpoint === "integrations/telegram/config" &&
+        req.method === "DELETE"
+      )
+        return await handleClearTelegramConfig();
+      if (
+        endpoint === "integrations/telegram/commands" &&
+        req.method === "POST"
+      )
+        return await handleSetTelegramCommands(req);
+      if (endpoint === "integrations/telegram/setup" && req.method === "POST")
+        return await handleSetupTelegram(req);
 
       // Integrations — Slack channel config
-      if (endpoint === 'integrations/slack/channel/config' && req.method === 'GET') return handleGetSlackChannelConfig();
-      if (endpoint === 'integrations/slack/channel/config' && req.method === 'POST') return await handleSetSlackChannelConfig(req);
-      if (endpoint === 'integrations/slack/channel/config' && req.method === 'DELETE') return handleClearSlackChannelConfig();
+      if (
+        endpoint === "integrations/slack/channel/config" &&
+        req.method === "GET"
+      )
+        return handleGetSlackChannelConfig();
+      if (
+        endpoint === "integrations/slack/channel/config" &&
+        req.method === "POST"
+      )
+        return await handleSetSlackChannelConfig(req);
+      if (
+        endpoint === "integrations/slack/channel/config" &&
+        req.method === "DELETE"
+      )
+        return handleClearSlackChannelConfig();
 
       // Integrations — Guardian verification
-      if (endpoint === 'integrations/guardian/challenge' && req.method === 'POST') return await handleCreateGuardianChallenge(req);
-      if (endpoint === 'integrations/guardian/status' && req.method === 'GET') return handleGetGuardianStatus(url);
-      if (endpoint === 'integrations/guardian/outbound/start' && req.method === 'POST') return await handleStartOutbound(req);
-      if (endpoint === 'integrations/guardian/outbound/resend' && req.method === 'POST') return await handleResendOutbound(req);
-      if (endpoint === 'integrations/guardian/outbound/cancel' && req.method === 'POST') return await handleCancelOutbound(req);
+      if (
+        endpoint === "integrations/guardian/challenge" &&
+        req.method === "POST"
+      )
+        return await handleCreateGuardianChallenge(req);
+      if (endpoint === "integrations/guardian/status" && req.method === "GET")
+        return handleGetGuardianStatus(url);
+      if (
+        endpoint === "integrations/guardian/outbound/start" &&
+        req.method === "POST"
+      )
+        return await handleStartOutbound(req);
+      if (
+        endpoint === "integrations/guardian/outbound/resend" &&
+        req.method === "POST"
+      )
+        return await handleResendOutbound(req);
+      if (
+        endpoint === "integrations/guardian/outbound/cancel" &&
+        req.method === "POST"
+      )
+        return await handleCancelOutbound(req);
 
       // Guardian vellum channel bootstrap
-      if (endpoint === 'integrations/guardian/vellum/bootstrap' && req.method === 'POST') return await handleGuardianBootstrap(req, server);
-      if (endpoint === 'integrations/guardian/vellum/refresh' && req.method === 'POST') return await handleGuardianRefresh(req);
+      if (
+        endpoint === "integrations/guardian/vellum/bootstrap" &&
+        req.method === "POST"
+      )
+        return await handleGuardianBootstrap(req, server);
+      if (
+        endpoint === "integrations/guardian/vellum/refresh" &&
+        req.method === "POST"
+      )
+        return await handleGuardianRefresh(req);
 
       // Integrations — Twilio config
-      if (endpoint === 'integrations/twilio/config' && req.method === 'GET') return handleGetTwilioConfig();
-      if (endpoint === 'integrations/twilio/credentials' && req.method === 'POST') return await handleSetTwilioCredentials(req);
-      if (endpoint === 'integrations/twilio/credentials' && req.method === 'DELETE') return handleClearTwilioCredentials();
-      if (endpoint === 'integrations/twilio/numbers' && req.method === 'GET') return await handleListTwilioNumbers();
-      if (endpoint === 'integrations/twilio/numbers/provision' && req.method === 'POST') return await handleProvisionTwilioNumber(req);
-      if (endpoint === 'integrations/twilio/numbers/assign' && req.method === 'POST') return await handleAssignTwilioNumber(req);
-      if (endpoint === 'integrations/twilio/numbers/release' && req.method === 'POST') return await handleReleaseTwilioNumber(req);
-      if (endpoint === 'integrations/twilio/sms/compliance' && req.method === 'GET') return await handleGetSmsCompliance();
-      if (endpoint === 'integrations/twilio/sms/compliance/tollfree' && req.method === 'POST') return await handleSubmitTollfreeVerification(req);
-      if (endpoint === 'integrations/twilio/sms/test' && req.method === 'POST') return await handleSmsSendTest(req);
-      if (endpoint === 'integrations/twilio/sms/doctor' && req.method === 'POST') return await handleSmsDoctor();
+      if (endpoint === "integrations/twilio/config" && req.method === "GET")
+        return handleGetTwilioConfig();
+      if (
+        endpoint === "integrations/twilio/credentials" &&
+        req.method === "POST"
+      )
+        return await handleSetTwilioCredentials(req);
+      if (
+        endpoint === "integrations/twilio/credentials" &&
+        req.method === "DELETE"
+      )
+        return handleClearTwilioCredentials();
+      if (endpoint === "integrations/twilio/numbers" && req.method === "GET")
+        return await handleListTwilioNumbers();
+      if (
+        endpoint === "integrations/twilio/numbers/provision" &&
+        req.method === "POST"
+      )
+        return await handleProvisionTwilioNumber(req);
+      if (
+        endpoint === "integrations/twilio/numbers/assign" &&
+        req.method === "POST"
+      )
+        return await handleAssignTwilioNumber(req);
+      if (
+        endpoint === "integrations/twilio/numbers/release" &&
+        req.method === "POST"
+      )
+        return await handleReleaseTwilioNumber(req);
+      if (
+        endpoint === "integrations/twilio/sms/compliance" &&
+        req.method === "GET"
+      )
+        return await handleGetSmsCompliance();
+      if (
+        endpoint === "integrations/twilio/sms/compliance/tollfree" &&
+        req.method === "POST"
+      )
+        return await handleSubmitTollfreeVerification(req);
+      if (endpoint === "integrations/twilio/sms/test" && req.method === "POST")
+        return await handleSmsSendTest(req);
+      if (
+        endpoint === "integrations/twilio/sms/doctor" &&
+        req.method === "POST"
+      )
+        return await handleSmsDoctor();
 
       // Twilio toll-free verification PATCH/DELETE with :verificationSid
-      const tollfreeVerificationMatch = endpoint.match(/^integrations\/twilio\/sms\/compliance\/tollfree\/([^/]+)$/);
+      const tollfreeVerificationMatch = endpoint.match(
+        /^integrations\/twilio\/sms\/compliance\/tollfree\/([^/]+)$/,
+      );
       if (tollfreeVerificationMatch) {
         const verificationSid = tollfreeVerificationMatch[1];
-        if (req.method === 'PATCH') return await handleUpdateTollfreeVerification(req, verificationSid);
-        if (req.method === 'DELETE') return await handleDeleteTollfreeVerification(verificationSid);
+        if (req.method === "PATCH")
+          return await handleUpdateTollfreeVerification(req, verificationSid);
+        if (req.method === "DELETE")
+          return await handleDeleteTollfreeVerification(verificationSid);
       }
 
       // Channel readiness
-      if (endpoint === 'channels/readiness' && req.method === 'GET') return await handleGetChannelReadiness(url);
-      if (endpoint === 'channels/readiness/refresh' && req.method === 'POST') return await handleRefreshChannelReadiness(req);
+      if (endpoint === "channels/readiness" && req.method === "GET")
+        return await handleGetChannelReadiness(url);
+      if (endpoint === "channels/readiness/refresh" && req.method === "POST")
+        return await handleRefreshChannelReadiness(req);
 
-      if (endpoint === 'attachments' && req.method === 'POST') return await handleUploadAttachment(req);
-      if (endpoint === 'attachments' && req.method === 'DELETE') return await handleDeleteAttachment(req);
+      if (endpoint === "attachments" && req.method === "POST")
+        return await handleUploadAttachment(req);
+      if (endpoint === "attachments" && req.method === "DELETE")
+        return await handleDeleteAttachment(req);
 
-      const attachmentContentMatch = endpoint.match(/^attachments\/([^/]+)\/content$/);
-      if (attachmentContentMatch && req.method === 'GET') return handleGetAttachmentContent(attachmentContentMatch[1], req);
+      const attachmentContentMatch = endpoint.match(
+        /^attachments\/([^/]+)\/content$/,
+      );
+      if (attachmentContentMatch && req.method === "GET")
+        return handleGetAttachmentContent(attachmentContentMatch[1], req);
 
       const attachmentMatch = endpoint.match(/^attachments\/([^/]+)$/);
-      if (attachmentMatch && req.method === 'GET') return handleGetAttachment(attachmentMatch[1]);
+      if (attachmentMatch && req.method === "GET")
+        return handleGetAttachment(attachmentMatch[1]);
 
-      if (endpoint === 'suggestion' && req.method === 'GET') {
+      if (endpoint === "suggestion" && req.method === "GET") {
         return await handleGetSuggestion(url, {
           suggestionCache: this.suggestionCache,
           suggestionInFlight: this.suggestionInFlight,
@@ -834,94 +1181,156 @@ export class RuntimeHttpServer {
       }
 
       const interfacesMatch = endpoint.match(/^interfaces\/(.+)$/);
-      if (interfacesMatch && req.method === 'GET') return this.handleGetInterface(interfacesMatch[1]);
+      if (interfacesMatch && req.method === "GET")
+        return this.handleGetInterface(interfacesMatch[1]);
 
-      if (endpoint === 'channels/conversation' && req.method === 'DELETE') return await handleDeleteConversation(req, assistantId);
+      if (endpoint === "channels/conversation" && req.method === "DELETE")
+        return await handleDeleteConversation(req, assistantId);
 
-      if (endpoint === 'channels/inbound' && req.method === 'POST') {
+      if (endpoint === "channels/inbound" && req.method === "POST") {
         const gatewayOriginSecret = getRuntimeGatewayOriginSecret();
-        return await handleChannelInbound(req, this.processMessage, this.bearerToken, assistantId, gatewayOriginSecret, this.approvalCopyGenerator, this.approvalConversationGenerator, this.guardianActionCopyGenerator, this.guardianFollowUpConversationGenerator);
+        return await handleChannelInbound(
+          req,
+          this.processMessage,
+          this.bearerToken,
+          assistantId,
+          gatewayOriginSecret,
+          this.approvalCopyGenerator,
+          this.approvalConversationGenerator,
+          this.guardianActionCopyGenerator,
+          this.guardianFollowUpConversationGenerator,
+        );
       }
 
-      if (endpoint === 'channels/delivery-ack' && req.method === 'POST') return await handleChannelDeliveryAck(req);
-      if (endpoint === 'channels/dead-letters' && req.method === 'GET') return handleListDeadLetters();
-      if (endpoint === 'channels/replay' && req.method === 'POST') return await handleReplayDeadLetters(req);
+      if (endpoint === "channels/delivery-ack" && req.method === "POST")
+        return await handleChannelDeliveryAck(req);
+      if (endpoint === "channels/dead-letters" && req.method === "GET")
+        return handleListDeadLetters();
+      if (endpoint === "channels/replay" && req.method === "POST")
+        return await handleReplayDeadLetters(req);
 
-      if (endpoint === 'calls/start' && req.method === 'POST') return await handleStartCall(req, assistantId);
+      if (endpoint === "calls/start" && req.method === "POST")
+        return await handleStartCall(req, assistantId);
 
-      const callsMatch = endpoint.match(/^calls\/([^/]+?)(\/cancel|\/answer|\/instruction)?$/);
+      const callsMatch = endpoint.match(
+        /^calls\/([^/]+?)(\/cancel|\/answer|\/instruction)?$/,
+      );
       if (callsMatch) {
         const callSessionId = callsMatch[1];
-        if (callSessionId !== 'twilio' && callSessionId !== 'relay' && callSessionId !== 'start') {
-          if (callsMatch[2] === '/cancel' && req.method === 'POST') return await handleCancelCall(req, callSessionId);
-          if (callsMatch[2] === '/answer' && req.method === 'POST') return await handleAnswerCall(req, callSessionId);
-          if (callsMatch[2] === '/instruction' && req.method === 'POST') return await handleInstructionCall(req, callSessionId);
-          if (!callsMatch[2] && req.method === 'GET') return handleGetCallStatus(callSessionId);
+        if (
+          callSessionId !== "twilio" &&
+          callSessionId !== "relay" &&
+          callSessionId !== "start"
+        ) {
+          if (callsMatch[2] === "/cancel" && req.method === "POST")
+            return await handleCancelCall(req, callSessionId);
+          if (callsMatch[2] === "/answer" && req.method === "POST")
+            return await handleAnswerCall(req, callSessionId);
+          if (callsMatch[2] === "/instruction" && req.method === "POST")
+            return await handleInstructionCall(req, callSessionId);
+          if (!callsMatch[2] && req.method === "GET")
+            return handleGetCallStatus(callSessionId);
         }
       }
 
       // Internal Twilio forwarding endpoints (gateway -> runtime)
-      if (endpoint === 'internal/twilio/voice-webhook' && req.method === 'POST') {
-        const json = await req.json() as { params: Record<string, string>; originalUrl?: string };
+      if (
+        endpoint === "internal/twilio/voice-webhook" &&
+        req.method === "POST"
+      ) {
+        const json = (await req.json()) as {
+          params: Record<string, string>;
+          originalUrl?: string;
+        };
         const formBody = new URLSearchParams(json.params).toString();
         const reconstructedUrl = json.originalUrl ?? req.url;
-        const fakeReq = new Request(reconstructedUrl, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: formBody });
+        const fakeReq = new Request(reconstructedUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: formBody,
+        });
         return await handleVoiceWebhook(fakeReq);
       }
 
-      if (endpoint === 'internal/twilio/status' && req.method === 'POST') {
-        const json = await req.json() as { params: Record<string, string> };
+      if (endpoint === "internal/twilio/status" && req.method === "POST") {
+        const json = (await req.json()) as { params: Record<string, string> };
         const formBody = new URLSearchParams(json.params).toString();
-        const fakeReq = new Request(req.url, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: formBody });
+        const fakeReq = new Request(req.url, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: formBody,
+        });
         return await handleStatusCallback(fakeReq);
       }
 
-      if (endpoint === 'internal/twilio/connect-action' && req.method === 'POST') {
-        const json = await req.json() as { params: Record<string, string> };
+      if (
+        endpoint === "internal/twilio/connect-action" &&
+        req.method === "POST"
+      ) {
+        const json = (await req.json()) as { params: Record<string, string> };
         const formBody = new URLSearchParams(json.params).toString();
-        const fakeReq = new Request(req.url, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: formBody });
+        const fakeReq = new Request(req.url, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: formBody,
+        });
         return await handleConnectAction(fakeReq);
       }
 
-      if (endpoint === 'identity' && req.method === 'GET') return handleGetIdentity();
-      if (endpoint === 'brain-graph' && req.method === 'GET') return handleGetBrainGraph();
-      if (endpoint === 'brain-graph-ui' && req.method === 'GET') return handleServeBrainGraphUI(this.bearerToken);
-      if (endpoint === 'home-base-ui' && req.method === 'GET') return handleServeHomeBaseUI(this.bearerToken);
-      if (endpoint === 'events' && req.method === 'GET') return handleSubscribeAssistantEvents(req, url, { server });
+      if (endpoint === "identity" && req.method === "GET")
+        return handleGetIdentity();
+      if (endpoint === "brain-graph" && req.method === "GET")
+        return handleGetBrainGraph();
+      if (endpoint === "brain-graph-ui" && req.method === "GET")
+        return handleServeBrainGraphUI(this.bearerToken);
+      if (endpoint === "home-base-ui" && req.method === "GET")
+        return handleServeHomeBaseUI(this.bearerToken);
+      if (endpoint === "events" && req.method === "GET")
+        return handleSubscribeAssistantEvents(req, url, { server });
 
       // Internal OAuth callback endpoint (gateway -> runtime)
-      if (endpoint === 'internal/oauth/callback' && req.method === 'POST') {
-        const json = await req.json() as { state: string; code?: string; error?: string };
-        if (!json.state) return httpError('BAD_REQUEST', 'Missing state parameter', 400);
+      if (endpoint === "internal/oauth/callback" && req.method === "POST") {
+        const json = (await req.json()) as {
+          state: string;
+          code?: string;
+          error?: string;
+        };
+        if (!json.state)
+          return httpError("BAD_REQUEST", "Missing state parameter", 400);
         if (json.error) {
           const consumed = consumeCallbackError(json.state, json.error);
-          return consumed ? Response.json({ ok: true }) : httpError('NOT_FOUND', 'Unknown state', 404);
+          return consumed
+            ? Response.json({ ok: true })
+            : httpError("NOT_FOUND", "Unknown state", 404);
         }
         if (json.code) {
           const consumed = consumeCallback(json.state, json.code);
-          return consumed ? Response.json({ ok: true }) : httpError('NOT_FOUND', 'Unknown state', 404);
+          return consumed
+            ? Response.json({ ok: true })
+            : httpError("NOT_FOUND", "Unknown state", 404);
         }
-        return httpError('BAD_REQUEST', 'Missing code or error parameter', 400);
+        return httpError("BAD_REQUEST", "Missing code or error parameter", 400);
       }
 
-      return httpError('NOT_FOUND', 'Not found', 404);
+      return httpError("NOT_FOUND", "Not found", 404);
     });
   }
 
   private handleGetInterface(interfacePath: string): Response {
     if (!this.interfacesDir) {
-      return httpError('NOT_FOUND', 'Interface not found', 404);
+      return httpError("NOT_FOUND", "Interface not found", 404);
     }
     const fullPath = resolve(this.interfacesDir, interfacePath);
     if (
-      (fullPath !== this.interfacesDir && !fullPath.startsWith(this.interfacesDir + '/')) ||
+      (fullPath !== this.interfacesDir &&
+        !fullPath.startsWith(this.interfacesDir + "/")) ||
       !existsSync(fullPath)
     ) {
-      return httpError('NOT_FOUND', 'Interface not found', 404);
+      return httpError("NOT_FOUND", "Interface not found", 404);
     }
-    const source = readFileSync(fullPath, 'utf-8');
+    const source = readFileSync(fullPath, "utf-8");
     return new Response(source, {
-      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
     });
   }
 }
