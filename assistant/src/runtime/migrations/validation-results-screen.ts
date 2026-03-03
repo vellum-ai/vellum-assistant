@@ -364,7 +364,16 @@ export async function retryValidationFlow(
   state: MigrationWizardState,
   options: StepExecutorOptions,
 ): Promise<MigrationWizardState> {
-  const reset = resetStepForRetry(state);
+  let reset = resetStepForRetry(state);
+
+  // Clear stale results so a new transport error isn't misclassified
+  // as a validation/preflight failure based on the previous attempt's result.
+  if (reset.currentStep === "validate") {
+    reset = { ...reset, validateResult: undefined };
+  } else if (reset.currentStep === "preflight-review") {
+    reset = { ...reset, preflightResult: undefined };
+  }
+
   options.onStateChange?.(reset);
 
   if (reset.currentStep === "validate") {
@@ -439,10 +448,10 @@ export function groupFilesByAction(files: PreflightFileEntry[]): {
  * Format a byte size as a human-readable string.
  */
 export function formatFileSize(bytes: number): string {
-  if (bytes === 0) return "0 B";
+  if (bytes <= 0) return "0 B";
   const units = ["B", "KB", "MB", "GB"];
   const exponent = Math.min(
-    Math.floor(Math.log(bytes) / Math.log(1024)),
+    Math.max(0, Math.floor(Math.log(bytes) / Math.log(1024))),
     units.length - 1,
   );
   const value = bytes / Math.pow(1024, exponent);
