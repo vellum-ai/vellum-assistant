@@ -1,19 +1,21 @@
-import { mkdtempSync } from 'node:fs';
-import * as net from 'node:net';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { mkdtempSync } from "node:fs";
+import * as net from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-import { afterEach,beforeEach, describe, expect, mock, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-const testDir = mkdtempSync(join(tmpdir(), 'ingress-reconcile-test-'));
+mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
+
+const testDir = mkdtempSync(join(tmpdir(), "ingress-reconcile-test-"));
 
 // Track loadRawConfig / saveRawConfig calls
 let rawConfigStore: Record<string, unknown> = {};
 
-mock.module('../config/loader.js', () => ({
+mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
-    }),
+  }),
   loadConfig: () => ({}),
   loadRawConfig: () => ({ ...rawConfigStore }),
   saveRawConfig: (cfg: Record<string, unknown>) => {
@@ -26,22 +28,22 @@ mock.module('../config/loader.js', () => ({
 // readHttpToken return value — controlled per test
 let httpTokenValue: string | null = null;
 
-mock.module('../util/platform.js', () => ({
+mock.module("../util/platform.js", () => ({
   getRootDir: () => testDir,
   getDataDir: () => testDir,
-  getIpcBlobDir: () => join(testDir, 'ipc-blobs'),
-  isMacOS: () => process.platform === 'darwin',
-  isLinux: () => process.platform === 'linux',
-  isWindows: () => process.platform === 'win32',
-  getSocketPath: () => join(testDir, 'test.sock'),
-  getPidPath: () => join(testDir, 'test.pid'),
-  getDbPath: () => join(testDir, 'test.db'),
-  getLogPath: () => join(testDir, 'test.log'),
+  getIpcBlobDir: () => join(testDir, "ipc-blobs"),
+  isMacOS: () => process.platform === "darwin",
+  isLinux: () => process.platform === "linux",
+  isWindows: () => process.platform === "win32",
+  getSocketPath: () => join(testDir, "test.sock"),
+  getPidPath: () => join(testDir, "test.pid"),
+  getDbPath: () => join(testDir, "test.db"),
+  getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
   readHttpToken: () => httpTokenValue,
 }));
 
-mock.module('../util/logger.js', () => ({
+mock.module("../util/logger.js", () => ({
   getLogger: () => ({
     info: () => {},
     warn: () => {},
@@ -61,17 +63,17 @@ mock.module('../util/logger.js', () => ({
 }));
 
 // Mock providers registry to avoid side effects
-mock.module('../providers/registry.js', () => ({
+mock.module("../providers/registry.js", () => ({
   initializeProviders: () => {},
 }));
 
-import { handleIngressConfig } from '../daemon/handlers/config.js';
-import type { HandlerContext } from '../daemon/handlers/shared.js';
+import { handleIngressConfig } from "../daemon/handlers/config.js";
+import type { HandlerContext } from "../daemon/handlers/shared.js";
 import type {
   IngressConfigRequest,
   ServerMessage,
-} from '../daemon/ipc-contract.js';
-import { DebouncerMap } from '../util/debounce.js';
+} from "../daemon/ipc-contract.js";
+import { DebouncerMap } from "../util/debounce.js";
 
 // Capture fetch calls for reconcile trigger verification
 interface ReconcileCall {
@@ -99,16 +101,20 @@ function createTestContext(): { ctx: HandlerContext; sent: ServerMessage[] } {
     suppressConfigReload: false,
     setSuppressConfigReload: () => {},
     updateConfigFingerprint: () => {},
-    send: (_socket, msg) => { sent.push(msg); },
+    send: (_socket, msg) => {
+      sent.push(msg);
+    },
     broadcast: () => {},
     clearAllSessions: () => 0,
-    getOrCreateSession: () => { throw new Error('not implemented'); },
+    getOrCreateSession: () => {
+      throw new Error("not implemented");
+    },
     touchSession: () => {},
   };
   return { ctx, sent };
 }
 
-describe('Ingress reconcile trigger in handleIngressConfig', () => {
+describe("Ingress reconcile trigger in handleIngressConfig", () => {
   let savedIngressEnv: string | undefined;
   let savedGatewayBaseEnv: string | undefined;
   let savedGatewayPortEnv: string | undefined;
@@ -127,9 +133,17 @@ describe('Ingress reconcile trigger in handleIngressConfig', () => {
     delete process.env.GATEWAY_PORT;
 
     // Install fetch interceptor
-    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
-      const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
-      if (urlStr.includes('/internal/telegram/reconcile')) {
+    globalThis.fetch = (async (
+      url: string | URL | Request,
+      init?: RequestInit,
+    ) => {
+      const urlStr =
+        typeof url === "string"
+          ? url
+          : url instanceof URL
+            ? url.toString()
+            : url.url;
+      if (urlStr.includes("/internal/telegram/reconcile")) {
         const headers: Record<string, string> = {};
         if (init?.headers) {
           const h = init.headers as Record<string, string>;
@@ -139,12 +153,12 @@ describe('Ingress reconcile trigger in handleIngressConfig', () => {
         }
         reconcileCalls.push({
           url: urlStr,
-          method: init?.method ?? 'GET',
+          method: init?.method ?? "GET",
           headers,
-          body: (init?.body as string) ?? '',
+          body: (init?.body as string) ?? "",
         });
         if (fetchShouldFail) {
-          throw new Error('ECONNREFUSED: gateway unavailable');
+          throw new Error("ECONNREFUSED: gateway unavailable");
         }
         return new Response(JSON.stringify({ ok: true }), { status: 200 });
       }
@@ -173,13 +187,13 @@ describe('Ingress reconcile trigger in handleIngressConfig', () => {
 
   // ── Token present/missing behavior ──────────────────────────────────────
 
-  test('skips reconcile trigger when no HTTP bearer token is available', async () => {
+  test("skips reconcile trigger when no HTTP bearer token is available", async () => {
     httpTokenValue = null;
 
     const msg: IngressConfigRequest = {
-      type: 'ingress_config',
-      action: 'set',
-      publicBaseUrl: 'https://my-tunnel.example.com',
+      type: "ingress_config",
+      action: "set",
+      publicBaseUrl: "https://my-tunnel.example.com",
       enabled: true,
     };
 
@@ -197,13 +211,13 @@ describe('Ingress reconcile trigger in handleIngressConfig', () => {
     expect(reconcileCalls).toHaveLength(0);
   });
 
-  test('triggers reconcile when HTTP bearer token is available', async () => {
-    httpTokenValue = 'test-bearer-token';
+  test("triggers reconcile when HTTP bearer token is available", async () => {
+    httpTokenValue = "test-bearer-token";
 
     const msg: IngressConfigRequest = {
-      type: 'ingress_config',
-      action: 'set',
-      publicBaseUrl: 'https://my-tunnel.example.com',
+      type: "ingress_config",
+      action: "set",
+      publicBaseUrl: "https://my-tunnel.example.com",
       enabled: true,
     };
 
@@ -214,18 +228,20 @@ describe('Ingress reconcile trigger in handleIngressConfig', () => {
 
     expect(sent).toHaveLength(1);
     expect(reconcileCalls).toHaveLength(1);
-    expect(reconcileCalls[0]!.headers['Authorization']).toBe('Bearer test-bearer-token');
+    expect(reconcileCalls[0]!.headers["Authorization"]).toBe(
+      "Bearer test-bearer-token",
+    );
   });
 
   // ── Request payload normalization ───────────────────────────────────────
 
-  test('sends ingressPublicBaseUrl in reconcile body when URL is set', async () => {
-    httpTokenValue = 'test-token';
+  test("sends ingressPublicBaseUrl in reconcile body when URL is set", async () => {
+    httpTokenValue = "test-token";
 
     const msg: IngressConfigRequest = {
-      type: 'ingress_config',
-      action: 'set',
-      publicBaseUrl: 'https://my-tunnel.example.com',
+      type: "ingress_config",
+      action: "set",
+      publicBaseUrl: "https://my-tunnel.example.com",
       enabled: true,
     };
 
@@ -236,16 +252,16 @@ describe('Ingress reconcile trigger in handleIngressConfig', () => {
 
     expect(reconcileCalls).toHaveLength(1);
     const body = JSON.parse(reconcileCalls[0]!.body);
-    expect(body.ingressPublicBaseUrl).toBe('https://my-tunnel.example.com');
+    expect(body.ingressPublicBaseUrl).toBe("https://my-tunnel.example.com");
   });
 
-  test('sends POST to /internal/telegram/reconcile with correct content type', async () => {
-    httpTokenValue = 'test-token';
+  test("sends POST to /internal/telegram/reconcile with correct content type", async () => {
+    httpTokenValue = "test-token";
 
     const msg: IngressConfigRequest = {
-      type: 'ingress_config',
-      action: 'set',
-      publicBaseUrl: 'https://example.com',
+      type: "ingress_config",
+      action: "set",
+      publicBaseUrl: "https://example.com",
       enabled: true,
     };
 
@@ -255,17 +271,17 @@ describe('Ingress reconcile trigger in handleIngressConfig', () => {
     await new Promise((r) => setTimeout(r, 50));
 
     expect(reconcileCalls).toHaveLength(1);
-    expect(reconcileCalls[0]!.method).toBe('POST');
-    expect(reconcileCalls[0]!.headers['Content-Type']).toBe('application/json');
+    expect(reconcileCalls[0]!.method).toBe("POST");
+    expect(reconcileCalls[0]!.headers["Content-Type"]).toBe("application/json");
   });
 
-  test('normalizes trailing slashes in publicBaseUrl before sending reconcile', async () => {
-    httpTokenValue = 'test-token';
+  test("normalizes trailing slashes in publicBaseUrl before sending reconcile", async () => {
+    httpTokenValue = "test-token";
 
     const msg: IngressConfigRequest = {
-      type: 'ingress_config',
-      action: 'set',
-      publicBaseUrl: 'https://my-tunnel.example.com///',
+      type: "ingress_config",
+      action: "set",
+      publicBaseUrl: "https://my-tunnel.example.com///",
       enabled: true,
     };
 
@@ -277,17 +293,17 @@ describe('Ingress reconcile trigger in handleIngressConfig', () => {
     expect(reconcileCalls).toHaveLength(1);
     const body = JSON.parse(reconcileCalls[0]!.body);
     // The handler trims trailing slashes before storing and propagating
-    expect(body.ingressPublicBaseUrl).toBe('https://my-tunnel.example.com');
+    expect(body.ingressPublicBaseUrl).toBe("https://my-tunnel.example.com");
   });
 
-  test('uses GATEWAY_INTERNAL_BASE_URL when set', async () => {
-    httpTokenValue = 'test-token';
-    process.env.GATEWAY_INTERNAL_BASE_URL = 'http://custom-gateway:9999';
+  test("uses GATEWAY_INTERNAL_BASE_URL when set", async () => {
+    httpTokenValue = "test-token";
+    process.env.GATEWAY_INTERNAL_BASE_URL = "http://custom-gateway:9999";
 
     const msg: IngressConfigRequest = {
-      type: 'ingress_config',
-      action: 'set',
-      publicBaseUrl: 'https://example.com',
+      type: "ingress_config",
+      action: "set",
+      publicBaseUrl: "https://example.com",
       enabled: true,
     };
 
@@ -297,16 +313,18 @@ describe('Ingress reconcile trigger in handleIngressConfig', () => {
     await new Promise((r) => setTimeout(r, 50));
 
     expect(reconcileCalls).toHaveLength(1);
-    expect(reconcileCalls[0]!.url).toBe('http://custom-gateway:9999/internal/telegram/reconcile');
+    expect(reconcileCalls[0]!.url).toBe(
+      "http://custom-gateway:9999/internal/telegram/reconcile",
+    );
   });
 
-  test('defaults to localhost:7830 when no GATEWAY env vars set', async () => {
-    httpTokenValue = 'test-token';
+  test("defaults to localhost:7830 when no GATEWAY env vars set", async () => {
+    httpTokenValue = "test-token";
 
     const msg: IngressConfigRequest = {
-      type: 'ingress_config',
-      action: 'set',
-      publicBaseUrl: 'https://example.com',
+      type: "ingress_config",
+      action: "set",
+      publicBaseUrl: "https://example.com",
       enabled: true,
     };
 
@@ -316,17 +334,19 @@ describe('Ingress reconcile trigger in handleIngressConfig', () => {
     await new Promise((r) => setTimeout(r, 50));
 
     expect(reconcileCalls).toHaveLength(1);
-    expect(reconcileCalls[0]!.url).toBe('http://127.0.0.1:7830/internal/telegram/reconcile');
+    expect(reconcileCalls[0]!.url).toBe(
+      "http://127.0.0.1:7830/internal/telegram/reconcile",
+    );
   });
 
-  test('uses GATEWAY_PORT when GATEWAY_INTERNAL_BASE_URL is not set', async () => {
-    httpTokenValue = 'test-token';
-    process.env.GATEWAY_PORT = '8888';
+  test("uses GATEWAY_PORT when GATEWAY_INTERNAL_BASE_URL is not set", async () => {
+    httpTokenValue = "test-token";
+    process.env.GATEWAY_PORT = "8888";
 
     const msg: IngressConfigRequest = {
-      type: 'ingress_config',
-      action: 'set',
-      publicBaseUrl: 'https://example.com',
+      type: "ingress_config",
+      action: "set",
+      publicBaseUrl: "https://example.com",
       enabled: true,
     };
 
@@ -336,19 +356,21 @@ describe('Ingress reconcile trigger in handleIngressConfig', () => {
     await new Promise((r) => setTimeout(r, 50));
 
     expect(reconcileCalls).toHaveLength(1);
-    expect(reconcileCalls[0]!.url).toBe('http://127.0.0.1:8888/internal/telegram/reconcile');
+    expect(reconcileCalls[0]!.url).toBe(
+      "http://127.0.0.1:8888/internal/telegram/reconcile",
+    );
   });
 
   // ── Non-fatal failure behavior ──────────────────────────────────────────
 
-  test('reconcile failure does not cause handleIngressConfig to fail', async () => {
-    httpTokenValue = 'test-token';
+  test("reconcile failure does not cause handleIngressConfig to fail", async () => {
+    httpTokenValue = "test-token";
     fetchShouldFail = true;
 
     const msg: IngressConfigRequest = {
-      type: 'ingress_config',
-      action: 'set',
-      publicBaseUrl: 'https://my-tunnel.example.com',
+      type: "ingress_config",
+      action: "set",
+      publicBaseUrl: "https://my-tunnel.example.com",
       enabled: true,
     };
 
@@ -359,33 +381,46 @@ describe('Ingress reconcile trigger in handleIngressConfig', () => {
 
     // The handler should still succeed even though reconcile fetch threw
     expect(sent).toHaveLength(1);
-    const res = sent[0] as { type: string; success: boolean; enabled: boolean; publicBaseUrl: string };
-    expect(res.type).toBe('ingress_config_response');
+    const res = sent[0] as {
+      type: string;
+      success: boolean;
+      enabled: boolean;
+      publicBaseUrl: string;
+    };
+    expect(res.type).toBe("ingress_config_response");
     expect(res.success).toBe(true);
     expect(res.enabled).toBe(true);
-    expect(res.publicBaseUrl).toBe('https://my-tunnel.example.com');
+    expect(res.publicBaseUrl).toBe("https://my-tunnel.example.com");
 
     // The reconcile attempt was still made (it just failed gracefully)
     expect(reconcileCalls).toHaveLength(1);
   });
 
-  test('response is sent before reconcile fetch completes', async () => {
-    httpTokenValue = 'test-token';
+  test("response is sent before reconcile fetch completes", async () => {
+    httpTokenValue = "test-token";
 
     // Track timing: response should be sent before fetch resolves
     let fetchResolved = false;
     const originalMockFetch = globalThis.fetch;
-    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
-      const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
-      if (urlStr.includes('/internal/telegram/reconcile')) {
+    globalThis.fetch = (async (
+      url: string | URL | Request,
+      init?: RequestInit,
+    ) => {
+      const urlStr =
+        typeof url === "string"
+          ? url
+          : url instanceof URL
+            ? url.toString()
+            : url.url;
+      if (urlStr.includes("/internal/telegram/reconcile")) {
         // Delay the response to simulate network latency
         await new Promise((r) => setTimeout(r, 100));
         fetchResolved = true;
         reconcileCalls.push({
           url: urlStr,
-          method: init?.method ?? 'GET',
+          method: init?.method ?? "GET",
           headers: {},
-          body: (init?.body as string) ?? '',
+          body: (init?.body as string) ?? "",
         });
         return new Response(JSON.stringify({ ok: true }), { status: 200 });
       }
@@ -393,9 +428,9 @@ describe('Ingress reconcile trigger in handleIngressConfig', () => {
     }) as typeof fetch;
 
     const msg: IngressConfigRequest = {
-      type: 'ingress_config',
-      action: 'set',
-      publicBaseUrl: 'https://example.com',
+      type: "ingress_config",
+      action: "set",
+      publicBaseUrl: "https://example.com",
       enabled: true,
     };
 
@@ -413,13 +448,13 @@ describe('Ingress reconcile trigger in handleIngressConfig', () => {
 
   // ── Set flow ────────────────────────────────────────────────────────────
 
-  test('set action with enabled=true and URL triggers reconcile with the URL', async () => {
-    httpTokenValue = 'test-token';
+  test("set action with enabled=true and URL triggers reconcile with the URL", async () => {
+    httpTokenValue = "test-token";
 
     const msg: IngressConfigRequest = {
-      type: 'ingress_config',
-      action: 'set',
-      publicBaseUrl: 'https://set-test.example.com',
+      type: "ingress_config",
+      action: "set",
+      publicBaseUrl: "https://set-test.example.com",
       enabled: true,
     };
 
@@ -435,18 +470,18 @@ describe('Ingress reconcile trigger in handleIngressConfig', () => {
 
     expect(reconcileCalls).toHaveLength(1);
     const body = JSON.parse(reconcileCalls[0]!.body);
-    expect(body.ingressPublicBaseUrl).toBe('https://set-test.example.com');
+    expect(body.ingressPublicBaseUrl).toBe("https://set-test.example.com");
   });
 
   // ── Clear flow ──────────────────────────────────────────────────────────
 
-  test('set action with empty URL and enabled=true (clear URL) still triggers reconcile', async () => {
-    httpTokenValue = 'test-token';
+  test("set action with empty URL and enabled=true (clear URL) still triggers reconcile", async () => {
+    httpTokenValue = "test-token";
 
     const msg: IngressConfigRequest = {
-      type: 'ingress_config',
-      action: 'set',
-      publicBaseUrl: '',
+      type: "ingress_config",
+      action: "set",
+      publicBaseUrl: "",
       enabled: true,
     };
 
@@ -464,18 +499,18 @@ describe('Ingress reconcile trigger in handleIngressConfig', () => {
     // the reconcile body should send empty string (clears the gateway's URL)
     expect(reconcileCalls).toHaveLength(1);
     const body = JSON.parse(reconcileCalls[0]!.body);
-    expect(body.ingressPublicBaseUrl).toBe('');
+    expect(body.ingressPublicBaseUrl).toBe("");
   });
 
   // ── Disable flow ────────────────────────────────────────────────────────
 
-  test('set action with enabled=false triggers reconcile with empty URL', async () => {
-    httpTokenValue = 'test-token';
+  test("set action with enabled=false triggers reconcile with empty URL", async () => {
+    httpTokenValue = "test-token";
 
     const msg: IngressConfigRequest = {
-      type: 'ingress_config',
-      action: 'set',
-      publicBaseUrl: 'https://disabled-test.example.com',
+      type: "ingress_config",
+      action: "set",
+      publicBaseUrl: "https://disabled-test.example.com",
       enabled: false,
     };
 
@@ -493,19 +528,20 @@ describe('Ingress reconcile trigger in handleIngressConfig', () => {
     expect(reconcileCalls).toHaveLength(1);
     const body = JSON.parse(reconcileCalls[0]!.body);
     // When disabled, effectiveUrl is undefined, so the body sends empty string
-    expect(body.ingressPublicBaseUrl).toBe('');
+    expect(body.ingressPublicBaseUrl).toBe("");
   });
 
-  test('disabling ingress removes INGRESS_PUBLIC_BASE_URL env var', () => {
-    httpTokenValue = 'test-token';
+  test("disabling ingress removes INGRESS_PUBLIC_BASE_URL env var", () => {
+    httpTokenValue = "test-token";
 
     // First set ingress to populate env var
-    process.env.INGRESS_PUBLIC_BASE_URL = 'https://should-be-removed.example.com';
+    process.env.INGRESS_PUBLIC_BASE_URL =
+      "https://should-be-removed.example.com";
 
     const msg: IngressConfigRequest = {
-      type: 'ingress_config',
-      action: 'set',
-      publicBaseUrl: 'https://disabled-test.example.com',
+      type: "ingress_config",
+      action: "set",
+      publicBaseUrl: "https://disabled-test.example.com",
       enabled: false,
     };
 
@@ -518,15 +554,15 @@ describe('Ingress reconcile trigger in handleIngressConfig', () => {
 
   // ── Get action does not trigger reconcile ───────────────────────────────
 
-  test('get action does not trigger reconcile', async () => {
-    httpTokenValue = 'test-token';
+  test("get action does not trigger reconcile", async () => {
+    httpTokenValue = "test-token";
     rawConfigStore = {
-      ingress: { publicBaseUrl: 'https://existing.example.com', enabled: true },
+      ingress: { publicBaseUrl: "https://existing.example.com", enabled: true },
     };
 
     const msg: IngressConfigRequest = {
-      type: 'ingress_config',
-      action: 'get',
+      type: "ingress_config",
+      action: "get",
     };
 
     const { ctx, sent } = createTestContext();
@@ -535,9 +571,13 @@ describe('Ingress reconcile trigger in handleIngressConfig', () => {
     await new Promise((r) => setTimeout(r, 50));
 
     expect(sent).toHaveLength(1);
-    const res = sent[0] as { type: string; success: boolean; publicBaseUrl: string };
+    const res = sent[0] as {
+      type: string;
+      success: boolean;
+      publicBaseUrl: string;
+    };
     expect(res.success).toBe(true);
-    expect(res.publicBaseUrl).toBe('https://existing.example.com');
+    expect(res.publicBaseUrl).toBe("https://existing.example.com");
 
     // No reconcile should have been triggered for a get action
     expect(reconcileCalls).toHaveLength(0);
@@ -545,29 +585,31 @@ describe('Ingress reconcile trigger in handleIngressConfig', () => {
 
   // ── Env var propagation ─────────────────────────────────────────────────
 
-  test('set action propagates URL to process.env when enabled', () => {
-    httpTokenValue = 'test-token';
+  test("set action propagates URL to process.env when enabled", () => {
+    httpTokenValue = "test-token";
 
     const msg: IngressConfigRequest = {
-      type: 'ingress_config',
-      action: 'set',
-      publicBaseUrl: 'https://env-propagation.example.com',
+      type: "ingress_config",
+      action: "set",
+      publicBaseUrl: "https://env-propagation.example.com",
       enabled: true,
     };
 
     const { ctx } = createTestContext();
     handleIngressConfig(msg, {} as net.Socket, ctx);
 
-    expect(process.env.INGRESS_PUBLIC_BASE_URL).toBe('https://env-propagation.example.com');
+    expect(process.env.INGRESS_PUBLIC_BASE_URL).toBe(
+      "https://env-propagation.example.com",
+    );
   });
 
-  test('reconcile uses effective URL from process.env (not raw value)', async () => {
-    httpTokenValue = 'test-token';
+  test("reconcile uses effective URL from process.env (not raw value)", async () => {
+    httpTokenValue = "test-token";
 
     const msg: IngressConfigRequest = {
-      type: 'ingress_config',
-      action: 'set',
-      publicBaseUrl: 'https://effective-url.example.com',
+      type: "ingress_config",
+      action: "set",
+      publicBaseUrl: "https://effective-url.example.com",
       enabled: true,
     };
 
@@ -579,6 +621,6 @@ describe('Ingress reconcile trigger in handleIngressConfig', () => {
     expect(reconcileCalls).toHaveLength(1);
     const body = JSON.parse(reconcileCalls[0]!.body);
     // The URL in the reconcile body should match the effective env var
-    expect(body.ingressPublicBaseUrl).toBe('https://effective-url.example.com');
+    expect(body.ingressPublicBaseUrl).toBe("https://effective-url.example.com");
   });
 });

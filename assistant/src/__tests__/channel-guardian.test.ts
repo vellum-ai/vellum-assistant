@@ -51,6 +51,7 @@ mock.module("../messaging/providers/sms/client.js", () => ({
 }));
 
 mock.module("../config/env.js", () => ({
+  isHttpAuthDisabled: () => true,
   getGatewayInternalBaseUrl: () => "http://127.0.0.1:7830",
 }));
 

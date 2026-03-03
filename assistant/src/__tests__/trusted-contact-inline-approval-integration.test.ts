@@ -17,35 +17,35 @@
  *   f. Timeout/stale flow: guardian decision after prompt timeout produces deterministic outcome
  */
 
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test';
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-const testDir = mkdtempSync(join(tmpdir(), 'tc-inline-approval-integration-'));
+const testDir = mkdtempSync(join(tmpdir(), "tc-inline-approval-integration-"));
 
 // ---------------------------------------------------------------------------
 // Mocks — must be set before any production imports
 // ---------------------------------------------------------------------------
 
-mock.module('../util/platform.js', () => ({
+mock.module("../util/platform.js", () => ({
   getDataDir: () => testDir,
   getRootDir: () => testDir,
-  isMacOS: () => process.platform === 'darwin',
-  isLinux: () => process.platform === 'linux',
-  isWindows: () => process.platform === 'win32',
-  getSocketPath: () => join(testDir, 'test.sock'),
-  getPidPath: () => join(testDir, 'test.pid'),
-  getDbPath: () => join(testDir, 'test.db'),
-  getLogPath: () => join(testDir, 'test.log'),
-  readHttpToken: () => 'test-token',
+  isMacOS: () => process.platform === "darwin",
+  isLinux: () => process.platform === "linux",
+  isWindows: () => process.platform === "win32",
+  getSocketPath: () => join(testDir, "test.sock"),
+  getPidPath: () => join(testDir, "test.pid"),
+  getDbPath: () => join(testDir, "test.db"),
+  getLogPath: () => join(testDir, "test.log"),
+  readHttpToken: () => "test-token",
   ensureDataDir: () => {},
   migrateToDataLayout: () => {},
   migrateToWorkspaceLayout: () => {},
 }));
 
-mock.module('../util/logger.js', () => ({
+mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
@@ -56,16 +56,16 @@ mock.module('../util/logger.js', () => ({
 
 // Mock notification emission — capture calls
 const emittedSignals: Array<Record<string, unknown>> = [];
-mock.module('../notifications/emit-signal.js', () => ({
+mock.module("../notifications/emit-signal.js", () => ({
   emitNotificationSignal: async (params: Record<string, unknown>) => {
     emittedSignals.push(params);
     return {
-      signalId: 'test-signal',
+      signalId: "test-signal",
       deduplicated: false,
       dispatched: true,
-      reason: 'ok',
+      reason: "ok",
       deliveryResults: [
-        { channel: 'telegram', destination: 'guardian-chat-1', success: true },
+        { channel: "telegram", destination: "guardian-chat-1", success: true },
       ],
     };
   },
@@ -73,50 +73,58 @@ mock.module('../notifications/emit-signal.js', () => ({
 }));
 
 // Mock guardian control-plane policy — not targeting control-plane by default
-mock.module('../tools/guardian-control-plane-policy.js', () => ({
+mock.module("../tools/guardian-control-plane-policy.js", () => ({
   enforceGuardianOnlyPolicy: () => ({ denied: false }),
 }));
 
 // Mock task run rules
-mock.module('../tasks/ephemeral-permissions.js', () => ({
+mock.module("../tasks/ephemeral-permissions.js", () => ({
   getTaskRunRules: () => [],
 }));
 
 // Mock tool registry — provide a fake 'bash' tool
 const fakeTool = {
-  name: 'bash',
-  description: 'Run a shell command',
-  category: 'shell',
-  defaultRiskLevel: 'high',
-  getDefinition: () => ({ name: 'bash', description: 'Run a shell command', input_schema: {} }),
-  execute: async () => ({ content: 'ok', isError: false }),
+  name: "bash",
+  description: "Run a shell command",
+  category: "shell",
+  defaultRiskLevel: "high",
+  getDefinition: () => ({
+    name: "bash",
+    description: "Run a shell command",
+    input_schema: {},
+  }),
+  execute: async () => ({ content: "ok", isError: false }),
 };
-mock.module('../tools/registry.js', () => ({
-  getTool: (name: string) => (name === 'bash' ? fakeTool : undefined),
+mock.module("../tools/registry.js", () => ({
+  getTool: (name: string) => (name === "bash" ? fakeTool : undefined),
   getAllTools: () => [fakeTool],
 }));
 
 // Mock channel guardian service — configurable per test
 let mockGuardianBinding: Record<string, unknown> | null = {
-  id: 'binding-1',
-  assistantId: 'self',
-  channel: 'telegram',
-  guardianExternalUserId: 'guardian-1',
-  guardianDeliveryChatId: 'guardian-chat-1',
-  guardianPrincipalId: 'test-principal-id',
-  status: 'active',
+  id: "binding-1",
+  assistantId: "self",
+  channel: "telegram",
+  guardianExternalUserId: "guardian-1",
+  guardianDeliveryChatId: "guardian-chat-1",
+  guardianPrincipalId: "test-principal-id",
+  status: "active",
 };
 
-mock.module('../runtime/channel-guardian-service.js', () => ({
+mock.module("../runtime/channel-guardian-service.js", () => ({
   getGuardianBinding: (assistantId: string, channel: string) => {
-    if (assistantId === 'self' && channel === 'telegram' && mockGuardianBinding) {
+    if (
+      assistantId === "self" &&
+      channel === "telegram" &&
+      mockGuardianBinding
+    ) {
       return mockGuardianBinding;
     }
     return null;
   },
   createOutboundSession: () => ({
-    sessionId: 'test-session',
-    secret: '123456',
+    sessionId: "test-session",
+    secret: "123456",
   }),
   bindSessionIdentity: () => {},
   findActiveSession: () => null,
@@ -125,12 +133,19 @@ mock.module('../runtime/channel-guardian-service.js', () => ({
   resolveBootstrapToken: () => null,
   updateSessionDelivery: () => {},
   updateSessionStatus: () => {},
-  validateAndConsumeChallenge: () => ({ success: false, reason: 'no_challenge' }),
+  validateAndConsumeChallenge: () => ({
+    success: false,
+    reason: "no_challenge",
+  }),
 }));
 
 // Mock gateway client — capture delivery calls
-const deliveredReplies: Array<{ url: string; payload: Record<string, unknown>; bearerToken?: string }> = [];
-mock.module('../runtime/gateway-client.js', () => ({
+const deliveredReplies: Array<{
+  url: string;
+  payload: Record<string, unknown>;
+  bearerToken?: string;
+}> = [];
+mock.module("../runtime/gateway-client.js", () => ({
   deliverChannelReply: async (
     url: string,
     payload: Record<string, unknown>,
@@ -149,55 +164,61 @@ let mockPendingApprovals: Array<{
   riskLevel: string;
 }> = [];
 
-mock.module('../runtime/channel-approvals.js', () => ({
+mock.module("../runtime/channel-approvals.js", () => ({
   getApprovalInfoByConversation: () => mockPendingApprovals,
   getChannelApprovalPrompt: () => null,
   buildApprovalUIMetadata: () => ({}),
   handleChannelDecision: () => ({ applied: false }),
 }));
 
-mock.module('../config/env.js', () => ({
-  getGatewayInternalBaseUrl: () => 'http://localhost:3000',
+mock.module("../config/env.js", () => ({
+  isHttpAuthDisabled: () => true,
+  getGatewayInternalBaseUrl: () => "http://localhost:3000",
 }));
 
 // ---------------------------------------------------------------------------
 // Production imports (AFTER mocks)
 // ---------------------------------------------------------------------------
 
-import {
-  applyCanonicalGuardianDecision,
-} from '../approvals/guardian-decision-primitive.js';
-import type { ActorContext } from '../approvals/guardian-request-resolvers.js';
-import { getResolver } from '../approvals/guardian-request-resolvers.js';
-import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
+import { applyCanonicalGuardianDecision } from "../approvals/guardian-decision-primitive.js";
+import type { ActorContext } from "../approvals/guardian-request-resolvers.js";
+import { getResolver } from "../approvals/guardian-request-resolvers.js";
+import type { GuardianRuntimeContext } from "../daemon/session-runtime-assembly.js";
 import {
   createCanonicalGuardianRequest,
   getCanonicalGuardianRequest,
   listCanonicalGuardianRequests,
   updateCanonicalGuardianRequest,
-} from '../memory/canonical-guardian-store.js';
-import { getDb, initializeDb, resetDb } from '../memory/db.js';
-import { scopedApprovalGrants } from '../memory/schema.js';
-import { bridgeConfirmationRequestToGuardian } from '../runtime/confirmation-request-guardian-bridge.js';
+} from "../memory/canonical-guardian-store.js";
+import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { scopedApprovalGrants } from "../memory/schema.js";
+import { bridgeConfirmationRequestToGuardian } from "../runtime/confirmation-request-guardian-bridge.js";
 import {
   type GuardianContext,
   resolveRoutingState,
-} from '../runtime/guardian-context-resolver.js';
-import { TC_GRANT_WAIT_MAX_MS, ToolApprovalHandler } from '../tools/tool-approval-handler.js';
-import type { ToolContext, ToolLifecycleEvent } from '../tools/types.js';
+} from "../runtime/guardian-context-resolver.js";
+import {
+  TC_GRANT_WAIT_MAX_MS,
+  ToolApprovalHandler,
+} from "../tools/tool-approval-handler.js";
+import type { ToolContext, ToolLifecycleEvent } from "../tools/types.js";
 
 initializeDb();
 
 function resetTables(): void {
   const db = getDb();
   db.delete(scopedApprovalGrants).run();
-  db.run('DELETE FROM canonical_guardian_deliveries');
-  db.run('DELETE FROM canonical_guardian_requests');
+  db.run("DELETE FROM canonical_guardian_deliveries");
+  db.run("DELETE FROM canonical_guardian_requests");
 }
 
 afterAll(() => {
   resetDb();
-  try { rmSync(testDir, { recursive: true }); } catch { /* best effort */ }
+  try {
+    rmSync(testDir, { recursive: true });
+  } catch {
+    /* best effort */
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -207,47 +228,51 @@ afterAll(() => {
 function makeToolContext(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
     workingDir: testDir,
-    sessionId: 'session-1',
-    conversationId: 'conv-1',
-    assistantId: 'self',
-    requestId: 'req-1',
-    guardianTrustClass: 'trusted_contact',
-    executionChannel: 'telegram',
-    requesterExternalUserId: 'requester-1',
+    sessionId: "session-1",
+    conversationId: "conv-1",
+    assistantId: "self",
+    requestId: "req-1",
+    guardianTrustClass: "trusted_contact",
+    executionChannel: "telegram",
+    requesterExternalUserId: "requester-1",
     ...overrides,
   };
 }
 
 function guardianActor(overrides: Partial<ActorContext> = {}): ActorContext {
   return {
-    externalUserId: 'guardian-1',
-    channel: 'telegram',
-    guardianPrincipalId: 'test-principal-id',
+    externalUserId: "guardian-1",
+    channel: "telegram",
+    guardianPrincipalId: "test-principal-id",
     ...overrides,
   };
 }
 
 function makeTrustedContactGuardianContext(): GuardianRuntimeContext {
   return {
-    sourceChannel: 'telegram',
-    trustClass: 'trusted_contact',
-    guardianExternalUserId: 'guardian-1',
-    guardianChatId: 'guardian-chat-1',
-    requesterExternalUserId: 'requester-1',
-    requesterChatId: 'requester-chat-1',
-    requesterIdentifier: '@requester',
+    sourceChannel: "telegram",
+    trustClass: "trusted_contact",
+    guardianExternalUserId: "guardian-1",
+    guardianChatId: "guardian-chat-1",
+    requesterExternalUserId: "requester-1",
+    requesterChatId: "requester-chat-1",
+    requesterIdentifier: "@requester",
   };
 }
 
 const events: ToolLifecycleEvent[] = [];
-const emitLifecycleEvent = (event: ToolLifecycleEvent) => { events.push(event); };
+const emitLifecycleEvent = (event: ToolLifecycleEvent) => {
+  events.push(event);
+};
 
 // ===========================================================================
 // a. Target flow: trusted contact -> guardian-gated tool -> approve -> execute
 // ===========================================================================
 
-describe('(a) target flow: trusted-contact inline guardian approval end-to-end', () => {
-  const handler = new ToolApprovalHandler({ inlineGrantWait: { maxWaitMs: 2_000, intervalMs: 20 } });
+describe("(a) target flow: trusted-contact inline guardian approval end-to-end", () => {
+  const handler = new ToolApprovalHandler({
+    inlineGrantWait: { maxWaitMs: 2_000, intervalMs: 20 },
+  });
 
   beforeEach(() => {
     resetTables();
@@ -255,28 +280,28 @@ describe('(a) target flow: trusted-contact inline guardian approval end-to-end',
     emittedSignals.length = 0;
     deliveredReplies.length = 0;
     mockGuardianBinding = {
-      id: 'binding-1',
-      assistantId: 'self',
-      channel: 'telegram',
-      guardianExternalUserId: 'guardian-1',
-      guardianDeliveryChatId: 'guardian-chat-1',
-      guardianPrincipalId: 'test-principal-id',
-      status: 'active',
+      id: "binding-1",
+      assistantId: "self",
+      channel: "telegram",
+      guardianExternalUserId: "guardian-1",
+      guardianDeliveryChatId: "guardian-chat-1",
+      guardianPrincipalId: "test-principal-id",
+      status: "active",
     };
   });
 
-  test('trusted contact requests tool, guardian approves mid-wait, tool executes inline', async () => {
-    const toolName = 'bash';
-    const input = { command: 'echo hello' };
-    const context = makeToolContext({ guardianTrustClass: 'trusted_contact' });
+  test("trusted contact requests tool, guardian approves mid-wait, tool executes inline", async () => {
+    const toolName = "bash";
+    const input = { command: "echo hello" };
+    const context = makeToolContext({ guardianTrustClass: "trusted_contact" });
 
     // Schedule guardian approval after 100ms during the inline wait
     const approvalPromise = (async () => {
       await new Promise((r) => setTimeout(r, 100));
       const pending = listCanonicalGuardianRequests({
-        kind: 'tool_grant_request',
-        status: 'pending',
-        toolName: 'bash',
+        kind: "tool_grant_request",
+        status: "pending",
+        toolName: "bash",
       });
       expect(pending.length).toBeGreaterThan(0);
 
@@ -286,13 +311,19 @@ describe('(a) target flow: trusted-contact inline guardian approval end-to-end',
 
       await applyCanonicalGuardianDecision({
         requestId: pending[0].id,
-        action: 'approve_once',
+        action: "approve_once",
         actorContext: guardianActor(),
       });
     })();
 
     const result = await handler.checkPreExecutionGates(
-      toolName, input, context, 'host', 'high', Date.now(), emitLifecycleEvent,
+      toolName,
+      input,
+      context,
+      "host",
+      "high",
+      Date.now(),
+      emitLifecycleEvent,
     );
 
     await approvalPromise;
@@ -303,50 +334,60 @@ describe('(a) target flow: trusted-contact inline guardian approval end-to-end',
     expect(result.grantConsumed).toBe(true);
 
     // followupState should be cleared after a successful inline grant
-    const resolved = listCanonicalGuardianRequests({ kind: 'tool_grant_request' });
+    const resolved = listCanonicalGuardianRequests({
+      kind: "tool_grant_request",
+    });
     expect(resolved.length).toBe(1);
     const freshReq = getCanonicalGuardianRequest(resolved[0].id);
     expect(freshReq?.followupState).toBeNull();
 
     // A guardian.question notification should have been emitted
-    const questionSignals = emittedSignals.filter((s) => s.sourceEventName === 'guardian.question');
+    const questionSignals = emittedSignals.filter(
+      (s) => s.sourceEventName === "guardian.question",
+    );
     expect(questionSignals.length).toBeGreaterThan(0);
   });
 
-  test('complete flow: routing state allows interactive + bridge notifies guardian + tool resumes', async () => {
+  test("complete flow: routing state allows interactive + bridge notifies guardian + tool resumes", async () => {
     // Step 1: Verify routing state allows interactive turns for trusted contacts
     const guardianCtx: GuardianContext = {
-      sourceChannel: 'telegram',
-      trustClass: 'trusted_contact',
-      guardianExternalUserId: 'guardian-1',
-      guardianChatId: 'guardian-chat-1',
+      sourceChannel: "telegram",
+      trustClass: "trusted_contact",
+      guardianExternalUserId: "guardian-1",
+      guardianChatId: "guardian-chat-1",
     };
     const routing = resolveRoutingState(guardianCtx);
     expect(routing.promptWaitingAllowed).toBe(true);
     expect(routing.guardianRouteResolvable).toBe(true);
 
     // Step 2: Tool invocation creates escalation + waits inline + guardian approves
-    const toolName = 'bash';
-    const input = { command: 'deploy' };
-    const context = makeToolContext({ guardianTrustClass: 'trusted_contact' });
+    const toolName = "bash";
+    const input = { command: "deploy" };
+    const context = makeToolContext({ guardianTrustClass: "trusted_contact" });
 
     const approvalPromise = (async () => {
       await new Promise((r) => setTimeout(r, 80));
       const pending = listCanonicalGuardianRequests({
-        kind: 'tool_grant_request',
-        status: 'pending',
+        kind: "tool_grant_request",
+        status: "pending",
       });
       if (pending.length > 0) {
         await applyCanonicalGuardianDecision({
           requestId: pending[0].id,
-          action: 'approve_once',
+          action: "approve_once",
           actorContext: guardianActor(),
         });
       }
     })();
 
     const result = await handler.checkPreExecutionGates(
-      toolName, input, context, 'host', 'high', Date.now(), emitLifecycleEvent,
+      toolName,
+      input,
+      context,
+      "host",
+      "high",
+      Date.now(),
+      emitLifecycleEvent,
     );
 
     await approvalPromise;
@@ -361,33 +402,33 @@ describe('(a) target flow: trusted-contact inline guardian approval end-to-end',
 // b. Prompt-path flow: confirmation_request bridges to guardian notification
 // ===========================================================================
 
-describe('(b) prompt-path flow: confirmation_request bridges to guardian', () => {
+describe("(b) prompt-path flow: confirmation_request bridges to guardian", () => {
   beforeEach(() => {
     resetTables();
     emittedSignals.length = 0;
     mockGuardianBinding = {
-      id: 'binding-1',
-      assistantId: 'self',
-      channel: 'telegram',
-      guardianExternalUserId: 'guardian-1',
-      guardianDeliveryChatId: 'guardian-chat-1',
-      guardianPrincipalId: 'test-principal-id',
-      status: 'active',
+      id: "binding-1",
+      assistantId: "self",
+      channel: "telegram",
+      guardianExternalUserId: "guardian-1",
+      guardianDeliveryChatId: "guardian-chat-1",
+      guardianPrincipalId: "test-principal-id",
+      status: "active",
     };
   });
 
-  test('trusted-contact confirmation_request emits guardian.question and creates delivery records', () => {
+  test("trusted-contact confirmation_request emits guardian.question and creates delivery records", () => {
     const canonicalRequest = createCanonicalGuardianRequest({
       id: `req-bridge-${Date.now()}`,
-      kind: 'tool_approval',
-      sourceType: 'channel',
-      sourceChannel: 'telegram',
-      conversationId: 'conv-bridge-1',
-      requesterExternalUserId: 'requester-1',
-      guardianExternalUserId: 'guardian-1',
-      guardianPrincipalId: 'test-principal-id',
-      toolName: 'bash',
-      status: 'pending',
+      kind: "tool_approval",
+      sourceType: "channel",
+      sourceChannel: "telegram",
+      conversationId: "conv-bridge-1",
+      requesterExternalUserId: "requester-1",
+      guardianExternalUserId: "guardian-1",
+      guardianPrincipalId: "test-principal-id",
+      toolName: "bash",
+      status: "pending",
       expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
     });
 
@@ -396,37 +437,37 @@ describe('(b) prompt-path flow: confirmation_request bridges to guardian', () =>
     const result = bridgeConfirmationRequestToGuardian({
       canonicalRequest,
       guardianContext,
-      conversationId: 'conv-bridge-1',
-      toolName: 'bash',
+      conversationId: "conv-bridge-1",
+      toolName: "bash",
     });
 
-    expect('bridged' in result && result.bridged).toBe(true);
+    expect("bridged" in result && result.bridged).toBe(true);
 
     // guardian.question notification was emitted
     expect(emittedSignals.length).toBeGreaterThan(0);
-    expect(emittedSignals[0].sourceEventName).toBe('guardian.question');
+    expect(emittedSignals[0].sourceEventName).toBe("guardian.question");
 
     const payload = emittedSignals[0].contextPayload as Record<string, unknown>;
     expect(payload.requestId).toBe(canonicalRequest.id);
-    expect(payload.toolName).toBe('bash');
-    expect(payload.requesterIdentifier).toBe('@requester');
+    expect(payload.toolName).toBe("bash");
+    expect(payload.requesterIdentifier).toBe("@requester");
   });
 
-  test('bridge + tool_grant_request both use guardian.question for unified routing', () => {
+  test("bridge + tool_grant_request both use guardian.question for unified routing", () => {
     // The confirmation_request bridge and tool_grant_request helper both
     // use 'guardian.question' as the notification signal, ensuring consistent
     // guardian routing regardless of the approval path.
     const canonicalRequest = createCanonicalGuardianRequest({
       id: `req-unified-${Date.now()}`,
-      kind: 'tool_approval',
-      sourceType: 'channel',
-      sourceChannel: 'telegram',
-      conversationId: 'conv-unified-1',
-      requesterExternalUserId: 'requester-1',
-      guardianExternalUserId: 'guardian-1',
-      guardianPrincipalId: 'test-principal-id',
-      toolName: 'bash',
-      status: 'pending',
+      kind: "tool_approval",
+      sourceType: "channel",
+      sourceChannel: "telegram",
+      conversationId: "conv-unified-1",
+      requesterExternalUserId: "requester-1",
+      guardianExternalUserId: "guardian-1",
+      guardianPrincipalId: "test-principal-id",
+      toolName: "bash",
+      status: "pending",
       expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
     });
 
@@ -435,14 +476,14 @@ describe('(b) prompt-path flow: confirmation_request bridges to guardian', () =>
     bridgeConfirmationRequestToGuardian({
       canonicalRequest,
       guardianContext,
-      conversationId: 'conv-unified-1',
-      toolName: 'bash',
+      conversationId: "conv-unified-1",
+      toolName: "bash",
     });
 
     // All emitted signals should use guardian.question
     const eventNames = emittedSignals.map((s) => s.sourceEventName);
     for (const name of eventNames) {
-      expect(name).toBe('guardian.question');
+      expect(name).toBe("guardian.question");
     }
   });
 });
@@ -451,8 +492,10 @@ describe('(b) prompt-path flow: confirmation_request bridges to guardian', () =>
 // c. No-binding flow: trusted contact fails fast without guardian binding
 // ===========================================================================
 
-describe('(c) no-binding flow: trusted contact fails fast without guardian binding', () => {
-  const shortHandler = new ToolApprovalHandler({ inlineGrantWait: { maxWaitMs: 100, intervalMs: 20 } });
+describe("(c) no-binding flow: trusted contact fails fast without guardian binding", () => {
+  const shortHandler = new ToolApprovalHandler({
+    inlineGrantWait: { maxWaitMs: 100, intervalMs: 20 },
+  });
 
   beforeEach(() => {
     resetTables();
@@ -462,10 +505,10 @@ describe('(c) no-binding flow: trusted contact fails fast without guardian bindi
     mockGuardianBinding = null; // No guardian binding
   });
 
-  test('routing state blocks prompt waiting when no guardian binding exists', () => {
+  test("routing state blocks prompt waiting when no guardian binding exists", () => {
     const ctx: GuardianContext = {
-      sourceChannel: 'telegram',
-      trustClass: 'trusted_contact',
+      sourceChannel: "telegram",
+      trustClass: "trusted_contact",
       // No guardianExternalUserId — mirrors no binding
     };
     const state = resolveRoutingState(ctx);
@@ -475,17 +518,23 @@ describe('(c) no-binding flow: trusted contact fails fast without guardian bindi
     expect(state.promptWaitingAllowed).toBe(false);
   });
 
-  test('tool escalation returns generic denial (no dead-end wait) without binding', async () => {
-    const toolName = 'bash';
-    const input = { command: 'ls' };
+  test("tool escalation returns generic denial (no dead-end wait) without binding", async () => {
+    const toolName = "bash";
+    const input = { command: "ls" };
     const context = makeToolContext({
-      guardianTrustClass: 'trusted_contact',
-      executionChannel: 'telegram',
+      guardianTrustClass: "trusted_contact",
+      executionChannel: "telegram",
     });
 
     const start = Date.now();
     const result = await shortHandler.checkPreExecutionGates(
-      toolName, input, context, 'host', 'high', Date.now(), emitLifecycleEvent,
+      toolName,
+      input,
+      context,
+      "host",
+      "high",
+      Date.now(),
+      emitLifecycleEvent,
     );
     const elapsed = Date.now() - start;
 
@@ -493,12 +542,12 @@ describe('(c) no-binding flow: trusted contact fails fast without guardian bindi
     if (result.allowed) return;
 
     // Should return the generic guardian approval message, not enter inline wait
-    expect(result.result.content).toContain('guardian approval');
+    expect(result.result.content).toContain("guardian approval");
 
     // No canonical tool_grant_request should have been created (no binding)
     const requests = listCanonicalGuardianRequests({
-      kind: 'tool_grant_request',
-      status: 'pending',
+      kind: "tool_grant_request",
+      status: "pending",
     });
     expect(requests.length).toBe(0);
 
@@ -506,18 +555,18 @@ describe('(c) no-binding flow: trusted contact fails fast without guardian bindi
     expect(elapsed).toBeLessThan(500);
   });
 
-  test('bridge skips when no guardian binding exists for channel', () => {
+  test("bridge skips when no guardian binding exists for channel", () => {
     const canonicalRequest = createCanonicalGuardianRequest({
       id: `req-nobinding-${Date.now()}`,
-      kind: 'tool_approval',
-      sourceType: 'channel',
-      sourceChannel: 'telegram',
-      conversationId: 'conv-nobinding',
-      requesterExternalUserId: 'requester-1',
-      guardianExternalUserId: 'guardian-1',
-      guardianPrincipalId: 'test-principal-id',
-      toolName: 'bash',
-      status: 'pending',
+      kind: "tool_approval",
+      sourceType: "channel",
+      sourceChannel: "telegram",
+      conversationId: "conv-nobinding",
+      requesterExternalUserId: "requester-1",
+      guardianExternalUserId: "guardian-1",
+      guardianPrincipalId: "test-principal-id",
+      toolName: "bash",
+      status: "pending",
       expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
     });
 
@@ -526,13 +575,13 @@ describe('(c) no-binding flow: trusted contact fails fast without guardian bindi
     const result = bridgeConfirmationRequestToGuardian({
       canonicalRequest,
       guardianContext,
-      conversationId: 'conv-nobinding',
-      toolName: 'bash',
+      conversationId: "conv-nobinding",
+      toolName: "bash",
     });
 
-    expect('skipped' in result && result.skipped).toBe(true);
-    if ('skipped' in result) {
-      expect(result.reason).toBe('no_guardian_binding');
+    expect("skipped" in result && result.skipped).toBe(true);
+    if ("skipped" in result) {
+      expect(result.reason).toBe("no_guardian_binding");
     }
     expect(emittedSignals.length).toBe(0);
   });
@@ -542,36 +591,44 @@ describe('(c) no-binding flow: trusted contact fails fast without guardian bindi
 // d. Unknown actor flow: remains fail-closed
 // ===========================================================================
 
-describe('(d) unknown actor flow: fail-closed with no interactive approval', () => {
-  const handler = new ToolApprovalHandler({ inlineGrantWait: { maxWaitMs: 2_000, intervalMs: 20 } });
+describe("(d) unknown actor flow: fail-closed with no interactive approval", () => {
+  const handler = new ToolApprovalHandler({
+    inlineGrantWait: { maxWaitMs: 2_000, intervalMs: 20 },
+  });
 
   beforeEach(() => {
     resetTables();
     events.length = 0;
     emittedSignals.length = 0;
     mockGuardianBinding = {
-      id: 'binding-1',
-      assistantId: 'self',
-      channel: 'telegram',
-      guardianExternalUserId: 'guardian-1',
-      guardianDeliveryChatId: 'guardian-chat-1',
-      guardianPrincipalId: 'test-principal-id',
-      status: 'active',
+      id: "binding-1",
+      assistantId: "self",
+      channel: "telegram",
+      guardianExternalUserId: "guardian-1",
+      guardianDeliveryChatId: "guardian-chat-1",
+      guardianPrincipalId: "test-principal-id",
+      status: "active",
     };
   });
 
-  test('unknown actors get immediate denial with no escalation or wait', async () => {
-    const toolName = 'bash';
-    const input = { command: 'ls' };
+  test("unknown actors get immediate denial with no escalation or wait", async () => {
+    const toolName = "bash";
+    const input = { command: "ls" };
     const context = makeToolContext({
-      guardianTrustClass: 'unknown',
-      executionChannel: 'telegram',
-      requesterExternalUserId: 'unknown-user',
+      guardianTrustClass: "unknown",
+      executionChannel: "telegram",
+      requesterExternalUserId: "unknown-user",
     });
 
     const start = Date.now();
     const result = await handler.checkPreExecutionGates(
-      toolName, input, context, 'host', 'high', Date.now(), emitLifecycleEvent,
+      toolName,
+      input,
+      context,
+      "host",
+      "high",
+      Date.now(),
+      emitLifecycleEvent,
     );
     const elapsed = Date.now() - start;
 
@@ -579,12 +636,12 @@ describe('(d) unknown actor flow: fail-closed with no interactive approval', () 
     if (result.allowed) return;
 
     // Unknown actors get the verified-identity message
-    expect(result.result.content).toContain('verified channel identity');
+    expect(result.result.content).toContain("verified channel identity");
 
     // No canonical request created — unknown actors don't escalate
     const requests = listCanonicalGuardianRequests({
-      kind: 'tool_grant_request',
-      status: 'pending',
+      kind: "tool_grant_request",
+      status: "pending",
     });
     expect(requests.length).toBe(0);
 
@@ -592,15 +649,15 @@ describe('(d) unknown actor flow: fail-closed with no interactive approval', () 
     expect(elapsed).toBeLessThan(200);
   });
 
-  test('unknown actors have promptWaitingAllowed=false regardless of guardian route', () => {
+  test("unknown actors have promptWaitingAllowed=false regardless of guardian route", () => {
     const withRoute: GuardianContext = {
-      sourceChannel: 'telegram',
-      trustClass: 'unknown',
-      guardianExternalUserId: 'guardian-1',
+      sourceChannel: "telegram",
+      trustClass: "unknown",
+      guardianExternalUserId: "guardian-1",
     };
     const withoutRoute: GuardianContext = {
-      sourceChannel: 'telegram',
-      trustClass: 'unknown',
+      sourceChannel: "telegram",
+      trustClass: "unknown",
     };
 
     expect(resolveRoutingState(withRoute).promptWaitingAllowed).toBe(false);
@@ -609,36 +666,36 @@ describe('(d) unknown actor flow: fail-closed with no interactive approval', () 
     expect(resolveRoutingState(withoutRoute).canBeInteractive).toBe(false);
   });
 
-  test('bridge skips unknown actor sessions entirely', () => {
+  test("bridge skips unknown actor sessions entirely", () => {
     const canonicalRequest = createCanonicalGuardianRequest({
       id: `req-unknown-${Date.now()}`,
-      kind: 'tool_approval',
-      sourceType: 'channel',
-      sourceChannel: 'telegram',
-      conversationId: 'conv-unknown',
-      requesterExternalUserId: 'unknown-user',
-      guardianExternalUserId: 'guardian-1',
-      guardianPrincipalId: 'test-principal-id',
-      toolName: 'bash',
-      status: 'pending',
+      kind: "tool_approval",
+      sourceType: "channel",
+      sourceChannel: "telegram",
+      conversationId: "conv-unknown",
+      requesterExternalUserId: "unknown-user",
+      guardianExternalUserId: "guardian-1",
+      guardianPrincipalId: "test-principal-id",
+      toolName: "bash",
+      status: "pending",
       expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
     });
 
     const guardianContext: GuardianRuntimeContext = {
-      sourceChannel: 'telegram',
-      trustClass: 'unknown',
+      sourceChannel: "telegram",
+      trustClass: "unknown",
     };
 
     const result = bridgeConfirmationRequestToGuardian({
       canonicalRequest,
       guardianContext,
-      conversationId: 'conv-unknown',
-      toolName: 'bash',
+      conversationId: "conv-unknown",
+      toolName: "bash",
     });
 
-    expect('skipped' in result && result.skipped).toBe(true);
-    if ('skipped' in result) {
-      expect(result.reason).toBe('not_trusted_contact');
+    expect("skipped" in result && result.skipped).toBe(true);
+    if ("skipped" in result) {
+      expect(result.reason).toBe("not_trusted_contact");
     }
   });
 });
@@ -659,65 +716,67 @@ function checkIsBoundGuardianActor(params: {
   requesterExternalUserId: string;
 }): boolean {
   return (
-    params.guardianTrustClass === 'guardian'
-    && !!params.guardianExternalUserId
-    && params.requesterExternalUserId === params.guardianExternalUserId
+    params.guardianTrustClass === "guardian" &&
+    !!params.guardianExternalUserId &&
+    params.requesterExternalUserId === params.guardianExternalUserId
   );
 }
 
-describe('(e) guardian-only prompt delivery invariant', () => {
+describe("(e) guardian-only prompt delivery invariant", () => {
   beforeEach(() => {
     deliveredReplies.length = 0;
-    mockPendingApprovals = [{
-      requestId: 'req-prompt-test',
-      toolName: 'bash',
-      input: { command: 'ls' },
-      riskLevel: 'high',
-    }];
+    mockPendingApprovals = [
+      {
+        requestId: "req-prompt-test",
+        toolName: "bash",
+        input: { command: "ls" },
+        riskLevel: "high",
+      },
+    ];
   });
 
-  test('trusted_contact does NOT receive approval prompt UI (notifier only sends waiting message)', async () => {
+  test("trusted_contact does NOT receive approval prompt UI (notifier only sends waiting message)", async () => {
     // The startPendingApprovalPromptWatcher in inbound-message-handler.ts
     // has a guard: isBoundGuardianActor check. Non-guardian actors (including
     // trusted contacts) get () => {} (noop) for the watcher. Only guardian
     // actors matching the binding receive the prompt.
 
     const result = checkIsBoundGuardianActor({
-      guardianTrustClass: 'trusted_contact',
-      guardianExternalUserId: 'guardian-1',
-      requesterExternalUserId: 'requester-1',
+      guardianTrustClass: "trusted_contact",
+      guardianExternalUserId: "guardian-1",
+      requesterExternalUserId: "requester-1",
     });
 
     expect(result).toBe(false);
     // The prompt watcher would return a noop for trusted contacts
   });
 
-  test('unknown actors do NOT receive approval prompt UI', () => {
+  test("unknown actors do NOT receive approval prompt UI", () => {
     const result = checkIsBoundGuardianActor({
-      guardianTrustClass: 'unknown',
-      guardianExternalUserId: 'guardian-1',
-      requesterExternalUserId: 'unknown-user',
+      guardianTrustClass: "unknown",
+      guardianExternalUserId: "guardian-1",
+      requesterExternalUserId: "unknown-user",
     });
 
     expect(result).toBe(false);
   });
 
-  test('guardian actor that matches binding DOES receive approval prompt UI', () => {
+  test("guardian actor that matches binding DOES receive approval prompt UI", () => {
     const result = checkIsBoundGuardianActor({
-      guardianTrustClass: 'guardian',
-      guardianExternalUserId: 'guardian-1',
-      requesterExternalUserId: 'guardian-1',
+      guardianTrustClass: "guardian",
+      guardianExternalUserId: "guardian-1",
+      requesterExternalUserId: "guardian-1",
     });
 
     expect(result).toBe(true);
   });
 
-  test('guardian actor with identity mismatch does NOT receive approval prompt UI', () => {
+  test("guardian actor with identity mismatch does NOT receive approval prompt UI", () => {
     // After guardian rotation, old guardian identity should not receive prompts
     const result = checkIsBoundGuardianActor({
-      guardianTrustClass: 'guardian',
-      guardianExternalUserId: 'new-guardian-2',
-      requesterExternalUserId: 'old-guardian-1',
+      guardianTrustClass: "guardian",
+      guardianExternalUserId: "new-guardian-2",
+      requesterExternalUserId: "old-guardian-1",
     });
 
     expect(result).toBe(false);
@@ -728,8 +787,10 @@ describe('(e) guardian-only prompt delivery invariant', () => {
 // f. Timeout/stale flow: guardian decision after prompt timeout
 // ===========================================================================
 
-describe('(f) timeout/stale flow: stale guardian decision after inline wait timeout', () => {
-  const handler = new ToolApprovalHandler({ inlineGrantWait: { maxWaitMs: 100, intervalMs: 20 } });
+describe("(f) timeout/stale flow: stale guardian decision after inline wait timeout", () => {
+  const handler = new ToolApprovalHandler({
+    inlineGrantWait: { maxWaitMs: 100, intervalMs: 20 },
+  });
 
   beforeEach(() => {
     resetTables();
@@ -737,34 +798,42 @@ describe('(f) timeout/stale flow: stale guardian decision after inline wait time
     emittedSignals.length = 0;
     deliveredReplies.length = 0;
     mockGuardianBinding = {
-      id: 'binding-1',
-      assistantId: 'self',
-      channel: 'telegram',
-      guardianExternalUserId: 'guardian-1',
-      guardianDeliveryChatId: 'guardian-chat-1',
-      guardianPrincipalId: 'test-principal-id',
-      status: 'active',
+      id: "binding-1",
+      assistantId: "self",
+      channel: "telegram",
+      guardianExternalUserId: "guardian-1",
+      guardianDeliveryChatId: "guardian-chat-1",
+      guardianPrincipalId: "test-principal-id",
+      status: "active",
     };
   });
 
-  test('inline wait timeout clears followupState so later approval sends retry notification', async () => {
-    const toolName = 'bash';
-    const input = { command: 'echo stale' };
-    const context = makeToolContext({ guardianTrustClass: 'trusted_contact' });
+  test("inline wait timeout clears followupState so later approval sends retry notification", async () => {
+    const toolName = "bash";
+    const input = { command: "echo stale" };
+    const context = makeToolContext({ guardianTrustClass: "trusted_contact" });
 
     // Let the tool invocation time out (no guardian approval within 100ms)
     const result = await handler.checkPreExecutionGates(
-      toolName, input, context, 'host', 'high', Date.now(), emitLifecycleEvent,
+      toolName,
+      input,
+      context,
+      "host",
+      "high",
+      Date.now(),
+      emitLifecycleEvent,
     );
 
     expect(result.allowed).toBe(false);
     if (result.allowed) return;
-    expect(result.result.content).toContain('guardian approval was not received in time');
+    expect(result.result.content).toContain(
+      "guardian approval was not received in time",
+    );
 
     // After timeout, the followupState should be cleared (null)
     const pending = listCanonicalGuardianRequests({
-      kind: 'tool_grant_request',
-      status: 'pending',
+      kind: "tool_grant_request",
+      status: "pending",
     });
     expect(pending.length).toBe(1);
 
@@ -775,13 +844,13 @@ describe('(f) timeout/stale flow: stale guardian decision after inline wait time
     // Now simulate guardian approving after the timeout
     const approvalResult = await applyCanonicalGuardianDecision({
       requestId: pending[0].id,
-      action: 'approve_once',
+      action: "approve_once",
       actorContext: guardianActor(),
       channelDeliveryContext: {
-        replyCallbackUrl: 'http://localhost:3000/reply',
-        guardianChatId: 'guardian-chat-1',
-        assistantId: 'self',
-        bearerToken: 'test-token',
+        replyCallbackUrl: "http://localhost:3000/reply",
+        guardianChatId: "guardian-chat-1",
+        assistantId: "self",
+        bearerToken: "test-token",
       },
     });
     expect(approvalResult.applied).toBe(true);
@@ -789,27 +858,29 @@ describe('(f) timeout/stale flow: stale guardian decision after inline wait time
     // The resolver should have sent the retry notification because
     // followupState was cleared (not inline_wait_active)
     const retryNotifications = deliveredReplies.filter(
-      (r) => typeof r.payload.text === 'string' && (r.payload.text as string).includes('approved'),
+      (r) =>
+        typeof r.payload.text === "string" &&
+        (r.payload.text as string).includes("approved"),
     );
     expect(retryNotifications.length).toBeGreaterThan(0);
   });
 
-  test('inline_wait_active staleness guard: expired marker allows retry notification', async () => {
+  test("inline_wait_active staleness guard: expired marker allows retry notification", async () => {
     // Create a canonical request with a stale inline_wait_active marker
     // that simulates a daemon crash during the wait.
     const staleTimestamp = Date.now() - TC_GRANT_WAIT_MAX_MS - 60_000;
     const req = createCanonicalGuardianRequest({
       id: `req-stale-${Date.now()}`,
-      kind: 'tool_grant_request',
-      sourceType: 'channel',
-      sourceChannel: 'telegram',
-      conversationId: 'conv-stale-1',
-      requesterExternalUserId: 'requester-1',
-      requesterChatId: 'requester-chat-1',
-      guardianExternalUserId: 'guardian-1',
-      guardianPrincipalId: 'test-principal-id',
-      toolName: 'bash',
-      inputDigest: 'sha256:stale',
+      kind: "tool_grant_request",
+      sourceType: "channel",
+      sourceChannel: "telegram",
+      conversationId: "conv-stale-1",
+      requesterExternalUserId: "requester-1",
+      requesterChatId: "requester-chat-1",
+      guardianExternalUserId: "guardian-1",
+      guardianPrincipalId: "test-principal-id",
+      toolName: "bash",
+      inputDigest: "sha256:stale",
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     });
 
@@ -820,45 +891,47 @@ describe('(f) timeout/stale flow: stale guardian decision after inline wait time
 
     // Verify marker is stale
     const freshReq = getCanonicalGuardianRequest(req.id);
-    expect(freshReq?.followupState).toContain('inline_wait_active:');
+    expect(freshReq?.followupState).toContain("inline_wait_active:");
 
     // Guardian approves — the resolver should detect the stale marker
     // and send the retry notification instead of suppressing it.
     const approvalResult = await applyCanonicalGuardianDecision({
       requestId: req.id,
-      action: 'approve_once',
+      action: "approve_once",
       actorContext: guardianActor(),
       channelDeliveryContext: {
-        replyCallbackUrl: 'http://localhost:3000/reply',
-        guardianChatId: 'guardian-chat-1',
-        assistantId: 'self',
-        bearerToken: 'test-token',
+        replyCallbackUrl: "http://localhost:3000/reply",
+        guardianChatId: "guardian-chat-1",
+        assistantId: "self",
+        bearerToken: "test-token",
       },
     });
     expect(approvalResult.applied).toBe(true);
 
     // The retry notification should have been sent (stale marker treated as cleared)
     const retryNotifications = deliveredReplies.filter(
-      (r) => typeof r.payload.text === 'string' && (r.payload.text as string).includes('approved'),
+      (r) =>
+        typeof r.payload.text === "string" &&
+        (r.payload.text as string).includes("approved"),
     );
     expect(retryNotifications.length).toBeGreaterThan(0);
   });
 
-  test('fresh inline_wait_active marker suppresses retry notification', async () => {
+  test("fresh inline_wait_active marker suppresses retry notification", async () => {
     // Create a request with a FRESH inline_wait_active marker
     const freshTimestamp = Date.now();
     const req = createCanonicalGuardianRequest({
       id: `req-fresh-${Date.now()}`,
-      kind: 'tool_grant_request',
-      sourceType: 'channel',
-      sourceChannel: 'telegram',
-      conversationId: 'conv-fresh-1',
-      requesterExternalUserId: 'requester-1',
-      requesterChatId: 'requester-chat-1',
-      guardianExternalUserId: 'guardian-1',
-      guardianPrincipalId: 'test-principal-id',
-      toolName: 'bash',
-      inputDigest: 'sha256:fresh',
+      kind: "tool_grant_request",
+      sourceType: "channel",
+      sourceChannel: "telegram",
+      conversationId: "conv-fresh-1",
+      requesterExternalUserId: "requester-1",
+      requesterChatId: "requester-chat-1",
+      guardianExternalUserId: "guardian-1",
+      guardianPrincipalId: "test-principal-id",
+      toolName: "bash",
+      inputDigest: "sha256:fresh",
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     });
 
@@ -870,13 +943,13 @@ describe('(f) timeout/stale flow: stale guardian decision after inline wait time
     deliveredReplies.length = 0;
     const approvalResult = await applyCanonicalGuardianDecision({
       requestId: req.id,
-      action: 'approve_once',
+      action: "approve_once",
       actorContext: guardianActor(),
       channelDeliveryContext: {
-        replyCallbackUrl: 'http://localhost:3000/reply',
-        guardianChatId: 'guardian-chat-1',
-        assistantId: 'self',
-        bearerToken: 'test-token',
+        replyCallbackUrl: "http://localhost:3000/reply",
+        guardianChatId: "guardian-chat-1",
+        assistantId: "self",
+        bearerToken: "test-token",
       },
     });
     expect(approvalResult.applied).toBe(true);
@@ -884,59 +957,77 @@ describe('(f) timeout/stale flow: stale guardian decision after inline wait time
     // The retry notification should NOT have been sent — the inline waiter
     // is still active and will consume the grant directly.
     const retryNotifications = deliveredReplies.filter(
-      (r) => typeof r.payload.text === 'string' && (r.payload.text as string).includes('Please retry'),
+      (r) =>
+        typeof r.payload.text === "string" &&
+        (r.payload.text as string).includes("Please retry"),
     );
     expect(retryNotifications.length).toBe(0);
   });
 
-  test('denied inline wait produces explicit denial (no false success)', async () => {
-    const toolName = 'bash';
-    const input = { command: 'rm -rf /' };
-    const context = makeToolContext({ guardianTrustClass: 'trusted_contact' });
+  test("denied inline wait produces explicit denial (no false success)", async () => {
+    const toolName = "bash";
+    const input = { command: "rm -rf /" };
+    const context = makeToolContext({ guardianTrustClass: "trusted_contact" });
 
     // Schedule guardian rejection after 80ms
     const rejectionPromise = (async () => {
       await new Promise((r) => setTimeout(r, 80));
       const pending = listCanonicalGuardianRequests({
-        kind: 'tool_grant_request',
-        status: 'pending',
-        toolName: 'bash',
+        kind: "tool_grant_request",
+        status: "pending",
+        toolName: "bash",
       });
       if (pending.length > 0) {
         await applyCanonicalGuardianDecision({
           requestId: pending[0].id,
-          action: 'reject',
+          action: "reject",
           actorContext: guardianActor(),
         });
       }
     })();
 
-    const wideHandler = new ToolApprovalHandler({ inlineGrantWait: { maxWaitMs: 2_000, intervalMs: 20 } });
+    const wideHandler = new ToolApprovalHandler({
+      inlineGrantWait: { maxWaitMs: 2_000, intervalMs: 20 },
+    });
     const result = await wideHandler.checkPreExecutionGates(
-      toolName, input, context, 'host', 'high', Date.now(), emitLifecycleEvent,
+      toolName,
+      input,
+      context,
+      "host",
+      "high",
+      Date.now(),
+      emitLifecycleEvent,
     );
 
     await rejectionPromise;
 
     expect(result.allowed).toBe(false);
     if (result.allowed) return;
-    expect(result.result.content).toContain('guardian rejected the request');
+    expect(result.result.content).toContain("guardian rejected the request");
     expect(result.result.isError).toBe(true);
   });
 
-  test('timeout produces explicit timeout message (no false success)', async () => {
-    const toolName = 'bash';
-    const input = { command: 'curl example.com' };
-    const context = makeToolContext({ guardianTrustClass: 'trusted_contact' });
+  test("timeout produces explicit timeout message (no false success)", async () => {
+    const toolName = "bash";
+    const input = { command: "curl example.com" };
+    const context = makeToolContext({ guardianTrustClass: "trusted_contact" });
 
     const result = await handler.checkPreExecutionGates(
-      toolName, input, context, 'host', 'high', Date.now(), emitLifecycleEvent,
+      toolName,
+      input,
+      context,
+      "host",
+      "high",
+      Date.now(),
+      emitLifecycleEvent,
     );
 
     expect(result.allowed).toBe(false);
     if (result.allowed) return;
-    expect(result.result.content).toContain('guardian approval was not received in time');
-    expect(result.result.content).toContain('request code:');
+    expect(result.result.content).toContain(
+      "guardian approval was not received in time",
+    );
+    expect(result.result.content).toContain("request code:");
     expect(result.result.isError).toBe(true);
   });
 });
@@ -945,56 +1036,58 @@ describe('(f) timeout/stale flow: stale guardian decision after inline wait time
 // Cross-milestone integration checks
 // ===========================================================================
 
-describe('cross-milestone integration checks', () => {
+describe("cross-milestone integration checks", () => {
   beforeEach(() => {
     resetTables();
     events.length = 0;
     emittedSignals.length = 0;
     deliveredReplies.length = 0;
     mockGuardianBinding = {
-      id: 'binding-1',
-      assistantId: 'self',
-      channel: 'telegram',
-      guardianExternalUserId: 'guardian-1',
-      guardianDeliveryChatId: 'guardian-chat-1',
-      guardianPrincipalId: 'test-principal-id',
-      status: 'active',
+      id: "binding-1",
+      assistantId: "self",
+      channel: "telegram",
+      guardianExternalUserId: "guardian-1",
+      guardianDeliveryChatId: "guardian-chat-1",
+      guardianPrincipalId: "test-principal-id",
+      status: "active",
     };
   });
 
-  test('M1+M4: routing state interactivity drives inline wait eligibility', async () => {
+  test("M1+M4: routing state interactivity drives inline wait eligibility", async () => {
     // With guardian binding: interactive + inline wait allowed
     const withBinding: GuardianContext = {
-      sourceChannel: 'telegram',
-      trustClass: 'trusted_contact',
-      guardianExternalUserId: 'guardian-1',
+      sourceChannel: "telegram",
+      trustClass: "trusted_contact",
+      guardianExternalUserId: "guardian-1",
     };
     expect(resolveRoutingState(withBinding).promptWaitingAllowed).toBe(true);
 
     // Without guardian binding: not interactive + inline wait should not enter dead-end
     const withoutBinding: GuardianContext = {
-      sourceChannel: 'telegram',
-      trustClass: 'trusted_contact',
+      sourceChannel: "telegram",
+      trustClass: "trusted_contact",
     };
-    expect(resolveRoutingState(withoutBinding).promptWaitingAllowed).toBe(false);
+    expect(resolveRoutingState(withoutBinding).promptWaitingAllowed).toBe(
+      false,
+    );
   });
 
-  test('M2+M4: bridge and tool_grant_request target the same guardian identity', () => {
+  test("M2+M4: bridge and tool_grant_request target the same guardian identity", () => {
     // Both the confirmation_request bridge (M2) and tool grant request escalation (M4)
     // use the guardian binding's guardianExternalUserId to route notifications.
     // Verify this consistency:
 
     const canonicalRequest = createCanonicalGuardianRequest({
       id: `req-consistency-${Date.now()}`,
-      kind: 'tool_approval',
-      sourceType: 'channel',
-      sourceChannel: 'telegram',
-      conversationId: 'conv-consistency',
-      requesterExternalUserId: 'requester-1',
-      guardianExternalUserId: 'guardian-1',
-      guardianPrincipalId: 'test-principal-id',
-      toolName: 'bash',
-      status: 'pending',
+      kind: "tool_approval",
+      sourceType: "channel",
+      sourceChannel: "telegram",
+      conversationId: "conv-consistency",
+      requesterExternalUserId: "requester-1",
+      guardianExternalUserId: "guardian-1",
+      guardianPrincipalId: "test-principal-id",
+      toolName: "bash",
+      status: "pending",
       expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
     });
 
@@ -1003,41 +1096,52 @@ describe('cross-milestone integration checks', () => {
     const bridgeResult = bridgeConfirmationRequestToGuardian({
       canonicalRequest,
       guardianContext,
-      conversationId: 'conv-consistency',
-      toolName: 'bash',
+      conversationId: "conv-consistency",
+      toolName: "bash",
     });
 
-    expect('bridged' in bridgeResult && bridgeResult.bridged).toBe(true);
+    expect("bridged" in bridgeResult && bridgeResult.bridged).toBe(true);
 
     // Both the bridge signal and the tool_grant_request signal would target
     // the same guardian binding (guardian-1)
     if (emittedSignals.length > 0) {
-      const payload = emittedSignals[0].contextPayload as Record<string, unknown>;
-      expect(payload.requesterExternalUserId).toBe('requester-1');
+      const payload = emittedSignals[0].contextPayload as Record<
+        string,
+        unknown
+      >;
+      expect(payload.requesterExternalUserId).toBe("requester-1");
     }
   });
 
-  test('M4: tool_grant_request resolver is correctly registered', () => {
-    const resolver = getResolver('tool_grant_request');
+  test("M4: tool_grant_request resolver is correctly registered", () => {
+    const resolver = getResolver("tool_grant_request");
     expect(resolver).toBeDefined();
-    expect(resolver!.kind).toBe('tool_grant_request');
+    expect(resolver!.kind).toBe("tool_grant_request");
   });
 
-  test('M1: guardian actors bypass inline wait entirely (self-approve path)', async () => {
-    const handler = new ToolApprovalHandler({ inlineGrantWait: { maxWaitMs: 100, intervalMs: 20 } });
-    const toolName = 'bash';
-    const input = { command: 'ls' };
+  test("M1: guardian actors bypass inline wait entirely (self-approve path)", async () => {
+    const handler = new ToolApprovalHandler({
+      inlineGrantWait: { maxWaitMs: 100, intervalMs: 20 },
+    });
+    const toolName = "bash";
+    const input = { command: "ls" };
     const context = makeToolContext({
-      guardianTrustClass: 'guardian',
-      executionChannel: 'telegram',
-      requesterExternalUserId: 'guardian-1',
+      guardianTrustClass: "guardian",
+      executionChannel: "telegram",
+      requesterExternalUserId: "guardian-1",
     });
 
     // Guardian actors resolve through the standard permission prompt path,
     // not the grant escalation path. The tool should be allowed without
     // going through grant consumption.
     const result = await handler.checkPreExecutionGates(
-      toolName, input, context, 'host', 'high', Date.now(), emitLifecycleEvent,
+      toolName,
+      input,
+      context,
+      "host",
+      "high",
+      Date.now(),
+      emitLifecycleEvent,
     );
 
     // Guardian + no grant check = allowed without grantConsumed
@@ -1047,13 +1151,15 @@ describe('cross-milestone integration checks', () => {
     expect(result.grantConsumed).toBeUndefined();
   });
 
-  test('M4: abort signal during inline wait clears followupState for later retries', async () => {
-    const handler = new ToolApprovalHandler({ inlineGrantWait: { maxWaitMs: 5_000, intervalMs: 20 } });
-    const toolName = 'bash';
-    const input = { command: 'aborted-command' };
+  test("M4: abort signal during inline wait clears followupState for later retries", async () => {
+    const handler = new ToolApprovalHandler({
+      inlineGrantWait: { maxWaitMs: 5_000, intervalMs: 20 },
+    });
+    const toolName = "bash";
+    const input = { command: "aborted-command" };
     const controller = new AbortController();
     const context = makeToolContext({
-      guardianTrustClass: 'trusted_contact',
+      guardianTrustClass: "trusted_contact",
       signal: controller.signal,
     });
 
@@ -1061,17 +1167,23 @@ describe('cross-milestone integration checks', () => {
     setTimeout(() => controller.abort(), 100);
 
     const result = await handler.checkPreExecutionGates(
-      toolName, input, context, 'host', 'high', Date.now(), emitLifecycleEvent,
+      toolName,
+      input,
+      context,
+      "host",
+      "high",
+      Date.now(),
+      emitLifecycleEvent,
     );
 
     expect(result.allowed).toBe(false);
     if (result.allowed) return;
-    expect(result.result.content).toBe('Cancelled');
+    expect(result.result.content).toBe("Cancelled");
 
     // The canonical request should exist but followupState should be cleared
     const pending = listCanonicalGuardianRequests({
-      kind: 'tool_grant_request',
-      status: 'pending',
+      kind: "tool_grant_request",
+      status: "pending",
     });
     expect(pending.length).toBe(1);
 
