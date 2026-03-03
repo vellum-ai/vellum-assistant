@@ -595,12 +595,35 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     let encoder = JSONEncoder()
     let decoder = JSONDecoder()
 
-    public let config: DaemonConfig
+    public private(set) var config: DaemonConfig
 
     // MARK: - Init
 
     public init(config: DaemonConfig = .default) {
         self.config = config
+    }
+
+    // MARK: - Reconfigure
+
+    /// Reconfigure the daemon client's transport in place without replacing
+    /// the object identity. This preserves all callback closures and
+    /// subscriber references held by long-lived objects (ThreadManager,
+    /// ChatViewModel, RecordingManager, etc.) across assistant switches.
+    ///
+    /// The method disconnects the current transport, updates the config,
+    /// and resets connection-specific state. Callers must call `connect()`
+    /// after reconfiguring to establish the new connection.
+    public func reconfigure(config newConfig: DaemonConfig) {
+        disconnect()
+        self.config = newConfig
+        // Reset connection-specific state
+        isAuthenticated = false
+        isBlobTransportAvailable = false
+        httpPort = nil
+        daemonVersion = nil
+        latestMemoryStatus = nil
+        currentModel = nil
+        cuObservationSequenceBySession.removeAll()
     }
 
     deinit {
