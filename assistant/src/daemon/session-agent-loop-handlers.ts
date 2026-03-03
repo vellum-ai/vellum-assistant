@@ -185,10 +185,16 @@ export function handleThinkingDelta(
   if (!state.firstThinkingDeltaEmitted) {
     state.firstThinkingDeltaEmitted = true;
     const lastToolName = state.lastCompletedToolName;
-    const statusText = lastToolName
-      ? `Processing ${friendlyToolName(lastToolName)} results`
-      : undefined;
-    deps.ctx.emitActivityState('thinking', 'thinking_delta', 'assistant_turn', deps.reqId, statusText);
+    // Only emit activity state when we have a tool name to report.
+    // When lastCompletedToolName is undefined (e.g. right after
+    // confirmation_resolved), emitting without statusText would clear
+    // the client's current status (e.g. "Resuming after approval").
+    // The phase is already 'thinking' from either message_dequeued or
+    // confirmation_resolved, so skipping here is safe.
+    if (lastToolName) {
+      const statusText = `Processing ${friendlyToolName(lastToolName)} results`;
+      deps.ctx.emitActivityState('thinking', 'thinking_delta', 'assistant_turn', deps.reqId, statusText);
+    }
   }
   if (!deps.ctx.streamThinking) return;
   emitLlmCallStartedIfNeeded(state, deps);
