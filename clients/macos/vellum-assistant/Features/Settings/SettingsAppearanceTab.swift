@@ -47,39 +47,35 @@ struct SettingsAppearanceTab: View {
                     .frame(width: 220)
                 }
 
-                HStack(alignment: .center, spacing: VSpacing.sm) {
-                    VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        Text("User timezone")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
-                        Text("Timezone used for time-aware responses.")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                    }
-                    Spacer()
-                    Picker("", selection: $selectedTimezone) {
-                        Text("Not Set").tag("")
-                        ForEach(Self.knownTimezones, id: \.self) { identifier in
-                            Text(identifier).tag(identifier)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .labelsHidden()
-                    .onChange(of: selectedTimezone) { newValue in
-                        if newValue.isEmpty {
-                            store.clearUserTimezone()
-                        } else {
-                            store.saveUserTimezone(newValue)
-                        }
-                    }
-                    .onAppear {
-                        selectedTimezone = store.userTimezone ?? ""
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("User timezone")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textSecondary)
+                    Text("Timezone used for time-aware responses.")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                    VDropdown(
+                        placeholder: "Not Set",
+                        selection: $selectedTimezone,
+                        options: [(label: "Not Set", value: "")] + Self.knownTimezones.map { (label: $0, value: $0) },
+                        emptyValue: ""
+                    )
+                    .frame(width: 360)
+                }
+                .onChange(of: selectedTimezone) { _, newValue in
+                    if newValue.isEmpty {
+                        store.clearUserTimezone()
+                    } else {
+                        store.saveUserTimezone(newValue)
                     }
                 }
 
             }
             .padding(VSpacing.lg)
             .vCard(background: VColor.surfaceSubtle)
+            .onAppear {
+                selectedTimezone = store.userTimezone ?? ""
+            }
 
             // KEYBOARD SHORTCUTS section
             VStack(alignment: .leading, spacing: 0) {
