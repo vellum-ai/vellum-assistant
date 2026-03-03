@@ -239,7 +239,7 @@ function makePendingApprovalSession(
     setChannelCapabilities: () => {},
     setAssistantId: () => {},
     guardianContext: undefined as unknown,
-    setGuardianContext(ctx: unknown) {
+    setGuardianContext(this: { guardianContext: unknown }, ctx: unknown) {
       this.guardianContext = ctx;
     },
     setAuthContext: () => {},
