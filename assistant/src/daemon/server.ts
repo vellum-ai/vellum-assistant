@@ -1057,6 +1057,7 @@ export class DaemonServer {
       options?.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
     );
     session.setGuardianContext(options?.guardianContext ?? null);
+    session.setAuthContext(options?.authContext ?? null);
     await session.ensureActorScopedHistory();
     session.setChannelCapabilities(
       resolveChannelCapabilities(sourceChannel, sourceInterface),

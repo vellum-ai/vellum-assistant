@@ -52,7 +52,7 @@ import type { ExtensionCommand, ExtensionResponse } from '../browser-extension-r
 import { extensionRelayServer } from '../browser-extension-relay/server.js';
 import { getGatewayInternalBaseUrl } from '../config/env.js';
 import type { ExtractedCredential } from '../tools/browser/network-recording-types.js';
-import { readHttpToken } from '../util/platform.js';
+import { isSigningKeyInitialized, mintEdgeRelayToken } from '../runtime/auth/token-service.js';
 import {
   type AmazonSession,
   loadSession,
@@ -75,11 +75,14 @@ export async function sendRelayCommand(command: Record<string, unknown>): Promis
     return extensionRelayServer.sendCommand(command as Omit<ExtensionCommand, 'id'>);
   }
 
-  // Fall back to HTTP relay endpoint on the daemon
-  const token = readHttpToken();
-  if (!token) {
-    throw new Error('Browser extension relay is not connected and no HTTP token found. Is the daemon running?');
+  // Fall back to HTTP relay endpoint via the gateway.
+  // The gateway validates edge JWTs (aud=vellum-gateway) and mints an
+  // exchange token for the runtime. Without the signing key (CLI
+  // out-of-process), we cannot mint JWTs at all.
+  if (!isSigningKeyInitialized()) {
+    throw new Error('Auth signing key not initialized — browser-relay commands require the daemon to be running');
   }
+  const token = mintEdgeRelayToken();
 
   const resp = await fetch(`${getGatewayInternalBaseUrl()}/v1/browser-relay/command`, {
     method: 'POST',

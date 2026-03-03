@@ -289,7 +289,7 @@ New configuration and control endpoints MUST be exposed over HTTP on the runtime
 
 Existing IPC-only handlers should be migrated to HTTP when touched. The pattern: extract business logic into a shared function, add an HTTP route handler in `assistant/src/runtime/routes/`, keep the IPC handler as a thin wrapper that calls the same logic.
 
-When writing skills that need to call daemon configuration endpoints, use `curl` with the runtime HTTP API (bearer-authenticated via `~/.vellum/http-token`) rather than describing IPC socket protocol details. The assistant already knows how to use `curl`.
+When writing skills that need to call daemon configuration endpoints, use `curl` with the runtime HTTP API (JWT-authenticated via `Authorization: Bearer <jwt>`) rather than describing IPC socket protocol details. The assistant already knows how to use `curl`.
 
 ## Error Handling Conventions
 

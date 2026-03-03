@@ -681,32 +681,32 @@ iOS pairing uses a v4 QR code protocol with Mac-side approval. There is no manua
 
 **Approved devices:** Devices paired with "Always Allow" are persisted to `~/.vellum/protected/approved-devices.json` (keyed by hashed deviceId). Future pairings from allowlisted devices auto-approve without a prompt. The macOS Connect tab shows an Approved Devices list with remove/clear actions.
 
-### Actor Credential Refresh (Shared: macOS + iOS)
+### JWT Credential Refresh (Shared: macOS + iOS)
 
-Both macOS and iOS clients use a shared credential refresh mechanism to maintain valid actor tokens without re-bootstrapping or re-pairing. Bootstrap (macOS) and pairing (iOS) are only used for initial credential issuance.
+Both macOS and iOS clients use a single JWT access token for all HTTP authentication, sent as `Authorization: Bearer <jwt>`. The JWT serves as both authentication and identity — there is no separate `X-Actor-Token` header. A shared credential refresh mechanism maintains valid tokens without re-bootstrapping or re-pairing. Bootstrap (macOS) and pairing (iOS) are only used for initial credential issuance.
 
-**Credential storage:** The client stores the following in the Keychain alongside the bearer token:
+**Credential storage:** The client stores the following in the Keychain:
 
 | Data | Storage | Purpose |
 |------|---------|---------|
-| Actor token | Keychain | `X-Actor-Token` header for authenticated requests |
+| Access token (JWT) | Keychain | `Authorization: Bearer <jwt>` header for authenticated requests |
 | Refresh token | Keychain | Presented to the refresh endpoint to rotate credentials |
-| Actor token expiry | Keychain | Absolute expiry timestamp of the current actor token |
+| Access token expiry | Keychain | Absolute expiry timestamp of the current access token |
 | Refresh token expiry | Keychain | Absolute expiry timestamp of the current refresh token |
-| `refreshAfter` | Keychain | Timestamp at which the client should proactively refresh (80% of actor token TTL) |
+| `refreshAfter` | Keychain | Timestamp at which the client should proactively refresh (80% of access token TTL) |
 
-**Proactive refresh:** Both macOS and iOS run a periodic check every 5 minutes. If `now >= refreshAfter`, the client calls `POST /v1/integrations/guardian/vellum/refresh` (through the gateway) with the current refresh token. On success, the response provides a new `actorToken`, `refreshToken`, `actorTokenExpiresAt`, `refreshTokenExpiresAt`, and `refreshAfter`. All stored credentials are updated atomically.
+**Proactive refresh:** Both macOS and iOS run a periodic check every 5 minutes. If `now >= refreshAfter`, the client calls `POST /v1/integrations/guardian/vellum/refresh` (through the gateway) with the current refresh token and `Authorization: Bearer <jwt>`. On success, the response provides a new `accessToken`, `refreshToken`, `accessTokenExpiresAt`, `refreshTokenExpiresAt`, and `refreshAfter`. All stored credentials are updated atomically.
 
-**401 recovery:** When an HTTP request receives a 401 response, the `HTTPDaemonClient` attempts a single refresh before surfacing a "Session expired" error. If the refresh succeeds, the original request is retried with the new actor token. If the refresh also fails (e.g., refresh token expired or revoked), the client surfaces the session-expired error and the user must re-pair (iOS) or re-bootstrap (macOS).
+**401 recovery:** When an HTTP request receives a 401 response with `{ "code": "refresh_required" }`, the `HTTPTransport` attempts a single refresh before surfacing a "Session expired" error. If the refresh succeeds, the original request is retried with the new JWT. If the 401 contains a different code or the refresh fails (e.g., refresh token expired or revoked), the client surfaces the session-expired error and the user must re-pair (iOS) or re-bootstrap (macOS).
 
 **Shared utility:** `ActorCredentialRefresher` is a shared utility used by both platforms. It encapsulates the refresh HTTP call, credential update, and error handling. `ActorTokenManager` on each platform delegates to this refresher for both proactive and reactive (401-recovery) refresh flows.
 
-**No legacy bootstrap-as-renewal:** macOS no longer re-bootstraps on every launch. Bootstrap runs only when no actor token exists at all (first launch or after credential wipe). All subsequent renewal is handled by the refresh flow.
+**No legacy bootstrap-as-renewal:** macOS no longer re-bootstraps on every launch. Bootstrap runs only when no access token exists at all (first launch or after credential wipe). All subsequent renewal is handled by the refresh flow.
 
 ### Prerequisites
 
 - A gateway URL must be configured (cloud tunnel or LAN). LAN pairing works automatically via `localLanUrl` in the QR payload.
-- The bearer token is read from `~/.vellum/http-token` and persists across daemon restarts.
+- The legacy bearer token from `~/.vellum/http-token` is used only as a fallback for initial bootstrap before the first JWT is issued.
 - A conversation key is auto-generated on first connect and stored in UserDefaults.
 - iOS maintains a stable `deviceId` (UUID) in the Keychain across reinstalls.
 

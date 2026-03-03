@@ -39,10 +39,7 @@ import {
   emitNotificationSignal,
   registerBroadcastFn,
 } from "../notifications/emit-signal.js";
-import {
-  initSigningKey,
-  loadOrCreateSigningKey,
-} from "../runtime/actor-token-service.js";
+import { initAuthSigningKey, loadOrCreateSigningKey } from "../runtime/auth/token-service.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { ensureVellumGuardianBinding } from "../runtime/guardian-vellum-migration.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
@@ -168,10 +165,11 @@ export async function runDaemon(): Promise<void> {
     chmodSync(httpTokenPath, 0o600);
     log.info("Daemon startup: bearer token written");
 
-    // Load (or generate + persist) the actor-token signing key so tokens
-    // survive daemon restarts. Must happen after ensureDataDir() creates
-    // the protected directory.
-    initSigningKey(loadOrCreateSigningKey());
+    // Load (or generate + persist) the auth signing key so tokens survive
+    // daemon restarts. Must happen after ensureDataDir() creates the
+    // protected directory.
+    const signingKey = loadOrCreateSigningKey();
+    initAuthSigningKey(signingKey);
 
     log.info("Daemon startup: migrations complete");
 
