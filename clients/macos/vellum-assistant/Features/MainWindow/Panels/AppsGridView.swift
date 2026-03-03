@@ -69,7 +69,7 @@ struct AppsGridView: View {
                         .padding(.top, VSpacing.lg)
                     }
                 }
-                .padding(VSpacing.lg)
+                .padding(VSpacing.xl)
             }
         }
         .background(VColor.backgroundSubtle)
