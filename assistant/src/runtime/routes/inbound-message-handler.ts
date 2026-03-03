@@ -1746,7 +1746,7 @@ function startPendingApprovalPromptWatcher(params: {
   conversationId: string;
   sourceChannel: ChannelId;
   externalChatId: string;
-  guardianTrustClass: TrustContext["trustClass"];
+  trustClass: TrustContext["trustClass"];
   guardianExternalUserId?: string;
   requesterExternalUserId?: string;
   replyCallbackUrl: string;
@@ -1758,7 +1758,7 @@ function startPendingApprovalPromptWatcher(params: {
     conversationId,
     sourceChannel,
     externalChatId,
-    guardianTrustClass,
+    trustClass,
     guardianExternalUserId,
     requesterExternalUserId,
     replyCallbackUrl,
@@ -1772,7 +1772,7 @@ function startPendingApprovalPromptWatcher(params: {
   // We also require an explicit identity match against the bound guardian to
   // avoid broadcasting prompts when trustClass is stale/mis-scoped.
   const isBoundGuardianActor =
-    guardianTrustClass === "guardian" &&
+    trustClass === "guardian" &&
     !!guardianExternalUserId &&
     requesterExternalUserId === guardianExternalUserId;
   if (!isBoundGuardianActor) {
@@ -1869,7 +1869,7 @@ function startTrustedContactApprovalNotifier(params: {
   conversationId: string;
   sourceChannel: ChannelId;
   externalChatId: string;
-  guardianTrustClass: TrustContext["trustClass"];
+  trustClass: TrustContext["trustClass"];
   guardianExternalUserId?: string;
   replyCallbackUrl: string;
   mintBearerToken: () => string;
@@ -1879,7 +1879,7 @@ function startTrustedContactApprovalNotifier(params: {
     conversationId,
     sourceChannel,
     externalChatId,
-    guardianTrustClass,
+    trustClass,
     guardianExternalUserId,
     replyCallbackUrl,
     mintBearerToken,
@@ -1887,7 +1887,7 @@ function startTrustedContactApprovalNotifier(params: {
   } = params;
 
   // Only notify trusted contacts who have a resolvable guardian route.
-  if (guardianTrustClass !== "trusted_contact" || !guardianExternalUserId) {
+  if (trustClass !== "trusted_contact" || !guardianExternalUserId) {
     return () => {};
   }
 
@@ -2005,7 +2005,7 @@ function processChannelMessageInBackground(
           conversationId,
           sourceChannel,
           externalChatId,
-          guardianTrustClass: trustCtx.trustClass,
+          trustClass: trustCtx.trustClass,
           guardianExternalUserId: trustCtx.guardianExternalUserId,
           requesterExternalUserId: trustCtx.requesterExternalUserId,
           replyCallbackUrl,
@@ -2019,7 +2019,7 @@ function processChannelMessageInBackground(
           conversationId,
           sourceChannel,
           externalChatId,
-          guardianTrustClass: trustCtx.trustClass,
+          trustClass: trustCtx.trustClass,
           guardianExternalUserId: trustCtx.guardianExternalUserId,
           replyCallbackUrl,
           mintBearerToken,

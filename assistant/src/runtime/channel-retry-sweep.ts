@@ -138,7 +138,7 @@ export async function sweepFailedEvents(
     // into a valid canonical shape (e.g., legacy actorRole-only payloads without
     // trustClass), fail the event deterministically rather than processing it
     // without guardian context. Without this check, the downstream default of
-    // `guardianTrustClass ?? 'guardian'` would silently escalate privileges.
+    // `trustClass ?? 'guardian'` would silently escalate privileges.
     if (payload.trustCtx && !parsedTrustContext) {
       log.warn(
         { eventId: event.id },
@@ -154,7 +154,7 @@ export async function sweepFailedEvents(
     // When trustCtx is entirely absent (pre-guardian events or events stored
     // before trust context was added), synthesize an explicit 'unknown' context.
     // This ensures replay never proceeds without an explicit trust classification
-    // — downstream defaults like `guardianTrustClass ?? 'guardian'` would
+    // — downstream defaults like `trustClass ?? 'guardian'` would
     // otherwise grant guardian-level tool access to unclassified events.
     const trustContext: TrustContext = parsedTrustContext ?? {
       sourceChannel,
