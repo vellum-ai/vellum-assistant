@@ -211,9 +211,15 @@ async function ensureAssistantHatched(): Promise<void> {
         timeout: 300_000,
         shell: "/bin/bash",
       });
-    } catch (err) {
+    } catch (err: unknown) {
+      const output =
+        (err as { stdout?: string }).stdout ||
+        (err as { stderr?: string }).stderr ||
+        "";
       const message = err instanceof Error ? err.message : String(err);
-      throw new Error(`Failed to hatch assistant: ${message}`);
+      throw new Error(
+        `Failed to hatch assistant: ${message}${output ? `\n--- vellum hatch output ---\n${output}` : ""}`,
+      );
     }
   }
 
