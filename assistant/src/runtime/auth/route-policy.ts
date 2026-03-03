@@ -173,6 +173,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: 'integrations/guardian/outbound/start', scopes: ['settings.write'] },
   { endpoint: 'integrations/guardian/outbound/resend', scopes: ['settings.write'] },
   { endpoint: 'integrations/guardian/outbound/cancel', scopes: ['settings.write'] },
+  { endpoint: 'integrations/public-ingress/ngrok/auth', scopes: ['settings.write'] },
   { endpoint: 'integrations/twilio/config', scopes: ['settings.read'] },
   { endpoint: 'integrations/twilio/credentials:POST', scopes: ['settings.write'] },
   { endpoint: 'integrations/twilio/credentials:DELETE', scopes: ['settings.write'] },

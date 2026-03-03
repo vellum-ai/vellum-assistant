@@ -169,6 +169,7 @@ import {
   handleSetupTelegram,
   handleStartOutbound,
 } from "./routes/integration-routes.js";
+import { handleNgrokAuth } from "./routes/ngrok-routes.js";
 import type { PairingHandlerContext } from "./routes/pairing-routes.js";
 // Extracted route handlers
 import {
@@ -1149,6 +1150,10 @@ export class RuntimeHttpServer {
 
       // Guardian vellum channel bootstrap and refresh are handled before
       // JWT auth in routeRequest() — they are not dispatched here.
+
+      // Integrations — Public ingress (ngrok)
+      if (endpoint === 'integrations/public-ingress/ngrok/auth' && req.method === 'POST')
+        return await handleNgrokAuth(req);
 
       // Integrations — Twilio config
       if (endpoint === "integrations/twilio/config" && req.method === "GET")

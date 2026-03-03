@@ -132,8 +132,6 @@ After the user picks a voice, use `voice_config_update` to set the shared voice 
 voice_config_update setting="tts_voice_id" value="<selected-voice-id>"
 ```
 
-**If the user wants a voice not on this list**, they can browse more voices at https://elevenlabs.io/voice-library and provide the voice ID manually.
-
 ## Step 4: Verify Setup (Test Call)
 
 Before making real calls, offer a quick verification:
@@ -234,25 +232,7 @@ Users who have an ElevenLabs account and API key (e.g., from the **voice-setup**
 - **Use custom or cloned voices** — if the user has created a custom voice or voice clone in their ElevenLabs account, they can use its voice ID here. These voices are available in Twilio ConversationRelay just like pre-made voices.
 - **Preview voices before choosing** — each voice in the API response includes a `preview_url` with an audio sample.
 
-To check if the user has an API key stored:
-
-```bash
-credential_store action=get service=elevenlabs field=api_key
-```
-
-If they have a key and want to browse voices, fetch the voice list:
-
-```bash
-curl -s "https://api.elevenlabs.io/v2/voices?category=premade&page_size=50" \
-  -H "xi-api-key: <api_key_from_credential_store>" | python3 -m json.tool
-```
-
-To search for a specific voice style:
-
-```bash
-curl -s "https://api.elevenlabs.io/v2/voices?search=warm+female&page_size=10" \
-  -H "xi-api-key: <api_key_from_credential_store>" | python3 -m json.tool
-```
+**If the user wants a voice not on the curated list above**, they can browse more voices at https://elevenlabs.io/voice-library and provide the voice ID manually.
 
 After the user picks a voice, set the shared voice ID:
 

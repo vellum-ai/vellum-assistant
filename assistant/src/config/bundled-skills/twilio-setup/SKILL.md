@@ -14,10 +14,10 @@ You are helping your user configure Twilio for voice calls and SMS messaging. Tw
 # 1. Check current status
 curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/config" \
   -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN"
-# 2. Store credentials (after collecting via credential_store prompt)
+# 2. Validate and store credentials (after collecting via credential_store prompt)
 curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/credentials" \
   -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" -H "Content-Type: application/json" \
-  -d '{"accountSid":"ACxxx","authToken":"xxx"}'
+  -d '{}'
 # 3. Provision or assign a number
 curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/numbers/provision" \
   -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" -H "Content-Type: application/json" \
@@ -91,16 +91,16 @@ If credentials are not yet stored, guide the user through Twilio account setup:
 - Call `credential_store` with `action: "prompt"`, `service: "twilio"`, `field: "account_sid"`, `label: "Twilio Account SID"`, `description: "Enter your Account SID from the Twilio Console dashboard"`, and `placeholder: "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"`.
 - Call `credential_store` with `action: "prompt"`, `service: "twilio"`, `field: "auth_token"`, `label: "Twilio Auth Token"`, `description: "Enter your Auth Token from the Twilio Console dashboard"`, and `placeholder: "your_auth_token"`.
 
-After both credentials are collected, retrieve them from secure storage and send them to the gateway:
+After both credentials are collected, tell the gateway to validate and store them. The endpoint automatically resolves credentials from secure storage — no need to read them back:
 
 ```bash
 curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/credentials" \
   -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"accountSid":"<value from credential_store for twilio/account_sid>","authToken":"<value from credential_store for twilio/auth_token>"}'
+  -d '{}'
 ```
 
-Both `accountSid` and `authToken` are required — the endpoint validates the credentials against the Twilio API before storing them. If credentials are invalid, the response returns an error. Tell the user and ask them to re-enter via the secure prompt.
+The endpoint resolves `accountSid` and `authToken` from secure storage (`credential:twilio:account_sid`, `credential:twilio:auth_token`), validates them against the Twilio API, and stores them. If credentials are invalid, the response returns an error. Tell the user and ask them to re-enter via the secure prompt.
 
 **Note:** Setting credentials is a global operation — credentials are stored once and shared across all assistants. The `assistantId` parameter is accepted but ignored.
 

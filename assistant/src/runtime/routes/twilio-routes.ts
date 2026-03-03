@@ -141,24 +141,37 @@ export function handleGetTwilioConfig(): Response {
 /**
  * POST /v1/integrations/twilio/credentials
  *
- * Body: { accountSid: string, authToken: string }
+ * Body: { accountSid?: string, authToken?: string }
+ *
+ * Accepts either explicit credentials in the body or an empty body `{}`.
+ * When the body omits credentials, they are resolved from secure storage
+ * (`credential:twilio:account_sid` and `credential:twilio:auth_token`).
+ * This enables skill flows that collect credentials via `credential_store`
+ * prompts without ever reading the plaintext back into conversation context.
  */
 export async function handleSetTwilioCredentials(req: Request): Promise<Response> {
   const body = (await req.json().catch(() => ({}))) as { accountSid?: string; authToken?: string };
 
-  if (!body.accountSid || !body.authToken) {
+  // Resolve credentials: prefer explicit body values, fall back to secure storage
+  const accountSid = body.accountSid || getSecureKey('credential:twilio:account_sid');
+  const authToken = body.authToken || getSecureKey('credential:twilio:auth_token');
+
+  if (!accountSid || !authToken) {
+    const missing: string[] = [];
+    if (!accountSid) missing.push('accountSid');
+    if (!authToken) missing.push('authToken');
     return Response.json({
       success: false,
       hasCredentials: hasTwilioCredentials(),
-      error: 'accountSid and authToken are required',
+      error: `Missing ${missing.join(' and ')}. Provide them in the request body or store them via credential_store first.`,
     }, { status: 400 });
   }
 
   // Validate credentials against Twilio API
-  const authHeader = 'Basic ' + Buffer.from(`${body.accountSid}:${body.authToken}`).toString('base64');
+  const authHeader = 'Basic ' + Buffer.from(`${accountSid}:${authToken}`).toString('base64');
   try {
     const res = await fetch(
-      `https://api.twilio.com/2010-04-01/Accounts/${body.accountSid}.json`,
+      `https://api.twilio.com/2010-04-01/Accounts/${accountSid}.json`,
       { method: 'GET', headers: { Authorization: authHeader } },
     );
     if (!res.ok) {
@@ -179,7 +192,7 @@ export async function handleSetTwilioCredentials(req: Request): Promise<Response
   }
 
   // Store credentials securely
-  const sidStored = setSecureKey('credential:twilio:account_sid', body.accountSid);
+  const sidStored = setSecureKey('credential:twilio:account_sid', accountSid);
   if (!sidStored) {
     return Response.json({
       success: false,
@@ -188,7 +201,7 @@ export async function handleSetTwilioCredentials(req: Request): Promise<Response
     });
   }
 
-  const tokenStored = setSecureKey('credential:twilio:auth_token', body.authToken);
+  const tokenStored = setSecureKey('credential:twilio:auth_token', authToken);
   if (!tokenStored) {
     deleteSecureKey('credential:twilio:account_sid');
     return Response.json({

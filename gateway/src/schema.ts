@@ -1189,6 +1189,31 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/integrations/public-ingress/ngrok/auth": {
+        post: {
+          summary: "Configure ngrok auth token",
+          description:
+            "Authenticated gateway endpoint that configures the ngrok auth token server-side. Accepts an explicit token in the body or resolves from secure storage.",
+          operationId: "ngrokAuthPost",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: false,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "ngrok auth token configured" },
+            "400": { description: "Missing auth token" },
+            "401": { description: "Unauthorized — missing or invalid bearer token" },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
       "/v1/integrations/twilio/config": {
         get: {
           summary: "Get Twilio integration config",
@@ -1209,11 +1234,11 @@ export function buildSchema(): Record<string, unknown> {
         post: {
           summary: "Set Twilio credentials",
           description:
-            "Authenticated gateway endpoint that stores Twilio account credentials via the assistant runtime.",
+            "Authenticated gateway endpoint that stores Twilio account credentials via the assistant runtime. Accepts explicit credentials in the body or an empty body to resolve from secure storage.",
           operationId: "twilioCredentialsPost",
           security: [{ BearerAuth: [] }],
           requestBody: {
-            required: true,
+            required: false,
             content: {
               "application/json": {
                 schema: { type: "object", additionalProperties: true },

@@ -130,5 +130,9 @@ export function createTwilioControlPlaneProxyHandler(config: GatewayConfig) {
     async handleSmsDoctor(req: Request): Promise<Response> {
       return proxyToRuntime(req, "/v1/integrations/twilio/sms/doctor", "");
     },
+
+    async handleNgrokAuth(req: Request): Promise<Response> {
+      return proxyToRuntime(req, "/v1/integrations/public-ingress/ngrok/auth", "");
+    },
   };
 }

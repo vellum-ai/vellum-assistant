@@ -78,19 +78,16 @@ If not authenticated:
    - description: `Get your auth token from https://dashboard.ngrok.com/get-started/your-authtoken`
    - usage_description: `ngrok authentication token for creating public tunnels`
 
-3. Once the credential is stored, configure ngrok by reading the token directly from the OS keychain and piping it to ngrok so the plaintext never enters the conversation:
+3. Once the credential is stored, configure ngrok server-side. The endpoint resolves the token from secure storage automatically:
 
-   **macOS:**
    ```bash
-   ngrok config add-authtoken "$(security find-generic-password -s vellum-assistant -a credential:ngrok:authtoken -w)"
+   curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/public-ingress/ngrok/auth" \
+     -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{}'
    ```
 
-   **Linux:**
-   ```bash
-   ngrok config add-authtoken "$(secret-tool lookup service vellum-assistant account credential:ngrok:authtoken)"
-   ```
-
-   If the keychain command fails (e.g., headless environment without a keyring), fall back to asking the user to re-enter the token via `credential_store prompt` and then paste it into `ngrok config add-authtoken` manually as a last resort.
+   The endpoint runs `ngrok config add-authtoken` server-side so the plaintext token never enters the conversation. If it fails, check the error message and ask the user to re-enter the token via `credential_store prompt`.
 
 Verify authentication succeeded by checking `ngrok config check` again.
 

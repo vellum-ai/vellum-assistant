@@ -555,6 +555,13 @@ function main() {
         return twilioControlPlaneProxy.handleSmsDoctor(tracedReq);
       }
 
+      // ── Public ingress (ngrok) control-plane proxy ──
+      if (url.pathname === "/v1/integrations/public-ingress/ngrok/auth" && req.method === "POST") {
+        const authError = requireEdgeAuth();
+        if (authError) return authError;
+        return twilioControlPlaneProxy.handleNgrokAuth(tracedReq);
+      }
+
       // ── Twilio tollfree verification dynamic path routes ──
       const tollfreeVerificationMatch = url.pathname.match(
         /^\/v1\/integrations\/twilio\/sms\/compliance\/tollfree\/([^/]+)$/,
