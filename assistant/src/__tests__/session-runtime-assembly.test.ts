@@ -44,6 +44,14 @@ describe("resolveChannelCapabilities", () => {
     expect(caps.supportsVoiceInput).toBe(true);
   });
 
+  test("vellum channel with vellum interface supports dynamic UI", () => {
+    const caps = resolveChannelCapabilities("vellum", "vellum");
+    expect(caps.channel).toBe("vellum");
+    expect(caps.dashboardCapable).toBe(false);
+    expect(caps.supportsDynamicUi).toBe(true);
+    expect(caps.supportsVoiceInput).toBe(false);
+  });
+
   test("defaults to vellum for null source channel", () => {
     const caps = resolveChannelCapabilities(null);
     expect(caps.channel).toBe("vellum");

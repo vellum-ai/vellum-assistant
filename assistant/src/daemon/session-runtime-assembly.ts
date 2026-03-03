@@ -314,7 +314,7 @@ export function resolveChannelCapabilities(
       return {
         channel,
         dashboardCapable: supportsDesktopUi,
-        supportsDynamicUi: supportsDesktopUi,
+        supportsDynamicUi: supportsDesktopUi || iface === "vellum",
         supportsVoiceInput: supportsDesktopUi,
         pttActivationKey: sanitizePttActivationKey(
           pttMetadata?.pttActivationKey,
