@@ -6,6 +6,7 @@
  * keeping the constructor body focused on wiring.
  */
 
+import { isHttpAuthDisabled } from "../config/env.js";
 import {
   generateAllowlistOptions,
   generateScopeOptions,
@@ -18,40 +19,39 @@ import {
   findHighestPriorityRule,
 } from "../permissions/trust-store.js";
 import { isAllowDecision } from "../permissions/types.js";
-import { isHttpAuthDisabled } from "../config/env.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
+import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import { getEffectiveMode } from "../runtime/session-approval-overrides.js";
+import { coreAppProxyTools } from "../tools/apps/definitions.js";
+import { registerSessionSender } from "../tools/browser/browser-screencast.js";
+import { requestComputerControlTool } from "../tools/computer-use/request-computer-control.js";
 import type { ToolExecutor } from "../tools/executor.js";
+import type {
+  ProxyApprovalCallback,
+  ProxyApprovalRequest,
+} from "../tools/network/script-proxy/index.js";
+import { getAllToolDefinitions } from "../tools/registry.js";
 import type {
   ToolExecutionResult,
   ToolLifecycleEventHandler,
 } from "../tools/types.js";
+import { allUiSurfaceTools } from "../tools/ui-surface/definitions.js";
 import { getLogger } from "../util/logger.js";
 import {
   isDoordashCommand,
   markDoordashStepInProgress,
 } from "./doordash-steps.js";
 import type { ServerMessage, UiSurfaceShow } from "./ipc-protocol.js";
-import { runPostExecutionSideEffects } from "./tool-side-effects.js";
-
-const log = getLogger("session-tool-setup");
-import { coreAppProxyTools } from "../tools/apps/definitions.js";
-import { registerSessionSender } from "../tools/browser/browser-screencast.js";
-import { requestComputerControlTool } from "../tools/computer-use/request-computer-control.js";
-import type {
-  ProxyApprovalCallback,
-  ProxyApprovalRequest,
-} from "../tools/network/script-proxy/index.js";
-import { getAllToolDefinitions } from "../tools/registry.js";
-import { allUiSurfaceTools } from "../tools/ui-surface/definitions.js";
 import type { GuardianRuntimeContext } from "./session-runtime-assembly.js";
-import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import {
   projectSkillTools,
   type SkillProjectionCache,
 } from "./session-skill-tools.js";
 import type { SurfaceSessionContext } from "./session-surfaces.js";
 import { surfaceProxyResolver } from "./session-surfaces.js";
+import { runPostExecutionSideEffects } from "./tool-side-effects.js";
+
+const log = getLogger("session-tool-setup");
 
 /**
  * Resolve the effective guardian trust class for tool execution.
