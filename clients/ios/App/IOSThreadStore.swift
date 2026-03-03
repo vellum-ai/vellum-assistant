@@ -160,7 +160,19 @@ class IOSThreadStore: ObservableObject {
                 sessionId: msg.conversationId,
                 scheduleJobId: msg.scheduleJobId
             )
-            self.threads.insert(thread, at: 0)
+            // Remove the empty placeholder thread if it's still present (race:
+            // schedule_thread_created can arrive before the first session_list_response).
+            if self.threads.count == 1,
+               self.threads[0].sessionId == nil,
+               self.viewModels[self.threads[0].id]?.messages.isEmpty ?? true,
+               self.viewModels[self.threads[0].id]?.sessionId == nil {
+                self.viewModels.removeValue(forKey: self.threads[0].id)
+                self.threads = [thread]
+            } else {
+                self.threads.insert(thread, at: 0)
+            }
+            self.isLoadingInitialThreads = false
+            self.saveConnectedCache()
         }
 
         // Fetch session list once connected. Try immediately if already connected,
