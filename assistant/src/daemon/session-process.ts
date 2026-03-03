@@ -11,8 +11,7 @@ import type { TurnChannelContext, TurnInterfaceContext } from '../channels/types
 import { parseChannelId, parseInterfaceId } from '../channels/types.js';
 import { getConfig } from '../config/loader.js';
 import {
-  listCanonicalGuardianRequests,
-  listPendingCanonicalGuardianRequestsByDestinationConversation,
+  listPendingRequestsByConversationScope,
 } from '../memory/canonical-guardian-store.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { provenanceFromGuardianContext } from '../memory/conversation-store.js';
@@ -362,13 +361,7 @@ export async function processMessage(
   session.currentPage = currentPage;
   const trimmedContent = content.trim();
   const canonicalPendingRequestHintIdsForConversation = trimmedContent.length > 0
-    ? Array.from(new Set([
-        ...listPendingCanonicalGuardianRequestsByDestinationConversation(session.conversationId, 'vellum').map((request) => request.id),
-        ...listCanonicalGuardianRequests({
-          status: 'pending',
-          conversationId: session.conversationId,
-        }).map((request) => request.id),
-      ]))
+    ? listPendingRequestsByConversationScope(session.conversationId).map((request) => request.id)
     : [];
   const canonicalPendingRequestIdsForConversation = canonicalPendingRequestHintIdsForConversation.length > 0
     ? canonicalPendingRequestHintIdsForConversation

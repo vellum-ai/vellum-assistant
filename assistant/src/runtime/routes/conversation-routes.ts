@@ -12,8 +12,7 @@ import * as attachmentsStore from '../../memory/attachments-store.js';
 import {
   createCanonicalGuardianRequest,
   generateCanonicalRequestCode,
-  listCanonicalGuardianRequests,
-  listPendingCanonicalGuardianRequestsByDestinationConversation,
+  listPendingRequestsByConversationScope,
 } from '../../memory/canonical-guardian-store.js';
 import {
   getConversationByKey,
@@ -49,28 +48,14 @@ const SUGGESTION_CACHE_MAX = 100;
 
 function collectCanonicalGuardianRequestHintIds(
   conversationId: string,
-  sourceChannel: string,
+  _sourceChannel: string,
   session: import('../../daemon/session.js').Session,
 ): string[] {
-  const requests = [
-    ...listPendingCanonicalGuardianRequestsByDestinationConversation(conversationId, sourceChannel)
-      .map((request) => ({ id: request.id, kind: request.kind })),
-    ...listCanonicalGuardianRequests({
-      status: 'pending',
-      conversationId,
-    }).map((request) => ({ id: request.id, kind: request.kind })),
-  ];
+  const requests = listPendingRequestsByConversationScope(conversationId);
 
-  const deduped = new Map<string, string>();
-  for (const request of requests) {
-    if (!deduped.has(request.id)) {
-      deduped.set(request.id, request.kind ?? '');
-    }
-  }
-
-  return Array.from(deduped.entries())
-    .filter(([requestId, kind]) => kind !== 'tool_approval' || session.hasPendingConfirmation(requestId))
-    .map(([requestId]) => requestId);
+  return requests
+    .filter((req) => req.kind !== 'tool_approval' || session.hasPendingConfirmation(req.id))
+    .map((req) => req.id);
 }
 
 async function tryConsumeCanonicalGuardianReply(params: {

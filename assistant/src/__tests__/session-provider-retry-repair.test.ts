@@ -280,6 +280,7 @@ mock.module("../agent/loop.js", () => ({
 mock.module("../memory/canonical-guardian-store.js", () => ({
   listPendingCanonicalGuardianRequestsByDestinationConversation: () => [],
   listCanonicalGuardianRequests: () => [],
+  listPendingRequestsByConversationScope: () => [],
   createCanonicalGuardianRequest: () => ({
     id: "mock-cg-id",
     code: "MOCK",
