@@ -29,7 +29,7 @@ public struct InlineTableWidget: View {
                     Button {
                         toggleSelectAll()
                     } label: {
-                        Image(systemName: allSelected ? "checkmark.circle.fill" : "circle")
+                        Image(systemName: allSelected ? "checkmark.square.fill" : "square")
                             .font(.system(size: 14))
                             .foregroundColor(allSelected ? VColor.accent : VColor.textMuted)
                     }
