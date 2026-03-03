@@ -905,10 +905,8 @@ describe("partial failure scenarios", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.reason).toBe("write_failed");
-      if (result.reason === "write_failed") {
-        expect(result.message).toBeDefined();
-        expect(result.message.length).toBeGreaterThan(0);
-      }
+      expect((result as { message: string }).message).toBeDefined();
+      expect((result as { message: string }).message.length).toBeGreaterThan(0);
     }
 
     // Clean up
@@ -925,11 +923,14 @@ describe("partial failure scenarios", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.reason).toBe("validation_failed");
-      if (result.reason === "validation_failed") {
-        expect(result.errors).toBeDefined();
-        expect(result.errors.length).toBeGreaterThan(0);
-        expect(result.errors[0].code).toBe("INVALID_GZIP");
-      }
+      const errors = (
+        result as {
+          errors: Array<{ code: string; message: string }>;
+        }
+      ).errors;
+      expect(errors).toBeDefined();
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].code).toBe("INVALID_GZIP");
     }
   });
 
