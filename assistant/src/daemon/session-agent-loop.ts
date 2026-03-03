@@ -320,7 +320,7 @@ export async function runAgentLoopImpl(
         conflictGate: ctx.conflictGate,
         scopeId: ctx.memoryPolicy.scopeId,
         includeDefaultFallback: ctx.memoryPolicy.includeDefaultFallback,
-        guardianTrustClass: resolveGuardianTrustClass(ctx.guardianContext),
+        trustClass: resolveGuardianTrustClass(ctx.guardianContext),
         isInteractive: options?.isInteractive ?? (!ctx.hasNoClient && !ctx.headlessLock),
       },
       content,

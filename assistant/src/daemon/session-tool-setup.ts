@@ -151,7 +151,7 @@ export function createToolExecutor(
       assistantId: ctx.assistantId,
       requestId: ctx.currentRequestId,
       taskRunId: ctx.taskRunId,
-      guardianTrustClass: resolveGuardianTrustClass(ctx.guardianContext),
+      trustClass: resolveGuardianTrustClass(ctx.guardianContext),
       executionChannel: ctx.guardianContext?.sourceChannel,
       callSessionId: ctx.callSessionId,
       triggeredBySurfaceAction:
