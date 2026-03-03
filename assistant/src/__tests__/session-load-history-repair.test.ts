@@ -69,7 +69,7 @@ mock.module("../memory/conversation-store.js", () => ({
   updateConversationUsage: () => {},
   provenanceFromTrustContext: () => ({
     source: "user",
-    guardianContext: undefined,
+    trustContext: undefined,
   }),
   getConversationOriginInterface: () => null,
   getConversationOriginChannel: () => null,
@@ -362,7 +362,7 @@ describe("loadFromDb history repair", () => {
     ];
 
     const session = makeSession();
-    session.setGuardianContext({
+    session.setTrustContext({
       trustClass: "unknown",
       sourceChannel: "telegram",
     });
@@ -430,14 +430,14 @@ describe("loadFromDb history repair", () => {
 
     const session = makeSession();
 
-    session.setGuardianContext({
+    session.setTrustContext({
       trustClass: "guardian",
       sourceChannel: "telegram",
     });
     await session.ensureActorScopedHistory();
     expect(session.getMessages()).toHaveLength(4);
 
-    session.setGuardianContext({
+    session.setTrustContext({
       trustClass: "unknown",
       sourceChannel: "telegram",
     });
@@ -506,14 +506,14 @@ describe("loadFromDb history repair", () => {
 
     const session = makeSession();
 
-    session.setGuardianContext({
+    session.setTrustContext({
       trustClass: "unknown",
       sourceChannel: "telegram",
     });
     await session.ensureActorScopedHistory();
     expect(session.getMessages()).toHaveLength(2);
 
-    session.setGuardianContext({
+    session.setTrustContext({
       trustClass: "guardian",
       sourceChannel: "telegram",
     });

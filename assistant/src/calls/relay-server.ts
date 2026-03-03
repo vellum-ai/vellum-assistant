@@ -23,7 +23,7 @@ import { emitNotificationSignal } from '../notifications/emit-signal.js';
 import { notifyGuardianOfAccessRequest } from '../runtime/access-request-helper.js';
 import {
   resolveActorTrust,
-  toTrustContext,
+  toGuardianRuntimeContextFromTrust,
 } from '../runtime/actor-trust-resolver.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
 import {
@@ -515,12 +515,12 @@ export class RelayConnection {
       conversationExternalId: otherPartyNumber,
       actorExternalId: otherPartyNumber || undefined,
     });
-    const initialGuardianContext = toTrustContext(initialActorTrust, otherPartyNumber);
+    const initialTrustContext = toGuardianRuntimeContextFromTrust(initialActorTrust, otherPartyNumber);
 
     const controller = new CallController(this.callSessionId, this, session?.task ?? null, {
       broadcast: globalBroadcast,
       assistantId,
-      guardianContext: initialGuardianContext,
+      trustContext: initialTrustContext,
     });
     this.setController(controller);
 
@@ -718,8 +718,8 @@ export class RelayConnection {
       // Update the controller's guardian context with the trust-resolved
       // context so downstream policy gates have accurate actor metadata.
       if (this.controller && actorTrust.trustClass !== 'unknown') {
-        const resolvedGuardianContext = toTrustContext(actorTrust, msg.from);
-        this.controller.setGuardianContext(resolvedGuardianContext);
+        const resolvedTrustContext = toGuardianRuntimeContextFromTrust(actorTrust, msg.from);
+        this.controller.setTrustContext(resolvedTrustContext);
       }
 
       if (pendingChallenge) {
@@ -829,8 +829,8 @@ export class RelayConnection {
     });
 
     if (this.controller) {
-      this.controller.setGuardianContext(
-        toTrustContext(updatedTrust, fromNumber),
+      this.controller.setTrustContext(
+        toGuardianRuntimeContextFromTrust(updatedTrust, fromNumber),
       );
     }
 
@@ -1053,8 +1053,8 @@ export class RelayConnection {
             conversationExternalId: this.guardianVerificationFromNumber,
             actorExternalId: this.guardianVerificationFromNumber,
           });
-          this.controller.setGuardianContext(
-            toTrustContext(verifiedActorTrust, this.guardianVerificationFromNumber),
+          this.controller.setTrustContext(
+            toGuardianRuntimeContextFromTrust(verifiedActorTrust, this.guardianVerificationFromNumber),
           );
           this.startNormalCallFlow(this.controller, true);
         }

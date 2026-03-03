@@ -68,7 +68,7 @@ function makeStreamingSession(events: ServerMessage[]): Session {
     },
     setChannelCapabilities: () => {},
     setAssistantId: () => {},
-    setGuardianContext: () => {},
+    setTrustContext: () => {},
     setCommandIntent: () => {},
     setTurnChannelContext: () => {},
     setVoiceCallControlPrompt: () => {},
@@ -207,7 +207,7 @@ describe("voice-session-bridge", () => {
       },
       setChannelCapabilities: () => {},
       setAssistantId: () => {},
-      setGuardianContext: () => {},
+      setTrustContext: () => {},
       setCommandIntent: () => {},
       setTurnChannelContext: () => {},
       setVoiceCallControlPrompt: () => {},
@@ -258,7 +258,7 @@ describe("voice-session-bridge", () => {
       },
       setChannelCapabilities: () => {},
       setAssistantId: () => {},
-      setGuardianContext: () => {},
+      setTrustContext: () => {},
       setCommandIntent: () => {},
       setTurnChannelContext: () => {},
       setVoiceCallControlPrompt: () => {},
@@ -357,7 +357,7 @@ describe("voice-session-bridge", () => {
       conversationId: conversation.id,
       content: "Hello",
       isInbound: true,
-      guardianContext: {
+      trustContext: {
         sourceChannel: "voice",
         trustClass: "trusted_contact",
         guardianExternalUserId: "+15550009999",
@@ -403,7 +403,7 @@ describe("voice-session-bridge", () => {
       conversationId: conversation.id,
       content: "Hello",
       isInbound: true,
-      guardianContext: {
+      trustContext: {
         sourceChannel: "voice",
         trustClass: "unknown",
         denialReason: "no_binding",
@@ -447,7 +447,7 @@ describe("voice-session-bridge", () => {
       conversationId: conversation.id,
       content: "Hello",
       isInbound: true,
-      guardianContext: {
+      trustContext: {
         sourceChannel: "voice",
         trustClass: "guardian",
         guardianExternalUserId: "+15550001111",
@@ -472,17 +472,17 @@ describe("voice-session-bridge", () => {
       { type: "message_complete", sessionId: conversation.id },
     ];
 
-    let capturedGuardianContext: unknown = null;
+    let capturedTrustContext: unknown = null;
     const session = {
       ...makeStreamingSession(events),
-      setGuardianContext: (ctx: unknown) => {
-        if (ctx != null) capturedGuardianContext = ctx;
+      setTrustContext: (ctx: unknown) => {
+        if (ctx != null) capturedTrustContext = ctx;
       },
     } as unknown as Session;
 
     injectDeps(() => session);
 
-    const guardianCtx = {
+    const trustCtx = {
       sourceChannel: "voice" as const,
       trustClass: "guardian" as const,
       guardianExternalUserId: "+15550001111",
@@ -494,7 +494,7 @@ describe("voice-session-bridge", () => {
       content: "Hello",
       isInbound: true,
       assistantId: "test-assistant",
-      guardianContext: guardianCtx,
+      trustContext: trustCtx,
       onTextDelta: () => {},
       onComplete: () => {},
       onError: () => {},
@@ -502,7 +502,7 @@ describe("voice-session-bridge", () => {
 
     await new Promise((r) => setTimeout(r, 50));
 
-    expect(capturedGuardianContext).toEqual(guardianCtx);
+    expect(capturedTrustContext).toEqual(trustCtx);
   });
 
   test("inbound non-guardian opener prompt uses pickup framing instead of outbound phrasing", async () => {
@@ -527,7 +527,7 @@ describe("voice-session-bridge", () => {
       conversationId: conversation.id,
       content: "Hello there",
       isInbound: true,
-      guardianContext: {
+      trustContext: {
         sourceChannel: "voice",
         trustClass: "trusted_contact",
       },
@@ -587,7 +587,7 @@ describe("voice-session-bridge", () => {
       conversationId: conversation.id,
       content: "Hi",
       isInbound: true,
-      guardianContext: {
+      trustContext: {
         sourceChannel: "voice",
         trustClass: "trusted_contact",
       },
@@ -634,7 +634,7 @@ describe("voice-session-bridge", () => {
       },
       setChannelCapabilities: () => {},
       setAssistantId: () => {},
-      setGuardianContext: () => {},
+      setTrustContext: () => {},
       setCommandIntent: () => {},
       setTurnChannelContext: () => {},
       setVoiceCallControlPrompt: () => {},
@@ -675,7 +675,7 @@ describe("voice-session-bridge", () => {
       conversationId: conversation.id,
       content: "Delete everything",
       isInbound: true,
-      guardianContext: {
+      trustContext: {
         sourceChannel: "voice",
         trustClass: "trusted_contact",
         guardianExternalUserId: "+15550009999",
@@ -718,7 +718,7 @@ describe("voice-session-bridge", () => {
       },
       setChannelCapabilities: () => {},
       setAssistantId: () => {},
-      setGuardianContext: () => {},
+      setTrustContext: () => {},
       setCommandIntent: () => {},
       setTurnChannelContext: () => {},
       setVoiceCallControlPrompt: () => {},
@@ -748,7 +748,7 @@ describe("voice-session-bridge", () => {
       conversationId: conversation.id,
       content: "Make a request",
       isInbound: true,
-      guardianContext: {
+      trustContext: {
         sourceChannel: "voice",
         trustClass: "unknown",
         denialReason: "no_binding",
@@ -786,7 +786,7 @@ describe("voice-session-bridge", () => {
       },
       setChannelCapabilities: () => {},
       setAssistantId: () => {},
-      setGuardianContext: () => {},
+      setTrustContext: () => {},
       setCommandIntent: () => {},
       setTurnChannelContext: () => {},
       setVoiceCallControlPrompt: () => {},
@@ -849,7 +849,7 @@ describe("voice-session-bridge", () => {
       },
       setChannelCapabilities: () => {},
       setAssistantId: () => {},
-      setGuardianContext: () => {},
+      setTrustContext: () => {},
       setCommandIntent: () => {},
       setTurnChannelContext: () => {},
       setVoiceCallControlPrompt: () => {},
@@ -881,7 +881,7 @@ describe("voice-session-bridge", () => {
       conversationId: conversation.id,
       content: "List files",
       isInbound: true,
-      guardianContext: {
+      trustContext: {
         sourceChannel: "voice",
         trustClass: "guardian",
         guardianExternalUserId: "+15550001111",
@@ -921,7 +921,7 @@ describe("voice-session-bridge", () => {
       },
       setChannelCapabilities: () => {},
       setAssistantId: () => {},
-      setGuardianContext: () => {},
+      setTrustContext: () => {},
       setCommandIntent: () => {},
       setTurnChannelContext: () => {},
       setVoiceCallControlPrompt: () => {},
@@ -954,7 +954,7 @@ describe("voice-session-bridge", () => {
       conversationId: conversation.id,
       content: "check github status",
       isInbound: true,
-      guardianContext: {
+      trustContext: {
         sourceChannel: "voice",
         trustClass: "guardian",
         guardianExternalUserId: "+15550001111",
@@ -995,7 +995,7 @@ describe("voice-session-bridge", () => {
       },
       setChannelCapabilities: () => {},
       setAssistantId: () => {},
-      setGuardianContext: () => {},
+      setTrustContext: () => {},
       setCommandIntent: () => {},
       setTurnChannelContext: () => {},
       setVoiceCallControlPrompt: () => {},

@@ -72,7 +72,7 @@ mock.module("../memory/conversation-store.js", () => ({
   }),
   provenanceFromTrustContext: () => ({
     source: "user",
-    guardianContext: undefined,
+    trustContext: undefined,
   }),
   getConversationOriginInterface: () => null,
   addMessage: () => ({ id: "mock-msg-id" }),
@@ -330,7 +330,7 @@ function makeCtx(
     workspaceTopLevelDirty: false,
     channelCapabilities: undefined,
     commandIntent: undefined,
-    guardianContext: undefined,
+    trustContext: undefined,
 
     coreToolNames: new Set(),
     allowedToolNames: undefined,

@@ -42,7 +42,7 @@ import { lastCommentaryBySession, lastSummaryBySession } from './watch-handler.j
 export interface NotifierSessionContext {
   sendToClient: (msg: ServerMessage) => void;
   messages: Message[];
-  guardianContext?: TrustContext;
+  trustContext?: TrustContext;
 }
 
 /**
@@ -105,7 +105,7 @@ export function registerSessionNotifiers(
       conversationId,
       'assistant',
       JSON.stringify([{ type: 'text', text: questionText }]),
-      { ...provenanceFromTrustContext(ctx.guardianContext), userMessageChannel: 'voice', assistantMessageChannel: 'voice', userMessageInterface: 'voice', assistantMessageInterface: 'voice' },
+      { ...provenanceFromTrustContext(ctx.trustContext), userMessageChannel: 'voice', assistantMessageChannel: 'voice', userMessageInterface: 'voice', assistantMessageInterface: 'voice' },
     );
 
     ctx.messages.push(createAssistantMessage(questionText));

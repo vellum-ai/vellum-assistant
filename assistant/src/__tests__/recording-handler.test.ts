@@ -62,7 +62,7 @@ mock.module("../memory/conversation-store.js", () => ({
   updateConversationUsage: () => {},
   provenanceFromTrustContext: () => ({
     source: "user",
-    guardianContext: undefined,
+    trustContext: undefined,
   }),
   getConversationOriginInterface: () => null,
   getConversationOriginChannel: () => null,

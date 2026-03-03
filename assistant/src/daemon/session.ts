@@ -164,7 +164,7 @@ export class Session {
   /** @internal */ currentActiveSurfaceId?: string;
   /** @internal */ currentPage?: string;
   /** @internal */ channelCapabilities?: ChannelCapabilities;
-  /** @internal */ guardianContext?: TrustContext;
+  /** @internal */ trustContext?: TrustContext;
   /** @internal */ authContext?: AuthContext;
   /** @internal */ loadedHistoryTrustClass?: TrustClass;
   /** @internal */ voiceCallControlPrompt?: string;
@@ -360,7 +360,7 @@ export class Session {
   }
 
   async ensureActorScopedHistory(): Promise<void> {
-    const currentTrustClass = this.guardianContext?.trustClass;
+    const currentTrustClass = this.trustContext?.trustClass;
     if (this.loadedHistoryTrustClass === currentTrustClass) return;
     await this.loadFromDb();
   }
@@ -611,8 +611,8 @@ export class Session {
     this.channelCapabilities = caps ?? undefined;
   }
 
-  setGuardianContext(ctx: TrustContext | null): void {
-    this.guardianContext = ctx ?? undefined;
+  setTrustContext(ctx: TrustContext | null): void {
+    this.trustContext = ctx ?? undefined;
   }
 
   setAuthContext(ctx: AuthContext | null): void {

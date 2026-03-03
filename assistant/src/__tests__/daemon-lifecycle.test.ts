@@ -104,7 +104,7 @@ mock.module("../memory/conversation-store.js", () => ({
   addMessage: () => ({ id: "mock-msg-id" }),
   provenanceFromTrustContext: () => ({
     source: "user",
-    guardianContext: undefined,
+    trustContext: undefined,
   }),
   getConversationOriginInterface: () => null,
   getConversationOriginChannel: () => null,

@@ -19,13 +19,14 @@ import { repairHistory } from './history-repair.js';
 import type { SurfaceData,SurfaceType, UsageStats } from './ipc-protocol.js';
 import { unregisterCallNotifiers,unregisterWatchNotifiers } from './session-notifiers.js';
 import type { MessageQueue } from './session-queue-manager.js';
-import type { TrustClass } from '../runtime/actor-trust-resolver.js';
 import type { TrustContext } from './session-runtime-assembly.js';
 import { resetSkillToolProjection } from './session-skill-tools.js';
 
 const log = getLogger('session-lifecycle');
 
-function parseProvenanceTrustClass(metadata: string | null): TrustClass | undefined {
+type GuardianTrustClass = TrustContext['trustClass'];
+
+function parseProvenanceTrustClass(metadata: string | null): GuardianTrustClass | undefined {
   if (!metadata) return undefined;
   try {
     const parsed = JSON.parse(metadata) as { provenanceTrustClass?: unknown };
@@ -39,7 +40,7 @@ function parseProvenanceTrustClass(metadata: string | null): TrustClass | undefi
   return undefined;
 }
 
-function isUntrustedTrustClass(trustClass: TrustClass | undefined): boolean {
+function isUntrustedTrustClass(trustClass: GuardianTrustClass | undefined): boolean {
   return trustClass === 'trusted_contact' || trustClass === 'unknown';
 }
 
@@ -58,8 +59,8 @@ export interface LoadFromDbContext {
   usageStats: UsageStats;
   contextCompactedMessageCount: number;
   contextCompactedAt: number | null;
-  guardianContext?: { trustClass: TrustClass };
-  loadedHistoryTrustClass?: TrustClass;
+  trustContext?: { trustClass: GuardianTrustClass };
+  loadedHistoryTrustClass?: GuardianTrustClass;
 }
 
 export interface AbortContext {
@@ -89,7 +90,7 @@ export interface DisposeContext extends AbortContext {
 // ── loadFromDb ───────────────────────────────────────────────────────
 
 export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
-  const trustClass = ctx.guardianContext?.trustClass;
+  const trustClass = ctx.trustContext?.trustClass;
   const allDbMessages = conversationStore.getMessages(ctx.conversationId);
   const dbMessages = isUntrustedTrustClass(trustClass)
     ? filterMessagesForUntrustedActor(allDbMessages)

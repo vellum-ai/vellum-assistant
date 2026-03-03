@@ -33,7 +33,7 @@ export interface BridgeConfirmationRequestParams {
   /** The canonical guardian request already persisted for this confirmation_request. */
   canonicalRequest: CanonicalGuardianRequest;
   /** Guardian runtime context from the session. */
-  guardianContext: TrustContext;
+  trustContext: TrustContext;
   /** Conversation ID where the confirmation_request was emitted. */
   conversationId: string;
   /** Tool name from the confirmation_request. */
@@ -64,7 +64,7 @@ export function bridgeConfirmationRequestToGuardian(
 ): BridgeConfirmationRequestResult {
   const {
     canonicalRequest,
-    guardianContext,
+    trustContext,
     conversationId,
     toolName,
     assistantId = DAEMON_INTERNAL_ASSISTANT_ID,
@@ -72,19 +72,19 @@ export function bridgeConfirmationRequestToGuardian(
 
   // Only bridge for trusted-contact sessions. Guardians self-approve and
   // unknown actors are fail-closed by the routing layer.
-  if (guardianContext.trustClass !== 'trusted_contact') {
+  if (trustContext.trustClass !== 'trusted_contact') {
     return { skipped: true, reason: 'not_trusted_contact' };
   }
 
-  if (!guardianContext.guardianExternalUserId) {
+  if (!trustContext.guardianExternalUserId) {
     log.debug(
-      { conversationId, sourceChannel: guardianContext.sourceChannel },
+      { conversationId, sourceChannel: trustContext.sourceChannel },
       'Skipping guardian bridge: no guardian identity on trusted-contact context',
     );
     return { skipped: true, reason: 'missing_guardian_identity' };
   }
 
-  const sourceChannel = guardianContext.sourceChannel;
+  const sourceChannel = trustContext.sourceChannel;
   const binding = getGuardianBinding(assistantId, sourceChannel);
   if (!binding) {
     log.debug(
@@ -124,8 +124,8 @@ export function bridgeConfirmationRequestToGuardian(
     return { skipped: true, reason: 'binding_identity_mismatch' };
   }
 
-  const senderLabel = guardianContext.requesterIdentifier
-    || guardianContext.requesterExternalUserId
+  const senderLabel = trustContext.requesterIdentifier
+    || trustContext.requesterExternalUserId
     || 'unknown';
 
   const questionText = `Tool approval request: ${toolName}`;
@@ -147,8 +147,8 @@ export function bridgeConfirmationRequestToGuardian(
       requestId: canonicalRequest.id,
       requestCode: canonicalRequest.requestCode ?? canonicalRequest.id.slice(0, 6).toUpperCase(),
       sourceChannel,
-      requesterExternalUserId: guardianContext.requesterExternalUserId,
-      requesterChatId: guardianContext.requesterChatId ?? null,
+      requesterExternalUserId: trustContext.requesterExternalUserId,
+      requesterChatId: trustContext.requesterChatId ?? null,
       requesterIdentifier: senderLabel,
       toolName,
       questionText,
@@ -181,7 +181,7 @@ export function bridgeConfirmationRequestToGuardian(
   log.info(
     {
       sourceChannel,
-      requesterExternalUserId: guardianContext.requesterExternalUserId,
+      requesterExternalUserId: trustContext.requesterExternalUserId,
       toolName,
       requestId: canonicalRequest.id,
       requestCode: canonicalRequest.requestCode,

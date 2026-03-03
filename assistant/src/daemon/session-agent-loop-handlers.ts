@@ -378,7 +378,7 @@ export async function handleMessageComplete(
       }),
     );
     const toolResultMetadata = {
-      ...provenanceFromTrustContext(deps.ctx.guardianContext),
+      ...provenanceFromTrustContext(deps.ctx.trustContext),
       userMessageChannel: deps.turnChannelContext.userMessageChannel,
       assistantMessageChannel: deps.turnChannelContext.assistantMessageChannel,
       userMessageInterface: deps.turnInterfaceContext.userMessageInterface,
@@ -424,7 +424,7 @@ export async function handleMessageComplete(
   }
 
   const assistantChannelMetadata = {
-    ...provenanceFromTrustContext(deps.ctx.guardianContext),
+    ...provenanceFromTrustContext(deps.ctx.trustContext),
     userMessageChannel: deps.turnChannelContext.userMessageChannel,
     assistantMessageChannel: deps.turnChannelContext.assistantMessageChannel,
     userMessageInterface: deps.turnInterfaceContext.userMessageInterface,

@@ -74,7 +74,7 @@ export interface ProcessSessionContext {
   preactivatedSkillIds?: string[];
   /** Assistant identity — used for scoping notification preferences. */
   readonly assistantId?: string;
-  guardianContext?: TrustContext;
+  trustContext?: TrustContext;
   ensureActorScopedHistory(): Promise<void>;
   persistUserMessage(content: string, attachments: UserMessageAttachment[], requestId?: string, metadata?: Record<string, unknown>, displayContent?: string): Promise<string>;
   runAgentLoop(
@@ -189,7 +189,7 @@ export async function drainQueue(session: ProcessSessionContext, reason: QueueDr
   // failed write never leaves an unpersisted message in memory.
   if (slashResult.kind === 'unknown') {
     try {
-      const drainProvenance = provenanceFromTrustContext(session.guardianContext);
+      const drainProvenance = provenanceFromTrustContext(session.trustContext);
       const drainChannelMeta = {
         ...drainProvenance,
         ...(queuedTurnCtx
@@ -382,9 +382,9 @@ export async function processMessage(
       messageText: trimmedContent,
       channel: 'vellum',
       actor: {
-        externalUserId: session.guardianContext?.guardianExternalUserId,
+        externalUserId: session.trustContext?.guardianExternalUserId,
         channel: 'vellum',
-        guardianPrincipalId: session.guardianContext?.guardianPrincipalId ?? undefined,
+        guardianPrincipalId: session.trustContext?.guardianPrincipalId ?? undefined,
       },
       conversationId: session.conversationId,
       pendingRequestIds: canonicalPendingRequestIdsForConversation,
@@ -445,7 +445,7 @@ export async function processMessage(
   if (slashResult.kind === 'unknown') {
     const pmTurnCtx = session.getTurnChannelContext();
     const pmInterfaceCtx = session.getTurnInterfaceContext();
-    const pmProvenance = provenanceFromTrustContext(session.guardianContext);
+    const pmProvenance = provenanceFromTrustContext(session.trustContext);
     const pmChannelMeta = {
       ...pmProvenance,
       ...(pmTurnCtx

@@ -218,7 +218,7 @@ describe("guardian grant minting on tool-approval decisions", () => {
       sourceChannel: "telegram",
       actorExternalId: GUARDIAN_USER,
       replyCallbackUrl: "https://gateway.test/deliver",
-      guardianCtx: makeTrustContext(),
+      trustCtx: makeTrustContext(),
       assistantId: ASSISTANT_ID,
     });
 
@@ -266,7 +266,7 @@ describe("guardian grant minting on tool-approval decisions", () => {
       sourceChannel: "telegram",
       actorExternalId: GUARDIAN_USER,
       replyCallbackUrl: "https://gateway.test/deliver",
-      guardianCtx: makeTrustContext(),
+      trustCtx: makeTrustContext(),
       assistantId: ASSISTANT_ID,
     });
 
@@ -297,7 +297,7 @@ describe("guardian grant minting on tool-approval decisions", () => {
       sourceChannel: "telegram",
       actorExternalId: GUARDIAN_USER,
       replyCallbackUrl: "https://gateway.test/deliver",
-      guardianCtx: makeTrustContext(),
+      trustCtx: makeTrustContext(),
       assistantId: ASSISTANT_ID,
     });
 
@@ -341,7 +341,7 @@ describe("guardian grant minting on tool-approval decisions", () => {
       sourceChannel: "telegram",
       actorExternalId: GUARDIAN_USER,
       replyCallbackUrl: "https://gateway.test/deliver",
-      guardianCtx: makeTrustContext(),
+      trustCtx: makeTrustContext(),
       assistantId: ASSISTANT_ID,
     });
 
@@ -375,7 +375,7 @@ describe("guardian grant minting on tool-approval decisions", () => {
       sourceChannel: "telegram",
       actorExternalId: "wrong-guardian-user",
       replyCallbackUrl: "https://gateway.test/deliver",
-      guardianCtx: makeTrustContext(),
+      trustCtx: makeTrustContext(),
       assistantId: ASSISTANT_ID,
     });
 
@@ -406,7 +406,7 @@ describe("guardian grant minting on tool-approval decisions", () => {
       sourceChannel: "telegram",
       actorExternalId: GUARDIAN_USER,
       replyCallbackUrl: "https://gateway.test/deliver",
-      guardianCtx: makeTrustContext(),
+      trustCtx: makeTrustContext(),
       assistantId: ASSISTANT_ID,
     });
 
@@ -445,7 +445,7 @@ describe("guardian grant minting on tool-approval decisions", () => {
       sourceChannel: "telegram",
       actorExternalId: GUARDIAN_USER,
       replyCallbackUrl: "https://gateway.test/deliver",
-      guardianCtx: makeTrustContext(),
+      trustCtx: makeTrustContext(),
       assistantId: ASSISTANT_ID,
       approvalConversationGenerator: mockGenerator,
     });
@@ -491,7 +491,7 @@ describe("guardian grant minting on tool-approval decisions", () => {
       sourceChannel: "telegram",
       actorExternalId: GUARDIAN_USER,
       replyCallbackUrl: "https://gateway.test/deliver",
-      guardianCtx: makeTrustContext(),
+      trustCtx: makeTrustContext(),
       assistantId: ASSISTANT_ID,
       approvalConversationGenerator: mockGenerator,
     });
@@ -526,7 +526,7 @@ describe("guardian grant minting on tool-approval decisions", () => {
       sourceChannel: "telegram",
       actorExternalId: GUARDIAN_USER,
       replyCallbackUrl: "https://gateway.test/deliver",
-      guardianCtx: makeTrustContext(),
+      trustCtx: makeTrustContext(),
       assistantId: ASSISTANT_ID,
     });
 
@@ -567,7 +567,7 @@ describe("guardian grant minting on tool-approval decisions", () => {
       sourceChannel: "telegram",
       actorExternalId: GUARDIAN_USER,
       replyCallbackUrl: "https://gateway.test/deliver",
-      guardianCtx: makeTrustContext(),
+      trustCtx: makeTrustContext(),
       assistantId: ASSISTANT_ID,
     });
 
@@ -619,7 +619,7 @@ describe("approval interception trust-class regression coverage", () => {
       sourceChannel: "telegram",
       actorExternalId: "intruder-user-1",
       replyCallbackUrl: "https://gateway.test/deliver",
-      guardianCtx: {
+      trustCtx: {
         sourceChannel: "telegram",
         trustClass: "unknown",
       },
@@ -651,7 +651,7 @@ describe("approval interception trust-class regression coverage", () => {
       sourceChannel: "telegram",
       actorExternalId: undefined,
       replyCallbackUrl: "https://gateway.test/deliver",
-      guardianCtx: {
+      trustCtx: {
         sourceChannel: "telegram",
         trustClass: "unknown",
         denialReason: "no_identity",

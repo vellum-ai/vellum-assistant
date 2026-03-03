@@ -57,7 +57,7 @@ export interface ApprovalInterceptionParams {
   actorExternalId?: string;
   replyCallbackUrl: string;
   bearerToken?: string;
-  guardianCtx: TrustContext;
+  trustCtx: TrustContext;
   assistantId: string;
   approvalCopyGenerator?: ApprovalCopyGenerator;
   approvalConversationGenerator?: ApprovalConversationGenerator;
@@ -90,7 +90,7 @@ export async function handleApprovalInterception(
     actorExternalId,
     replyCallbackUrl,
     bearerToken,
-    guardianCtx,
+    trustCtx,
     assistantId,
     approvalCopyGenerator,
     approvalConversationGenerator,
@@ -101,7 +101,7 @@ export async function handleApprovalInterception(
   // request targeting this chat, the message might be a decision on behalf
   // of a non-guardian requester.
   if (
-    guardianCtx.trustClass === 'guardian' &&
+    trustCtx.trustClass === 'guardian' &&
     actorExternalId
   ) {
     // Callback/button path: deterministic and takes priority.
@@ -553,7 +553,7 @@ export async function handleApprovalInterception(
   // unknown trust + explicit denial reason (`no_identity` / `no_binding`).
   // Unknown without a denial reason means identity-known, non-member sender
   // in a shared channel; that case must not force-reject someone else's request.
-  const isLegacyUnverifiedSender = guardianCtx.trustClass === 'unknown' && !!guardianCtx.denialReason;
+  const isLegacyUnverifiedSender = trustCtx.trustClass === 'unknown' && !!trustCtx.denialReason;
 
   // When the sender is from a legacy-unverified channel actor, auto-deny any
   // pending confirmation and block self-approval.
@@ -565,7 +565,7 @@ export async function handleApprovalInterception(
         { action: 'reject', source: 'plain_text' },
         buildGuardianDenyContext(
           pending[0].toolName,
-          guardianCtx.denialReason ?? 'no_binding',
+          trustCtx.denialReason ?? 'no_binding',
           sourceChannel,
         ),
       );
@@ -579,8 +579,8 @@ export async function handleApprovalInterception(
   //
   // Include identity-known, non-member senders (`unknown` without denialReason)
   // so shared-channel participants can't approve/deny someone else's pending request.
-  const isIdentityKnownNonGuardian = guardianCtx.trustClass === 'trusted_contact'
-    || (guardianCtx.trustClass === 'unknown' && !guardianCtx.denialReason);
+  const isIdentityKnownNonGuardian = trustCtx.trustClass === 'trusted_contact'
+    || (trustCtx.trustClass === 'unknown' && !trustCtx.denialReason);
   if (isIdentityKnownNonGuardian) {
     const pending = getApprovalInfoByConversation(conversationId);
     if (pending.length > 0) {
@@ -751,9 +751,9 @@ export async function handleApprovalInterception(
       // persisted, any non-guardian actor could otherwise fall through to the
       // standard conversational engine / legacy parser and resolve their own
       // pending request via handleChannelDecision.
-      if (guardianCtx.trustClass !== 'guardian' && guardianCtx.guardianExternalUserId) {
+      if (trustCtx.trustClass !== 'guardian' && trustCtx.guardianExternalUserId) {
         log.info(
-          { conversationId, conversationExternalId, guardianExternalUserId: guardianCtx.guardianExternalUserId },
+          { conversationId, conversationExternalId, guardianExternalUserId: trustCtx.guardianExternalUserId },
           'Blocking non-guardian self-approval: pending confirmation exists but guardian approval row not yet created',
         );
         try {

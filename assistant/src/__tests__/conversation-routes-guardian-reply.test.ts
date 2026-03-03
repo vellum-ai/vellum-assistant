@@ -73,7 +73,7 @@ mock.module("../memory/conversation-store.js", () => ({
 }));
 
 mock.module("../runtime/local-actor-identity.js", () => ({
-  resolveLocalIpcGuardianContext: () => ({
+  resolveLocalIpcTrustContext: () => ({
     trustClass: "guardian",
     sourceChannel: "vellum",
   }),
@@ -138,7 +138,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
     const persistUserMessage = mock(async () => "should-not-be-called");
     const runAgentLoop = mock(async () => undefined);
     const session = {
-      setGuardianContext: () => {},
+      setTrustContext: () => {},
       setStateSignalListener: () => {},
       emitConfirmationStateChanged: () => {},
       emitActivityState: () => {},
@@ -152,7 +152,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       runAgentLoop,
       getMessages: () => [] as unknown[],
       assistantId: "self",
-      guardianContext: undefined,
+      trustContext: undefined,
       hasPendingConfirmation: () => false,
     } as unknown as import("../daemon/session.js").Session;
 
@@ -209,7 +209,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
     const persistUserMessage = mock(async () => "persisted-user-id");
     const runAgentLoop = mock(async () => undefined);
     const session = {
-      setGuardianContext: () => {},
+      setTrustContext: () => {},
       setStateSignalListener: () => {},
       emitConfirmationStateChanged: () => {},
       emitActivityState: () => {},
@@ -223,7 +223,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       runAgentLoop,
       getMessages: () => [] as unknown[],
       assistantId: "self",
-      guardianContext: undefined,
+      trustContext: undefined,
       hasPendingConfirmation: () => false,
     } as unknown as import("../daemon/session.js").Session;
 
@@ -275,7 +275,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
     const persistUserMessage = mock(async () => "persisted-user-id");
     const runAgentLoop = mock(async () => undefined);
     const session = {
-      setGuardianContext: () => {},
+      setTrustContext: () => {},
       setStateSignalListener: () => {},
       emitConfirmationStateChanged: () => {},
       emitActivityState: () => {},
@@ -289,7 +289,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       runAgentLoop,
       getMessages: () => [] as unknown[],
       assistantId: "self",
-      guardianContext: undefined,
+      trustContext: undefined,
       hasPendingConfirmation: (requestId: string) =>
         requestId === "tool-approval-live",
     } as unknown as import("../daemon/session.js").Session;

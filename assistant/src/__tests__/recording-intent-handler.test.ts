@@ -258,7 +258,7 @@ mock.module("../memory/conversation-store.js", () => ({
   updateConversationUsage: () => {},
   provenanceFromTrustContext: () => ({
     source: "user",
-    guardianContext: undefined,
+    trustContext: undefined,
   }),
   getConversationOriginInterface: () => null,
   getConversationOriginChannel: () => null,
@@ -420,7 +420,7 @@ function createCtx(overrides?: Partial<HandlerContext>): {
     setTurnInterfaceContext: noop,
     setAssistantId: noop,
     setChannelCapabilities: noop,
-    setGuardianContext: noop,
+    setTrustContext: noop,
     setAuthContext: noop,
     setCommandIntent: noop,
     updateClient: noop,

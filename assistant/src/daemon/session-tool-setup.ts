@@ -59,10 +59,10 @@ const log = getLogger("session-tool-setup");
  * guardian so that control-plane gates don't block local development.
  */
 export function resolveTrustClass(
-  guardianContext: TrustContext | undefined,
+  trustContext: TrustContext | undefined,
 ): TrustClass {
   if (isHttpAuthDisabled()) return "guardian";
-  return guardianContext?.trustClass ?? "unknown";
+  return trustContext?.trustClass ?? "unknown";
 }
 
 // ── Context Interface ────────────────────────────────────────────────
@@ -90,7 +90,7 @@ export interface ToolSetupContext extends SurfaceSessionContext {
   /** When set, this session is executing a task run. Used to retrieve ephemeral permission rules. */
   taskRunId?: string;
   /** Guardian runtime context for the session — trustClass is propagated into ToolContext for control-plane policy enforcement. */
-  guardianContext?: TrustContext;
+  trustContext?: TrustContext;
   /** Voice/call session ID, if the session originates from a call. Propagated into ToolContext for scoped grant consumption. */
   callSessionId?: string;
 }
@@ -151,13 +151,13 @@ export function createToolExecutor(
       assistantId: ctx.assistantId,
       requestId: ctx.currentRequestId,
       taskRunId: ctx.taskRunId,
-      trustClass: resolveTrustClass(ctx.guardianContext),
-      executionChannel: ctx.guardianContext?.sourceChannel,
+      trustClass: resolveTrustClass(ctx.trustContext),
+      executionChannel: ctx.trustContext?.sourceChannel,
       callSessionId: ctx.callSessionId,
       triggeredBySurfaceAction:
         ctx.surfaceActionRequestIds?.has(ctx.currentRequestId ?? "") ?? false,
-      requesterExternalUserId: ctx.guardianContext?.requesterExternalUserId,
-      requesterChatId: ctx.guardianContext?.requesterChatId,
+      requesterExternalUserId: ctx.trustContext?.requesterExternalUserId,
+      requesterChatId: ctx.trustContext?.requesterChatId,
       onOutput,
       signal: ctx.abortController?.signal,
       sandboxOverride: ctx.sandboxOverride,
@@ -217,7 +217,7 @@ export function createToolExecutor(
         }
         // Auto-approve sub-tool confirmations when a temporary approval
         // override is active for this conversation (guardian only).
-        const guardianTrust = ctx.guardianContext?.trustClass ?? "unknown";
+        const guardianTrust = ctx.trustContext?.trustClass ?? "unknown";
         if (
           guardianTrust === "guardian" &&
           getEffectiveMode(ctx.conversationId) !== undefined

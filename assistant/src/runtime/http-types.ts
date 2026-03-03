@@ -112,7 +112,7 @@ export interface RuntimeMessageSessionOptions {
     uxBrief?: string;
   };
   assistantId?: string;
-  guardianContext?: TrustContext;
+  trustContext?: TrustContext;
   /**
    * Whether this turn should permit interactive approval prompts.
    * Channel ingress sets this true so confirmations can be resolved

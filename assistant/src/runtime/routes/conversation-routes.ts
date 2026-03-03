@@ -348,18 +348,18 @@ function makeHubPublisher(
       // Create a canonical guardian request so IPC/HTTP handlers can find it
       // via applyCanonicalGuardianDecision.
       try {
-        const guardianContext = session.guardianContext;
-        const sourceChannel = guardianContext?.sourceChannel ?? 'vellum';
+        const trustContext = session.trustContext;
+        const sourceChannel = trustContext?.sourceChannel ?? 'vellum';
         const canonicalRequest = createCanonicalGuardianRequest({
           id: msg.requestId,
           kind: 'tool_approval',
           sourceType: resolveCanonicalRequestSourceType(sourceChannel),
           sourceChannel,
           conversationId,
-          requesterExternalUserId: guardianContext?.requesterExternalUserId,
-          requesterChatId: guardianContext?.requesterChatId,
-          guardianExternalUserId: guardianContext?.guardianExternalUserId,
-          guardianPrincipalId: guardianContext?.guardianPrincipalId ?? undefined,
+          requesterExternalUserId: trustContext?.requesterExternalUserId,
+          requesterChatId: trustContext?.requesterChatId,
+          guardianExternalUserId: trustContext?.guardianExternalUserId,
+          guardianPrincipalId: trustContext?.guardianPrincipalId ?? undefined,
           toolName: msg.toolName,
           status: 'pending',
           requestCode: generateCanonicalRequestCode(),
@@ -368,10 +368,10 @@ function makeHubPublisher(
 
         // For trusted-contact sessions, bridge to guardian.question so the
         // guardian gets notified and can approve via callback/request-code.
-        if (guardianContext) {
+        if (trustContext) {
           bridgeConfirmationRequestToGuardian({
             canonicalRequest,
-            guardianContext,
+            trustContext,
             conversationId,
             toolName: msg.toolName,
             assistantId: session.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
@@ -483,17 +483,17 @@ export async function handleSendMessage(
     // the same trust resolution pipeline that channel ingress uses.
     if (authContext.actorPrincipalId) {
       const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
-      const guardianCtx = resolveTrustContext({
+      const trustCtx = resolveTrustContext({
         assistantId,
         sourceChannel: 'vellum',
         conversationExternalId: 'local',
         actorExternalId: authContext.actorPrincipalId,
       });
-      session.setGuardianContext(withSourceChannel(sourceChannel, guardianCtx));
+      session.setTrustContext(withSourceChannel(sourceChannel, trustCtx));
     } else {
       // Service principals (svc_gateway) or tokens without an actor ID
       // get a minimal guardian context so downstream code has something.
-      session.setGuardianContext({ trustClass: 'guardian', sourceChannel });
+      session.setTrustContext({ trustClass: 'guardian', sourceChannel });
     }
 
     const onEvent = makeHubPublisher(smDeps, mapping.conversationId, session);
@@ -509,8 +509,8 @@ export async function handleSendMessage(
 
     // Resolve the verified actor's external user ID and principal for inline
     // approval routing from the session's guardian context.
-    const verifiedActorExternalUserId = session.guardianContext?.guardianExternalUserId;
-    const verifiedActorPrincipalId = session.guardianContext?.guardianPrincipalId ?? undefined;
+    const verifiedActorExternalUserId = session.trustContext?.guardianExternalUserId;
+    const verifiedActorPrincipalId = session.trustContext?.guardianPrincipalId ?? undefined;
 
     // Try to consume the message as a canonical guardian approval/rejection reply.
     // On failure, degrade to the existing queue/auto-deny path rather than
@@ -609,17 +609,17 @@ export async function handleSendMessage(
   }
 
   // Resolve guardian context from AuthContext for the legacy path too.
-  let guardianContext: import('../../daemon/session-runtime-assembly.js').TrustContext;
+  let trustContext: import('../../daemon/session-runtime-assembly.js').TrustContext;
   if (authContext.actorPrincipalId) {
-    const legacyGuardianCtx = resolveTrustContext({
+    const legacyTrustCtx = resolveTrustContext({
       assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
       sourceChannel: 'vellum',
       conversationExternalId: 'local',
       actorExternalId: authContext.actorPrincipalId,
     });
-    guardianContext = withSourceChannel(sourceChannel, legacyGuardianCtx);
+    trustContext = withSourceChannel(sourceChannel, legacyTrustCtx);
   } else {
-    guardianContext = { trustClass: 'guardian' as const, sourceChannel };
+    trustContext = { trustClass: 'guardian' as const, sourceChannel };
   }
 
   try {
@@ -627,7 +627,7 @@ export async function handleSendMessage(
       mapping.conversationId,
       content ?? '',
       hasAttachments ? attachmentIds : undefined,
-      { guardianContext },
+      { trustContext },
       sourceChannel,
       sourceInterface,
     );

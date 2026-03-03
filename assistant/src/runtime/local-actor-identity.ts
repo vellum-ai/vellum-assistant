@@ -35,7 +35,7 @@ const log = getLogger('local-actor-identity');
  * bootstrap), falls back to a minimal guardian context so the local
  * user is not incorrectly denied.
  */
-export function resolveLocalIpcGuardianContext(
+export function resolveLocalIpcTrustContext(
   sourceChannel: ChannelId = 'vellum',
 ): TrustContext {
   const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
@@ -51,14 +51,14 @@ export function resolveLocalIpcGuardianContext(
     const principalId = ensureVellumGuardianBinding(assistantId);
 
     // Re-resolve through the shared pipeline now that the binding exists.
-    const guardianCtx = resolveTrustContext({
+    const trustCtx = resolveTrustContext({
       assistantId,
       sourceChannel: 'vellum',
       conversationExternalId: 'local',
       actorExternalId: principalId,
     });
     // Overlay the caller's actual sourceChannel onto the resolved context.
-    return { ...guardianCtx, sourceChannel };
+    return { ...trustCtx, sourceChannel };
   }
 
   const guardianPrincipalId = binding.guardianExternalUserId;
@@ -69,7 +69,7 @@ export function resolveLocalIpcGuardianContext(
   // 'vellum' — otherwise resolveActorTrust would look up a different
   // channel's binding (e.g. telegram/sms) and the IDs wouldn't match,
   // causing a 'unknown' trust classification.
-  const guardianCtx = resolveTrustContext({
+  const trustCtx = resolveTrustContext({
     assistantId,
     sourceChannel: 'vellum',
     conversationExternalId: 'local',
@@ -78,7 +78,7 @@ export function resolveLocalIpcGuardianContext(
 
   // Overlay the caller's actual sourceChannel onto the resolved context
   // so downstream consumers see the correct channel provenance.
-  return { ...guardianCtx, sourceChannel };
+  return { ...trustCtx, sourceChannel };
 }
 
 /**

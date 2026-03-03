@@ -430,7 +430,7 @@ describe("channel-retry-sweep routing state", () => {
       content: "retry me",
       sourceChannel: "telegram",
       interface: "telegram",
-      guardianCtx: {
+      trustCtx: {
         trustClass,
         sourceChannel: "telegram",
         requesterExternalUserId: "test-user",

@@ -105,7 +105,7 @@ export interface SessionCreateOptions {
   maxResponseTokens?: number;
   transport?: SessionTransportMetadata;
   assistantId?: string;
-  guardianContext?: TrustContext;
+  trustContext?: TrustContext;
   /** Normalized auth context for the session (IPC or HTTP-derived). */
   authContext?: AuthContext;
   /** Whether this turn can block on interactive approval prompts. */

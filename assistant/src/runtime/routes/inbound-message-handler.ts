@@ -919,7 +919,7 @@ export async function handleChannelInbound(
   // ── Actor role resolution ──
   // Uses shared channel-agnostic resolution so all ingress paths classify
   // guardian vs non-guardian actors the same way.
-  const guardianCtx: TrustContext = resolveTrustContext({
+  const trustCtx: TrustContext = resolveTrustContext({
     assistantId: canonicalAssistantId,
     sourceChannel,
     conversationExternalId,
@@ -943,7 +943,7 @@ export async function handleChannelInbound(
     replyCallbackUrl &&
     (trimmedContent.length > 0 || hasCallbackData) &&
     rawSenderId &&
-    guardianCtx.trustClass === 'guardian'
+    trustCtx.trustClass === 'guardian'
   ) {
     // Compute destination-scoped pending request hints so the router can
     // discover canonical requests delivered to this chat even when the
@@ -980,7 +980,7 @@ export async function handleChannelInbound(
       actor: {
         externalUserId: canonicalSenderId ?? rawSenderId!,
         channel: sourceChannel,
-        guardianPrincipalId: guardianCtx.guardianPrincipalId ?? undefined,
+        guardianPrincipalId: trustCtx.guardianPrincipalId ?? undefined,
       },
       conversationId: result.conversationId,
       callbackData: body.callbackData,
@@ -1041,7 +1041,7 @@ export async function handleChannelInbound(
       actorExternalId: canonicalSenderId ?? rawSenderId,
       replyCallbackUrl,
       bearerToken: mintBearerToken(),
-      guardianCtx,
+      trustCtx,
       assistantId: canonicalAssistantId,
       approvalCopyGenerator,
       approvalConversationGenerator,
@@ -1138,7 +1138,7 @@ export async function handleChannelInbound(
       senderName: body.actorDisplayName,
       senderExternalUserId: body.actorExternalId,
       senderUsername: body.actorUsername,
-      guardianCtx,
+      trustCtx,
       replyCallbackUrl,
       assistantId: canonicalAssistantId,
     });
@@ -1192,7 +1192,7 @@ export async function handleChannelInbound(
       sourceChannel,
       sourceInterface,
       externalChatId: conversationExternalId,
-      guardianCtx,
+      trustCtx,
       metadataHints,
       metadataUxBrief,
       commandIntent,
@@ -1342,7 +1342,7 @@ interface BackgroundProcessingParams {
   sourceChannel: ChannelId;
   sourceInterface: InterfaceId;
   externalChatId: string;
-  guardianCtx: TrustContext;
+  trustCtx: TrustContext;
   metadataHints: string[];
   metadataUxBrief?: string;
   replyCallbackUrl?: string;
@@ -1623,7 +1623,7 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
     sourceChannel,
     sourceInterface,
     externalChatId,
-    guardianCtx,
+    trustCtx,
     metadataHints,
     metadataUxBrief,
     replyCallbackUrl,
@@ -1646,9 +1646,9 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
         conversationId,
         sourceChannel,
         externalChatId,
-        guardianTrustClass: guardianCtx.trustClass,
-        guardianExternalUserId: guardianCtx.guardianExternalUserId,
-        requesterExternalUserId: guardianCtx.requesterExternalUserId,
+        guardianTrustClass: trustCtx.trustClass,
+        guardianExternalUserId: trustCtx.guardianExternalUserId,
+        requesterExternalUserId: trustCtx.requesterExternalUserId,
         replyCallbackUrl,
         mintBearerToken,
         assistantId,
@@ -1660,8 +1660,8 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
         conversationId,
         sourceChannel,
         externalChatId,
-        guardianTrustClass: guardianCtx.trustClass,
-        guardianExternalUserId: guardianCtx.guardianExternalUserId,
+        guardianTrustClass: trustCtx.trustClass,
+        guardianExternalUserId: trustCtx.guardianExternalUserId,
         replyCallbackUrl,
         mintBearerToken,
         assistantId,
@@ -1683,8 +1683,8 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
             uxBrief: metadataUxBrief,
           },
           assistantId,
-          guardianContext: guardianCtx,
-          isInteractive: resolveRoutingState(guardianCtx).promptWaitingAllowed,
+          trustContext: trustCtx,
+          isInteractive: resolveRoutingState(trustCtx).promptWaitingAllowed,
           ...(cmdIntent ? { commandIntent: cmdIntent } : {}),
         },
         sourceChannel,

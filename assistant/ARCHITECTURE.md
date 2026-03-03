@@ -18,7 +18,7 @@ This document owns assistant-runtime architecture details. The repo-level archit
 - The same resolver is used by:
   - `/channels/inbound` (Telegram/SMS/WhatsApp path) before run orchestration.
   - Inbound Twilio voice setup (`RelayConnection.handleSetup`) to seed call-time actor context.
-- Runtime channel runs pass this as `guardianContext`, and session runtime assembly injects `<inbound_actor_context>` (via `inboundActorContextFromTrustContext()`) into provider-facing prompts.
+- Runtime channel runs pass this as `trustContext`, and session runtime assembly injects `<inbound_actor_context>` (via `inboundActorContextFromGuardian()`) into provider-facing prompts.
 - Voice calls mirror the same prompt contract: `CallController` receives guardian context on setup and refreshes it immediately after successful voice challenge verification, so the first post-verification turn is grounded as `actor_role: guardian`.
 - Voice-specific behavior (DTMF/speech verification flow, relay state machine) remains voice-local; only actor-role resolution is shared.
 
@@ -2160,7 +2160,7 @@ The guardian trust system uses a three-valued `TrustClass` — `'guardian'`, `'t
 
 **Guardian bindings** (in `src/memory/guardian-bindings.ts`) always carry `guardianPrincipalId: string` as a required, non-null field. A binding without a principal ID is invalid and cannot be created.
 
-**Strict retry sweep parsing:** The channel retry sweep (`src/runtime/channel-retry-sweep.ts`) uses `parseGuardianRuntimeContext()` which validates `trustClass` against the canonical three-value set. There is no fallback to a legacy `actorRole` field — stored payloads that lack a valid `trustClass` are rejected deterministically to prevent silent privilege escalation. When `guardianCtx` is entirely absent from a stored payload (pre-guardian events), the sweep synthesizes an explicit `trustClass: 'unknown'` context so that replay never proceeds without a trust classification.
+**Strict retry sweep parsing:** The channel retry sweep (`src/runtime/channel-retry-sweep.ts`) uses `parseTrustRuntimeContext()` which validates `trustClass` against the canonical three-value set. There is no fallback to a legacy `actorRole` field — stored payloads that lack a valid `trustClass` are rejected deterministically to prevent silent privilege escalation. When `trustCtx` is entirely absent from a stored payload (pre-guardian events), the sweep synthesizes an explicit `trustClass: 'unknown'` context so that replay never proceeds without a trust classification.
 
 **Rollout note — legacy `actorRole` payloads:** Previously failed events stored with only `actorRole` (no `trustClass`) will be marked as failed on each retry attempt and eventually dead-lettered after exhausting `RETRY_MAX_ATTEMPTS`. This is an intentional security tradeoff: replaying these events with inferred trust would violate the explicit-trust model. If legacy events need to be recovered, they should be repaired (adding a canonical `trustClass` to the stored payload) before replay via `replayDeadLetters()`.
 

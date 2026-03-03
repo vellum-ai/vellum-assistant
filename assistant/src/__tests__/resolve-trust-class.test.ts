@@ -35,7 +35,7 @@ describe("resolveTrustClass", () => {
     );
   });
 
-  test("returns 'unknown' when guardianContext is undefined", () => {
+  test("returns 'unknown' when trustContext is undefined", () => {
     expect(resolveTrustClass(undefined)).toBe("unknown");
   });
 

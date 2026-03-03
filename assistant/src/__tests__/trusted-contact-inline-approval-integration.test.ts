@@ -349,13 +349,13 @@ describe("(a) target flow: trusted-contact inline guardian approval end-to-end",
 
   test("complete flow: routing state allows interactive + bridge notifies guardian + tool resumes", async () => {
     // Step 1: Verify routing state allows interactive turns for trusted contacts
-    const guardianCtx: TrustContext = {
+    const trustCtx: TrustContext = {
       sourceChannel: "telegram",
       trustClass: "trusted_contact",
       guardianExternalUserId: "guardian-1",
       guardianChatId: "guardian-chat-1",
     };
-    const routing = resolveRoutingState(guardianCtx);
+    const routing = resolveRoutingState(trustCtx);
     expect(routing.promptWaitingAllowed).toBe(true);
     expect(routing.guardianRouteResolvable).toBe(true);
 
@@ -431,11 +431,11 @@ describe("(b) prompt-path flow: confirmation_request bridges to guardian", () =>
       expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
     });
 
-    const guardianContext = makeTrustedContactTrustContext();
+    const trustContext = makeTrustedContactTrustContext();
 
     const result = bridgeConfirmationRequestToGuardian({
       canonicalRequest,
-      guardianContext,
+      trustContext,
       conversationId: "conv-bridge-1",
       toolName: "bash",
     });
@@ -470,11 +470,11 @@ describe("(b) prompt-path flow: confirmation_request bridges to guardian", () =>
       expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
     });
 
-    const guardianContext = makeTrustedContactTrustContext();
+    const trustContext = makeTrustedContactTrustContext();
 
     bridgeConfirmationRequestToGuardian({
       canonicalRequest,
-      guardianContext,
+      trustContext,
       conversationId: "conv-unified-1",
       toolName: "bash",
     });
@@ -569,11 +569,11 @@ describe("(c) no-binding flow: trusted contact fails fast without guardian bindi
       expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
     });
 
-    const guardianContext = makeTrustedContactTrustContext();
+    const trustContext = makeTrustedContactTrustContext();
 
     const result = bridgeConfirmationRequestToGuardian({
       canonicalRequest,
-      guardianContext,
+      trustContext,
       conversationId: "conv-nobinding",
       toolName: "bash",
     });
@@ -680,14 +680,14 @@ describe("(d) unknown actor flow: fail-closed with no interactive approval", () 
       expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
     });
 
-    const guardianContext: TrustContext = {
+    const trustContext: TrustContext = {
       sourceChannel: "telegram",
       trustClass: "unknown",
     };
 
     const result = bridgeConfirmationRequestToGuardian({
       canonicalRequest,
-      guardianContext,
+      trustContext,
       conversationId: "conv-unknown",
       toolName: "bash",
     });
@@ -1090,11 +1090,11 @@ describe("cross-milestone integration checks", () => {
       expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
     });
 
-    const guardianContext = makeTrustedContactTrustContext();
+    const trustContext = makeTrustedContactTrustContext();
 
     const bridgeResult = bridgeConfirmationRequestToGuardian({
       canonicalRequest,
-      guardianContext,
+      trustContext,
       conversationId: "conv-consistency",
       toolName: "bash",
     });

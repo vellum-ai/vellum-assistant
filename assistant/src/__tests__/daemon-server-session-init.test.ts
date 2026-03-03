@@ -55,7 +55,7 @@ class MockSession {
   public setSandboxOverrideCalls = 0;
   private stale = false;
   private processing = false;
-  public guardianContext: Record<string, unknown> | null = null;
+  public trustContext: Record<string, unknown> | null = null;
   private _currentSender: ((msg: Record<string, unknown>) => void) | undefined;
 
   constructor(
@@ -127,8 +127,8 @@ class MockSession {
 
   setAssistantId(): void {}
 
-  setGuardianContext(ctx: Record<string, unknown> | null): void {
-    this.guardianContext = ctx;
+  setTrustContext(ctx: Record<string, unknown> | null): void {
+    this.trustContext = ctx;
   }
 
   setAuthContext(): void {}
@@ -287,7 +287,7 @@ mock.module("../memory/conversation-store.js", () => ({
   addMessage: () => ({ id: "mock-msg-id" }),
   provenanceFromTrustContext: () => ({
     source: "user",
-    guardianContext: undefined,
+    trustContext: undefined,
   }),
   getConversationOriginInterface: () => null,
   getConversationOriginChannel: () => null,
@@ -783,7 +783,7 @@ describe("DaemonServer initial session hydration", () => {
       undefined,
       {
         isInteractive: false,
-        guardianContext: {
+        trustContext: {
           sourceChannel: "telegram",
           trustClass: "trusted_contact",
           guardianExternalUserId: "guardian-123",

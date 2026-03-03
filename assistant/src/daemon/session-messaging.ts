@@ -92,7 +92,7 @@ export interface MessagingSessionContext {
   abortController: AbortController | null;
   currentRequestId?: string;
   readonly queue: MessageQueue;
-  guardianContext?: TrustContext;
+  trustContext?: TrustContext;
   getTurnChannelContext(): TurnChannelContext | null;
   getTurnInterfaceContext(): TurnInterfaceContext | null;
 }
@@ -188,7 +188,7 @@ export async function persistUserMessage(
   try {
     const turnCtx = extractTurnChannelContext(metadata) ?? ctx.getTurnChannelContext();
     const turnIfCtx = extractTurnInterfaceContext(metadata) ?? ctx.getTurnInterfaceContext();
-    const provenance = provenanceFromTrustContext(ctx.guardianContext);
+    const provenance = provenanceFromTrustContext(ctx.trustContext);
     const mergedMetadata = {
       ...(metadata ?? {}),
       ...provenance,

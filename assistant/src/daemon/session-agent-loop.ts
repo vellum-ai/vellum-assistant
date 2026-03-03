@@ -60,7 +60,7 @@ import type { QueueDrainReason } from './session-queue-manager.js';
 import type { ActiveSurfaceContext, ChannelCapabilities, ChannelTurnContextParams, TrustContext, InboundActorContext, InterfaceTurnContextParams } from './session-runtime-assembly.js';
 import {
   applyRuntimeInjections,
-  inboundActorContextFromTrustContext,
+  inboundActorContextFromGuardian,
   inboundActorContextFromTrust,
   stripInjectedContext,
 } from './session-runtime-assembly.js';
@@ -107,7 +107,7 @@ export interface AgentLoopSessionContext {
   workspaceTopLevelDirty: boolean;
   channelCapabilities?: ChannelCapabilities;
   commandIntent?: { type: string; payload?: string; languageCode?: string };
-  guardianContext?: TrustContext;
+  trustContext?: TrustContext;
   assistantId?: string;
   voiceCallControlPrompt?: string;
 
@@ -320,7 +320,7 @@ export async function runAgentLoopImpl(
         conflictGate: ctx.conflictGate,
         scopeId: ctx.memoryPolicy.scopeId,
         includeDefaultFallback: ctx.memoryPolicy.includeDefaultFallback,
-        trustClass: resolveTrustClass(ctx.guardianContext),
+        trustClass: resolveTrustClass(ctx.trustContext),
         isInteractive: options?.isInteractive ?? (!ctx.hasNoClient && !ctx.headlessLock),
       },
       content,
@@ -331,7 +331,7 @@ export async function runAgentLoopImpl(
 
     if (memoryResult.conflictClarification) {
       const loopChannelMeta = {
-        ...provenanceFromTrustContext(ctx.guardianContext),
+        ...provenanceFromTrustContext(ctx.trustContext),
         userMessageChannel: capturedTurnChannelContext.userMessageChannel,
         assistantMessageChannel: capturedTurnChannelContext.assistantMessageChannel,
         userMessageInterface: capturedTurnInterfaceContext.userMessageInterface,
@@ -421,8 +421,8 @@ export async function runAgentLoopImpl(
     // are fresh for this turn. The session runtime context remains the source
     // for policy gating; this block is model-facing grounding metadata.
     let resolvedInboundActorContext: InboundActorContext | null = null;
-    if (ctx.guardianContext) {
-      const gc = ctx.guardianContext;
+    if (ctx.trustContext) {
+      const gc = ctx.trustContext;
       if (gc.requesterExternalUserId && gc.requesterChatId) {
         const actorTrust = resolveActorTrust({
           assistantId: ctx.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
@@ -433,7 +433,7 @@ export async function runAgentLoopImpl(
         });
         resolvedInboundActorContext = inboundActorContextFromTrust(actorTrust);
       } else {
-        resolvedInboundActorContext = inboundActorContextFromTrustContext(gc);
+        resolvedInboundActorContext = inboundActorContextFromGuardian(gc);
       }
     }
 
@@ -673,7 +673,7 @@ export async function runAgentLoopImpl(
         }),
       );
       const toolResultMetadata = {
-        ...provenanceFromTrustContext(ctx.guardianContext),
+        ...provenanceFromTrustContext(ctx.trustContext),
         userMessageChannel: capturedTurnChannelContext.userMessageChannel,
         assistantMessageChannel: capturedTurnChannelContext.assistantMessageChannel,
         userMessageInterface: capturedTurnInterfaceContext.userMessageInterface,
@@ -699,7 +699,7 @@ export async function runAgentLoopImpl(
     const hasAssistantResponse = newMessages.some((msg) => msg.role === 'assistant');
     if (!hasAssistantResponse && state.providerErrorUserMessage && !abortController.signal.aborted && !yieldedForHandoff) {
       const errChannelMeta = {
-        ...provenanceFromTrustContext(ctx.guardianContext),
+        ...provenanceFromTrustContext(ctx.trustContext),
         userMessageChannel: capturedTurnChannelContext.userMessageChannel,
         assistantMessageChannel: capturedTurnChannelContext.assistantMessageChannel,
         userMessageInterface: capturedTurnInterfaceContext.userMessageInterface,

@@ -126,9 +126,9 @@ describe("trust-context guards", () => {
       "utf-8",
     );
 
-    // The parseGuardianRuntimeContext function must use strict trustClass
+    // The parseTrustRuntimeContext function must use strict trustClass
     // parsing only — no legacy actorRole fallback.
-    const parserStart = source.indexOf("function parseGuardianRuntimeContext");
+    const parserStart = source.indexOf("function parseTrustRuntimeContext");
     expect(parserStart).toBeGreaterThan(-1);
 
     // Find the end of the function (next function-level declaration or EOF)
@@ -138,30 +138,30 @@ describe("trust-context guards", () => {
 
     expect(
       parserSource.includes("actorRole"),
-      "parseGuardianRuntimeContext must not reference `actorRole`. " +
+      "parseTrustRuntimeContext must not reference `actorRole`. " +
         "The retry sweep uses strict `trustClass` parsing — no legacy actorRole fallback.",
     ).toBe(false);
   });
 
   // -----------------------------------------------------------------------
-  // (d) Retry sweep never passes undefined guardianContext to processMessage
+  // (d) Retry sweep never passes undefined trustContext to processMessage
   // -----------------------------------------------------------------------
 
-  it("retry sweep always provides an explicit guardianContext (never undefined)", () => {
+  it("retry sweep always provides an explicit trustContext (never undefined)", () => {
     const source = readFileSync(
       join(srcDir, "runtime", "channel-retry-sweep.ts"),
       "utf-8",
     );
 
-    // The sweep must synthesize a trust context when guardianCtx is absent,
-    // so `guardianContext` should never be conditionally undefined at the
+    // The sweep must synthesize a trust context when trustCtx is absent,
+    // so `trustContext` should never be conditionally undefined at the
     // processMessage callsite. Look for the pattern that ensures this:
-    // a `const guardianContext: TrustContext = parsedGuardianContext ?? {`
+    // a `const trustContext: TrustContext = parsedTrustContext ?? {`
     // fallback that synthesizes trustClass: 'unknown'.
     expect(
       source.includes("trustClass: 'unknown'"),
       "The retry sweep must synthesize an explicit `trustClass: 'unknown'` context " +
-        "when guardianCtx is absent from stored payloads. This prevents downstream " +
+        "when trustCtx is absent from stored payloads. This prevents downstream " +
         "defaults from granting implicit guardian trust on replay.",
     ).toBe(true);
   });

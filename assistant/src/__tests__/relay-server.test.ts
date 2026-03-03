@@ -372,7 +372,7 @@ describe("relay-server", () => {
           },
           setChannelCapabilities: () => {},
           setAssistantId: () => {},
-          setGuardianContext: () => {},
+          setTrustContext: () => {},
           setCommandIntent: () => {},
           setTurnChannelContext: () => {},
           setVoiceCallControlPrompt: () => {},
@@ -1481,13 +1481,13 @@ describe("relay-server", () => {
 
     const runtimeContext = (
       relay.getController() as unknown as {
-        guardianContext?: {
+        trustContext?: {
           sourceChannel?: string;
           trustClass?: string;
           guardianExternalUserId?: string;
         };
       }
-    )?.guardianContext;
+    )?.trustContext;
     expect(runtimeContext?.sourceChannel).toBe("voice");
     expect(runtimeContext?.trustClass).toBe("guardian");
     expect(runtimeContext?.guardianExternalUserId).toBe("+15550001111");
@@ -1531,14 +1531,14 @@ describe("relay-server", () => {
 
     const runtimeContext = (
       relay.getController() as unknown as {
-        guardianContext?: {
+        trustContext?: {
           sourceChannel?: string;
           trustClass?: string;
           guardianExternalUserId?: string;
           requesterExternalUserId?: string;
         };
       }
-    )?.guardianContext;
+    )?.trustContext;
     expect(runtimeContext?.sourceChannel).toBe("voice");
     expect(runtimeContext?.trustClass).toBe("trusted_contact");
     expect(runtimeContext?.guardianExternalUserId).toBe("+15550009999");
@@ -1584,13 +1584,13 @@ describe("relay-server", () => {
 
     const runtimeContext = (
       relay.getController() as unknown as {
-        guardianContext?: {
+        trustContext?: {
           sourceChannel?: string;
           trustClass?: string;
           guardianExternalUserId?: string;
         };
       }
-    )?.guardianContext;
+    )?.trustContext;
     expect(runtimeContext?.sourceChannel).toBe("voice");
     expect(runtimeContext?.trustClass).toBe("guardian");
     expect(runtimeContext?.guardianExternalUserId).toBe("+15550001111");
@@ -1638,12 +1638,12 @@ describe("relay-server", () => {
 
     const runtimeContext = (
       relay.getController() as unknown as {
-        guardianContext?: {
+        trustContext?: {
           sourceChannel?: string;
           trustClass?: string;
         };
       }
-    )?.guardianContext;
+    )?.trustContext;
     expect(runtimeContext?.sourceChannel).toBe("voice");
     expect(runtimeContext?.trustClass).toBe("unknown");
 
@@ -1676,9 +1676,9 @@ describe("relay-server", () => {
 
     const preVerify = (
       relay.getController() as unknown as {
-        guardianContext?: { trustClass?: string };
+        trustContext?: { trustClass?: string };
       }
-    )?.guardianContext;
+    )?.trustContext;
     expect(preVerify?.trustClass).toBe("unknown");
 
     await relay.handleMessage(
@@ -1694,13 +1694,13 @@ describe("relay-server", () => {
 
     const postVerify = (
       relay.getController() as unknown as {
-        guardianContext?: {
+        trustContext?: {
           sourceChannel?: string;
           trustClass?: string;
           guardianExternalUserId?: string;
         };
       }
-    )?.guardianContext;
+    )?.trustContext;
     expect(postVerify?.sourceChannel).toBe("voice");
     expect(postVerify?.trustClass).toBe("guardian");
     expect(postVerify?.guardianExternalUserId).toBe(session.fromNumber);
