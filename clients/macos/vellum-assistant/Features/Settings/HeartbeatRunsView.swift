@@ -6,10 +6,7 @@ struct HeartbeatRunsView: View {
     @Environment(\.dismiss) var dismiss
 
     @State private var runs: [IPCHeartbeatRunsListResponseRun] = []
-    @State private var isRunning: Bool = false
-    @State private var runError: String?
     @State private var expandedRunId: String?
-    @State private var previousRunNowCallback: ((IPCHeartbeatRunNowResponse) -> Void)?
     @State private var previousRunsListCallback: ((IPCHeartbeatRunsListResponse) -> Void)?
 
     var body: some View {
@@ -20,30 +17,11 @@ struct HeartbeatRunsView: View {
                     .font(VFont.headline)
                     .foregroundColor(VColor.textPrimary)
                 Spacer()
-                if isRunning {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Running...")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                } else {
-                    VIconButton(label: "Run Now", icon: "play.fill", tooltip: "Run Now") {
-                        triggerRun()
-                    }
-                }
                 VButton(label: "Done", style: .tertiary) { dismiss() }
             }
             .padding(VSpacing.lg)
 
             Divider().background(VColor.surfaceBorder)
-
-            if let error = runError {
-                Text(error)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.error)
-                    .padding(.horizontal, VSpacing.lg)
-                    .padding(.top, VSpacing.sm)
-            }
 
             if runs.isEmpty {
                 Spacer()
@@ -163,19 +141,6 @@ struct HeartbeatRunsView: View {
         return formatter.string(from: date)
     }
 
-    // MARK: - Actions
-
-    private func triggerRun() {
-        isRunning = true
-        runError = nil
-        do {
-            try daemonClient.sendHeartbeatRunNow()
-        } catch {
-            isRunning = false
-            runError = "Failed to send run request"
-        }
-    }
-
     // MARK: - Data Loading
 
     private func loadRuns() {
@@ -184,28 +149,15 @@ struct HeartbeatRunsView: View {
 
     private func setupCallbacks() {
         previousRunsListCallback = daemonClient.onHeartbeatRunsListResponse
-        previousRunNowCallback = daemonClient.onHeartbeatRunNowResponse
 
         daemonClient.onHeartbeatRunsListResponse = { response in
             Task { @MainActor in
                 self.runs = response.runs
             }
         }
-        daemonClient.onHeartbeatRunNowResponse = { response in
-            self.previousRunNowCallback?(response)
-            Task { @MainActor in
-                self.isRunning = false
-                if !response.success {
-                    self.runError = response.error ?? "Run failed"
-                } else {
-                    try? self.daemonClient.sendHeartbeatRunsList(limit: 20)
-                }
-            }
-        }
     }
 
     private func clearCallbacks() {
         daemonClient.onHeartbeatRunsListResponse = previousRunsListCallback
-        daemonClient.onHeartbeatRunNowResponse = previousRunNowCallback
     }
 }
