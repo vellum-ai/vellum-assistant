@@ -1027,6 +1027,51 @@ struct MainWindowView: View {
         }
     }
 
+    /// A schedule group header row styled like a regular thread item.
+    /// The entire row is tappable to toggle expand/collapse.
+    @ViewBuilder
+    private func scheduleGroupHeader(group: (key: String, label: String, threads: [ThreadModel])) -> some View {
+        let isExpanded = sidebar.expandedScheduleGroups.contains(group.key)
+        HStack(spacing: VSpacing.xs) {
+            // Chevron in the 20×20 leading slot (matches threadItem layout)
+            Image(systemName: "chevron.right")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(VColor.textMuted)
+                .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                .animation(VAnimation.fast, value: isExpanded)
+                .frame(width: 20, height: 20)
+            Text(group.label)
+                .font(.system(size: 13))
+                .foregroundColor(VColor.textPrimary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Text("\(group.threads.count)")
+                .font(.system(size: 11))
+                .foregroundColor(VColor.textMuted)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.leading, VSpacing.xs)
+        .padding(.trailing, VSpacing.sm)
+        .padding(.vertical, VSpacing.sm)
+        .background(Color.clear)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .contentShape(Rectangle())
+        .onTapGesture {
+            withAnimation(VAnimation.standard) {
+                if isExpanded {
+                    sidebar.expandedScheduleGroups.remove(group.key)
+                } else {
+                    sidebar.expandedScheduleGroups.insert(group.key)
+                }
+            }
+        }
+        .onHover { hovering in
+            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+        }
+        .padding(.horizontal, VSpacing.sm)
+    }
+
     private func selectThread(_ thread: ThreadModel) {
         if case .appEditing(let appId, _) = windowState.selection {
             windowState.selection = .appEditing(appId: appId, threadId: thread.id)
@@ -1312,40 +1357,16 @@ struct MainWindowView: View {
                                 threadItem(thread)
                                     .padding(.bottom, VSpacing.xxs)
                             } else {
-                                // Multi-thread group: collapsible disclosure group
-                                DisclosureGroup(
-                                    isExpanded: Binding(
-                                        get: { sidebar.expandedScheduleGroups.contains(group.key) },
-                                        set: { isExpanded in
-                                            if isExpanded {
-                                                sidebar.expandedScheduleGroups.insert(group.key)
-                                            } else {
-                                                sidebar.expandedScheduleGroups.remove(group.key)
-                                            }
-                                        }
-                                    )
-                                ) {
+                                // Multi-thread group: custom tappable row styled like a thread item
+                                scheduleGroupHeader(group: group)
+                                    .padding(.bottom, VSpacing.xxs)
+
+                                if sidebar.expandedScheduleGroups.contains(group.key) {
                                     ForEach(group.threads) { thread in
                                         threadItem(thread)
                                             .padding(.bottom, VSpacing.xxs)
                                     }
-                                } label: {
-                                    HStack(spacing: VSpacing.xs) {
-                                        Image(systemName: "clock.arrow.2.circlepath")
-                                            .font(.system(size: 12))
-                                            .foregroundColor(VColor.textMuted)
-                                        Text(group.label)
-                                            .font(VFont.caption)
-                                            .foregroundColor(VColor.textSecondary)
-                                            .lineLimit(1)
-                                        Text("\(group.threads.count)")
-                                            .font(VFont.caption)
-                                            .foregroundColor(VColor.textMuted)
-                                    }
                                 }
-                                .padding(.leading, VSpacing.sm)
-                                .padding(.trailing, VSpacing.md)
-                                .padding(.bottom, VSpacing.xxs)
                             }
                         }
 

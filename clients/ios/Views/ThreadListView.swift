@@ -67,6 +67,7 @@ struct ThreadListView: View {
     @State private var renamingThreadId: UUID?
     @State private var renameText: String = ""
     @State private var showArchived: Bool = false
+    @State private var expandedScheduleGroups: Set<String> = []
 
     private var activeThreads: [IOSThread] {
         // Exclude private threads — they are managed separately via the Private Threads
@@ -355,8 +356,10 @@ struct ThreadListView: View {
                 .tint(VColor.warning)
             }
         } else {
-            // Multi-thread group: collapsible
-            DisclosureGroup {
+            // Multi-thread group: tappable header styled like a thread row
+            scheduleGroupHeaderRow(group)
+
+            if expandedScheduleGroups.contains(group.key) {
                 ForEach(group.threads) { thread in
                     NavigationLink(value: thread.id) {
                         threadRow(thread)
@@ -375,19 +378,41 @@ struct ThreadListView: View {
                         .tint(VColor.warning)
                     }
                 }
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "clock.arrow.2.circlepath")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text(group.label)
-                        .lineLimit(1)
-                    Text("\(group.threads.count)")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
             }
         }
+    }
+
+    /// Group header row styled like a regular thread row — entire row is tappable.
+    private func scheduleGroupHeaderRow(_ group: (key: String, label: String, threads: [IOSThread])) -> some View {
+        let isExpanded = expandedScheduleGroups.contains(group.key)
+        return Button {
+            withAnimation {
+                if isExpanded {
+                    expandedScheduleGroups.remove(group.key)
+                } else {
+                    expandedScheduleGroups.insert(group.key)
+                }
+            }
+        } label: {
+            HStack {
+                Image(systemName: "chevron.right")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    .animation(.easeInOut(duration: 0.2), value: isExpanded)
+                Image(systemName: "bubble.left")
+                    .foregroundStyle(.secondary)
+                    .font(.caption)
+                Text(group.label)
+                    .lineLimit(1)
+                    .foregroundStyle(.primary)
+                Text("\(group.threads.count)")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                Spacer()
+            }
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Thread Row
