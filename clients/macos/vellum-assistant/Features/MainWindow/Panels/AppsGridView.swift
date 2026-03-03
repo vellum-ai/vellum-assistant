@@ -271,28 +271,16 @@ struct AppsGridView: View {
         (app.description?.localizedCaseInsensitiveContains(searchText) ?? false)
     }
 
-    /// Formats a date like "Jan 12th 2026".
+    /// Formats a date in a locale-aware medium style (e.g. "Jan 12, 2026" in en_US).
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        return formatter
+    }()
+
     private static func formatDate(_ date: Date) -> String {
-        let calendar = Calendar.current
-        let day = calendar.component(.day, from: date)
-
-        let monthFormatter = DateFormatter()
-        monthFormatter.dateFormat = "MMM"
-        let month = monthFormatter.string(from: date)
-
-        let yearFormatter = DateFormatter()
-        yearFormatter.dateFormat = "yyyy"
-        let year = yearFormatter.string(from: date)
-
-        let suffix: String
-        switch day {
-        case 1, 21, 31: suffix = "st"
-        case 2, 22: suffix = "nd"
-        case 3, 23: suffix = "rd"
-        default: suffix = "th"
-        }
-
-        return "\(month) \(day)\(suffix) \(year)"
+        dateFormatter.string(from: date)
     }
 }
 
