@@ -133,7 +133,7 @@ struct SettingsAccountTab: View {
                             isPlatformUrlFocused = false
                         }
                         .disabled(platformUrlText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        VButton(label: "Cancel", style: .secondary, size: .large) {
+                        VButton(label: "Cancel", style: .tertiary, size: .large) {
                             platformUrlText = store.platformBaseUrl
                             isPlatformUrlFocused = false
                         }
@@ -150,7 +150,7 @@ struct SettingsAccountTab: View {
                             isPlatformUrlFocused = false
                         }
                         .disabled(platformUrlText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        VButton(label: "Cancel", style: .secondary, size: .large) {
+                        VButton(label: "Cancel", style: .tertiary, size: .large) {
                             platformUrlText = ""
                             isPlatformUrlFocused = false
                         }
