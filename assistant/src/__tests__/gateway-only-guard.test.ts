@@ -1,6 +1,5 @@
-import { execSync } from 'node:child_process';
-
-import { describe, expect, test } from 'bun:test';
+import { execSync } from "node:child_process";
+import { describe, expect, test } from "bun:test";
 
 /**
  * Guard test: production files and skills must not reference direct runtime
@@ -23,21 +22,18 @@ const ALLOWLIST = new Set([
   // Matched by prefix check below: gateway/
 
   // --- Intentional local daemon-control paths ---
-  'clients/shared/IPC/DaemonClient.swift',
-  'clients/macos/vellum-assistant/App/AppDelegate.swift',
-  'clients/macos/vellum-assistant/Features/Settings/SettingsConnectTab.swift',
-  '.claude/skills/update/SKILL.md', // daemon health check script
+  "clients/shared/IPC/DaemonClient.swift",
+  "clients/macos/vellum-assistant/App/AppDelegate.swift",
+  "clients/macos/vellum-assistant/Features/Settings/SettingsConnectTab.swift",
+  ".claude/skills/update/SKILL.md", // daemon health check script
 
   // --- Documentation and comments that mention the port for explanatory purposes ---
-  'AGENTS.md', // documents the gateway-only rule itself
-  'assistant/src/runtime/middleware/twilio-validation.ts', // comment explaining proxy URL rewriting
+  "AGENTS.md", // documents the gateway-only rule itself
+  "assistant/src/runtime/middleware/twilio-validation.ts", // comment explaining proxy URL rewriting
 ]);
 
 /** Patterns that indicate a direct runtime URL reference via hardcoded port. */
-const HARDCODED_PORT_PATTERNS = [
-  'localhost:7821',
-  '127\\.0\\.0\\.1:7821',
-];
+const HARDCODED_PORT_PATTERNS = ["localhost:7821", "127\\.0\\.0\\.1:7821"];
 
 /**
  * Pattern that catches RUNTIME_HTTP_PORT used in URL construction.
@@ -48,27 +44,29 @@ const HARDCODED_PORT_PATTERNS = [
  * Uses two alternations to handle either ordering on the same line.
  */
 const RUNTIME_PORT_URL_PATTERN =
-  'http://.*RUNTIME_HTTP_PORT|RUNTIME_HTTP_PORT.*http://';
+  "http://.*RUNTIME_HTTP_PORT|RUNTIME_HTTP_PORT.*http://";
 
 /**
  * Pattern that catches localhost/loopback /v1 URLs built with an interpolated
  * port variable (e.g. `http://localhost:${port}/v1/...`).
  */
 const INTERPOLATED_LOCALHOST_V1_PATTERN =
-  'http://(localhost|127\\.0\\.0\\.1):\\$\\{[^}]+\\}/v1/';
+  "http://(localhost|127\\.0\\.0\\.1):\\$\\{[^}]+\\}/v1/";
 
 function isTestFile(filePath: string): boolean {
   return (
-    filePath.includes('/__tests__/') ||
-    filePath.endsWith('.test.ts') ||
-    filePath.endsWith('.test.js') ||
-    filePath.endsWith('.spec.ts') ||
-    filePath.endsWith('.spec.js')
+    filePath.includes("/__tests__/") ||
+    filePath.endsWith(".test.ts") ||
+    filePath.endsWith(".test.js") ||
+    filePath.endsWith(".spec.ts") ||
+    filePath.endsWith(".spec.js") ||
+    filePath.includes("Tests/") ||
+    filePath.endsWith("Tests.swift")
   );
 }
 
 function isGatewayInternal(filePath: string): boolean {
-  return filePath.startsWith('gateway/');
+  return filePath.startsWith("gateway/");
 }
 
 /** Shared violation filter: exempt test files, gateway internals, and allowlisted paths. */
@@ -81,15 +79,15 @@ function filterViolations(files: string[]): string[] {
   });
 }
 
-describe('gateway-only API consumption guard', () => {
-  test('no non-allowlisted files reference direct runtime URLs (port 7821)', () => {
-    const grepPattern = HARDCODED_PORT_PATTERNS.join('|');
+describe("gateway-only API consumption guard", () => {
+  test("no non-allowlisted files reference direct runtime URLs (port 7821)", () => {
+    const grepPattern = HARDCODED_PORT_PATTERNS.join("|");
 
-    let grepOutput = '';
+    let grepOutput = "";
     try {
       grepOutput = execSync(
         `git grep -lE "${grepPattern}" -- '*.ts' '*.js' '*.swift' '*.md'`,
-        { encoding: 'utf-8', cwd: process.cwd() + '/..' },
+        { encoding: "utf-8", cwd: process.cwd() + "/.." },
       ).trim();
     } catch (err) {
       // Exit code 1 means no matches — that's the happy path
@@ -99,31 +97,31 @@ describe('gateway-only API consumption guard', () => {
       throw err;
     }
 
-    const files = grepOutput.split('\n').filter((f) => f.length > 0);
+    const files = grepOutput.split("\n").filter((f) => f.length > 0);
     const violations = filterViolations(files);
 
     if (violations.length > 0) {
       const message = [
-        'Found non-allowlisted files referencing direct runtime URLs (port 7821).',
+        "Found non-allowlisted files referencing direct runtime URLs (port 7821).",
         'All API requests must target gateway URLs — see AGENTS.md "Gateway-Only API Consumption".',
-        '',
-        'Violations:',
+        "",
+        "Violations:",
         ...violations.map((f) => `  - ${f}`),
-        '',
-        'To fix: migrate the reference to use gateway URLs.',
-        'If this is an intentional exception, add it to the ALLOWLIST in gateway-only-guard.test.ts.',
-      ].join('\n');
+        "",
+        "To fix: migrate the reference to use gateway URLs.",
+        "If this is an intentional exception, add it to the ALLOWLIST in gateway-only-guard.test.ts.",
+      ].join("\n");
 
       expect(violations, message).toEqual([]);
     }
   });
 
-  test('no non-allowlisted files construct URLs using RUNTIME_HTTP_PORT', () => {
-    let grepOutput = '';
+  test("no non-allowlisted files construct URLs using RUNTIME_HTTP_PORT", () => {
+    let grepOutput = "";
     try {
       grepOutput = execSync(
         `git grep -lE "${RUNTIME_PORT_URL_PATTERN}" -- '*.ts' '*.js' '*.swift' '*.md'`,
-        { encoding: 'utf-8', cwd: process.cwd() + '/..' },
+        { encoding: "utf-8", cwd: process.cwd() + "/.." },
       ).trim();
     } catch (err) {
       // Exit code 1 means no matches — that's the happy path
@@ -133,31 +131,31 @@ describe('gateway-only API consumption guard', () => {
       throw err;
     }
 
-    const files = grepOutput.split('\n').filter((f) => f.length > 0);
+    const files = grepOutput.split("\n").filter((f) => f.length > 0);
     const violations = filterViolations(files);
 
     if (violations.length > 0) {
       const message = [
-        'Found non-allowlisted files constructing URLs with RUNTIME_HTTP_PORT.',
+        "Found non-allowlisted files constructing URLs with RUNTIME_HTTP_PORT.",
         'All API requests must target gateway URLs — see AGENTS.md "Gateway-Only API Consumption".',
-        '',
-        'Violations:',
+        "",
+        "Violations:",
         ...violations.map((f) => `  - ${f}`),
-        '',
-        'To fix: migrate the reference to use gateway URLs.',
-        'If this is an intentional exception, add it to the ALLOWLIST in gateway-only-guard.test.ts.',
-      ].join('\n');
+        "",
+        "To fix: migrate the reference to use gateway URLs.",
+        "If this is an intentional exception, add it to the ALLOWLIST in gateway-only-guard.test.ts.",
+      ].join("\n");
 
       expect(violations, message).toEqual([]);
     }
   });
 
-  test('no non-allowlisted files construct localhost /v1 URLs with interpolated ports', () => {
-    let grepOutput = '';
+  test("no non-allowlisted files construct localhost /v1 URLs with interpolated ports", () => {
+    let grepOutput = "";
     try {
       grepOutput = execSync(
         `git grep -lE '${INTERPOLATED_LOCALHOST_V1_PATTERN}' -- '*.ts' '*.js' '*.swift' '*.md'`,
-        { encoding: 'utf-8', cwd: process.cwd() + '/..' },
+        { encoding: "utf-8", cwd: process.cwd() + "/.." },
       ).trim();
     } catch (err) {
       // Exit code 1 means no matches — that's the happy path
@@ -167,20 +165,20 @@ describe('gateway-only API consumption guard', () => {
       throw err;
     }
 
-    const files = grepOutput.split('\n').filter((f) => f.length > 0);
+    const files = grepOutput.split("\n").filter((f) => f.length > 0);
     const violations = filterViolations(files);
 
     if (violations.length > 0) {
       const message = [
-        'Found non-allowlisted files constructing localhost /v1 URLs with interpolated ports.',
+        "Found non-allowlisted files constructing localhost /v1 URLs with interpolated ports.",
         'All API requests must target gateway URLs — see AGENTS.md "Gateway-Only API Consumption".',
-        '',
-        'Violations:',
+        "",
+        "Violations:",
         ...violations.map((f) => `  - ${f}`),
-        '',
-        'To fix: migrate the reference to use gateway URLs.',
-        'If this is an intentional exception, add it to the ALLOWLIST in gateway-only-guard.test.ts.',
-      ].join('\n');
+        "",
+        "To fix: migrate the reference to use gateway URLs.",
+        "If this is an intentional exception, add it to the ALLOWLIST in gateway-only-guard.test.ts.",
+      ].join("\n");
 
       expect(violations, message).toEqual([]);
     }

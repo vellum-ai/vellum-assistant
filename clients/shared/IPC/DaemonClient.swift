@@ -595,12 +595,35 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     let encoder = JSONEncoder()
     let decoder = JSONDecoder()
 
-    public let config: DaemonConfig
+    public private(set) var config: DaemonConfig
 
     // MARK: - Init
 
     public init(config: DaemonConfig = .default) {
         self.config = config
+    }
+
+    // MARK: - Reconfigure
+
+    /// Reconfigure the daemon client's transport in place without replacing
+    /// the object identity. This preserves all callback closures and
+    /// subscriber references held by long-lived objects (ThreadManager,
+    /// ChatViewModel, RecordingManager, etc.) across assistant switches.
+    ///
+    /// The method disconnects the current transport, updates the config,
+    /// and resets connection-specific state. Callers must call `connect()`
+    /// after reconfiguring to establish the new connection.
+    public func reconfigure(config newConfig: DaemonConfig) {
+        disconnect()
+        self.config = newConfig
+        // Reset connection-specific state
+        isAuthenticated = false
+        isBlobTransportAvailable = false
+        httpPort = nil
+        daemonVersion = nil
+        latestMemoryStatus = nil
+        currentModel = nil
+        cuObservationSequenceBySession.removeAll()
     }
 
     deinit {
@@ -1571,11 +1594,17 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     }
 
     /// Resolve an auth token for feature-flag requests.
-    /// Prefers the dedicated feature-flag token; falls back to the runtime bearer
-    /// token so that remote setups without `~/.vellum/feature-flag-token` still work.
+    /// The gateway requires JWT edge tokens with `feature_flags.read`/`feature_flags.write`
+    /// scopes (via `requireEdgeAuthWithScope`). The JWT access token from
+    /// `ActorTokenManager` carries these scopes in the `actor_client_v1` profile.
+    /// Legacy opaque tokens (feature-flag hex token, shared-secret bearer) are
+    /// rejected by the gateway, so we prefer the JWT and only fall back to legacy
+    /// tokens for backwards compatibility during the transition period.
     private func resolveFeatureFlagAuthToken() -> String? {
+        // Prefer the JWT access token — it carries the required scopes
+        if let jwt = ActorTokenManager.getToken(), !jwt.isEmpty { return jwt }
+        // Legacy fallback: dedicated feature-flag token or runtime bearer
         if let ff = config.featureFlagToken, !ff.isEmpty { return ff }
-        // Fall back to runtime bearer token
         if let httpTransport { return httpTransport.bearerToken }
         #if os(macOS)
         return readHttpToken()
@@ -1753,17 +1782,52 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     // MARK: - Actor Token Bootstrap
 
     /// Response from `POST /v1/integrations/guardian/vellum/bootstrap`.
+    /// Accepts both `accessToken` (new) and `actorToken` (legacy) field names.
     public struct GuardianBootstrapResponse: Decodable {
         public let guardianPrincipalId: String
-        public let actorToken: String
-        public let actorTokenExpiresAt: Int?
+        /// The JWT access token — accepts either `accessToken` or legacy `actorToken`.
+        public let accessToken: String
+        public let accessTokenExpiresAt: Int?
         public let refreshToken: String?
         public let refreshTokenExpiresAt: Int?
         public let refreshAfter: Int?
         public let isNew: Bool
+
+        private enum CodingKeys: String, CodingKey {
+            case guardianPrincipalId
+            case accessToken
+            case actorToken
+            case accessTokenExpiresAt
+            case actorTokenExpiresAt
+            case refreshToken
+            case refreshTokenExpiresAt
+            case refreshAfter
+            case isNew
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            guardianPrincipalId = try container.decode(String.self, forKey: .guardianPrincipalId)
+            // Accept "accessToken" first, fall back to legacy "actorToken"
+            if let token = try container.decodeIfPresent(String.self, forKey: .accessToken) {
+                accessToken = token
+            } else {
+                accessToken = try container.decode(String.self, forKey: .actorToken)
+            }
+            // Accept "accessTokenExpiresAt" first, fall back to legacy "actorTokenExpiresAt"
+            if let expiresAt = try container.decodeIfPresent(Int.self, forKey: .accessTokenExpiresAt) {
+                accessTokenExpiresAt = expiresAt
+            } else {
+                accessTokenExpiresAt = try container.decodeIfPresent(Int.self, forKey: .actorTokenExpiresAt)
+            }
+            refreshToken = try container.decodeIfPresent(String.self, forKey: .refreshToken)
+            refreshTokenExpiresAt = try container.decodeIfPresent(Int.self, forKey: .refreshTokenExpiresAt)
+            refreshAfter = try container.decodeIfPresent(Int.self, forKey: .refreshAfter)
+            isNew = try container.decode(Bool.self, forKey: .isNew)
+        }
     }
 
-    /// Calls the runtime's guardian bootstrap endpoint to obtain an actor token.
+    /// Calls the runtime's guardian bootstrap endpoint to obtain a JWT access token.
     /// The token is bound to (assistantId, platform, deviceId) and persisted
     /// in Keychain via `ActorTokenManager`.
     ///
@@ -1779,7 +1843,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             baseURL = local.baseURL
             bearerToken = local.bearerToken
         } else {
-            log.error("Cannot bootstrap actor token — no HTTP endpoint available")
+            log.error("Cannot bootstrap access token — no HTTP endpoint available")
             return false
         }
 
@@ -1807,18 +1871,18 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
             guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
                 let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-                log.error("Actor token bootstrap failed (HTTP \(statusCode))")
+                log.error("Access token bootstrap failed (HTTP \(statusCode))")
                 return false
             }
 
             let decoded = try JSONDecoder().decode(GuardianBootstrapResponse.self, from: data)
             if let refreshToken = decoded.refreshToken,
-               let actorTokenExpiresAt = decoded.actorTokenExpiresAt,
+               let accessTokenExpiresAt = decoded.accessTokenExpiresAt,
                let refreshTokenExpiresAt = decoded.refreshTokenExpiresAt,
                let refreshAfter = decoded.refreshAfter {
                 ActorTokenManager.storeCredentials(
-                    actorToken: decoded.actorToken,
-                    actorTokenExpiresAt: actorTokenExpiresAt,
+                    actorToken: decoded.accessToken,
+                    actorTokenExpiresAt: accessTokenExpiresAt,
                     refreshToken: refreshToken,
                     refreshTokenExpiresAt: refreshTokenExpiresAt,
                     refreshAfter: refreshAfter,
@@ -1828,14 +1892,14 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
                 // Legacy fallback for older runtimes that don't return refresh tokens.
                 // Clear any stale refresh metadata from prior pairings so proactive
                 // refresh / 401 recovery don't send an expired token.
-                ActorTokenManager.setToken(decoded.actorToken)
+                ActorTokenManager.setToken(decoded.accessToken)
                 ActorTokenManager.setGuardianPrincipalId(decoded.guardianPrincipalId)
                 ActorTokenManager.clearRefreshMetadata()
             }
-            log.info("Actor token bootstrap succeeded (isNew=\(decoded.isNew))")
+            log.info("Access token bootstrap succeeded (isNew=\(decoded.isNew))")
             return true
         } catch {
-            log.error("Actor token bootstrap error: \(error.localizedDescription)")
+            log.error("Access token bootstrap error: \(error.localizedDescription)")
             return false
         }
     }

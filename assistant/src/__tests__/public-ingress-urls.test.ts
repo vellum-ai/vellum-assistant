@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, mock,test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Mocks — silence logger output during tests
@@ -6,13 +6,22 @@ import { afterEach, beforeEach, describe, expect, mock,test } from 'bun:test';
 
 function makeLoggerStub(): Record<string, unknown> {
   const stub: Record<string, unknown> = {};
-  for (const m of ['info', 'warn', 'error', 'debug', 'trace', 'fatal', 'silent', 'child']) {
-    stub[m] = m === 'child' ? () => makeLoggerStub() : () => {};
+  for (const m of [
+    "info",
+    "warn",
+    "error",
+    "debug",
+    "trace",
+    "fatal",
+    "silent",
+    "child",
+  ]) {
+    stub[m] = m === "child" ? () => makeLoggerStub() : () => {};
   }
   return stub;
 }
 
-mock.module('../util/logger.js', () => ({
+mock.module("../util/logger.js", () => ({
   getLogger: () => makeLoggerStub(),
 }));
 
@@ -24,13 +33,13 @@ import {
   getTwilioRelayUrl,
   getTwilioStatusCallbackUrl,
   getTwilioVoiceWebhookUrl,
-} from '../inbound/public-ingress-urls.js';
+} from "../inbound/public-ingress-urls.js";
 
 // ---------------------------------------------------------------------------
 // getPublicBaseUrl — fallback chain
 // ---------------------------------------------------------------------------
 
-describe('getPublicBaseUrl', () => {
+describe("getPublicBaseUrl", () => {
   let savedIngressEnv: string | undefined;
 
   beforeEach(() => {
@@ -46,103 +55,109 @@ describe('getPublicBaseUrl', () => {
     }
   });
 
-  test('returns ingress.publicBaseUrl when set', () => {
+  test("returns ingress.publicBaseUrl when set", () => {
     const result = getPublicBaseUrl({
-      ingress: { publicBaseUrl: 'https://ingress.example.com/' },
+      ingress: { publicBaseUrl: "https://ingress.example.com/" },
     });
-    expect(result).toBe('https://ingress.example.com');
+    expect(result).toBe("https://ingress.example.com");
   });
 
-  test('falls back to INGRESS_PUBLIC_BASE_URL env var when ingress.publicBaseUrl is empty', () => {
-    process.env.INGRESS_PUBLIC_BASE_URL = 'https://ingress-env.example.com/';
+  test("falls back to INGRESS_PUBLIC_BASE_URL env var when ingress.publicBaseUrl is empty", () => {
+    process.env.INGRESS_PUBLIC_BASE_URL = "https://ingress-env.example.com/";
     const result = getPublicBaseUrl({
-      ingress: { publicBaseUrl: '' },
+      ingress: { publicBaseUrl: "" },
     });
-    expect(result).toBe('https://ingress-env.example.com');
+    expect(result).toBe("https://ingress-env.example.com");
   });
 
-  test('falls back to INGRESS_PUBLIC_BASE_URL env var when config is empty', () => {
-    process.env.INGRESS_PUBLIC_BASE_URL = 'https://ingress-env.example.com';
+  test("falls back to INGRESS_PUBLIC_BASE_URL env var when config is empty", () => {
+    process.env.INGRESS_PUBLIC_BASE_URL = "https://ingress-env.example.com";
     const result = getPublicBaseUrl({});
-    expect(result).toBe('https://ingress-env.example.com');
+    expect(result).toBe("https://ingress-env.example.com");
   });
 
-  test('throws when no source provides a value', () => {
-    expect(() => getPublicBaseUrl({
-      ingress: { publicBaseUrl: '' },
-    })).toThrow(/No public base URL configured/);
+  test("throws when no source provides a value", () => {
+    expect(() =>
+      getPublicBaseUrl({
+        ingress: { publicBaseUrl: "" },
+      }),
+    ).toThrow(/No public base URL configured/);
   });
 
-  test('throws when all sources are undefined', () => {
+  test("throws when all sources are undefined", () => {
     expect(() => getPublicBaseUrl({})).toThrow(/No public base URL configured/);
   });
 
-  test('throws when ingress is explicitly disabled', () => {
-    expect(() => getPublicBaseUrl({
-      ingress: { enabled: false, publicBaseUrl: 'https://example.com' },
-    })).toThrow(/Public ingress is disabled/);
+  test("throws when ingress is explicitly disabled", () => {
+    expect(() =>
+      getPublicBaseUrl({
+        ingress: { enabled: false, publicBaseUrl: "https://example.com" },
+      }),
+    ).toThrow(/Public ingress is disabled/);
   });
 
-  test('throws when ingress is explicitly disabled with no URL', () => {
-    expect(() => getPublicBaseUrl({
-      ingress: { enabled: false, publicBaseUrl: '' },
-    })).toThrow(/Public ingress is disabled/);
+  test("throws when ingress is explicitly disabled with no URL", () => {
+    expect(() =>
+      getPublicBaseUrl({
+        ingress: { enabled: false, publicBaseUrl: "" },
+      }),
+    ).toThrow(/Public ingress is disabled/);
   });
 
-  test('returns URL when enabled is undefined (backward compat)', () => {
+  test("returns URL when enabled is undefined (backward compat)", () => {
     const result = getPublicBaseUrl({
-      ingress: { enabled: undefined, publicBaseUrl: 'https://example.com' },
+      ingress: { enabled: undefined, publicBaseUrl: "https://example.com" },
     });
-    expect(result).toBe('https://example.com');
+    expect(result).toBe("https://example.com");
   });
 
-  test('returns URL when enabled is true', () => {
+  test("returns URL when enabled is true", () => {
     const result = getPublicBaseUrl({
-      ingress: { enabled: true, publicBaseUrl: 'https://example.com' },
+      ingress: { enabled: true, publicBaseUrl: "https://example.com" },
     });
-    expect(result).toBe('https://example.com');
+    expect(result).toBe("https://example.com");
   });
 
-  test('falls back to env var when enabled is undefined and no publicBaseUrl', () => {
-    process.env.INGRESS_PUBLIC_BASE_URL = 'https://env-fallback.example.com';
+  test("falls back to env var when enabled is undefined and no publicBaseUrl", () => {
+    process.env.INGRESS_PUBLIC_BASE_URL = "https://env-fallback.example.com";
     const result = getPublicBaseUrl({
-      ingress: { enabled: undefined, publicBaseUrl: '' },
+      ingress: { enabled: undefined, publicBaseUrl: "" },
     });
-    expect(result).toBe('https://env-fallback.example.com');
+    expect(result).toBe("https://env-fallback.example.com");
   });
 
-  test('normalizes trailing slashes from ingress.publicBaseUrl', () => {
+  test("normalizes trailing slashes from ingress.publicBaseUrl", () => {
     const result = getPublicBaseUrl({
-      ingress: { publicBaseUrl: 'https://example.com///' },
+      ingress: { publicBaseUrl: "https://example.com///" },
     });
-    expect(result).toBe('https://example.com');
+    expect(result).toBe("https://example.com");
   });
 
-  test('trims whitespace from ingress.publicBaseUrl', () => {
+  test("trims whitespace from ingress.publicBaseUrl", () => {
     const result = getPublicBaseUrl({
-      ingress: { publicBaseUrl: '  https://example.com  ' },
+      ingress: { publicBaseUrl: "  https://example.com  " },
     });
-    expect(result).toBe('https://example.com');
+    expect(result).toBe("https://example.com");
   });
 
-  test('skips whitespace-only ingress.publicBaseUrl and falls through to env', () => {
-    process.env.INGRESS_PUBLIC_BASE_URL = 'https://ingress-env.example.com';
+  test("skips whitespace-only ingress.publicBaseUrl and falls through to env", () => {
+    process.env.INGRESS_PUBLIC_BASE_URL = "https://ingress-env.example.com";
     const result = getPublicBaseUrl({
-      ingress: { publicBaseUrl: '   ' },
+      ingress: { publicBaseUrl: "   " },
     });
-    expect(result).toBe('https://ingress-env.example.com');
+    expect(result).toBe("https://ingress-env.example.com");
   });
 
-  test('normalizes trailing slashes from INGRESS_PUBLIC_BASE_URL', () => {
-    process.env.INGRESS_PUBLIC_BASE_URL = 'https://ingress-env.example.com///';
+  test("normalizes trailing slashes from INGRESS_PUBLIC_BASE_URL", () => {
+    process.env.INGRESS_PUBLIC_BASE_URL = "https://ingress-env.example.com///";
     const result = getPublicBaseUrl({});
-    expect(result).toBe('https://ingress-env.example.com');
+    expect(result).toBe("https://ingress-env.example.com");
   });
 
-  test('trims whitespace from INGRESS_PUBLIC_BASE_URL', () => {
-    process.env.INGRESS_PUBLIC_BASE_URL = '  https://ingress-env.example.com  ';
+  test("trims whitespace from INGRESS_PUBLIC_BASE_URL", () => {
+    process.env.INGRESS_PUBLIC_BASE_URL = "  https://ingress-env.example.com  ";
     const result = getPublicBaseUrl({});
-    expect(result).toBe('https://ingress-env.example.com');
+    expect(result).toBe("https://ingress-env.example.com");
   });
 });
 
@@ -150,21 +165,25 @@ describe('getPublicBaseUrl', () => {
 // getTwilioVoiceWebhookUrl
 // ---------------------------------------------------------------------------
 
-describe('getTwilioVoiceWebhookUrl', () => {
-  test('builds correct URL with callSessionId', () => {
+describe("getTwilioVoiceWebhookUrl", () => {
+  test("builds correct URL with callSessionId", () => {
     const url = getTwilioVoiceWebhookUrl(
-      { ingress: { publicBaseUrl: 'https://example.com' } },
-      'session-123',
+      { ingress: { publicBaseUrl: "https://example.com" } },
+      "session-123",
     );
-    expect(url).toBe('https://example.com/webhooks/twilio/voice?callSessionId=session-123');
+    expect(url).toBe(
+      "https://example.com/webhooks/twilio/voice?callSessionId=session-123",
+    );
   });
 
-  test('normalizes base URL before composing', () => {
+  test("normalizes base URL before composing", () => {
     const url = getTwilioVoiceWebhookUrl(
-      { ingress: { publicBaseUrl: 'https://example.com/' } },
-      'abc',
+      { ingress: { publicBaseUrl: "https://example.com/" } },
+      "abc",
     );
-    expect(url).toBe('https://example.com/webhooks/twilio/voice?callSessionId=abc');
+    expect(url).toBe(
+      "https://example.com/webhooks/twilio/voice?callSessionId=abc",
+    );
   });
 });
 
@@ -172,12 +191,12 @@ describe('getTwilioVoiceWebhookUrl', () => {
 // getTwilioStatusCallbackUrl
 // ---------------------------------------------------------------------------
 
-describe('getTwilioStatusCallbackUrl', () => {
-  test('builds correct URL', () => {
+describe("getTwilioStatusCallbackUrl", () => {
+  test("builds correct URL", () => {
     const url = getTwilioStatusCallbackUrl({
-      ingress: { publicBaseUrl: 'https://example.com' },
+      ingress: { publicBaseUrl: "https://example.com" },
     });
-    expect(url).toBe('https://example.com/webhooks/twilio/status');
+    expect(url).toBe("https://example.com/webhooks/twilio/status");
   });
 });
 
@@ -185,12 +204,12 @@ describe('getTwilioStatusCallbackUrl', () => {
 // getTwilioConnectActionUrl
 // ---------------------------------------------------------------------------
 
-describe('getTwilioConnectActionUrl', () => {
-  test('builds correct URL', () => {
+describe("getTwilioConnectActionUrl", () => {
+  test("builds correct URL", () => {
     const url = getTwilioConnectActionUrl({
-      ingress: { publicBaseUrl: 'https://example.com' },
+      ingress: { publicBaseUrl: "https://example.com" },
     });
-    expect(url).toBe('https://example.com/webhooks/twilio/connect-action');
+    expect(url).toBe("https://example.com/webhooks/twilio/connect-action");
   });
 });
 
@@ -198,26 +217,26 @@ describe('getTwilioConnectActionUrl', () => {
 // getTwilioRelayUrl — scheme conversion
 // ---------------------------------------------------------------------------
 
-describe('getTwilioRelayUrl', () => {
-  test('converts https to wss', () => {
+describe("getTwilioRelayUrl", () => {
+  test("converts https to wss", () => {
     const url = getTwilioRelayUrl({
-      ingress: { publicBaseUrl: 'https://example.com' },
+      ingress: { publicBaseUrl: "https://example.com" },
     });
-    expect(url).toBe('wss://example.com/webhooks/twilio/relay');
+    expect(url).toBe("wss://example.com/webhooks/twilio/relay");
   });
 
-  test('converts http to ws', () => {
+  test("converts http to ws", () => {
     const url = getTwilioRelayUrl({
-      ingress: { publicBaseUrl: 'http://localhost:7821' },
+      ingress: { publicBaseUrl: "http://localhost:7821" },
     });
-    expect(url).toBe('ws://localhost:7821/webhooks/twilio/relay');
+    expect(url).toBe("ws://localhost:7821/webhooks/twilio/relay");
   });
 
-  test('normalizes trailing slash before conversion', () => {
+  test("normalizes trailing slash before conversion", () => {
     const url = getTwilioRelayUrl({
-      ingress: { publicBaseUrl: 'https://example.com/' },
+      ingress: { publicBaseUrl: "https://example.com/" },
     });
-    expect(url).toBe('wss://example.com/webhooks/twilio/relay');
+    expect(url).toBe("wss://example.com/webhooks/twilio/relay");
   });
 });
 
@@ -225,32 +244,31 @@ describe('getTwilioRelayUrl', () => {
 // getOAuthCallbackUrl
 // ---------------------------------------------------------------------------
 
-describe('getOAuthCallbackUrl', () => {
-  test('builds correct URL', () => {
+describe("getOAuthCallbackUrl", () => {
+  test("builds correct URL", () => {
     const url = getOAuthCallbackUrl({
-      ingress: { publicBaseUrl: 'https://example.com' },
+      ingress: { publicBaseUrl: "https://example.com" },
     });
-    expect(url).toBe('https://example.com/webhooks/oauth/callback');
+    expect(url).toBe("https://example.com/webhooks/oauth/callback");
   });
 });
-
 
 // ---------------------------------------------------------------------------
 // getTelegramWebhookUrl
 // ---------------------------------------------------------------------------
 
-describe('getTelegramWebhookUrl', () => {
-  test('builds correct URL', () => {
+describe("getTelegramWebhookUrl", () => {
+  test("builds correct URL", () => {
     const url = getTelegramWebhookUrl({
-      ingress: { publicBaseUrl: 'https://example.com' },
+      ingress: { publicBaseUrl: "https://example.com" },
     });
-    expect(url).toBe('https://example.com/webhooks/telegram');
+    expect(url).toBe("https://example.com/webhooks/telegram");
   });
 
-  test('normalizes trailing slash before composing', () => {
+  test("normalizes trailing slash before composing", () => {
     const url = getTelegramWebhookUrl({
-      ingress: { publicBaseUrl: 'https://example.com/' },
+      ingress: { publicBaseUrl: "https://example.com/" },
     });
-    expect(url).toBe('https://example.com/webhooks/telegram');
+    expect(url).toBe("https://example.com/webhooks/telegram");
   });
 });

@@ -386,8 +386,10 @@ public struct IPCAssistantActivityState: Codable, Sendable {
     /// Active user request when available.
     public let requestId: String?
     public let reason: String
+    /// Human-readable description of what the assistant is currently doing.
+    public let statusText: String?
 
-    public init(type: String, sessionId: String, activityVersion: Int, phase: String, anchor: String, requestId: String? = nil, reason: String) {
+    public init(type: String, sessionId: String, activityVersion: Int, phase: String, anchor: String, requestId: String? = nil, reason: String, statusText: String? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.activityVersion = activityVersion
@@ -395,6 +397,7 @@ public struct IPCAssistantActivityState: Codable, Sendable {
         self.anchor = anchor
         self.requestId = requestId
         self.reason = reason
+        self.statusText = statusText
     }
 }
 
@@ -907,8 +910,10 @@ public struct IPCConfirmationRequest: Codable, Sendable {
     public let sessionId: String?
     /// When false, the client should hide "always allow" / trust-rule persistence affordances.
     public let persistentDecisionsAllowed: Bool?
+    /// Which temporary approval options the client should render (e.g. "Allow for 10 minutes", "Allow for this thread").
+    public let temporaryOptionsAvailable: [String]?
 
-    public init(type: String, requestId: String, toolName: String, input: [String: AnyCodable], riskLevel: String, executionTarget: String? = nil, allowlistOptions: [IPCConfirmationRequestAllowlistOption], scopeOptions: [IPCConfirmationRequestScopeOption], diff: IPCConfirmationRequestDiff? = nil, sandboxed: Bool? = nil, sessionId: String? = nil, persistentDecisionsAllowed: Bool? = nil) {
+    public init(type: String, requestId: String, toolName: String, input: [String: AnyCodable], riskLevel: String, executionTarget: String? = nil, allowlistOptions: [IPCConfirmationRequestAllowlistOption], scopeOptions: [IPCConfirmationRequestScopeOption], diff: IPCConfirmationRequestDiff? = nil, sandboxed: Bool? = nil, sessionId: String? = nil, persistentDecisionsAllowed: Bool? = nil, temporaryOptionsAvailable: [String]? = nil) {
         self.type = type
         self.requestId = requestId
         self.toolName = toolName
@@ -921,6 +926,7 @@ public struct IPCConfirmationRequest: Codable, Sendable {
         self.sandboxed = sandboxed
         self.sessionId = sessionId
         self.persistentDecisionsAllowed = persistentDecisionsAllowed
+        self.temporaryOptionsAvailable = temporaryOptionsAvailable
     }
 }
 
@@ -1506,13 +1512,17 @@ public struct IPCDynamicPagePreview: Codable, Sendable {
     public let description: String?
     public let icon: String?
     public let metrics: [IPCDynamicPagePreviewMetric]?
+    public let context: String?
+    public let previewImage: String?
 
-    public init(title: String, subtitle: String? = nil, description: String? = nil, icon: String? = nil, metrics: [IPCDynamicPagePreviewMetric]? = nil) {
+    public init(title: String, subtitle: String? = nil, description: String? = nil, icon: String? = nil, metrics: [IPCDynamicPagePreviewMetric]? = nil, context: String? = nil, previewImage: String? = nil) {
         self.title = title
         self.subtitle = subtitle
         self.description = description
         self.icon = icon
         self.metrics = metrics
+        self.context = context
+        self.previewImage = previewImage
     }
 }
 
@@ -4678,6 +4688,18 @@ public struct IPCSurfaceAction: Codable, Sendable {
     }
 }
 
+public struct IPCTableCellValue: Codable, Sendable {
+    public let text: String
+    public let icon: String?
+    public let iconColor: String?
+
+    public init(text: String, icon: String? = nil, iconColor: String? = nil) {
+        self.text = text
+        self.icon = icon
+        self.iconColor = iconColor
+    }
+}
+
 public struct IPCTableColumn: Codable, Sendable {
     public let id: String
     public let label: String
@@ -4692,11 +4714,11 @@ public struct IPCTableColumn: Codable, Sendable {
 
 public struct IPCTableRow: Codable, Sendable {
     public let id: String
-    public let cells: [String: String]
+    public let cells: [String: AnyCodable]
     public let selectable: Bool?
     public let selected: Bool?
 
-    public init(id: String, cells: [String: String], selectable: Bool? = nil, selected: Bool? = nil) {
+    public init(id: String, cells: [String: AnyCodable], selectable: Bool? = nil, selected: Bool? = nil) {
         self.id = id
         self.cells = cells
         self.selectable = selectable

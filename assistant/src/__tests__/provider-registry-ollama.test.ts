@@ -1,17 +1,21 @@
-import { describe, expect,test } from 'bun:test';
+import { describe, expect, test } from "bun:test";
 
-import { getProvider, initializeProviders, listProviders } from '../providers/registry.js';
+import {
+  getProvider,
+  initializeProviders,
+  listProviders,
+} from "../providers/registry.js";
 
-describe('provider registry (ollama)', () => {
-  test('registers ollama when selected provider has no API key', () => {
+describe("provider registry (ollama)", () => {
+  test("registers ollama when selected provider has no API key", () => {
     initializeProviders({
       apiKeys: {},
-      provider: 'ollama',
-      model: 'claude-opus-4-6',
+      provider: "ollama",
+      model: "claude-opus-4-6",
     });
 
-    const provider = getProvider('ollama');
-    expect(provider.name).toBe('ollama');
-    expect(listProviders()).toEqual(['ollama']);
+    const provider = getProvider("ollama");
+    expect(provider.name).toBe("ollama");
+    expect(listProviders()).toEqual(["ollama"]);
   });
 });

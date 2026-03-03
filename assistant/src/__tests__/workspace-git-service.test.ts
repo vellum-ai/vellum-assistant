@@ -1,9 +1,14 @@
-import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync,rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-
-import { afterEach,beforeEach, describe, expect, test } from 'bun:test';
+import { execFileSync } from "node:child_process";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
   _getConsecutiveFailures,
@@ -14,14 +19,17 @@ import {
   getWorkspaceGitService,
   isDeadlineExpired,
   WorkspaceGitService,
-} from '../workspace/git-service.js';
+} from "../workspace/git-service.js";
 
-describe('WorkspaceGitService', () => {
+describe("WorkspaceGitService", () => {
   let testDir: string;
 
   beforeEach(() => {
     // Create a unique test directory for each test
-    testDir = join(tmpdir(), `vellum-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    testDir = join(
+      tmpdir(),
+      `vellum-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    );
     mkdirSync(testDir, { recursive: true });
     _resetGitServiceRegistry();
   });
@@ -33,8 +41,8 @@ describe('WorkspaceGitService', () => {
     }
   });
 
-  describe('lazy initialization', () => {
-    test('initializes git repo on first ensureInitialized call', async () => {
+  describe("lazy initialization", () => {
+    test("initializes git repo on first ensureInitialized call", async () => {
       const service = new WorkspaceGitService(testDir);
 
       expect(service.isInitialized()).toBe(false);
@@ -42,45 +50,45 @@ describe('WorkspaceGitService', () => {
       await service.ensureInitialized();
 
       expect(service.isInitialized()).toBe(true);
-      expect(existsSync(join(testDir, '.git'))).toBe(true);
+      expect(existsSync(join(testDir, ".git"))).toBe(true);
     });
 
-    test('creates .gitignore with proper exclusions', async () => {
+    test("creates .gitignore with proper exclusions", async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
 
-      const gitignorePath = join(testDir, '.gitignore');
+      const gitignorePath = join(testDir, ".gitignore");
       expect(existsSync(gitignorePath)).toBe(true);
 
-      const content = readFileSync(gitignorePath, 'utf-8');
-      expect(content).toContain('data/db/');
-      expect(content).toContain('data/qdrant/');
-      expect(content).toContain('data/ipc-blobs/');
-      expect(content).toContain('*.log');
-      expect(content).toContain('*.sock');
-      expect(content).toContain('*.pid');
-      expect(content).toContain('vellum.sock');
-      expect(content).toContain('session-token');
+      const content = readFileSync(gitignorePath, "utf-8");
+      expect(content).toContain("data/db/");
+      expect(content).toContain("data/qdrant/");
+      expect(content).toContain("data/ipc-blobs/");
+      expect(content).toContain("*.log");
+      expect(content).toContain("*.sock");
+      expect(content).toContain("*.pid");
+      expect(content).toContain("vellum.sock");
+      expect(content).toContain("session-token");
     });
 
-    test('sets git identity correctly', async () => {
+    test("sets git identity correctly", async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
 
-      const userName = execFileSync('git', ['config', 'user.name'], {
+      const userName = execFileSync("git", ["config", "user.name"], {
         cwd: testDir,
-        encoding: 'utf-8',
+        encoding: "utf-8",
       }).trim();
-      const userEmail = execFileSync('git', ['config', 'user.email'], {
+      const userEmail = execFileSync("git", ["config", "user.email"], {
         cwd: testDir,
-        encoding: 'utf-8',
+        encoding: "utf-8",
       }).trim();
 
-      expect(userName).toBe('Vellum Assistant');
-      expect(userEmail).toBe('assistant@vellum.ai');
+      expect(userName).toBe("Vellum Assistant");
+      expect(userEmail).toBe("assistant@vellum.ai");
     });
 
-    test('multiple ensureInitialized calls are idempotent', async () => {
+    test("multiple ensureInitialized calls are idempotent", async () => {
       const service = new WorkspaceGitService(testDir);
 
       await service.ensureInitialized();
@@ -90,7 +98,7 @@ describe('WorkspaceGitService', () => {
       expect(service.isInitialized()).toBe(true);
     });
 
-    test('handles concurrent ensureInitialized calls', async () => {
+    test("handles concurrent ensureInitialized calls", async () => {
       const service = new WorkspaceGitService(testDir);
 
       // Start multiple initialization calls concurrently
@@ -106,69 +114,71 @@ describe('WorkspaceGitService', () => {
     });
   });
 
-  describe('initial commit', () => {
-    test('creates initial commit for new empty workspace', async () => {
+  describe("initial commit", () => {
+    test("creates initial commit for new empty workspace", async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
 
-      const log = execFileSync('git', ['log', '--oneline'], {
+      const log = execFileSync("git", ["log", "--oneline"], {
         cwd: testDir,
-        encoding: 'utf-8',
+        encoding: "utf-8",
       });
 
-      expect(log).toContain('Initial commit: new workspace');
+      expect(log).toContain("Initial commit: new workspace");
     });
 
-    test('creates initial commit for existing workspace with files', async () => {
+    test("creates initial commit for existing workspace with files", async () => {
       // Create some files before initializing git
-      writeFileSync(join(testDir, 'README.md'), '# Test\n');
-      writeFileSync(join(testDir, 'config.json'), '{}');
-      mkdirSync(join(testDir, 'subdir'));
-      writeFileSync(join(testDir, 'subdir', 'file.txt'), 'content');
+      writeFileSync(join(testDir, "README.md"), "# Test\n");
+      writeFileSync(join(testDir, "config.json"), "{}");
+      mkdirSync(join(testDir, "subdir"));
+      writeFileSync(join(testDir, "subdir", "file.txt"), "content");
 
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
 
-      const log = execFileSync('git', ['log', '--oneline'], {
+      const log = execFileSync("git", ["log", "--oneline"], {
         cwd: testDir,
-        encoding: 'utf-8',
+        encoding: "utf-8",
       });
 
-      expect(log).toContain('Initial commit: migrated existing workspace');
+      expect(log).toContain("Initial commit: migrated existing workspace");
 
       // Verify files were committed
-      const files = execFileSync('git', ['ls-files'], {
+      const files = execFileSync("git", ["ls-files"], {
         cwd: testDir,
-        encoding: 'utf-8',
-      }).trim().split('\n');
+        encoding: "utf-8",
+      })
+        .trim()
+        .split("\n");
 
-      expect(files).toContain('.gitignore');
-      expect(files).toContain('README.md');
-      expect(files).toContain('config.json');
-      expect(files).toContain('subdir/file.txt');
+      expect(files).toContain(".gitignore");
+      expect(files).toContain("README.md");
+      expect(files).toContain("config.json");
+      expect(files).toContain("subdir/file.txt");
     });
 
-    test('initial commit completes within ensureInitialized', async () => {
+    test("initial commit completes within ensureInitialized", async () => {
       // Create some files before initializing git
       for (let i = 0; i < 10; i++) {
-        writeFileSync(join(testDir, `file${i}.txt`), 'content');
+        writeFileSync(join(testDir, `file${i}.txt`), "content");
       }
 
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
 
       // Initial commit should already be done - no need to wait
-      const log = execFileSync('git', ['log', '--oneline'], {
+      const log = execFileSync("git", ["log", "--oneline"], {
         cwd: testDir,
-        encoding: 'utf-8',
+        encoding: "utf-8",
       });
 
-      expect(log).toContain('Initial commit: migrated existing workspace');
+      expect(log).toContain("Initial commit: migrated existing workspace");
     });
 
-    test('initial commit does not race with first commitChanges', async () => {
+    test("initial commit does not race with first commitChanges", async () => {
       // Pre-populate workspace with files (simulating a migrated workspace)
-      writeFileSync(join(testDir, 'existing.txt'), 'pre-existing content');
+      writeFileSync(join(testDir, "existing.txt"), "pre-existing content");
 
       const service = new WorkspaceGitService(testDir);
 
@@ -177,108 +187,116 @@ describe('WorkspaceGitService', () => {
       await service.ensureInitialized();
 
       // Now write a file AFTER init and commit it
-      writeFileSync(join(testDir, 'user-edit.txt'), 'user content');
-      await service.commitChanges('User turn 1');
+      writeFileSync(join(testDir, "user-edit.txt"), "user content");
+      await service.commitChanges("User turn 1");
 
       // The user's commit (HEAD) should contain user-edit.txt
       const userCommitFiles = execFileSync(
-        'git', ['diff', '--name-only', 'HEAD~1', 'HEAD'],
-        { cwd: testDir, encoding: 'utf-8' },
+        "git",
+        ["diff", "--name-only", "HEAD~1", "HEAD"],
+        { cwd: testDir, encoding: "utf-8" },
       ).trim();
 
-      expect(userCommitFiles).toContain('user-edit.txt');
+      expect(userCommitFiles).toContain("user-edit.txt");
       // user-edit.txt should NOT appear in the initial commit
-      expect(userCommitFiles).not.toContain('existing.txt');
+      expect(userCommitFiles).not.toContain("existing.txt");
 
       // The initial commit (HEAD~1) should contain existing.txt and .gitignore
       const initialCommitFiles = execFileSync(
-        'git', ['show', '--name-only', '--pretty=format:', 'HEAD~1'],
-        { cwd: testDir, encoding: 'utf-8' },
+        "git",
+        ["show", "--name-only", "--pretty=format:", "HEAD~1"],
+        { cwd: testDir, encoding: "utf-8" },
       ).trim();
 
-      expect(initialCommitFiles).toContain('existing.txt');
-      expect(initialCommitFiles).toContain('.gitignore');
+      expect(initialCommitFiles).toContain("existing.txt");
+      expect(initialCommitFiles).toContain(".gitignore");
       // The initial commit should NOT contain user-edit.txt
-      expect(initialCommitFiles).not.toContain('user-edit.txt');
+      expect(initialCommitFiles).not.toContain("user-edit.txt");
     });
   });
 
-  describe('commitChanges', () => {
-    test('commits changes with message', async () => {
+  describe("commitChanges", () => {
+    test("commits changes with message", async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
 
-      writeFileSync(join(testDir, 'test.txt'), 'hello world');
-      await service.commitChanges('Add test file');
+      writeFileSync(join(testDir, "test.txt"), "hello world");
+      await service.commitChanges("Add test file");
 
-      const log = execFileSync('git', ['log', '--oneline', '-n', '1'], {
+      const log = execFileSync("git", ["log", "--oneline", "-n", "1"], {
         cwd: testDir,
-        encoding: 'utf-8',
+        encoding: "utf-8",
       });
 
-      expect(log).toContain('Add test file');
+      expect(log).toContain("Add test file");
     });
 
-    test('commits with metadata', async () => {
+    test("commits with metadata", async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
 
-      writeFileSync(join(testDir, 'test.txt'), 'content');
-      await service.commitChanges('Add file', {
-        sessionId: 'session-123',
+      writeFileSync(join(testDir, "test.txt"), "content");
+      await service.commitChanges("Add file", {
+        sessionId: "session-123",
         timestamp: 1234567890,
-        author: 'user@example.com',
+        author: "user@example.com",
       });
 
-      const message = execFileSync('git', ['log', '-1', '--pretty=%B'], {
+      const message = execFileSync("git", ["log", "-1", "--pretty=%B"], {
         cwd: testDir,
-        encoding: 'utf-8',
+        encoding: "utf-8",
       });
 
-      expect(message).toContain('Add file');
+      expect(message).toContain("Add file");
       expect(message).toContain('sessionId: "session-123"');
-      expect(message).toContain('timestamp: 1234567890');
+      expect(message).toContain("timestamp: 1234567890");
       expect(message).toContain('author: "user@example.com"');
     });
 
-    test('commits multiple files at once', async () => {
+    test("commits multiple files at once", async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
 
-      writeFileSync(join(testDir, 'file1.txt'), 'content1');
-      writeFileSync(join(testDir, 'file2.txt'), 'content2');
-      writeFileSync(join(testDir, 'file3.txt'), 'content3');
+      writeFileSync(join(testDir, "file1.txt"), "content1");
+      writeFileSync(join(testDir, "file2.txt"), "content2");
+      writeFileSync(join(testDir, "file3.txt"), "content3");
 
-      await service.commitChanges('Add multiple files');
+      await service.commitChanges("Add multiple files");
 
-      const files = execFileSync('git', ['diff', '--name-only', 'HEAD~1', 'HEAD'], {
-        cwd: testDir,
-        encoding: 'utf-8',
-      }).trim().split('\n');
+      const files = execFileSync(
+        "git",
+        ["diff", "--name-only", "HEAD~1", "HEAD"],
+        {
+          cwd: testDir,
+          encoding: "utf-8",
+        },
+      )
+        .trim()
+        .split("\n");
 
-      expect(files).toContain('file1.txt');
-      expect(files).toContain('file2.txt');
-      expect(files).toContain('file3.txt');
+      expect(files).toContain("file1.txt");
+      expect(files).toContain("file2.txt");
+      expect(files).toContain("file3.txt");
     });
 
-    test('allows empty commits', async () => {
+    test("allows empty commits", async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
 
       // Commit without any changes
-      await service.commitChanges('Empty commit for checkpoint');
+      await service.commitChanges("Empty commit for checkpoint");
 
-      const log = execFileSync('git', ['log', '--oneline', '-n', '1'], {
+      const log = execFileSync("git", ["log", "--oneline", "-n", "1"], {
         cwd: testDir,
-        encoding: 'utf-8',
+        encoding: "utf-8",
       });
 
-      expect(log).toContain('Empty commit for checkpoint');
+      expect(log).toContain("Empty commit for checkpoint");
     });
   });
 
-  describe('getStatus', () => {
-    test('returns clean status for new workspace', async () => {
+  describe("getStatus", () => {
+    test("returns clean status for new workspace", async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
 
@@ -290,51 +308,51 @@ describe('WorkspaceGitService', () => {
       expect(status.untracked).toEqual([]);
     });
 
-    test('detects untracked files', async () => {
+    test("detects untracked files", async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
 
-      writeFileSync(join(testDir, 'new-file.txt'), 'content');
+      writeFileSync(join(testDir, "new-file.txt"), "content");
 
       const status = await service.getStatus();
 
       expect(status.clean).toBe(false);
-      expect(status.untracked).toContain('new-file.txt');
+      expect(status.untracked).toContain("new-file.txt");
     });
 
-    test('detects modified files', async () => {
+    test("detects modified files", async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
 
-      writeFileSync(join(testDir, 'file.txt'), 'original');
-      await service.commitChanges('Add file');
+      writeFileSync(join(testDir, "file.txt"), "original");
+      await service.commitChanges("Add file");
 
-      writeFileSync(join(testDir, 'file.txt'), 'modified');
+      writeFileSync(join(testDir, "file.txt"), "modified");
 
       const status = await service.getStatus();
 
       expect(status.clean).toBe(false);
-      expect(status.modified).toContain('file.txt');
+      expect(status.modified).toContain("file.txt");
     });
 
-    test('detects staged files', async () => {
+    test("detects staged files", async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
 
-      writeFileSync(join(testDir, 'file.txt'), 'content');
+      writeFileSync(join(testDir, "file.txt"), "content");
 
       // Manually stage the file
-      execFileSync('git', ['add', 'file.txt'], { cwd: testDir });
+      execFileSync("git", ["add", "file.txt"], { cwd: testDir });
 
       const status = await service.getStatus();
 
       expect(status.clean).toBe(false);
-      expect(status.staged).toContain('file.txt');
+      expect(status.staged).toContain("file.txt");
     });
   });
 
-  describe('mutex locking', () => {
-    test('serializes concurrent commit operations', async () => {
+  describe("mutex locking", () => {
+    test("serializes concurrent commit operations", async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
 
@@ -352,9 +370,9 @@ describe('WorkspaceGitService', () => {
       await Promise.all(commits);
 
       // All commits should have succeeded
-      const log = execFileSync('git', ['log', '--oneline'], {
+      const log = execFileSync("git", ["log", "--oneline"], {
         cwd: testDir,
-        encoding: 'utf-8',
+        encoding: "utf-8",
       });
 
       for (let i = 0; i < 10; i++) {
@@ -362,11 +380,11 @@ describe('WorkspaceGitService', () => {
       }
 
       // Count commits (excluding initial commit)
-      const commitCount = log.trim().split('\n').length;
+      const commitCount = log.trim().split("\n").length;
       expect(commitCount).toBe(11); // 10 + 1 initial
     });
 
-    test('serializes concurrent status checks', async () => {
+    test("serializes concurrent status checks", async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
 
@@ -386,15 +404,15 @@ describe('WorkspaceGitService', () => {
     });
   });
 
-  describe('getWorkspaceGitService singleton', () => {
-    test('returns same instance for same workspace', () => {
+  describe("getWorkspaceGitService singleton", () => {
+    test("returns same instance for same workspace", () => {
       const service1 = getWorkspaceGitService(testDir);
       const service2 = getWorkspaceGitService(testDir);
 
       expect(service1).toBe(service2);
     });
 
-    test('returns different instances for different workspaces', () => {
+    test("returns different instances for different workspaces", () => {
       const testDir2 = join(tmpdir(), `vellum-test-${Date.now()}-other`);
       mkdirSync(testDir2, { recursive: true });
 
@@ -411,17 +429,20 @@ describe('WorkspaceGitService', () => {
     });
   });
 
-  describe('error handling', () => {
-    test('handles invalid workspace directory', async () => {
-      const invalidDir = '/nonexistent/path/that/does/not/exist';
+  describe("error handling", () => {
+    test("handles invalid workspace directory", async () => {
+      const invalidDir = "/nonexistent/path/that/does/not/exist";
       const service = new WorkspaceGitService(invalidDir);
 
       await expect(service.ensureInitialized()).rejects.toThrow();
     });
 
-    test('failed initialization can be retried', async () => {
+    test("failed initialization can be retried", async () => {
       // Create a service pointing to a directory that doesn't exist yet
-      const retryDir = join(tmpdir(), `vellum-retry-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+      const retryDir = join(
+        tmpdir(),
+        `vellum-retry-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      );
       const service = new WorkspaceGitService(retryDir);
 
       // First attempt: directory doesn't exist, should fail
@@ -437,24 +458,24 @@ describe('WorkspaceGitService', () => {
         expect(service.isInitialized()).toBe(true);
 
         // Verify the repo was actually initialized
-        const log = execFileSync('git', ['log', '--oneline'], {
+        const log = execFileSync("git", ["log", "--oneline"], {
           cwd: retryDir,
-          encoding: 'utf-8',
+          encoding: "utf-8",
         });
-        expect(log).toContain('Initial commit');
+        expect(log).toContain("Initial commit");
       } finally {
         rmSync(retryDir, { recursive: true, force: true });
       }
     });
 
-    test('continues to work after failed operation', async () => {
+    test("continues to work after failed operation", async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
 
       // Try to commit without any changes and without allow-empty
       // (This should succeed with --allow-empty, but let's test recovery)
-      writeFileSync(join(testDir, 'test.txt'), 'content');
-      await service.commitChanges('Valid commit');
+      writeFileSync(join(testDir, "test.txt"), "content");
+      await service.commitChanges("Valid commit");
 
       // Service should still work
       const status = await service.getStatus();
@@ -462,54 +483,70 @@ describe('WorkspaceGitService', () => {
     });
   });
 
-  describe('existing repo normalization', () => {
-    test('existing repo on feature branch auto-switches to main on init', async () => {
+  describe("existing repo normalization", () => {
+    test("existing repo on feature branch auto-switches to main on init", async () => {
       // Set up a pre-existing git repo on a feature branch
-      execFileSync('git', ['init', '-b', 'main'], { cwd: testDir });
-      execFileSync('git', ['config', 'user.name', 'Test'], { cwd: testDir });
-      execFileSync('git', ['config', 'user.email', 'test@test.com'], { cwd: testDir });
-      writeFileSync(join(testDir, 'file.txt'), 'content');
-      execFileSync('git', ['add', '-A'], { cwd: testDir });
-      execFileSync('git', ['commit', '-m', 'init'], { cwd: testDir });
-      execFileSync('git', ['checkout', '-b', 'feature-branch'], { cwd: testDir });
+      execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
+      execFileSync("git", ["config", "user.name", "Test"], { cwd: testDir });
+      execFileSync("git", ["config", "user.email", "test@test.com"], {
+        cwd: testDir,
+      });
+      writeFileSync(join(testDir, "file.txt"), "content");
+      execFileSync("git", ["add", "-A"], { cwd: testDir });
+      execFileSync("git", ["commit", "-m", "init"], { cwd: testDir });
+      execFileSync("git", ["checkout", "-b", "feature-branch"], {
+        cwd: testDir,
+      });
 
       // Verify we're on feature-branch
-      const branchBefore = execFileSync('git', ['symbolic-ref', '--short', 'HEAD'], {
-        cwd: testDir,
-        encoding: 'utf-8',
-      }).trim();
-      expect(branchBefore).toBe('feature-branch');
+      const branchBefore = execFileSync(
+        "git",
+        ["symbolic-ref", "--short", "HEAD"],
+        {
+          cwd: testDir,
+          encoding: "utf-8",
+        },
+      ).trim();
+      expect(branchBefore).toBe("feature-branch");
 
       // Initialize the service — should auto-switch to main
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
 
-      const branchAfter = execFileSync('git', ['symbolic-ref', '--short', 'HEAD'], {
-        cwd: testDir,
-        encoding: 'utf-8',
-      }).trim();
-      expect(branchAfter).toBe('main');
+      const branchAfter = execFileSync(
+        "git",
+        ["symbolic-ref", "--short", "HEAD"],
+        {
+          cwd: testDir,
+          encoding: "utf-8",
+        },
+      ).trim();
+      expect(branchAfter).toBe("main");
     });
 
-    test('detached HEAD recovers to main on init', async () => {
+    test("detached HEAD recovers to main on init", async () => {
       // Set up a pre-existing git repo then detach HEAD
-      execFileSync('git', ['init', '-b', 'main'], { cwd: testDir });
-      execFileSync('git', ['config', 'user.name', 'Test'], { cwd: testDir });
-      execFileSync('git', ['config', 'user.email', 'test@test.com'], { cwd: testDir });
-      writeFileSync(join(testDir, 'file.txt'), 'content');
-      execFileSync('git', ['add', '-A'], { cwd: testDir });
-      execFileSync('git', ['commit', '-m', 'init'], { cwd: testDir });
-      // Detach HEAD by checking out the commit hash
-      const commitHash = execFileSync('git', ['rev-parse', 'HEAD'], {
+      execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
+      execFileSync("git", ["config", "user.name", "Test"], { cwd: testDir });
+      execFileSync("git", ["config", "user.email", "test@test.com"], {
         cwd: testDir,
-        encoding: 'utf-8',
+      });
+      writeFileSync(join(testDir, "file.txt"), "content");
+      execFileSync("git", ["add", "-A"], { cwd: testDir });
+      execFileSync("git", ["commit", "-m", "init"], { cwd: testDir });
+      // Detach HEAD by checking out the commit hash
+      const commitHash = execFileSync("git", ["rev-parse", "HEAD"], {
+        cwd: testDir,
+        encoding: "utf-8",
       }).trim();
-      execFileSync('git', ['checkout', commitHash], { cwd: testDir });
+      execFileSync("git", ["checkout", commitHash], { cwd: testDir });
 
       // Verify we're in detached HEAD
       let isDetached = false;
       try {
-        execFileSync('git', ['symbolic-ref', '--short', 'HEAD'], { cwd: testDir });
+        execFileSync("git", ["symbolic-ref", "--short", "HEAD"], {
+          cwd: testDir,
+        });
       } catch {
         isDetached = true;
       }
@@ -519,172 +556,205 @@ describe('WorkspaceGitService', () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
 
-      const branchAfter = execFileSync('git', ['symbolic-ref', '--short', 'HEAD'], {
-        cwd: testDir,
-        encoding: 'utf-8',
-      }).trim();
-      expect(branchAfter).toBe('main');
+      const branchAfter = execFileSync(
+        "git",
+        ["symbolic-ref", "--short", "HEAD"],
+        {
+          cwd: testDir,
+          encoding: "utf-8",
+        },
+      ).trim();
+      expect(branchAfter).toBe("main");
     });
 
-    test('existing repo on feature branch with dirty working tree switches to main', async () => {
+    test("existing repo on feature branch with dirty working tree switches to main", async () => {
       // Set up a pre-existing git repo on a feature branch with uncommitted changes.
       // This exercises the --discard-changes fallback in ensureOnMainLocked().
-      execFileSync('git', ['init', '-b', 'main'], { cwd: testDir });
-      execFileSync('git', ['config', 'user.name', 'Test'], { cwd: testDir });
-      execFileSync('git', ['config', 'user.email', 'test@test.com'], { cwd: testDir });
-      writeFileSync(join(testDir, 'file.txt'), 'original content');
-      execFileSync('git', ['add', '-A'], { cwd: testDir });
-      execFileSync('git', ['commit', '-m', 'init'], { cwd: testDir });
-      execFileSync('git', ['checkout', '-b', 'feature-branch'], { cwd: testDir });
+      execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
+      execFileSync("git", ["config", "user.name", "Test"], { cwd: testDir });
+      execFileSync("git", ["config", "user.email", "test@test.com"], {
+        cwd: testDir,
+      });
+      writeFileSync(join(testDir, "file.txt"), "original content");
+      execFileSync("git", ["add", "-A"], { cwd: testDir });
+      execFileSync("git", ["commit", "-m", "init"], { cwd: testDir });
+      execFileSync("git", ["checkout", "-b", "feature-branch"], {
+        cwd: testDir,
+      });
 
       // Create uncommitted changes that would block a normal `git switch main`
-      writeFileSync(join(testDir, 'file.txt'), 'modified on feature branch');
+      writeFileSync(join(testDir, "file.txt"), "modified on feature branch");
 
       // Verify we're on feature-branch with dirty working tree
-      const branchBefore = execFileSync('git', ['symbolic-ref', '--short', 'HEAD'], {
+      const branchBefore = execFileSync(
+        "git",
+        ["symbolic-ref", "--short", "HEAD"],
+        {
+          cwd: testDir,
+          encoding: "utf-8",
+        },
+      ).trim();
+      expect(branchBefore).toBe("feature-branch");
+      const statusBefore = execFileSync("git", ["status", "--porcelain"], {
         cwd: testDir,
-        encoding: 'utf-8',
+        encoding: "utf-8",
       }).trim();
-      expect(branchBefore).toBe('feature-branch');
-      const statusBefore = execFileSync('git', ['status', '--porcelain'], {
-        cwd: testDir,
-        encoding: 'utf-8',
-      }).trim();
-      expect(statusBefore).toContain('file.txt');
+      expect(statusBefore).toContain("file.txt");
 
       // Initialize the service — should auto-switch to main despite dirty tree
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
 
-      const branchAfter = execFileSync('git', ['symbolic-ref', '--short', 'HEAD'], {
-        cwd: testDir,
-        encoding: 'utf-8',
-      }).trim();
-      expect(branchAfter).toBe('main');
+      const branchAfter = execFileSync(
+        "git",
+        ["symbolic-ref", "--short", "HEAD"],
+        {
+          cwd: testDir,
+          encoding: "utf-8",
+        },
+      ).trim();
+      expect(branchAfter).toBe("main");
     });
 
-    test('existing repo gets .gitignore rules appended on init', async () => {
+    test("existing repo gets .gitignore rules appended on init", async () => {
       // Set up a pre-existing git repo without our gitignore rules
-      execFileSync('git', ['init', '-b', 'main'], { cwd: testDir });
-      execFileSync('git', ['config', 'user.name', 'Test'], { cwd: testDir });
-      execFileSync('git', ['config', 'user.email', 'test@test.com'], { cwd: testDir });
-      writeFileSync(join(testDir, '.gitignore'), 'node_modules/\n');
-      writeFileSync(join(testDir, 'file.txt'), 'content');
-      execFileSync('git', ['add', '-A'], { cwd: testDir });
-      execFileSync('git', ['commit', '-m', 'init'], { cwd: testDir });
+      execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
+      execFileSync("git", ["config", "user.name", "Test"], { cwd: testDir });
+      execFileSync("git", ["config", "user.email", "test@test.com"], {
+        cwd: testDir,
+      });
+      writeFileSync(join(testDir, ".gitignore"), "node_modules/\n");
+      writeFileSync(join(testDir, "file.txt"), "content");
+      execFileSync("git", ["add", "-A"], { cwd: testDir });
+      execFileSync("git", ["commit", "-m", "init"], { cwd: testDir });
 
       // Verify .gitignore does NOT have our rules yet
-      const contentBefore = readFileSync(join(testDir, '.gitignore'), 'utf-8');
-      expect(contentBefore).not.toContain('data/db/');
-      expect(contentBefore).not.toContain('vellum.sock');
+      const contentBefore = readFileSync(join(testDir, ".gitignore"), "utf-8");
+      expect(contentBefore).not.toContain("data/db/");
+      expect(contentBefore).not.toContain("vellum.sock");
 
       // Initialize the service — should append rules
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
 
-      const contentAfter = readFileSync(join(testDir, '.gitignore'), 'utf-8');
-      expect(contentAfter).toContain('node_modules/');  // original rule preserved
-      expect(contentAfter).toContain('data/db/');
-      expect(contentAfter).toContain('data/qdrant/');
-      expect(contentAfter).toContain('data/ipc-blobs/');
-      expect(contentAfter).toContain('*.log');
-      expect(contentAfter).toContain('vellum.sock');
-      expect(contentAfter).toContain('session-token');
+      const contentAfter = readFileSync(join(testDir, ".gitignore"), "utf-8");
+      expect(contentAfter).toContain("node_modules/"); // original rule preserved
+      expect(contentAfter).toContain("data/db/");
+      expect(contentAfter).toContain("data/qdrant/");
+      expect(contentAfter).toContain("data/ipc-blobs/");
+      expect(contentAfter).toContain("*.log");
+      expect(contentAfter).toContain("vellum.sock");
+      expect(contentAfter).toContain("session-token");
     });
 
-    test('existing repo with old data/ rule gets it replaced with selective rules', async () => {
+    test("existing repo with old data/ rule gets it replaced with selective rules", async () => {
       // Set up a pre-existing git repo with the OLD broad data/ rule
-      execFileSync('git', ['init', '-b', 'main'], { cwd: testDir });
-      execFileSync('git', ['config', 'user.name', 'Test'], { cwd: testDir });
-      execFileSync('git', ['config', 'user.email', 'test@test.com'], { cwd: testDir });
-      const oldGitignore = '# Runtime state - excluded from git tracking\ndata/\nlogs/\n*.log\n*.sock\n*.pid\n*.sqlite\n*.sqlite-journal\n*.sqlite-wal\n*.sqlite-shm\n*.db\n*.db-journal\n*.db-wal\n*.db-shm\nvellum.sock\nvellum.pid\nsession-token\nhttp-token\n';
-      writeFileSync(join(testDir, '.gitignore'), oldGitignore);
-      writeFileSync(join(testDir, 'file.txt'), 'content');
-      execFileSync('git', ['add', '-A'], { cwd: testDir });
-      execFileSync('git', ['commit', '-m', 'init'], { cwd: testDir });
+      execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
+      execFileSync("git", ["config", "user.name", "Test"], { cwd: testDir });
+      execFileSync("git", ["config", "user.email", "test@test.com"], {
+        cwd: testDir,
+      });
+      const oldGitignore =
+        "# Runtime state - excluded from git tracking\ndata/\nlogs/\n*.log\n*.sock\n*.pid\n*.sqlite\n*.sqlite-journal\n*.sqlite-wal\n*.sqlite-shm\n*.db\n*.db-journal\n*.db-wal\n*.db-shm\nvellum.sock\nvellum.pid\nsession-token\nhttp-token\n";
+      writeFileSync(join(testDir, ".gitignore"), oldGitignore);
+      writeFileSync(join(testDir, "file.txt"), "content");
+      execFileSync("git", ["add", "-A"], { cwd: testDir });
+      execFileSync("git", ["commit", "-m", "init"], { cwd: testDir });
 
       // Verify the old broad rule is present
-      const contentBefore = readFileSync(join(testDir, '.gitignore'), 'utf-8');
-      expect(contentBefore).toContain('data/\n');
+      const contentBefore = readFileSync(join(testDir, ".gitignore"), "utf-8");
+      expect(contentBefore).toContain("data/\n");
 
       // Initialize the service — should migrate the gitignore
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
 
-      const contentAfter = readFileSync(join(testDir, '.gitignore'), 'utf-8');
+      const contentAfter = readFileSync(join(testDir, ".gitignore"), "utf-8");
 
       // Old broad rule should be removed
       expect(contentAfter).not.toMatch(/^data\/$/m);
 
       // New selective rules should be present
-      expect(contentAfter).toContain('data/db/');
-      expect(contentAfter).toContain('data/qdrant/');
-      expect(contentAfter).toContain('data/ipc-blobs/');
+      expect(contentAfter).toContain("data/db/");
+      expect(contentAfter).toContain("data/qdrant/");
+      expect(contentAfter).toContain("data/ipc-blobs/");
 
       // Other existing rules should be preserved
-      expect(contentAfter).toContain('logs/');
-      expect(contentAfter).toContain('*.log');
-      expect(contentAfter).toContain('vellum.sock');
+      expect(contentAfter).toContain("logs/");
+      expect(contentAfter).toContain("*.log");
+      expect(contentAfter).toContain("vellum.sock");
     });
 
-    test('existing repo gets local identity set on init', async () => {
+    test("existing repo gets local identity set on init", async () => {
       // Set up a pre-existing git repo with a different identity
-      execFileSync('git', ['init', '-b', 'main'], { cwd: testDir });
-      execFileSync('git', ['config', 'user.name', 'Old Name'], { cwd: testDir });
-      execFileSync('git', ['config', 'user.email', 'old@example.com'], { cwd: testDir });
-      writeFileSync(join(testDir, 'file.txt'), 'content');
-      execFileSync('git', ['add', '-A'], { cwd: testDir });
-      execFileSync('git', ['commit', '-m', 'init'], { cwd: testDir });
+      execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
+      execFileSync("git", ["config", "user.name", "Old Name"], {
+        cwd: testDir,
+      });
+      execFileSync("git", ["config", "user.email", "old@example.com"], {
+        cwd: testDir,
+      });
+      writeFileSync(join(testDir, "file.txt"), "content");
+      execFileSync("git", ["add", "-A"], { cwd: testDir });
+      execFileSync("git", ["commit", "-m", "init"], { cwd: testDir });
 
       // Initialize the service — should set identity
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
 
-      const userName = execFileSync('git', ['config', 'user.name'], {
+      const userName = execFileSync("git", ["config", "user.name"], {
         cwd: testDir,
-        encoding: 'utf-8',
+        encoding: "utf-8",
       }).trim();
-      const userEmail = execFileSync('git', ['config', 'user.email'], {
+      const userEmail = execFileSync("git", ["config", "user.email"], {
         cwd: testDir,
-        encoding: 'utf-8',
+        encoding: "utf-8",
       }).trim();
 
-      expect(userName).toBe('Vellum Assistant');
-      expect(userEmail).toBe('assistant@vellum.ai');
+      expect(userName).toBe("Vellum Assistant");
+      expect(userEmail).toBe("assistant@vellum.ai");
     });
 
-    test('existing repo with correct config is idempotent', async () => {
+    test("existing repo with correct config is idempotent", async () => {
       // Set up a repo that already has everything configured correctly
-      execFileSync('git', ['init', '-b', 'main'], { cwd: testDir });
-      execFileSync('git', ['config', 'user.name', 'Vellum Assistant'], { cwd: testDir });
-      execFileSync('git', ['config', 'user.email', 'assistant@vellum.ai'], { cwd: testDir });
-      const gitignoreContent = '# Runtime state - excluded from git tracking\ndata/db/\ndata/qdrant/\ndata/ipc-blobs/\nlogs/\n*.log\n*.sock\n*.pid\n*.sqlite\n*.sqlite-journal\n*.sqlite-wal\n*.sqlite-shm\n*.db\n*.db-journal\n*.db-wal\n*.db-shm\nvellum.sock\nvellum.pid\nsession-token\nhttp-token\n';
-      writeFileSync(join(testDir, '.gitignore'), gitignoreContent);
-      writeFileSync(join(testDir, 'file.txt'), 'content');
-      execFileSync('git', ['add', '-A'], { cwd: testDir });
-      execFileSync('git', ['commit', '-m', 'init'], { cwd: testDir });
+      execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
+      execFileSync("git", ["config", "user.name", "Vellum Assistant"], {
+        cwd: testDir,
+      });
+      execFileSync("git", ["config", "user.email", "assistant@vellum.ai"], {
+        cwd: testDir,
+      });
+      const gitignoreContent =
+        "# Runtime state - excluded from git tracking\ndata/db/\ndata/qdrant/\ndata/ipc-blobs/\nlogs/\n*.log\n*.sock\n*.pid\n*.sqlite\n*.sqlite-journal\n*.sqlite-wal\n*.sqlite-shm\n*.db\n*.db-journal\n*.db-wal\n*.db-shm\nvellum.sock\nvellum.pid\nsession-token\nhttp-token\n";
+      writeFileSync(join(testDir, ".gitignore"), gitignoreContent);
+      writeFileSync(join(testDir, "file.txt"), "content");
+      execFileSync("git", ["add", "-A"], { cwd: testDir });
+      execFileSync("git", ["commit", "-m", "init"], { cwd: testDir });
 
-      const gitignoreBefore = readFileSync(join(testDir, '.gitignore'), 'utf-8');
+      const gitignoreBefore = readFileSync(
+        join(testDir, ".gitignore"),
+        "utf-8",
+      );
 
       // Initialize the service — should be a no-op
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
 
       // Verify nothing changed
-      const gitignoreAfter = readFileSync(join(testDir, '.gitignore'), 'utf-8');
+      const gitignoreAfter = readFileSync(join(testDir, ".gitignore"), "utf-8");
       expect(gitignoreAfter).toBe(gitignoreBefore);
 
-      const userName = execFileSync('git', ['config', 'user.name'], {
+      const userName = execFileSync("git", ["config", "user.name"], {
         cwd: testDir,
-        encoding: 'utf-8',
+        encoding: "utf-8",
       }).trim();
-      expect(userName).toBe('Vellum Assistant');
+      expect(userName).toBe("Vellum Assistant");
 
-      const branch = execFileSync('git', ['symbolic-ref', '--short', 'HEAD'], {
+      const branch = execFileSync("git", ["symbolic-ref", "--short", "HEAD"], {
         cwd: testDir,
-        encoding: 'utf-8',
+        encoding: "utf-8",
       }).trim();
-      expect(branch).toBe('main');
+      expect(branch).toBe("main");
 
       // No errors, no duplicate rules
       const ruleCount = (gitignoreAfter.match(/data\/db\//g) || []).length;
@@ -692,81 +762,88 @@ describe('WorkspaceGitService', () => {
     });
   });
 
-  describe('gitignore behavior', () => {
-    test('ignores data/db/ but tracks other data/ subdirectories', async () => {
+  describe("gitignore behavior", () => {
+    test("ignores data/db/ but tracks other data/ subdirectories", async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
 
       // Create files in ignored data subdirectories
-      mkdirSync(join(testDir, 'data', 'db'), { recursive: true });
-      writeFileSync(join(testDir, 'data', 'db', 'conversations.sqlite'), 'db content');
-      mkdirSync(join(testDir, 'data', 'qdrant'), { recursive: true });
-      writeFileSync(join(testDir, 'data', 'qdrant', 'index.bin'), 'qdrant content');
-      mkdirSync(join(testDir, 'data', 'ipc-blobs'), { recursive: true });
-      writeFileSync(join(testDir, 'data', 'ipc-blobs', 'blob1'), 'ipc content');
+      mkdirSync(join(testDir, "data", "db"), { recursive: true });
+      writeFileSync(
+        join(testDir, "data", "db", "conversations.sqlite"),
+        "db content",
+      );
+      mkdirSync(join(testDir, "data", "qdrant"), { recursive: true });
+      writeFileSync(
+        join(testDir, "data", "qdrant", "index.bin"),
+        "qdrant content",
+      );
+      mkdirSync(join(testDir, "data", "ipc-blobs"), { recursive: true });
+      writeFileSync(join(testDir, "data", "ipc-blobs", "blob1"), "ipc content");
 
       // Create files in tracked data subdirectories
-      mkdirSync(join(testDir, 'data', 'memory'), { recursive: true });
-      writeFileSync(join(testDir, 'data', 'memory', 'index.json'), '{}');
-      mkdirSync(join(testDir, 'data', 'apps'), { recursive: true });
-      writeFileSync(join(testDir, 'data', 'apps', 'state.json'), '{}');
+      mkdirSync(join(testDir, "data", "memory"), { recursive: true });
+      writeFileSync(join(testDir, "data", "memory", "index.json"), "{}");
+      mkdirSync(join(testDir, "data", "apps"), { recursive: true });
+      writeFileSync(join(testDir, "data", "apps", "state.json"), "{}");
 
       // Commit all changes, then verify what was included
-      await service.commitChanges('test commit');
+      await service.commitChanges("test commit");
 
       const committedFiles = execFileSync(
-        'git', ['diff', '--name-only', 'HEAD~1', 'HEAD'],
-        { cwd: testDir, encoding: 'utf-8' },
+        "git",
+        ["diff", "--name-only", "HEAD~1", "HEAD"],
+        { cwd: testDir, encoding: "utf-8" },
       ).trim();
 
       // Ignored subdirectories should NOT be in the commit
-      expect(committedFiles).not.toContain('data/db/');
-      expect(committedFiles).not.toContain('data/qdrant/');
-      expect(committedFiles).not.toContain('data/ipc-blobs/');
+      expect(committedFiles).not.toContain("data/db/");
+      expect(committedFiles).not.toContain("data/qdrant/");
+      expect(committedFiles).not.toContain("data/ipc-blobs/");
 
       // Tracked subdirectories SHOULD be in the commit
-      expect(committedFiles).toContain('data/memory/index.json');
-      expect(committedFiles).toContain('data/apps/state.json');
+      expect(committedFiles).toContain("data/memory/index.json");
+      expect(committedFiles).toContain("data/apps/state.json");
     });
 
-    test('respects .gitignore for log files', async () => {
+    test("respects .gitignore for log files", async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
 
-      writeFileSync(join(testDir, 'test.log'), 'log content');
+      writeFileSync(join(testDir, "test.log"), "log content");
 
       const status = await service.getStatus();
 
       // .log files should be ignored
-      expect(status.untracked).not.toContain('test.log');
+      expect(status.untracked).not.toContain("test.log");
     });
 
-    test('tracks non-ignored files', async () => {
+    test("tracks non-ignored files", async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
 
-      writeFileSync(join(testDir, 'config.json'), '{}');
-      writeFileSync(join(testDir, 'README.md'), '# Test');
+      writeFileSync(join(testDir, "config.json"), "{}");
+      writeFileSync(join(testDir, "README.md"), "# Test");
 
       const status = await service.getStatus();
 
-      expect(status.untracked).toContain('config.json');
-      expect(status.untracked).toContain('README.md');
+      expect(status.untracked).toContain("config.json");
+      expect(status.untracked).toContain("README.md");
     });
   });
 
-  describe('deadline-aware commitIfDirty', () => {
-    test('deadline expired before lock acquisition skips commit quickly', async () => {
+  describe("deadline-aware commitIfDirty", () => {
+    test("deadline expired before lock acquisition skips commit quickly", async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
 
       // Create a file so the workspace is dirty
-      writeFileSync(join(testDir, 'test.txt'), 'content');
+      writeFileSync(join(testDir, "test.txt"), "content");
 
       // Use a deadline that has already passed
       const pastDeadline = Date.now() - 1000;
       const result = await service.commitIfDirty(
-        () => ({ message: 'should not commit' }),
+        () => ({ message: "should not commit" }),
         { deadlineMs: pastDeadline },
       );
 
@@ -775,53 +852,53 @@ describe('WorkspaceGitService', () => {
       // File should still be uncommitted
       const status = await service.getStatus();
       expect(status.clean).toBe(false);
-      expect(status.untracked).toContain('test.txt');
+      expect(status.untracked).toContain("test.txt");
     });
 
-    test('deadline far in the future allows commit to proceed', async () => {
+    test("deadline far in the future allows commit to proceed", async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
 
-      writeFileSync(join(testDir, 'test.txt'), 'content');
+      writeFileSync(join(testDir, "test.txt"), "content");
 
       // Use a deadline far in the future
       const futureDeadline = Date.now() + 60_000;
       const result = await service.commitIfDirty(
-        () => ({ message: 'deadline commit' }),
+        () => ({ message: "deadline commit" }),
         { deadlineMs: futureDeadline },
       );
 
       expect(result.committed).toBe(true);
 
       // Verify the commit was actually created
-      const log = execFileSync('git', ['log', '--oneline', '-n', '1'], {
+      const log = execFileSync("git", ["log", "--oneline", "-n", "1"], {
         cwd: testDir,
-        encoding: 'utf-8',
+        encoding: "utf-8",
       });
-      expect(log).toContain('deadline commit');
+      expect(log).toContain("deadline commit");
     });
 
-    test('no deadline option allows commit as normal', async () => {
+    test("no deadline option allows commit as normal", async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
 
-      writeFileSync(join(testDir, 'test.txt'), 'content');
+      writeFileSync(join(testDir, "test.txt"), "content");
 
       // No deadline option at all
-      const result = await service.commitIfDirty(
-        () => ({ message: 'no deadline commit' }),
-      );
+      const result = await service.commitIfDirty(() => ({
+        message: "no deadline commit",
+      }));
 
       expect(result.committed).toBe(true);
     });
   });
 
-  describe('breaker re-check under lock', () => {
-    test('queued call that acquires lock after breaker opens skips commit', async () => {
+  describe("breaker re-check under lock", () => {
+    test("queued call that acquires lock after breaker opens skips commit", async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
 
-      writeFileSync(join(testDir, 'test.txt'), 'content');
+      writeFileSync(join(testDir, "test.txt"), "content");
 
       // Simulate a breaker that opened between the pre-lock check and lock acquisition.
       // We do this by:
@@ -840,26 +917,26 @@ describe('WorkspaceGitService', () => {
       internal.nextAllowedAttemptMs = Date.now() + 60_000; // far in the future
 
       // With breaker open, commitIfDirty should skip (pre-lock check)
-      const result = await service.commitIfDirty(
-        () => ({ message: 'should not commit' }),
-      );
+      const result = await service.commitIfDirty(() => ({
+        message: "should not commit",
+      }));
       expect(result.committed).toBe(false);
 
       // Reset breaker
       _resetBreaker(service);
 
       // Now the commit should proceed normally
-      const result2 = await service.commitIfDirty(
-        () => ({ message: 'after breaker reset' }),
-      );
+      const result2 = await service.commitIfDirty(() => ({
+        message: "after breaker reset",
+      }));
       expect(result2.committed).toBe(true);
     });
 
-    test('breaker early return inside lock does not reset breaker via recordSuccess', async () => {
+    test("breaker early return inside lock does not reset breaker via recordSuccess", async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
 
-      writeFileSync(join(testDir, 'test.txt'), 'content');
+      writeFileSync(join(testDir, "test.txt"), "content");
 
       // Force breaker open with known failure count
       const internal = service as unknown as {
@@ -871,18 +948,18 @@ describe('WorkspaceGitService', () => {
 
       // Pre-lock check catches the open breaker and returns early.
       // Verify that consecutiveFailures is NOT reset to 0.
-      const result = await service.commitIfDirty(
-        () => ({ message: 'should not commit' }),
-      );
+      const result = await service.commitIfDirty(() => ({
+        message: "should not commit",
+      }));
       expect(result.committed).toBe(false);
       expect(_getConsecutiveFailures(service)).toBe(5);
     });
 
-    test('deadline early return inside lock does not reset breaker via recordSuccess', async () => {
+    test("deadline early return inside lock does not reset breaker via recordSuccess", async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
 
-      writeFileSync(join(testDir, 'test.txt'), 'content');
+      writeFileSync(join(testDir, "test.txt"), "content");
 
       // Set up prior failures (breaker closed but failures recorded)
       const internal = service as unknown as {
@@ -897,18 +974,18 @@ describe('WorkspaceGitService', () => {
       // Use a deadline that has already passed — this triggers the pre-lock
       // deadline fast-path. consecutiveFailures should NOT be reset.
       const result = await service.commitIfDirty(
-        () => ({ message: 'should not commit' }),
+        () => ({ message: "should not commit" }),
         { deadlineMs: Date.now() - 1000 },
       );
       expect(result.committed).toBe(false);
       expect(_getConsecutiveFailures(service)).toBe(3);
     });
 
-    test('successful git operation after failures resets breaker', async () => {
+    test("successful git operation after failures resets breaker", async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
 
-      writeFileSync(join(testDir, 'test.txt'), 'content');
+      writeFileSync(join(testDir, "test.txt"), "content");
 
       // Set up prior failures with breaker closed (backoff expired)
       const internal = service as unknown as {
@@ -919,18 +996,18 @@ describe('WorkspaceGitService', () => {
       internal.nextAllowedAttemptMs = Date.now() - 1000;
 
       // Commit should succeed and reset the breaker
-      const result = await service.commitIfDirty(
-        () => ({ message: 'recovery commit' }),
-      );
+      const result = await service.commitIfDirty(() => ({
+        message: "recovery commit",
+      }));
       expect(result.committed).toBe(true);
       expect(_getConsecutiveFailures(service)).toBe(0);
     });
 
-    test('bypassBreaker ignores breaker state', async () => {
+    test("bypassBreaker ignores breaker state", async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
 
-      writeFileSync(join(testDir, 'test.txt'), 'content');
+      writeFileSync(join(testDir, "test.txt"), "content");
 
       // Force breaker open
       const internal = service as unknown as {
@@ -942,21 +1019,21 @@ describe('WorkspaceGitService', () => {
 
       // With bypassBreaker, commit should succeed despite open breaker
       const result = await service.commitIfDirty(
-        () => ({ message: 'bypass breaker commit' }),
+        () => ({ message: "bypass breaker commit" }),
         { bypassBreaker: true },
       );
       expect(result.committed).toBe(true);
     });
   });
 
-  describe('commitIfDirty diff error handling', () => {
-    test('non-1 exit code from git diff --cached --quiet is treated as an error', async () => {
+  describe("commitIfDirty diff error handling", () => {
+    test("non-1 exit code from git diff --cached --quiet is treated as an error", async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
 
       // Create a file so the workspace is dirty and commitIfDirty will
       // proceed past the "clean" early-return.
-      writeFileSync(join(testDir, 'test.txt'), 'content');
+      writeFileSync(join(testDir, "test.txt"), "content");
 
       // Access the private execGit method and wrap it so that
       // 'git diff --cached --quiet' throws with exit code 2 (simulating
@@ -965,9 +1042,13 @@ describe('WorkspaceGitService', () => {
       const proto = Object.getPrototypeOf(service);
       const originalExecGit = proto.execGit;
       proto.execGit = async function (this: unknown, args: string[]) {
-        if (args[0] === 'diff' && args[1] === '--cached' && args[2] === '--quiet') {
+        if (
+          args[0] === "diff" &&
+          args[1] === "--cached" &&
+          args[2] === "--quiet"
+        ) {
           const err = new Error(
-            'Git command failed: git diff --cached --quiet\nError: simulated error\nStderr: ',
+            "Git command failed: git diff --cached --quiet\nError: simulated error\nStderr: ",
           ) as Error & { code?: number };
           err.code = 2;
           throw err;
@@ -979,7 +1060,7 @@ describe('WorkspaceGitService', () => {
         // commitIfDirty should propagate the error (not treat code 2 as
         // "staged changes exist")
         await expect(
-          service.commitIfDirty(() => ({ message: 'should not commit' })),
+          service.commitIfDirty(() => ({ message: "should not commit" })),
         ).rejects.toThrow();
       } finally {
         // Restore the original method
@@ -988,10 +1069,10 @@ describe('WorkspaceGitService', () => {
     });
   });
 
-  describe('init circuit breaker', () => {
-    test('init breaker opens after consecutive failures', async () => {
+  describe("init circuit breaker", () => {
+    test("init breaker opens after consecutive failures", async () => {
       // Use a directory that doesn't exist so init fails
-      const badDir = '/nonexistent/path/that/does/not/exist';
+      const badDir = "/nonexistent/path/that/does/not/exist";
       const service = new WorkspaceGitService(badDir);
 
       // First failure — breaker does NOT open (requires 2+ failures)
@@ -1011,13 +1092,13 @@ describe('WorkspaceGitService', () => {
       // Third attempt within the backoff window — breaker is now open
       // (2+ consecutive failures) so the attempt is skipped.
       await expect(service.ensureInitialized()).rejects.toThrow(
-        'Init circuit breaker open: backing off after repeated failures',
+        "Init circuit breaker open: backing off after repeated failures",
       );
       // Failure count should NOT increase (the breaker prevented the attempt)
       expect(_getInitConsecutiveFailures(service)).toBe(2);
     });
 
-    test('init breaker skips init attempts during backoff window', async () => {
+    test("init breaker skips init attempts during backoff window", async () => {
       const service = new WorkspaceGitService(testDir);
 
       // Force the init breaker open
@@ -1030,14 +1111,14 @@ describe('WorkspaceGitService', () => {
 
       // ensureInitialized should throw with circuit breaker message
       await expect(service.ensureInitialized()).rejects.toThrow(
-        'Init circuit breaker open: backing off after repeated failures',
+        "Init circuit breaker open: backing off after repeated failures",
       );
 
       // Failure count should NOT increase (the breaker prevented the attempt)
       expect(_getInitConsecutiveFailures(service)).toBe(3);
     });
 
-    test('init breaker resets on success', async () => {
+    test("init breaker resets on success", async () => {
       const service = new WorkspaceGitService(testDir);
 
       // Simulate prior init failures
@@ -1056,7 +1137,7 @@ describe('WorkspaceGitService', () => {
       expect(service.isInitialized()).toBe(true);
     });
 
-    test('init breaker allows retry after backoff window expires', async () => {
+    test("init breaker allows retry after backoff window expires", async () => {
       const service = new WorkspaceGitService(testDir);
 
       // Simulate prior init failures with expired backoff
@@ -1074,7 +1155,7 @@ describe('WorkspaceGitService', () => {
       expect(service.isInitialized()).toBe(true);
     });
 
-    test('init breaker is independent from commit breaker', async () => {
+    test("init breaker is independent from commit breaker", async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
 
@@ -1114,7 +1195,7 @@ describe('WorkspaceGitService', () => {
       expect(_getInitConsecutiveFailures(service)).toBe(0);
     });
 
-    test('already initialized service bypasses init breaker check', async () => {
+    test("already initialized service bypasses init breaker check", async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
       expect(service.isInitialized()).toBe(true);
@@ -1133,20 +1214,20 @@ describe('WorkspaceGitService', () => {
     });
   });
 
-  describe('isDeadlineExpired helper', () => {
-    test('returns false when deadlineMs is undefined', () => {
+  describe("isDeadlineExpired helper", () => {
+    test("returns false when deadlineMs is undefined", () => {
       expect(isDeadlineExpired(undefined)).toBe(false);
     });
 
-    test('returns false when deadline is in the future', () => {
+    test("returns false when deadline is in the future", () => {
       expect(isDeadlineExpired(Date.now() + 60_000)).toBe(false);
     });
 
-    test('returns true when deadline is in the past', () => {
+    test("returns true when deadline is in the past", () => {
       expect(isDeadlineExpired(Date.now() - 1000)).toBe(true);
     });
 
-    test('returns true when deadline equals current time', () => {
+    test("returns true when deadline equals current time", () => {
       const now = Date.now();
       // Use a deadline slightly in the past to avoid timing flakes
       expect(isDeadlineExpired(now - 1)).toBe(true);

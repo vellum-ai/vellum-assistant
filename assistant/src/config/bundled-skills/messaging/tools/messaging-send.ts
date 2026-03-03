@@ -1,3 +1,4 @@
+import { createDraft } from '../../../../messaging/providers/gmail/client.js';
 import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
 import { err,ok, resolveProvider, withProviderToken } from './shared.js';
 
@@ -17,6 +18,15 @@ export async function run(input: Record<string, unknown>, context: ToolContext):
 
   try {
     const provider = resolveProvider(platform);
+
+    // Gmail: create a draft instead of sending directly
+    if (provider.id === 'gmail') {
+      return withProviderToken(provider, async (token) => {
+        const draft = await createDraft(token, conversationId, subject ?? '', text, inReplyTo);
+        return ok(`Gmail draft created (ID: ${draft.id}). Review it in your Gmail Drafts, then tell me to send it or send it yourself from Gmail.`);
+      });
+    }
+
     return withProviderToken(provider, async (token) => {
       const result = await provider.sendMessage(token, conversationId, text, {
         subject,

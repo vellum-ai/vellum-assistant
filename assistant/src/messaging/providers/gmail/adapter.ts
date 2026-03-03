@@ -195,31 +195,44 @@ export const gmailMessagingProvider: MessagingProvider = {
     await gmail.modifyMessage(token, messageId, { removeLabelIds: ['UNREAD'] });
   },
 
-  async senderDigest(token: string, query: string, options?: { maxMessages?: number; maxSenders?: number }): Promise<SenderDigestResult> {
-    const maxMessages = Math.min(options?.maxMessages ?? 500, 2000);
+  async senderDigest(token: string, query: string, options?: { maxMessages?: number; maxSenders?: number; pageToken?: string }): Promise<SenderDigestResult> {
+    const maxMessages = Math.min(options?.maxMessages ?? 2000, 2000);
     const maxSenders = options?.maxSenders ?? 30;
-    const maxIdsPerSender = 1000;
+    const maxIdsPerSender = 2000;
 
     const allMessageIds: string[] = [];
-    let pageToken: string | undefined;
+    const fetchPromises: Promise<GmailMessage[]>[] = [];
+    let pageToken: string | undefined = options?.pageToken;
+    let truncated = false;
+    const metadataHeaders = ['From', 'List-Unsubscribe'];
+    const startTime = Date.now();
+    const TIME_BUDGET_MS = 90_000;
 
     while (allMessageIds.length < maxMessages) {
+      if (Date.now() - startTime > TIME_BUDGET_MS) {
+        truncated = true;
+        break;
+      }
       const pageSize = Math.min(100, maxMessages - allMessageIds.length);
       const listResp = await gmail.listMessages(token, query, pageSize, pageToken);
       const ids = (listResp.messages ?? []).map((m) => m.id);
       if (ids.length === 0) break;
       allMessageIds.push(...ids);
+      fetchPromises.push(gmail.batchGetMessages(token, ids, 'metadata', metadataHeaders, 'id,internalDate,payload/headers'));
       pageToken = listResp.nextPageToken ?? undefined;
       if (!pageToken) break;
+    }
+
+    // If we stopped because we hit the cap but there were still more pages, flag truncation
+    if (allMessageIds.length >= maxMessages && pageToken) {
+      truncated = true;
     }
 
     if (allMessageIds.length === 0) {
       return { senders: [], totalScanned: 0, queryUsed: query };
     }
 
-    const messages = await gmail.batchGetMessages(token, allMessageIds, 'metadata', [
-      'From', 'List-Unsubscribe',
-    ]);
+    const messages = (await Promise.all(fetchPromises)).flat();
 
     const senderMap = new Map<string, {
       displayName: string; email: string; messageCount: number;
@@ -283,7 +296,7 @@ export const gmailMessagingProvider: MessagingProvider = {
       hasMore: s.hasMore,
     }));
 
-    return { senders, totalScanned: allMessageIds.length, queryUsed: query };
+    return { senders, totalScanned: allMessageIds.length, queryUsed: query, ...(truncated ? { truncated, nextPageToken: pageToken } : {}) };
   },
 
   async archiveByQuery(token: string, query: string): Promise<ArchiveResult> {

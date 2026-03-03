@@ -126,6 +126,10 @@ public final class ChatViewModel: ObservableObject {
         get { messageManager.assistantActivityReason }
         set { messageManager.assistantActivityReason = newValue }
     }
+    public var assistantStatusText: String? {
+        get { messageManager.assistantStatusText }
+        set { messageManager.assistantStatusText = newValue }
+    }
     public var hasPendingConfirmation: Bool {
         messages.contains(where: { $0.confirmation?.state == .pending })
     }
@@ -809,6 +813,7 @@ public final class ChatViewModel: ObservableObject {
                 self?.assistantActivityPhase = "idle"
                 self?.assistantActivityAnchor = "global"
                 self?.assistantActivityReason = nil
+                self?.assistantStatusText = nil
                 // If a run was in progress when the connection dropped, the
                 // client may have missed the messageComplete (or the full
                 // assistant response). Reset the spinner and re-fetch history
@@ -1885,7 +1890,11 @@ public final class ChatViewModel: ObservableObject {
         }
         // IPC send succeeded — update the message state
         if let index = messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) {
-            messages[index].confirmation?.state = decision == "allow" ? .approved : .denied
+            let isApproval = decision == "allow" || decision == "allow_10m" || decision == "allow_thread"
+            messages[index].confirmation?.state = isApproval ? .approved : .denied
+            if isApproval {
+                messages[index].confirmation?.approvedDecision = decision
+            }
         }
         // Dismiss the corresponding floating panel / native notification if one exists
         onInlineConfirmationResponse?(requestId, decision)
@@ -1918,6 +1927,7 @@ public final class ChatViewModel: ObservableObject {
         // IPC send succeeded — update the message state
         if let index = messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) {
             messages[index].confirmation?.state = .approved
+            messages[index].confirmation?.approvedDecision = decision
         }
         // Dismiss the corresponding floating panel / native notification if one exists
         onInlineConfirmationResponse?(requestId, "allow")
@@ -1928,8 +1938,9 @@ public final class ChatViewModel: ObservableObject {
     public func updateConfirmationState(requestId: String, decision: String) {
         if let index = messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) {
             switch decision {
-            case "allow":
+            case "allow", "allow_10m", "allow_thread":
                 messages[index].confirmation?.state = .approved
+                messages[index].confirmation?.approvedDecision = decision
             case "deny":
                 messages[index].confirmation?.state = .denied
             default:

@@ -49,7 +49,7 @@ export async function sendGuardianExpiryNotices(
   deliveries: ExpiryDeliveryInfo[],
   assistantId: string,
   gatewayBaseUrl: string,
-  bearerToken?: string,
+  mintBearerToken?: () => string,
   guardianActionCopyGenerator?: GuardianActionCopyGenerator,
 ): Promise<void> {
   for (const delivery of deliveries) {
@@ -80,7 +80,7 @@ export async function sendGuardianExpiryNotices(
           chatId: delivery.destinationChatId,
           text: expiryText,
           assistantId,
-        }, bearerToken);
+        }, mintBearerToken?.());
       }
     } catch (err) {
       log.error(
@@ -96,7 +96,7 @@ export async function sendGuardianExpiryNotices(
  */
 export async function sweepExpiredGuardianActions(
   gatewayBaseUrl: string,
-  bearerToken?: string,
+  mintBearerToken?: () => string,
   guardianActionCopyGenerator?: GuardianActionCopyGenerator,
 ): Promise<void> {
   const expired = getExpiredGuardianActionRequests();
@@ -120,7 +120,7 @@ export async function sweepExpiredGuardianActions(
       deliveries,
       request.assistantId,
       gatewayBaseUrl,
-      bearerToken,
+      mintBearerToken,
       guardianActionCopyGenerator,
     );
   }
@@ -128,7 +128,7 @@ export async function sweepExpiredGuardianActions(
 
 export function startGuardianActionSweep(
   gatewayBaseUrl: string,
-  bearerToken?: string,
+  mintBearerToken?: () => string,
   guardianActionCopyGenerator?: GuardianActionCopyGenerator,
 ): void {
   if (sweepTimer) return;
@@ -136,7 +136,7 @@ export function startGuardianActionSweep(
     if (sweepInProgress) return;
     sweepInProgress = true;
     try {
-      await sweepExpiredGuardianActions(gatewayBaseUrl, bearerToken, guardianActionCopyGenerator);
+      await sweepExpiredGuardianActions(gatewayBaseUrl, mintBearerToken, guardianActionCopyGenerator);
     } catch (err) {
       log.error({ err }, 'Guardian action sweep failed');
     } finally {

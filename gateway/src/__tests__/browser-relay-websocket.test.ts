@@ -1,9 +1,25 @@
 import { describe, test, expect, mock, beforeEach, afterAll } from "bun:test";
 import type { GatewayConfig } from "../config.js";
+import { initSigningKey, mintToken } from "../auth/token-service.js";
+import { CURRENT_POLICY_EPOCH } from "../auth/policy.js";
 import {
   createBrowserRelayWebsocketHandler,
   getBrowserRelayWebsocketHandlers,
 } from "../http/routes/browser-relay-websocket.js";
+
+const TEST_SIGNING_KEY = Buffer.from('test-signing-key-at-least-32-bytes-long');
+initSigningKey(TEST_SIGNING_KEY);
+
+/** Mint a valid edge JWT for browser relay auth. */
+function mintEdgeToken(): string {
+  return mintToken({
+    aud: 'vellum-gateway',
+    sub: 'actor:test-assistant:test-user',
+    scope_profile: 'actor_client_v1',
+    policy_epoch: CURRENT_POLICY_EPOCH,
+    ttlSeconds: 300,
+  });
+}
 
 const WS_CONNECTING = WebSocket.CONNECTING; // 0
 const WS_OPEN = WebSocket.OPEN; // 1
@@ -19,11 +35,8 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     defaultAssistantId: undefined,
     unmappedPolicy: "reject",
     port: 7830,
-    runtimeBearerToken: undefined,
-    runtimeGatewayOriginSecret: undefined,
     runtimeProxyEnabled: false,
     runtimeProxyRequireAuth: true,
-    runtimeProxyBearerToken: undefined,
     shutdownDrainMs: 5000,
     runtimeTimeoutMs: 30000,
     runtimeMaxRetries: 2,
@@ -56,9 +69,6 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     trustProxy: false,
     ...overrides,
   };
-  if (merged.runtimeGatewayOriginSecret === undefined) {
-    merged.runtimeGatewayOriginSecret = merged.runtimeBearerToken;
-  }
   return merged;
 }
 
@@ -101,10 +111,10 @@ function createFakeUpstreamWs() {
 }
 
 describe("createBrowserRelayWebsocketHandler", () => {
-  const TEST_TOKEN = "relay-token-abc123";
+  const TEST_TOKEN = mintEdgeToken();
 
   test("upgrades when token query parameter is valid", () => {
-    const config = makeConfig({ runtimeProxyBearerToken: TEST_TOKEN });
+    const config = makeConfig({});
     const handler = createBrowserRelayWebsocketHandler(config);
     const req = new Request(
       `http://localhost:7830/v1/browser-relay?token=${TEST_TOKEN}`,
@@ -121,7 +131,7 @@ describe("createBrowserRelayWebsocketHandler", () => {
   });
 
   test("returns 401 when token is missing", () => {
-    const config = makeConfig({ runtimeProxyBearerToken: TEST_TOKEN });
+    const config = makeConfig({});
     const handler = createBrowserRelayWebsocketHandler(config);
     const req = new Request("http://localhost:7830/v1/browser-relay", {
       headers: { upgrade: "websocket" },
@@ -138,7 +148,7 @@ describe("createBrowserRelayWebsocketHandler", () => {
   });
 
   test("allows unauthenticated upgrade when runtime proxy auth is disabled", () => {
-    const config = makeConfig({ runtimeProxyRequireAuth: false, runtimeProxyBearerToken: undefined });
+    const config = makeConfig({ runtimeProxyRequireAuth: false});
     const handler = createBrowserRelayWebsocketHandler(config);
     const req = new Request("http://localhost:7830/v1/browser-relay", {
       headers: { upgrade: "websocket" },
@@ -154,7 +164,7 @@ describe("createBrowserRelayWebsocketHandler", () => {
   });
 
   test("returns 403 when non-loopback host is requested from a public peer", () => {
-    const config = makeConfig({ runtimeProxyBearerToken: TEST_TOKEN });
+    const config = makeConfig({});
     const handler = createBrowserRelayWebsocketHandler(config);
     const req = new Request(
       `http://gateway.example.com:7830/v1/browser-relay?token=${TEST_TOKEN}`,
@@ -173,7 +183,7 @@ describe("createBrowserRelayWebsocketHandler", () => {
   });
 
   test("returns 403 for localhost host when peer is public (host spoof prevention)", () => {
-    const config = makeConfig({ runtimeProxyBearerToken: TEST_TOKEN });
+    const config = makeConfig({});
     const handler = createBrowserRelayWebsocketHandler(config);
     const req = new Request(
       `http://localhost:7830/v1/browser-relay?token=${TEST_TOKEN}`,
@@ -191,9 +201,8 @@ describe("createBrowserRelayWebsocketHandler", () => {
     expect(fakeServer.upgrade).not.toHaveBeenCalled();
   });
 
-
   test("allows non-loopback host when peer is private network", () => {
-    const config = makeConfig({ runtimeProxyBearerToken: TEST_TOKEN });
+    const config = makeConfig({});
     const handler = createBrowserRelayWebsocketHandler(config);
     const req = new Request(
       `http://gateway.example.com:7830/v1/browser-relay?token=${TEST_TOKEN}`,
@@ -238,7 +247,6 @@ describe("getBrowserRelayWebsocketHandlers", () => {
       wsType: "browser-relay",
       config: makeConfig({
         assistantRuntimeBaseUrl: "http://runtime.internal:7821",
-        runtimeBearerToken: "runtime-token",
       }),
     });
 
@@ -246,7 +254,8 @@ describe("getBrowserRelayWebsocketHandlers", () => {
     handlers.message(ws as never, "hello-before-open");
 
     const MockWS = globalThis.WebSocket as unknown as ReturnType<typeof mock>;
-    expect(MockWS).toHaveBeenCalledWith("ws://runtime.internal:7821/v1/browser-relay?token=runtime-token");
+    const calledUrl = (MockWS.mock.calls[0] as unknown[])[0] as string;
+    expect(calledUrl).toMatch(/^ws:\/\/runtime\.internal:7821\/v1\/browser-relay\?token=ey/);
 
     fakeUpstream.readyState = WS_OPEN;
     fakeUpstream.emit("open");

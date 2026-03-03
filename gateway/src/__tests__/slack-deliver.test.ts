@@ -21,11 +21,8 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     maxWebhookPayloadBytes: 1048576,
     port: 7830,
     routingEntries: [],
-    runtimeBearerToken: undefined,
-    runtimeGatewayOriginSecret: undefined,
     runtimeInitialBackoffMs: 500,
     runtimeMaxRetries: 2,
-    runtimeProxyBearerToken: undefined,
     runtimeProxyEnabled: false,
     runtimeProxyRequireAuth: false,
     runtimeTimeoutMs: 30000,
@@ -57,13 +54,8 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     trustProxy: false,
     ...overrides,
   } as GatewayConfig;
-  if (merged.runtimeGatewayOriginSecret === undefined) {
-    merged.runtimeGatewayOriginSecret = merged.runtimeBearerToken;
-  }
   return merged;
 }
-
-const TOKEN = "test-deliver-token";
 
 function makeRequest(
   body: unknown,
@@ -112,7 +104,7 @@ beforeEach(() => {
 describe("slack-deliver endpoint", () => {
   test("returns 401 when auth is required and missing", async () => {
     const handler = createSlackDeliverHandler(
-      makeConfig({ runtimeProxyBearerToken: TOKEN, slackDeliverAuthBypass: false }),
+      makeConfig({ slackDeliverAuthBypass: false }),
     );
     const req = makeRequest({ chatId: "C123", text: "hello" });
     const res = await handler(req);

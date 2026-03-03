@@ -2,7 +2,6 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
@@ -35,8 +34,11 @@ mock.module("../util/logger.js", () => ({
 import type * as net from "node:net";
 
 // SMS client mock — outbound SMS delivery is fire-and-forget, so we just track calls.
-const smsSendCalls: Array<{ to: string; text: string; assistantId?: string }> =
-  [];
+const smsSendCalls: Array<{
+  to: string;
+  text: string;
+  assistantId?: string;
+}> = [];
 mock.module("../messaging/providers/sms/client.js", () => ({
   sendMessage: async (
     _gatewayUrl: string,
@@ -51,6 +53,7 @@ mock.module("../messaging/providers/sms/client.js", () => ({
 }));
 
 mock.module("../config/env.js", () => ({
+  isHttpAuthDisabled: () => true,
   getGatewayInternalBaseUrl: () => "http://127.0.0.1:7830",
 }));
 

@@ -9,17 +9,22 @@
  * - setStateSignalListener routes signals to an external callback (HTTP/SSE)
  * - "deny" decisions produce 'denied' state, "allow" produces 'approved'
  */
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, describe, expect, mock, test } from "bun:test";
 
-import { afterAll, describe, expect, mock, test } from 'bun:test';
+import type {
+  AgentEvent,
+  CheckpointDecision,
+  CheckpointInfo,
+} from "../agent/loop.js";
+import type { ServerMessage } from "../daemon/ipc-protocol.js";
+import type { Message, ProviderResponse } from "../providers/types.js";
 
-import type { AgentEvent, CheckpointDecision, CheckpointInfo } from '../agent/loop.js';
-import type { ServerMessage } from '../daemon/ipc-protocol.js';
-import type { Message, ProviderResponse } from '../providers/types.js';
-
-const testDir = mkdtempSync(join(tmpdir(), 'session-confirmation-signals-test-'));
+const testDir = mkdtempSync(
+  join(tmpdir(), "session-confirmation-signals-test-"),
+);
 
 // ---------------------------------------------------------------------------
 // Mocks — must precede Session import
@@ -27,129 +32,146 @@ const testDir = mkdtempSync(join(tmpdir(), 'session-confirmation-signals-test-')
 
 function makeLoggerStub(): Record<string, unknown> {
   const stub: Record<string, unknown> = {};
-  for (const m of ['info', 'warn', 'error', 'debug', 'trace', 'fatal', 'silent', 'child']) {
-    stub[m] = m === 'child' ? () => makeLoggerStub() : () => {};
+  for (const m of [
+    "info",
+    "warn",
+    "error",
+    "debug",
+    "trace",
+    "fatal",
+    "silent",
+    "child",
+  ]) {
+    stub[m] = m === "child" ? () => makeLoggerStub() : () => {};
   }
   return stub;
 }
 
-mock.module('../util/logger.js', () => ({
+mock.module("../util/logger.js", () => ({
   getLogger: () => makeLoggerStub(),
 }));
 
-mock.module('../util/platform.js', () => ({
-  getSocketPath: () => join(testDir, 'test.sock'),
+mock.module("../util/platform.js", () => ({
+  getSocketPath: () => join(testDir, "test.sock"),
   getDataDir: () => testDir,
 }));
 
-mock.module('../memory/guardian-action-store.js', () => ({
+mock.module("../memory/guardian-action-store.js", () => ({
   getPendingDeliveryByConversation: () => null,
   getGuardianActionRequest: () => null,
   resolveGuardianActionRequest: () => {},
 }));
 
-mock.module('../providers/registry.js', () => ({
-  getProvider: () => ({ name: 'mock-provider' }),
+mock.module("../providers/registry.js", () => ({
+  getProvider: () => ({ name: "mock-provider" }),
   initializeProviders: () => {},
 }));
 
-mock.module('../config/loader.js', () => ({
+mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
-    provider: 'mock-provider',
+    provider: "mock-provider",
     maxTokens: 4096,
     thinking: false,
     contextWindow: {
       maxInputTokens: 100000,
       thresholdTokens: 80000,
       preserveRecentMessages: 6,
-      summaryModel: 'mock-model',
+      summaryModel: "mock-model",
       maxSummaryTokens: 512,
     },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
     timeouts: { permissionTimeoutSec: 1 },
     apiKeys: {},
     skills: { entries: {}, allowBundled: true },
-    memory: { retrieval: { injectionStrategy: 'inline' } },
-    permissions: { mode: 'legacy' },
+    memory: { retrieval: { injectionStrategy: "inline" } },
+    permissions: { mode: "legacy" },
   }),
   loadRawConfig: () => ({}),
   saveRawConfig: () => {},
   invalidateConfigCache: () => {},
 }));
 
-mock.module('../config/system-prompt.js', () => ({
-  buildSystemPrompt: () => 'system prompt',
+mock.module("../config/system-prompt.js", () => ({
+  buildSystemPrompt: () => "system prompt",
 }));
 
-mock.module('../config/skills.js', () => ({
+mock.module("../config/skills.js", () => ({
   loadSkillCatalog: () => [],
   loadSkillBySelector: () => ({ skill: null }),
   ensureSkillIcon: async () => null,
 }));
 
-mock.module('../config/skill-state.js', () => ({
+mock.module("../config/skill-state.js", () => ({
   resolveSkillStates: () => [],
 }));
 
-mock.module('../skills/slash-commands.js', () => ({
+mock.module("../skills/slash-commands.js", () => ({
   buildInvocableSlashCatalog: () => new Map(),
-  resolveSlashSkillCommand: () => ({ kind: 'not_slash' }),
-  rewriteKnownSlashCommandPrompt: () => '',
-  parseSlashCandidate: () => ({ kind: 'not_slash' }),
+  resolveSlashSkillCommand: () => ({ kind: "not_slash" }),
+  rewriteKnownSlashCommandPrompt: () => "",
+  parseSlashCandidate: () => ({ kind: "not_slash" }),
 }));
 
-mock.module('../permissions/trust-store.js', () => ({
+mock.module("../permissions/trust-store.js", () => ({
   addRule: () => {},
   findHighestPriorityRule: () => null,
   clearCache: () => {},
 }));
 
-mock.module('../security/secret-allowlist.js', () => ({
+mock.module("../security/secret-allowlist.js", () => ({
   resetAllowlist: () => {},
 }));
 
-mock.module('../memory/admin.js', () => ({
+mock.module("../memory/admin.js", () => ({
   getMemoryConflictAndCleanupStats: () => ({
     conflicts: { pending: 0, resolved: 0, oldestPendingAgeMs: null },
-    cleanup: { resolvedBacklog: 0, supersededBacklog: 0, resolvedCompleted24h: 0, supersededCompleted24h: 0 },
+    cleanup: {
+      resolvedBacklog: 0,
+      supersededBacklog: 0,
+      resolvedCompleted24h: 0,
+      supersededCompleted24h: 0,
+    },
   }),
 }));
 
-mock.module('../memory/conversation-store.js', () => ({
-  getConversationThreadType: () => 'default',
+mock.module("../memory/conversation-store.js", () => ({
+  getConversationThreadType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},
-  provenanceFromGuardianContext: () => ({ source: 'user', guardianContext: undefined }),
+  provenanceFromGuardianContext: () => ({
+    source: "user",
+    guardianContext: undefined,
+  }),
   getConversationOriginInterface: () => null,
   getConversationOriginChannel: () => null,
   getMessages: () => [],
   getConversation: () => ({
-    id: 'conv-1',
+    id: "conv-1",
     contextSummary: null,
     contextCompactedMessageCount: 0,
     totalInputTokens: 0,
     totalOutputTokens: 0,
     totalEstimatedCost: 0,
   }),
-  createConversation: () => ({ id: 'conv-1' }),
+  createConversation: () => ({ id: "conv-1" }),
   listConversations: () => [],
   addMessage: () => ({ id: `msg-${Date.now()}` }),
   updateConversationUsage: () => {},
   updateConversationTitle: () => {},
 }));
 
-mock.module('../memory/attachments-store.js', () => ({
+mock.module("../memory/attachments-store.js", () => ({
   uploadAttachment: () => ({ id: `att-${Date.now()}` }),
   linkAttachmentToMessage: () => {},
 }));
 
-mock.module('../memory/retriever.js', () => ({
+mock.module("../memory/retriever.js", () => ({
   buildMemoryRecall: async () => ({
     enabled: false,
     degraded: false,
-    injectedText: '',
+    injectedText: "",
     lexicalHits: 0,
     semanticHits: 0,
     recencyHits: 0,
@@ -160,21 +182,26 @@ mock.module('../memory/retriever.js', () => ({
   stripMemoryRecallMessages: (msgs: Message[]) => msgs,
 }));
 
-mock.module('../context/window-manager.js', () => ({
+mock.module("../context/window-manager.js", () => ({
   ContextWindowManager: class {
     constructor() {}
-    async maybeCompact() { return { compacted: false }; }
+    async maybeCompact() {
+      return { compacted: false };
+    }
   },
-  createContextSummaryMessage: () => ({ role: 'user', content: [{ type: 'text', text: 'summary' }] }),
+  createContextSummaryMessage: () => ({
+    role: "user",
+    content: [{ type: "text", text: "summary" }],
+  }),
   getSummaryFromContextMessage: () => null,
 }));
 
-mock.module('../memory/llm-usage-store.js', () => ({
-  recordUsageEvent: () => ({ id: 'mock-id', createdAt: Date.now() }),
+mock.module("../memory/llm-usage-store.js", () => ({
+  recordUsageEvent: () => ({ id: "mock-id", createdAt: Date.now() }),
   listUsageEvents: () => [],
 }));
 
-mock.module('../agent/loop.js', () => ({
+mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
     constructor() {}
     async run(
@@ -189,26 +216,30 @@ mock.module('../agent/loop.js', () => ({
   },
 }));
 
-mock.module('../memory/canonical-guardian-store.js', () => ({
+mock.module("../memory/canonical-guardian-store.js", () => ({
   listPendingCanonicalGuardianRequestsByDestinationConversation: () => [],
   listCanonicalGuardianRequests: () => [],
-  createCanonicalGuardianRequest: () => ({ id: 'mock-cg-id', code: 'MOCK', status: 'pending' }),
+  createCanonicalGuardianRequest: () => ({
+    id: "mock-cg-id",
+    code: "MOCK",
+    status: "pending",
+  }),
   getCanonicalGuardianRequest: () => null,
   getCanonicalGuardianRequestByCode: () => null,
   updateCanonicalGuardianRequest: () => {},
   resolveCanonicalGuardianRequest: () => {},
-  createCanonicalGuardianDelivery: () => ({ id: 'mock-cgd-id' }),
+  createCanonicalGuardianDelivery: () => ({ id: "mock-cgd-id" }),
   listCanonicalGuardianDeliveries: () => [],
   listPendingCanonicalGuardianRequestsByDestinationChat: () => [],
   updateCanonicalGuardianDelivery: () => {},
-  generateCanonicalRequestCode: () => 'MOCK-CODE',
+  generateCanonicalRequestCode: () => "MOCK-CODE",
 }));
 
 // ---------------------------------------------------------------------------
 // Import Session AFTER mocks
 // ---------------------------------------------------------------------------
 
-import { Session } from '../daemon/session.js';
+import { Session } from "../daemon/session.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -216,13 +247,13 @@ import { Session } from '../daemon/session.js';
 
 function makeProvider() {
   return {
-    name: 'mock',
+    name: "mock",
     async sendMessage(): Promise<ProviderResponse> {
       return {
         content: [],
-        model: 'mock',
+        model: "mock",
         usage: { inputTokens: 0, outputTokens: 0 },
-        stopReason: 'end_turn',
+        stopReason: "end_turn",
       };
     },
   };
@@ -230,9 +261,9 @@ function makeProvider() {
 
 function makeSession(sendToClient?: (msg: ServerMessage) => void): Session {
   return new Session(
-    'conv-signals-test',
+    "conv-signals-test",
     makeProvider(),
-    'system prompt',
+    "system prompt",
     4096,
     sendToClient ?? (() => {}),
     testDir,
@@ -245,8 +276,15 @@ function makeSession(sendToClient?: (msg: ServerMessage) => void): Session {
  * a confirmation_request message, needs allowlistOptions, etc.).
  */
 function seedPendingConfirmation(session: Session, requestId: string): void {
-  const prompter = session['prompter'] as unknown as {
-    pending: Map<string, { resolve: (...args: unknown[]) => void; reject: (...args: unknown[]) => void; timer: ReturnType<typeof setTimeout> }>;
+  const prompter = session["prompter"] as unknown as {
+    pending: Map<
+      string,
+      {
+        resolve: (...args: unknown[]) => void;
+        reject: (...args: unknown[]) => void;
+        timer: ReturnType<typeof setTimeout>;
+      }
+    >;
   };
   prompter.pending.set(requestId, {
     resolve: () => {},
@@ -256,147 +294,182 @@ function seedPendingConfirmation(session: Session, requestId: string): void {
 }
 
 afterAll(() => {
-  try { rmSync(testDir, { recursive: true, force: true }); } catch { /* best effort */ }
+  try {
+    rmSync(testDir, { recursive: true, force: true });
+  } catch {
+    /* best effort */
+  }
 });
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('centralized confirmation emissions', () => {
-  test('handleConfirmationResponse emits confirmation_state_changed with approved state for allow decision', () => {
+describe("centralized confirmation emissions", () => {
+  test("handleConfirmationResponse emits confirmation_state_changed with approved state for allow decision", () => {
     const emitted: ServerMessage[] = [];
     const session = makeSession((msg) => emitted.push(msg));
 
-    seedPendingConfirmation(session, 'req-allow-1');
-    session.handleConfirmationResponse('req-allow-1', 'allow');
+    seedPendingConfirmation(session, "req-allow-1");
+    session.handleConfirmationResponse("req-allow-1", "allow");
 
-    const confirmMsgs = emitted.filter((m) => m.type === 'confirmation_state_changed');
+    const confirmMsgs = emitted.filter(
+      (m) => m.type === "confirmation_state_changed",
+    );
     // Filter to our explicitly requested emission (not the pending/timed_out ones from prompter)
     const confirmMsg = confirmMsgs.find(
-      (m) => 'requestId' in m && (m as { requestId: string }).requestId === 'req-allow-1'
-        && 'state' in m && (m as { state: string }).state === 'approved',
+      (m) =>
+        "requestId" in m &&
+        (m as { requestId: string }).requestId === "req-allow-1" &&
+        "state" in m &&
+        (m as { state: string }).state === "approved",
     );
     expect(confirmMsg).toBeDefined();
     expect(confirmMsg).toMatchObject({
-      type: 'confirmation_state_changed',
-      sessionId: 'conv-signals-test',
-      requestId: 'req-allow-1',
-      state: 'approved',
-      source: 'button',
+      type: "confirmation_state_changed",
+      sessionId: "conv-signals-test",
+      requestId: "req-allow-1",
+      state: "approved",
+      source: "button",
     });
   });
 
-  test('handleConfirmationResponse emits confirmation_state_changed with denied state for deny decision', () => {
+  test("handleConfirmationResponse emits confirmation_state_changed with denied state for deny decision", () => {
     const emitted: ServerMessage[] = [];
     const session = makeSession((msg) => emitted.push(msg));
 
-    seedPendingConfirmation(session, 'req-deny-1');
-    session.handleConfirmationResponse('req-deny-1', 'deny');
+    seedPendingConfirmation(session, "req-deny-1");
+    session.handleConfirmationResponse("req-deny-1", "deny");
 
     const confirmMsg = emitted.find(
-      (m) => m.type === 'confirmation_state_changed'
-        && 'requestId' in m && (m as { requestId: string }).requestId === 'req-deny-1'
-        && 'state' in m && (m as { state: string }).state === 'denied',
+      (m) =>
+        m.type === "confirmation_state_changed" &&
+        "requestId" in m &&
+        (m as { requestId: string }).requestId === "req-deny-1" &&
+        "state" in m &&
+        (m as { state: string }).state === "denied",
     );
     expect(confirmMsg).toBeDefined();
     expect(confirmMsg).toMatchObject({
-      type: 'confirmation_state_changed',
-      requestId: 'req-deny-1',
-      state: 'denied',
-      source: 'button',
+      type: "confirmation_state_changed",
+      requestId: "req-deny-1",
+      state: "denied",
+      source: "button",
     });
   });
 
-  test('handleConfirmationResponse emits assistant_activity_state with thinking phase', () => {
+  test("handleConfirmationResponse emits assistant_activity_state with thinking phase", () => {
     const emitted: ServerMessage[] = [];
     const session = makeSession((msg) => emitted.push(msg));
 
-    seedPendingConfirmation(session, 'req-activity-1');
-    session.handleConfirmationResponse('req-activity-1', 'allow');
+    seedPendingConfirmation(session, "req-activity-1");
+    session.handleConfirmationResponse("req-activity-1", "allow");
 
     const activityMsg = emitted.find(
-      (m) => m.type === 'assistant_activity_state'
-        && 'reason' in m && (m as { reason: string }).reason === 'confirmation_resolved',
+      (m) =>
+        m.type === "assistant_activity_state" &&
+        "reason" in m &&
+        (m as { reason: string }).reason === "confirmation_resolved",
     );
     expect(activityMsg).toBeDefined();
     expect(activityMsg).toMatchObject({
-      type: 'assistant_activity_state',
-      sessionId: 'conv-signals-test',
-      phase: 'thinking',
-      reason: 'confirmation_resolved',
-      anchor: 'assistant_turn',
+      type: "assistant_activity_state",
+      sessionId: "conv-signals-test",
+      phase: "thinking",
+      reason: "confirmation_resolved",
+      anchor: "assistant_turn",
     });
   });
 
-  test('handleConfirmationResponse passes emissionContext source', () => {
+  test("handleConfirmationResponse passes emissionContext source", () => {
     const emitted: ServerMessage[] = [];
     const session = makeSession((msg) => emitted.push(msg));
 
-    seedPendingConfirmation(session, 'req-ctx-1');
-    session.handleConfirmationResponse('req-ctx-1', 'allow', undefined, undefined, undefined, {
-      source: 'inline_nl',
-      decisionText: 'yes please',
-    });
+    seedPendingConfirmation(session, "req-ctx-1");
+    session.handleConfirmationResponse(
+      "req-ctx-1",
+      "allow",
+      undefined,
+      undefined,
+      undefined,
+      {
+        source: "inline_nl",
+        decisionText: "yes please",
+      },
+    );
 
     const confirmMsg = emitted.find(
-      (m) => m.type === 'confirmation_state_changed'
-        && 'requestId' in m && (m as { requestId: string }).requestId === 'req-ctx-1',
+      (m) =>
+        m.type === "confirmation_state_changed" &&
+        "requestId" in m &&
+        (m as { requestId: string }).requestId === "req-ctx-1",
     );
     expect(confirmMsg).toBeDefined();
     expect(confirmMsg).toMatchObject({
-      source: 'inline_nl',
-      decisionText: 'yes please',
-    });
-  });
-
-  test('always_deny produces denied state', () => {
-    const emitted: ServerMessage[] = [];
-    const session = makeSession((msg) => emitted.push(msg));
-
-    seedPendingConfirmation(session, 'req-always-deny');
-    session.handleConfirmationResponse('req-always-deny', 'always_deny');
-
-    const confirmMsg = emitted.find(
-      (m) => m.type === 'confirmation_state_changed'
-        && 'requestId' in m && (m as { requestId: string }).requestId === 'req-always-deny',
-    );
-    expect(confirmMsg).toBeDefined();
-    expect(confirmMsg).toMatchObject({
-      state: 'denied',
+      source: "inline_nl",
+      decisionText: "yes please",
     });
   });
 
-  test('always_allow produces approved state', () => {
+  test("always_deny produces denied state", () => {
     const emitted: ServerMessage[] = [];
     const session = makeSession((msg) => emitted.push(msg));
 
-    seedPendingConfirmation(session, 'req-always-allow');
-    session.handleConfirmationResponse('req-always-allow', 'always_allow');
+    seedPendingConfirmation(session, "req-always-deny");
+    session.handleConfirmationResponse("req-always-deny", "always_deny");
 
     const confirmMsg = emitted.find(
-      (m) => m.type === 'confirmation_state_changed'
-        && 'requestId' in m && (m as { requestId: string }).requestId === 'req-always-allow',
+      (m) =>
+        m.type === "confirmation_state_changed" &&
+        "requestId" in m &&
+        (m as { requestId: string }).requestId === "req-always-deny",
     );
     expect(confirmMsg).toBeDefined();
     expect(confirmMsg).toMatchObject({
-      state: 'approved',
+      state: "denied",
+    });
+  });
+
+  test("always_allow produces approved state", () => {
+    const emitted: ServerMessage[] = [];
+    const session = makeSession((msg) => emitted.push(msg));
+
+    seedPendingConfirmation(session, "req-always-allow");
+    session.handleConfirmationResponse("req-always-allow", "always_allow");
+
+    const confirmMsg = emitted.find(
+      (m) =>
+        m.type === "confirmation_state_changed" &&
+        "requestId" in m &&
+        (m as { requestId: string }).requestId === "req-always-allow",
+    );
+    expect(confirmMsg).toBeDefined();
+    expect(confirmMsg).toMatchObject({
+      state: "approved",
     });
   });
 });
 
-describe('activity version ordering', () => {
-  test('emitActivityState produces monotonically increasing activityVersion', () => {
+describe("activity version ordering", () => {
+  test("emitActivityState produces monotonically increasing activityVersion", () => {
     const emitted: ServerMessage[] = [];
     const session = makeSession((msg) => emitted.push(msg));
 
-    session.emitActivityState('thinking', 'message_dequeued', 'assistant_turn');
-    session.emitActivityState('streaming', 'first_text_delta', 'assistant_turn');
-    session.emitActivityState('tool_running', 'tool_use_start', 'assistant_turn');
-    session.emitActivityState('idle', 'message_complete', 'global');
+    session.emitActivityState("thinking", "message_dequeued", "assistant_turn");
+    session.emitActivityState(
+      "streaming",
+      "first_text_delta",
+      "assistant_turn",
+    );
+    session.emitActivityState(
+      "tool_running",
+      "tool_use_start",
+      "assistant_turn",
+    );
+    session.emitActivityState("idle", "message_complete", "global");
 
     const activityMsgs = emitted.filter(
-      (m) => m.type === 'assistant_activity_state',
+      (m) => m.type === "assistant_activity_state",
     ) as Array<ServerMessage & { activityVersion: number }>;
 
     expect(activityMsgs).toHaveLength(4);
@@ -412,55 +485,64 @@ describe('activity version ordering', () => {
     expect(activityMsgs[0].activityVersion).toBeGreaterThanOrEqual(1);
   });
 
-  test('handleConfirmationResponse increments activityVersion for its activity emission', () => {
+  test("handleConfirmationResponse increments activityVersion for its activity emission", () => {
     const emitted: ServerMessage[] = [];
     const session = makeSession((msg) => emitted.push(msg));
 
     // Emit a baseline activity state
-    session.emitActivityState('thinking', 'message_dequeued', 'assistant_turn');
+    session.emitActivityState("thinking", "message_dequeued", "assistant_turn");
 
-    const baselineMsg = emitted.find((m) => m.type === 'assistant_activity_state') as
-      ServerMessage & { activityVersion: number };
+    const baselineMsg = emitted.find(
+      (m) => m.type === "assistant_activity_state",
+    ) as ServerMessage & { activityVersion: number };
     const baselineVersion = baselineMsg.activityVersion;
 
     // Now handle a confirmation
-    seedPendingConfirmation(session, 'req-version-1');
-    session.handleConfirmationResponse('req-version-1', 'allow');
+    seedPendingConfirmation(session, "req-version-1");
+    session.handleConfirmationResponse("req-version-1", "allow");
 
     const activityMsgs = emitted.filter(
-      (m) => m.type === 'assistant_activity_state',
+      (m) => m.type === "assistant_activity_state",
     ) as Array<ServerMessage & { activityVersion: number; reason: string }>;
 
     // The confirmation_resolved activity message should have a higher version
     const resolvedMsg = activityMsgs.find(
-      (m) => m.reason === 'confirmation_resolved',
+      (m) => m.reason === "confirmation_resolved",
     );
     expect(resolvedMsg).toBeDefined();
     expect(resolvedMsg!.activityVersion).toBeGreaterThan(baselineVersion);
   });
 });
 
-describe('state signal listener', () => {
-  test('setStateSignalListener routes emitActivityState to external callback', () => {
+describe("state signal listener", () => {
+  test("setStateSignalListener routes emitActivityState to external callback", () => {
     const clientMsgs: ServerMessage[] = [];
     const signalMsgs: ServerMessage[] = [];
 
     const session = makeSession((msg) => clientMsgs.push(msg));
     session.setStateSignalListener((msg) => signalMsgs.push(msg));
 
-    session.emitActivityState('thinking', 'message_dequeued', 'assistant_turn');
+    session.emitActivityState("thinking", "message_dequeued", "assistant_turn");
 
     // Both sendToClient and signal listener should receive the message
-    expect(clientMsgs.filter((m) => m.type === 'assistant_activity_state')).toHaveLength(1);
-    expect(signalMsgs.filter((m) => m.type === 'assistant_activity_state')).toHaveLength(1);
+    expect(
+      clientMsgs.filter((m) => m.type === "assistant_activity_state"),
+    ).toHaveLength(1);
+    expect(
+      signalMsgs.filter((m) => m.type === "assistant_activity_state"),
+    ).toHaveLength(1);
 
     // Messages should be identical
-    const clientMsg = clientMsgs.find((m) => m.type === 'assistant_activity_state');
-    const signalMsg = signalMsgs.find((m) => m.type === 'assistant_activity_state');
+    const clientMsg = clientMsgs.find(
+      (m) => m.type === "assistant_activity_state",
+    );
+    const signalMsg = signalMsgs.find(
+      (m) => m.type === "assistant_activity_state",
+    );
     expect(clientMsg).toEqual(signalMsg);
   });
 
-  test('setStateSignalListener routes emitConfirmationStateChanged to external callback', () => {
+  test("setStateSignalListener routes emitConfirmationStateChanged to external callback", () => {
     const clientMsgs: ServerMessage[] = [];
     const signalMsgs: ServerMessage[] = [];
 
@@ -468,56 +550,66 @@ describe('state signal listener', () => {
     session.setStateSignalListener((msg) => signalMsgs.push(msg));
 
     session.emitConfirmationStateChanged({
-      sessionId: 'conv-signals-test',
-      requestId: 'req-signal-1',
-      state: 'approved',
-      source: 'button',
+      sessionId: "conv-signals-test",
+      requestId: "req-signal-1",
+      state: "approved",
+      source: "button",
     });
 
-    expect(clientMsgs.filter((m) => m.type === 'confirmation_state_changed')).toHaveLength(1);
-    expect(signalMsgs.filter((m) => m.type === 'confirmation_state_changed')).toHaveLength(1);
+    expect(
+      clientMsgs.filter((m) => m.type === "confirmation_state_changed"),
+    ).toHaveLength(1);
+    expect(
+      signalMsgs.filter((m) => m.type === "confirmation_state_changed"),
+    ).toHaveLength(1);
   });
 
-  test('without state signal listener, only sendToClient receives messages', () => {
+  test("without state signal listener, only sendToClient receives messages", () => {
     const clientMsgs: ServerMessage[] = [];
 
     const session = makeSession((msg) => clientMsgs.push(msg));
     // No setStateSignalListener call
 
-    session.emitActivityState('idle', 'message_complete', 'global');
+    session.emitActivityState("idle", "message_complete", "global");
 
-    expect(clientMsgs.filter((m) => m.type === 'assistant_activity_state')).toHaveLength(1);
+    expect(
+      clientMsgs.filter((m) => m.type === "assistant_activity_state"),
+    ).toHaveLength(1);
   });
 
-  test('state signal listener receives handleConfirmationResponse emissions', () => {
+  test("state signal listener receives handleConfirmationResponse emissions", () => {
     const signalMsgs: ServerMessage[] = [];
 
     // Use no-op sendToClient (simulates HTTP session with no socket)
     const session = makeSession(() => {});
     session.setStateSignalListener((msg) => signalMsgs.push(msg));
 
-    seedPendingConfirmation(session, 'req-signal-confirm');
-    session.handleConfirmationResponse('req-signal-confirm', 'allow');
+    seedPendingConfirmation(session, "req-signal-confirm");
+    session.handleConfirmationResponse("req-signal-confirm", "allow");
 
     const confirmSignal = signalMsgs.find(
-      (m) => m.type === 'confirmation_state_changed'
-        && 'requestId' in m && (m as { requestId: string }).requestId === 'req-signal-confirm',
+      (m) =>
+        m.type === "confirmation_state_changed" &&
+        "requestId" in m &&
+        (m as { requestId: string }).requestId === "req-signal-confirm",
     );
     const activitySignal = signalMsgs.find(
-      (m) => m.type === 'assistant_activity_state'
-        && 'reason' in m && (m as { reason: string }).reason === 'confirmation_resolved',
+      (m) =>
+        m.type === "assistant_activity_state" &&
+        "reason" in m &&
+        (m as { reason: string }).reason === "confirmation_resolved",
     );
 
     expect(confirmSignal).toBeDefined();
     expect(confirmSignal).toMatchObject({
-      state: 'approved',
-      requestId: 'req-signal-confirm',
+      state: "approved",
+      requestId: "req-signal-confirm",
     });
 
     expect(activitySignal).toBeDefined();
     expect(activitySignal).toMatchObject({
-      phase: 'thinking',
-      reason: 'confirmation_resolved',
+      phase: "thinking",
+      reason: "confirmation_resolved",
     });
   });
 });

@@ -76,6 +76,8 @@ export interface DynamicPagePreview {
   description?: string;
   icon?: string;
   metrics?: Array<{ label: string; value: string }>;
+  context?: 'app_create' | 'general';
+  previewImage?: string;  // base64 PNG
 }
 
 export interface DynamicPageSurfaceData {
@@ -102,9 +104,15 @@ export interface TableColumn {
   width?: number;
 }
 
+export interface TableCellValue {
+  text: string;
+  icon?: string;       // SF Symbol name
+  iconColor?: string;  // semantic token: "success" | "warning" | "error" | "muted"
+}
+
 export interface TableRow {
   id: string;
-  cells: Record<string, string>;
+  cells: Record<string, string | TableCellValue>;
   selectable?: boolean;
   selected?: boolean;
 }

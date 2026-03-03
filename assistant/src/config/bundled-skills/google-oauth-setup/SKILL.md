@@ -414,7 +414,7 @@ Tell the user: "Credentials stored securely!"
 
 **Goal:** The user authorizes Vellum to access their Gmail and Calendar via OAuth.
 
-Tell the user: "Opening Google authorization, just click 'Allow' on the consent page."
+Tell the user: "Starting the authorization flow — a Google sign-in page will open in a few seconds. Just click 'Allow' when it appears."
 
 Use `credential_store` with:
 

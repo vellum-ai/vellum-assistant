@@ -2,14 +2,13 @@
  * Tests that projectSkillTools drops flag-OFF active skills from projected
  * tools, even when conversation history contains old markers for those skills.
  */
-import * as realFs from 'node:fs';
+import * as realFs from "node:fs";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { beforeEach, describe, expect, mock, test } from 'bun:test';
-
-import type { SkillSummary, SkillToolManifest } from '../config/skills.js';
-import { RiskLevel } from '../permissions/types.js';
-import type { Message } from '../providers/types.js';
-import type { Tool } from '../tools/types.js';
+import type { SkillSummary, SkillToolManifest } from "../config/skills.js";
+import { RiskLevel } from "../permissions/types.js";
+import type { Message } from "../providers/types.js";
+import type { Tool } from "../tools/types.js";
 
 // ---------------------------------------------------------------------------
 // Mock state
@@ -22,31 +21,39 @@ let mockUnregisteredSkillIds: string[] = [];
 let mockSkillRefCount: Map<string, number> = new Map();
 
 let currentConfig: Record<string, unknown> = { featureFlags: {} };
-const DECLARED_SKILL_ID = 'hatch-new-assistant';
-const DECLARED_LEGACY_KEY = 'skills.hatch-new-assistant.enabled';
+const DECLARED_SKILL_ID = "hatch-new-assistant";
+const DECLARED_LEGACY_KEY = "skills.hatch-new-assistant.enabled";
 
 // ---------------------------------------------------------------------------
 // Mocks
 // ---------------------------------------------------------------------------
 
-mock.module('../config/skills.js', () => ({
+mock.module("../config/skills.js", () => ({
   loadSkillCatalog: () => mockCatalog,
   checkSkillRequirements: () => ({ satisfied: true, missing: [] }),
 }));
 
-mock.module('../config/loader.js', () => ({
+mock.module("../config/loader.js", () => ({
   getConfig: () => currentConfig,
   loadConfig: () => currentConfig,
   invalidateConfigCache: () => {},
 }));
 
-mock.module('../config/assistant-feature-flags.js', () => ({
-  isAssistantFeatureFlagEnabled: (key: string, config: Record<string, unknown>) => {
-    const vals = (config as { assistantFeatureFlagValues?: Record<string, boolean> }).assistantFeatureFlagValues;
-    if (vals && typeof vals[key] === 'boolean') return vals[key];
+mock.module("../config/assistant-feature-flags.js", () => ({
+  isAssistantFeatureFlagEnabled: (
+    key: string,
+    config: Record<string, unknown>,
+  ) => {
+    const vals = (
+      config as {
+        assistantFeatureFlagValues?: Record<string, boolean>;
+      }
+    ).assistantFeatureFlagValues;
+    if (vals && typeof vals[key] === "boolean") return vals[key];
     // Check legacy featureFlags too
-    const legacy = (config as { featureFlags?: Record<string, boolean> }).featureFlags;
-    if (legacy && typeof legacy[key] === 'boolean') return legacy[key];
+    const legacy = (config as { featureFlags?: Record<string, boolean> })
+      .featureFlags;
+    if (legacy && typeof legacy[key] === "boolean") return legacy[key];
     return true; // default enabled
   },
   loadDefaultsRegistry: () => ({}),
@@ -54,16 +61,16 @@ mock.module('../config/assistant-feature-flags.js', () => ({
   _resetDefaultsCache: () => {},
 }));
 
-mock.module('../config/skill-state.js', () => ({
+mock.module("../config/skill-state.js", () => ({
   skillFlagKey: (skillId: string) => `skills.${skillId}.enabled`,
 }));
 
-mock.module('../skills/active-skill-tools.js', () => {
+mock.module("../skills/active-skill-tools.js", () => {
   const parseMarkers = (messages: Message[]) => {
     const skillLoadUseIds = new Set<string>();
     for (const msg of messages) {
       for (const block of msg.content) {
-        if (block.type === 'tool_use' && block.name === 'skill_load') {
+        if (block.type === "tool_use" && block.name === "skill_load") {
           skillLoadUseIds.add(block.id);
         }
       }
@@ -73,7 +80,7 @@ mock.module('../skills/active-skill-tools.js', () => {
     const entries: Array<{ id: string; version?: string }> = [];
     for (const msg of messages) {
       for (const block of msg.content) {
-        if (block.type !== 'tool_result') continue;
+        if (block.type !== "tool_result") continue;
         if (!skillLoadUseIds.has(block.tool_use_id)) continue;
         const text = block.content;
         if (!text) continue;
@@ -92,13 +99,14 @@ mock.module('../skills/active-skill-tools.js', () => {
 
   return {
     deriveActiveSkills: (messages: Message[]) => parseMarkers(messages),
-    deriveActiveSkillIds: (messages: Message[]) => parseMarkers(messages).map((e) => e.id),
+    deriveActiveSkillIds: (messages: Message[]) =>
+      parseMarkers(messages).map((e) => e.id),
   };
 });
 
-mock.module('../skills/tool-manifest.js', () => ({
+mock.module("../skills/tool-manifest.js", () => ({
   parseToolManifestFile: (filePath: string) => {
-    const parts = filePath.split('/');
+    const parts = filePath.split("/");
     const skillId = parts[parts.length - 2];
     const manifest = mockManifests[skillId];
     if (!manifest) throw new Error(`Mock: no manifest for skill "${skillId}"`);
@@ -106,9 +114,9 @@ mock.module('../skills/tool-manifest.js', () => ({
   },
 }));
 
-mock.module('../tools/skills/skill-tool-factory.js', () => ({
+mock.module("../tools/skills/skill-tool-factory.js", () => ({
   createSkillToolsFromManifest: (
-    entries: SkillToolManifest['tools'],
+    entries: SkillToolManifest["tools"],
     skillId: string,
     _skillDir: string,
     versionHash: string,
@@ -119,7 +127,7 @@ mock.module('../tools/skills/skill-tool-factory.js', () => ({
       description: entry.description,
       category: entry.category,
       defaultRiskLevel: RiskLevel.Medium,
-      origin: 'skill' as const,
+      origin: "skill" as const,
       ownerSkillId: skillId,
       ownerSkillVersionHash: versionHash,
       ownerSkillBundled: bundled ?? undefined,
@@ -128,12 +136,12 @@ mock.module('../tools/skills/skill-tool-factory.js', () => ({
         description: entry.description,
         input_schema: entry.input_schema as object,
       }),
-      execute: async () => ({ content: '', isError: false }),
+      execute: async () => ({ content: "", isError: false }),
     }));
   },
 }));
 
-mock.module('../tools/registry.js', () => ({
+mock.module("../tools/registry.js", () => ({
   registerSkillTools: (tools: Tool[]) => {
     const skillIds = new Set<string>();
     for (const tool of tools) {
@@ -178,11 +186,11 @@ mock.module('../tools/registry.js', () => ({
   },
 }));
 
-mock.module('node:fs', () => ({
+mock.module("node:fs", () => ({
   ...realFs,
   existsSync: (p: string) => {
-    if (typeof p === 'string' && p.endsWith('TOOLS.json')) {
-      const parts = p.split('/');
+    if (typeof p === "string" && p.endsWith("TOOLS.json")) {
+      const parts = p.split("/");
       const skillId = parts[parts.length - 2];
       return skillId in mockManifests;
     }
@@ -190,15 +198,15 @@ mock.module('node:fs', () => ({
   },
 }));
 
-mock.module('../skills/version-hash.js', () => ({
+mock.module("../skills/version-hash.js", () => ({
   computeSkillVersionHash: (skillDir: string) => {
-    const parts = skillDir.split('/');
+    const parts = skillDir.split("/");
     const skillId = parts[parts.length - 1];
     return `v1:default-hash-${skillId}`;
   },
 }));
 
-mock.module('../util/logger.js', () => ({
+mock.module("../util/logger.js", () => ({
   getLogger: () => ({
     info: () => {},
     warn: () => {},
@@ -212,9 +220,8 @@ mock.module('../util/logger.js', () => ({
 // Import module under test (after mocks)
 // ---------------------------------------------------------------------------
 
-const { projectSkillTools, resetSkillToolProjection } = await import(
-  '../daemon/session-skill-tools.js'
-);
+const { projectSkillTools, resetSkillToolProjection } =
+  await import("../daemon/session-skill-tools.js");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -229,7 +236,7 @@ function makeSkill(id: string): SkillSummary {
     skillFilePath: `/skills/${id}/SKILL.md`,
     userInvocable: true,
     disableModelInvocation: false,
-    source: 'managed',
+    source: "managed",
   };
 }
 
@@ -239,11 +246,11 @@ function makeManifest(toolNames: string[]): SkillToolManifest {
     tools: toolNames.map((name) => ({
       name,
       description: `Tool ${name}`,
-      category: 'test',
-      risk: 'medium' as const,
-      input_schema: { type: 'object', properties: {} },
-      executor: 'run.ts',
-      execution_target: 'host' as const,
+      category: "test",
+      risk: "medium" as const,
+      input_schema: { type: "object", properties: {} },
+      executor: "run.ts",
+      execution_target: "host" as const,
     })),
   };
 }
@@ -252,16 +259,25 @@ function makeManifest(toolNames: string[]): SkillToolManifest {
 function buildHistoryWithMarker(skillId: string): Message[] {
   return [
     {
-      role: 'assistant',
-      content: [{ type: 'tool_use', id: 'tu-1', name: 'skill_load', input: { skill: skillId } }],
+      role: "assistant",
+      content: [
+        {
+          type: "tool_use",
+          id: "tu-1",
+          name: "skill_load",
+          input: { skill: skillId },
+        },
+      ],
     },
     {
-      role: 'user',
-      content: [{
-        type: 'tool_result',
-        tool_use_id: 'tu-1',
-        content: `Loaded.\n\n<loaded_skill id="${skillId}" version="v1:default-hash-${skillId}" />`,
-      }],
+      role: "user",
+      content: [
+        {
+          type: "tool_result",
+          tool_use_id: "tu-1",
+          content: `Loaded.\n\n<loaded_skill id="${skillId}" version="v1:default-hash-${skillId}" />`,
+        },
+      ],
     },
   ];
 }
@@ -270,7 +286,7 @@ function buildHistoryWithMarker(skillId: string): Message[] {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('projectSkillTools feature flag enforcement', () => {
+describe("projectSkillTools feature flag enforcement", () => {
   beforeEach(() => {
     mockCatalog = [];
     mockManifests = {};
@@ -281,9 +297,11 @@ describe('projectSkillTools feature flag enforcement', () => {
     resetSkillToolProjection();
   });
 
-  test('no skill tools projected for flag OFF skill even with old markers', () => {
+  test("no skill tools projected for flag OFF skill even with old markers", () => {
     mockCatalog = [makeSkill(DECLARED_SKILL_ID)];
-    mockManifests = { [DECLARED_SKILL_ID]: makeManifest(['browser_navigate', 'browser_click']) };
+    mockManifests = {
+      [DECLARED_SKILL_ID]: makeManifest(["browser_navigate", "browser_click"]),
+    };
 
     // History contains a marker from before the flag was turned off
     const history = buildHistoryWithMarker(DECLARED_SKILL_ID);
@@ -292,16 +310,20 @@ describe('projectSkillTools feature flag enforcement', () => {
     // Feature flag is OFF
     currentConfig = { featureFlags: { [DECLARED_LEGACY_KEY]: false } };
 
-    const result = projectSkillTools(history, { previouslyActiveSkillIds: prevActive });
+    const result = projectSkillTools(history, {
+      previouslyActiveSkillIds: prevActive,
+    });
 
     // No tools should be projected
     expect(result.toolDefinitions).toHaveLength(0);
     expect(result.allowedToolNames.size).toBe(0);
   });
 
-  test('skill tools projected normally when flag is ON', () => {
+  test("skill tools projected normally when flag is ON", () => {
     mockCatalog = [makeSkill(DECLARED_SKILL_ID)];
-    mockManifests = { [DECLARED_SKILL_ID]: makeManifest(['browser_navigate', 'browser_click']) };
+    mockManifests = {
+      [DECLARED_SKILL_ID]: makeManifest(["browser_navigate", "browser_click"]),
+    };
 
     const history = buildHistoryWithMarker(DECLARED_SKILL_ID);
     const prevActive = new Map<string, string>();
@@ -309,16 +331,18 @@ describe('projectSkillTools feature flag enforcement', () => {
     // Feature flag is ON
     currentConfig = { featureFlags: { [DECLARED_LEGACY_KEY]: true } };
 
-    const result = projectSkillTools(history, { previouslyActiveSkillIds: prevActive });
+    const result = projectSkillTools(history, {
+      previouslyActiveSkillIds: prevActive,
+    });
 
     expect(result.toolDefinitions).toHaveLength(2);
-    expect(result.allowedToolNames.has('browser_navigate')).toBe(true);
-    expect(result.allowedToolNames.has('browser_click')).toBe(true);
+    expect(result.allowedToolNames.has("browser_navigate")).toBe(true);
+    expect(result.allowedToolNames.has("browser_click")).toBe(true);
   });
 
-  test('skill tools projected normally when flag key is absent (defaults to enabled)', () => {
+  test("skill tools projected normally when flag key is absent (defaults to enabled)", () => {
     mockCatalog = [makeSkill(DECLARED_SKILL_ID)];
-    mockManifests = { [DECLARED_SKILL_ID]: makeManifest(['browser_navigate']) };
+    mockManifests = { [DECLARED_SKILL_ID]: makeManifest(["browser_navigate"]) };
 
     const history = buildHistoryWithMarker(DECLARED_SKILL_ID);
     const prevActive = new Map<string, string>();
@@ -326,47 +350,64 @@ describe('projectSkillTools feature flag enforcement', () => {
     // featureFlags is empty — should default to enabled
     currentConfig = { featureFlags: {} };
 
-    const result = projectSkillTools(history, { previouslyActiveSkillIds: prevActive });
+    const result = projectSkillTools(history, {
+      previouslyActiveSkillIds: prevActive,
+    });
 
     expect(result.toolDefinitions).toHaveLength(1);
-    expect(result.allowedToolNames.has('browser_navigate')).toBe(true);
+    expect(result.allowedToolNames.has("browser_navigate")).toBe(true);
   });
 
-  test('mixed flag-on and flag-off skills — only flag-on tools projected', () => {
-    mockCatalog = [makeSkill(DECLARED_SKILL_ID), makeSkill('twitter')];
+  test("mixed flag-on and flag-off skills — only flag-on tools projected", () => {
+    mockCatalog = [makeSkill(DECLARED_SKILL_ID), makeSkill("twitter")];
     mockManifests = {
-      [DECLARED_SKILL_ID]: makeManifest(['browser_navigate']),
-      twitter: makeManifest(['twitter_post']),
+      [DECLARED_SKILL_ID]: makeManifest(["browser_navigate"]),
+      twitter: makeManifest(["twitter_post"]),
     };
 
     const history: Message[] = [
       {
-        role: 'assistant',
+        role: "assistant",
         content: [
-          { type: 'tool_use', id: 'tu-1', name: 'skill_load', input: { skill: DECLARED_SKILL_ID } },
+          {
+            type: "tool_use",
+            id: "tu-1",
+            name: "skill_load",
+            input: { skill: DECLARED_SKILL_ID },
+          },
         ],
       },
       {
-        role: 'user',
-        content: [{
-          type: 'tool_result',
-          tool_use_id: 'tu-1',
-          content: `<loaded_skill id="${DECLARED_SKILL_ID}" version="v1:default-hash-${DECLARED_SKILL_ID}" />`,
-        }],
-      },
-      {
-        role: 'assistant',
+        role: "user",
         content: [
-          { type: 'tool_use', id: 'tu-2', name: 'skill_load', input: { skill: 'twitter' } },
+          {
+            type: "tool_result",
+            tool_use_id: "tu-1",
+            content: `<loaded_skill id="${DECLARED_SKILL_ID}" version="v1:default-hash-${DECLARED_SKILL_ID}" />`,
+          },
         ],
       },
       {
-        role: 'user',
-        content: [{
-          type: 'tool_result',
-          tool_use_id: 'tu-2',
-          content: '<loaded_skill id="twitter" version="v1:default-hash-twitter" />',
-        }],
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id: "tu-2",
+            name: "skill_load",
+            input: { skill: "twitter" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "tu-2",
+            content:
+              '<loaded_skill id="twitter" version="v1:default-hash-twitter" />',
+          },
+        ],
       },
     ];
     const prevActive = new Map<string, string>();
@@ -376,10 +417,12 @@ describe('projectSkillTools feature flag enforcement', () => {
       featureFlags: { [DECLARED_LEGACY_KEY]: false },
     };
 
-    const result = projectSkillTools(history, { previouslyActiveSkillIds: prevActive });
+    const result = projectSkillTools(history, {
+      previouslyActiveSkillIds: prevActive,
+    });
 
     const toolNames = result.toolDefinitions.map((t) => t.name);
-    expect(toolNames).toContain('twitter_post');
-    expect(toolNames).not.toContain('browser_navigate');
+    expect(toolNames).toContain("twitter_post");
+    expect(toolNames).not.toContain("browser_navigate");
   });
 });

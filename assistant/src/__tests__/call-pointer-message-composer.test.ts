@@ -1,7 +1,7 @@
-import { describe, expect, test } from 'bun:test';
-import { mock } from 'bun:test';
+import { describe, expect, test } from "bun:test";
+import { mock } from "bun:test";
 
-mock.module('../util/logger.js', () => ({
+mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
@@ -12,93 +12,102 @@ import {
   buildPointerInstruction,
   type CallPointerMessageContext,
   getPointerFallbackMessage,
-} from '../calls/call-pointer-message-composer.js';
+} from "../calls/call-pointer-message-composer.js";
 
 // ---------------------------------------------------------------------------
 // Deterministic fallback templates
 // ---------------------------------------------------------------------------
 
-describe('getPointerFallbackMessage', () => {
-  test('started without verification code', () => {
-    const msg = getPointerFallbackMessage({ scenario: 'started', phoneNumber: '+15551234567' });
-    expect(msg).toContain('Call to +15551234567 started');
-    expect(msg).not.toContain('Verification code');
-  });
-
-  test('started with verification code', () => {
+describe("getPointerFallbackMessage", () => {
+  test("started without verification code", () => {
     const msg = getPointerFallbackMessage({
-      scenario: 'started',
-      phoneNumber: '+15551234567',
-      verificationCode: '1234',
+      scenario: "started",
+      phoneNumber: "+15551234567",
     });
-    expect(msg).toContain('Verification code: 1234');
-    expect(msg).toContain('+15551234567');
+    expect(msg).toContain("Call to +15551234567 started");
+    expect(msg).not.toContain("Verification code");
   });
 
-  test('completed without duration', () => {
-    const msg = getPointerFallbackMessage({ scenario: 'completed', phoneNumber: '+15559876543' });
-    expect(msg).toContain('completed');
-    expect(msg).toContain('+15559876543');
-  });
-
-  test('completed with duration', () => {
+  test("started with verification code", () => {
     const msg = getPointerFallbackMessage({
-      scenario: 'completed',
-      phoneNumber: '+15559876543',
-      duration: '5m 30s',
+      scenario: "started",
+      phoneNumber: "+15551234567",
+      verificationCode: "1234",
     });
-    expect(msg).toContain('completed (5m 30s)');
+    expect(msg).toContain("Verification code: 1234");
+    expect(msg).toContain("+15551234567");
   });
 
-  test('failed without reason', () => {
-    const msg = getPointerFallbackMessage({ scenario: 'failed', phoneNumber: '+15559876543' });
-    expect(msg).toContain('failed');
-    expect(msg).toContain('+15559876543');
-  });
-
-  test('failed with reason', () => {
+  test("completed without duration", () => {
     const msg = getPointerFallbackMessage({
-      scenario: 'failed',
-      phoneNumber: '+15559876543',
-      reason: 'no answer',
+      scenario: "completed",
+      phoneNumber: "+15559876543",
     });
-    expect(msg).toContain('failed: no answer');
+    expect(msg).toContain("completed");
+    expect(msg).toContain("+15559876543");
   });
 
-  test('guardian_verification_succeeded defaults to voice channel', () => {
+  test("completed with duration", () => {
     const msg = getPointerFallbackMessage({
-      scenario: 'guardian_verification_succeeded',
-      phoneNumber: '+15559876543',
+      scenario: "completed",
+      phoneNumber: "+15559876543",
+      duration: "5m 30s",
     });
-    expect(msg).toContain('Guardian verification (voice)');
-    expect(msg).toContain('succeeded');
+    expect(msg).toContain("completed (5m 30s)");
   });
 
-  test('guardian_verification_succeeded with custom channel', () => {
+  test("failed without reason", () => {
     const msg = getPointerFallbackMessage({
-      scenario: 'guardian_verification_succeeded',
-      phoneNumber: '+15559876543',
-      channel: 'sms',
+      scenario: "failed",
+      phoneNumber: "+15559876543",
     });
-    expect(msg).toContain('Guardian verification (sms)');
+    expect(msg).toContain("failed");
+    expect(msg).toContain("+15559876543");
   });
 
-  test('guardian_verification_failed without reason', () => {
+  test("failed with reason", () => {
     const msg = getPointerFallbackMessage({
-      scenario: 'guardian_verification_failed',
-      phoneNumber: '+15559876543',
+      scenario: "failed",
+      phoneNumber: "+15559876543",
+      reason: "no answer",
     });
-    expect(msg).toContain('Guardian verification');
-    expect(msg).toContain('failed');
+    expect(msg).toContain("failed: no answer");
   });
 
-  test('guardian_verification_failed with reason', () => {
+  test("guardian_verification_succeeded defaults to voice channel", () => {
     const msg = getPointerFallbackMessage({
-      scenario: 'guardian_verification_failed',
-      phoneNumber: '+15559876543',
-      reason: 'Max attempts exceeded',
+      scenario: "guardian_verification_succeeded",
+      phoneNumber: "+15559876543",
     });
-    expect(msg).toContain('failed: Max attempts exceeded');
+    expect(msg).toContain("Guardian verification (voice)");
+    expect(msg).toContain("succeeded");
+  });
+
+  test("guardian_verification_succeeded with custom channel", () => {
+    const msg = getPointerFallbackMessage({
+      scenario: "guardian_verification_succeeded",
+      phoneNumber: "+15559876543",
+      channel: "sms",
+    });
+    expect(msg).toContain("Guardian verification (sms)");
+  });
+
+  test("guardian_verification_failed without reason", () => {
+    const msg = getPointerFallbackMessage({
+      scenario: "guardian_verification_failed",
+      phoneNumber: "+15559876543",
+    });
+    expect(msg).toContain("Guardian verification");
+    expect(msg).toContain("failed");
+  });
+
+  test("guardian_verification_failed with reason", () => {
+    const msg = getPointerFallbackMessage({
+      scenario: "guardian_verification_failed",
+      phoneNumber: "+15559876543",
+      reason: "Max attempts exceeded",
+    });
+    expect(msg).toContain("failed: Max attempts exceeded");
   });
 });
 
@@ -106,56 +115,77 @@ describe('getPointerFallbackMessage', () => {
 // Daemon instruction builder
 // ---------------------------------------------------------------------------
 
-describe('buildPointerInstruction', () => {
-  test('includes event tag, scenario, and phone number', () => {
-    const ctx: CallPointerMessageContext = { scenario: 'started', phoneNumber: '+15551234567' };
-    const instruction = buildPointerInstruction(ctx);
-    expect(instruction).toContain('[CALL_STATUS_EVENT]');
-    expect(instruction).toContain('Event: started');
-    expect(instruction).toContain('Phone number: +15551234567');
-  });
-
-  test('includes duration when provided', () => {
-    const ctx: CallPointerMessageContext = { scenario: 'completed', phoneNumber: '+15559876543', duration: '3m' };
-    const instruction = buildPointerInstruction(ctx);
-    expect(instruction).toContain('Duration: 3m');
-  });
-
-  test('includes reason when provided', () => {
-    const ctx: CallPointerMessageContext = { scenario: 'failed', phoneNumber: '+15559876543', reason: 'no answer' };
-    const instruction = buildPointerInstruction(ctx);
-    expect(instruction).toContain('Reason: no answer');
-  });
-
-  test('includes verification code when provided', () => {
-    const ctx: CallPointerMessageContext = { scenario: 'started', phoneNumber: '+15551234567', verificationCode: '42' };
-    const instruction = buildPointerInstruction(ctx);
-    expect(instruction).toContain('Verification code: 42');
-  });
-
-  test('includes channel when provided', () => {
+describe("buildPointerInstruction", () => {
+  test("includes event tag, scenario, and phone number", () => {
     const ctx: CallPointerMessageContext = {
-      scenario: 'guardian_verification_succeeded',
-      phoneNumber: '+15559876543',
-      channel: 'sms',
+      scenario: "started",
+      phoneNumber: "+15551234567",
     };
     const instruction = buildPointerInstruction(ctx);
-    expect(instruction).toContain('Channel: sms');
+    expect(instruction).toContain("[CALL_STATUS_EVENT]");
+    expect(instruction).toContain("Event: started");
+    expect(instruction).toContain("Phone number: +15551234567");
   });
 
-  test('omits optional fields when not provided', () => {
-    const ctx: CallPointerMessageContext = { scenario: 'started', phoneNumber: '+15551234567' };
+  test("includes duration when provided", () => {
+    const ctx: CallPointerMessageContext = {
+      scenario: "completed",
+      phoneNumber: "+15559876543",
+      duration: "3m",
+    };
     const instruction = buildPointerInstruction(ctx);
-    expect(instruction).not.toContain('Duration:');
-    expect(instruction).not.toContain('Reason:');
-    expect(instruction).not.toContain('Verification code:');
-    expect(instruction).not.toContain('Channel:');
+    expect(instruction).toContain("Duration: 3m");
   });
 
-  test('ends with generation instructions', () => {
-    const ctx: CallPointerMessageContext = { scenario: 'completed', phoneNumber: '+15559876543' };
+  test("includes reason when provided", () => {
+    const ctx: CallPointerMessageContext = {
+      scenario: "failed",
+      phoneNumber: "+15559876543",
+      reason: "no answer",
+    };
     const instruction = buildPointerInstruction(ctx);
-    expect(instruction).toContain('Write a brief');
-    expect(instruction).toContain('Preserve all factual details');
+    expect(instruction).toContain("Reason: no answer");
+  });
+
+  test("includes verification code when provided", () => {
+    const ctx: CallPointerMessageContext = {
+      scenario: "started",
+      phoneNumber: "+15551234567",
+      verificationCode: "42",
+    };
+    const instruction = buildPointerInstruction(ctx);
+    expect(instruction).toContain("Verification code: 42");
+  });
+
+  test("includes channel when provided", () => {
+    const ctx: CallPointerMessageContext = {
+      scenario: "guardian_verification_succeeded",
+      phoneNumber: "+15559876543",
+      channel: "sms",
+    };
+    const instruction = buildPointerInstruction(ctx);
+    expect(instruction).toContain("Channel: sms");
+  });
+
+  test("omits optional fields when not provided", () => {
+    const ctx: CallPointerMessageContext = {
+      scenario: "started",
+      phoneNumber: "+15551234567",
+    };
+    const instruction = buildPointerInstruction(ctx);
+    expect(instruction).not.toContain("Duration:");
+    expect(instruction).not.toContain("Reason:");
+    expect(instruction).not.toContain("Verification code:");
+    expect(instruction).not.toContain("Channel:");
+  });
+
+  test("ends with generation instructions", () => {
+    const ctx: CallPointerMessageContext = {
+      scenario: "completed",
+      phoneNumber: "+15559876543",
+    };
+    const instruction = buildPointerInstruction(ctx);
+    expect(instruction).toContain("Write a brief");
+    expect(instruction).toContain("Preserve all factual details");
   });
 });

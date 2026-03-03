@@ -6,35 +6,42 @@
  * Backend selection is cached after the first call for the process lifetime.
  */
 
-import { getLogger } from '../util/logger.js';
-import { isMacOS } from '../util/platform.js';
-import * as encryptedStore from './encrypted-store.js';
-import * as keychain from './keychain.js';
+import { getLogger } from "../util/logger.js";
+import { isMacOS } from "../util/platform.js";
+import * as encryptedStore from "./encrypted-store.js";
+import * as keychain from "./keychain.js";
 
-const log = getLogger('secure-keys');
+const log = getLogger("secure-keys");
 
-type Backend = 'keychain' | 'encrypted' | null;
+type Backend = "keychain" | "encrypted" | null;
 let resolvedBackend: Backend | undefined;
 /** True when backend was downgraded from keychain to encrypted at runtime. */
 let downgradedFromKeychain = false;
+/** Keys known to not exist in keychain — avoids repeated subprocess calls on misses. */
+const keychainMissCache = new Set<string>();
 
 function getBackend(): Backend {
   if (resolvedBackend !== undefined) return resolvedBackend;
 
   // On macOS, skip keychain probing and use encrypted file storage directly
-  // to avoid repeated Keychain Access authorization prompts.
+  // to avoid repeated Keychain Access authorization prompts. Mark as
+  // downgraded so getSecureKey/getSecureKeyAsync still check keychain as a
+  // fallback for secrets stored before this switch.
   if (isMacOS()) {
-    log.debug('macOS detected, using encrypted file storage (skipping keychain)');
-    resolvedBackend = 'encrypted';
+    log.debug(
+      "macOS detected, using encrypted file storage (skipping keychain)",
+    );
+    resolvedBackend = "encrypted";
+    downgradedFromKeychain = true;
     return resolvedBackend;
   }
 
   if (keychain.isKeychainAvailable()) {
-    log.debug('Using OS keychain for secure key storage');
-    resolvedBackend = 'keychain';
+    log.debug("Using OS keychain for secure key storage");
+    resolvedBackend = "keychain";
   } else {
-    log.debug('OS keychain unavailable, using encrypted file storage');
-    resolvedBackend = 'encrypted';
+    log.debug("OS keychain unavailable, using encrypted file storage");
+    resolvedBackend = "encrypted";
   }
   return resolvedBackend;
 }
@@ -43,19 +50,24 @@ async function getBackendAsync(): Promise<Backend> {
   if (resolvedBackend !== undefined) return resolvedBackend;
 
   // On macOS, skip keychain probing and use encrypted file storage directly
-  // to avoid repeated Keychain Access authorization prompts.
+  // to avoid repeated Keychain Access authorization prompts. Mark as
+  // downgraded so getSecureKey/getSecureKeyAsync still check keychain as a
+  // fallback for secrets stored before this switch.
   if (isMacOS()) {
-    log.debug('macOS detected, using encrypted file storage (skipping keychain)');
-    resolvedBackend = 'encrypted';
+    log.debug(
+      "macOS detected, using encrypted file storage (skipping keychain)",
+    );
+    resolvedBackend = "encrypted";
+    downgradedFromKeychain = true;
     return resolvedBackend;
   }
 
   if (await keychain.isKeychainAvailableAsync()) {
-    log.debug('Using OS keychain for secure key storage');
-    resolvedBackend = 'keychain';
+    log.debug("Using OS keychain for secure key storage");
+    resolvedBackend = "keychain";
   } else {
-    log.debug('OS keychain unavailable, using encrypted file storage');
-    resolvedBackend = 'encrypted';
+    log.debug("OS keychain unavailable, using encrypted file storage");
+    resolvedBackend = "encrypted";
   }
   return resolvedBackend;
 }
@@ -71,15 +83,17 @@ function withKeychainFallback<T>(
   fallbackValue: T,
 ): T {
   const backend = getBackend();
-  if (backend === 'encrypted') return encryptedFn();
-  if (backend !== 'keychain') return fallbackValue;
+  if (backend === "encrypted") return encryptedFn();
+  if (backend !== "keychain") return fallbackValue;
 
   const result = keychainFn();
   // keychain.setKey/deleteKey return false on failure.
   // We downgrade on failures (false) to switch to encrypted backend.
   if (result === false) {
-    log.warn('Keychain operation failed at runtime, falling back to encrypted file storage');
-    resolvedBackend = 'encrypted';
+    log.warn(
+      "Keychain operation failed at runtime, falling back to encrypted file storage",
+    );
+    resolvedBackend = "encrypted";
     downgradedFromKeychain = true;
     return encryptedFn();
   }
@@ -92,24 +106,34 @@ function withKeychainFallback<T>(
  */
 export function getSecureKey(account: string): string | undefined {
   const backend = getBackend();
-  if (backend === 'keychain') {
+  if (backend === "keychain") {
     try {
       return keychain.getKey(account) ?? undefined;
     } catch {
       // Keychain runtime error on read — downgrade to encrypted store
-      log.warn('Keychain read failed at runtime, falling back to encrypted file storage');
-      resolvedBackend = 'encrypted';
+      log.warn(
+        "Keychain read failed at runtime, falling back to encrypted file storage",
+      );
+      resolvedBackend = "encrypted";
       downgradedFromKeychain = true;
       return encryptedStore.getKey(account);
     }
   }
-  if (backend === 'encrypted') {
+  if (backend === "encrypted") {
     const value = encryptedStore.getKey(account);
     // After a runtime downgrade, keys may still exist in the keychain.
     // Try keychain read as fallback so pre-downgrade keys remain accessible.
-    if (value === undefined && downgradedFromKeychain) {
+    if (
+      value === undefined &&
+      downgradedFromKeychain &&
+      !keychainMissCache.has(account)
+    ) {
       try {
-        return keychain.getKey(account) ?? undefined;
+        const keychainValue = keychain.getKey(account) ?? undefined;
+        if (keychainValue === undefined) {
+          keychainMissCache.add(account);
+        }
+        return keychainValue;
       } catch {
         return undefined;
       }
@@ -137,16 +161,18 @@ export function setSecureKey(account: string, value: string): boolean {
  */
 export function deleteSecureKey(account: string): boolean {
   const backend = getBackend();
-  if (backend === 'encrypted') {
+  if (backend === "encrypted") {
     const result = encryptedStore.deleteKey(account);
     // After a runtime downgrade, keys may still exist in the keychain.
-    // Attempt best-effort cleanup so stale credentials don't linger.
+    // Attempt cleanup and return true if either backend had the key.
     if (downgradedFromKeychain) {
-      keychain.deleteKey(account); // best-effort, ignore result
+      keychainMissCache.delete(account);
+      const keychainResult = keychain.deleteKey(account);
+      return result || keychainResult;
     }
     return result;
   }
-  if (backend !== 'keychain') return false;
+  if (backend !== "keychain") return false;
 
   // keychain.deleteKey returns false for both "not found" and "runtime error".
   // Check existence first so a missing key doesn't spuriously downgrade the
@@ -175,7 +201,7 @@ export function deleteSecureKey(account: string): boolean {
  */
 export function listSecureKeys(): string[] {
   const backend = getBackend();
-  if (backend === 'encrypted') return encryptedStore.listKeys();
+  if (backend === "encrypted") return encryptedStore.listKeys();
   // OS keychains don't provide a list API scoped to our service
   return [];
 }
@@ -184,7 +210,7 @@ export function listSecureKeys(): string[] {
  * Return the currently resolved backend type.
  * Useful for feature-gating behaviour that only works on certain backends.
  */
-export function getBackendType(): 'keychain' | 'encrypted' | null {
+export function getBackendType(): "keychain" | "encrypted" | null {
   return getBackend();
 }
 
@@ -205,23 +231,36 @@ export function isDowngradedFromKeychain(): boolean {
 /**
  * Async version of `getSecureKey` — retrieve a secret without blocking.
  */
-export async function getSecureKeyAsync(account: string): Promise<string | undefined> {
+export async function getSecureKeyAsync(
+  account: string,
+): Promise<string | undefined> {
   const backend = await getBackendAsync();
-  if (backend === 'keychain') {
+  if (backend === "keychain") {
     try {
       return (await keychain.getKeyAsync(account)) ?? undefined;
     } catch {
-      log.warn('Keychain read failed at runtime, falling back to encrypted file storage');
-      resolvedBackend = 'encrypted';
+      log.warn(
+        "Keychain read failed at runtime, falling back to encrypted file storage",
+      );
+      resolvedBackend = "encrypted";
       downgradedFromKeychain = true;
       return encryptedStore.getKey(account);
     }
   }
-  if (backend === 'encrypted') {
+  if (backend === "encrypted") {
     const value = encryptedStore.getKey(account);
-    if (value === undefined && downgradedFromKeychain) {
+    if (
+      value === undefined &&
+      downgradedFromKeychain &&
+      !keychainMissCache.has(account)
+    ) {
       try {
-        return (await keychain.getKeyAsync(account)) ?? undefined;
+        const keychainValue =
+          (await keychain.getKeyAsync(account)) ?? undefined;
+        if (keychainValue === undefined) {
+          keychainMissCache.add(account);
+        }
+        return keychainValue;
       } catch {
         return undefined;
       }
@@ -234,15 +273,20 @@ export async function getSecureKeyAsync(account: string): Promise<string | undef
 /**
  * Async version of `setSecureKey` — store a secret without blocking.
  */
-export async function setSecureKeyAsync(account: string, value: string): Promise<boolean> {
+export async function setSecureKeyAsync(
+  account: string,
+  value: string,
+): Promise<boolean> {
   const backend = await getBackendAsync();
-  if (backend === 'encrypted') return encryptedStore.setKey(account, value);
-  if (backend !== 'keychain') return false;
+  if (backend === "encrypted") return encryptedStore.setKey(account, value);
+  if (backend !== "keychain") return false;
 
   const result = await keychain.setKeyAsync(account, value);
   if (result === false) {
-    log.warn('Keychain operation failed at runtime, falling back to encrypted file storage');
-    resolvedBackend = 'encrypted';
+    log.warn(
+      "Keychain operation failed at runtime, falling back to encrypted file storage",
+    );
+    resolvedBackend = "encrypted";
     downgradedFromKeychain = true;
     return encryptedStore.setKey(account, value);
   }
@@ -254,14 +298,16 @@ export async function setSecureKeyAsync(account: string, value: string): Promise
  */
 export async function deleteSecureKeyAsync(account: string): Promise<boolean> {
   const backend = await getBackendAsync();
-  if (backend === 'encrypted') {
+  if (backend === "encrypted") {
     const result = encryptedStore.deleteKey(account);
     if (downgradedFromKeychain) {
-      await keychain.deleteKeyAsync(account); // best-effort
+      keychainMissCache.delete(account);
+      const keychainResult = await keychain.deleteKeyAsync(account);
+      return result || keychainResult;
     }
     return result;
   }
-  if (backend !== 'keychain') return false;
+  if (backend !== "keychain") return false;
 
   try {
     if ((await keychain.getKeyAsync(account)) == null) {
@@ -273,8 +319,10 @@ export async function deleteSecureKeyAsync(account: string): Promise<boolean> {
 
   const result = await keychain.deleteKeyAsync(account);
   if (result === false) {
-    log.warn('Keychain operation failed at runtime, falling back to encrypted file storage');
-    resolvedBackend = 'encrypted';
+    log.warn(
+      "Keychain operation failed at runtime, falling back to encrypted file storage",
+    );
+    resolvedBackend = "encrypted";
     downgradedFromKeychain = true;
     return encryptedStore.deleteKey(account);
   }
@@ -285,10 +333,12 @@ export async function deleteSecureKeyAsync(account: string): Promise<boolean> {
 export function _resetBackend(): void {
   resolvedBackend = undefined;
   downgradedFromKeychain = false;
+  keychainMissCache.clear();
 }
 
 /** @internal Test-only: force a specific backend. Pass `undefined` to reset. */
 export function _setBackend(backend: Backend | undefined): void {
   resolvedBackend = backend;
   downgradedFromKeychain = false;
+  keychainMissCache.clear();
 }

@@ -1,5 +1,10 @@
 import { describe, it, expect, mock, afterEach } from "bun:test";
 import type { GatewayConfig } from "../../config.js";
+import { initSigningKey, mintToken } from "../../auth/token-service.js";
+import { CURRENT_POLICY_EPOCH } from "../../auth/policy.js";
+
+const TEST_SIGNING_KEY = Buffer.from('test-signing-key-at-least-32-bytes-long');
+initSigningKey(TEST_SIGNING_KEY);
 
 type FetchFn = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(async () => new Response());
@@ -12,7 +17,18 @@ const { createSmsDeliverHandler } = await import("./sms-deliver.js");
 
 // --- Helpers ---------------------------------------------------------------
 
-const TOKEN = "test-deliver-token";
+/** Mint a valid daemon JWT for deliver auth. */
+function mintDeliverToken(): string {
+  return mintToken({
+    aud: 'vellum-daemon',
+    sub: 'svc:gateway:self',
+    scope_profile: 'gateway_service_v1',
+    policy_epoch: CURRENT_POLICY_EPOCH,
+    ttlSeconds: 300,
+  });
+}
+
+const TOKEN = mintDeliverToken();
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   const merged: GatewayConfig = {
@@ -25,11 +41,8 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     maxWebhookPayloadBytes: 1024 * 1024,
     port: 7830,
     routingEntries: [],
-    runtimeBearerToken: undefined,
-    runtimeGatewayOriginSecret: undefined,
     runtimeInitialBackoffMs: 500,
     runtimeMaxRetries: 2,
-    runtimeProxyBearerToken: TOKEN,
     runtimeProxyEnabled: false,
     runtimeProxyRequireAuth: true,
     runtimeTimeoutMs: 30000,
@@ -61,9 +74,6 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     trustProxy: false,
     ...overrides,
   };
-  if (merged.runtimeGatewayOriginSecret === undefined) {
-    merged.runtimeGatewayOriginSecret = merged.runtimeBearerToken;
-  }
   return merged;
 }
 
@@ -103,17 +113,6 @@ describe("/deliver/sms", () => {
     expect(res.status).toBe(405);
   });
 
-  it("rejects when no bearer token and bypass not set with 503", async () => {
-    const handler = createSmsDeliverHandler(
-      makeConfig({ runtimeProxyBearerToken: undefined }),
-    );
-    const req = makeRequest({ to: "+15559876543", text: "hello" });
-    const res = await handler(req);
-    expect(res.status).toBe(503);
-    const body = await res.json();
-    expect(body.error).toBe("Service not configured: bearer token required");
-  });
-
   it("rejects request without Authorization header with 401", async () => {
     const handler = createSmsDeliverHandler(makeConfig());
     const req = makeRequest({ to: "+15559876543", text: "hello" });
@@ -145,7 +144,7 @@ describe("/deliver/sms", () => {
   it("allows unauthenticated access when bypass flag is set and no token configured", async () => {
     mockTwilioApi();
     const handler = createSmsDeliverHandler(
-      makeConfig({ runtimeProxyBearerToken: undefined, smsDeliverAuthBypass: true }),
+      makeConfig({ smsDeliverAuthBypass: true }),
     );
     const req = makeRequest({ to: "+15559876543", text: "hello" });
     const res = await handler(req);
@@ -157,7 +156,6 @@ describe("/deliver/sms", () => {
   it("returns 503 when Twilio credentials are not configured", async () => {
     const handler = createSmsDeliverHandler(
       makeConfig({
-        runtimeProxyBearerToken: undefined,
         smsDeliverAuthBypass: true,
         twilioAccountSid: undefined,
       }),
@@ -171,7 +169,7 @@ describe("/deliver/sms", () => {
 
   it("returns 400 when 'to' is missing", async () => {
     const handler = createSmsDeliverHandler(
-      makeConfig({ runtimeProxyBearerToken: undefined, smsDeliverAuthBypass: true }),
+      makeConfig({ smsDeliverAuthBypass: true }),
     );
     const req = makeRequest({ text: "hello" });
     const res = await handler(req);
@@ -182,7 +180,7 @@ describe("/deliver/sms", () => {
 
   it("returns 400 when 'text' is missing", async () => {
     const handler = createSmsDeliverHandler(
-      makeConfig({ runtimeProxyBearerToken: undefined, smsDeliverAuthBypass: true }),
+      makeConfig({ smsDeliverAuthBypass: true }),
     );
     const req = makeRequest({ to: "+15559876543" });
     const res = await handler(req);
@@ -193,7 +191,7 @@ describe("/deliver/sms", () => {
 
   it("returns 400 when JSON is invalid", async () => {
     const handler = createSmsDeliverHandler(
-      makeConfig({ runtimeProxyBearerToken: undefined, smsDeliverAuthBypass: true }),
+      makeConfig({ smsDeliverAuthBypass: true }),
     );
     const req = new Request("http://localhost:7830/deliver/sms", {
       method: "POST",
@@ -214,7 +212,7 @@ describe("/deliver/sms", () => {
     });
 
     const handler = createSmsDeliverHandler(
-      makeConfig({ runtimeProxyBearerToken: undefined, smsDeliverAuthBypass: true }),
+      makeConfig({ smsDeliverAuthBypass: true }),
     );
     const req = makeRequest({ to: "+15559876543", text: "hello" });
     const res = await handler(req);
@@ -235,7 +233,7 @@ describe("/deliver/sms", () => {
     });
 
     const handler = createSmsDeliverHandler(
-      makeConfig({ runtimeProxyBearerToken: undefined, smsDeliverAuthBypass: true }),
+      makeConfig({ smsDeliverAuthBypass: true }),
     );
     const req = makeRequest({ chatId: "+15559876543", text: "hello via chatId" }, {});
     const res = await handler(req);
@@ -255,7 +253,7 @@ describe("/deliver/sms", () => {
   it("prefers 'to' over 'chatId' when both are provided", async () => {
     mockTwilioApi();
     const handler = createSmsDeliverHandler(
-      makeConfig({ runtimeProxyBearerToken: undefined, smsDeliverAuthBypass: true }),
+      makeConfig({ smsDeliverAuthBypass: true }),
     );
     const req = makeRequest({ to: "+15551111111", chatId: "+15552222222", text: "both fields" }, {});
     const res = await handler(req);
@@ -274,7 +272,7 @@ describe("/deliver/sms", () => {
     });
 
     const handler = createSmsDeliverHandler(
-      makeConfig({ runtimeProxyBearerToken: undefined, smsDeliverAuthBypass: true }),
+      makeConfig({ smsDeliverAuthBypass: true }),
     );
     const req = makeRequest({ to: "+15559876543", text: "Test SMS body" });
     const res = await handler(req);
@@ -303,7 +301,6 @@ describe("/deliver/sms", () => {
 
     const handler = createSmsDeliverHandler(
       makeConfig({
-        runtimeProxyBearerToken: undefined,
         smsDeliverAuthBypass: true,
         assistantPhoneNumbers: { "ast-alpha": "+15550001111" },
       }),
@@ -335,7 +332,6 @@ describe("/deliver/sms", () => {
 
     const handler = createSmsDeliverHandler(
       makeConfig({
-        runtimeProxyBearerToken: undefined,
         smsDeliverAuthBypass: true,
         assistantPhoneNumbers: { "ast-beta": "+15550002222" },
       }),
@@ -366,7 +362,7 @@ describe("/deliver/sms", () => {
     });
 
     const handler = createSmsDeliverHandler(
-      makeConfig({ runtimeProxyBearerToken: undefined, smsDeliverAuthBypass: true }),
+      makeConfig({ smsDeliverAuthBypass: true }),
     );
     const req = makeRequest({
       to: "+15559876543",
@@ -392,7 +388,7 @@ describe("/deliver/sms", () => {
   it("returns enriched Twilio acceptance details in response", async () => {
     mockTwilioApi({ sid: "SM-enrich-test", status: "queued", error_code: null, error_message: null });
     const handler = createSmsDeliverHandler(
-      makeConfig({ runtimeProxyBearerToken: undefined, smsDeliverAuthBypass: true }),
+      makeConfig({ smsDeliverAuthBypass: true }),
     );
     const req = makeRequest({ to: "+15559876543", text: "enriched" });
     const res = await handler(req);
@@ -408,7 +404,7 @@ describe("/deliver/sms", () => {
   it("returns Twilio error details in response when error_code is present", async () => {
     mockTwilioApi({ sid: "SM-err-test", status: "failed", error_code: 30003, error_message: "Unreachable" });
     const handler = createSmsDeliverHandler(
-      makeConfig({ runtimeProxyBearerToken: undefined, smsDeliverAuthBypass: true }),
+      makeConfig({ smsDeliverAuthBypass: true }),
     );
     const req = makeRequest({ to: "+15559876543", text: "fail test" });
     const res = await handler(req);
@@ -424,7 +420,6 @@ describe("/deliver/sms", () => {
   it("returns 503 when no From number is available", async () => {
     const handler = createSmsDeliverHandler(
       makeConfig({
-        runtimeProxyBearerToken: undefined,
         smsDeliverAuthBypass: true,
         twilioPhoneNumber: undefined,
         assistantPhoneNumbers: undefined,

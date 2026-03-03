@@ -1,5 +1,16 @@
 import SwiftUI
 
+private extension View {
+    @ViewBuilder
+    func columnFrame(_ width: Int?) -> some View {
+        if let w = width {
+            self.frame(width: CGFloat(w), alignment: .leading)
+        } else {
+            self.frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
 /// Inline table widget with selectable rows and action support.
 public struct InlineTableWidget: View {
     public let data: TableSurfaceData
@@ -12,12 +23,31 @@ public struct InlineTableWidget: View {
         self.onAction = onAction
     }
 
+    private var selectableIds: Set<String> {
+        Set(data.rows.filter(\.selectable).map(\.id))
+    }
+
+    private var allSelected: Bool {
+        let ids = selectableIds
+        return !ids.isEmpty && ids.isSubset(of: selectedIds)
+    }
+
     public var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             // Column headers
             HStack(spacing: 0) {
-                if data.selectionMode != .none {
-                    // Checkbox column header
+                if data.selectionMode == .multiple {
+                    Button {
+                        toggleSelectAll()
+                    } label: {
+                        Image(systemName: allSelected ? "checkmark.square.fill" : "square")
+                            .font(.system(size: 14))
+                            .foregroundColor(allSelected ? VColor.accent : VColor.textMuted)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(allSelected ? "Deselect all" : "Select all")
+                    .frame(width: 28)
+                } else if data.selectionMode != .none {
                     Color.clear
                         .frame(width: 28)
                 }
@@ -25,7 +55,7 @@ public struct InlineTableWidget: View {
                     Text(column.label)
                         .font(VFont.captionMedium)
                         .foregroundColor(VColor.textMuted)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .columnFrame(column.width)
                         .textSelection(.enabled)
                 }
             }
@@ -76,12 +106,7 @@ public struct InlineTableWidget: View {
             }
 
             ForEach(data.columns) { column in
-                Text(row.cells[column.id] ?? "")
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
-                    .lineLimit(2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .textSelection(.enabled)
+                cellView(row.cells[column.id], width: column.width)
             }
         }
         .padding(.vertical, VSpacing.xs)
@@ -95,6 +120,42 @@ public struct InlineTableWidget: View {
                 toggleSelection(row.id)
             }
         }
+    }
+
+    @ViewBuilder
+    private func cellView(_ value: TableCellValue?, width: Int?) -> some View {
+        HStack(spacing: VSpacing.xs) {
+            if let icon = value?.icon {
+                Image(systemName: icon)
+                    .font(.system(size: 12))
+                    .foregroundColor(resolveIconColor(value?.iconColor))
+            }
+            Text(value?.text ?? "")
+                .font(VFont.body)
+                .foregroundColor(VColor.textPrimary)
+                .lineLimit(2)
+                .textSelection(.enabled)
+        }
+        .columnFrame(width)
+    }
+
+    private func resolveIconColor(_ token: String?) -> Color {
+        switch token {
+        case "success": return Emerald._500
+        case "warning": return Amber._500
+        case "error": return Danger._500
+        case "muted": return VColor.textMuted
+        default: return VColor.textPrimary
+        }
+    }
+
+    private func toggleSelectAll() {
+        if allSelected {
+            selectedIds.subtract(selectableIds)
+        } else {
+            selectedIds.formUnion(selectableIds)
+        }
+        onAction("selection_changed", ["selectedIds": AnyCodable(Array(selectedIds))])
     }
 
     private func toggleSelection(_ id: String) {
@@ -126,9 +187,9 @@ public struct InlineTableWidget: View {
                     TableColumn(id: "count", label: "Emails", width: nil),
                 ],
                 rows: [
-                    TableRow(id: "1", cells: ["sender": "newsletter@tech.co", "count": "47"], selectable: true, selected: false),
-                    TableRow(id: "2", cells: ["sender": "deals@store.com", "count": "32"], selectable: true, selected: false),
-                    TableRow(id: "3", cells: ["sender": "updates@social.app", "count": "28"], selectable: true, selected: false),
+                    TableRow(id: "1", cells: ["sender": TableCellValue(text: "newsletter@tech.co"), "count": TableCellValue(text: "47")], selectable: true, selected: false),
+                    TableRow(id: "2", cells: ["sender": TableCellValue(text: "deals@store.com"), "count": TableCellValue(text: "32")], selectable: true, selected: false),
+                    TableRow(id: "3", cells: ["sender": TableCellValue(text: "updates@social.app"), "count": TableCellValue(text: "28", icon: "checkmark.circle.fill", iconColor: "success")], selectable: true, selected: false),
                 ],
                 selectionMode: .multiple,
                 caption: "3 newsletters found from last 30 days"

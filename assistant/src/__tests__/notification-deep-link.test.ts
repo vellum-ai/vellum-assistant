@@ -7,78 +7,81 @@
  * the conversation was newly created or reused.
  */
 
-import { describe, expect, mock, test } from 'bun:test';
+import { describe, expect, mock, test } from "bun:test";
 
 // -- Mocks (must be declared before importing modules that depend on them) ----
 
-mock.module('../util/logger.js', () => ({
+mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
     }),
 }));
 
-import type { ServerMessage } from '../daemon/ipc-contract.js';
-import { VellumAdapter } from '../notifications/adapters/macos.js';
+import type { ServerMessage } from "../daemon/ipc-contract.js";
+import { VellumAdapter } from "../notifications/adapters/macos.js";
 
 // -- Tests -------------------------------------------------------------------
 
-describe('notification deep-link metadata', () => {
-  describe('VellumAdapter', () => {
-    test('broadcasts notification_intent with deepLinkMetadata from payload', async () => {
+describe("notification deep-link metadata", () => {
+  describe("VellumAdapter", () => {
+    test("broadcasts notification_intent with deepLinkMetadata from payload", async () => {
       const messages: ServerMessage[] = [];
       const adapter = new VellumAdapter((msg) => messages.push(msg));
 
       await adapter.send(
         {
-          sourceEventName: 'test.event',
-          copy: { title: 'Alert', body: 'Something happened' },
-          deepLinkTarget: { conversationId: 'conv-123', threadType: 'notification' },
+          sourceEventName: "test.event",
+          copy: { title: "Alert", body: "Something happened" },
+          deepLinkTarget: {
+            conversationId: "conv-123",
+            threadType: "notification",
+          },
         },
-        { channel: 'vellum' },
+        { channel: "vellum" },
       );
 
       expect(messages).toHaveLength(1);
       const msg = messages[0] as unknown as Record<string, unknown>;
-      expect(msg.type).toBe('notification_intent');
-      expect(msg.title).toBe('Alert');
-      expect(msg.body).toBe('Something happened');
+      expect(msg.type).toBe("notification_intent");
+      expect(msg.title).toBe("Alert");
+      expect(msg.body).toBe("Something happened");
       expect(msg.deepLinkMetadata).toEqual({
-        conversationId: 'conv-123',
-        threadType: 'notification',
+        conversationId: "conv-123",
+        threadType: "notification",
       });
     });
 
-    test('broadcasts notification_intent without deepLinkMetadata when absent', async () => {
+    test("broadcasts notification_intent without deepLinkMetadata when absent", async () => {
       const messages: ServerMessage[] = [];
       const adapter = new VellumAdapter((msg) => messages.push(msg));
 
       await adapter.send(
         {
-          sourceEventName: 'test.event',
-          copy: { title: 'Alert', body: 'No deep link' },
+          sourceEventName: "test.event",
+          copy: { title: "Alert", body: "No deep link" },
         },
-        { channel: 'vellum' },
+        { channel: "vellum" },
       );
 
       expect(messages).toHaveLength(1);
       const msg = messages[0] as unknown as Record<string, unknown>;
-      expect(msg.type).toBe('notification_intent');
+      expect(msg.type).toBe("notification_intent");
       expect(msg.deepLinkMetadata).toBeUndefined();
     });
 
-    test('includes conversationId in deepLinkMetadata for navigation', async () => {
+    test("includes conversationId in deepLinkMetadata for navigation", async () => {
       const messages: ServerMessage[] = [];
       const adapter = new VellumAdapter((msg) => messages.push(msg));
 
-      const conversationId = 'conv-deep-link-test';
+      const conversationId = "conv-deep-link-test";
       await adapter.send(
         {
-          sourceEventName: 'guardian.question',
-          copy: { title: 'Guardian Question', body: 'What is the code?' },
+          sourceEventName: "guardian.question",
+          copy: { title: "Guardian Question", body: "What is the code?" },
           deepLinkTarget: { conversationId },
         },
-        { channel: 'vellum' },
+        { channel: "vellum" },
       );
 
       const msg = messages[0] as unknown as Record<string, unknown>;
@@ -86,79 +89,79 @@ describe('notification deep-link metadata', () => {
       expect(metadata.conversationId).toBe(conversationId);
     });
 
-    test('returns success: true on successful broadcast', async () => {
+    test("returns success: true on successful broadcast", async () => {
       const adapter = new VellumAdapter(() => {});
 
       const result = await adapter.send(
         {
-          sourceEventName: 'test.event',
-          copy: { title: 'T', body: 'B' },
+          sourceEventName: "test.event",
+          copy: { title: "T", body: "B" },
         },
-        { channel: 'vellum' },
+        { channel: "vellum" },
       );
 
       expect(result.success).toBe(true);
     });
 
-    test('returns success: false when broadcast throws', async () => {
+    test("returns success: false when broadcast throws", async () => {
       const adapter = new VellumAdapter(() => {
-        throw new Error('IPC connection lost');
+        throw new Error("IPC connection lost");
       });
 
       const result = await adapter.send(
         {
-          sourceEventName: 'test.event',
-          copy: { title: 'T', body: 'B' },
+          sourceEventName: "test.event",
+          copy: { title: "T", body: "B" },
         },
-        { channel: 'vellum' },
+        { channel: "vellum" },
       );
 
       expect(result.success).toBe(false);
-      expect(result.error).toContain('IPC connection lost');
+      expect(result.error).toContain("IPC connection lost");
     });
 
-    test('sourceEventName is included in the IPC payload', async () => {
+    test("sourceEventName is included in the IPC payload", async () => {
       const messages: ServerMessage[] = [];
       const adapter = new VellumAdapter((msg) => messages.push(msg));
 
       await adapter.send(
         {
-          sourceEventName: 'guardian.question',
-          copy: { title: 'Alert', body: 'Body' },
+          sourceEventName: "guardian.question",
+          copy: { title: "Alert", body: "Body" },
         },
-        { channel: 'vellum' },
+        { channel: "vellum" },
       );
 
       const msg = messages[0] as unknown as Record<string, unknown>;
-      expect(msg.sourceEventName).toBe('guardian.question');
+      expect(msg.sourceEventName).toBe("guardian.question");
     });
 
-    test('deepLinkMetadata with conversationId enables client-side navigation', async () => {
+    test("deepLinkMetadata with conversationId enables client-side navigation", async () => {
       const messages: ServerMessage[] = [];
       const adapter = new VellumAdapter((msg) => messages.push(msg));
 
       // Simulate a notification that should deep-link to a specific conversation
       await adapter.send(
         {
-          sourceEventName: 'activity.complete',
-          copy: { title: 'Task Done', body: 'Your task has completed' },
+          sourceEventName: "activity.complete",
+          copy: { title: "Task Done", body: "Your task has completed" },
           deepLinkTarget: {
-            conversationId: 'conv-task-run-42',
-            workItemId: 'work-item-7',
+            conversationId: "conv-task-run-42",
+            workItemId: "work-item-7",
           },
         },
-        { channel: 'vellum' },
+        { channel: "vellum" },
       );
 
       const msg = messages[0] as unknown as Record<string, unknown>;
       const metadata = msg.deepLinkMetadata as Record<string, unknown>;
-      expect(metadata.conversationId).toBe('conv-task-run-42');
-      expect(metadata.workItemId).toBe('work-item-7');
+      expect(metadata.conversationId).toBe("conv-task-run-42");
+      expect(metadata.workItemId).toBe("work-item-7");
     });
 
     // ── Deep-link conversationId present regardless of reuse/new ──────
 
-    test('deep-link payload includes conversationId for a newly created conversation', async () => {
+    test("deep-link payload includes conversationId for a newly created conversation", async () => {
       const messages: ServerMessage[] = [];
       const adapter = new VellumAdapter((msg) => messages.push(msg));
 
@@ -166,19 +169,19 @@ describe('notification deep-link metadata', () => {
       // for a newly created notification thread (start_new path)
       await adapter.send(
         {
-          sourceEventName: 'reminder.fired',
-          copy: { title: 'Reminder', body: 'Take out the trash' },
-          deepLinkTarget: { conversationId: 'conv-new-thread-001' },
+          sourceEventName: "reminder.fired",
+          copy: { title: "Reminder", body: "Take out the trash" },
+          deepLinkTarget: { conversationId: "conv-new-thread-001" },
         },
-        { channel: 'vellum' },
+        { channel: "vellum" },
       );
 
       const msg = messages[0] as unknown as Record<string, unknown>;
       const metadata = msg.deepLinkMetadata as Record<string, unknown>;
-      expect(metadata.conversationId).toBe('conv-new-thread-001');
+      expect(metadata.conversationId).toBe("conv-new-thread-001");
     });
 
-    test('deep-link payload includes conversationId for a reused conversation', async () => {
+    test("deep-link payload includes conversationId for a reused conversation", async () => {
       const messages: ServerMessage[] = [];
       const adapter = new VellumAdapter((msg) => messages.push(msg));
 
@@ -186,16 +189,19 @@ describe('notification deep-link metadata', () => {
       // for a reused notification thread (reuse_existing path)
       await adapter.send(
         {
-          sourceEventName: 'reminder.fired',
-          copy: { title: 'Follow-up', body: 'Still need to take out the trash' },
-          deepLinkTarget: { conversationId: 'conv-reused-thread-042' },
+          sourceEventName: "reminder.fired",
+          copy: {
+            title: "Follow-up",
+            body: "Still need to take out the trash",
+          },
+          deepLinkTarget: { conversationId: "conv-reused-thread-042" },
         },
-        { channel: 'vellum' },
+        { channel: "vellum" },
       );
 
       const msg = messages[0] as unknown as Record<string, unknown>;
       const metadata = msg.deepLinkMetadata as Record<string, unknown>;
-      expect(metadata.conversationId).toBe('conv-reused-thread-042');
+      expect(metadata.conversationId).toBe("conv-reused-thread-042");
     });
   });
 });

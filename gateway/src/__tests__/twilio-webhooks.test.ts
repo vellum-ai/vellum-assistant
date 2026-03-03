@@ -1,6 +1,10 @@
 import { describe, test, expect, mock, afterEach } from "bun:test";
 import { createHmac } from "node:crypto";
 import type { GatewayConfig } from "../config.js";
+import { initSigningKey } from "../auth/token-service.js";
+
+const TEST_SIGNING_KEY = Buffer.from('test-signing-key-at-least-32-bytes-long');
+initSigningKey(TEST_SIGNING_KEY);
 
 type FetchFn = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(async () => new Response());
@@ -25,11 +29,8 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     defaultAssistantId: undefined,
     unmappedPolicy: "reject",
     port: 7830,
-    runtimeBearerToken: "rt-token",
-    runtimeGatewayOriginSecret: undefined,
     runtimeProxyEnabled: false,
     runtimeProxyRequireAuth: true,
-    runtimeProxyBearerToken: undefined,
     shutdownDrainMs: 5000,
     runtimeTimeoutMs: 30000,
     runtimeMaxRetries: 2,
@@ -62,9 +63,6 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     trustProxy: false,
     ...overrides,
   };
-  if (merged.runtimeGatewayOriginSecret === undefined) {
-    merged.runtimeGatewayOriginSecret = merged.runtimeBearerToken;
-  }
   return merged;
 }
 

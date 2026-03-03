@@ -1,43 +1,51 @@
-import { mkdirSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test';
+import { mkdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Temp directory scaffold
 // ---------------------------------------------------------------------------
 
 const TEST_DIR = join(tmpdir(), `config-watcher-test-${crypto.randomUUID()}`);
-const WORKSPACE_DIR = join(TEST_DIR, 'workspace');
-const PROTECTED_DIR = join(TEST_DIR, 'protected');
-const SKILLS_DIR = join(WORKSPACE_DIR, 'skills');
+const WORKSPACE_DIR = join(TEST_DIR, "workspace");
+const PROTECTED_DIR = join(TEST_DIR, "protected");
+const SKILLS_DIR = join(WORKSPACE_DIR, "skills");
 
 // ---------------------------------------------------------------------------
 // Mock platform paths
 // ---------------------------------------------------------------------------
 
-mock.module('../util/platform.js', () => ({
+mock.module("../util/platform.js", () => ({
   getRootDir: () => TEST_DIR,
   getWorkspaceDir: () => WORKSPACE_DIR,
   getWorkspaceSkillsDir: () => SKILLS_DIR,
-  getWorkspaceConfigPath: () => join(WORKSPACE_DIR, 'config.json'),
+  getWorkspaceConfigPath: () => join(WORKSPACE_DIR, "config.json"),
   getWorkspacePromptPath: (file: string) => join(WORKSPACE_DIR, file),
   ensureDataDir: () => {},
-  getDataDir: () => join(WORKSPACE_DIR, 'data'),
-  getSocketPath: () => join(TEST_DIR, 'vellum.sock'),
-  getPidPath: () => join(TEST_DIR, 'vellum.pid'),
-  getDbPath: () => join(WORKSPACE_DIR, 'data', 'assistant.db'),
-  getLogPath: () => join(WORKSPACE_DIR, 'data', 'logs', 'vellum.log'),
-  getHistoryPath: () => join(WORKSPACE_DIR, 'data', 'history'),
-  getHooksDir: () => join(WORKSPACE_DIR, 'hooks'),
-  getIpcBlobDir: () => join(WORKSPACE_DIR, 'data', 'ipc-blobs'),
-  getSandboxRootDir: () => join(WORKSPACE_DIR, 'data', 'sandbox'),
+  getDataDir: () => join(WORKSPACE_DIR, "data"),
+  getSocketPath: () => join(TEST_DIR, "vellum.sock"),
+  getPidPath: () => join(TEST_DIR, "vellum.pid"),
+  getDbPath: () => join(WORKSPACE_DIR, "data", "assistant.db"),
+  getLogPath: () => join(WORKSPACE_DIR, "data", "logs", "vellum.log"),
+  getHistoryPath: () => join(WORKSPACE_DIR, "data", "history"),
+  getHooksDir: () => join(WORKSPACE_DIR, "hooks"),
+  getIpcBlobDir: () => join(WORKSPACE_DIR, "data", "ipc-blobs"),
+  getSandboxRootDir: () => join(WORKSPACE_DIR, "data", "sandbox"),
   getSandboxWorkingDir: () => WORKSPACE_DIR,
-  getInterfacesDir: () => join(WORKSPACE_DIR, 'data', 'interfaces'),
-  isMacOS: () => process.platform === 'darwin',
-  isLinux: () => process.platform === 'linux',
-  isWindows: () => process.platform === 'win32',
+  getInterfacesDir: () => join(WORKSPACE_DIR, "data", "interfaces"),
+  isMacOS: () => process.platform === "darwin",
+  isLinux: () => process.platform === "linux",
+  isWindows: () => process.platform === "win32",
   getPlatformName: () => process.platform,
   getClipboardCommand: () => null,
   removeSocketFile: () => {},
@@ -46,10 +54,11 @@ mock.module('../util/platform.js', () => ({
   migrateToDataLayout: () => {},
 }));
 
-mock.module('../util/logger.js', () => ({
-  getLogger: () => new Proxy({} as Record<string, unknown>, {
-    get: () => () => {},
-  }),
+mock.module("../util/logger.js", () => ({
+  getLogger: () =>
+    new Proxy({} as Record<string, unknown>, {
+      get: () => () => {},
+    }),
   isDebug: () => false,
   truncateForLog: (v: string) => v,
 }));
@@ -72,16 +81,16 @@ const fakeWatcher = {
   close: () => {},
 };
 
-mock.module('node:fs', () => {
+mock.module("node:fs", () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const actual = require('node:fs');
+  const actual = require("node:fs");
   return {
     ...actual,
     watch: (dir: string, ...args: unknown[]) => {
       let callback: WatchCallback;
       let options: { recursive?: boolean } | undefined;
 
-      if (typeof args[0] === 'function') {
+      if (typeof args[0] === "function") {
         callback = args[0] as WatchCallback;
       } else {
         options = args[0] as { recursive?: boolean };
@@ -95,34 +104,38 @@ mock.module('node:fs', () => {
 });
 
 // Mock config/loader and other dependencies that ConfigWatcher imports
-mock.module('../config/loader.js', () => ({
+mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
-    }),
+  }),
   invalidateConfigCache: () => {},
 }));
 
-mock.module('../memory/embedding-backend.js', () => ({
+mock.module("../memory/embedding-backend.js", () => ({
   clearEmbeddingBackendCache: () => {},
 }));
 
 let trustClearCacheCallCount = 0;
-mock.module('../permissions/trust-store.js', () => ({
-  clearCache: () => { trustClearCacheCallCount++; },
+mock.module("../permissions/trust-store.js", () => ({
+  clearCache: () => {
+    trustClearCacheCallCount++;
+  },
 }));
 
-mock.module('../providers/registry.js', () => ({
+mock.module("../providers/registry.js", () => ({
   initializeProviders: () => {},
 }));
 
 let resetAllowlistCallCount = 0;
-mock.module('../security/secret-allowlist.js', () => ({
-  resetAllowlist: () => { resetAllowlistCallCount++; },
+mock.module("../security/secret-allowlist.js", () => ({
+  resetAllowlist: () => {
+    resetAllowlistCallCount++;
+  },
   validateAllowlistFile: () => [],
 }));
 
 // Import after mocks are set up
-const { ConfigWatcher } = await import('../daemon/config-watcher.js');
+const { ConfigWatcher } = await import("../daemon/config-watcher.js");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -137,7 +150,7 @@ function findWatcher(dir: string): CapturedWatcher | undefined {
 function simulateFileChange(dir: string, filename: string): void {
   const watcher = findWatcher(dir);
   if (!watcher) throw new Error(`No watcher found for ${dir}`);
-  watcher.callback('change', filename);
+  watcher.callback("change", filename);
 }
 
 // ---------------------------------------------------------------------------
@@ -155,7 +168,9 @@ afterAll(() => {
 
 let watcher: InstanceType<typeof ConfigWatcher>;
 let evictCallCount: number;
-const onSessionEvict = () => { evictCallCount++; };
+const onSessionEvict = () => {
+  evictCallCount++;
+};
 
 beforeEach(() => {
   capturedWatchers.length = 0;
@@ -169,41 +184,41 @@ afterEach(() => {
   watcher.stop();
 });
 
-describe('ConfigWatcher workspace file handlers', () => {
-  test('SOUL.md change triggers onSessionEvict', async () => {
+describe("ConfigWatcher workspace file handlers", () => {
+  test("SOUL.md change triggers onSessionEvict", async () => {
     watcher.start(onSessionEvict);
-    simulateFileChange(WORKSPACE_DIR, 'SOUL.md');
+    simulateFileChange(WORKSPACE_DIR, "SOUL.md");
 
     // Wait for the debounce timer to fire (default 200ms)
     await new Promise((r) => setTimeout(r, 300));
     expect(evictCallCount).toBe(1);
   });
 
-  test('IDENTITY.md change triggers onSessionEvict', async () => {
+  test("IDENTITY.md change triggers onSessionEvict", async () => {
     watcher.start(onSessionEvict);
-    simulateFileChange(WORKSPACE_DIR, 'IDENTITY.md');
+    simulateFileChange(WORKSPACE_DIR, "IDENTITY.md");
 
     await new Promise((r) => setTimeout(r, 300));
     expect(evictCallCount).toBe(1);
   });
 
-  test('USER.md change triggers onSessionEvict', async () => {
+  test("USER.md change triggers onSessionEvict", async () => {
     watcher.start(onSessionEvict);
-    simulateFileChange(WORKSPACE_DIR, 'USER.md');
+    simulateFileChange(WORKSPACE_DIR, "USER.md");
 
     await new Promise((r) => setTimeout(r, 300));
     expect(evictCallCount).toBe(1);
   });
 
-  test('UPDATES.md change triggers onSessionEvict', async () => {
+  test("UPDATES.md change triggers onSessionEvict", async () => {
     watcher.start(onSessionEvict);
-    simulateFileChange(WORKSPACE_DIR, 'UPDATES.md');
+    simulateFileChange(WORKSPACE_DIR, "UPDATES.md");
 
     await new Promise((r) => setTimeout(r, 300));
     expect(evictCallCount).toBe(1);
   });
 
-  test('config.json change calls refreshConfigFromSources', async () => {
+  test("config.json change calls refreshConfigFromSources", async () => {
     let refreshCalled = false;
     watcher.refreshConfigFromSources = () => {
       refreshCalled = true;
@@ -211,7 +226,7 @@ describe('ConfigWatcher workspace file handlers', () => {
     };
 
     watcher.start(onSessionEvict);
-    simulateFileChange(WORKSPACE_DIR, 'config.json');
+    simulateFileChange(WORKSPACE_DIR, "config.json");
 
     await new Promise((r) => setTimeout(r, 300));
     expect(refreshCalled).toBe(true);
@@ -219,17 +234,17 @@ describe('ConfigWatcher workspace file handlers', () => {
     expect(evictCallCount).toBe(0);
   });
 
-  test('config.json change triggers onSessionEvict when config actually changed', async () => {
+  test("config.json change triggers onSessionEvict when config actually changed", async () => {
     watcher.refreshConfigFromSources = () => true;
 
     watcher.start(onSessionEvict);
-    simulateFileChange(WORKSPACE_DIR, 'config.json');
+    simulateFileChange(WORKSPACE_DIR, "config.json");
 
     await new Promise((r) => setTimeout(r, 300));
     expect(evictCallCount).toBe(1);
   });
 
-  test('config.json change is suppressed when suppressConfigReload is true', async () => {
+  test("config.json change is suppressed when suppressConfigReload is true", async () => {
     let refreshCalled = false;
     watcher.refreshConfigFromSources = () => {
       refreshCalled = true;
@@ -238,38 +253,38 @@ describe('ConfigWatcher workspace file handlers', () => {
 
     watcher.suppressConfigReload = true;
     watcher.start(onSessionEvict);
-    simulateFileChange(WORKSPACE_DIR, 'config.json');
+    simulateFileChange(WORKSPACE_DIR, "config.json");
 
     await new Promise((r) => setTimeout(r, 300));
     expect(refreshCalled).toBe(false);
     expect(evictCallCount).toBe(0);
   });
 
-  test('unknown file does not trigger any handler', async () => {
+  test("unknown file does not trigger any handler", async () => {
     watcher.start(onSessionEvict);
-    simulateFileChange(WORKSPACE_DIR, 'UNKNOWN.md');
+    simulateFileChange(WORKSPACE_DIR, "UNKNOWN.md");
 
     await new Promise((r) => setTimeout(r, 300));
     expect(evictCallCount).toBe(0);
   });
 
-  test('null filename does not trigger any handler', async () => {
+  test("null filename does not trigger any handler", async () => {
     watcher.start(onSessionEvict);
     const wsWatcher = findWatcher(WORKSPACE_DIR);
     expect(wsWatcher).toBeDefined();
-    wsWatcher!.callback('change', null);
+    wsWatcher!.callback("change", null);
 
     await new Promise((r) => setTimeout(r, 300));
     expect(evictCallCount).toBe(0);
   });
 });
 
-describe('ConfigWatcher protected directory handlers', () => {
-  test('trust.json change calls clearTrustCache', async () => {
+describe("ConfigWatcher protected directory handlers", () => {
+  test("trust.json change calls clearTrustCache", async () => {
     watcher.start(onSessionEvict);
     const protectedWatcher = findWatcher(PROTECTED_DIR);
     expect(protectedWatcher).toBeDefined();
-    protectedWatcher!.callback('change', 'trust.json');
+    protectedWatcher!.callback("change", "trust.json");
 
     await new Promise((r) => setTimeout(r, 300));
     // trust.json should NOT trigger session eviction
@@ -278,11 +293,11 @@ describe('ConfigWatcher protected directory handlers', () => {
     expect(trustClearCacheCallCount).toBe(1);
   });
 
-  test('secret-allowlist.json change calls resetAllowlist', async () => {
+  test("secret-allowlist.json change calls resetAllowlist", async () => {
     watcher.start(onSessionEvict);
     const protectedWatcher = findWatcher(PROTECTED_DIR);
     expect(protectedWatcher).toBeDefined();
-    protectedWatcher!.callback('change', 'secret-allowlist.json');
+    protectedWatcher!.callback("change", "secret-allowlist.json");
 
     await new Promise((r) => setTimeout(r, 300));
     // secret-allowlist.json should NOT trigger session eviction
@@ -292,8 +307,8 @@ describe('ConfigWatcher protected directory handlers', () => {
   });
 });
 
-describe('ConfigWatcher watcher lifecycle', () => {
-  test('start registers watchers for workspace and protected dirs', () => {
+describe("ConfigWatcher watcher lifecycle", () => {
+  test("start registers watchers for workspace and protected dirs", () => {
     watcher.start(onSessionEvict);
     const wsWatcher = findWatcher(WORKSPACE_DIR);
     const protWatcher = findWatcher(PROTECTED_DIR);
@@ -301,34 +316,34 @@ describe('ConfigWatcher watcher lifecycle', () => {
     expect(protWatcher).toBeDefined();
   });
 
-  test('stop cancels all debounce timers and clears watchers', () => {
+  test("stop cancels all debounce timers and clears watchers", () => {
     watcher.start(onSessionEvict);
     // Trigger a file change but don't wait for the debounce
-    simulateFileChange(WORKSPACE_DIR, 'SOUL.md');
+    simulateFileChange(WORKSPACE_DIR, "SOUL.md");
     watcher.stop();
 
     // The debounce should have been cancelled, so no eviction
     expect(evictCallCount).toBe(0);
   });
 
-  test('multiple prompt file changes are debounced', async () => {
+  test("multiple prompt file changes are debounced", async () => {
     watcher.start(onSessionEvict);
 
     // Rapid fire multiple changes to the same file
-    simulateFileChange(WORKSPACE_DIR, 'SOUL.md');
-    simulateFileChange(WORKSPACE_DIR, 'SOUL.md');
-    simulateFileChange(WORKSPACE_DIR, 'SOUL.md');
+    simulateFileChange(WORKSPACE_DIR, "SOUL.md");
+    simulateFileChange(WORKSPACE_DIR, "SOUL.md");
+    simulateFileChange(WORKSPACE_DIR, "SOUL.md");
 
     await new Promise((r) => setTimeout(r, 300));
     // Despite 3 events, debouncing should collapse them to 1 call
     expect(evictCallCount).toBe(1);
   });
 
-  test('changes to different files each trigger their own handler', async () => {
+  test("changes to different files each trigger their own handler", async () => {
     watcher.start(onSessionEvict);
 
-    simulateFileChange(WORKSPACE_DIR, 'SOUL.md');
-    simulateFileChange(WORKSPACE_DIR, 'IDENTITY.md');
+    simulateFileChange(WORKSPACE_DIR, "SOUL.md");
+    simulateFileChange(WORKSPACE_DIR, "IDENTITY.md");
 
     await new Promise((r) => setTimeout(r, 300));
     // Each file has its own debounce key, so both should fire
@@ -336,14 +351,14 @@ describe('ConfigWatcher watcher lifecycle', () => {
   });
 });
 
-describe('ConfigWatcher fingerprinting', () => {
-  test('configFingerprint returns JSON string of config', () => {
-    const config = { foo: 'bar' } as any;
+describe("ConfigWatcher fingerprinting", () => {
+  test("configFingerprint returns JSON string of config", () => {
+    const config = { foo: "bar" } as any;
     expect(watcher.configFingerprint(config)).toBe(JSON.stringify(config));
   });
 
-  test('initFingerprint sets lastFingerprint', () => {
-    const config = { key: 'value' } as any;
+  test("initFingerprint sets lastFingerprint", () => {
+    const config = { key: "value" } as any;
     watcher.initFingerprint(config);
     expect(watcher.lastFingerprint).toBe(JSON.stringify(config));
   });

@@ -169,6 +169,11 @@ struct ChatContentView: View {
                                 // No streaming text or active tool call yet — show typing dots
                                 HStack {
                                     TypingIndicatorView()
+                                    if let statusText = viewModel.assistantStatusText, !statusText.isEmpty {
+                                        Text(statusText)
+                                            .font(VFont.caption)
+                                            .foregroundColor(VColor.textSecondary)
+                                    }
                                     Spacer()
                                 }
                                 .padding(.horizontal, VSpacing.lg)
@@ -188,6 +193,21 @@ struct ChatContentView: View {
                                 // typing dots so the user isn't left without feedback.
                                 HStack {
                                     TypingIndicatorView()
+                                    Spacer()
+                                }
+                                .padding(.horizontal, VSpacing.lg)
+                                .id("step-indicator")
+                                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                            } else if viewModel.isThinking {
+                                // LLM is processing tool results but streaming text is
+                                // already visible — show typing dots with status text.
+                                HStack {
+                                    TypingIndicatorView()
+                                    if let statusText = viewModel.assistantStatusText, !statusText.isEmpty {
+                                        Text(statusText)
+                                            .font(VFont.caption)
+                                            .foregroundColor(VColor.textSecondary)
+                                    }
                                     Spacer()
                                 }
                                 .padding(.horizontal, VSpacing.lg)

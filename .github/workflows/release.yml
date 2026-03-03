@@ -159,10 +159,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        environment: [dev, production]
         platform:
           - linux/amd64
           - linux/arm64
-    environment: dev
+    environment: ${{ matrix.environment }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -195,8 +196,8 @@ jobs:
           context: assistant
           platforms: ${{ matrix.platform }}
           outputs: type=image,name=${{ steps.image.outputs.name }},push-by-digest=true,name-canonical=true,push=true
-          cache-from: type=gha,scope=assistant-${{ matrix.platform }}
-          cache-to: type=gha,mode=max,scope=assistant-${{ matrix.platform }}
+          cache-from: type=gha,scope=assistant-${{ matrix.environment }}-${{ matrix.platform }}
+          cache-to: type=gha,mode=max,scope=assistant-${{ matrix.environment }}-${{ matrix.platform }}
 
       - name: Export digest
         run: |
@@ -213,7 +214,7 @@ jobs:
       - name: Upload digest
         uses: actions/upload-artifact@v4
         with:
-          name: assistant-digests-${{ steps.platform.outputs.suffix }}
+          name: assistant-digests-${{ matrix.environment }}-${{ steps.platform.outputs.suffix }}
           path: /tmp/digests/*
           retention-days: 1
 
@@ -224,7 +225,11 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    environment: dev
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [dev, production]
+    environment: ${{ matrix.environment }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -251,7 +256,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: /tmp/digests
-          pattern: assistant-digests-*
+          pattern: assistant-digests-${{ matrix.environment }}-*
           merge-multiple: true
 
       - name: Compute image tags
@@ -286,8 +291,9 @@ jobs:
 
       - name: Summary
         run: |
-          echo "## Assistant Image Published" >> $GITHUB_STEP_SUMMARY
+          echo "## Assistant Image Published (${{ matrix.environment }})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** \`${{ matrix.environment }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** \`${{ needs.bump-and-tag.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**SHA tag:** \`${{ steps.release-sha.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
 
@@ -301,10 +307,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        environment: [dev, production]
         platform:
           - linux/amd64
           - linux/arm64
-    environment: dev
+    environment: ${{ matrix.environment }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -337,8 +344,8 @@ jobs:
           context: gateway
           platforms: ${{ matrix.platform }}
           outputs: type=image,name=${{ steps.image.outputs.name }},push-by-digest=true,name-canonical=true,push=true
-          cache-from: type=gha,scope=gateway-${{ matrix.platform }}
-          cache-to: type=gha,mode=max,scope=gateway-${{ matrix.platform }}
+          cache-from: type=gha,scope=gateway-${{ matrix.environment }}-${{ matrix.platform }}
+          cache-to: type=gha,mode=max,scope=gateway-${{ matrix.environment }}-${{ matrix.platform }}
 
       - name: Export digest
         run: |
@@ -355,7 +362,7 @@ jobs:
       - name: Upload digest
         uses: actions/upload-artifact@v4
         with:
-          name: gateway-digests-${{ steps.platform.outputs.suffix }}
+          name: gateway-digests-${{ matrix.environment }}-${{ steps.platform.outputs.suffix }}
           path: /tmp/digests/*
           retention-days: 1
 
@@ -366,7 +373,11 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    environment: dev
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [dev, production]
+    environment: ${{ matrix.environment }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -393,7 +404,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: /tmp/digests
-          pattern: gateway-digests-*
+          pattern: gateway-digests-${{ matrix.environment }}-*
           merge-multiple: true
 
       - name: Compute image tags
@@ -428,8 +439,9 @@ jobs:
 
       - name: Summary
         run: |
-          echo "## Gateway Image Published" >> $GITHUB_STEP_SUMMARY
+          echo "## Gateway Image Published (${{ matrix.environment }})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** \`${{ matrix.environment }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** \`${{ needs.bump-and-tag.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**SHA tag:** \`${{ steps.release-sha.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
 
@@ -455,13 +467,13 @@ jobs:
       - name: Download assistant amd64 digest
         uses: actions/download-artifact@v4
         with:
-          name: assistant-digests-linux-amd64
+          name: assistant-digests-${{ matrix.environment }}-linux-amd64
           path: /tmp/assistant-digest
 
       - name: Download gateway amd64 digest
         uses: actions/download-artifact@v4
         with:
-          name: gateway-digests-linux-amd64
+          name: gateway-digests-${{ matrix.environment }}-linux-amd64
           path: /tmp/gateway-digest
 
       - name: Extract amd64 digests
@@ -622,7 +634,7 @@ jobs:
   # Parallel Swift builds — each architecture compiles on its own runner,
   # then build-macos merges them into a universal binary via lipo.
   build-swift-arm64:
-    needs: bump-and-tag
+    needs: [bump-and-tag, ci-assistant, ci-cli, ci-gateway]
     runs-on: macos-14
     timeout-minutes: 15
     steps:
@@ -667,7 +679,7 @@ jobs:
           retention-days: 1
 
   build-swift-x86_64:
-    needs: bump-and-tag
+    needs: [bump-and-tag, ci-assistant, ci-cli, ci-gateway]
     runs-on: macos-14
     timeout-minutes: 15
     steps:
@@ -706,7 +718,7 @@ jobs:
 
   # Original production build — unchanged, runs the full sequential build.
   build-macos:
-    needs: bump-and-tag
+    needs: [bump-and-tag, ci-assistant, ci-cli, ci-gateway]
     runs-on: macos-14
     timeout-minutes: 30
     defaults:
@@ -725,6 +737,9 @@ jobs:
         run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
 
       - name: Import code-signing certificate
+        env:
+          CERT_P12: ${{ secrets.DEVID_CERTIFICATE_P12 }}
+          CERT_PASSWORD: ${{ secrets.DEVID_CERTIFICATE_PASSWORD }}
         run: |
           KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
 
@@ -732,10 +747,10 @@ jobs:
           security set-keychain-settings -lut 3600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
-          echo "${{ secrets.CERTIFICATE_P12 }}" | base64 -D > /tmp/certificate.p12
+          echo "$CERT_P12" | base64 -D > /tmp/certificate.p12
           security import /tmp/certificate.p12 \
             -k "$KEYCHAIN_PATH" \
-            -P "${{ secrets.CERTIFICATE_PASSWORD }}" \
+            -P "$CERT_PASSWORD" \
             -T /usr/bin/codesign \
             -T /usr/bin/security
           rm /tmp/certificate.p12
@@ -744,6 +759,11 @@ jobs:
           security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
           security default-keychain -s "$KEYCHAIN_PATH"
           security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+
+      - name: Verify signing identity
+        run: |
+          security find-identity -v -p codesigning | grep -q "Developer ID Application" \
+            || { echo "::error::Developer ID Application identity not found in keychain. Check the DEVID_CERTIFICATE_P12 secret."; exit 1; }
 
       - name: Set version
         id: version
@@ -842,12 +862,19 @@ jobs:
           echo "DMG signature verified"
 
       - name: Notarize DMG
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
         run: |
+          mkdir -p ~/.private_keys
+          echo "$ASC_KEY_P8" > ~/.private_keys/AuthKey_${ASC_KEY_ID}.p8
+
           echo "Submitting DMG for notarization..."
           NOTARIZE_OUTPUT=$(xcrun notarytool submit "$DMG_PATH" \
-            --apple-id "${{ secrets.APPLE_ID }}" \
-            --password "${{ secrets.APPLE_APP_PASSWORD }}" \
-            --team-id "${{ secrets.APPLE_TEAM_ID }}" \
+            --key ~/.private_keys/AuthKey_${ASC_KEY_ID}.p8 \
+            --key-id "$ASC_KEY_ID" \
+            --issuer "$ASC_ISSUER_ID" \
             --wait \
             --timeout 30m \
             2>&1) || NOTARIZE_FAILED=true
@@ -861,9 +888,9 @@ jobs:
             if [ -n "$SUBMISSION_ID" ]; then
               echo "Fetching notarization log for submission $SUBMISSION_ID..."
               xcrun notarytool log "$SUBMISSION_ID" \
-                --apple-id "${{ secrets.APPLE_ID }}" \
-                --password "${{ secrets.APPLE_APP_PASSWORD }}" \
-                --team-id "${{ secrets.APPLE_TEAM_ID }}" \
+                --key ~/.private_keys/AuthKey_${ASC_KEY_ID}.p8 \
+                --key-id "$ASC_KEY_ID" \
+                --issuer "$ASC_ISSUER_ID" \
                 || echo "::warning::Could not fetch notarization log"
             fi
             exit 1
@@ -965,18 +992,19 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-      - name: Cleanup keychain
+      - name: Cleanup keychain and keys
         if: always()
         run: |
           KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
           security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
+          rm -rf ~/.private_keys 2>/dev/null || true
 
   # Experimental split-arch build — runs in parallel with the production build-macos
   # job to validate the parallel architecture approach. Produces a separate artifact
   # (split-arch-build) that is NOT used by the release job. Compare this artifact
   # with the production build to verify correctness before switching over.
   build-macos-split-arch:
-    needs: [bump-and-tag, build-swift-arm64, build-swift-x86_64]
+    needs: [bump-and-tag, build-swift-arm64, build-swift-x86_64, ci-assistant, ci-cli, ci-gateway]
     runs-on: macos-14
     timeout-minutes: 30
     defaults:
@@ -994,6 +1022,9 @@ jobs:
         run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
 
       - name: Import code-signing certificate
+        env:
+          CERT_P12: ${{ secrets.DEVID_CERTIFICATE_P12 }}
+          CERT_PASSWORD: ${{ secrets.DEVID_CERTIFICATE_PASSWORD }}
         run: |
           KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
 
@@ -1001,10 +1032,10 @@ jobs:
           security set-keychain-settings -lut 3600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
-          echo "${{ secrets.CERTIFICATE_P12 }}" | base64 -D > /tmp/certificate.p12
+          echo "$CERT_P12" | base64 -D > /tmp/certificate.p12
           security import /tmp/certificate.p12 \
             -k "$KEYCHAIN_PATH" \
-            -P "${{ secrets.CERTIFICATE_PASSWORD }}" \
+            -P "$CERT_PASSWORD" \
             -T /usr/bin/codesign \
             -T /usr/bin/security
           rm /tmp/certificate.p12
@@ -1013,6 +1044,11 @@ jobs:
           security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
           security default-keychain -s "$KEYCHAIN_PATH"
           security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+
+      - name: Verify signing identity
+        run: |
+          security find-identity -v -p codesigning | grep -q "Developer ID Application" \
+            || { echo "::error::Developer ID Application identity not found in keychain. Check the DEVID_CERTIFICATE_P12 secret."; exit 1; }
 
       - name: Set version
         id: version
@@ -1243,9 +1279,6 @@ jobs:
   ci-assistant:
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    continue-on-error: true
-    outputs:
-      actual_result: ${{ steps.report.outputs.status }}
     steps:
       - uses: actions/checkout@v4
 
@@ -1270,11 +1303,6 @@ jobs:
         working-directory: assistant
         env:
           EXCLUDE_EXPERIMENTAL: 'true'
-
-      - name: Report actual result
-        id: report
-        if: always()
-        run: echo "status=${{ job.status }}" >> "$GITHUB_OUTPUT"
 
   ci-cli:
     runs-on: ubuntu-latest
@@ -1325,12 +1353,9 @@ jobs:
         working-directory: gateway
 
   build-ios:
-    needs: bump-and-tag
+    needs: [bump-and-tag, ci-assistant, ci-cli, ci-gateway]
     runs-on: macos-14
     timeout-minutes: 15
-    continue-on-error: true
-    outputs:
-      actual_result: ${{ steps.report.outputs.status }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -1353,10 +1378,113 @@ jobs:
         working-directory: clients/ios
         run: ./build.sh test
 
-      - name: Report actual result
-        id: report
+  release-ios:
+    needs: [bump-and-tag, build-ios, ci-assistant, ci-cli, ci-gateway]
+    runs-on: macos-14
+    timeout-minutes: 30
+    env:
+      KEYCHAIN_NAME: ios-build.keychain
+      KEYCHAIN_PASSWORD: temporary-ci-password
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: "v${{ needs.bump-and-tag.outputs.version }}"
+
+      - name: Select Xcode 16.2
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+
+      - name: Import code-signing certificate
+        env:
+          CERT_P12: ${{ secrets.DIST_CERTIFICATE_P12 }}
+          CERT_PASSWORD: ${{ secrets.DIST_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          echo "$CERT_P12" | base64 -D > /tmp/ios-certificate.p12
+          security import /tmp/ios-certificate.p12 \
+            -k "$KEYCHAIN_PATH" \
+            -P "$CERT_PASSWORD" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security
+          rm /tmp/ios-certificate.p12
+
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
+          security default-keychain -s "$KEYCHAIN_PATH"
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+
+      - name: Verify signing identity
+        run: |
+          security find-identity -v -p codesigning | grep -q "Apple Distribution" \
+            || { echo "::error::Apple Distribution identity not found in keychain. Check the DIST_CERTIFICATE_P12 secret."; exit 1; }
+
+      - name: Install provisioning profile
+        env:
+          PROVISIONING_PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }}
+        run: |
+          PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$PROFILE_DIR"
+          echo "$PROVISIONING_PROFILE" | base64 -D > "$PROFILE_DIR/ios_distribution.mobileprovision"
+          echo "Provisioning profile installed"
+
+      - name: Set version
+        id: version
+        run: |
+          DISPLAY_VERSION="${{ needs.bump-and-tag.outputs.version }}"
+          BUILD_VERSION=$(date -u +%Y%m%d%H%M)
+          echo "display_version=$DISPLAY_VERSION" >> "$GITHUB_OUTPUT"
+          echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Display version: $DISPLAY_VERSION / Build version: $BUILD_VERSION"
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Clear stale SPM artifact cache
+        run: rm -rf ~/Library/Caches/org.swift.swiftpm/artifacts
+
+      - name: Build release .ipa
+        working-directory: clients/ios
+        run: |
+          DEVELOPMENT_TEAM="${{ secrets.APPLE_TEAM_ID }}" \
+          DISPLAY_VERSION="${{ steps.version.outputs.display_version }}" \
+          BUILD_VERSION="${{ steps.version.outputs.build_version }}" \
+          ./build.sh release
+
+      - name: Upload to TestFlight
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          mkdir -p ~/.private_keys
+          echo "$ASC_KEY_P8" > ~/.private_keys/AuthKey_${ASC_KEY_ID}.p8
+
+          IPA_FILE=$(find clients/ios/dist/export -name "*.ipa" -maxdepth 1 | head -1)
+          echo "Uploading $IPA_FILE to TestFlight..."
+          xcrun altool --upload-app \
+            -f "$IPA_FILE" \
+            --type ios \
+            --apiKey "$ASC_KEY_ID" \
+            --apiIssuer "$ASC_ISSUER_ID"
+
+      - name: Upload .ipa artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa
+          path: clients/ios/dist/export/*.ipa
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Cleanup keychain and keys
         if: always()
-        run: echo "status=${{ job.status }}" >> "$GITHUB_OUTPUT"
+        run: |
+          KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
+          security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
+          rm -rf ~/.private_keys 2>/dev/null || true
 
   ci-playwright:
     needs: [bump-and-tag, build-macos]
@@ -1467,7 +1595,7 @@ jobs:
 
   notify:
     if: always() && !cancelled()
-    needs: [bump-and-tag, publish-npm, publish-meta, build-macos, build-ios, push-assistant-manifest, push-gateway-manifest, register-release, release, update-platform, ci-assistant, ci-cli, ci-gateway, ci-playwright]
+    needs: [bump-and-tag, publish-npm, publish-meta, build-macos, build-ios, release-ios, push-assistant-manifest, push-gateway-manifest, register-release, release, update-platform, ci-assistant, ci-cli, ci-gateway, ci-playwright]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     continue-on-error: true
@@ -1493,12 +1621,15 @@ jobs:
             "${{ needs.publish-npm.result }}" \
             "${{ needs.publish-meta.result }}" \
             "${{ needs.build-macos.result }}" \
+            "${{ needs.build-ios.result }}" \
             "${{ needs.push-assistant-manifest.result }}" \
             "${{ needs.push-gateway-manifest.result }}" \
             "${{ needs.release.result }}" \
             "${{ needs.update-platform.result }}" \
+            "${{ needs.ci-assistant.result }}" \
             "${{ needs.ci-cli.result }}" \
-            "${{ needs.ci-gateway.result }}"; do
+            "${{ needs.ci-gateway.result }}" \
+            "${{ needs.release-ios.result }}"; do
             if [ "$result" = "failure" ] || [ "$result" = "skipped" ]; then
               RELEASE_FAILED="true"
               break
@@ -1516,12 +1647,13 @@ jobs:
           # Build CI status icons
           ci_icon() { if [ "$1" = "success" ]; then printf '✅'; else printf '❌'; fi; }
 
-          A=$(ci_icon "${{ needs.ci-assistant.outputs.actual_result }}")
+          A=$(ci_icon "${{ needs.ci-assistant.result }}")
           C=$(ci_icon "${{ needs.ci-cli.result }}")
           G=$(ci_icon "${{ needs.ci-gateway.result }}")
           P=$(ci_icon "${{ needs.ci-playwright.result }}")
           D=$(ci_icon "${{ needs.build-macos.result }}")
-          I=$(ci_icon "${{ needs.build-ios.outputs.actual_result }}")
+          I=$(ci_icon "${{ needs.build-ios.result }}")
+          RI=$(ci_icon "${{ needs.release-ios.result }}")
           AI=$(ci_icon "${{ needs.push-assistant-manifest.result }}")
           GI=$(ci_icon "${{ needs.push-gateway-manifest.result }}")
           RR=$(ci_icon "${{ needs.register-release.result }}")
@@ -1532,7 +1664,7 @@ jobs:
             PLAYWRIGHT_LINE=" (<${RUN_URL}#artifacts|view report>)"
           fi
 
-          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s gateway\n• %s playwright%s\n• %s desktop\n• %s ios\n• %s assistant-docker\n• %s gateway-docker\n• %s register-release' "$A" "$C" "$G" "$P" "$PLAYWRIGHT_LINE" "$D" "$I" "$AI" "$GI" "$RR")
+          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s gateway\n• %s playwright%s\n• %s desktop\n• %s ios\n• %s ios-release\n• %s assistant-docker\n• %s gateway-docker\n• %s register-release' "$A" "$C" "$G" "$P" "$PLAYWRIGHT_LINE" "$D" "$I" "$RI" "$AI" "$GI" "$RR")
           META_LINE=$(printf '*Version:* `%s`\n*Triggered by:* %s' "$VERSION" "${{ github.actor }}")
 
           # Fetch release notes from GitHub release

@@ -1,5 +1,9 @@
 import { describe, test, expect, mock, afterEach } from "bun:test";
 import type { GatewayConfig } from "../config.js";
+import { initSigningKey } from "../auth/token-service.js";
+
+const TEST_SIGNING_KEY = Buffer.from('test-signing-key-at-least-32-bytes-long');
+initSigningKey(TEST_SIGNING_KEY);
 
 type FetchFn = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(async () => new Response());
@@ -22,11 +26,8 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     defaultAssistantId: undefined,
     unmappedPolicy: "reject",
     port: 7830,
-    runtimeBearerToken: "runtime-token",
-    runtimeGatewayOriginSecret: "gateway-origin",
     runtimeProxyEnabled: false,
     runtimeProxyRequireAuth: true,
-    runtimeProxyBearerToken: undefined,
     shutdownDrainMs: 5000,
     runtimeTimeoutMs: 30000,
     runtimeMaxRetries: 2,
@@ -59,9 +60,6 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     trustProxy: false,
     ...overrides,
   };
-  if (merged.runtimeGatewayOriginSecret === undefined) {
-    merged.runtimeGatewayOriginSecret = merged.runtimeBearerToken;
-  }
   return merged;
 }
 
@@ -122,7 +120,7 @@ describe("ingress control-plane proxy", () => {
     ]);
   });
 
-  test("replaces caller auth with runtime auth and forwards gateway-origin proof", async () => {
+  test("replaces caller auth with runtime auth", async () => {
     let capturedHeaders: Headers | undefined;
     fetchMock = mock(async (_input: string | URL | Request, init?: RequestInit) => {
       capturedHeaders = init?.headers as unknown as Headers;
@@ -142,8 +140,7 @@ describe("ingress control-plane proxy", () => {
     );
 
     expect(res.status).toBe(200);
-    expect(capturedHeaders?.get("authorization")).toBe("Bearer runtime-token");
-    expect(capturedHeaders?.get("X-Gateway-Origin")).toBe("gateway-origin");
+    expect(capturedHeaders?.get("authorization")).toMatch(/^Bearer ey/);
     expect(capturedHeaders?.has("host")).toBe(false);
   });
 

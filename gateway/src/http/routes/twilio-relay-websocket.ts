@@ -1,6 +1,6 @@
+import { validateEdgeToken, mintServiceToken } from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
 import { getLogger } from "../../logger.js";
-import { validateBearerToken } from "../auth/bearer.js";
 
 const log = getLogger("twilio-relay-ws");
 
@@ -48,13 +48,13 @@ export function createTwilioRelayWebsocketHandler(config: GatewayConfig) {
 }
 
 /**
- * Validate the relay WebSocket upgrade request.
+ * Validate the relay WebSocket upgrade request using JWT edge tokens.
  *
- * Accepts a bearer token via:
+ * Accepts a JWT via:
  *   1. `Authorization: Bearer <token>` header (standard clients)
  *   2. `token` query parameter (Twilio ConversationRelay — no custom headers)
  *
- * Fail-closed: rejects when no token is configured unless the SMS deliver
+ * Fail-closed: rejects all unauthenticated requests unless the SMS deliver
  * auth bypass flag is set (reusing the same local-dev escape hatch).
  */
 function checkRelayAuth(
@@ -62,22 +62,25 @@ function checkRelayAuth(
   url: URL,
   config: GatewayConfig,
 ): Response | null {
-  if (!config.runtimeProxyBearerToken) {
-    if (config.smsDeliverAuthBypass) {
-      return null;
-    }
-    log.error("Relay WS: no bearer token configured — rejecting (fail-closed)");
-    return new Response("Service not configured: bearer token required", { status: 503 });
+  // Local-dev bypass: allow unauthenticated access when smsDeliverAuthBypass is set
+  if (config.smsDeliverAuthBypass) {
+    return null;
   }
 
   // Try Authorization header first, then fall back to query param
   const authHeader = req.headers.get("authorization");
   const queryToken = url.searchParams.get("token");
+  const rawToken = authHeader
+    ? (authHeader.toLowerCase().startsWith("bearer ") ? authHeader.slice(7) : null)
+    : queryToken;
 
-  const tokenSource = authHeader ?? (queryToken ? `Bearer ${queryToken}` : null);
+  if (!rawToken) {
+    log.warn("Relay WS: no token provided");
+    return new Response("Unauthorized", { status: 401 });
+  }
 
-  const result = validateBearerToken(tokenSource, config.runtimeProxyBearerToken);
-  if (!result.authorized) {
+  const result = validateEdgeToken(rawToken);
+  if (!result.ok) {
     log.warn({ reason: result.reason }, "Relay WS: authentication failed");
     return new Response("Unauthorized", { status: 401 });
   }
@@ -96,11 +99,13 @@ export function getRelayWebsocketHandlers() {
       // Initialize message buffer for frames arriving before upstream connects
       ws.data.pendingMessages = [];
 
-      // Build upstream URL to runtime
+      // Build upstream URL to runtime with JWT service token for auth
       const runtimeBase = config.assistantRuntimeBaseUrl.replace(/^http/, 'ws');
-      const upstreamUrl = `${runtimeBase}/v1/calls/relay?callSessionId=${encodeURIComponent(callSessionId)}`;
+      const serviceToken = mintServiceToken();
+      const upstreamUrl = `${runtimeBase}/v1/calls/relay?callSessionId=${encodeURIComponent(callSessionId)}&token=${encodeURIComponent(serviceToken)}`;
 
-      log.info({ callSessionId, upstreamUrl }, "Opening upstream WS to runtime");
+      const logSafeUpstreamUrl = `${runtimeBase}/v1/calls/relay?callSessionId=${encodeURIComponent(callSessionId)}&token=<redacted>`;
+      log.info({ callSessionId, upstreamUrl: logSafeUpstreamUrl }, "Opening upstream WS to runtime");
 
       const upstream = new WebSocket(upstreamUrl);
       ws.data.upstream = upstream;

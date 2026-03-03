@@ -26,9 +26,9 @@ import { checkIngressForSecrets } from '../../security/secret-ingress.js';
 import { canonicalizeInboundIdentity } from '../../util/canonicalize-identity.js';
 import { IngressBlockedError } from '../../util/errors.js';
 import { getLogger } from '../../util/logger.js';
-import { readHttpToken } from '../../util/platform.js';
 import { notifyGuardianOfAccessRequest } from '../access-request-helper.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
+import { mintDaemonDeliveryToken } from '../auth/token-service.js';
 import {
   buildApprovalUIMetadata,
   getApprovalInfoByConversation,
@@ -70,7 +70,6 @@ import {
   GUARDIAN_APPROVAL_TTL_MS,
   type GuardianContext,
   stripVerificationFailurePrefix,
-  verifyGatewayOrigin,
 } from './channel-route-shared.js';
 import { handleApprovalInterception } from './guardian-approval-interception.js';
 import { deliverGeneratedApprovalPrompt } from './guardian-approval-prompt.js';
@@ -96,24 +95,22 @@ function parseGuardianVerifyCode(content: string): string | undefined {
 export async function handleChannelInbound(
   req: Request,
   processMessage?: MessageProcessor,
-  bearerToken?: string,
   assistantId: string = DAEMON_INTERNAL_ASSISTANT_ID,
-  gatewayOriginSecret?: string,
   approvalCopyGenerator?: ApprovalCopyGenerator,
   approvalConversationGenerator?: ApprovalConversationGenerator,
   _guardianActionCopyGenerator?: GuardianActionCopyGenerator,
   _guardianFollowUpConversationGenerator?: GuardianFollowUpConversationGenerator,
 ): Promise<Response> {
-  // Reject requests that lack valid gateway-origin proof. This ensures
-  // channel inbound messages can only arrive via the gateway (which
-  // performs webhook-level verification) and not via direct HTTP calls.
-  if (!verifyGatewayOrigin(req, bearerToken, gatewayOriginSecret)) {
-    log.warn('Rejected channel inbound request: missing or invalid gateway-origin proof');
-    return Response.json(
-      { error: 'Forbidden: missing gateway-origin proof', code: 'GATEWAY_ORIGIN_REQUIRED' },
-      { status: 403 },
-    );
-  }
+  // Gateway-origin proof is enforced by route-policy middleware (svc_gateway
+  // principal type required) before this handler runs. The exchange JWT
+  // itself proves gateway origin.
+
+  // Factory that mints a fresh short-lived JWT for each daemon-to-gateway
+  // delivery callback. The JWT has a 60-second TTL, so long-running
+  // background operations (typing heartbeats, approval watchers, reply
+  // delivery) must call this at each delivery attempt rather than reusing
+  // a single token from request start.
+  const mintBearerToken = (): string => mintDaemonDeliveryToken();
 
   const body = await req.json() as {
     sourceChannel?: string;
@@ -308,7 +305,7 @@ export async function handleChannelInbound(
           senderName: body.actorDisplayName,
           senderUsername: body.actorUsername,
           replyCallbackUrl: body.replyCallbackUrl,
-          bearerToken,
+          bearerToken: mintBearerToken(),
           assistantId,
           canonicalAssistantId,
         });
@@ -345,7 +342,7 @@ export async function handleChannelInbound(
               chatId: conversationExternalId,
               text: replyText,
               assistantId,
-            }, bearerToken);
+            }, mintBearerToken());
           } catch (err) {
             log.error({ err, conversationExternalId }, 'Failed to deliver ACL rejection reply');
           }
@@ -394,7 +391,7 @@ export async function handleChannelInbound(
             senderName: body.actorDisplayName,
             senderUsername: body.actorUsername,
             replyCallbackUrl: body.replyCallbackUrl,
-            bearerToken,
+            bearerToken: mintBearerToken(),
             assistantId,
             canonicalAssistantId,
           });
@@ -434,7 +431,7 @@ export async function handleChannelInbound(
                 chatId: conversationExternalId,
                 text: replyText,
                 assistantId,
-              }, bearerToken);
+              }, mintBearerToken());
             } catch (err) {
               log.error({ err, conversationExternalId }, 'Failed to deliver ACL rejection reply');
             }
@@ -451,7 +448,7 @@ export async function handleChannelInbound(
               chatId: conversationExternalId,
               text: "Sorry, you haven't been approved to message this assistant.",
               assistantId,
-            }, bearerToken);
+            }, mintBearerToken());
           } catch (err) {
             log.error({ err, conversationExternalId }, 'Failed to deliver ACL rejection reply');
           }
@@ -567,7 +564,7 @@ export async function handleChannelInbound(
           chatId: pendingReply.chatId,
           text: pendingReply.text,
           assistantId: pendingReply.assistantId,
-        }, bearerToken);
+        }, mintBearerToken());
         channelDeliveryStore.clearPendingVerificationReply(result.eventId);
         log.info({ eventId: result.eventId }, 'Retried pending verification reply: delivered');
       } catch (retryErr) {
@@ -864,7 +861,7 @@ export async function handleChannelInbound(
           chatId: conversationExternalId,
           text: replyText,
           assistantId,
-        }, bearerToken);
+        }, mintBearerToken());
       } catch (err) {
         // The challenge is already consumed and side effects applied, so
         // we cannot simply re-throw and let the gateway retry the full
@@ -887,7 +884,7 @@ export async function handleChannelInbound(
               chatId: conversationExternalId,
               text: replyText,
               assistantId,
-            }, bearerToken);
+            }, mintBearerToken());
             log.info({ eventId: result.eventId }, 'Verification reply delivered on self-retry');
             channelDeliveryStore.clearPendingVerificationReply(result.eventId);
           } catch (retryErr) {
@@ -992,7 +989,7 @@ export async function handleChannelInbound(
         replyCallbackUrl,
         guardianChatId: conversationExternalId,
         assistantId: canonicalAssistantId,
-        bearerToken,
+        bearerToken: mintBearerToken(),
       },
     });
 
@@ -1004,7 +1001,7 @@ export async function handleChannelInbound(
             chatId: conversationExternalId,
             text: routerResult.replyText,
             assistantId: canonicalAssistantId,
-          }, bearerToken);
+          }, mintBearerToken());
         } catch (err) {
           log.error({ err, conversationExternalId }, 'Failed to deliver canonical router reply');
         }
@@ -1042,7 +1039,7 @@ export async function handleChannelInbound(
       sourceChannel,
       actorExternalId: canonicalSenderId ?? rawSenderId,
       replyCallbackUrl,
-      bearerToken,
+      bearerToken: mintBearerToken(),
       guardianCtx,
       assistantId: canonicalAssistantId,
       approvalCopyGenerator,
@@ -1200,7 +1197,7 @@ export async function handleChannelInbound(
       commandIntent,
       sourceLanguageCode,
       replyCallbackUrl,
-      bearerToken,
+      mintBearerToken,
       assistantId: canonicalAssistantId,
       approvalCopyGenerator,
     });
@@ -1348,7 +1345,8 @@ interface BackgroundProcessingParams {
   metadataHints: string[];
   metadataUxBrief?: string;
   replyCallbackUrl?: string;
-  bearerToken?: string;
+  /** Factory that mints a fresh delivery JWT for each HTTP attempt. */
+  mintBearerToken: () => string;
   assistantId?: string;
   approvalCopyGenerator?: ApprovalCopyGenerator;
   commandIntent?: Record<string, unknown>;
@@ -1384,7 +1382,7 @@ function shouldEmitTelegramTyping(
 function startTelegramTypingHeartbeat(
   callbackUrl: string,
   chatId: string,
-  bearerToken?: string,
+  mintBearerToken: () => string,
   assistantId?: string,
 ): () => void {
   let active = true;
@@ -1396,7 +1394,7 @@ function startTelegramTypingHeartbeat(
     void deliverChannelReply(
       callbackUrl,
       { chatId, chatAction: 'typing', assistantId },
-      bearerToken,
+      mintBearerToken(),
     ).catch((err) => {
       log.debug({ err, chatId }, 'Failed to deliver Telegram typing indicator');
     }).finally(() => {
@@ -1423,7 +1421,7 @@ function startPendingApprovalPromptWatcher(params: {
   guardianExternalUserId?: string;
   requesterExternalUserId?: string;
   replyCallbackUrl: string;
-  bearerToken?: string;
+  mintBearerToken: () => string;
   assistantId?: string;
   approvalCopyGenerator?: ApprovalCopyGenerator;
 }): () => void {
@@ -1435,7 +1433,7 @@ function startPendingApprovalPromptWatcher(params: {
     guardianExternalUserId,
     requesterExternalUserId,
     replyCallbackUrl,
-    bearerToken,
+    mintBearerToken,
     assistantId,
     approvalCopyGenerator,
   } = params;
@@ -1467,7 +1465,7 @@ function startPendingApprovalPromptWatcher(params: {
             chatId: externalChatId,
             sourceChannel,
             assistantId: assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
-            bearerToken,
+            bearerToken: mintBearerToken(),
             prompt,
             uiMetadata: buildApprovalUIMetadata(prompt, info),
             messageContext: {
@@ -1535,7 +1533,7 @@ function startTrustedContactApprovalNotifier(params: {
   guardianTrustClass: GuardianContext['trustClass'];
   guardianExternalUserId?: string;
   replyCallbackUrl: string;
-  bearerToken?: string;
+  mintBearerToken: () => string;
   assistantId?: string;
 }): () => void {
   const {
@@ -1545,7 +1543,7 @@ function startTrustedContactApprovalNotifier(params: {
     guardianTrustClass,
     guardianExternalUserId,
     replyCallbackUrl,
-    bearerToken,
+    mintBearerToken,
     assistantId,
   } = params;
 
@@ -1588,7 +1586,7 @@ function startTrustedContactApprovalNotifier(params: {
               chatId: externalChatId,
               text: waitingText,
               assistantId: assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
-            }, bearerToken);
+            }, mintBearerToken());
           } catch (err) {
             log.warn({ err, conversationId }, 'Failed to deliver trusted-contact pending-approval notification');
             // Remove from notified set so delivery is retried on next poll
@@ -1630,7 +1628,7 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
     metadataHints,
     metadataUxBrief,
     replyCallbackUrl,
-    bearerToken,
+    mintBearerToken,
     assistantId,
     approvalCopyGenerator,
     commandIntent,
@@ -1642,7 +1640,7 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
       ? replyCallbackUrl
       : undefined;
     const stopTypingHeartbeat = typingCallbackUrl
-      ? startTelegramTypingHeartbeat(typingCallbackUrl, externalChatId, bearerToken, assistantId)
+      ? startTelegramTypingHeartbeat(typingCallbackUrl, externalChatId, mintBearerToken, assistantId)
       : undefined;
     const stopApprovalWatcher = replyCallbackUrl
       ? startPendingApprovalPromptWatcher({
@@ -1653,7 +1651,7 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
         guardianExternalUserId: guardianCtx.guardianExternalUserId,
         requesterExternalUserId: guardianCtx.requesterExternalUserId,
         replyCallbackUrl,
-        bearerToken,
+        mintBearerToken,
         assistantId,
         approvalCopyGenerator,
       })
@@ -1666,7 +1664,7 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
         guardianTrustClass: guardianCtx.trustClass,
         guardianExternalUserId: guardianCtx.guardianExternalUserId,
         replyCallbackUrl,
-        bearerToken,
+        mintBearerToken,
         assistantId,
       })
       : undefined;
@@ -1701,7 +1699,7 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
           conversationId,
           externalChatId,
           replyCallbackUrl,
-          bearerToken,
+          mintBearerToken(),
           assistantId,
           {
             onSegmentDelivered: (count) =>
@@ -1735,11 +1733,7 @@ function deliverBootstrapVerificationTelegram(
 ): void {
   const attemptDelivery = async (): Promise<boolean> => {
     const gatewayUrl = getGatewayInternalBaseUrl();
-    const bearerToken = readHttpToken();
-    if (!bearerToken) {
-      log.error('Cannot deliver bootstrap verification Telegram message: no runtime HTTP token available');
-      return false;
-    }
+    const bearerToken = mintDaemonDeliveryToken();
     const url = `${gatewayUrl}/deliver/telegram`;
     const resp = await fetch(url, {
       method: 'POST',

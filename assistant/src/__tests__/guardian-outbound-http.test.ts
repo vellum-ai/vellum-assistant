@@ -12,75 +12,113 @@
  *   no_active_session error paths all produce the expected error codes.
  */
 
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-
-import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test';
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Test isolation: in-memory SQLite via temp directory
 // ---------------------------------------------------------------------------
 
-const testDir = mkdtempSync(join(tmpdir(), 'guardian-outbound-http-test-'));
+const testDir = mkdtempSync(join(tmpdir(), "guardian-outbound-http-test-"));
 
-mock.module('../util/platform.js', () => ({
+mock.module("../util/platform.js", () => ({
   getRootDir: () => testDir,
   getDataDir: () => testDir,
-  isMacOS: () => process.platform === 'darwin',
-  isLinux: () => process.platform === 'linux',
-  isWindows: () => process.platform === 'win32',
-  getSocketPath: () => join(testDir, 'test.sock'),
-  getPidPath: () => join(testDir, 'test.pid'),
-  getDbPath: () => join(testDir, 'test.db'),
-  getLogPath: () => join(testDir, 'test.log'),
+  isMacOS: () => process.platform === "darwin",
+  isLinux: () => process.platform === "linux",
+  isWindows: () => process.platform === "win32",
+  getSocketPath: () => join(testDir, "test.sock"),
+  getPidPath: () => join(testDir, "test.pid"),
+  getDbPath: () => join(testDir, "test.db"),
+  getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
-  readHttpToken: () => 'test-bearer-token',
+  readHttpToken: () => "test-bearer-token",
 }));
 
-mock.module('../util/logger.js', () => ({
-  getLogger: () => new Proxy({} as Record<string, unknown>, {
-    get: () => () => {},
-  }),
+mock.module("../util/logger.js", () => ({
+  getLogger: () =>
+    new Proxy({} as Record<string, unknown>, {
+      get: () => () => {},
+    }),
 }));
 
 // SMS client mock — track calls
-const smsSendCalls: Array<{ to: string; text: string; assistantId?: string }> = [];
-mock.module('../messaging/providers/sms/client.js', () => ({
-  sendMessage: async (_gatewayUrl: string, _bearerToken: string, to: string, text: string, assistantId?: string) => {
+const smsSendCalls: Array<{
+  to: string;
+  text: string;
+  assistantId?: string;
+}> = [];
+mock.module("../messaging/providers/sms/client.js", () => ({
+  sendMessage: async (
+    _gatewayUrl: string,
+    _bearerToken: string,
+    to: string,
+    text: string,
+    assistantId?: string,
+  ) => {
     smsSendCalls.push({ to, text, assistantId });
-    return { messageSid: 'SM-mock', status: 'queued' };
+    return { messageSid: "SM-mock", status: "queued" };
   },
 }));
 
-mock.module('../config/env.js', () => ({
-  getGatewayInternalBaseUrl: () => 'http://127.0.0.1:7830',
+mock.module("../config/env.js", () => ({
+  isHttpAuthDisabled: () => true,
+  getGatewayInternalBaseUrl: () => "http://127.0.0.1:7830",
 }));
 
 // Telegram credential metadata mock
-let mockBotUsername: string | undefined = 'test_bot';
-mock.module('../tools/credentials/metadata-store.js', () => ({
-  getCredentialMetadata: (_service: string, _key: string) => mockBotUsername ? { accountInfo: mockBotUsername } : null,
+let mockBotUsername: string | undefined = "test_bot";
+mock.module("../tools/credentials/metadata-store.js", () => ({
+  getCredentialMetadata: (_service: string, _key: string) =>
+    mockBotUsername ? { accountInfo: mockBotUsername } : null,
   upsertCredentialMetadata: () => {},
   deleteCredentialMetadata: () => {},
 }));
 
 // Voice call mock
-const voiceCallInitCalls: Array<{ phoneNumber: string; guardianVerificationSessionId: string; assistantId?: string; originConversationId?: string }> = [];
-mock.module('../calls/call-domain.js', () => ({
-  startGuardianVerificationCall: async (input: { phoneNumber: string; guardianVerificationSessionId: string; assistantId?: string; originConversationId?: string }) => {
+const voiceCallInitCalls: Array<{
+  phoneNumber: string;
+  guardianVerificationSessionId: string;
+  assistantId?: string;
+  originConversationId?: string;
+}> = [];
+mock.module("../calls/call-domain.js", () => ({
+  startGuardianVerificationCall: async (input: {
+    phoneNumber: string;
+    guardianVerificationSessionId: string;
+    assistantId?: string;
+    originConversationId?: string;
+  }) => {
     voiceCallInitCalls.push(input);
-    return { ok: true, callSessionId: 'mock-call-session', callSid: 'CA-mock' };
+    return { ok: true, callSessionId: "mock-call-session", callSid: "CA-mock" };
   },
 }));
 
 // Telegram delivery mock via fetch
-const telegramDeliverCalls: Array<{ chatId: string; text: string; assistantId?: string }> = [];
+const telegramDeliverCalls: Array<{
+  chatId: string;
+  text: string;
+  assistantId?: string;
+}> = [];
 const originalFetch = globalThis.fetch;
-globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
-  const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
-  if (url.includes('/deliver/telegram') && init?.method === 'POST') {
-    const body = JSON.parse(init.body as string) as { chatId: string; text: string; assistantId?: string };
+globalThis.fetch = (async (
+  input: string | URL | Request,
+  init?: RequestInit,
+) => {
+  const url =
+    typeof input === "string"
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : input.url;
+  if (url.includes("/deliver/telegram") && init?.method === "POST") {
+    const body = JSON.parse(init.body as string) as {
+      chatId: string;
+      text: string;
+      assistantId?: string;
+    };
     telegramDeliverCalls.push(body);
     return new Response(JSON.stringify({ ok: true }), { status: 200 });
   }
@@ -91,20 +129,18 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
 // Now import modules under test (after mocks are in place)
 // ---------------------------------------------------------------------------
 
-import { getDb, initializeDb, resetDb } from '../memory/db.js';
-import {
-  updateSessionDelivery,
-} from '../runtime/channel-guardian-service.js';
+import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { updateSessionDelivery } from "../runtime/channel-guardian-service.js";
 import {
   cancelOutbound,
   resendOutbound,
   startOutbound,
-} from '../runtime/guardian-outbound-actions.js';
+} from "../runtime/guardian-outbound-actions.js";
 import {
   handleCancelOutbound,
   handleResendOutbound,
   handleStartOutbound,
-} from '../runtime/routes/integration-routes.js';
+} from "../runtime/routes/integration-routes.js";
 
 // Initialize the database (creates all tables)
 initializeDb();
@@ -112,15 +148,27 @@ initializeDb();
 afterAll(() => {
   globalThis.fetch = originalFetch;
   resetDb();
-  try { rmSync(testDir, { recursive: true }); } catch { /* best effort */ }
+  try {
+    rmSync(testDir, { recursive: true });
+  } catch {
+    /* best effort */
+  }
 });
 
 function resetTables(): void {
   const db = getDb();
-  db.run('DELETE FROM channel_guardian_bindings');
-  db.run('DELETE FROM channel_guardian_verification_challenges');
-  try { db.run('DELETE FROM channel_guardian_approval_requests'); } catch { /* table may not exist */ }
-  try { db.run('DELETE FROM channel_guardian_rate_limits'); } catch { /* table may not exist */ }
+  db.run("DELETE FROM channel_guardian_bindings");
+  db.run("DELETE FROM channel_guardian_verification_challenges");
+  try {
+    db.run("DELETE FROM channel_guardian_approval_requests");
+  } catch {
+    /* table may not exist */
+  }
+  try {
+    db.run("DELETE FROM channel_guardian_rate_limits");
+  } catch {
+    /* table may not exist */
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -128,9 +176,9 @@ function resetTables(): void {
 // ---------------------------------------------------------------------------
 
 function jsonRequest(body: Record<string, unknown>): Request {
-  return new Request('http://localhost/test', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+  return new Request("http://localhost/test", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
 }
@@ -141,124 +189,150 @@ beforeEach(() => {
   smsSendCalls.length = 0;
   telegramDeliverCalls.length = 0;
   voiceCallInitCalls.length = 0;
-  mockBotUsername = 'test_bot';
+  mockBotUsername = "test_bot";
 });
 
 // ===========================================================================
 // Shared action module: startOutbound
 // ===========================================================================
 
-describe('startOutbound', () => {
-  test('SMS: returns missing_destination when destination is absent', () => {
-    const result = startOutbound({ channel: 'sms' });
+describe("startOutbound", () => {
+  test("SMS: returns missing_destination when destination is absent", () => {
+    const result = startOutbound({ channel: "sms" });
     expect(result.success).toBe(false);
-    expect(result.error).toBe('missing_destination');
-    expect(result.channel).toBe('sms');
+    expect(result.error).toBe("missing_destination");
+    expect(result.channel).toBe("sms");
   });
 
-  test('SMS: returns invalid_destination for garbage phone number', () => {
-    const result = startOutbound({ channel: 'sms', destination: 'notaphone' });
+  test("SMS: returns invalid_destination for garbage phone number", () => {
+    const result = startOutbound({ channel: "sms", destination: "notaphone" });
     expect(result.success).toBe(false);
-    expect(result.error).toBe('invalid_destination');
+    expect(result.error).toBe("invalid_destination");
   });
 
-  test('SMS: succeeds with valid E.164 number', () => {
-    const result = startOutbound({ channel: 'sms', destination: '+15551234567' });
+  test("SMS: succeeds with valid E.164 number", () => {
+    const result = startOutbound({
+      channel: "sms",
+      destination: "+15551234567",
+    });
     expect(result.success).toBe(true);
     expect(result.verificationSessionId).toBeDefined();
     expect(result.secret).toBeDefined();
     expect(result.expiresAt).toBeGreaterThan(Date.now());
     expect(result.nextResendAt).toBeGreaterThan(Date.now());
     expect(result.sendCount).toBe(1);
-    expect(result.channel).toBe('sms');
+    expect(result.channel).toBe("sms");
   });
 
-  test('SMS: succeeds with loose phone format (parentheses + dashes)', () => {
-    const result = startOutbound({ channel: 'sms', destination: '(555) 987-6543' });
+  test("SMS: succeeds with loose phone format (parentheses + dashes)", () => {
+    const result = startOutbound({
+      channel: "sms",
+      destination: "(555) 987-6543",
+    });
     expect(result.success).toBe(true);
     expect(result.verificationSessionId).toBeDefined();
   });
 
-  test('Telegram: returns missing_destination when absent', () => {
-    const result = startOutbound({ channel: 'telegram' });
+  test("Telegram: returns missing_destination when absent", () => {
+    const result = startOutbound({ channel: "telegram" });
     expect(result.success).toBe(false);
-    expect(result.error).toBe('missing_destination');
+    expect(result.error).toBe("missing_destination");
   });
 
-  test('Telegram: succeeds with numeric chat ID', () => {
-    const result = startOutbound({ channel: 'telegram', destination: '123456789' });
+  test("Telegram: succeeds with numeric chat ID", () => {
+    const result = startOutbound({
+      channel: "telegram",
+      destination: "123456789",
+    });
     expect(result.success).toBe(true);
     expect(result.verificationSessionId).toBeDefined();
     expect(result.secret).toBeDefined();
     expect(result.sendCount).toBe(1);
   });
 
-  test('Telegram: returns invalid_destination for negative (group) chat ID', () => {
-    const result = startOutbound({ channel: 'telegram', destination: '-100123456' });
+  test("Telegram: returns invalid_destination for negative (group) chat ID", () => {
+    const result = startOutbound({
+      channel: "telegram",
+      destination: "-100123456",
+    });
     expect(result.success).toBe(false);
-    expect(result.error).toBe('invalid_destination');
+    expect(result.error).toBe("invalid_destination");
   });
 
-  test('Telegram: returns pending_bootstrap for handle destination', () => {
-    const result = startOutbound({ channel: 'telegram', destination: '@someuser' });
+  test("Telegram: returns pending_bootstrap for handle destination", () => {
+    const result = startOutbound({
+      channel: "telegram",
+      destination: "@someuser",
+    });
     expect(result.success).toBe(true);
-    expect(result.telegramBootstrapUrl).toContain('https://t.me/test_bot?start=gv_');
+    expect(result.telegramBootstrapUrl).toContain(
+      "https://t.me/test_bot?start=gv_",
+    );
     // Secret should NOT be present in bootstrap response
     expect(result.secret).toBeUndefined();
   });
 
-  test('Telegram: returns no_bot_username when bot not configured', () => {
+  test("Telegram: returns no_bot_username when bot not configured", () => {
     mockBotUsername = undefined;
-    const result = startOutbound({ channel: 'telegram', destination: '@someuser' });
+    const result = startOutbound({
+      channel: "telegram",
+      destination: "@someuser",
+    });
     expect(result.success).toBe(false);
-    expect(result.error).toBe('no_bot_username');
+    expect(result.error).toBe("no_bot_username");
   });
 
-  test('voice: returns missing_destination when absent', () => {
-    const result = startOutbound({ channel: 'voice' });
+  test("voice: returns missing_destination when absent", () => {
+    const result = startOutbound({ channel: "voice" });
     expect(result.success).toBe(false);
-    expect(result.error).toBe('missing_destination');
+    expect(result.error).toBe("missing_destination");
   });
 
-  test('voice: returns invalid_destination for garbage', () => {
-    const result = startOutbound({ channel: 'voice', destination: 'badphone' });
+  test("voice: returns invalid_destination for garbage", () => {
+    const result = startOutbound({ channel: "voice", destination: "badphone" });
     expect(result.success).toBe(false);
-    expect(result.error).toBe('invalid_destination');
+    expect(result.error).toBe("invalid_destination");
   });
 
-  test('voice: succeeds with valid phone', () => {
-    const result = startOutbound({ channel: 'voice', destination: '+15559876543' });
+  test("voice: succeeds with valid phone", () => {
+    const result = startOutbound({
+      channel: "voice",
+      destination: "+15559876543",
+    });
     expect(result.success).toBe(true);
     expect(result.verificationSessionId).toBeDefined();
     expect(result.secret).toBeDefined();
     expect(result.sendCount).toBe(1);
   });
 
-  test('voice: passes originConversationId to startGuardianVerificationCall', () => {
+  test("voice: passes originConversationId to startGuardianVerificationCall", () => {
     voiceCallInitCalls.length = 0;
     const result = startOutbound({
-      channel: 'voice',
-      destination: '+15559876543',
-      originConversationId: 'conv-origin-linkage-test',
+      channel: "voice",
+      destination: "+15559876543",
+      originConversationId: "conv-origin-linkage-test",
     });
     expect(result.success).toBe(true);
     // The voice call mock should have been invoked with the origin conversation
     expect(voiceCallInitCalls.length).toBe(1);
-    expect(voiceCallInitCalls[0].phoneNumber).toBe('+15559876543');
+    expect(voiceCallInitCalls[0].phoneNumber).toBe("+15559876543");
   });
 
-  test('voice: succeeds without originConversationId (backward compat)', () => {
+  test("voice: succeeds without originConversationId (backward compat)", () => {
     voiceCallInitCalls.length = 0;
-    const result = startOutbound({ channel: 'voice', destination: '+15551119999' });
+    const result = startOutbound({
+      channel: "voice",
+      destination: "+15551119999",
+    });
     expect(result.success).toBe(true);
     expect(voiceCallInitCalls.length).toBe(1);
   });
 
-  test('unsupported channel returns unsupported_channel', () => {
+  test("unsupported channel returns unsupported_channel", () => {
     // Cast to bypass type checking for test purposes
-    const result = startOutbound({ channel: 'email' as never });
+    const result = startOutbound({ channel: "email" as never });
     expect(result.success).toBe(false);
-    expect(result.error).toBe('unsupported_channel');
+    expect(result.error).toBe("unsupported_channel");
   });
 });
 
@@ -266,70 +340,94 @@ describe('startOutbound', () => {
 // Shared action module: resendOutbound
 // ===========================================================================
 
-describe('resendOutbound', () => {
-  test('returns no_active_session when no session exists', () => {
-    const result = resendOutbound({ channel: 'sms' });
+describe("resendOutbound", () => {
+  test("returns no_active_session when no session exists", () => {
+    const result = resendOutbound({ channel: "sms" });
     expect(result.success).toBe(false);
-    expect(result.error).toBe('no_active_session');
+    expect(result.error).toBe("no_active_session");
   });
 
-  test('SMS: succeeds when an active session exists and cooldown has passed', () => {
+  test("SMS: succeeds when an active session exists and cooldown has passed", () => {
     // Start a session first
-    const startResult = startOutbound({ channel: 'sms', destination: '+15551112222' });
+    const startResult = startOutbound({
+      channel: "sms",
+      destination: "+15551112222",
+    });
     expect(startResult.success).toBe(true);
 
     // Manually update delivery to set cooldown in the past so resend is allowed
     if (startResult.verificationSessionId) {
-      updateSessionDelivery(startResult.verificationSessionId, Date.now() - 60_000, 1, Date.now() - 1);
+      updateSessionDelivery(
+        startResult.verificationSessionId,
+        Date.now() - 60_000,
+        1,
+        Date.now() - 1,
+      );
     }
 
-    const resendResult = resendOutbound({ channel: 'sms' });
+    const resendResult = resendOutbound({ channel: "sms" });
     expect(resendResult.success).toBe(true);
     expect(resendResult.verificationSessionId).toBeDefined();
     expect(resendResult.sendCount).toBe(2);
   });
 
-  test('SMS: preserves originConversationId on resend', () => {
-    const startResult = startOutbound({ channel: 'sms', destination: '+15551113333' });
+  test("SMS: preserves originConversationId on resend", () => {
+    const startResult = startOutbound({
+      channel: "sms",
+      destination: "+15551113333",
+    });
     expect(startResult.success).toBe(true);
 
     if (startResult.verificationSessionId) {
-      updateSessionDelivery(startResult.verificationSessionId, Date.now() - 60_000, 1, Date.now() - 1);
+      updateSessionDelivery(
+        startResult.verificationSessionId,
+        Date.now() - 60_000,
+        1,
+        Date.now() - 1,
+      );
     }
 
     const resendResult = resendOutbound({
-      channel: 'sms',
-      originConversationId: 'conv-resend-sms-origin',
+      channel: "sms",
+      originConversationId: "conv-resend-sms-origin",
     });
     expect(resendResult.success).toBe(true);
-    expect(resendResult.originConversationId).toBe('conv-resend-sms-origin');
+    expect(resendResult.originConversationId).toBe("conv-resend-sms-origin");
   });
 
-  test('voice: preserves originConversationId on resend and passes it to call initiation', async () => {
+  test("voice: preserves originConversationId on resend and passes it to call initiation", async () => {
     voiceCallInitCalls.length = 0;
-    const startResult = startOutbound({ channel: 'voice', destination: '+15559991111' });
+    const startResult = startOutbound({
+      channel: "voice",
+      destination: "+15559991111",
+    });
     expect(startResult.success).toBe(true);
 
     if (startResult.verificationSessionId) {
-      updateSessionDelivery(startResult.verificationSessionId, Date.now() - 60_000, 1, Date.now() - 1);
+      updateSessionDelivery(
+        startResult.verificationSessionId,
+        Date.now() - 60_000,
+        1,
+        Date.now() - 1,
+      );
     }
 
     const resendResult = resendOutbound({
-      channel: 'voice',
-      originConversationId: 'conv-resend-voice-origin',
+      channel: "voice",
+      originConversationId: "conv-resend-voice-origin",
     });
     expect(resendResult.success).toBe(true);
-    expect(resendResult.originConversationId).toBe('conv-resend-voice-origin');
+    expect(resendResult.originConversationId).toBe("conv-resend-voice-origin");
 
     // Allow the fire-and-forget async call to flush
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     // The resend voice call should carry the origin conversation ID
     const resendCall = voiceCallInitCalls.find(
-      (c) => c.originConversationId === 'conv-resend-voice-origin',
+      (c) => c.originConversationId === "conv-resend-voice-origin",
     );
     expect(resendCall).toBeDefined();
-    expect(resendCall!.phoneNumber).toBe('+15559991111');
+    expect(resendCall!.phoneNumber).toBe("+15559991111");
   });
 });
 
@@ -337,20 +435,23 @@ describe('resendOutbound', () => {
 // Shared action module: cancelOutbound
 // ===========================================================================
 
-describe('cancelOutbound', () => {
-  test('returns no_active_session when no session exists', () => {
-    const result = cancelOutbound({ channel: 'sms' });
+describe("cancelOutbound", () => {
+  test("returns no_active_session when no session exists", () => {
+    const result = cancelOutbound({ channel: "sms" });
     expect(result.success).toBe(false);
-    expect(result.error).toBe('no_active_session');
+    expect(result.error).toBe("no_active_session");
   });
 
-  test('succeeds when an active session exists', () => {
-    const startResult = startOutbound({ channel: 'sms', destination: '+15553334444' });
+  test("succeeds when an active session exists", () => {
+    const startResult = startOutbound({
+      channel: "sms",
+      destination: "+15553334444",
+    });
     expect(startResult.success).toBe(true);
 
-    const cancelResult = cancelOutbound({ channel: 'sms' });
+    const cancelResult = cancelOutbound({ channel: "sms" });
     expect(cancelResult.success).toBe(true);
-    expect(cancelResult.channel).toBe('sms');
+    expect(cancelResult.channel).toBe("sms");
   });
 });
 
@@ -358,105 +459,122 @@ describe('cancelOutbound', () => {
 // HTTP route handlers
 // ===========================================================================
 
-describe('HTTP route: handleStartOutbound', () => {
-  test('returns 400 when channel is missing', async () => {
-    const req = jsonRequest({ destination: '+15551234567' });
+describe("HTTP route: handleStartOutbound", () => {
+  test("returns 400 when channel is missing", async () => {
+    const req = jsonRequest({ destination: "+15551234567" });
     const resp = await handleStartOutbound(req);
     expect(resp.status).toBe(400);
-    const body = await resp.json() as { error: { message: string; code: string } };
-    expect(body.error.code).toBe('BAD_REQUEST');
-    expect(body.error.message).toContain('channel');
+    const body = (await resp.json()) as {
+      error: { message: string; code: string };
+    };
+    expect(body.error.code).toBe("BAD_REQUEST");
+    expect(body.error.message).toContain("channel");
   });
 
-  test('returns 400 for missing destination (SMS)', async () => {
-    const req = jsonRequest({ channel: 'sms' });
+  test("returns 400 for missing destination (SMS)", async () => {
+    const req = jsonRequest({ channel: "sms" });
     const resp = await handleStartOutbound(req);
     expect(resp.status).toBe(400);
-    const body = await resp.json() as { error?: string };
-    expect(body.error).toBe('missing_destination');
+    const body = (await resp.json()) as { error?: string };
+    expect(body.error).toBe("missing_destination");
   });
 
-  test('returns 200 for valid SMS start', async () => {
-    const req = jsonRequest({ channel: 'sms', destination: '+15559999999' });
+  test("returns 200 for valid SMS start", async () => {
+    const req = jsonRequest({ channel: "sms", destination: "+15559999999" });
     const resp = await handleStartOutbound(req);
     expect(resp.status).toBe(200);
-    const body = await resp.json() as Record<string, unknown>;
+    const body = (await resp.json()) as Record<string, unknown>;
     expect(body.success).toBe(true);
     expect(body.verificationSessionId).toBeDefined();
   });
 });
 
-describe('HTTP route: handleResendOutbound', () => {
-  test('returns 400 when channel is missing', async () => {
+describe("HTTP route: handleResendOutbound", () => {
+  test("returns 400 when channel is missing", async () => {
     const req = jsonRequest({});
     const resp = await handleResendOutbound(req);
     expect(resp.status).toBe(400);
-    const body = await resp.json() as { error: { message: string; code: string } };
-    expect(body.error.code).toBe('BAD_REQUEST');
-    expect(body.error.message).toContain('channel');
+    const body = (await resp.json()) as {
+      error: { message: string; code: string };
+    };
+    expect(body.error.code).toBe("BAD_REQUEST");
+    expect(body.error.message).toContain("channel");
   });
 
-  test('returns 400 for no_active_session', async () => {
-    const req = jsonRequest({ channel: 'sms' });
+  test("returns 400 for no_active_session", async () => {
+    const req = jsonRequest({ channel: "sms" });
     const resp = await handleResendOutbound(req);
     expect(resp.status).toBe(400);
-    const body = await resp.json() as { error?: string };
-    expect(body.error).toBe('no_active_session');
+    const body = (await resp.json()) as { error?: string };
+    expect(body.error).toBe("no_active_session");
   });
 
-  test('passes originConversationId through on successful resend', async () => {
+  test("passes originConversationId through on successful resend", async () => {
     // Start a session first
-    const startReq = jsonRequest({ channel: 'sms', destination: '+15556667777' });
+    const startReq = jsonRequest({
+      channel: "sms",
+      destination: "+15556667777",
+    });
     const startResp = await handleStartOutbound(startReq);
     expect(startResp.status).toBe(200);
-    const startBody = await startResp.json() as Record<string, unknown>;
+    const startBody = (await startResp.json()) as Record<string, unknown>;
 
     // Expire the cooldown so resend is allowed
     if (startBody.verificationSessionId) {
-      updateSessionDelivery(startBody.verificationSessionId as string, Date.now() - 60_000, 1, Date.now() - 1);
+      updateSessionDelivery(
+        startBody.verificationSessionId as string,
+        Date.now() - 60_000,
+        1,
+        Date.now() - 1,
+      );
     }
 
     const resendReq = jsonRequest({
-      channel: 'sms',
-      originConversationId: 'conv-resend-http-origin',
+      channel: "sms",
+      originConversationId: "conv-resend-http-origin",
     });
     const resendResp = await handleResendOutbound(resendReq);
     expect(resendResp.status).toBe(200);
-    const resendBody = await resendResp.json() as Record<string, unknown>;
+    const resendBody = (await resendResp.json()) as Record<string, unknown>;
     expect(resendBody.success).toBe(true);
-    expect(resendBody.originConversationId).toBe('conv-resend-http-origin');
+    expect(resendBody.originConversationId).toBe("conv-resend-http-origin");
   });
 });
 
-describe('HTTP route: handleCancelOutbound', () => {
-  test('returns 400 when channel is missing', async () => {
+describe("HTTP route: handleCancelOutbound", () => {
+  test("returns 400 when channel is missing", async () => {
     const req = jsonRequest({});
     const resp = await handleCancelOutbound(req);
     expect(resp.status).toBe(400);
-    const body = await resp.json() as { error: { message: string; code: string } };
-    expect(body.error.code).toBe('BAD_REQUEST');
-    expect(body.error.message).toContain('channel');
+    const body = (await resp.json()) as {
+      error: { message: string; code: string };
+    };
+    expect(body.error.code).toBe("BAD_REQUEST");
+    expect(body.error.message).toContain("channel");
   });
 
-  test('returns 400 for no_active_session', async () => {
-    const req = jsonRequest({ channel: 'sms' });
+  test("returns 400 for no_active_session", async () => {
+    const req = jsonRequest({ channel: "sms" });
     const resp = await handleCancelOutbound(req);
     expect(resp.status).toBe(400);
-    const body = await resp.json() as { error?: string };
-    expect(body.error).toBe('no_active_session');
+    const body = (await resp.json()) as { error?: string };
+    expect(body.error).toBe("no_active_session");
   });
 
-  test('returns 200 when active session is cancelled', async () => {
+  test("returns 200 when active session is cancelled", async () => {
     // Start a session
-    const startReq = jsonRequest({ channel: 'sms', destination: '+15558887777' });
+    const startReq = jsonRequest({
+      channel: "sms",
+      destination: "+15558887777",
+    });
     const startResp = await handleStartOutbound(startReq);
     expect(startResp.status).toBe(200);
 
     // Cancel it
-    const cancelReq = jsonRequest({ channel: 'sms' });
+    const cancelReq = jsonRequest({ channel: "sms" });
     const cancelResp = await handleCancelOutbound(cancelReq);
     expect(cancelResp.status).toBe(200);
-    const body = await cancelResp.json() as Record<string, unknown>;
+    const body = (await cancelResp.json()) as Record<string, unknown>;
     expect(body.success).toBe(true);
   });
 });
@@ -465,64 +583,64 @@ describe('HTTP route: handleCancelOutbound', () => {
 // Origin conversation linkage
 // ===========================================================================
 
-describe('origin conversation linkage', () => {
-  test('startOutbound SMS echoes originConversationId in result', () => {
+describe("origin conversation linkage", () => {
+  test("startOutbound SMS echoes originConversationId in result", () => {
     const result = startOutbound({
-      channel: 'sms',
-      destination: '+15551119999',
-      originConversationId: 'conv-origin-sms-test',
+      channel: "sms",
+      destination: "+15551119999",
+      originConversationId: "conv-origin-sms-test",
     });
     expect(result.success).toBe(true);
-    expect(result.originConversationId).toBe('conv-origin-sms-test');
+    expect(result.originConversationId).toBe("conv-origin-sms-test");
   });
 
-  test('startOutbound voice echoes originConversationId in result', () => {
+  test("startOutbound voice echoes originConversationId in result", () => {
     const result = startOutbound({
-      channel: 'voice',
-      destination: '+15552229999',
-      originConversationId: 'conv-origin-voice-test',
+      channel: "voice",
+      destination: "+15552229999",
+      originConversationId: "conv-origin-voice-test",
     });
     expect(result.success).toBe(true);
-    expect(result.originConversationId).toBe('conv-origin-voice-test');
+    expect(result.originConversationId).toBe("conv-origin-voice-test");
   });
 
-  test('startOutbound Telegram (chat ID) echoes originConversationId in result', () => {
+  test("startOutbound Telegram (chat ID) echoes originConversationId in result", () => {
     const result = startOutbound({
-      channel: 'telegram',
-      destination: '999888777',
-      originConversationId: 'conv-origin-tg-test',
+      channel: "telegram",
+      destination: "999888777",
+      originConversationId: "conv-origin-tg-test",
     });
     expect(result.success).toBe(true);
-    expect(result.originConversationId).toBe('conv-origin-tg-test');
+    expect(result.originConversationId).toBe("conv-origin-tg-test");
   });
 
-  test('startOutbound without originConversationId returns undefined for field', () => {
+  test("startOutbound without originConversationId returns undefined for field", () => {
     const result = startOutbound({
-      channel: 'sms',
-      destination: '+15553338888',
+      channel: "sms",
+      destination: "+15553338888",
     });
     expect(result.success).toBe(true);
     expect(result.originConversationId).toBeUndefined();
   });
 
-  test('HTTP handleStartOutbound passes originConversationId through', async () => {
+  test("HTTP handleStartOutbound passes originConversationId through", async () => {
     const req = jsonRequest({
-      channel: 'sms',
-      destination: '+15557776666',
-      originConversationId: 'conv-origin-http-test',
+      channel: "sms",
+      destination: "+15557776666",
+      originConversationId: "conv-origin-http-test",
     });
     const resp = await handleStartOutbound(req);
     expect(resp.status).toBe(200);
-    const body = await resp.json() as Record<string, unknown>;
+    const body = (await resp.json()) as Record<string, unknown>;
     expect(body.success).toBe(true);
-    expect(body.originConversationId).toBe('conv-origin-http-test');
+    expect(body.originConversationId).toBe("conv-origin-http-test");
   });
 
-  test('voice call initiation receives originConversationId', async () => {
+  test("voice call initiation receives originConversationId", async () => {
     const result = startOutbound({
-      channel: 'voice',
-      destination: '+15554443333',
-      originConversationId: 'conv-origin-voice-init',
+      channel: "voice",
+      destination: "+15554443333",
+      originConversationId: "conv-origin-voice-init",
     });
     expect(result.success).toBe(true);
 
@@ -532,37 +650,47 @@ describe('origin conversation linkage', () => {
     // The voice call mock should have been called with originConversationId
     expect(voiceCallInitCalls.length).toBeGreaterThan(0);
     const lastCall = voiceCallInitCalls[voiceCallInitCalls.length - 1];
-    expect(lastCall.phoneNumber).toBe('+15554443333');
-    expect(lastCall.originConversationId).toBe('conv-origin-voice-init');
+    expect(lastCall.phoneNumber).toBe("+15554443333");
+    expect(lastCall.originConversationId).toBe("conv-origin-voice-init");
   });
 
-  test('resendOutbound voice carries originConversationId to call initiation', async () => {
+  test("resendOutbound voice carries originConversationId to call initiation", async () => {
     voiceCallInitCalls.length = 0;
 
     // Start a voice session (no origin initially)
-    const startResult = startOutbound({ channel: 'voice', destination: '+15552228888' });
+    const startResult = startOutbound({
+      channel: "voice",
+      destination: "+15552228888",
+    });
     expect(startResult.success).toBe(true);
 
     // Expire cooldown
     if (startResult.verificationSessionId) {
-      updateSessionDelivery(startResult.verificationSessionId, Date.now() - 60_000, 1, Date.now() - 1);
+      updateSessionDelivery(
+        startResult.verificationSessionId,
+        Date.now() - 60_000,
+        1,
+        Date.now() - 1,
+      );
     }
 
     // Resend with origin conversation ID
     const resendResult = resendOutbound({
-      channel: 'voice',
-      originConversationId: 'conv-resend-origin-linkage',
+      channel: "voice",
+      originConversationId: "conv-resend-origin-linkage",
     });
     expect(resendResult.success).toBe(true);
-    expect(resendResult.originConversationId).toBe('conv-resend-origin-linkage');
+    expect(resendResult.originConversationId).toBe(
+      "conv-resend-origin-linkage",
+    );
 
     // Allow fire-and-forget async call to flush
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     const resendCall = voiceCallInitCalls.find(
-      (c) => c.originConversationId === 'conv-resend-origin-linkage',
+      (c) => c.originConversationId === "conv-resend-origin-linkage",
     );
     expect(resendCall).toBeDefined();
-    expect(resendCall!.phoneNumber).toBe('+15552228888');
+    expect(resendCall!.phoneNumber).toBe("+15552228888");
   });
 });

@@ -10,17 +10,17 @@
  * - Abort signal stops streaming within 100ms
  * - Stream timeout fires within 50ms of configured deadline
  */
-import { describe, expect, mock,test } from 'bun:test';
+import { describe, expect, mock, test } from "bun:test";
 
-mock.module('../util/logger.js', () => ({
+mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
   isDebug: () => false,
 }));
 
-import { FailoverProvider } from '../providers/failover.js';
-import { RetryProvider } from '../providers/retry.js';
-import { createStreamTimeout } from '../providers/stream-timeout.js';
+import { FailoverProvider } from "../providers/failover.js";
+import { RetryProvider } from "../providers/retry.js";
+import { createStreamTimeout } from "../providers/stream-timeout.js";
 import type {
   Message,
   Provider,
@@ -28,19 +28,19 @@ import type {
   ProviderResponse,
   SendMessageOptions,
   ToolDefinition,
-} from '../providers/types.js';
-import { ProviderError } from '../util/errors.js';
+} from "../providers/types.js";
+import { ProviderError } from "../util/errors.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 const SIMPLE_MESSAGES: Message[] = [
-  { role: 'user', content: [{ type: 'text', text: 'Hello' }] },
+  { role: "user", content: [{ type: "text", text: "Hello" }] },
 ];
 
 // Dummy key for mock server tests — not a real credential
-const BENCH_API_KEY = ['test', 'benchmark', 'key'].join('-');
+const BENCH_API_KEY = ["test", "benchmark", "key"].join("-");
 
 /** Build a mock provider that delivers `tokenCount` text deltas at a given rate. */
 function makeStreamingProvider(
@@ -52,7 +52,7 @@ function makeStreamingProvider(
   const ttftMs = opts?.ttftMs ?? 0;
 
   return {
-    name: opts?.name ?? 'mock-streaming',
+    name: opts?.name ?? "mock-streaming",
     async sendMessage(
       _messages: Message[],
       _tools?: ToolDefinition[],
@@ -68,17 +68,17 @@ function makeStreamingProvider(
 
       for (let i = 0; i < tokenCount; i++) {
         if (signal?.aborted) break;
-        onEvent?.({ type: 'text_delta', text: `word${i} ` });
+        onEvent?.({ type: "text_delta", text: `word${i} ` });
         if (i < tokenCount - 1) {
           await new Promise((r) => setTimeout(r, delayPerToken));
         }
       }
 
       return {
-        content: [{ type: 'text', text: 'complete' }],
-        model: 'mock',
+        content: [{ type: "text", text: "complete" }],
+        model: "mock",
         usage: { inputTokens: 10, outputTokens: tokenCount },
-        stopReason: 'end_turn',
+        stopReason: "end_turn",
       };
     },
   };
@@ -98,8 +98,8 @@ function makeFailingProvider(name: string, statusCode?: number): Provider {
 // Benchmarks
 // ---------------------------------------------------------------------------
 
-describe('Provider streaming benchmark', () => {
-  test('TTFT overhead through RetryProvider is < 50ms', async () => {
+describe("Provider streaming benchmark", () => {
+  test("TTFT overhead through RetryProvider is < 50ms", async () => {
     const sourceTtftMs = 20;
     const inner = makeStreamingProvider(10, 100, { ttftMs: sourceTtftMs });
     const wrapped = new RetryProvider(inner);
@@ -123,15 +123,15 @@ describe('Provider streaming benchmark', () => {
     expect(overhead).toBeLessThan(50);
   });
 
-  test('TTFT overhead through FailoverProvider is < 50ms', async () => {
+  test("TTFT overhead through FailoverProvider is < 50ms", async () => {
     const sourceTtftMs = 20;
     const inner = makeStreamingProvider(10, 100, {
       ttftMs: sourceTtftMs,
-      name: 'primary',
+      name: "primary",
     });
     const fallback = makeStreamingProvider(10, 100, {
       ttftMs: sourceTtftMs,
-      name: 'fallback',
+      name: "fallback",
     });
     const wrapped = new FailoverProvider([inner, fallback]);
 
@@ -153,7 +153,7 @@ describe('Provider streaming benchmark', () => {
     expect(overhead).toBeLessThan(50);
   });
 
-  test('event throughput through provider wrappers is within 20% of source rate', async () => {
+  test("event throughput through provider wrappers is within 20% of source rate", async () => {
     const tokenCount = 50;
     const sourceRate = 200; // tokens/sec
 
@@ -170,7 +170,8 @@ describe('Provider streaming benchmark', () => {
       },
     });
 
-    const baselineElapsed = baselineEvents[baselineEvents.length - 1] - baselineStart;
+    const baselineElapsed =
+      baselineEvents[baselineEvents.length - 1] - baselineStart;
     const baselineRate = (baselineEvents.length / baselineElapsed) * 1000;
 
     // Now measure the wrapped provider
@@ -196,9 +197,9 @@ describe('Provider streaming benchmark', () => {
     expect(observedRate).toBeGreaterThanOrEqual(minAcceptableRate);
   });
 
-  test('failover adds < 100ms overhead when primary provider fails', async () => {
-    const failing = makeFailingProvider('failing-primary', 500);
-    const healthy = makeStreamingProvider(5, 100, { name: 'healthy-fallback' });
+  test("failover adds < 100ms overhead when primary provider fails", async () => {
+    const failing = makeFailingProvider("failing-primary", 500);
+    const healthy = makeStreamingProvider(5, 100, { name: "healthy-fallback" });
 
     // Measure the fallback provider's baseline execution time directly so we
     // can isolate the failover overhead from the stream's own runtime.
@@ -212,7 +213,9 @@ describe('Provider streaming benchmark', () => {
     const baselineElapsed = performance.now() - baselineStart;
 
     // Now measure through the FailoverProvider (primary fails, falls back)
-    const healthy2 = makeStreamingProvider(5, 100, { name: 'healthy-fallback' });
+    const healthy2 = makeStreamingProvider(5, 100, {
+      name: "healthy-fallback",
+    });
     const wrapped = new FailoverProvider([failing, healthy2]);
 
     const events: ProviderEvent[] = [];
@@ -230,14 +233,14 @@ describe('Provider streaming benchmark', () => {
     expect(failoverOverhead).toBeLessThan(100);
   });
 
-  test('createStreamTimeout fires within 50ms of configured deadline', async () => {
+  test("createStreamTimeout fires within 50ms of configured deadline", async () => {
     const timeoutMs = 100;
     const { signal, cleanup } = createStreamTimeout(timeoutMs);
 
     const start = performance.now();
 
     await new Promise<void>((resolve) => {
-      signal.addEventListener('abort', () => resolve(), { once: true });
+      signal.addEventListener("abort", () => resolve(), { once: true });
     });
 
     const elapsed = performance.now() - start;
@@ -248,17 +251,23 @@ describe('Provider streaming benchmark', () => {
     expect(elapsed).toBeLessThan(timeoutMs + 50);
   });
 
-  test('external abort signal propagates through createStreamTimeout within 10ms', async () => {
+  test("external abort signal propagates through createStreamTimeout within 10ms", async () => {
     const externalController = new AbortController();
-    const { signal, cleanup } = createStreamTimeout(60_000, externalController.signal);
+    const { signal, cleanup } = createStreamTimeout(
+      60_000,
+      externalController.signal,
+    );
 
     const abortDelay = 50;
 
     const start = performance.now();
-    setTimeout(() => externalController.abort(new Error('user cancel')), abortDelay);
+    setTimeout(
+      () => externalController.abort(new Error("user cancel")),
+      abortDelay,
+    );
 
     await new Promise<void>((resolve) => {
-      signal.addEventListener('abort', () => resolve(), { once: true });
+      signal.addEventListener("abort", () => resolve(), { once: true });
     });
 
     const elapsed = performance.now() - start;
@@ -269,7 +278,7 @@ describe('Provider streaming benchmark', () => {
     expect(elapsed).toBeLessThan(abortDelay + 10);
   });
 
-  test('abort signal stops streaming provider within 100ms', async () => {
+  test("abort signal stops streaming provider within 100ms", async () => {
     // Provider that would stream 200 tokens at 50/sec (4 seconds total)
     const inner = makeStreamingProvider(200, 50);
     const wrapped = new RetryProvider(inner);
@@ -296,7 +305,7 @@ describe('Provider streaming benchmark', () => {
     expect(elapsed).toBeLessThan(abortAfterMs + 100);
   });
 
-  test('SSE event parsing throughput via Bun.serve mock', async () => {
+  test("SSE event parsing throughput via Bun.serve mock", async () => {
     const tokenCount = 100;
     const encoder = new TextEncoder();
 
@@ -307,17 +316,19 @@ describe('Provider streaming benchmark', () => {
         const stream = new ReadableStream({
           async start(controller) {
             for (let i = 0; i < tokenCount; i++) {
-              const event = `event: content_block_delta\ndata: ${JSON.stringify({
-                type: 'content_block_delta',
-                index: 0,
-                delta: { type: 'text_delta', text: `word${i} ` },
-              })}\n\n`;
+              const event = `event: content_block_delta\ndata: ${JSON.stringify(
+                {
+                  type: "content_block_delta",
+                  index: 0,
+                  delta: { type: "text_delta", text: `word${i} ` },
+                },
+              )}\n\n`;
               controller.enqueue(encoder.encode(event));
             }
             // Send stop event
             controller.enqueue(
               encoder.encode(
-                `event: message_stop\ndata: ${JSON.stringify({ type: 'message_stop' })}\n\n`,
+                `event: message_stop\ndata: ${JSON.stringify({ type: "message_stop" })}\n\n`,
               ),
             );
             controller.close();
@@ -325,7 +336,7 @@ describe('Provider streaming benchmark', () => {
         });
 
         return new Response(stream, {
-          headers: { 'Content-Type': 'text/event-stream' },
+          headers: { "Content-Type": "text/event-stream" },
         });
       },
     });
@@ -337,7 +348,7 @@ describe('Provider streaming benchmark', () => {
       const reader = response.body!.getReader();
       const decoder = new TextDecoder();
 
-      let buffer = '';
+      let buffer = "";
       let eventCount = 0;
       let firstEventTime: number | undefined;
 
@@ -348,18 +359,16 @@ describe('Provider streaming benchmark', () => {
         buffer += decoder.decode(value, { stream: true });
 
         // Parse SSE events from buffer
-        const parts = buffer.split('\n\n');
+        const parts = buffer.split("\n\n");
         buffer = parts.pop()!; // keep incomplete last part
 
         for (const part of parts) {
           if (!part.trim()) continue;
-          const dataLine = part
-            .split('\n')
-            .find((l) => l.startsWith('data: '));
+          const dataLine = part.split("\n").find((l) => l.startsWith("data: "));
           if (!dataLine) continue;
 
           const json = JSON.parse(dataLine.slice(6));
-          if (json.type === 'content_block_delta') {
+          if (json.type === "content_block_delta") {
             eventCount++;
             if (firstEventTime === undefined) {
               firstEventTime = performance.now();
@@ -385,7 +394,7 @@ describe('Provider streaming benchmark', () => {
     }
   });
 
-  test('stream timeout cleanup prevents late abort', async () => {
+  test("stream timeout cleanup prevents late abort", async () => {
     // Create a timeout that would fire in 100ms
     const { signal, cleanup } = createStreamTimeout(100);
 
@@ -399,8 +408,8 @@ describe('Provider streaming benchmark', () => {
     expect(signal.aborted).toBe(false);
   });
 
-  test('TTFT through Anthropic SDK adapter with mock SSE server', async () => {
-    const Anthropic = (await import('@anthropic-ai/sdk')).default;
+  test("TTFT through Anthropic SDK adapter with mock SSE server", async () => {
+    const Anthropic = (await import("@anthropic-ai/sdk")).default;
     const tokenCount = 20;
     const encoder = new TextEncoder();
 
@@ -408,48 +417,60 @@ describe('Provider streaming benchmark', () => {
     function buildAnthropicSSE(count: number): string[] {
       const events: string[] = [];
 
-      events.push(`event: message_start\ndata: ${JSON.stringify({
-        type: 'message_start',
-        message: {
-          id: 'msg_bench_01',
-          type: 'message',
-          role: 'assistant',
-          content: [],
-          model: 'claude-3-5-sonnet-20241022',
-          stop_reason: null,
-          stop_sequence: null,
-          usage: { input_tokens: 10, output_tokens: 1 },
-        },
-      })}\n\n`);
+      events.push(
+        `event: message_start\ndata: ${JSON.stringify({
+          type: "message_start",
+          message: {
+            id: "msg_bench_01",
+            type: "message",
+            role: "assistant",
+            content: [],
+            model: "claude-3-5-sonnet-20241022",
+            stop_reason: null,
+            stop_sequence: null,
+            usage: { input_tokens: 10, output_tokens: 1 },
+          },
+        })}\n\n`,
+      );
 
-      events.push(`event: content_block_start\ndata: ${JSON.stringify({
-        type: 'content_block_start',
-        index: 0,
-        content_block: { type: 'text', text: '' },
-      })}\n\n`);
+      events.push(
+        `event: content_block_start\ndata: ${JSON.stringify({
+          type: "content_block_start",
+          index: 0,
+          content_block: { type: "text", text: "" },
+        })}\n\n`,
+      );
 
       for (let i = 0; i < count; i++) {
-        events.push(`event: content_block_delta\ndata: ${JSON.stringify({
-          type: 'content_block_delta',
-          index: 0,
-          delta: { type: 'text_delta', text: `word${i} ` },
-        })}\n\n`);
+        events.push(
+          `event: content_block_delta\ndata: ${JSON.stringify({
+            type: "content_block_delta",
+            index: 0,
+            delta: { type: "text_delta", text: `word${i} ` },
+          })}\n\n`,
+        );
       }
 
-      events.push(`event: content_block_stop\ndata: ${JSON.stringify({
-        type: 'content_block_stop',
-        index: 0,
-      })}\n\n`);
+      events.push(
+        `event: content_block_stop\ndata: ${JSON.stringify({
+          type: "content_block_stop",
+          index: 0,
+        })}\n\n`,
+      );
 
-      events.push(`event: message_delta\ndata: ${JSON.stringify({
-        type: 'message_delta',
-        delta: { stop_reason: 'end_turn', stop_sequence: null },
-        usage: { output_tokens: count },
-      })}\n\n`);
+      events.push(
+        `event: message_delta\ndata: ${JSON.stringify({
+          type: "message_delta",
+          delta: { stop_reason: "end_turn", stop_sequence: null },
+          usage: { output_tokens: count },
+        })}\n\n`,
+      );
 
-      events.push(`event: message_stop\ndata: ${JSON.stringify({
-        type: 'message_stop',
-      })}\n\n`);
+      events.push(
+        `event: message_stop\ndata: ${JSON.stringify({
+          type: "message_stop",
+        })}\n\n`,
+      );
 
       return events;
     }
@@ -467,7 +488,7 @@ describe('Provider streaming benchmark', () => {
           },
         });
         return new Response(stream, {
-          headers: { 'Content-Type': 'text/event-stream' },
+          headers: { "Content-Type": "text/event-stream" },
         });
       },
     });
@@ -482,12 +503,12 @@ describe('Provider streaming benchmark', () => {
       const start = performance.now();
 
       const sdkStream = client.messages.stream({
-        model: 'claude-3-5-sonnet-20241022',
+        model: "claude-3-5-sonnet-20241022",
         max_tokens: 1024,
-        messages: [{ role: 'user', content: 'Hello' }],
+        messages: [{ role: "user", content: "Hello" }],
       });
 
-      sdkStream.on('text', () => {
+      sdkStream.on("text", () => {
         if (firstEventTime === undefined) {
           firstEventTime = performance.now();
         }
@@ -505,8 +526,8 @@ describe('Provider streaming benchmark', () => {
     }
   });
 
-  test('throughput through Anthropic SDK adapter matches source rate', async () => {
-    const Anthropic = (await import('@anthropic-ai/sdk')).default;
+  test("throughput through Anthropic SDK adapter matches source rate", async () => {
+    const Anthropic = (await import("@anthropic-ai/sdk")).default;
     const tokenCount = 200;
     const encoder = new TextEncoder();
 
@@ -515,48 +536,60 @@ describe('Provider streaming benchmark', () => {
       fetch() {
         const events: string[] = [];
 
-        events.push(`event: message_start\ndata: ${JSON.stringify({
-          type: 'message_start',
-          message: {
-            id: 'msg_bench_02',
-            type: 'message',
-            role: 'assistant',
-            content: [],
-            model: 'claude-3-5-sonnet-20241022',
-            stop_reason: null,
-            stop_sequence: null,
-            usage: { input_tokens: 10, output_tokens: 1 },
-          },
-        })}\n\n`);
+        events.push(
+          `event: message_start\ndata: ${JSON.stringify({
+            type: "message_start",
+            message: {
+              id: "msg_bench_02",
+              type: "message",
+              role: "assistant",
+              content: [],
+              model: "claude-3-5-sonnet-20241022",
+              stop_reason: null,
+              stop_sequence: null,
+              usage: { input_tokens: 10, output_tokens: 1 },
+            },
+          })}\n\n`,
+        );
 
-        events.push(`event: content_block_start\ndata: ${JSON.stringify({
-          type: 'content_block_start',
-          index: 0,
-          content_block: { type: 'text', text: '' },
-        })}\n\n`);
+        events.push(
+          `event: content_block_start\ndata: ${JSON.stringify({
+            type: "content_block_start",
+            index: 0,
+            content_block: { type: "text", text: "" },
+          })}\n\n`,
+        );
 
         for (let i = 0; i < tokenCount; i++) {
-          events.push(`event: content_block_delta\ndata: ${JSON.stringify({
-            type: 'content_block_delta',
-            index: 0,
-            delta: { type: 'text_delta', text: `w${i} ` },
-          })}\n\n`);
+          events.push(
+            `event: content_block_delta\ndata: ${JSON.stringify({
+              type: "content_block_delta",
+              index: 0,
+              delta: { type: "text_delta", text: `w${i} ` },
+            })}\n\n`,
+          );
         }
 
-        events.push(`event: content_block_stop\ndata: ${JSON.stringify({
-          type: 'content_block_stop',
-          index: 0,
-        })}\n\n`);
+        events.push(
+          `event: content_block_stop\ndata: ${JSON.stringify({
+            type: "content_block_stop",
+            index: 0,
+          })}\n\n`,
+        );
 
-        events.push(`event: message_delta\ndata: ${JSON.stringify({
-          type: 'message_delta',
-          delta: { stop_reason: 'end_turn', stop_sequence: null },
-          usage: { output_tokens: tokenCount },
-        })}\n\n`);
+        events.push(
+          `event: message_delta\ndata: ${JSON.stringify({
+            type: "message_delta",
+            delta: { stop_reason: "end_turn", stop_sequence: null },
+            usage: { output_tokens: tokenCount },
+          })}\n\n`,
+        );
 
-        events.push(`event: message_stop\ndata: ${JSON.stringify({
-          type: 'message_stop',
-        })}\n\n`);
+        events.push(
+          `event: message_stop\ndata: ${JSON.stringify({
+            type: "message_stop",
+          })}\n\n`,
+        );
 
         const stream = new ReadableStream({
           start(controller) {
@@ -568,7 +601,7 @@ describe('Provider streaming benchmark', () => {
         });
 
         return new Response(stream, {
-          headers: { 'Content-Type': 'text/event-stream' },
+          headers: { "Content-Type": "text/event-stream" },
         });
       },
     });
@@ -583,12 +616,12 @@ describe('Provider streaming benchmark', () => {
       const start = performance.now();
 
       const sdkStream = client.messages.stream({
-        model: 'claude-3-5-sonnet-20241022',
+        model: "claude-3-5-sonnet-20241022",
         max_tokens: 4096,
-        messages: [{ role: 'user', content: 'Hello' }],
+        messages: [{ role: "user", content: "Hello" }],
       });
 
-      sdkStream.on('text', () => {
+      sdkStream.on("text", () => {
         textEvents.push(performance.now());
       });
 
@@ -608,7 +641,7 @@ describe('Provider streaming benchmark', () => {
     }
   });
 
-  test('AnthropicProvider adapter end-to-end with mock SSE server', async () => {
+  test("AnthropicProvider adapter end-to-end with mock SSE server", async () => {
     const tokenCount = 50;
     const encoder = new TextEncoder();
 
@@ -617,48 +650,60 @@ describe('Provider streaming benchmark', () => {
       fetch() {
         const events: string[] = [];
 
-        events.push(`event: message_start\ndata: ${JSON.stringify({
-          type: 'message_start',
-          message: {
-            id: 'msg_bench_03',
-            type: 'message',
-            role: 'assistant',
-            content: [],
-            model: 'claude-3-5-sonnet-20241022',
-            stop_reason: null,
-            stop_sequence: null,
-            usage: { input_tokens: 10, output_tokens: 1 },
-          },
-        })}\n\n`);
+        events.push(
+          `event: message_start\ndata: ${JSON.stringify({
+            type: "message_start",
+            message: {
+              id: "msg_bench_03",
+              type: "message",
+              role: "assistant",
+              content: [],
+              model: "claude-3-5-sonnet-20241022",
+              stop_reason: null,
+              stop_sequence: null,
+              usage: { input_tokens: 10, output_tokens: 1 },
+            },
+          })}\n\n`,
+        );
 
-        events.push(`event: content_block_start\ndata: ${JSON.stringify({
-          type: 'content_block_start',
-          index: 0,
-          content_block: { type: 'text', text: '' },
-        })}\n\n`);
+        events.push(
+          `event: content_block_start\ndata: ${JSON.stringify({
+            type: "content_block_start",
+            index: 0,
+            content_block: { type: "text", text: "" },
+          })}\n\n`,
+        );
 
         for (let i = 0; i < tokenCount; i++) {
-          events.push(`event: content_block_delta\ndata: ${JSON.stringify({
-            type: 'content_block_delta',
-            index: 0,
-            delta: { type: 'text_delta', text: `token${i} ` },
-          })}\n\n`);
+          events.push(
+            `event: content_block_delta\ndata: ${JSON.stringify({
+              type: "content_block_delta",
+              index: 0,
+              delta: { type: "text_delta", text: `token${i} ` },
+            })}\n\n`,
+          );
         }
 
-        events.push(`event: content_block_stop\ndata: ${JSON.stringify({
-          type: 'content_block_stop',
-          index: 0,
-        })}\n\n`);
+        events.push(
+          `event: content_block_stop\ndata: ${JSON.stringify({
+            type: "content_block_stop",
+            index: 0,
+          })}\n\n`,
+        );
 
-        events.push(`event: message_delta\ndata: ${JSON.stringify({
-          type: 'message_delta',
-          delta: { stop_reason: 'end_turn', stop_sequence: null },
-          usage: { output_tokens: tokenCount },
-        })}\n\n`);
+        events.push(
+          `event: message_delta\ndata: ${JSON.stringify({
+            type: "message_delta",
+            delta: { stop_reason: "end_turn", stop_sequence: null },
+            usage: { output_tokens: tokenCount },
+          })}\n\n`,
+        );
 
-        events.push(`event: message_stop\ndata: ${JSON.stringify({
-          type: 'message_stop',
-        })}\n\n`);
+        events.push(
+          `event: message_stop\ndata: ${JSON.stringify({
+            type: "message_stop",
+          })}\n\n`,
+        );
 
         const stream = new ReadableStream({
           start(controller) {
@@ -670,7 +715,7 @@ describe('Provider streaming benchmark', () => {
         });
 
         return new Response(stream, {
-          headers: { 'Content-Type': 'text/event-stream' },
+          headers: { "Content-Type": "text/event-stream" },
         });
       },
     });
@@ -681,8 +726,12 @@ describe('Provider streaming benchmark', () => {
 
     try {
       // Import dynamically after setting env var so SDK picks it up
-      const { AnthropicProvider } = await import('../providers/anthropic/client.js');
-      const provider = new AnthropicProvider(BENCH_API_KEY, 'claude-3-5-sonnet-20241022');
+      const { AnthropicProvider } =
+        await import("../providers/anthropic/client.js");
+      const provider = new AnthropicProvider(
+        BENCH_API_KEY,
+        "claude-3-5-sonnet-20241022",
+      );
 
       const receivedEvents: ProviderEvent[] = [];
       let firstEventTime: number | undefined;
@@ -703,7 +752,7 @@ describe('Provider streaming benchmark', () => {
       );
 
       // Verify the full adapter pipeline delivered all events
-      const textDeltas = receivedEvents.filter((e) => e.type === 'text_delta');
+      const textDeltas = receivedEvents.filter((e) => e.type === "text_delta");
       expect(textDeltas.length).toBe(tokenCount);
 
       // TTFT through the complete provider adapter < 100ms
@@ -711,8 +760,8 @@ describe('Provider streaming benchmark', () => {
       expect(firstEventTime! - start).toBeLessThan(100);
 
       // Provider response should have correct structure
-      expect(result.model).toBe('claude-3-5-sonnet-20241022');
-      expect(result.stopReason).toBe('end_turn');
+      expect(result.model).toBe("claude-3-5-sonnet-20241022");
+      expect(result.stopReason).toBe("end_turn");
       expect(result.usage.outputTokens).toBe(tokenCount);
 
       // Throughput: events should flow at > 500 events/sec through the full adapter
@@ -729,11 +778,11 @@ describe('Provider streaming benchmark', () => {
     }
   });
 
-  test('multiple rapid events are delivered without batching loss', async () => {
+  test("multiple rapid events are delivered without batching loss", async () => {
     // Provider that emits events as fast as possible (no delay between tokens)
     const tokenCount = 500;
     const inner: Provider = {
-      name: 'rapid-fire',
+      name: "rapid-fire",
       async sendMessage(
         _messages: Message[],
         _tools?: ToolDefinition[],
@@ -742,13 +791,13 @@ describe('Provider streaming benchmark', () => {
       ): Promise<ProviderResponse> {
         const { onEvent } = options ?? {};
         for (let i = 0; i < tokenCount; i++) {
-          onEvent?.({ type: 'text_delta', text: `w${i} ` });
+          onEvent?.({ type: "text_delta", text: `w${i} ` });
         }
         return {
-          content: [{ type: 'text', text: 'done' }],
-          model: 'mock',
+          content: [{ type: "text", text: "done" }],
+          model: "mock",
           usage: { inputTokens: 5, outputTokens: tokenCount },
-          stopReason: 'end_turn',
+          stopReason: "end_turn",
         };
       },
     };

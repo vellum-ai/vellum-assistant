@@ -79,6 +79,7 @@ final class SecretPromptManager {
         panel.alphaValue = 0.95
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary]
+        panel.identifier = NSUserInterfaceItemIdentifier("SecureCredentialPanel")
 
         // Position at top-right of screen
         if let screen = NSScreen.main {
@@ -194,6 +195,7 @@ struct SecretPromptView: View {
                 SecureField(placeholder, text: $secretValue)
                     .textFieldStyle(.roundedBorder)
                     .font(VFont.mono)
+                    .accessibilityIdentifier("secure-credential-input")
 
                 // Safety explainer
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
@@ -224,6 +226,7 @@ struct SecretPromptView: View {
                         VButton(label: "Cancel", style: .tertiary) {
                             onCancel()
                         }
+                        .accessibilityIdentifier("secure-credential-cancel")
                         VButton(label: "Save", style: .primary) {
                             let trimmed = secretValue.trimmingCharacters(in: .whitespacesAndNewlines)
                             guard !trimmed.isEmpty else { return }
@@ -232,6 +235,7 @@ struct SecretPromptView: View {
                             }
                         }
                         .disabled(secretValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .accessibilityIdentifier("secure-credential-save")
                     }
 
                     if allowOneTimeSend {

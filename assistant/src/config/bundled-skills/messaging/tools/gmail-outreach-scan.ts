@@ -1,9 +1,11 @@
 import type { EmailMetadata } from '../../../../messaging/email-classifier.js';
 import { classifyOutreach, type OutreachClassification } from '../../../../messaging/outreach-classifier.js';
 import { batchGetMessages,listMessages } from '../../../../messaging/providers/gmail/client.js';
+import type { GmailMessage } from '../../../../messaging/providers/gmail/types.js';
 import { getMessagingProvider } from '../../../../messaging/registry.js';
 import { withValidToken } from '../../../../security/token-manager.js';
 import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
+import { storeScanResult } from './scan-result-store.js';
 import { err,ok } from './shared.js';
 
 const MAX_MESSAGES_CAP = 2000;
@@ -70,34 +72,48 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
   const maxSenders = (input.max_senders as number) ?? 30;
   const timeRange = (input.time_range as string) ?? '90d';
   const minConfidence = (input.min_confidence as number) ?? 0.5;
+  const inputPageToken = input.page_token as string | undefined;
 
   const query = `in:inbox -has:unsubscribe newer_than:${timeRange}`;
 
   try {
     const provider = getMessagingProvider('gmail');
     return withValidToken(provider.credentialService, async (token) => {
-      // Paginate through listMessages to collect up to maxMessages IDs
+      // Pipeline: fire metadata fetches for each page of IDs as they arrive
       const allMessageIds: string[] = [];
-      let pageToken: string | undefined;
+      const fetchPromises: Promise<GmailMessage[]>[] = [];
+      let pageToken: string | undefined = inputPageToken;
+      let truncated = false;
+      let timeBudgetExceeded = false;
+      const metadataHeaders = ['From', 'Subject', 'Date'];
+      const startTime = Date.now();
+      const TIME_BUDGET_MS = 90_000;
 
       while (allMessageIds.length < maxMessages) {
+        if (Date.now() - startTime > TIME_BUDGET_MS) {
+          timeBudgetExceeded = true;
+          truncated = true;
+          break;
+        }
         const pageSize = Math.min(100, maxMessages - allMessageIds.length);
         const listResp = await listMessages(token, query, pageSize, pageToken);
         const ids = (listResp.messages ?? []).map((m) => m.id);
         if (ids.length === 0) break;
         allMessageIds.push(...ids);
+        fetchPromises.push(batchGetMessages(token, ids, 'metadata', metadataHeaders, 'id,internalDate,payload/headers'));
         pageToken = listResp.nextPageToken ?? undefined;
         if (!pageToken) break;
+      }
+
+      if (allMessageIds.length >= maxMessages && pageToken) {
+        truncated = true;
       }
 
       if (allMessageIds.length === 0) {
         return ok(JSON.stringify({ senders: [], total_scanned: 0, outreach_detected: 0, message: 'No emails found matching the query.' }));
       }
 
-      // Batch-fetch metadata headers
-      const messages = await batchGetMessages(token, allMessageIds, 'metadata', [
-        'From', 'Subject', 'Date',
-      ]);
+      const messages = (await Promise.all(fetchPromises)).flat();
 
       // Build EmailMetadata for the classifier
       const emailMetadata: EmailMetadata[] = messages.map((msg) => {
@@ -204,17 +220,26 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
         newest_message_id: s.newestMessageId,
         oldest_date: s.oldestDate,
         newest_date: s.newestDate,
-        message_ids: s.messageIds,
-        has_more: s.hasMore,
         search_query: `from:${s.email}`,
         sample_subjects: s.sampleSubjects,
         suggested_actions: buildSuggestedActions(s.email, s.messageCount),
       }));
 
+      // Store message IDs server-side to keep them out of LLM context
+      const scanId = storeScanResult(sorted.map((s) => ({
+        id: Buffer.from(s.email).toString('base64url'),
+        messageIds: s.messageIds,
+        newestMessageId: s.newestMessageId,
+        newestUnsubscribableMessageId: null,
+      })));
+
       return ok(JSON.stringify({
+        scan_id: scanId,
         senders,
         total_scanned: allMessageIds.length,
         outreach_detected: totalOutreachDetected,
+        ...(truncated ? { truncated: true, next_page_token: pageToken } : {}),
+        ...(timeBudgetExceeded ? { time_budget_exceeded: true } : {}),
       }));
     });
   } catch (e) {

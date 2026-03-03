@@ -13,97 +13,125 @@
  * - Voice webhook TwiML relay URL generation
  * - Handler-level idempotency concurrency (concurrent duplicates, failure-retry)
  */
-import { mkdtempSync, realpathSync,rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  afterAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from "bun:test";
 
-import { afterAll, beforeEach, describe, expect, mock, spyOn,test } from 'bun:test';
+mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
-const testDir = realpathSync(mkdtempSync(join(tmpdir(), 'twilio-routes-test-')));
+const testDir = realpathSync(
+  mkdtempSync(join(tmpdir(), "twilio-routes-test-")),
+);
 
-mock.module('../util/platform.js', () => ({
+mock.module("../util/platform.js", () => ({
   getRootDir: () => testDir,
   getDataDir: () => testDir,
-  isMacOS: () => process.platform === 'darwin',
-  isLinux: () => process.platform === 'linux',
-  isWindows: () => process.platform === 'win32',
-  getSocketPath: () => join(testDir, 'test.sock'),
-  getPidPath: () => join(testDir, 'test.pid'),
-  getDbPath: () => join(testDir, 'test.db'),
-  getLogPath: () => join(testDir, 'test.log'),
+  isMacOS: () => process.platform === "darwin",
+  isLinux: () => process.platform === "linux",
+  isWindows: () => process.platform === "win32",
+  getSocketPath: () => join(testDir, "test.sock"),
+  getPidPath: () => join(testDir, "test.pid"),
+  getDbPath: () => join(testDir, "test.db"),
+  getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
   readHttpToken: () => null,
 }));
 
-mock.module('../util/logger.js', () => ({
-  getLogger: () => new Proxy({} as Record<string, unknown>, {
-    get: () => () => {},
-  }),
+mock.module("../util/logger.js", () => ({
+  getLogger: () =>
+    new Proxy({} as Record<string, unknown>, {
+      get: () => () => {},
+    }),
 }));
 
 const mockConfigObj = {
-  model: 'test',
-  provider: 'test',
+  model: "test",
+  provider: "test",
   apiKeys: {},
   memory: { enabled: false },
   rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
   secretDetection: { enabled: false },
   calls: {
     voice: {
-      mode: 'twilio_standard',
-      language: 'en-US',
-      transcriptionProvider: 'Deepgram',
+      mode: "twilio_standard",
+      language: "en-US",
+      transcriptionProvider: "Deepgram",
       fallbackToStandardOnError: true,
-      elevenlabs: { voiceId: '' },
+      elevenlabs: { voiceId: "" },
     },
   },
 };
 
-mock.module('../config/loader.js', () => ({
+mock.module("../config/loader.js", () => ({
   getConfig: () => mockConfigObj,
   loadConfig: () => mockConfigObj,
 }));
 
-mock.module('../security/secure-keys.js', () => ({
+mock.module("../security/secure-keys.js", () => ({
   getSecureKey: () => undefined,
 }));
 
-mock.module('../calls/twilio-provider.js', () => ({
+mock.module("../calls/twilio-provider.js", () => ({
   TwilioConversationRelayProvider: class {
-    readonly name = 'twilio';
-    static getAuthToken(): string | null { return null; }
-    static verifyWebhookSignature(): boolean { return true; }
-    async initiateCall() { return { callSid: 'CA_mock_test' }; }
-    async endCall() { return; }
+    readonly name = "twilio";
+    static getAuthToken(): string | null {
+      return null;
+    }
+    static verifyWebhookSignature(): boolean {
+      return true;
+    }
+    async initiateCall() {
+      return { callSid: "CA_mock_test" };
+    }
+    async endCall() {
+      return;
+    }
   },
 }));
 
 // Configurable mock Twilio config — tests can override wssBaseUrl
-let mockWssBaseUrl: string = 'wss://test.example.com';
-let mockWebhookBaseUrl: string = 'https://test.example.com';
+let mockWssBaseUrl: string = "wss://test.example.com";
+let mockWebhookBaseUrl: string = "https://test.example.com";
 
-mock.module('../calls/twilio-config.js', () => ({
+mock.module("../calls/twilio-config.js", () => ({
   getTwilioConfig: () => ({
-    accountSid: 'AC_test',
-    authToken: 'test-auth-token-for-webhooks',
-    phoneNumber: '+15550001111',
+    accountSid: "AC_test",
+    authToken: "test-auth-token-for-webhooks",
+    phoneNumber: "+15550001111",
     webhookBaseUrl: mockWebhookBaseUrl,
     wssBaseUrl: mockWssBaseUrl,
   }),
 }));
 
-import { registerCallCompletionNotifier, unregisterCallCompletionNotifier } from '../calls/call-state.js';
-import * as callStore from '../calls/call-store.js';
+import {
+  registerCallCompletionNotifier,
+  unregisterCallCompletionNotifier,
+} from "../calls/call-state.js";
+import * as callStore from "../calls/call-store.js";
 import {
   createCallSession,
   getCallEvents,
   getCallSession,
   getCallSessionByCallSid,
   updateCallSession,
-} from '../calls/call-store.js';
-import { buildWelcomeGreeting, handleStatusCallback, handleVoiceWebhook,resolveRelayUrl } from '../calls/twilio-routes.js';
-import { getDb, initializeDb, resetDb } from '../memory/db.js';
-import { conversations } from '../memory/schema.js';
+} from "../calls/call-store.js";
+import {
+  buildWelcomeGreeting,
+  handleStatusCallback,
+  handleVoiceWebhook,
+  resolveRelayUrl,
+} from "../calls/twilio-routes.js";
+import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { conversations } from "../memory/schema.js";
 
 initializeDb();
 
@@ -115,38 +143,44 @@ function ensureConversation(id: string): void {
   if (ensuredConvIds.has(id)) return;
   const db = getDb();
   const now = Date.now();
-  db.insert(conversations).values({
-    id,
-    title: `Test conversation ${id}`,
-    createdAt: now,
-    updatedAt: now,
-  }).run();
+  db.insert(conversations)
+    .values({
+      id,
+      title: `Test conversation ${id}`,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
   ensuredConvIds.add(id);
 }
 
 function resetTables() {
   const db = getDb();
-  db.run('DELETE FROM guardian_action_deliveries');
-  db.run('DELETE FROM guardian_action_requests');
-  db.run('DELETE FROM processed_callbacks');
-  db.run('DELETE FROM call_pending_questions');
-  db.run('DELETE FROM call_events');
-  db.run('DELETE FROM call_sessions');
-  db.run('DELETE FROM external_conversation_bindings');
-  db.run('DELETE FROM conversation_keys');
-  db.run('DELETE FROM tool_invocations');
-  db.run('DELETE FROM messages');
-  db.run('DELETE FROM conversations');
+  db.run("DELETE FROM guardian_action_deliveries");
+  db.run("DELETE FROM guardian_action_requests");
+  db.run("DELETE FROM processed_callbacks");
+  db.run("DELETE FROM call_pending_questions");
+  db.run("DELETE FROM call_events");
+  db.run("DELETE FROM call_sessions");
+  db.run("DELETE FROM external_conversation_bindings");
+  db.run("DELETE FROM conversation_keys");
+  db.run("DELETE FROM tool_invocations");
+  db.run("DELETE FROM messages");
+  db.run("DELETE FROM conversations");
   ensuredConvIds = new Set();
 }
 
-function createTestSession(convId: string, callSid: string, task = 'test task') {
+function createTestSession(
+  convId: string,
+  callSid: string,
+  task = "test task",
+) {
   ensureConversation(convId);
   const session = createCallSession({
     conversationId: convId,
-    provider: 'twilio',
-    fromNumber: '+15550001111',
-    toNumber: '+15559998888',
+    provider: "twilio",
+    fromNumber: "+15550001111",
+    toNumber: "+15559998888",
     task,
   });
   updateCallSession(session.id, { providerCallSid: callSid });
@@ -154,55 +188,65 @@ function createTestSession(convId: string, callSid: string, task = 'test task') 
 }
 
 function makeStatusRequest(params: Record<string, string>): Request {
-  return new Request('http://127.0.0.1/v1/calls/twilio/status', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+  return new Request("http://127.0.0.1/v1/calls/twilio/status", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams(params).toString(),
   });
 }
 
-function makeVoiceRequest(sessionId: string, params: Record<string, string>): Request {
-  return new Request(`http://127.0.0.1/v1/calls/twilio/voice-webhook?callSessionId=${sessionId}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams(params).toString(),
-  });
+function makeVoiceRequest(
+  sessionId: string,
+  params: Record<string, string>,
+): Request {
+  return new Request(
+    `http://127.0.0.1/v1/calls/twilio/voice-webhook?callSessionId=${sessionId}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams(params).toString(),
+    },
+  );
 }
 
 function makeInboundVoiceRequest(params: Record<string, string>): Request {
-  return new Request('http://127.0.0.1/v1/calls/twilio/voice-webhook', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+  return new Request("http://127.0.0.1/v1/calls/twilio/voice-webhook", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams(params).toString(),
   });
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────
 
-describe('twilio webhook routes', () => {
+describe("twilio webhook routes", () => {
   beforeEach(() => {
     resetTables();
-    mockWssBaseUrl = 'wss://test.example.com';
-    mockWebhookBaseUrl = 'https://test.example.com';
+    mockWssBaseUrl = "wss://test.example.com";
+    mockWebhookBaseUrl = "https://test.example.com";
     delete process.env.CALL_WELCOME_GREETING;
   });
 
   afterAll(() => {
     resetDb();
-    try { rmSync(testDir, { recursive: true, force: true }); } catch { /* best effort */ }
+    try {
+      rmSync(testDir, { recursive: true, force: true });
+    } catch {
+      /* best effort */
+    }
   });
 
   // ── Callback idempotency / replay tests ───────────────────────────
   // These call handleStatusCallback directly (bypassing the HTTP server)
   // since direct routes are blocked by gateway-only mode.
 
-  describe('callback idempotency', () => {
-    test('replaying the same status callback does not create duplicate events', async () => {
-      const session = createTestSession('conv-idem-1', 'CA_idem_1');
+  describe("callback idempotency", () => {
+    test("replaying the same status callback does not create duplicate events", async () => {
+      const session = createTestSession("conv-idem-1", "CA_idem_1");
       const params = {
-        CallSid: 'CA_idem_1',
-        CallStatus: 'in-progress',
-        Timestamp: '2025-01-15T10:00:00Z',
+        CallSid: "CA_idem_1",
+        CallStatus: "in-progress",
+        Timestamp: "2025-01-15T10:00:00Z",
       };
 
       // First callback — should process
@@ -215,33 +259,43 @@ describe('twilio webhook routes', () => {
 
       // Verify only one event was recorded
       const events = getCallEvents(session.id);
-      const connectedEvents = events.filter(e => e.eventType === 'call_connected');
+      const connectedEvents = events.filter(
+        (e) => e.eventType === "call_connected",
+      );
       expect(connectedEvents.length).toBe(1);
     });
 
-    test('different statuses for the same call create separate events', async () => {
-      const session = createTestSession('conv-idem-2', 'CA_idem_2');
+    test("different statuses for the same call create separate events", async () => {
+      const session = createTestSession("conv-idem-2", "CA_idem_2");
 
       // First: ringing
-      await handleStatusCallback(makeStatusRequest({
-        CallSid: 'CA_idem_2', CallStatus: 'ringing', Timestamp: 'T1',
-      }));
+      await handleStatusCallback(
+        makeStatusRequest({
+          CallSid: "CA_idem_2",
+          CallStatus: "ringing",
+          Timestamp: "T1",
+        }),
+      );
 
       // Second: in-progress (different status)
-      await handleStatusCallback(makeStatusRequest({
-        CallSid: 'CA_idem_2', CallStatus: 'in-progress', Timestamp: 'T2',
-      }));
+      await handleStatusCallback(
+        makeStatusRequest({
+          CallSid: "CA_idem_2",
+          CallStatus: "in-progress",
+          Timestamp: "T2",
+        }),
+      );
 
       const events = getCallEvents(session.id);
       expect(events.length).toBe(2);
     });
 
-    test('third replay of same callback is still no-op', async () => {
-      const session = createTestSession('conv-idem-3', 'CA_idem_3');
+    test("third replay of same callback is still no-op", async () => {
+      const session = createTestSession("conv-idem-3", "CA_idem_3");
       const params = {
-        CallSid: 'CA_idem_3',
-        CallStatus: 'completed',
-        Timestamp: '2025-01-15T11:00:00Z',
+        CallSid: "CA_idem_3",
+        CallStatus: "completed",
+        Timestamp: "2025-01-15T11:00:00Z",
       };
 
       // Process three times
@@ -250,7 +304,7 @@ describe('twilio webhook routes', () => {
       await handleStatusCallback(makeStatusRequest(params));
 
       const events = getCallEvents(session.id);
-      const endedEvents = events.filter(e => e.eventType === 'call_ended');
+      const endedEvents = events.filter((e) => e.eventType === "call_ended");
       expect(endedEvents.length).toBe(1);
     });
   });
@@ -258,13 +312,13 @@ describe('twilio webhook routes', () => {
   // ── Unknown status + malformed payload tests ──────────────────────
   // Call handleStatusCallback directly since direct routes are blocked.
 
-  describe('unknown status and malformed payloads', () => {
-    test('unknown Twilio status returns 200 but does not record event', async () => {
-      const session = createTestSession('conv-unknown-1', 'CA_unknown_1');
+  describe("unknown status and malformed payloads", () => {
+    test("unknown Twilio status returns 200 but does not record event", async () => {
+      const session = createTestSession("conv-unknown-1", "CA_unknown_1");
       const params = {
-        CallSid: 'CA_unknown_1',
-        CallStatus: 'some-future-status',
-        Timestamp: 'T1',
+        CallSid: "CA_unknown_1",
+        CallStatus: "some-future-status",
+        Timestamp: "T1",
       };
 
       const res = await handleStatusCallback(makeStatusRequest(params));
@@ -274,21 +328,25 @@ describe('twilio webhook routes', () => {
       expect(events.length).toBe(0);
     });
 
-    test('missing CallSid returns 200 (graceful handling)', async () => {
-      const res = await handleStatusCallback(makeStatusRequest({ CallStatus: 'completed' }));
+    test("missing CallSid returns 200 (graceful handling)", async () => {
+      const res = await handleStatusCallback(
+        makeStatusRequest({ CallStatus: "completed" }),
+      );
       expect(res.status).toBe(200);
     });
 
-    test('missing CallStatus returns 200 (graceful handling)', async () => {
-      const res = await handleStatusCallback(makeStatusRequest({ CallSid: 'CA_no_status' }));
+    test("missing CallStatus returns 200 (graceful handling)", async () => {
+      const res = await handleStatusCallback(
+        makeStatusRequest({ CallSid: "CA_no_status" }),
+      );
       expect(res.status).toBe(200);
     });
 
-    test('CallSid not matching any session returns 200 without error', async () => {
+    test("CallSid not matching any session returns 200 without error", async () => {
       const params = {
-        CallSid: 'CA_nonexistent_session',
-        CallStatus: 'completed',
-        Timestamp: 'T1',
+        CallSid: "CA_nonexistent_session",
+        CallStatus: "completed",
+        Timestamp: "T1",
       };
 
       const res = await handleStatusCallback(makeStatusRequest(params));
@@ -296,18 +354,21 @@ describe('twilio webhook routes', () => {
     });
   });
 
-  describe('status mapping and completion notifications', () => {
-    test('initiated status callback is accepted and recorded as call_started', async () => {
-      const session = createTestSession('conv-status-init-1', 'CA_status_init_1');
+  describe("status mapping and completion notifications", () => {
+    test("initiated status callback is accepted and recorded as call_started", async () => {
+      const session = createTestSession(
+        "conv-status-init-1",
+        "CA_status_init_1",
+      );
       const params = new URLSearchParams({
-        CallSid: 'CA_status_init_1',
-        CallStatus: 'initiated',
-        Timestamp: '2025-01-21T10:00:00Z',
+        CallSid: "CA_status_init_1",
+        CallStatus: "initiated",
+        Timestamp: "2025-01-21T10:00:00Z",
       });
 
-      const req = new Request('http://127.0.0.1/v1/calls/twilio/status', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      const req = new Request("http://127.0.0.1/v1/calls/twilio/status", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: params.toString(),
       });
       const res = await handleStatusCallback(req);
@@ -315,22 +376,27 @@ describe('twilio webhook routes', () => {
 
       const updated = getCallSession(session.id);
       expect(updated).not.toBeNull();
-      expect(updated!.status).toBe('initiated');
+      expect(updated!.status).toBe("initiated");
       const events = getCallEvents(session.id);
-      expect(events.filter((e) => e.eventType === 'call_started').length).toBe(1);
+      expect(events.filter((e) => e.eventType === "call_started").length).toBe(
+        1,
+      );
     });
 
-    test('answered status callback transitions to in_progress', async () => {
-      const session = createTestSession('conv-status-answered-1', 'CA_status_answered_1');
+    test("answered status callback transitions to in_progress", async () => {
+      const session = createTestSession(
+        "conv-status-answered-1",
+        "CA_status_answered_1",
+      );
       const params = new URLSearchParams({
-        CallSid: 'CA_status_answered_1',
-        CallStatus: 'answered',
-        Timestamp: '2025-01-21T10:05:00Z',
+        CallSid: "CA_status_answered_1",
+        CallStatus: "answered",
+        Timestamp: "2025-01-21T10:05:00Z",
       });
 
-      const req = new Request('http://127.0.0.1/v1/calls/twilio/status', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      const req = new Request("http://127.0.0.1/v1/calls/twilio/status", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: params.toString(),
       });
       const res = await handleStatusCallback(req);
@@ -338,29 +404,37 @@ describe('twilio webhook routes', () => {
 
       const updated = getCallSession(session.id);
       expect(updated).not.toBeNull();
-      expect(updated!.status).toBe('in_progress');
+      expect(updated!.status).toBe("in_progress");
       expect(updated!.startedAt).not.toBeNull();
       const events = getCallEvents(session.id);
-      expect(events.filter((e) => e.eventType === 'call_connected').length).toBe(1);
+      expect(
+        events.filter((e) => e.eventType === "call_connected").length,
+      ).toBe(1);
     });
 
-    test('completed status callback fires completion notifier when first entering terminal state', async () => {
-      const session = createTestSession('conv-status-complete-1', 'CA_status_complete_1');
-      updateCallSession(session.id, { status: 'in_progress', startedAt: Date.now() - 20_000 });
+    test("completed status callback fires completion notifier when first entering terminal state", async () => {
+      const session = createTestSession(
+        "conv-status-complete-1",
+        "CA_status_complete_1",
+      );
+      updateCallSession(session.id, {
+        status: "in_progress",
+        startedAt: Date.now() - 20_000,
+      });
       const params = new URLSearchParams({
-        CallSid: 'CA_status_complete_1',
-        CallStatus: 'completed',
-        Timestamp: '2025-01-21T10:10:00Z',
+        CallSid: "CA_status_complete_1",
+        CallStatus: "completed",
+        Timestamp: "2025-01-21T10:10:00Z",
       });
 
       let fired = 0;
-      registerCallCompletionNotifier('conv-status-complete-1', () => {
+      registerCallCompletionNotifier("conv-status-complete-1", () => {
         fired += 1;
       });
 
-      const req = new Request('http://127.0.0.1/v1/calls/twilio/status', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      const req = new Request("http://127.0.0.1/v1/calls/twilio/status", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: params.toString(),
       });
       const res = await handleStatusCallback(req);
@@ -368,146 +442,165 @@ describe('twilio webhook routes', () => {
 
       const updated = getCallSession(session.id);
       expect(updated).not.toBeNull();
-      expect(updated!.status).toBe('completed');
+      expect(updated!.status).toBe("completed");
       expect(updated!.endedAt).not.toBeNull();
       expect(fired).toBe(1);
 
-      unregisterCallCompletionNotifier('conv-status-complete-1');
+      unregisterCallCompletionNotifier("conv-status-complete-1");
     });
 
-    test('completed callback does not re-fire completion notifier for already terminal call', async () => {
-      const session = createTestSession('conv-status-complete-2', 'CA_status_complete_2');
-      updateCallSession(session.id, { status: 'completed', startedAt: Date.now() - 20_000, endedAt: Date.now() - 5_000 });
+    test("completed callback does not re-fire completion notifier for already terminal call", async () => {
+      const session = createTestSession(
+        "conv-status-complete-2",
+        "CA_status_complete_2",
+      );
+      updateCallSession(session.id, {
+        status: "completed",
+        startedAt: Date.now() - 20_000,
+        endedAt: Date.now() - 5_000,
+      });
       const params = new URLSearchParams({
-        CallSid: 'CA_status_complete_2',
-        CallStatus: 'completed',
-        Timestamp: '2025-01-21T10:15:00Z',
+        CallSid: "CA_status_complete_2",
+        CallStatus: "completed",
+        Timestamp: "2025-01-21T10:15:00Z",
       });
 
       let fired = 0;
-      registerCallCompletionNotifier('conv-status-complete-2', () => {
+      registerCallCompletionNotifier("conv-status-complete-2", () => {
         fired += 1;
       });
 
-      const req = new Request('http://127.0.0.1/v1/calls/twilio/status', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      const req = new Request("http://127.0.0.1/v1/calls/twilio/status", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: params.toString(),
       });
       const res = await handleStatusCallback(req);
       expect(res.status).toBe(200);
       expect(fired).toBe(0);
 
-      unregisterCallCompletionNotifier('conv-status-complete-2');
+      unregisterCallCompletionNotifier("conv-status-complete-2");
     });
   });
 
   // ── resolveRelayUrl unit tests ──────────────────────────────────────
 
-  describe('resolveRelayUrl', () => {
-    test('uses wssBaseUrl when explicitly set', () => {
-      const url = resolveRelayUrl('wss://ws.example.com', 'https://web.example.com');
-      expect(url).toBe('wss://ws.example.com/v1/calls/relay');
+  describe("resolveRelayUrl", () => {
+    test("uses wssBaseUrl when explicitly set", () => {
+      const url = resolveRelayUrl(
+        "wss://ws.example.com",
+        "https://web.example.com",
+      );
+      expect(url).toBe("wss://ws.example.com/v1/calls/relay");
     });
 
-    test('falls back to webhookBaseUrl when wssBaseUrl is empty', () => {
-      const url = resolveRelayUrl('', 'https://web.example.com');
-      expect(url).toBe('wss://web.example.com/v1/calls/relay');
+    test("falls back to webhookBaseUrl when wssBaseUrl is empty", () => {
+      const url = resolveRelayUrl("", "https://web.example.com");
+      expect(url).toBe("wss://web.example.com/v1/calls/relay");
     });
 
-    test('falls back to webhookBaseUrl when wssBaseUrl is whitespace-only', () => {
-      const url = resolveRelayUrl('   ', 'https://web.example.com');
-      expect(url).toBe('wss://web.example.com/v1/calls/relay');
+    test("falls back to webhookBaseUrl when wssBaseUrl is whitespace-only", () => {
+      const url = resolveRelayUrl("   ", "https://web.example.com");
+      expect(url).toBe("wss://web.example.com/v1/calls/relay");
     });
 
-    test('normalizes http to ws in webhookBaseUrl fallback', () => {
-      const url = resolveRelayUrl('', 'http://localhost:3000');
-      expect(url).toBe('ws://localhost:3000/v1/calls/relay');
+    test("normalizes http to ws in webhookBaseUrl fallback", () => {
+      const url = resolveRelayUrl("", "http://localhost:3000");
+      expect(url).toBe("ws://localhost:3000/v1/calls/relay");
     });
 
-    test('normalizes https to wss in webhookBaseUrl fallback', () => {
-      const url = resolveRelayUrl('', 'https://gateway.example.com');
-      expect(url).toBe('wss://gateway.example.com/v1/calls/relay');
+    test("normalizes https to wss in webhookBaseUrl fallback", () => {
+      const url = resolveRelayUrl("", "https://gateway.example.com");
+      expect(url).toBe("wss://gateway.example.com/v1/calls/relay");
     });
 
-    test('strips trailing slash from wssBaseUrl', () => {
-      const url = resolveRelayUrl('wss://ws.example.com/', 'https://web.example.com');
-      expect(url).toBe('wss://ws.example.com/v1/calls/relay');
+    test("strips trailing slash from wssBaseUrl", () => {
+      const url = resolveRelayUrl(
+        "wss://ws.example.com/",
+        "https://web.example.com",
+      );
+      expect(url).toBe("wss://ws.example.com/v1/calls/relay");
     });
 
-    test('strips trailing slash from webhookBaseUrl fallback', () => {
-      const url = resolveRelayUrl('', 'https://web.example.com/');
-      expect(url).toBe('wss://web.example.com/v1/calls/relay');
+    test("strips trailing slash from webhookBaseUrl fallback", () => {
+      const url = resolveRelayUrl("", "https://web.example.com/");
+      expect(url).toBe("wss://web.example.com/v1/calls/relay");
     });
 
-    test('preserves wss scheme in explicitly set wssBaseUrl', () => {
-      const url = resolveRelayUrl('wss://custom-relay.example.com', 'https://web.example.com');
-      expect(url).toBe('wss://custom-relay.example.com/v1/calls/relay');
+    test("preserves wss scheme in explicitly set wssBaseUrl", () => {
+      const url = resolveRelayUrl(
+        "wss://custom-relay.example.com",
+        "https://web.example.com",
+      );
+      expect(url).toBe("wss://custom-relay.example.com/v1/calls/relay");
     });
   });
 
-  describe('buildWelcomeGreeting', () => {
-    test('returns empty by default so orchestrator drives first opener', () => {
-      const greeting = buildWelcomeGreeting('check store hours for tomorrow');
-      expect(greeting).toBe('');
+  describe("buildWelcomeGreeting", () => {
+    test("returns empty by default so orchestrator drives first opener", () => {
+      const greeting = buildWelcomeGreeting("check store hours for tomorrow");
+      expect(greeting).toBe("");
     });
 
-    test('uses configured greeting override when provided', () => {
-      const greeting = buildWelcomeGreeting('check store hours', 'Custom hello');
-      expect(greeting).toBe('Custom hello');
+    test("uses configured greeting override when provided", () => {
+      const greeting = buildWelcomeGreeting(
+        "check store hours",
+        "Custom hello",
+      );
+      expect(greeting).toBe("Custom hello");
     });
   });
 
   // ── TwiML relay URL generation ──────────────────────────────────────
   // Call handleVoiceWebhook directly since direct routes are blocked.
 
-  describe('voice webhook TwiML relay URL', () => {
-    test('TwiML uses explicit wssBaseUrl when set', async () => {
-      mockWssBaseUrl = 'wss://explicit-ws.example.com';
+  describe("voice webhook TwiML relay URL", () => {
+    test("TwiML uses explicit wssBaseUrl when set", async () => {
+      mockWssBaseUrl = "wss://explicit-ws.example.com";
 
-      const session = createTestSession('conv-twiml-1', 'CA_twiml_1');
-      const req = makeVoiceRequest(session.id, { CallSid: 'CA_twiml_1' });
-
-      const res = await handleVoiceWebhook(req);
-
-      expect(res.status).toBe(200);
-      const twiml = await res.text();
-      expect(twiml).toContain('wss://explicit-ws.example.com/v1/calls/relay');
-    });
-
-    test('TwiML falls back to webhookBaseUrl when wssBaseUrl is empty', async () => {
-      mockWssBaseUrl = '';
-      mockWebhookBaseUrl = 'https://gateway.example.com';
-
-      const session = createTestSession('conv-twiml-2', 'CA_twiml_2');
-      const req = makeVoiceRequest(session.id, { CallSid: 'CA_twiml_2' });
+      const session = createTestSession("conv-twiml-1", "CA_twiml_1");
+      const req = makeVoiceRequest(session.id, { CallSid: "CA_twiml_1" });
 
       const res = await handleVoiceWebhook(req);
 
       expect(res.status).toBe(200);
       const twiml = await res.text();
-      expect(twiml).toContain('wss://gateway.example.com/v1/calls/relay');
+      expect(twiml).toContain("wss://explicit-ws.example.com/v1/calls/relay");
     });
 
-    test('TwiML omits welcome greeting by default so call opener is model-driven', async () => {
+    test("TwiML falls back to webhookBaseUrl when wssBaseUrl is empty", async () => {
+      mockWssBaseUrl = "";
+      mockWebhookBaseUrl = "https://gateway.example.com";
+
+      const session = createTestSession("conv-twiml-2", "CA_twiml_2");
+      const req = makeVoiceRequest(session.id, { CallSid: "CA_twiml_2" });
+
+      const res = await handleVoiceWebhook(req);
+
+      expect(res.status).toBe(200);
+      const twiml = await res.text();
+      expect(twiml).toContain("wss://gateway.example.com/v1/calls/relay");
+    });
+
+    test("TwiML omits welcome greeting by default so call opener is model-driven", async () => {
       const session = createTestSession(
-        'conv-twiml-3',
-        'CA_twiml_3',
-        'confirm appointment time\n\nContext: Prior email thread',
+        "conv-twiml-3",
+        "CA_twiml_3",
+        "confirm appointment time\n\nContext: Prior email thread",
       );
-      const req = makeVoiceRequest(session.id, { CallSid: 'CA_twiml_3' });
+      const req = makeVoiceRequest(session.id, { CallSid: "CA_twiml_3" });
 
       const res = await handleVoiceWebhook(req);
 
       expect(res.status).toBe(200);
       const twiml = await res.text();
-      expect(twiml).not.toContain('welcomeGreeting=');
+      expect(twiml).not.toContain("welcomeGreeting=");
     });
 
-    test('TwiML includes explicit welcome greeting override when configured', async () => {
-      process.env.CALL_WELCOME_GREETING = 'Custom transport greeting';
-      const session = createTestSession('conv-twiml-4', 'CA_twiml_4');
-      const req = makeVoiceRequest(session.id, { CallSid: 'CA_twiml_4' });
+    test("TwiML includes explicit welcome greeting override when configured", async () => {
+      process.env.CALL_WELCOME_GREETING = "Custom transport greeting";
+      const session = createTestSession("conv-twiml-4", "CA_twiml_4");
+      const req = makeVoiceRequest(session.id, { CallSid: "CA_twiml_4" });
 
       const res = await handleVoiceWebhook(req);
 
@@ -520,13 +613,13 @@ describe('twilio webhook routes', () => {
   // ── Handler-level idempotency concurrency tests ─────────────────
   // Call handleStatusCallback directly since direct routes are blocked.
 
-  describe('handler-level idempotency concurrency', () => {
-    test('two concurrent identical status callbacks produce exactly one event', async () => {
-      const session = createTestSession('conv-conc-1', 'CA_conc_1');
+  describe("handler-level idempotency concurrency", () => {
+    test("two concurrent identical status callbacks produce exactly one event", async () => {
+      const session = createTestSession("conv-conc-1", "CA_conc_1");
       const params = {
-        CallSid: 'CA_conc_1',
-        CallStatus: 'in-progress',
-        Timestamp: '2025-01-20T10:00:00Z',
+        CallSid: "CA_conc_1",
+        CallStatus: "in-progress",
+        Timestamp: "2025-01-20T10:00:00Z",
       };
 
       // Fire two identical callbacks concurrently
@@ -541,16 +634,18 @@ describe('twilio webhook routes', () => {
 
       // Only one event should be recorded despite two concurrent requests
       const events = getCallEvents(session.id);
-      const connectedEvents = events.filter(e => e.eventType === 'call_connected');
+      const connectedEvents = events.filter(
+        (e) => e.eventType === "call_connected",
+      );
       expect(connectedEvents.length).toBe(1);
     });
 
-    test('three concurrent identical status callbacks still produce exactly one event', async () => {
-      const session = createTestSession('conv-conc-2', 'CA_conc_2');
+    test("three concurrent identical status callbacks still produce exactly one event", async () => {
+      const session = createTestSession("conv-conc-2", "CA_conc_2");
       const params = {
-        CallSid: 'CA_conc_2',
-        CallStatus: 'completed',
-        Timestamp: '2025-01-20T11:00:00Z',
+        CallSid: "CA_conc_2",
+        CallStatus: "completed",
+        Timestamp: "2025-01-20T11:00:00Z",
       };
 
       // Fire three identical callbacks concurrently
@@ -565,16 +660,16 @@ describe('twilio webhook routes', () => {
       expect(res3.status).toBe(200);
 
       const events = getCallEvents(session.id);
-      const endedEvents = events.filter(e => e.eventType === 'call_ended');
+      const endedEvents = events.filter((e) => e.eventType === "call_ended");
       expect(endedEvents.length).toBe(1);
     });
 
-    test('processing failure releases claim and allows successful retry', async () => {
-      const session = createTestSession('conv-conc-3', 'CA_conc_3');
+    test("processing failure releases claim and allows successful retry", async () => {
+      const session = createTestSession("conv-conc-3", "CA_conc_3");
       const params = {
-        CallSid: 'CA_conc_3',
-        CallStatus: 'in-progress',
-        Timestamp: '2025-01-20T12:00:00Z',
+        CallSid: "CA_conc_3",
+        CallStatus: "in-progress",
+        Timestamp: "2025-01-20T12:00:00Z",
       };
 
       // Save original before spying so we can delegate on retry
@@ -584,14 +679,16 @@ describe('twilio webhook routes', () => {
       // real catch path (twilio-routes.ts:217), which calls
       // releaseCallbackClaim before re-throwing.
       let shouldThrow = true;
-      const spy = spyOn(callStore, 'recordCallEvent').mockImplementation((...args: Parameters<typeof callStore.recordCallEvent>) => {
-        if (shouldThrow) {
-          shouldThrow = false;
-          throw new Error('Simulated side-effect failure');
-        }
-        spy.mockRestore();
-        return originalRecordCallEvent(...args);
-      });
+      const spy = spyOn(callStore, "recordCallEvent").mockImplementation(
+        (...args: Parameters<typeof callStore.recordCallEvent>) => {
+          if (shouldThrow) {
+            shouldThrow = false;
+            throw new Error("Simulated side-effect failure");
+          }
+          spy.mockRestore();
+          return originalRecordCallEvent(...args);
+        },
+      );
 
       // Call handleStatusCallback directly so we can catch the re-thrown error
       const directReq = makeStatusRequest(params);
@@ -602,7 +699,7 @@ describe('twilio webhook routes', () => {
         await handleStatusCallback(directReq);
       } catch (err) {
         handlerThrew = true;
-        expect((err as Error).message).toBe('Simulated side-effect failure');
+        expect((err as Error).message).toBe("Simulated side-effect failure");
       }
       expect(handlerThrew).toBe(true);
 
@@ -616,16 +713,18 @@ describe('twilio webhook routes', () => {
 
       // Now exactly one event should exist from the successful retry
       const eventsAfterRetry = getCallEvents(session.id);
-      const connectedEvents = eventsAfterRetry.filter(e => e.eventType === 'call_connected');
+      const connectedEvents = eventsAfterRetry.filter(
+        (e) => e.eventType === "call_connected",
+      );
       expect(connectedEvents.length).toBe(1);
     });
 
-    test('permanently claimed callback cannot be retried', async () => {
-      const session = createTestSession('conv-conc-4', 'CA_conc_4');
+    test("permanently claimed callback cannot be retried", async () => {
+      const session = createTestSession("conv-conc-4", "CA_conc_4");
       const params = {
-        CallSid: 'CA_conc_4',
-        CallStatus: 'completed',
-        Timestamp: '2025-01-20T13:00:00Z',
+        CallSid: "CA_conc_4",
+        CallStatus: "completed",
+        Timestamp: "2025-01-20T13:00:00Z",
       };
 
       // First request processes successfully and finalizes the claim
@@ -633,14 +732,18 @@ describe('twilio webhook routes', () => {
       expect(res1.status).toBe(200);
 
       const events1 = getCallEvents(session.id);
-      expect(events1.filter(e => e.eventType === 'call_ended').length).toBe(1);
+      expect(events1.filter((e) => e.eventType === "call_ended").length).toBe(
+        1,
+      );
 
       // Second request (retry) — should be deduplicated, no new events
       const res2 = await handleStatusCallback(makeStatusRequest(params));
       expect(res2.status).toBe(200);
 
       const events2 = getCallEvents(session.id);
-      expect(events2.filter(e => e.eventType === 'call_ended').length).toBe(1);
+      expect(events2.filter((e) => e.eventType === "call_ended").length).toBe(
+        1,
+      );
     });
   });
 
@@ -648,87 +751,92 @@ describe('twilio webhook routes', () => {
   // Tests the inbound mode where callSessionId is absent and a session
   // is created/reused from the Twilio CallSid.
 
-  describe('inbound voice webhook', () => {
-    test('creates a new session from CallSid when callSessionId is absent', async () => {
+  describe("inbound voice webhook", () => {
+    test("creates a new session from CallSid when callSessionId is absent", async () => {
       const req = makeInboundVoiceRequest({
-        CallSid: 'CA_inbound_new_1',
-        From: '+14155551234',
-        To: '+15550001111',
+        CallSid: "CA_inbound_new_1",
+        From: "+14155551234",
+        To: "+15550001111",
       });
 
       const res = await handleVoiceWebhook(req);
 
       expect(res.status).toBe(200);
       const twiml = await res.text();
-      expect(twiml).toContain('<ConversationRelay');
-      expect(twiml).toContain('callSessionId=');
+      expect(twiml).toContain("<ConversationRelay");
+      expect(twiml).toContain("callSessionId=");
 
       // Verify session was created with the CallSid
-      const session = getCallSessionByCallSid('CA_inbound_new_1');
+      const session = getCallSessionByCallSid("CA_inbound_new_1");
       expect(session).not.toBeNull();
-      expect(session!.fromNumber).toBe('+14155551234');
-      expect(session!.toNumber).toBe('+15550001111');
-      expect(session!.providerCallSid).toBe('CA_inbound_new_1');
+      expect(session!.fromNumber).toBe("+14155551234");
+      expect(session!.toNumber).toBe("+15550001111");
+      expect(session!.providerCallSid).toBe("CA_inbound_new_1");
     });
 
-    test('replayed inbound webhook for same CallSid does not create duplicate sessions', async () => {
+    test("replayed inbound webhook for same CallSid does not create duplicate sessions", async () => {
       const params = {
-        CallSid: 'CA_inbound_replay_1',
-        From: '+14155551234',
-        To: '+15550001111',
+        CallSid: "CA_inbound_replay_1",
+        From: "+14155551234",
+        To: "+15550001111",
       };
 
       // First call — creates the session
       const res1 = await handleVoiceWebhook(makeInboundVoiceRequest(params));
       expect(res1.status).toBe(200);
 
-      const session1 = getCallSessionByCallSid('CA_inbound_replay_1');
+      const session1 = getCallSessionByCallSid("CA_inbound_replay_1");
       expect(session1).not.toBeNull();
 
       // Second call (replay) — reuses the same session
       const res2 = await handleVoiceWebhook(makeInboundVoiceRequest(params));
       expect(res2.status).toBe(200);
 
-      const session2 = getCallSessionByCallSid('CA_inbound_replay_1');
+      const session2 = getCallSessionByCallSid("CA_inbound_replay_1");
       expect(session2).not.toBeNull();
       expect(session2!.id).toBe(session1!.id);
     });
 
-    test('inbound webhook without CallSid returns 400', async () => {
+    test("inbound webhook without CallSid returns 400", async () => {
       const req = makeInboundVoiceRequest({
-        From: '+14155551234',
-        To: '+15550001111',
+        From: "+14155551234",
+        To: "+15550001111",
       });
 
       const res = await handleVoiceWebhook(req);
       expect(res.status).toBe(400);
     });
 
-    test('inbound webhook creates session with internal scope assistantId', async () => {
+    test("inbound webhook creates session with internal scope assistantId", async () => {
       const req = makeInboundVoiceRequest({
-        CallSid: 'CA_inbound_assist_1',
-        From: '+14155551234',
-        To: '+15550001111',
+        CallSid: "CA_inbound_assist_1",
+        From: "+14155551234",
+        To: "+15550001111",
       });
 
       const res = await handleVoiceWebhook(req);
 
       expect(res.status).toBe(200);
-      const session = getCallSessionByCallSid('CA_inbound_assist_1');
+      const session = getCallSessionByCallSid("CA_inbound_assist_1");
       expect(session).not.toBeNull();
       // Daemon always uses internal scope — external assistant IDs are not leaked into session state.
-      expect(session!.assistantId).toBe('self');
+      expect(session!.assistantId).toBe("self");
     });
 
-    test('outbound call flow remains non-regressed with callSessionId present', async () => {
-      const session = createTestSession('conv-outbound-compat-1', 'CA_outbound_compat_1');
-      const req = makeVoiceRequest(session.id, { CallSid: 'CA_outbound_compat_1' });
+    test("outbound call flow remains non-regressed with callSessionId present", async () => {
+      const session = createTestSession(
+        "conv-outbound-compat-1",
+        "CA_outbound_compat_1",
+      );
+      const req = makeVoiceRequest(session.id, {
+        CallSid: "CA_outbound_compat_1",
+      });
 
       const res = await handleVoiceWebhook(req);
 
       expect(res.status).toBe(200);
       const twiml = await res.text();
-      expect(twiml).toContain('<ConversationRelay');
+      expect(twiml).toContain("<ConversationRelay");
       expect(twiml).toContain(`callSessionId=${session.id}`);
     });
   });

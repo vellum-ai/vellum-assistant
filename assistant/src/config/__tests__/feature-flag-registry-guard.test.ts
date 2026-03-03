@@ -5,35 +5,39 @@
  * can safely consume the registry without runtime surprises.
  */
 
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-
-import { describe, expect, test } from 'bun:test';
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 function getRepoRoot(): string {
-  return join(process.cwd(), '..');
+  return join(process.cwd(), "..");
 }
 
 function getRegistryPath(): string {
-  return join(getRepoRoot(), 'meta', 'feature-flags', 'feature-flag-registry.json');
+  return join(
+    getRepoRoot(),
+    "meta",
+    "feature-flags",
+    "feature-flag-registry.json",
+  );
 }
 
 function loadRegistry(): Record<string, unknown> {
-  const raw = readFileSync(getRegistryPath(), 'utf-8');
+  const raw = readFileSync(getRegistryPath(), "utf-8");
   return JSON.parse(raw);
 }
 
-const VALID_SCOPES = new Set(['assistant', 'macos']);
+const VALID_SCOPES = new Set(["assistant", "macos"]);
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('unified feature flag registry guard', () => {
+describe("unified feature flag registry guard", () => {
   const registry = loadRegistry();
   const flags = registry.flags as Record<string, unknown>[];
 
@@ -41,8 +45,8 @@ describe('unified feature flag registry guard', () => {
   // version
   // -----------------------------------------------------------------------
 
-  test('version is a positive integer', () => {
-    expect(typeof registry.version).toBe('number');
+  test("version is a positive integer", () => {
+    expect(typeof registry.version).toBe("number");
     expect(Number.isInteger(registry.version)).toBe(true);
     expect(registry.version as number).toBeGreaterThan(0);
   });
@@ -51,45 +55,48 @@ describe('unified feature flag registry guard', () => {
   // required fields and types
   // -----------------------------------------------------------------------
 
-  test('all flags have required fields with correct types', () => {
+  test("all flags have required fields with correct types", () => {
     const violations: string[] = [];
 
     for (let i = 0; i < flags.length; i++) {
       const flag = flags[i];
       const prefix = `flags[${i}]`;
 
-      if (typeof flag !== 'object' || !flag || Array.isArray(flag)) {
+      if (typeof flag !== "object" || !flag || Array.isArray(flag)) {
         violations.push(`${prefix}: entry is not an object`);
         continue;
       }
 
-      if (typeof flag.id !== 'string' || flag.id.length === 0) {
+      if (typeof flag.id !== "string" || flag.id.length === 0) {
         violations.push(`${prefix}: missing or non-string 'id'`);
       }
-      if (typeof flag.scope !== 'string' || flag.scope.length === 0) {
+      if (typeof flag.scope !== "string" || flag.scope.length === 0) {
         violations.push(`${prefix}: missing or non-string 'scope'`);
       }
-      if (typeof flag.key !== 'string' || flag.key.length === 0) {
+      if (typeof flag.key !== "string" || flag.key.length === 0) {
         violations.push(`${prefix}: missing or non-string 'key'`);
       }
-      if (typeof flag.label !== 'string' || flag.label.length === 0) {
+      if (typeof flag.label !== "string" || flag.label.length === 0) {
         violations.push(`${prefix}: missing or non-string 'label'`);
       }
-      if (typeof flag.description !== 'string' || flag.description.length === 0) {
+      if (
+        typeof flag.description !== "string" ||
+        flag.description.length === 0
+      ) {
         violations.push(`${prefix}: missing or non-string 'description'`);
       }
-      if (typeof flag.defaultEnabled !== 'boolean') {
+      if (typeof flag.defaultEnabled !== "boolean") {
         violations.push(`${prefix}: missing or non-boolean 'defaultEnabled'`);
       }
     }
 
     if (violations.length > 0) {
       const message = [
-        'Found flags with missing or incorrectly-typed required fields.',
-        '',
-        'Violations:',
+        "Found flags with missing or incorrectly-typed required fields.",
+        "",
+        "Violations:",
         ...violations.map((v) => `  - ${v}`),
-      ].join('\n');
+      ].join("\n");
 
       expect(violations, message).toEqual([]);
     }
@@ -99,7 +106,7 @@ describe('unified feature flag registry guard', () => {
   // unique ids
   // -----------------------------------------------------------------------
 
-  test('all id values are unique', () => {
+  test("all id values are unique", () => {
     const seen = new Set<string>();
     const duplicates: string[] = [];
 
@@ -113,11 +120,11 @@ describe('unified feature flag registry guard', () => {
 
     if (duplicates.length > 0) {
       const message = [
-        'Found duplicate flag id values in the registry.',
-        '',
-        'Duplicates:',
+        "Found duplicate flag id values in the registry.",
+        "",
+        "Duplicates:",
         ...duplicates.map((d) => `  - ${d}`),
-      ].join('\n');
+      ].join("\n");
 
       expect(duplicates, message).toEqual([]);
     }
@@ -127,7 +134,7 @@ describe('unified feature flag registry guard', () => {
   // unique keys
   // -----------------------------------------------------------------------
 
-  test('all key values are unique', () => {
+  test("all key values are unique", () => {
     const seen = new Set<string>();
     const duplicates: string[] = [];
 
@@ -141,11 +148,11 @@ describe('unified feature flag registry guard', () => {
 
     if (duplicates.length > 0) {
       const message = [
-        'Found duplicate flag key values in the registry.',
-        '',
-        'Duplicates:',
+        "Found duplicate flag key values in the registry.",
+        "",
+        "Duplicates:",
         ...duplicates.map((d) => `  - ${d}`),
-      ].join('\n');
+      ].join("\n");
 
       expect(duplicates, message).toEqual([]);
     }
@@ -155,23 +162,25 @@ describe('unified feature flag registry guard', () => {
   // valid scopes
   // -----------------------------------------------------------------------
 
-  test('all scope values are valid', () => {
+  test("all scope values are valid", () => {
     const violations: string[] = [];
 
     for (const flag of flags) {
       const scope = flag.scope as string;
       if (!VALID_SCOPES.has(scope)) {
-        violations.push(`flag '${flag.id}' has invalid scope '${scope}' (expected 'assistant' or 'macos')`);
+        violations.push(
+          `flag '${flag.id}' has invalid scope '${scope}' (expected 'assistant' or 'macos')`,
+        );
       }
     }
 
     if (violations.length > 0) {
       const message = [
-        'Found flags with invalid scope values.',
-        '',
-        'Violations:',
+        "Found flags with invalid scope values.",
+        "",
+        "Violations:",
         ...violations.map((v) => `  - ${v}`),
-      ].join('\n');
+      ].join("\n");
 
       expect(violations, message).toEqual([]);
     }

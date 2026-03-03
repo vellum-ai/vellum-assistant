@@ -1,17 +1,17 @@
-import { beforeEach, describe, expect, mock,test } from 'bun:test';
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { DEFAULT_CONFIG } from '../config/defaults.js';
-import type { AssistantConfig } from '../config/types.js';
-import type { Provider, ProviderResponse } from '../providers/types.js';
-import type { CommitContext } from '../workspace/commit-message-provider.js';
+import { DEFAULT_CONFIG } from "../config/defaults.js";
+import type { AssistantConfig } from "../config/types.js";
+import type { Provider, ProviderResponse } from "../providers/types.js";
+import type { CommitContext } from "../workspace/commit-message-provider.js";
 
 // ---------------------------------------------------------------------------
 // Deep-clone a base config so each test can tweak fields independently
 // ---------------------------------------------------------------------------
 function cloneConfig(): AssistantConfig {
   const cfg = structuredClone(DEFAULT_CONFIG);
-  cfg.provider = 'anthropic';
-  cfg.apiKeys = { anthropic: 'sk-test-key' } as Record<string, string>;
+  cfg.provider = "anthropic";
+  cfg.apiKeys = { anthropic: "sk-test-key" } as Record<string, string>;
   cfg.workspaceGit.commitMessageLLM = {
     ...cfg.workspaceGit.commitMessageLLM,
     enabled: true,
@@ -37,7 +37,7 @@ let currentConfig = cloneConfig();
 // ---------------------------------------------------------------------------
 // Mock: config/loader
 // ---------------------------------------------------------------------------
-mock.module('../config/loader.js', () => ({
+mock.module("../config/loader.js", () => ({
   getConfig: () => currentConfig,
   loadConfig: () => currentConfig,
   invalidateConfigCache: () => {},
@@ -51,9 +51,9 @@ mock.module('../config/loader.js', () => ({
 // ---------------------------------------------------------------------------
 // Mock: providers/registry
 // ---------------------------------------------------------------------------
-const mockSendMessage = mock<Provider['sendMessage']>();
+const mockSendMessage = mock<Provider["sendMessage"]>();
 const mockProvider: Provider = {
-  name: 'mock-provider',
+  name: "mock-provider",
   sendMessage: mockSendMessage,
 };
 
@@ -64,19 +64,19 @@ let resolvedProvider: {
   usedFallbackPrimary: boolean;
 } | null = {
   provider: mockProvider,
-  configuredProviderName: 'anthropic',
-  selectedProviderName: 'anthropic',
+  configuredProviderName: "anthropic",
+  selectedProviderName: "anthropic",
   usedFallbackPrimary: false,
 };
 
-mock.module('../providers/provider-send-message.js', () => ({
+mock.module("../providers/provider-send-message.js", () => ({
   resolveConfiguredProvider: () => resolvedProvider,
 }));
 
 // ---------------------------------------------------------------------------
 // Mock: logger (noop)
 // ---------------------------------------------------------------------------
-mock.module('../util/logger.js', () => ({
+mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
@@ -89,38 +89,38 @@ mock.module('../util/logger.js', () => ({
 import {
   _resetCommitMessageGenerator,
   getCommitMessageGenerator,
-} from '../workspace/provider-commit-message-generator.js';
+} from "../workspace/provider-commit-message-generator.js";
 
 // ---------------------------------------------------------------------------
 // Shared context
 // ---------------------------------------------------------------------------
 const baseContext: CommitContext = {
-  workspaceDir: '/tmp/test',
-  trigger: 'turn' as const,
-  sessionId: 'sess_test',
+  workspaceDir: "/tmp/test",
+  trigger: "turn" as const,
+  sessionId: "sess_test",
   turnNumber: 1,
-  changedFiles: ['file.txt'],
+  changedFiles: ["file.txt"],
   timestampMs: Date.now(),
 };
 
 function makeSuccessResponse(text: string): ProviderResponse {
   return {
-    content: [{ type: 'text', text }],
-    model: 'mock-model',
+    content: [{ type: "text", text }],
+    model: "mock-model",
     usage: { inputTokens: 10, outputTokens: 5 },
-    stopReason: 'end_turn',
+    stopReason: "end_turn",
   };
 }
 
-describe('ProviderCommitMessageGenerator', () => {
+describe("ProviderCommitMessageGenerator", () => {
   beforeEach(() => {
     _resetCommitMessageGenerator();
     currentConfig = cloneConfig();
     mockSendMessage.mockReset();
     resolvedProvider = {
       provider: mockProvider,
-      configuredProviderName: 'anthropic',
-      selectedProviderName: 'anthropic',
+      configuredProviderName: "anthropic",
+      selectedProviderName: "anthropic",
       usedFallbackPrimary: false,
     };
   });
@@ -132,8 +132,8 @@ describe('ProviderCommitMessageGenerator', () => {
     const result = await gen.generateCommitMessage(baseContext, {
       changedFiles: baseContext.changedFiles,
     });
-    expect(result.source).toBe('deterministic');
-    expect(result.reason).toBe('disabled');
+    expect(result.source).toBe("deterministic");
+    expect(result.reason).toBe("disabled");
   });
 
   // 2. useConfiguredProvider false
@@ -143,8 +143,8 @@ describe('ProviderCommitMessageGenerator', () => {
     const result = await gen.generateCommitMessage(baseContext, {
       changedFiles: baseContext.changedFiles,
     });
-    expect(result.source).toBe('deterministic');
-    expect(result.reason).toBe('disabled');
+    expect(result.source).toBe("deterministic");
+    expect(result.reason).toBe("disabled");
   });
 
   // 3. missing API key
@@ -154,8 +154,8 @@ describe('ProviderCommitMessageGenerator', () => {
     const result = await gen.generateCommitMessage(baseContext, {
       changedFiles: baseContext.changedFiles,
     });
-    expect(result.source).toBe('deterministic');
-    expect(result.reason).toBe('missing_provider_api_key');
+    expect(result.source).toBe("deterministic");
+    expect(result.reason).toBe("missing_provider_api_key");
     expect(mockSendMessage).not.toHaveBeenCalled();
   });
 
@@ -167,21 +167,24 @@ describe('ProviderCommitMessageGenerator', () => {
     const result = await gen.generateCommitMessage(baseContext, {
       changedFiles: baseContext.changedFiles,
     });
-    expect(result.source).toBe('deterministic');
-    expect(result.reason).toBe('missing_provider_api_key');
+    expect(result.source).toBe("deterministic");
+    expect(result.reason).toBe("missing_provider_api_key");
     expect(mockSendMessage).not.toHaveBeenCalled();
   });
 
   // 3c. No resolvable provider despite keys
   test('no resolvable provider with keys present → returns deterministic, reason "provider_not_initialized"', async () => {
-    currentConfig.apiKeys = { anthropic: 'sk-test-key' } as Record<string, string>;
+    currentConfig.apiKeys = { anthropic: "sk-test-key" } as Record<
+      string,
+      string
+    >;
     resolvedProvider = null;
     const gen = getCommitMessageGenerator();
     const result = await gen.generateCommitMessage(baseContext, {
       changedFiles: baseContext.changedFiles,
     });
-    expect(result.source).toBe('deterministic');
-    expect(result.reason).toBe('provider_not_initialized');
+    expect(result.source).toBe("deterministic");
+    expect(result.reason).toBe("provider_not_initialized");
     expect(mockSendMessage).not.toHaveBeenCalled();
   });
 
@@ -192,7 +195,7 @@ describe('ProviderCommitMessageGenerator', () => {
     const gen = getCommitMessageGenerator();
 
     // Trigger a failure to open the breaker — provider throws
-    mockSendMessage.mockRejectedValueOnce(new Error('provider error'));
+    mockSendMessage.mockRejectedValueOnce(new Error("provider error"));
     await gen.generateCommitMessage(baseContext, {
       changedFiles: baseContext.changedFiles,
     });
@@ -201,8 +204,8 @@ describe('ProviderCommitMessageGenerator', () => {
     const result = await gen.generateCommitMessage(baseContext, {
       changedFiles: baseContext.changedFiles,
     });
-    expect(result.source).toBe('deterministic');
-    expect(result.reason).toBe('breaker_open');
+    expect(result.source).toBe("deterministic");
+    expect(result.reason).toBe("breaker_open");
   });
 
   // 5. insufficient budget
@@ -212,208 +215,213 @@ describe('ProviderCommitMessageGenerator', () => {
       changedFiles: baseContext.changedFiles,
       deadlineMs: Date.now() - 1000, // already expired
     });
-    expect(result.source).toBe('deterministic');
-    expect(result.reason).toBe('insufficient_budget');
+    expect(result.source).toBe("deterministic");
+    expect(result.reason).toBe("insufficient_budget");
   });
 
   // 6. LLM success
   test('LLM success → returns LLM message, source "llm", fast model passed', async () => {
-    const commitMsg = 'feat: add new feature';
+    const commitMsg = "feat: add new feature";
     mockSendMessage.mockResolvedValueOnce(makeSuccessResponse(commitMsg));
     const gen = getCommitMessageGenerator();
     const result = await gen.generateCommitMessage(baseContext, {
       changedFiles: baseContext.changedFiles,
     });
-    expect(result.source).toBe('llm');
+    expect(result.source).toBe("llm");
     expect(result.message).toBe(commitMsg);
     expect(result.reason).toBeUndefined();
 
     // Verify the fast model was passed in the config
     const callArgs = mockSendMessage.mock.calls[0];
     const options = callArgs[3] as { config: { model: string } };
-    expect(options.config.model).toBe('claude-haiku-4-5-20251001');
+    expect(options.config.model).toBe("claude-haiku-4-5-20251001");
   });
 
   // 7. fast-model override
-  test('fast-model override → uses override instead of default', async () => {
+  test("fast-model override → uses override instead of default", async () => {
     currentConfig.workspaceGit.commitMessageLLM.providerFastModelOverrides = {
-      anthropic: 'claude-sonnet-4-20250514',
+      anthropic: "claude-sonnet-4-20250514",
     };
-    const commitMsg = 'fix: resolve issue';
+    const commitMsg = "fix: resolve issue";
     mockSendMessage.mockResolvedValueOnce(makeSuccessResponse(commitMsg));
     const gen = getCommitMessageGenerator();
     const result = await gen.generateCommitMessage(baseContext, {
       changedFiles: baseContext.changedFiles,
     });
-    expect(result.source).toBe('llm');
+    expect(result.source).toBe("llm");
     expect(result.message).toBe(commitMsg);
 
     const callArgs = mockSendMessage.mock.calls[0];
     const options = callArgs[3] as { config: { model: string } };
-    expect(options.config.model).toBe('claude-sonnet-4-20250514');
+    expect(options.config.model).toBe("claude-sonnet-4-20250514");
   });
 
   // 8. LLM timeout
   test('LLM timeout → returns deterministic, reason "timeout"', async () => {
     // Set a very short timeout and make sendMessage take too long
     currentConfig.workspaceGit.commitMessageLLM.timeoutMs = 1;
-    mockSendMessage.mockImplementationOnce(
-      (_msgs, _tools, _sys, options) => {
-        // Wait until the abort signal fires
-        return new Promise<ProviderResponse>((_resolve, reject) => {
-          options?.signal?.addEventListener('abort', () => {
-            reject(new Error('aborted'));
-          });
+    mockSendMessage.mockImplementationOnce((_msgs, _tools, _sys, options) => {
+      // Wait until the abort signal fires
+      return new Promise<ProviderResponse>((_resolve, reject) => {
+        options?.signal?.addEventListener("abort", () => {
+          reject(new Error("aborted"));
         });
-      },
-    );
+      });
+    });
     const gen = getCommitMessageGenerator();
     const result = await gen.generateCommitMessage(baseContext, {
       changedFiles: baseContext.changedFiles,
     });
-    expect(result.source).toBe('deterministic');
-    expect(result.reason).toBe('timeout');
+    expect(result.source).toBe("deterministic");
+    expect(result.reason).toBe("timeout");
   });
 
   // 9. LLM provider error
   test('LLM provider error → returns deterministic, reason "provider_error"', async () => {
-    mockSendMessage.mockRejectedValueOnce(new Error('API error'));
+    mockSendMessage.mockRejectedValueOnce(new Error("API error"));
     const gen = getCommitMessageGenerator();
     const result = await gen.generateCommitMessage(baseContext, {
       changedFiles: baseContext.changedFiles,
     });
-    expect(result.source).toBe('deterministic');
-    expect(result.reason).toBe('provider_error');
+    expect(result.source).toBe("deterministic");
+    expect(result.reason).toBe("provider_error");
   });
 
   // 10. LLM invalid output (empty string)
   test('LLM invalid output (empty string) → returns deterministic, reason "invalid_output"', async () => {
-    mockSendMessage.mockResolvedValueOnce(makeSuccessResponse(''));
+    mockSendMessage.mockResolvedValueOnce(makeSuccessResponse(""));
     const gen = getCommitMessageGenerator();
     const result = await gen.generateCommitMessage(baseContext, {
       changedFiles: baseContext.changedFiles,
     });
-    expect(result.source).toBe('deterministic');
-    expect(result.reason).toBe('invalid_output');
+    expect(result.source).toBe("deterministic");
+    expect(result.reason).toBe("invalid_output");
   });
 
   // 11. LLM subject > 72 chars → truncated to 72, still source "llm"
   test('LLM subject > 72 chars → truncated to 72, source "llm"', async () => {
-    const longSubject = 'a'.repeat(100);
+    const longSubject = "a".repeat(100);
     mockSendMessage.mockResolvedValueOnce(makeSuccessResponse(longSubject));
     const gen = getCommitMessageGenerator();
     const result = await gen.generateCommitMessage(baseContext, {
       changedFiles: baseContext.changedFiles,
     });
-    expect(result.source).toBe('llm');
+    expect(result.source).toBe("llm");
     expect(result.reason).toBeUndefined();
-    expect(result.message.split('\n')[0].length).toBeLessThanOrEqual(72);
-    expect(result.message).toBe('a'.repeat(72));
+    expect(result.message.split("\n")[0].length).toBeLessThanOrEqual(72);
+    expect(result.message).toBe("a".repeat(72));
   });
 
   // 11b. LLM subject > 72 chars with body → subject truncated, body preserved
-  test('LLM subject > 72 chars with body → subject truncated, body preserved', async () => {
-    const longSubject = 'b'.repeat(80);
-    const body = '\n\n- bullet one\n- bullet two';
-    mockSendMessage.mockResolvedValueOnce(makeSuccessResponse(longSubject + body));
+  test("LLM subject > 72 chars with body → subject truncated, body preserved", async () => {
+    const longSubject = "b".repeat(80);
+    const body = "\n\n- bullet one\n- bullet two";
+    mockSendMessage.mockResolvedValueOnce(
+      makeSuccessResponse(longSubject + body),
+    );
     const gen = getCommitMessageGenerator();
     const result = await gen.generateCommitMessage(baseContext, {
       changedFiles: baseContext.changedFiles,
     });
-    expect(result.source).toBe('llm');
+    expect(result.source).toBe("llm");
     expect(result.reason).toBeUndefined();
-    expect(result.message.split('\n')[0].length).toBeLessThanOrEqual(72);
-    expect(result.message).toBe('b'.repeat(72) + body);
+    expect(result.message.split("\n")[0].length).toBeLessThanOrEqual(72);
+    expect(result.message).toBe("b".repeat(72) + body);
   });
 
   // 12. Keyless provider (Ollama) without fast model → missing_fast_model (skips API key check)
   test('Ollama without API key or fast model → returns deterministic, reason "missing_fast_model"', async () => {
-    (currentConfig as Record<string, unknown>).provider = 'ollama';
+    (currentConfig as Record<string, unknown>).provider = "ollama";
     currentConfig.apiKeys = {} as Record<string, string>;
     resolvedProvider = {
       provider: mockProvider,
-      configuredProviderName: 'ollama',
-      selectedProviderName: 'ollama',
+      configuredProviderName: "ollama",
+      selectedProviderName: "ollama",
       usedFallbackPrimary: false,
     };
     const gen = getCommitMessageGenerator();
     const result = await gen.generateCommitMessage(baseContext, {
       changedFiles: baseContext.changedFiles,
     });
-    expect(result.source).toBe('deterministic');
-    expect(result.reason).toBe('missing_fast_model');
-    expect(result.reason).not.toBe('missing_provider_api_key');
+    expect(result.source).toBe("deterministic");
+    expect(result.reason).toBe("missing_fast_model");
+    expect(result.reason).not.toBe("missing_provider_api_key");
     expect(mockSendMessage).not.toHaveBeenCalled();
   });
 
   // 13. Unknown provider without fast model default → missing_fast_model, no provider call
   test('Unknown provider without fast model default → returns deterministic, reason "missing_fast_model"', async () => {
-    (currentConfig as Record<string, unknown>).provider = 'exotic-provider';
-    currentConfig.apiKeys = { 'exotic-provider': 'sk-exotic' } as Record<string, string>;
+    (currentConfig as Record<string, unknown>).provider = "exotic-provider";
+    currentConfig.apiKeys = { "exotic-provider": "sk-exotic" } as Record<
+      string,
+      string
+    >;
     resolvedProvider = {
       provider: mockProvider,
-      configuredProviderName: 'exotic-provider',
-      selectedProviderName: 'exotic-provider',
+      configuredProviderName: "exotic-provider",
+      selectedProviderName: "exotic-provider",
       usedFallbackPrimary: false,
     };
     const gen = getCommitMessageGenerator();
     const result = await gen.generateCommitMessage(baseContext, {
       changedFiles: baseContext.changedFiles,
     });
-    expect(result.source).toBe('deterministic');
-    expect(result.reason).toBe('missing_fast_model');
+    expect(result.source).toBe("deterministic");
+    expect(result.reason).toBe("missing_fast_model");
     expect(mockSendMessage).not.toHaveBeenCalled();
   });
 
   // 14. Fast-model override enables LLM path for provider without built-in default
-  test('fast-model override enables LLM path for provider without built-in default', async () => {
-    (currentConfig as Record<string, unknown>).provider = 'ollama';
+  test("fast-model override enables LLM path for provider without built-in default", async () => {
+    (currentConfig as Record<string, unknown>).provider = "ollama";
     currentConfig.apiKeys = {} as Record<string, string>; // Ollama is keyless
     resolvedProvider = {
       provider: mockProvider,
-      configuredProviderName: 'ollama',
-      selectedProviderName: 'ollama',
+      configuredProviderName: "ollama",
+      selectedProviderName: "ollama",
       usedFallbackPrimary: false,
     };
     currentConfig.workspaceGit.commitMessageLLM.providerFastModelOverrides = {
-      ollama: 'llama3.2:3b',
+      ollama: "llama3.2:3b",
     };
-    const commitMsg = 'fix: local model commit';
+    const commitMsg = "fix: local model commit";
     mockSendMessage.mockResolvedValueOnce(makeSuccessResponse(commitMsg));
     const gen = getCommitMessageGenerator();
     const result = await gen.generateCommitMessage(baseContext, {
       changedFiles: baseContext.changedFiles,
     });
-    expect(result.source).toBe('llm');
+    expect(result.source).toBe("llm");
     expect(result.message).toBe(commitMsg);
 
     // Verify the override model was passed
     const callArgs = mockSendMessage.mock.calls[0];
     const options = callArgs[3] as { config: { model: string } };
-    expect(options.config.model).toBe('llama3.2:3b');
+    expect(options.config.model).toBe("llama3.2:3b");
   });
 
   // 15. Fail-open fallback provider uses fallback provider's fast-model mapping
-  test('configured provider unavailable -> selected fallback provider model mapping is used', async () => {
-    currentConfig.provider = 'anthropic';
-    currentConfig.providerOrder = ['openai'];
-    currentConfig.apiKeys = { openai: 'sk-openai' } as Record<string, string>;
+  test("configured provider unavailable -> selected fallback provider model mapping is used", async () => {
+    currentConfig.provider = "anthropic";
+    currentConfig.providerOrder = ["openai"];
+    currentConfig.apiKeys = { openai: "sk-openai" } as Record<string, string>;
     resolvedProvider = {
       provider: mockProvider,
-      configuredProviderName: 'anthropic',
-      selectedProviderName: 'openai',
+      configuredProviderName: "anthropic",
+      selectedProviderName: "openai",
       usedFallbackPrimary: true,
     };
-    mockSendMessage.mockResolvedValueOnce(makeSuccessResponse('fix: fail-open commit'));
+    mockSendMessage.mockResolvedValueOnce(
+      makeSuccessResponse("fix: fail-open commit"),
+    );
 
     const gen = getCommitMessageGenerator();
     const result = await gen.generateCommitMessage(baseContext, {
       changedFiles: baseContext.changedFiles,
     });
 
-    expect(result.source).toBe('llm');
+    expect(result.source).toBe("llm");
     const callArgs = mockSendMessage.mock.calls[0];
     const options = callArgs[3] as { config: { model: string } };
-    expect(options.config.model).toBe('gpt-4o-mini');
+    expect(options.config.model).toBe("gpt-4o-mini");
   });
 });

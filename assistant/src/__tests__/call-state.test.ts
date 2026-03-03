@@ -1,12 +1,13 @@
-import { beforeEach, describe, expect, mock,test } from 'bun:test';
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module('../util/logger.js', () => ({
-  getLogger: () => new Proxy({} as Record<string, unknown>, {
-    get: () => () => {},
-  }),
+mock.module("../util/logger.js", () => ({
+  getLogger: () =>
+    new Proxy({} as Record<string, unknown>, {
+      get: () => () => {},
+    }),
 }));
 
-import type { CallController } from '../calls/call-controller.js';
+import type { CallController } from "../calls/call-controller.js";
 import {
   fireCallCompletionNotifier,
   fireCallQuestionNotifier,
@@ -20,155 +21,168 @@ import {
   unregisterCallController,
   unregisterCallQuestionNotifier,
   unregisterCallTranscriptNotifier,
-} from '../calls/call-state.js';
+} from "../calls/call-state.js";
 
-describe('call-state', () => {
+describe("call-state", () => {
   // Clean up notifiers between tests
   beforeEach(() => {
-    unregisterCallQuestionNotifier('test-conv');
-    unregisterCallTranscriptNotifier('test-conv');
-    unregisterCallCompletionNotifier('test-conv');
-    unregisterCallController('test-session');
+    unregisterCallQuestionNotifier("test-conv");
+    unregisterCallTranscriptNotifier("test-conv");
+    unregisterCallCompletionNotifier("test-conv");
+    unregisterCallController("test-session");
   });
 
   // ── Question notifiers ────────────────────────────────────────────
 
-  test('registerCallQuestionNotifier + fireCallQuestionNotifier: callback receives args', () => {
-    let receivedSessionId = '';
-    let receivedQuestion = '';
+  test("registerCallQuestionNotifier + fireCallQuestionNotifier: callback receives args", () => {
+    let receivedSessionId = "";
+    let receivedQuestion = "";
 
-    registerCallQuestionNotifier('test-conv', (callSessionId, question) => {
+    registerCallQuestionNotifier("test-conv", (callSessionId, question) => {
       receivedSessionId = callSessionId;
       receivedQuestion = question;
     });
 
-    fireCallQuestionNotifier('test-conv', 'session-123', 'What is the date?');
+    fireCallQuestionNotifier("test-conv", "session-123", "What is the date?");
 
-    expect(receivedSessionId).toBe('session-123');
-    expect(receivedQuestion).toBe('What is the date?');
+    expect(receivedSessionId).toBe("session-123");
+    expect(receivedQuestion).toBe("What is the date?");
   });
 
-  test('unregisterCallQuestionNotifier: fire after unregister does nothing', () => {
+  test("unregisterCallQuestionNotifier: fire after unregister does nothing", () => {
     let called = false;
 
-    registerCallQuestionNotifier('test-conv', () => {
+    registerCallQuestionNotifier("test-conv", () => {
       called = true;
     });
 
-    unregisterCallQuestionNotifier('test-conv');
-    fireCallQuestionNotifier('test-conv', 'session-123', 'Some question');
+    unregisterCallQuestionNotifier("test-conv");
+    fireCallQuestionNotifier("test-conv", "session-123", "Some question");
 
     expect(called).toBe(false);
   });
 
-  test('fireCallQuestionNotifier does nothing when no notifier is registered', () => {
+  test("fireCallQuestionNotifier does nothing when no notifier is registered", () => {
     // Should not throw
-    fireCallQuestionNotifier('unregistered-conv', 'session-1', 'question');
+    fireCallQuestionNotifier("unregistered-conv", "session-1", "question");
   });
 
   // ── Transcript notifiers ──────────────────────────────────────────
 
-  test('registerCallTranscriptNotifier + fireCallTranscriptNotifier: callback receives args', () => {
-    let receivedSessionId = '';
-    let receivedSpeaker = '';
-    let receivedText = '';
+  test("registerCallTranscriptNotifier + fireCallTranscriptNotifier: callback receives args", () => {
+    let receivedSessionId = "";
+    let receivedSpeaker = "";
+    let receivedText = "";
 
-    registerCallTranscriptNotifier('test-conv', (callSessionId, speaker, text) => {
-      receivedSessionId = callSessionId;
-      receivedSpeaker = speaker;
-      receivedText = text;
-    });
+    registerCallTranscriptNotifier(
+      "test-conv",
+      (callSessionId, speaker, text) => {
+        receivedSessionId = callSessionId;
+        receivedSpeaker = speaker;
+        receivedText = text;
+      },
+    );
 
-    fireCallTranscriptNotifier('test-conv', 'session-321', 'caller', 'Hello from caller');
+    fireCallTranscriptNotifier(
+      "test-conv",
+      "session-321",
+      "caller",
+      "Hello from caller",
+    );
 
-    expect(receivedSessionId).toBe('session-321');
-    expect(receivedSpeaker).toBe('caller');
-    expect(receivedText).toBe('Hello from caller');
+    expect(receivedSessionId).toBe("session-321");
+    expect(receivedSpeaker).toBe("caller");
+    expect(receivedText).toBe("Hello from caller");
   });
 
-  test('unregisterCallTranscriptNotifier: fire after unregister does nothing', () => {
+  test("unregisterCallTranscriptNotifier: fire after unregister does nothing", () => {
     let called = false;
 
-    registerCallTranscriptNotifier('test-conv', () => {
+    registerCallTranscriptNotifier("test-conv", () => {
       called = true;
     });
 
-    unregisterCallTranscriptNotifier('test-conv');
-    fireCallTranscriptNotifier('test-conv', 'session-321', 'assistant', 'Test');
+    unregisterCallTranscriptNotifier("test-conv");
+    fireCallTranscriptNotifier("test-conv", "session-321", "assistant", "Test");
 
     expect(called).toBe(false);
   });
 
-  test('fireCallTranscriptNotifier does nothing when no notifier is registered', () => {
-    fireCallTranscriptNotifier('unregistered-conv', 'session-1', 'caller', 'text');
+  test("fireCallTranscriptNotifier does nothing when no notifier is registered", () => {
+    fireCallTranscriptNotifier(
+      "unregistered-conv",
+      "session-1",
+      "caller",
+      "text",
+    );
   });
 
   // ── Completion notifiers ──────────────────────────────────────────
 
-  test('registerCallCompletionNotifier + fireCallCompletionNotifier: callback receives callSessionId', () => {
-    let receivedSessionId = '';
+  test("registerCallCompletionNotifier + fireCallCompletionNotifier: callback receives callSessionId", () => {
+    let receivedSessionId = "";
 
-    registerCallCompletionNotifier('test-conv', (callSessionId) => {
+    registerCallCompletionNotifier("test-conv", (callSessionId) => {
       receivedSessionId = callSessionId;
     });
 
-    fireCallCompletionNotifier('test-conv', 'session-456');
+    fireCallCompletionNotifier("test-conv", "session-456");
 
-    expect(receivedSessionId).toBe('session-456');
+    expect(receivedSessionId).toBe("session-456");
   });
 
-  test('unregisterCallCompletionNotifier: fire after unregister does nothing', () => {
+  test("unregisterCallCompletionNotifier: fire after unregister does nothing", () => {
     let called = false;
 
-    registerCallCompletionNotifier('test-conv', () => {
+    registerCallCompletionNotifier("test-conv", () => {
       called = true;
     });
 
-    unregisterCallCompletionNotifier('test-conv');
-    fireCallCompletionNotifier('test-conv', 'session-456');
+    unregisterCallCompletionNotifier("test-conv");
+    fireCallCompletionNotifier("test-conv", "session-456");
 
     expect(called).toBe(false);
   });
 
-  test('fireCallCompletionNotifier does nothing when no notifier is registered', () => {
+  test("fireCallCompletionNotifier does nothing when no notifier is registered", () => {
     // Should not throw
-    fireCallCompletionNotifier('unregistered-conv', 'session-1');
+    fireCallCompletionNotifier("unregistered-conv", "session-1");
   });
 
   // ── Controller registry ─────────────────────────────────────────
 
-  test('registerCallController + getCallController: retrieves controller', () => {
-    const fakeController = { id: 'fake-ctrl' } as unknown as CallController;
+  test("registerCallController + getCallController: retrieves controller", () => {
+    const fakeController = { id: "fake-ctrl" } as unknown as CallController;
 
-    registerCallController('test-session', fakeController);
+    registerCallController("test-session", fakeController);
 
-    const retrieved = getCallController('test-session');
+    const retrieved = getCallController("test-session");
     expect(retrieved).toBe(fakeController);
   });
 
-  test('unregisterCallController: getCallController returns undefined after unregister', () => {
-    const fakeController = { id: 'fake-ctrl-2' } as unknown as CallController;
+  test("unregisterCallController: getCallController returns undefined after unregister", () => {
+    const fakeController = { id: "fake-ctrl-2" } as unknown as CallController;
 
-    registerCallController('test-session', fakeController);
-    unregisterCallController('test-session');
+    registerCallController("test-session", fakeController);
+    unregisterCallController("test-session");
 
-    const retrieved = getCallController('test-session');
+    const retrieved = getCallController("test-session");
     expect(retrieved).toBeUndefined();
   });
 
-  test('getCallController returns undefined for unregistered session', () => {
-    const retrieved = getCallController('nonexistent-session');
+  test("getCallController returns undefined for unregistered session", () => {
+    const retrieved = getCallController("nonexistent-session");
     expect(retrieved).toBeUndefined();
   });
 
-  test('registering a new controller for same session overwrites the previous one', () => {
-    const first = { id: 'first' } as unknown as CallController;
-    const second = { id: 'second' } as unknown as CallController;
+  test("registering a new controller for same session overwrites the previous one", () => {
+    const first = { id: "first" } as unknown as CallController;
+    const second = { id: "second" } as unknown as CallController;
 
-    registerCallController('test-session', first);
-    registerCallController('test-session', second);
+    registerCallController("test-session", first);
+    registerCallController("test-session", second);
 
-    const retrieved = getCallController('test-session');
+    const retrieved = getCallController("test-session");
     expect(retrieved).toBe(second);
   });
 });

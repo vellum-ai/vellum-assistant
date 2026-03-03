@@ -1,71 +1,71 @@
-import * as realFs from 'node:fs';
-import { join } from 'node:path';
+import * as realFs from "node:fs";
+import { join } from "node:path";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { beforeEach,describe, expect, mock, test } from 'bun:test';
+const TEST_DIR = "/tmp/vellum-user-ref-test";
 
-const TEST_DIR = '/tmp/vellum-user-ref-test';
-
-mock.module('../util/platform.js', () => ({
+mock.module("../util/platform.js", () => ({
   getWorkspacePromptPath: (file: string) => join(TEST_DIR, file),
 }));
 
 // Mutable state the tests control
 let mockFileExists = false;
-let mockFileContent = '';
+let mockFileContent = "";
 
-mock.module('node:fs', () => ({
+mock.module("node:fs", () => ({
   ...realFs,
   existsSync: (path: string) => {
-    if (path === join(TEST_DIR, 'USER.md')) return mockFileExists;
+    if (path === join(TEST_DIR, "USER.md")) return mockFileExists;
     return false;
   },
   readFileSync: (path: string, _encoding: string) => {
-    if (path === join(TEST_DIR, 'USER.md') && mockFileExists) return mockFileContent;
+    if (path === join(TEST_DIR, "USER.md") && mockFileExists)
+      return mockFileContent;
     throw new Error(`ENOENT: no such file: ${path}`);
   },
 }));
 
 // Import after mocks are in place
-const { resolveUserReference } = await import('../config/user-reference.js');
+const { resolveUserReference } = await import("../config/user-reference.js");
 
-describe('resolveUserReference', () => {
+describe("resolveUserReference", () => {
   beforeEach(() => {
     mockFileExists = false;
-    mockFileContent = '';
+    mockFileContent = "";
   });
 
   test('returns "my human" when USER.md does not exist', () => {
     mockFileExists = false;
-    expect(resolveUserReference()).toBe('my human');
+    expect(resolveUserReference()).toBe("my human");
   });
 
   test('returns "my human" when preferred name field is empty', () => {
     mockFileExists = true;
     mockFileContent = [
-      '## Onboarding Snapshot',
-      '',
-      '- Preferred name/reference:',
-      '- Goals:',
-      '- Locale:',
-    ].join('\n');
-    expect(resolveUserReference()).toBe('my human');
+      "## Onboarding Snapshot",
+      "",
+      "- Preferred name/reference:",
+      "- Goals:",
+      "- Locale:",
+    ].join("\n");
+    expect(resolveUserReference()).toBe("my human");
   });
 
-  test('returns the configured name when it is set', () => {
+  test("returns the configured name when it is set", () => {
     mockFileExists = true;
     mockFileContent = [
-      '## Onboarding Snapshot',
-      '',
-      '- Preferred name/reference: John',
-      '- Goals: ship fast',
-      '- Locale: en-US',
-    ].join('\n');
-    expect(resolveUserReference()).toBe('John');
+      "## Onboarding Snapshot",
+      "",
+      "- Preferred name/reference: John",
+      "- Goals: ship fast",
+      "- Locale: en-US",
+    ].join("\n");
+    expect(resolveUserReference()).toBe("John");
   });
 
-  test('trims whitespace around the configured name', () => {
+  test("trims whitespace around the configured name", () => {
     mockFileExists = true;
-    mockFileContent = '- Preferred name/reference:   Alice   \n';
-    expect(resolveUserReference()).toBe('Alice');
+    mockFileContent = "- Preferred name/reference:   Alice   \n";
+    expect(resolveUserReference()).toBe("Alice");
   });
 });

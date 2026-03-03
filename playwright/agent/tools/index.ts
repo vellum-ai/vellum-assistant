@@ -12,6 +12,7 @@ import * as applescriptTool from "./applescript";
 import * as check from "./check";
 import * as click from "./click";
 import * as fill from "./fill";
+import * as fillSecureCredential from "./fill-secure-credential";
 import * as getCurrentUrl from "./get-current-url";
 import * as getPageContent from "./get-page-content";
 import * as getText from "./get-text";
@@ -34,6 +35,7 @@ const TOOLS: ToolModule[] = [
   check,
   click,
   fill,
+  fillSecureCredential,
   getCurrentUrl,
   getPageContent,
   getText,

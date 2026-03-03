@@ -1,39 +1,49 @@
-import { mkdirSync, rmSync,writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { afterEach,beforeEach, describe, expect, test } from 'bun:test';
-
-import { HookManager } from '../hooks/manager.js';
+import { HookManager } from "../hooks/manager.js";
 
 let hooksDir: string;
 
-function makeManifest(name: string, events: string[] = ['pre-llm-call']): string {
+function makeManifest(
+  name: string,
+  events: string[] = ["pre-llm-call"],
+): string {
   return JSON.stringify({
     name,
     description: `Test hook: ${name}`,
-    version: '1.0.0',
+    version: "1.0.0",
     events,
-    script: 'run.sh',
+    script: "run.sh",
   });
 }
 
-function installHook(name: string, events: string[] = ['pre-llm-call']): void {
+function installHook(name: string, events: string[] = ["pre-llm-call"]): void {
   const hookDir = join(hooksDir, name);
   mkdirSync(hookDir, { recursive: true });
-  writeFileSync(join(hookDir, 'hook.json'), makeManifest(name, events));
-  writeFileSync(join(hookDir, 'run.sh'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  writeFileSync(join(hookDir, "hook.json"), makeManifest(name, events));
+  writeFileSync(join(hookDir, "run.sh"), "#!/bin/sh\nexit 0\n", {
+    mode: 0o755,
+  });
 }
 
 function writeConfig(hooks: Record<string, { enabled: boolean }>): void {
-  writeFileSync(join(hooksDir, 'config.json'), JSON.stringify({ version: 1, hooks }));
+  writeFileSync(
+    join(hooksDir, "config.json"),
+    JSON.stringify({ version: 1, hooks }),
+  );
 }
 
-describe('hooks watch mode', () => {
+describe("hooks watch mode", () => {
   let manager: HookManager;
 
   beforeEach(() => {
-    hooksDir = join(tmpdir(), `hooks-watch-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    hooksDir = join(
+      tmpdir(),
+      `hooks-watch-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    );
     mkdirSync(hooksDir, { recursive: true });
   });
 
@@ -42,9 +52,9 @@ describe('hooks watch mode', () => {
     rmSync(hooksDir, { recursive: true, force: true });
   });
 
-  test('reload() re-discovers hooks and rebuilds event index', () => {
-    installHook('hook-a', ['pre-llm-call']);
-    writeConfig({ 'hook-a': { enabled: true } });
+  test("reload() re-discovers hooks and rebuilds event index", () => {
+    installHook("hook-a", ["pre-llm-call"]);
+    writeConfig({ "hook-a": { enabled: true } });
 
     manager = new HookManager();
     // Initialize by discovering hooks from our temp dir
@@ -59,7 +69,7 @@ describe('hooks watch mode', () => {
     expect(() => manager.reload()).not.toThrow();
   });
 
-  test('stopWatching() cleans up watcher and timer', () => {
+  test("stopWatching() cleans up watcher and timer", () => {
     manager = new HookManager();
     // stopWatching before watch should not throw
     expect(() => manager.stopWatching()).not.toThrow();
@@ -69,14 +79,14 @@ describe('hooks watch mode', () => {
     expect(() => manager.stopWatching()).not.toThrow();
   });
 
-  test('watch() on non-existent directory does not throw', () => {
+  test("watch() on non-existent directory does not throw", () => {
     manager = new HookManager();
     // The default hooks dir may not exist in test; should be safe
     expect(() => manager.watch()).not.toThrow();
     manager.stopWatching();
   });
 
-  test('reload() updates enabled hooks count', () => {
+  test("reload() updates enabled hooks count", () => {
     manager = new HookManager();
     manager.initialize();
 
@@ -91,7 +101,7 @@ describe('hooks watch mode', () => {
     expect(hooks1.length).toBe(hooks2.length);
   });
 
-  test('multiple stopWatching() calls are idempotent', () => {
+  test("multiple stopWatching() calls are idempotent", () => {
     manager = new HookManager();
     manager.watch();
     manager.stopWatching();

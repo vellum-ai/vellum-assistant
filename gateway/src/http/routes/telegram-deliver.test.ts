@@ -1,6 +1,11 @@
 import { describe, it, expect, mock, beforeEach } from "bun:test";
 import type { GatewayConfig } from "../../config.js";
+import { initSigningKey, mintToken } from "../../auth/token-service.js";
+import { CURRENT_POLICY_EPOCH } from "../../auth/policy.js";
 import { createTelegramDeliverHandler } from "./telegram-deliver.js";
+
+const TEST_SIGNING_KEY = Buffer.from('test-signing-key-at-least-32-bytes-long');
+initSigningKey(TEST_SIGNING_KEY);
 
 // ---- Mocks ----
 
@@ -32,11 +37,8 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     maxWebhookPayloadBytes: 1024 * 1024,
     port: 7830,
     routingEntries: [],
-    runtimeBearerToken: undefined,
-    runtimeGatewayOriginSecret: undefined,
     runtimeInitialBackoffMs: 500,
     runtimeMaxRetries: 2,
-    runtimeProxyBearerToken: undefined,
     runtimeProxyEnabled: false,
     runtimeProxyRequireAuth: true,
     runtimeTimeoutMs: 30000,
@@ -68,13 +70,21 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     trustProxy: false,
     ...overrides,
   };
-  if (merged.runtimeGatewayOriginSecret === undefined) {
-    merged.runtimeGatewayOriginSecret = merged.runtimeBearerToken;
-  }
   return merged;
 }
 
-const TOKEN = "test-deliver-token";
+/** Mint a valid daemon JWT for deliver auth. */
+function mintDeliverToken(): string {
+  return mintToken({
+    aud: 'vellum-daemon',
+    sub: 'svc:gateway:self',
+    scope_profile: 'gateway_service_v1',
+    policy_epoch: CURRENT_POLICY_EPOCH,
+    ttlSeconds: 300,
+  });
+}
+
+const TOKEN = mintDeliverToken();
 
 function makeRequest(body: unknown, headers?: Record<string, string>): Request {
   return new Request("http://localhost:7830/deliver/telegram", {
@@ -103,20 +113,9 @@ describe("telegram-deliver endpoint basics", () => {
     expect(body.error).toBe("Method not allowed");
   });
 
-  it("rejects when no bearer token and bypass not set with 503", async () => {
-    const handler = createTelegramDeliverHandler(
-      makeConfig({ runtimeProxyBearerToken: undefined, telegramDeliverAuthBypass: false }),
-    );
-    const req = makeRequest({ chatId: "123", text: "hello" });
-    const res = await handler(req);
-    expect(res.status).toBe(503);
-    const body = await res.json();
-    expect(body.error).toBe("Service not configured: bearer token required");
-  });
-
   it("rejects request without Authorization header with 401", async () => {
     const handler = createTelegramDeliverHandler(
-      makeConfig({ runtimeProxyBearerToken: TOKEN, telegramDeliverAuthBypass: false }),
+      makeConfig({ telegramDeliverAuthBypass: false }),
     );
     const req = makeRequest({ chatId: "123", text: "hello" });
     const res = await handler(req);
@@ -127,7 +126,7 @@ describe("telegram-deliver endpoint basics", () => {
 
   it("rejects request with wrong bearer token with 401", async () => {
     const handler = createTelegramDeliverHandler(
-      makeConfig({ runtimeProxyBearerToken: TOKEN, telegramDeliverAuthBypass: false }),
+      makeConfig({ telegramDeliverAuthBypass: false }),
     );
     const req = makeRequest({ chatId: "123", text: "hello" }, {
       authorization: "Bearer wrong-token",
@@ -140,7 +139,7 @@ describe("telegram-deliver endpoint basics", () => {
 
   it("accepts request with correct bearer token", async () => {
     const handler = createTelegramDeliverHandler(
-      makeConfig({ runtimeProxyBearerToken: TOKEN, telegramDeliverAuthBypass: false }),
+      makeConfig({ telegramDeliverAuthBypass: false }),
     );
     const req = makeRequest({ chatId: "123", text: "hello" }, {
       authorization: `Bearer ${TOKEN}`,
@@ -153,7 +152,7 @@ describe("telegram-deliver endpoint basics", () => {
 
   it("allows unauthenticated access when bypass flag is set", async () => {
     const handler = createTelegramDeliverHandler(
-      makeConfig({ runtimeProxyBearerToken: undefined, telegramDeliverAuthBypass: true }),
+      makeConfig({ telegramDeliverAuthBypass: true }),
     );
     const req = makeRequest({ chatId: "123", text: "hello" });
     const res = await handler(req);

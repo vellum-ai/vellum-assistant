@@ -6,39 +6,41 @@
  *   - 400 when conversationKey is absent
  *   - Happy path: stream receives a published AssistantEvent
  */
-import { mkdtempSync, realpathSync,rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { afterAll, beforeEach, describe, expect, mock,test } from 'bun:test';
+const testDir = realpathSync(
+  mkdtempSync(join(tmpdir(), "runtime-events-sse-test-")),
+);
 
-const testDir = realpathSync(mkdtempSync(join(tmpdir(), 'runtime-events-sse-test-')));
-
-mock.module('../util/platform.js', () => ({
+mock.module("../util/platform.js", () => ({
   getRootDir: () => testDir,
   getDataDir: () => testDir,
-  isMacOS: () => process.platform === 'darwin',
-  isLinux: () => process.platform === 'linux',
-  isWindows: () => process.platform === 'win32',
-  getSocketPath: () => join(testDir, 'test.sock'),
-  getPidPath: () => join(testDir, 'test.pid'),
-  getDbPath: () => join(testDir, 'test.db'),
-  getLogPath: () => join(testDir, 'test.log'),
+  isMacOS: () => process.platform === "darwin",
+  isLinux: () => process.platform === "linux",
+  isWindows: () => process.platform === "win32",
+  getSocketPath: () => join(testDir, "test.sock"),
+  getPidPath: () => join(testDir, "test.pid"),
+  getDbPath: () => join(testDir, "test.db"),
+  getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
 }));
 
-mock.module('../util/logger.js', () => ({
-  getLogger: () => new Proxy({} as Record<string, unknown>, {
-    get: () => () => {},
-  }),
+mock.module("../util/logger.js", () => ({
+  getLogger: () =>
+    new Proxy({} as Record<string, unknown>, {
+      get: () => () => {},
+    }),
 }));
 
-mock.module('../config/loader.js', () => ({
+mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
-    
-    model: 'test',
-    provider: 'test',
+
+    model: "test",
+    provider: "test",
     apiKeys: {},
     memory: { enabled: false },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
@@ -46,35 +48,46 @@ mock.module('../config/loader.js', () => ({
   }),
 }));
 
-import { getOrCreateConversation } from '../memory/conversation-key-store.js';
-import { getDb, initializeDb, resetDb } from '../memory/db.js';
-import { buildAssistantEvent } from '../runtime/assistant-event.js';
-import { assistantEventHub } from '../runtime/assistant-event-hub.js';
-import { RuntimeHttpServer } from '../runtime/http-server.js';
+import { getOrCreateConversation } from "../memory/conversation-key-store.js";
+import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { buildAssistantEvent } from "../runtime/assistant-event.js";
+import { assistantEventHub } from "../runtime/assistant-event-hub.js";
+import { mintToken } from "../runtime/auth/token-service.js";
+import { RuntimeHttpServer } from "../runtime/http-server.js";
 
 initializeDb();
 
-const TEST_TOKEN = 'test-bearer-token-events-sse';
-const AUTH_HEADERS = { Authorization: `Bearer ${TEST_TOKEN}` };
+const TEST_JWT = mintToken({
+  aud: "vellum-daemon",
+  sub: "actor:self:test",
+  scope_profile: "actor_client_v1",
+  policy_epoch: 1,
+  ttlSeconds: 3600,
+});
+const AUTH_HEADERS = { Authorization: `Bearer ${TEST_JWT}` };
 
-describe('SSE assistant-events endpoint', () => {
+describe("SSE assistant-events endpoint", () => {
   let server: RuntimeHttpServer;
   let port: number;
 
   beforeEach(() => {
     const db = getDb();
-    db.run('DELETE FROM conversation_keys');
-    db.run('DELETE FROM conversations');
+    db.run("DELETE FROM conversation_keys");
+    db.run("DELETE FROM conversations");
   });
 
   afterAll(() => {
     resetDb();
-    try { rmSync(testDir, { recursive: true, force: true }); } catch { /* best effort */ }
+    try {
+      rmSync(testDir, { recursive: true, force: true });
+    } catch {
+      /* best effort */
+    }
   });
 
   async function startServer(): Promise<void> {
     port = 19500 + Math.floor(Math.random() * 500);
-    server = new RuntimeHttpServer({ port, bearerToken: TEST_TOKEN });
+    server = new RuntimeHttpServer({ port });
     await server.start();
   }
 
@@ -82,16 +95,16 @@ describe('SSE assistant-events endpoint', () => {
     await server?.stop();
   }
 
-  function eventsUrl(params = ''): string {
-    return `http://127.0.0.1:${port}/v1/events${params ? `?${params}` : ''}`;
+  function eventsUrl(params = ""): string {
+    return `http://127.0.0.1:${port}/v1/events${params ? `?${params}` : ""}`;
   }
 
   // ── Auth ──────────────────────────────────────────────────────────────────
 
-  test('401 when bearer token is missing', async () => {
+  test("401 when bearer token is missing", async () => {
     await startServer();
 
-    const res = await fetch(eventsUrl('conversationKey=test-noauth'));
+    const res = await fetch(eventsUrl("conversationKey=test-noauth"));
     expect(res.status).toBe(401);
     // Consume body to prevent resource leak
     await res.body?.cancel();
@@ -99,11 +112,11 @@ describe('SSE assistant-events endpoint', () => {
     await stopServer();
   });
 
-  test('401 when bearer token is wrong', async () => {
+  test("401 when bearer token is wrong", async () => {
     await startServer();
 
-    const res = await fetch(eventsUrl('conversationKey=test-badauth'), {
-      headers: { Authorization: 'Bearer wrong-token' },
+    const res = await fetch(eventsUrl("conversationKey=test-badauth"), {
+      headers: { Authorization: "Bearer wrong-token" },
     });
     expect(res.status).toBe(401);
     await res.body?.cancel();
@@ -113,41 +126,44 @@ describe('SSE assistant-events endpoint', () => {
 
   // ── Validation ────────────────────────────────────────────────────────────
 
-  test('400 when conversationKey is missing', async () => {
+  test("400 when conversationKey is missing", async () => {
     await startServer();
 
     const res = await fetch(eventsUrl(), { headers: AUTH_HEADERS });
     expect(res.status).toBe(400);
-    const body = await res.json() as { error: { message: string; code?: string } };
-    expect(body.error.message).toContain('conversationKey');
+    const body = (await res.json()) as {
+      error: { message: string; code?: string };
+    };
+    expect(body.error.message).toContain("conversationKey");
 
     await stopServer();
   });
 
   // ── Happy path ────────────────────────────────────────────────────────────
 
-  test('stream receives a published assistant event', async () => {
+  test("stream receives a published assistant event", async () => {
     // Test the handler directly (bypassing HTTP) to avoid chunked-transfer
     // buffering in Bun's loopback SSE implementation. The HTTP auth and
     // routing are already covered by other test files; here we focus on the
     // SSE subscription logic and frame delivery.
-    const { conversationId } = getOrCreateConversation('sse-happy-path');
+    const { conversationId } = getOrCreateConversation("sse-happy-path");
 
     const ac = new AbortController();
     const req = new Request(
-      'http://localhost/v1/events?conversationKey=sse-happy-path',
+      "http://localhost/v1/events?conversationKey=sse-happy-path",
       { signal: ac.signal },
     );
 
-    const { handleSubscribeAssistantEvents } = await import('../runtime/routes/events-routes.js');
+    const { handleSubscribeAssistantEvents } =
+      await import("../runtime/routes/events-routes.js");
     const response = handleSubscribeAssistantEvents(req, new URL(req.url));
 
     expect(response.status).toBe(200);
-    expect(response.headers.get('content-type')).toContain('text/event-stream');
+    expect(response.headers.get("content-type")).toContain("text/event-stream");
 
     // start() is called synchronously during ReadableStream construction, so the
     // hub subscription is already registered before we publish.
-    const event = buildAssistantEvent('self', { type: 'pong' }, conversationId);
+    const event = buildAssistantEvent("self", { type: "pong" }, conversationId);
     await assistantEventHub.publish(event);
 
     // Read the first frame directly from the response body stream.
@@ -157,7 +173,7 @@ describe('SSE assistant-events endpoint', () => {
 
     expect(done).toBe(false);
     const frame = new TextDecoder().decode(value);
-    expect(frame).toContain('event: assistant_event');
+    expect(frame).toContain("event: assistant_event");
     expect(frame).toContain(`"assistantId":"self"`);
     expect(frame).toContain(`"sessionId":"${conversationId}"`);
     expect(frame).toContain('"type":"pong"');

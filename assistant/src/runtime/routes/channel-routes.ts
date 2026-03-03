@@ -25,7 +25,5 @@ export {
   _setTestPollMaxWait,
   type ActorTrustClass,
   type DenialReason,
-  GATEWAY_ORIGIN_HEADER,
   type GuardianContext,
-  verifyGatewayOrigin,
 } from './channel-route-shared.js';

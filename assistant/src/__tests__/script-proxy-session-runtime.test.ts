@@ -1,13 +1,12 @@
-import { createServer, request as httpRequest,type Server } from 'node:http';
-
-import { afterEach,describe, expect, test } from 'bun:test';
+import { createServer, request as httpRequest, type Server } from "node:http";
+import { afterEach, describe, expect, test } from "bun:test";
 
 import {
   createSession,
   startSession,
   stopAllSessions,
   stopSession,
-} from '../tools/network/script-proxy/index.js';
+} from "../tools/network/script-proxy/index.js";
 
 let upstreamServer: Server | null = null;
 
@@ -25,21 +24,23 @@ afterEach(async () => {
  * Start a simple HTTP server that responds with a known body on every request.
  * Listens on an ephemeral port on 127.0.0.1.
  */
-function startUpstream(responseBody: string): Promise<{ server: Server; port: number }> {
+function startUpstream(
+  responseBody: string,
+): Promise<{ server: Server; port: number }> {
   return new Promise((resolve, reject) => {
     const server = createServer((_req, res) => {
-      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.writeHead(200, { "Content-Type": "text/plain" });
       res.end(responseBody);
     });
-    server.listen(0, '127.0.0.1', () => {
+    server.listen(0, "127.0.0.1", () => {
       const addr = server.address();
-      if (!addr || typeof addr === 'string') {
-        reject(new Error('Failed to get upstream address'));
+      if (!addr || typeof addr === "string") {
+        reject(new Error("Failed to get upstream address"));
         return;
       }
       resolve({ server, port: addr.port });
     });
-    server.on('error', reject);
+    server.on("error", reject);
   });
 }
 
@@ -47,39 +48,42 @@ function startUpstream(responseBody: string): Promise<{ server: Server; port: nu
  * Make an HTTP GET through a proxy using the absolute-URL form
  * that forward proxies expect.
  */
-function proxyGet(proxyPort: number, targetUrl: string): Promise<{ status: number; body: string }> {
+function proxyGet(
+  proxyPort: number,
+  targetUrl: string,
+): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
     const req = httpRequest(
       {
-        hostname: '127.0.0.1',
+        hostname: "127.0.0.1",
         port: proxyPort,
         // Forward proxies expect the full absolute URL as the path
         path: targetUrl,
-        method: 'GET',
+        method: "GET",
       },
       (res) => {
         const chunks: Buffer[] = [];
-        res.on('data', (chunk: Buffer) => chunks.push(chunk));
-        res.on('end', () => {
+        res.on("data", (chunk: Buffer) => chunks.push(chunk));
+        res.on("end", () => {
           resolve({
             status: res.statusCode ?? 0,
-            body: Buffer.concat(chunks).toString('utf-8'),
+            body: Buffer.concat(chunks).toString("utf-8"),
           });
         });
-        res.on('error', reject);
+        res.on("error", reject);
       },
     );
-    req.on('error', reject);
+    req.on("error", reject);
     req.end();
   });
 }
 
-describe('session-manager runtime proxy', () => {
-  const CONV_ID = 'conv-runtime-test';
+describe("session-manager runtime proxy", () => {
+  const CONV_ID = "conv-runtime-test";
   const CRED_IDS: string[] = [];
 
-  test('proxy session forwards HTTP requests to upstream', async () => {
-    const expectedBody = 'hello from upstream';
+  test("proxy session forwards HTTP requests to upstream", async () => {
+    const expectedBody = "hello from upstream";
 
     // 1. Start a local upstream HTTP server
     const upstream = await startUpstream(expectedBody);
@@ -102,12 +106,12 @@ describe('session-manager runtime proxy', () => {
     await stopSession(session.id);
   });
 
-  test('proxy session returns 400 for non-HTTP protocol requests', async () => {
+  test("proxy session returns 400 for non-HTTP protocol requests", async () => {
     const session = createSession(CONV_ID, CRED_IDS);
     const started = await startSession(session.id);
 
     // Sending a relative path (not absolute-URL form) should be rejected
-    const response = await proxyGet(started.port!, '/relative-path');
+    const response = await proxyGet(started.port!, "/relative-path");
     expect(response.status).toBe(400);
 
     await stopSession(session.id);

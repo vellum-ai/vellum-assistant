@@ -1,10 +1,13 @@
-import { rmSync, writeFileSync } from 'node:fs';
+import { rmSync, writeFileSync } from "node:fs";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { afterAll,beforeEach, describe, expect, mock, test } from 'bun:test';
-
-import type { AgentEvent, CheckpointDecision,CheckpointInfo } from '../agent/loop.js';
-import type { ServerMessage } from '../daemon/ipc-protocol.js';
-import type { Message, ProviderResponse } from '../providers/types.js';
+import type {
+  AgentEvent,
+  CheckpointDecision,
+  CheckpointInfo,
+} from "../agent/loop.js";
+import type { ServerMessage } from "../daemon/ipc-protocol.js";
+import type { Message, ProviderResponse } from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
 // Mocks — must precede the Session import so Bun applies them at load time.
@@ -12,114 +15,131 @@ import type { Message, ProviderResponse } from '../providers/types.js';
 
 function makeLoggerStub(): Record<string, unknown> {
   const stub: Record<string, unknown> = {};
-  for (const m of ['info', 'warn', 'error', 'debug', 'trace', 'fatal', 'silent', 'child']) {
-    stub[m] = m === 'child' ? () => makeLoggerStub() : () => {};
+  for (const m of [
+    "info",
+    "warn",
+    "error",
+    "debug",
+    "trace",
+    "fatal",
+    "silent",
+    "child",
+  ]) {
+    stub[m] = m === "child" ? () => makeLoggerStub() : () => {};
   }
   return stub;
 }
 
-mock.module('../util/logger.js', () => ({
+mock.module("../util/logger.js", () => ({
   getLogger: () => makeLoggerStub(),
 }));
 
-mock.module('../util/platform.js', () => ({
-  getSocketPath: () => '/tmp/test.sock',
-  getDataDir: () => '/tmp',
+mock.module("../util/platform.js", () => ({
+  getSocketPath: () => "/tmp/test.sock",
+  getDataDir: () => "/tmp",
 }));
 
-mock.module('../memory/guardian-action-store.js', () => ({
+mock.module("../memory/guardian-action-store.js", () => ({
   getPendingDeliveryByConversation: () => null,
   getGuardianActionRequest: () => null,
   resolveGuardianActionRequest: () => {},
 }));
 
-mock.module('../providers/registry.js', () => ({
-  getProvider: () => ({ name: 'mock-provider' }),
+mock.module("../providers/registry.js", () => ({
+  getProvider: () => ({ name: "mock-provider" }),
   initializeProviders: () => {},
 }));
 
-mock.module('../config/loader.js', () => ({
+mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
-    
-    provider: 'mock-provider',
+
+    provider: "mock-provider",
     maxTokens: 4096,
     thinking: false,
     contextWindow: {
       maxInputTokens: 100000,
       thresholdTokens: 80000,
       preserveRecentMessages: 6,
-      summaryModel: 'mock-model',
+      summaryModel: "mock-model",
       maxSummaryTokens: 512,
     },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
     timeouts: { permissionTimeoutSec: 1 },
     apiKeys: {},
     skills: { entries: {}, allowBundled: true },
-    memory: { retrieval: { injectionStrategy: 'inline' } },
-    permissions: { mode: 'legacy' },
+    memory: { retrieval: { injectionStrategy: "inline" } },
+    permissions: { mode: "legacy" },
   }),
   loadRawConfig: () => ({}),
   saveRawConfig: () => {},
   invalidateConfigCache: () => {},
 }));
 
-mock.module('../config/system-prompt.js', () => ({
-  buildSystemPrompt: () => 'system prompt',
+mock.module("../config/system-prompt.js", () => ({
+  buildSystemPrompt: () => "system prompt",
 }));
 
-mock.module('../config/skills.js', () => ({
+mock.module("../config/skills.js", () => ({
   loadSkillCatalog: () => [],
   loadSkillBySelector: () => ({ skill: null }),
   ensureSkillIcon: async () => null,
 }));
 
-mock.module('../config/skill-state.js', () => ({
+mock.module("../config/skill-state.js", () => ({
   resolveSkillStates: () => [],
 }));
 
-mock.module('../skills/slash-commands.js', () => ({
+mock.module("../skills/slash-commands.js", () => ({
   buildInvocableSlashCatalog: () => new Map(),
-  resolveSlashSkillCommand: () => ({ kind: 'not_slash' }),
-  rewriteKnownSlashCommandPrompt: () => '',
-  parseSlashCandidate: () => ({ kind: 'not_slash' }),
+  resolveSlashSkillCommand: () => ({ kind: "not_slash" }),
+  rewriteKnownSlashCommandPrompt: () => "",
+  parseSlashCandidate: () => ({ kind: "not_slash" }),
 }));
 
-mock.module('../permissions/trust-store.js', () => ({
+mock.module("../permissions/trust-store.js", () => ({
   addRule: () => {},
   findHighestPriorityRule: () => null,
   clearCache: () => {},
 }));
 
-mock.module('../security/secret-allowlist.js', () => ({
+mock.module("../security/secret-allowlist.js", () => ({
   resetAllowlist: () => {},
 }));
 
-mock.module('../memory/admin.js', () => ({
+mock.module("../memory/admin.js", () => ({
   getMemoryConflictAndCleanupStats: () => ({
     conflicts: { pending: 0, resolved: 0, oldestPendingAgeMs: null },
-    cleanup: { resolvedBacklog: 0, supersededBacklog: 0, resolvedCompleted24h: 0, supersededCompleted24h: 0 },
+    cleanup: {
+      resolvedBacklog: 0,
+      supersededBacklog: 0,
+      resolvedCompleted24h: 0,
+      supersededCompleted24h: 0,
+    },
   }),
 }));
 
-mock.module('../memory/conversation-store.js', () => ({
-  getConversationThreadType: () => 'default',
+mock.module("../memory/conversation-store.js", () => ({
+  getConversationThreadType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},
-  provenanceFromGuardianContext: () => ({ source: 'user', guardianContext: undefined }),
+  provenanceFromGuardianContext: () => ({
+    source: "user",
+    guardianContext: undefined,
+  }),
   getConversationOriginInterface: () => null,
   getConversationOriginChannel: () => null,
   getMessages: () => [],
   getConversation: () => ({
-    id: 'conv-1',
+    id: "conv-1",
     contextSummary: null,
     contextCompactedMessageCount: 0,
     totalInputTokens: 0,
     totalOutputTokens: 0,
     totalEstimatedCost: 0,
   }),
-  createConversation: () => ({ id: 'conv-1' }),
+  createConversation: () => ({ id: "conv-1" }),
   listConversations: () => [],
   addMessage: (_convId: string, _role: string, _content: string) => {
     return { id: `msg-${Date.now()}` };
@@ -130,20 +150,20 @@ mock.module('../memory/conversation-store.js', () => ({
 
 let linkAttachmentShouldThrow = false;
 
-mock.module('../memory/attachments-store.js', () => ({
+mock.module("../memory/attachments-store.js", () => ({
   uploadAttachment: () => ({ id: `att-${Date.now()}` }),
   linkAttachmentToMessage: () => {
     if (linkAttachmentShouldThrow) {
-      throw new Error('Simulated linkAttachmentToMessage failure');
+      throw new Error("Simulated linkAttachmentToMessage failure");
     }
   },
 }));
 
-mock.module('../memory/retriever.js', () => ({
+mock.module("../memory/retriever.js", () => ({
   buildMemoryRecall: async () => ({
     enabled: false,
     degraded: false,
-    injectedText: '',
+    injectedText: "",
     lexicalHits: 0,
     semanticHits: 0,
     recencyHits: 0,
@@ -154,12 +174,17 @@ mock.module('../memory/retriever.js', () => ({
   stripMemoryRecallMessages: (msgs: Message[]) => msgs,
 }));
 
-mock.module('../context/window-manager.js', () => ({
+mock.module("../context/window-manager.js", () => ({
   ContextWindowManager: class {
     constructor() {}
-    async maybeCompact() { return { compacted: false }; }
+    async maybeCompact() {
+      return { compacted: false };
+    }
   },
-  createContextSummaryMessage: () => ({ role: 'user', content: [{ type: 'text', text: 'summary' }] }),
+  createContextSummaryMessage: () => ({
+    role: "user",
+    content: [{ type: "text", text: "summary" }],
+  }),
   getSummaryFromContextMessage: () => null,
 }));
 
@@ -167,7 +192,11 @@ mock.module('../context/window-manager.js', () => ({
 // Workspace/git turn-commit test hooks.
 // ---------------------------------------------------------------------------
 
-const turnCommitCalls: Array<{ workspaceDir: string; sessionId: string; turnNumber: number }> = [];
+const turnCommitCalls: Array<{
+  workspaceDir: string;
+  sessionId: string;
+  turnNumber: number;
+}> = [];
 let turnCommitHangForever = false;
 
 // ---------------------------------------------------------------------------
@@ -181,10 +210,13 @@ interface CapturedUsageEvent {
 
 let capturedUsageEvents: CapturedUsageEvent[] = [];
 
-mock.module('../memory/llm-usage-store.js', () => ({
+mock.module("../memory/llm-usage-store.js", () => ({
   recordUsageEvent: (input: { requestId: string | null; actor: string }) => {
-    capturedUsageEvents.push({ requestId: input.requestId, actor: input.actor });
-    return { id: 'mock-id', createdAt: Date.now(), ...input };
+    capturedUsageEvents.push({
+      requestId: input.requestId,
+      actor: input.actor,
+    });
+    return { id: "mock-id", createdAt: Date.now(), ...input };
   },
   listUsageEvents: () => [],
 }));
@@ -208,7 +240,7 @@ interface PendingRun {
 
 let pendingRuns: PendingRun[] = [];
 
-mock.module('../agent/loop.js', () => ({
+mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
     constructor() {}
     async run(
@@ -224,30 +256,36 @@ mock.module('../agent/loop.js', () => ({
     }
   },
 }));
-mock.module('../memory/canonical-guardian-store.js', () => ({
+mock.module("../memory/canonical-guardian-store.js", () => ({
   listPendingCanonicalGuardianRequestsByDestinationConversation: () => [],
   listCanonicalGuardianRequests: () => [],
-  createCanonicalGuardianRequest: () => ({ id: 'mock-cg-id', code: 'MOCK', status: 'pending' }),
+  createCanonicalGuardianRequest: () => ({
+    id: "mock-cg-id",
+    code: "MOCK",
+    status: "pending",
+  }),
   getCanonicalGuardianRequest: () => null,
   getCanonicalGuardianRequestByCode: () => null,
   updateCanonicalGuardianRequest: () => {},
   resolveCanonicalGuardianRequest: () => {},
-  createCanonicalGuardianDelivery: () => ({ id: 'mock-cgd-id' }),
+  createCanonicalGuardianDelivery: () => ({ id: "mock-cgd-id" }),
   listCanonicalGuardianDeliveries: () => [],
   listPendingCanonicalGuardianRequestsByDestinationChat: () => [],
   updateCanonicalGuardianDelivery: () => {},
-  generateCanonicalRequestCode: () => 'MOCK-CODE',
+  generateCanonicalRequestCode: () => "MOCK-CODE",
 }));
 
 // ---------------------------------------------------------------------------
 // Import Session AFTER mocks are registered.
 // ---------------------------------------------------------------------------
 
-import type { QueueDrainReason, QueuePolicy } from '../daemon/session.js';
-import { MAX_QUEUE_DEPTH,Session } from '../daemon/session.js';
+import type { QueueDrainReason, QueuePolicy } from "../daemon/session.js";
+import { MAX_QUEUE_DEPTH, Session } from "../daemon/session.js";
 
 type SessionWithWorkspaceDeps = Session & {
-  getWorkspaceGitService?: (_workspaceDir: string) => { ensureInitialized: () => Promise<void> };
+  getWorkspaceGitService?: (_workspaceDir: string) => {
+    ensureInitialized: () => Promise<void>;
+  };
   commitTurnChanges?: (
     workspaceDir: string,
     sessionId: string,
@@ -259,22 +297,33 @@ type SessionWithWorkspaceDeps = Session & {
 
 function makeSession(sendToClient?: (msg: ServerMessage) => void): Session {
   const provider = {
-    name: 'mock',
+    name: "mock",
     async sendMessage(): Promise<ProviderResponse> {
       return {
         content: [],
-        model: 'mock',
+        model: "mock",
         usage: { inputTokens: 0, outputTokens: 0 },
-        stopReason: 'end_turn',
+        stopReason: "end_turn",
       };
     },
   };
-  const session = new Session('conv-1', provider, 'system prompt', 4096, sendToClient ?? (() => {}), '/tmp');
+  const session = new Session(
+    "conv-1",
+    provider,
+    "system prompt",
+    4096,
+    sendToClient ?? (() => {}),
+    "/tmp",
+  );
   const sessionWithWorkspaceDeps = session as SessionWithWorkspaceDeps;
   sessionWithWorkspaceDeps.getWorkspaceGitService = () => ({
     ensureInitialized: async () => {},
   });
-  sessionWithWorkspaceDeps.commitTurnChanges = async (workspaceDir: string, sessionId: string, turnNumber: number) => {
+  sessionWithWorkspaceDeps.commitTurnChanges = async (
+    workspaceDir: string,
+    sessionId: string,
+    turnNumber: number,
+  ) => {
     turnCommitCalls.push({ workspaceDir, sessionId, turnNumber });
     if (turnCommitHangForever) {
       // Simulate a commit that never resolves within the timeout budget
@@ -290,21 +339,29 @@ function makeSession(sendToClient?: (msg: ServerMessage) => void): Session {
  * several awaited steps (context compaction, memory recall) before
  * reaching `agentLoop.run()`.
  */
-async function waitForPendingRun(count: number, timeoutMs = 2000): Promise<void> {
+async function waitForPendingRun(
+  count: number,
+  timeoutMs = 2000,
+): Promise<void> {
   const start = Date.now();
   while (pendingRuns.length < count) {
     if (Date.now() - start > timeoutMs) {
-      throw new Error(`Timed out waiting for ${count} pending runs (have ${pendingRuns.length})`);
+      throw new Error(
+        `Timed out waiting for ${count} pending runs (have ${pendingRuns.length})`,
+      );
     }
     await new Promise((r) => setTimeout(r, 10));
   }
 }
 
-async function waitForCondition(predicate: () => boolean, timeoutMs = 2000): Promise<void> {
+async function waitForCondition(
+  predicate: () => boolean,
+  timeoutMs = 2000,
+): Promise<void> {
   const start = Date.now();
   while (!predicate()) {
     if (Date.now() - start > timeoutMs) {
-      throw new Error('Timed out waiting for condition');
+      throw new Error("Timed out waiting for condition");
     }
     await new Promise((r) => setTimeout(r, 10));
   }
@@ -320,11 +377,17 @@ function resolveRun(index: number) {
   if (!run) throw new Error(`No pending run at index ${index}`);
   // Emit the events runAgentLoop expects
   const assistantMsg: Message = {
-    role: 'assistant',
-    content: [{ type: 'text', text: `reply-${index}` }],
+    role: "assistant",
+    content: [{ type: "text", text: `reply-${index}` }],
   };
-  run.onEvent({ type: 'usage', inputTokens: 10, outputTokens: 5, model: 'mock', providerDurationMs: 100 });
-  run.onEvent({ type: 'message_complete', message: assistantMsg });
+  run.onEvent({
+    type: "usage",
+    inputTokens: 10,
+    outputTokens: 5,
+    model: "mock",
+    providerDurationMs: 100,
+  });
+  run.onEvent({ type: "message_complete", message: assistantMsg });
   // Return updated history with the assistant message appended
   run.resolve([...run.messages, assistantMsg]);
 }
@@ -343,12 +406,12 @@ afterAll(() => {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('Session message queue', () => {
+describe("Session message queue", () => {
   beforeEach(() => {
     pendingRuns = [];
   });
 
-  test('second message is queued when session is busy (does not throw)', async () => {
+  test("second message is queued when session is busy (does not throw)", async () => {
     const session = makeSession();
     await session.loadFromDb();
 
@@ -356,7 +419,12 @@ describe('Session message queue', () => {
     const events2: ServerMessage[] = [];
 
     // Start first message — this will block on AgentLoop.run
-    const p1 = session.processMessage('msg-1', [], (e) => events1.push(e), 'req-1');
+    const p1 = session.processMessage(
+      "msg-1",
+      [],
+      (e) => events1.push(e),
+      "req-1",
+    );
 
     // Wait for the first AgentLoop.run to be registered
     await waitForPendingRun(1);
@@ -365,9 +433,14 @@ describe('Session message queue', () => {
     expect(session.isProcessing()).toBe(true);
 
     // Enqueue second message — should NOT throw
-    const result = session.enqueueMessage('msg-2', [], (e) => events2.push(e), 'req-2');
+    const result = session.enqueueMessage(
+      "msg-2",
+      [],
+      (e) => events2.push(e),
+      "req-2",
+    );
     expect(result.queued).toBe(true);
-    expect(result.requestId).toBe('req-2');
+    expect(result.requestId).toBe("req-2");
     expect(session.getQueueDepth()).toBe(1);
 
     // Complete the first message
@@ -378,7 +451,7 @@ describe('Session message queue', () => {
     await waitForPendingRun(2);
 
     // The dequeued event should have been sent to events2
-    expect(events2.some((e) => e.type === 'message_dequeued')).toBe(true);
+    expect(events2.some((e) => e.type === "message_dequeued")).toBe(true);
 
     // A second AgentLoop.run should now be pending
     expect(pendingRuns.length).toBe(2);
@@ -388,23 +461,28 @@ describe('Session message queue', () => {
     await new Promise((r) => setTimeout(r, 50));
   });
 
-  test('[experimental] queued messages are processed in FIFO order', async () => {
+  test("[experimental] queued messages are processed in FIFO order", async () => {
     const session = makeSession();
     await session.loadFromDb();
 
     const processedOrder: string[] = [];
 
     const makeHandler = (label: string) => (e: ServerMessage) => {
-      if (e.type === 'message_complete') processedOrder.push(label);
+      if (e.type === "message_complete") processedOrder.push(label);
     };
 
     // Start first message
-    const p1 = session.processMessage('msg-1', [], makeHandler('msg-1'), 'req-1');
+    const p1 = session.processMessage(
+      "msg-1",
+      [],
+      makeHandler("msg-1"),
+      "req-1",
+    );
     await waitForPendingRun(1);
 
     // Enqueue two more
-    session.enqueueMessage('msg-2', [], makeHandler('msg-2'), 'req-2');
-    session.enqueueMessage('msg-3', [], makeHandler('msg-3'), 'req-3');
+    session.enqueueMessage("msg-2", [], makeHandler("msg-2"), "req-2");
+    session.enqueueMessage("msg-3", [], makeHandler("msg-3"), "req-3");
     expect(session.getQueueDepth()).toBe(2);
 
     // Complete first → triggers second
@@ -420,21 +498,26 @@ describe('Session message queue', () => {
     resolveRun(2);
     await new Promise((r) => setTimeout(r, 50));
 
-    expect(processedOrder).toEqual(['msg-1', 'msg-2', 'msg-3']);
+    expect(processedOrder).toEqual(["msg-1", "msg-2", "msg-3"]);
   });
 
-  test('message_queued and message_dequeued events are emitted', async () => {
+  test("message_queued and message_dequeued events are emitted", async () => {
     const session = makeSession();
     await session.loadFromDb();
 
     const events2: ServerMessage[] = [];
 
     // Start first message
-    const p1 = session.processMessage('msg-1', [], () => {}, 'req-1');
+    const p1 = session.processMessage("msg-1", [], () => {}, "req-1");
     await waitForPendingRun(1);
 
     // Enqueue second — simulating what handleUserMessage does
-    const result = session.enqueueMessage('msg-2', [], (e) => events2.push(e), 'req-2');
+    const result = session.enqueueMessage(
+      "msg-2",
+      [],
+      (e) => events2.push(e),
+      "req-2",
+    );
     expect(result.queued).toBe(true);
 
     // Complete first
@@ -443,12 +526,12 @@ describe('Session message queue', () => {
     await waitForPendingRun(2);
 
     // Check for message_dequeued with correct fields
-    const dequeued = events2.find((e) => e.type === 'message_dequeued');
+    const dequeued = events2.find((e) => e.type === "message_dequeued");
     expect(dequeued).toBeDefined();
     expect(dequeued).toEqual({
-      type: 'message_dequeued',
-      sessionId: 'conv-1',
-      requestId: 'req-2',
+      type: "message_dequeued",
+      sessionId: "conv-1",
+      requestId: "req-2",
     });
 
     // Complete second run so the session finishes cleanly
@@ -456,7 +539,7 @@ describe('Session message queue', () => {
     await new Promise((r) => setTimeout(r, 50));
   });
 
-  test('abort() clears the queue and sends generation_cancelled for each queued message', async () => {
+  test("abort() clears the queue and sends generation_cancelled for each queued message", async () => {
     const session = makeSession();
     await session.loadFromDb();
 
@@ -464,12 +547,12 @@ describe('Session message queue', () => {
     const events3: ServerMessage[] = [];
 
     // Start first message
-    session.processMessage('msg-1', [], () => {}, 'req-1');
+    session.processMessage("msg-1", [], () => {}, "req-1");
     await waitForPendingRun(1);
 
     // Enqueue two more
-    session.enqueueMessage('msg-2', [], (e) => events2.push(e), 'req-2');
-    session.enqueueMessage('msg-3', [], (e) => events3.push(e), 'req-3');
+    session.enqueueMessage("msg-2", [], (e) => events2.push(e), "req-2");
+    session.enqueueMessage("msg-3", [], (e) => events3.push(e), "req-3");
     expect(session.getQueueDepth()).toBe(2);
 
     // Abort
@@ -479,67 +562,78 @@ describe('Session message queue', () => {
     expect(session.getQueueDepth()).toBe(0);
 
     // Both queued messages should receive session-scoped cancellation events.
-    const cancel2 = events2.find((e) => e.type === 'generation_cancelled');
-    expect(cancel2).toEqual({ type: 'generation_cancelled', sessionId: 'conv-1' });
+    const cancel2 = events2.find((e) => e.type === "generation_cancelled");
+    expect(cancel2).toEqual({
+      type: "generation_cancelled",
+      sessionId: "conv-1",
+    });
 
-    const cancel3 = events3.find((e) => e.type === 'generation_cancelled');
-    expect(cancel3).toEqual({ type: 'generation_cancelled', sessionId: 'conv-1' });
+    const cancel3 = events3.find((e) => e.type === "generation_cancelled");
+    expect(cancel3).toEqual({
+      type: "generation_cancelled",
+      sessionId: "conv-1",
+    });
 
     // abort() must NOT emit session_error or generic error for queued discards.
-    const err2 = events2.find((e) => e.type === 'error');
+    const err2 = events2.find((e) => e.type === "error");
     expect(err2).toBeUndefined();
-    const err3 = events3.find((e) => e.type === 'error');
+    const err3 = events3.find((e) => e.type === "error");
     expect(err3).toBeUndefined();
 
-    const sessionErr2 = events2.find((e) => e.type === 'session_error');
+    const sessionErr2 = events2.find((e) => e.type === "session_error");
     expect(sessionErr2).toBeUndefined();
 
-    const sessionErr3 = events3.find((e) => e.type === 'session_error');
+    const sessionErr3 = events3.find((e) => e.type === "session_error");
     expect(sessionErr3).toBeUndefined();
   });
 
-  test('session-scoped errors emit both session_error and generic error', async () => {
+  test("session-scoped errors emit both session_error and generic error", async () => {
     const session = makeSession();
     await session.loadFromDb();
 
     const events: ServerMessage[] = [];
 
     // Start a message — blocks on AgentLoop.run
-    const p1 = session.processMessage('msg-1', [], (e) => events.push(e), 'req-1');
+    const p1 = session.processMessage(
+      "msg-1",
+      [],
+      (e) => events.push(e),
+      "req-1",
+    );
     await waitForPendingRun(1);
 
     // Reject the AgentLoop.run() with a provider error to trigger the
     // runAgentLoop catch block
-    pendingRuns[0].reject(new Error('Provider returned 500'));
+    pendingRuns[0].reject(new Error("Provider returned 500"));
     await p1;
 
     // Should emit session_error (typed, structured)
-    const sessionErr = events.find((e) => e.type === 'session_error');
+    const sessionErr = events.find((e) => e.type === "session_error");
     expect(sessionErr).toBeDefined();
 
     // Should also emit generic error for backward compatibility
     // (callers rely on error events to detect failures)
-    const genericErr = events.find((e) => e.type === 'error');
+    const genericErr = events.find((e) => e.type === "error");
     expect(genericErr).toBeDefined();
   });
 
-  test('queue depth is reported correctly as messages are added and drained', async () => {
+  test("queue depth is reported correctly as messages are added and drained", async () => {
     const session = makeSession();
     await session.loadFromDb();
 
     // Start first message
-    const p1 = session.processMessage('msg-1', [], () => {}, 'req-1');
+    const p1 = session.processMessage("msg-1", [], () => {}, "req-1");
     await waitForPendingRun(1);
 
     expect(session.getQueueDepth()).toBe(0);
 
-    session.enqueueMessage('msg-2', [], () => {}, 'req-2');
+    session.enqueueMessage("msg-2", [], () => {}, "req-2");
     expect(session.getQueueDepth()).toBe(1);
 
-    session.enqueueMessage('msg-3', [], () => {}, 'req-3');
+    session.enqueueMessage("msg-3", [], () => {}, "req-3");
     expect(session.getQueueDepth()).toBe(2);
 
-    session.enqueueMessage('msg-4', [], () => {}, 'req-4');
+    session.enqueueMessage("msg-4", [], () => {}, "req-4");
     expect(session.getQueueDepth()).toBe(3);
 
     // Complete first → drains one from queue
@@ -566,7 +660,7 @@ describe('Session message queue', () => {
     await new Promise((r) => setTimeout(r, 50));
   });
 
-  test('[experimental] drain continues after a queued message fails to persist', async () => {
+  test("[experimental] drain continues after a queued message fails to persist", async () => {
     const session = makeSession();
     await session.loadFromDb();
 
@@ -575,13 +669,18 @@ describe('Session message queue', () => {
     const events3: ServerMessage[] = [];
 
     // Start first message — blocks on AgentLoop.run
-    const p1 = session.processMessage('msg-1', [], (e) => events1.push(e), 'req-1');
+    const p1 = session.processMessage(
+      "msg-1",
+      [],
+      (e) => events1.push(e),
+      "req-1",
+    );
     await waitForPendingRun(1);
 
     // Enqueue a message with empty content (will fail persistUserMessage)
-    session.enqueueMessage('', [], (e) => events2.push(e), 'req-2');
+    session.enqueueMessage("", [], (e) => events2.push(e), "req-2");
     // Enqueue a valid message after the bad one
-    session.enqueueMessage('msg-3', [], (e) => events3.push(e), 'req-3');
+    session.enqueueMessage("msg-3", [], (e) => events3.push(e), "req-3");
     expect(session.getQueueDepth()).toBe(2);
 
     // Complete first message — triggers drain. The empty message should fail
@@ -593,41 +692,51 @@ describe('Session message queue', () => {
     await waitForPendingRun(2);
 
     // The empty message should have received an error event
-    const err2 = events2.find((e) => e.type === 'error');
+    const err2 = events2.find((e) => e.type === "error");
     expect(err2).toBeDefined();
-    if (err2 && err2.type === 'error') {
-      expect(err2.message).toContain('required');
+    if (err2 && err2.type === "error") {
+      expect(err2.message).toContain("required");
     }
 
     // msg-3 should have received a dequeued event
-    expect(events3.some((e) => e.type === 'message_dequeued')).toBe(true);
+    expect(events3.some((e) => e.type === "message_dequeued")).toBe(true);
 
     // Complete the third message's run
     resolveRun(1);
     await new Promise((r) => setTimeout(r, 50));
 
     // msg-3 should have completed successfully
-    expect(events3.some((e) => e.type === 'message_complete')).toBe(true);
+    expect(events3.some((e) => e.type === "message_complete")).toBe(true);
   });
 
-  test('queue rejects when at max depth', async () => {
+  test("queue rejects when at max depth", async () => {
     const session = makeSession();
     await session.loadFromDb();
 
     // Start first message to make session busy
-    session.processMessage('msg-1', [], () => {}, 'req-1');
+    session.processMessage("msg-1", [], () => {}, "req-1");
     await waitForPendingRun(1);
 
     // Fill the queue to MAX_QUEUE_DEPTH
     for (let i = 0; i < MAX_QUEUE_DEPTH; i++) {
-      const result = session.enqueueMessage(`msg-${i + 2}`, [], () => {}, `req-${i + 2}`);
+      const result = session.enqueueMessage(
+        `msg-${i + 2}`,
+        [],
+        () => {},
+        `req-${i + 2}`,
+      );
       expect(result.queued).toBe(true);
       expect(result.rejected).toBeUndefined();
     }
     expect(session.getQueueDepth()).toBe(MAX_QUEUE_DEPTH);
 
     // Next enqueue should be rejected
-    const rejected = session.enqueueMessage('overflow', [], () => {}, 'req-overflow');
+    const rejected = session.enqueueMessage(
+      "overflow",
+      [],
+      () => {},
+      "req-overflow",
+    );
     expect(rejected.queued).toBe(false);
     expect(rejected.rejected).toBe(true);
 
@@ -640,27 +749,27 @@ describe('Session message queue', () => {
 // Queue policy primitives
 // ---------------------------------------------------------------------------
 
-describe('Session queue policy helpers', () => {
+describe("Session queue policy helpers", () => {
   beforeEach(() => {
     pendingRuns = [];
   });
 
-  test('hasQueuedMessages() returns false on a fresh session', async () => {
+  test("hasQueuedMessages() returns false on a fresh session", async () => {
     const session = makeSession();
     await session.loadFromDb();
     expect(session.hasQueuedMessages()).toBe(false);
   });
 
-  test('hasQueuedMessages() returns true after enqueuing while processing', async () => {
+  test("hasQueuedMessages() returns true after enqueuing while processing", async () => {
     const session = makeSession();
     await session.loadFromDb();
 
     // Start processing to make the session busy
-    session.processMessage('msg-1', [], () => {}, 'req-1');
+    session.processMessage("msg-1", [], () => {}, "req-1");
     await waitForPendingRun(1);
 
     // Enqueue a message while processing
-    session.enqueueMessage('msg-2', [], () => {}, 'req-2');
+    session.enqueueMessage("msg-2", [], () => {}, "req-2");
     expect(session.hasQueuedMessages()).toBe(true);
 
     // Cleanup: resolve the pending run
@@ -670,7 +779,7 @@ describe('Session queue policy helpers', () => {
     await new Promise((r) => setTimeout(r, 50));
   });
 
-  test('canHandoffAtCheckpoint() returns false when not processing', async () => {
+  test("canHandoffAtCheckpoint() returns false when not processing", async () => {
     const session = makeSession();
     await session.loadFromDb();
 
@@ -678,12 +787,12 @@ describe('Session queue policy helpers', () => {
     expect(session.canHandoffAtCheckpoint()).toBe(false);
   });
 
-  test('canHandoffAtCheckpoint() returns false when processing but no queued messages', async () => {
+  test("canHandoffAtCheckpoint() returns false when processing but no queued messages", async () => {
     const session = makeSession();
     await session.loadFromDb();
 
     // Start processing — but don't enqueue anything
-    session.processMessage('msg-1', [], () => {}, 'req-1');
+    session.processMessage("msg-1", [], () => {}, "req-1");
     await waitForPendingRun(1);
 
     expect(session.isProcessing()).toBe(true);
@@ -695,16 +804,16 @@ describe('Session queue policy helpers', () => {
     await new Promise((r) => setTimeout(r, 50));
   });
 
-  test('canHandoffAtCheckpoint() returns true when processing and queue has messages', async () => {
+  test("canHandoffAtCheckpoint() returns true when processing and queue has messages", async () => {
     const session = makeSession();
     await session.loadFromDb();
 
     // Start processing
-    session.processMessage('msg-1', [], () => {}, 'req-1');
+    session.processMessage("msg-1", [], () => {}, "req-1");
     await waitForPendingRun(1);
 
     // Enqueue a message
-    session.enqueueMessage('msg-2', [], () => {}, 'req-2');
+    session.enqueueMessage("msg-2", [], () => {}, "req-2");
 
     expect(session.isProcessing()).toBe(true);
     expect(session.hasQueuedMessages()).toBe(true);
@@ -717,15 +826,15 @@ describe('Session queue policy helpers', () => {
     await new Promise((r) => setTimeout(r, 50));
   });
 
-  test('QueueDrainReason type accepts expected values', () => {
+  test("QueueDrainReason type accepts expected values", () => {
     // Compile-time verification that these are valid QueueDrainReason values
-    const reason1: QueueDrainReason = 'loop_complete';
-    const reason2: QueueDrainReason = 'checkpoint_handoff';
-    expect(reason1).toBe('loop_complete');
-    expect(reason2).toBe('checkpoint_handoff');
+    const reason1: QueueDrainReason = "loop_complete";
+    const reason2: QueueDrainReason = "checkpoint_handoff";
+    expect(reason1).toBe("loop_complete");
+    expect(reason2).toBe("checkpoint_handoff");
   });
 
-  test('QueuePolicy type accepts expected shape', () => {
+  test("QueuePolicy type accepts expected shape", () => {
     // Compile-time verification that the QueuePolicy interface works
     const policy: QueuePolicy = { checkpointHandoffEnabled: true };
     expect(policy.checkpointHandoffEnabled).toBe(true);
@@ -739,23 +848,28 @@ describe('Session queue policy helpers', () => {
 // Checkpoint handoff tests
 // ---------------------------------------------------------------------------
 
-describe('Session checkpoint handoff', () => {
+describe("Session checkpoint handoff", () => {
   beforeEach(() => {
     pendingRuns = [];
   });
 
-  test('[experimental] onCheckpoint yields when there is a queued message', async () => {
+  test("[experimental] onCheckpoint yields when there is a queued message", async () => {
     const session = makeSession();
     await session.loadFromDb();
 
     const events1: ServerMessage[] = [];
 
     // Start processing first message
-    const p1 = session.processMessage('msg-1', [], (e) => events1.push(e), 'req-1');
+    const p1 = session.processMessage(
+      "msg-1",
+      [],
+      (e) => events1.push(e),
+      "req-1",
+    );
     await waitForPendingRun(1);
 
     // Enqueue a second message while the first is processing
-    session.enqueueMessage('msg-2', [], () => {}, 'req-2');
+    session.enqueueMessage("msg-2", [], () => {}, "req-2");
     expect(session.hasQueuedMessages()).toBe(true);
 
     // The pending run should have received an onCheckpoint callback.
@@ -769,19 +883,19 @@ describe('Session checkpoint handoff', () => {
     });
 
     // Because there is a queued message, the callback should return 'yield'
-    expect(decision).toBe('yield');
+    expect(decision).toBe("yield");
 
     // Complete the run so the session finishes cleanly
     resolveRun(0);
     await p1;
 
     // After yield, the first message should emit generation_handoff
-    const handoff = events1.find((e) => e.type === 'generation_handoff');
+    const handoff = events1.find((e) => e.type === "generation_handoff");
     expect(handoff).toBeDefined();
     expect(handoff).toMatchObject({
-      type: 'generation_handoff',
-      sessionId: 'conv-1',
-      requestId: 'req-1',
+      type: "generation_handoff",
+      sessionId: "conv-1",
+      requestId: "req-1",
       queuedCount: 1,
     });
 
@@ -791,12 +905,12 @@ describe('Session checkpoint handoff', () => {
     await new Promise((r) => setTimeout(r, 50));
   });
 
-  test('onCheckpoint returns continue when queue is empty', async () => {
+  test("onCheckpoint returns continue when queue is empty", async () => {
     const session = makeSession();
     await session.loadFromDb();
 
     // Start processing — no enqueued messages
-    const p1 = session.processMessage('msg-1', [], () => {}, 'req-1');
+    const p1 = session.processMessage("msg-1", [], () => {}, "req-1");
     await waitForPendingRun(1);
 
     expect(session.hasQueuedMessages()).toBe(false);
@@ -811,37 +925,47 @@ describe('Session checkpoint handoff', () => {
     });
 
     // No queued messages → continue
-    expect(decision).toBe('continue');
+    expect(decision).toBe("continue");
 
     // Cleanup
     resolveRun(0);
     await p1;
   });
 
-  test('[experimental] FIFO ordering is preserved through checkpoint handoff', async () => {
+  test("[experimental] FIFO ordering is preserved through checkpoint handoff", async () => {
     const session = makeSession();
     await session.loadFromDb();
 
     const processedOrder: string[] = [];
 
     const makeHandler = (label: string) => (e: ServerMessage) => {
-      if (e.type === 'message_complete' || e.type === 'generation_handoff') processedOrder.push(label);
+      if (e.type === "message_complete" || e.type === "generation_handoff")
+        processedOrder.push(label);
     };
 
     // Start first message
-    const p1 = session.processMessage('msg-1', [], makeHandler('msg-1'), 'req-1');
+    const p1 = session.processMessage(
+      "msg-1",
+      [],
+      makeHandler("msg-1"),
+      "req-1",
+    );
     await waitForPendingRun(1);
 
     // Enqueue two messages
-    session.enqueueMessage('msg-2', [], makeHandler('msg-2'), 'req-2');
-    session.enqueueMessage('msg-3', [], makeHandler('msg-3'), 'req-3');
+    session.enqueueMessage("msg-2", [], makeHandler("msg-2"), "req-2");
+    session.enqueueMessage("msg-3", [], makeHandler("msg-3"), "req-3");
     expect(session.getQueueDepth()).toBe(2);
 
     // Simulate the agent loop yielding at the checkpoint (first run)
     const run0 = pendingRuns[0];
     expect(run0.onCheckpoint).toBeDefined();
-    const decision = run0.onCheckpoint!({ turnIndex: 0, toolCount: 1, hasToolUse: true });
-    expect(decision).toBe('yield');
+    const decision = run0.onCheckpoint!({
+      turnIndex: 0,
+      toolCount: 1,
+      hasToolUse: true,
+    });
+    expect(decision).toBe("yield");
 
     // Complete first run
     resolveRun(0);
@@ -859,20 +983,25 @@ describe('Session checkpoint handoff', () => {
     await new Promise((r) => setTimeout(r, 50));
 
     // FIFO order: msg-1 completes first, then msg-2, then msg-3
-    expect(processedOrder).toEqual(['msg-1', 'msg-2', 'msg-3']);
+    expect(processedOrder).toEqual(["msg-1", "msg-2", "msg-3"]);
   });
 
-  test('queue-full rejection still works during checkpoint handoff', async () => {
+  test("queue-full rejection still works during checkpoint handoff", async () => {
     const session = makeSession();
     await session.loadFromDb();
 
     // Start processing
-    session.processMessage('msg-1', [], () => {}, 'req-1');
+    session.processMessage("msg-1", [], () => {}, "req-1");
     await waitForPendingRun(1);
 
     // Fill the queue to MAX_QUEUE_DEPTH
     for (let i = 0; i < MAX_QUEUE_DEPTH; i++) {
-      const result = session.enqueueMessage(`queued-${i}`, [], () => {}, `req-q-${i}`);
+      const result = session.enqueueMessage(
+        `queued-${i}`,
+        [],
+        () => {},
+        `req-q-${i}`,
+      );
       expect(result.queued).toBe(true);
     }
     expect(session.getQueueDepth()).toBe(MAX_QUEUE_DEPTH);
@@ -880,10 +1009,17 @@ describe('Session checkpoint handoff', () => {
     // Verify checkpoint would yield (there are queued messages)
     const run = pendingRuns[0];
     expect(run.onCheckpoint).toBeDefined();
-    expect(run.onCheckpoint!({ turnIndex: 0, toolCount: 1, hasToolUse: true })).toBe('yield');
+    expect(
+      run.onCheckpoint!({ turnIndex: 0, toolCount: 1, hasToolUse: true }),
+    ).toBe("yield");
 
     // Next enqueue should still be rejected
-    const rejected = session.enqueueMessage('overflow', [], () => {}, 'req-overflow');
+    const rejected = session.enqueueMessage(
+      "overflow",
+      [],
+      () => {},
+      "req-overflow",
+    );
     expect(rejected.queued).toBe(false);
     expect(rejected.rejected).toBe(true);
 
@@ -891,7 +1027,7 @@ describe('Session checkpoint handoff', () => {
     expect(session.getQueueDepth()).toBe(MAX_QUEUE_DEPTH);
   });
 
-  test('[experimental] active run with repeated tool turns + queued message triggers checkpoint handoff', async () => {
+  test("[experimental] active run with repeated tool turns + queued message triggers checkpoint handoff", async () => {
     const session = makeSession();
     await session.loadFromDb();
 
@@ -899,11 +1035,16 @@ describe('Session checkpoint handoff', () => {
     const events2: ServerMessage[] = [];
 
     // Start processing first message
-    const p1 = session.processMessage('msg-1', [], (e) => events1.push(e), 'req-1');
+    const p1 = session.processMessage(
+      "msg-1",
+      [],
+      (e) => events1.push(e),
+      "req-1",
+    );
     await waitForPendingRun(1);
 
     // Enqueue a second message while the first is processing
-    session.enqueueMessage('msg-2', [], (e) => events2.push(e), 'req-2');
+    session.enqueueMessage("msg-2", [], (e) => events2.push(e), "req-2");
     expect(session.hasQueuedMessages()).toBe(true);
 
     // Simulate tool-use turns: the agent loop calls onCheckpoint at each turn boundary.
@@ -918,35 +1059,37 @@ describe('Session checkpoint handoff', () => {
       toolCount: 1,
       hasToolUse: true,
     });
-    expect(decision).toBe('yield');
+    expect(decision).toBe("yield");
 
     // Complete the run (AgentLoop resolves after yielding)
     resolveRun(0);
     await p1;
 
     // Verify generation_handoff was emitted (not plain message_complete)
-    const handoff = events1.find((e) => e.type === 'generation_handoff');
+    const handoff = events1.find((e) => e.type === "generation_handoff");
     expect(handoff).toBeDefined();
     expect(handoff).toMatchObject({
-      type: 'generation_handoff',
-      sessionId: 'conv-1',
-      requestId: 'req-1',
+      type: "generation_handoff",
+      sessionId: "conv-1",
+      requestId: "req-1",
       queuedCount: 1,
     });
     // message_complete should NOT be in events1 (handoff replaces it)
-    const messageComplete = events1.find((e) => e.type === 'message_complete' && 'sessionId' in e);
+    const messageComplete = events1.find(
+      (e) => e.type === "message_complete" && "sessionId" in e,
+    );
     expect(messageComplete).toBeUndefined();
 
     // The queued message should subsequently drain
     await waitForPendingRun(2);
-    expect(events2.some((e) => e.type === 'message_dequeued')).toBe(true);
+    expect(events2.some((e) => e.type === "message_dequeued")).toBe(true);
 
     // Complete the second run
     resolveRun(1);
     await new Promise((r) => setTimeout(r, 50));
   });
 
-  test('queued messages still drain FIFO under multiple handoffs', async () => {
+  test("queued messages still drain FIFO under multiple handoffs", async () => {
     const session = makeSession();
     await session.loadFromDb();
 
@@ -954,23 +1097,30 @@ describe('Session checkpoint handoff', () => {
 
     const eventsA: ServerMessage[] = [];
     const makeHandler = (label: string) => (e: ServerMessage) => {
-      if (e.type === 'message_dequeued') dequeueOrder.push(label);
+      if (e.type === "message_dequeued") dequeueOrder.push(label);
     };
 
     // Start processing message A
-    const pA = session.processMessage('msg-A', [], (e) => eventsA.push(e), 'req-A');
+    const pA = session.processMessage(
+      "msg-A",
+      [],
+      (e) => eventsA.push(e),
+      "req-A",
+    );
     await waitForPendingRun(1);
 
     // Enqueue messages B, C, D
-    session.enqueueMessage('msg-B', [], makeHandler('B'), 'req-B');
-    session.enqueueMessage('msg-C', [], makeHandler('C'), 'req-C');
-    session.enqueueMessage('msg-D', [], makeHandler('D'), 'req-D');
+    session.enqueueMessage("msg-B", [], makeHandler("B"), "req-B");
+    session.enqueueMessage("msg-C", [], makeHandler("C"), "req-C");
+    session.enqueueMessage("msg-D", [], makeHandler("D"), "req-D");
     expect(session.getQueueDepth()).toBe(3);
 
     // Handoff from A -> B
     const runA = pendingRuns[0];
     expect(runA.onCheckpoint).toBeDefined();
-    expect(runA.onCheckpoint!({ turnIndex: 0, toolCount: 1, hasToolUse: true })).toBe('yield');
+    expect(
+      runA.onCheckpoint!({ turnIndex: 0, toolCount: 1, hasToolUse: true }),
+    ).toBe("yield");
     resolveRun(0);
     await pA;
 
@@ -980,7 +1130,9 @@ describe('Session checkpoint handoff', () => {
     // Handoff from B -> C
     const runB = pendingRuns[1];
     expect(runB.onCheckpoint).toBeDefined();
-    expect(runB.onCheckpoint!({ turnIndex: 0, toolCount: 1, hasToolUse: true })).toBe('yield');
+    expect(
+      runB.onCheckpoint!({ turnIndex: 0, toolCount: 1, hasToolUse: true }),
+    ).toBe("yield");
     resolveRun(1);
     await waitForPendingRun(3);
 
@@ -988,23 +1140,27 @@ describe('Session checkpoint handoff', () => {
     const runC = pendingRuns[2];
     expect(runC.onCheckpoint).toBeDefined();
     // Only D remains, still should yield
-    expect(runC.onCheckpoint!({ turnIndex: 0, toolCount: 1, hasToolUse: true })).toBe('yield');
+    expect(
+      runC.onCheckpoint!({ turnIndex: 0, toolCount: 1, hasToolUse: true }),
+    ).toBe("yield");
     resolveRun(2);
     await waitForPendingRun(4);
 
     // D has no more queued -> checkpoint should return 'continue'
     const runD = pendingRuns[3];
     expect(runD.onCheckpoint).toBeDefined();
-    expect(runD.onCheckpoint!({ turnIndex: 0, toolCount: 1, hasToolUse: true })).toBe('continue');
+    expect(
+      runD.onCheckpoint!({ turnIndex: 0, toolCount: 1, hasToolUse: true }),
+    ).toBe("continue");
 
     resolveRun(3);
     await new Promise((r) => setTimeout(r, 50));
 
     // Verify FIFO dequeue order
-    expect(dequeueOrder).toEqual(['B', 'C', 'D']);
+    expect(dequeueOrder).toEqual(["B", "C", "D"]);
   });
 
-  test('[experimental] queued persistence failure does not strand later messages', async () => {
+  test("[experimental] queued persistence failure does not strand later messages", async () => {
     const session = makeSession();
     await session.loadFromDb();
 
@@ -1013,12 +1169,17 @@ describe('Session checkpoint handoff', () => {
     const eventsC: ServerMessage[] = [];
 
     // Start processing message A
-    const pA = session.processMessage('msg-A', [], (e) => eventsA.push(e), 'req-A');
+    const pA = session.processMessage(
+      "msg-A",
+      [],
+      (e) => eventsA.push(e),
+      "req-A",
+    );
     await waitForPendingRun(1);
 
     // Enqueue B (empty content — will fail to persist) and C (valid)
-    session.enqueueMessage('', [], (e) => eventsB.push(e), 'req-B');
-    session.enqueueMessage('msg-C', [], (e) => eventsC.push(e), 'req-C');
+    session.enqueueMessage("", [], (e) => eventsB.push(e), "req-B");
+    session.enqueueMessage("msg-C", [], (e) => eventsC.push(e), "req-C");
     expect(session.getQueueDepth()).toBe(2);
 
     // Complete message A — triggers drain. B should fail, C should proceed.
@@ -1029,29 +1190,29 @@ describe('Session checkpoint handoff', () => {
     await waitForPendingRun(2);
 
     // B should have received an error event
-    const errB = eventsB.find((e) => e.type === 'error');
+    const errB = eventsB.find((e) => e.type === "error");
     expect(errB).toBeDefined();
-    if (errB && errB.type === 'error') {
-      expect(errB.message).toContain('required');
+    if (errB && errB.type === "error") {
+      expect(errB.message).toContain("required");
     }
 
     // C should have received a dequeued event
-    expect(eventsC.some((e) => e.type === 'message_dequeued')).toBe(true);
+    expect(eventsC.some((e) => e.type === "message_dequeued")).toBe(true);
 
     // Complete C's run
     resolveRun(1);
     await new Promise((r) => setTimeout(r, 50));
 
     // C should have completed successfully
-    expect(eventsC.some((e) => e.type === 'message_complete')).toBe(true);
+    expect(eventsC.some((e) => e.type === "message_complete")).toBe(true);
   });
 
-  test('onCheckpoint callback is passed to both initial and retry runs', async () => {
+  test("onCheckpoint callback is passed to both initial and retry runs", async () => {
     const session = makeSession();
     await session.loadFromDb();
 
     // Start processing
-    const p1 = session.processMessage('msg-1', [], () => {}, 'req-1');
+    const p1 = session.processMessage("msg-1", [], () => {}, "req-1");
     await waitForPendingRun(1);
 
     // The first run should have onCheckpoint
@@ -1061,8 +1222,10 @@ describe('Session checkpoint handoff', () => {
     // to trigger the retry path
     const run0 = pendingRuns[0];
     run0.onEvent({
-      type: 'error',
-      error: new Error('tool_result block not immediately after tool_use block'),
+      type: "error",
+      error: new Error(
+        "tool_result block not immediately after tool_use block",
+      ),
     });
     // Resolve with the same messages (no new messages appended = ordering error)
     run0.resolve([...run0.messages]);
@@ -1083,17 +1246,17 @@ describe('Session checkpoint handoff', () => {
 // Usage requestId correlation
 // ---------------------------------------------------------------------------
 
-describe('Session usage requestId correlation', () => {
+describe("Session usage requestId correlation", () => {
   beforeEach(() => {
     pendingRuns = [];
     capturedUsageEvents = [];
   });
 
-  test('usage events recorded during a request carry that request ID', async () => {
+  test("usage events recorded during a request carry that request ID", async () => {
     const session = makeSession();
     await session.loadFromDb();
 
-    const p1 = session.processMessage('msg-1', [], () => {}, 'req-42');
+    const p1 = session.processMessage("msg-1", [], () => {}, "req-42");
     await waitForPendingRun(1);
 
     // Complete the run — this triggers recordUsage with the request's ID
@@ -1101,9 +1264,11 @@ describe('Session usage requestId correlation', () => {
     await p1;
 
     // The usage event should carry the request ID, not null
-    const mainAgentUsage = capturedUsageEvents.find((e) => e.actor === 'main_agent');
+    const mainAgentUsage = capturedUsageEvents.find(
+      (e) => e.actor === "main_agent",
+    );
     expect(mainAgentUsage).toBeDefined();
-    expect(mainAgentUsage!.requestId).toBe('req-42');
+    expect(mainAgentUsage!.requestId).toBe("req-42");
   });
 });
 
@@ -1111,26 +1276,26 @@ describe('Session usage requestId correlation', () => {
 // Terminal trace events on rejection/failure paths
 // ---------------------------------------------------------------------------
 
-describe('Terminal trace events on rejection/failure', () => {
+describe("Terminal trace events on rejection/failure", () => {
   beforeEach(() => {
     pendingRuns = [];
   });
 
-  test('queued persist failure emits request_error trace', async () => {
+  test("queued persist failure emits request_error trace", async () => {
     const traceEvents: ServerMessage[] = [];
     const session = makeSession((msg) => {
-      if ('type' in msg && msg.type === 'trace_event') traceEvents.push(msg);
+      if ("type" in msg && msg.type === "trace_event") traceEvents.push(msg);
     });
     await session.loadFromDb();
 
     // Start first message
-    const p1 = session.processMessage('msg-1', [], () => {}, 'req-1');
+    const p1 = session.processMessage("msg-1", [], () => {}, "req-1");
     await waitForPendingRun(1);
 
     // Enqueue empty content (will fail persistUserMessage)
-    session.enqueueMessage('', [], () => {}, 'req-bad');
+    session.enqueueMessage("", [], () => {}, "req-bad");
     // Enqueue valid message so drain continues
-    session.enqueueMessage('msg-3', [], () => {}, 'req-3');
+    session.enqueueMessage("msg-3", [], () => {}, "req-3");
 
     // Complete first — triggers drain, empty msg fails persist
     resolveRun(0);
@@ -1139,7 +1304,11 @@ describe('Terminal trace events on rejection/failure', () => {
 
     // Should have a request_error trace for the failed persist
     const errorTrace = traceEvents.find(
-      (e) => 'kind' in e && e.kind === 'request_error' && 'requestId' in e && e.requestId === 'req-bad',
+      (e) =>
+        "kind" in e &&
+        e.kind === "request_error" &&
+        "requestId" in e &&
+        e.requestId === "req-bad",
     );
     expect(errorTrace).toBeDefined();
 
@@ -1153,51 +1322,58 @@ describe('Terminal trace events on rejection/failure', () => {
 // Surface-action queue-full trace emission
 // ---------------------------------------------------------------------------
 
-describe('Surface-action queue-full trace', () => {
+describe("Surface-action queue-full trace", () => {
   beforeEach(() => {
     pendingRuns = [];
   });
 
-  test('surface-action queue-full rejection emits request_error trace', async () => {
+  test("surface-action queue-full rejection emits request_error trace", async () => {
     const traceEvents: ServerMessage[] = [];
     const session = makeSession((msg) => {
-      if ('type' in msg && msg.type === 'trace_event') traceEvents.push(msg);
+      if ("type" in msg && msg.type === "trace_event") traceEvents.push(msg);
     });
     await session.loadFromDb();
 
     // Start processing to make the session busy
-    session.processMessage('msg-1', [], () => {}, 'req-1');
+    session.processMessage("msg-1", [], () => {}, "req-1");
     await waitForPendingRun(1);
 
     // Fill the queue to MAX_QUEUE_DEPTH
     for (let i = 0; i < MAX_QUEUE_DEPTH; i++) {
-      const result = session.enqueueMessage(`queued-${i}`, [], () => {}, `req-q-${i}`);
+      const result = session.enqueueMessage(
+        `queued-${i}`,
+        [],
+        () => {},
+        `req-q-${i}`,
+      );
       expect(result.queued).toBe(true);
     }
     expect(session.getQueueDepth()).toBe(MAX_QUEUE_DEPTH);
 
     // Register a pending surface action so handleSurfaceAction doesn't bail early
-     
-    (session as any).pendingSurfaceActions.set('surf-1', { surfaceType: 'confirmation' });
+
+    (session as any).pendingSurfaceActions.set("surf-1", {
+      surfaceType: "confirmation",
+    });
 
     // Trigger the surface action — queue is full, should be rejected
-    session.handleSurfaceAction('surf-1', 'confirm');
+    session.handleSurfaceAction("surf-1", "confirm");
 
     // Should have a request_received trace followed by a request_error trace
     const receivedTrace = traceEvents.find(
-      (e) => 'kind' in e && e.kind === 'request_received',
+      (e) => "kind" in e && e.kind === "request_received",
     );
     expect(receivedTrace).toBeDefined();
 
     const errorTrace = traceEvents.find(
-      (e) => 'kind' in e && e.kind === 'request_error',
+      (e) => "kind" in e && e.kind === "request_error",
     );
     expect(errorTrace).toBeDefined();
-    expect(errorTrace).toHaveProperty('attributes');
-     
+    expect(errorTrace).toHaveProperty("attributes");
+
     const attrs = (errorTrace as any).attributes;
-    expect(attrs.reason).toBe('queue_full');
-    expect(attrs.source).toBe('surface_action');
+    expect(attrs.reason).toBe("queue_full");
+    expect(attrs.source).toBe("surface_action");
 
     // Queue depth should not have increased
     expect(session.getQueueDepth()).toBe(MAX_QUEUE_DEPTH);
@@ -1208,14 +1384,14 @@ describe('Surface-action queue-full trace', () => {
 // Host attachment approval tests
 // ---------------------------------------------------------------------------
 
-describe('Session host attachment directives', () => {
+describe("Session host attachment directives", () => {
   beforeEach(() => {
     pendingRuns = [];
   });
 
-  test('host attachment prompts and resolves when user allows', async () => {
-    const hostPath = '/tmp/vellum-host-attachment-allow.txt';
-    writeFileSync(hostPath, 'host attachment content');
+  test("host attachment prompts and resolves when user allows", async () => {
+    const hostPath = "/tmp/vellum-host-attachment-allow.txt";
+    writeFileSync(hostPath, "host attachment content");
 
     try {
       const clientEvents: ServerMessage[] = [];
@@ -1223,44 +1399,62 @@ describe('Session host attachment directives', () => {
       const session = makeSession((msg) => clientEvents.push(msg));
       await session.loadFromDb();
 
-      const p1 = session.processMessage('msg-1', [], (e) => events.push(e), 'req-1');
+      const p1 = session.processMessage(
+        "msg-1",
+        [],
+        (e) => events.push(e),
+        "req-1",
+      );
       await waitForPendingRun(1);
 
       const run = pendingRuns[0];
       const assistantMsg: Message = {
-        role: 'assistant',
+        role: "assistant",
         content: [
           {
-            type: 'text',
+            type: "text",
             text: `Here is your file.\n<vellum-attachment source="host" path="${hostPath}" />`,
           },
         ],
       };
-      run.onEvent({ type: 'usage', inputTokens: 10, outputTokens: 5, model: 'mock', providerDurationMs: 100 });
-      run.onEvent({ type: 'message_complete', message: assistantMsg });
+      run.onEvent({
+        type: "usage",
+        inputTokens: 10,
+        outputTokens: 5,
+        model: "mock",
+        providerDurationMs: 100,
+      });
+      run.onEvent({ type: "message_complete", message: assistantMsg });
       run.resolve([...run.messages, assistantMsg]);
 
-      await waitForCondition(() => clientEvents.some((e) => e.type === 'confirmation_request'));
-      const confirmation = clientEvents.find((e) => e.type === 'confirmation_request');
+      await waitForCondition(() =>
+        clientEvents.some((e) => e.type === "confirmation_request"),
+      );
+      const confirmation = clientEvents.find(
+        (e) => e.type === "confirmation_request",
+      );
       expect(confirmation).toBeDefined();
-      session.handleConfirmationResponse((confirmation as { requestId: string }).requestId, 'allow');
+      session.handleConfirmationResponse(
+        (confirmation as { requestId: string }).requestId,
+        "allow",
+      );
 
       await p1;
 
       expect(session.lastAssistantAttachments).toHaveLength(1);
-      expect(session.lastAssistantAttachments[0].sourceType).toBe('host_file');
+      expect(session.lastAssistantAttachments[0].sourceType).toBe("host_file");
       expect(session.lastAttachmentWarnings).toHaveLength(0);
 
-      const completion = events.find((e) => e.type === 'message_complete');
+      const completion = events.find((e) => e.type === "message_complete");
       expect(completion).toBeDefined();
     } finally {
       rmSync(hostPath, { force: true });
     }
   });
 
-  test('host attachment denial is non-fatal and emits warning text', async () => {
-    const hostPath = '/tmp/vellum-host-attachment-deny.txt';
-    writeFileSync(hostPath, 'host attachment content');
+  test("host attachment denial is non-fatal and emits warning text", async () => {
+    const hostPath = "/tmp/vellum-host-attachment-deny.txt";
+    writeFileSync(hostPath, "host attachment content");
 
     try {
       const clientEvents: ServerMessage[] = [];
@@ -1268,38 +1462,62 @@ describe('Session host attachment directives', () => {
       const session = makeSession((msg) => clientEvents.push(msg));
       await session.loadFromDb();
 
-      const p1 = session.processMessage('msg-1', [], (e) => events.push(e), 'req-1');
+      const p1 = session.processMessage(
+        "msg-1",
+        [],
+        (e) => events.push(e),
+        "req-1",
+      );
       await waitForPendingRun(1);
 
       const run = pendingRuns[0];
       const assistantMsg: Message = {
-        role: 'assistant',
+        role: "assistant",
         content: [
           {
-            type: 'text',
+            type: "text",
             text: `Here is your file.\n<vellum-attachment source="host" path="${hostPath}" />`,
           },
         ],
       };
-      run.onEvent({ type: 'usage', inputTokens: 10, outputTokens: 5, model: 'mock', providerDurationMs: 100 });
-      run.onEvent({ type: 'message_complete', message: assistantMsg });
+      run.onEvent({
+        type: "usage",
+        inputTokens: 10,
+        outputTokens: 5,
+        model: "mock",
+        providerDurationMs: 100,
+      });
+      run.onEvent({ type: "message_complete", message: assistantMsg });
       run.resolve([...run.messages, assistantMsg]);
 
-      await waitForCondition(() => clientEvents.some((e) => e.type === 'confirmation_request'));
-      const confirmation = clientEvents.find((e) => e.type === 'confirmation_request');
+      await waitForCondition(() =>
+        clientEvents.some((e) => e.type === "confirmation_request"),
+      );
+      const confirmation = clientEvents.find(
+        (e) => e.type === "confirmation_request",
+      );
       expect(confirmation).toBeDefined();
-      session.handleConfirmationResponse((confirmation as { requestId: string }).requestId, 'deny');
+      session.handleConfirmationResponse(
+        (confirmation as { requestId: string }).requestId,
+        "deny",
+      );
 
       await p1;
 
       expect(session.lastAssistantAttachments).toHaveLength(0);
-      expect(session.lastAttachmentWarnings.some((w) => w.includes('access denied by user'))).toBe(true);
+      expect(
+        session.lastAttachmentWarnings.some((w) =>
+          w.includes("access denied by user"),
+        ),
+      ).toBe(true);
 
       const warningDelta = events.find(
-        (e) => e.type === 'assistant_text_delta' && e.text.includes('Attachment warning:'),
+        (e) =>
+          e.type === "assistant_text_delta" &&
+          e.text.includes("Attachment warning:"),
       );
       expect(warningDelta).toBeDefined();
-      const completion = events.find((e) => e.type === 'message_complete');
+      const completion = events.find((e) => e.type === "message_complete");
       expect(completion).toBeDefined();
     } finally {
       rmSync(hostPath, { force: true });
@@ -1311,90 +1529,130 @@ describe('Session host attachment directives', () => {
 // Attachment payload emission tests
 // ---------------------------------------------------------------------------
 
-describe('Session attachment event payloads', () => {
+describe("Session attachment event payloads", () => {
   beforeEach(() => {
     pendingRuns = [];
   });
 
-  test('message_complete includes assistant attachments', async () => {
+  test("message_complete includes assistant attachments", async () => {
     const events: ServerMessage[] = [];
     const session = makeSession();
     await session.loadFromDb();
 
-    const p1 = session.processMessage('msg-1', [], (e) => events.push(e), 'req-1');
+    const p1 = session.processMessage(
+      "msg-1",
+      [],
+      (e) => events.push(e),
+      "req-1",
+    );
     await waitForPendingRun(1);
 
     const run = pendingRuns[0];
     const assistantMsg: Message = {
-      role: 'assistant',
-      content: [{ type: 'text', text: 'Here is your chart.' }],
+      role: "assistant",
+      content: [{ type: "text", text: "Here is your chart." }],
     };
     run.onEvent({
-      type: 'tool_result',
-      toolUseId: 'tool-1',
-      content: 'ok',
+      type: "tool_result",
+      toolUseId: "tool-1",
+      content: "ok",
       isError: false,
       contentBlocks: [
-         
-        { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0K' } } as any,
+        {
+          type: "image",
+          source: { type: "base64", media_type: "image/png", data: "iVBORw0K" },
+        } as any,
       ],
     });
-    run.onEvent({ type: 'usage', inputTokens: 10, outputTokens: 5, model: 'mock', providerDurationMs: 100 });
-    run.onEvent({ type: 'message_complete', message: assistantMsg });
+    run.onEvent({
+      type: "usage",
+      inputTokens: 10,
+      outputTokens: 5,
+      model: "mock",
+      providerDurationMs: 100,
+    });
+    run.onEvent({ type: "message_complete", message: assistantMsg });
     run.resolve([...run.messages, assistantMsg]);
 
     await p1;
 
-    const completion = events.find((e) => e.type === 'message_complete' && Array.isArray(e.attachments));
+    const completion = events.find(
+      (e) => e.type === "message_complete" && Array.isArray(e.attachments),
+    );
     expect(completion).toBeDefined();
-    const attachments = (completion as { attachments: Array<{ mimeType: string; data: string; id?: string }> }).attachments;
+    const attachments = (
+      completion as {
+        attachments: Array<{ mimeType: string; data: string; id?: string }>;
+      }
+    ).attachments;
     expect(attachments).toHaveLength(1);
-    expect(attachments[0].mimeType).toBe('image/png');
-    expect(attachments[0].data).toBe('iVBORw0K');
+    expect(attachments[0].mimeType).toBe("image/png");
+    expect(attachments[0].data).toBe("iVBORw0K");
     expect(attachments[0].id).toBeDefined();
   });
 
-  test('generation_handoff includes assistant attachments', async () => {
+  test("generation_handoff includes assistant attachments", async () => {
     const events1: ServerMessage[] = [];
     const session = makeSession();
     await session.loadFromDb();
 
-    const p1 = session.processMessage('msg-1', [], (e) => events1.push(e), 'req-1');
+    const p1 = session.processMessage(
+      "msg-1",
+      [],
+      (e) => events1.push(e),
+      "req-1",
+    );
     await waitForPendingRun(1);
 
     // Queue a second message so the first run yields via checkpoint handoff.
-    session.enqueueMessage('msg-2', [], () => {}, 'req-2');
+    session.enqueueMessage("msg-2", [], () => {}, "req-2");
 
     const run = pendingRuns[0];
     expect(run.onCheckpoint).toBeDefined();
-    expect(run.onCheckpoint!({ turnIndex: 0, toolCount: 1, hasToolUse: true })).toBe('yield');
+    expect(
+      run.onCheckpoint!({ turnIndex: 0, toolCount: 1, hasToolUse: true }),
+    ).toBe("yield");
 
     const assistantMsg: Message = {
-      role: 'assistant',
-      content: [{ type: 'text', text: 'Handing off with attachment.' }],
+      role: "assistant",
+      content: [{ type: "text", text: "Handing off with attachment." }],
     };
     run.onEvent({
-      type: 'tool_result',
-      toolUseId: 'tool-1',
-      content: 'ok',
+      type: "tool_result",
+      toolUseId: "tool-1",
+      content: "ok",
       isError: false,
       contentBlocks: [
-         
-        { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0K' } } as any,
+        {
+          type: "image",
+          source: { type: "base64", media_type: "image/png", data: "iVBORw0K" },
+        } as any,
       ],
     });
-    run.onEvent({ type: 'usage', inputTokens: 10, outputTokens: 5, model: 'mock', providerDurationMs: 100 });
-    run.onEvent({ type: 'message_complete', message: assistantMsg });
+    run.onEvent({
+      type: "usage",
+      inputTokens: 10,
+      outputTokens: 5,
+      model: "mock",
+      providerDurationMs: 100,
+    });
+    run.onEvent({ type: "message_complete", message: assistantMsg });
     run.resolve([...run.messages, assistantMsg]);
 
     await p1;
 
-    const handoff = events1.find((e) => e.type === 'generation_handoff' && Array.isArray(e.attachments));
+    const handoff = events1.find(
+      (e) => e.type === "generation_handoff" && Array.isArray(e.attachments),
+    );
     expect(handoff).toBeDefined();
-    const attachments = (handoff as { attachments: Array<{ mimeType: string; data: string; id?: string }> }).attachments;
+    const attachments = (
+      handoff as {
+        attachments: Array<{ mimeType: string; data: string; id?: string }>;
+      }
+    ).attachments;
     expect(attachments).toHaveLength(1);
-    expect(attachments[0].mimeType).toBe('image/png');
-    expect(attachments[0].data).toBe('iVBORw0K');
+    expect(attachments[0].mimeType).toBe("image/png");
+    expect(attachments[0].data).toBe("iVBORw0K");
 
     await waitForPendingRun(2);
     resolveRun(1);
@@ -1406,18 +1664,23 @@ describe('Session attachment event payloads', () => {
 // Regression: cancel semantics + session/global error channel split
 // ---------------------------------------------------------------------------
 
-describe('Regression: cancel semantics and error channel split', () => {
+describe("Regression: cancel semantics and error channel split", () => {
   beforeEach(() => {
     pendingRuns = [];
   });
 
-  test('user cancellation emits generation_cancelled, never session_error', async () => {
+  test("user cancellation emits generation_cancelled, never session_error", async () => {
     const msgEvents: ServerMessage[] = [];
     const session = makeSession();
     await session.loadFromDb();
 
     // Start processing a message — collect events from the per-message callback
-    const p1 = session.processMessage('msg-1', [], (e) => msgEvents.push(e), 'req-1');
+    const p1 = session.processMessage(
+      "msg-1",
+      [],
+      (e) => msgEvents.push(e),
+      "req-1",
+    );
     await waitForPendingRun(1);
 
     // User cancels — sets the abort signal
@@ -1428,95 +1691,130 @@ describe('Regression: cancel semantics and error channel split', () => {
     await p1;
 
     // generation_cancelled should be emitted via the per-message callback
-    const cancelEvent = msgEvents.find((e) => e.type === 'generation_cancelled');
+    const cancelEvent = msgEvents.find(
+      (e) => e.type === "generation_cancelled",
+    );
     expect(cancelEvent).toBeDefined();
 
     // session_error must never appear on cancel
-    const sessionErr = msgEvents.find((e) => e.type === 'session_error');
+    const sessionErr = msgEvents.find((e) => e.type === "session_error");
     expect(sessionErr).toBeUndefined();
   });
 
-  test('post-processing failure still attempts turn-boundary commit', async () => {
+  test("post-processing failure still attempts turn-boundary commit", async () => {
     const events: ServerMessage[] = [];
     const session = makeSession();
     await session.loadFromDb();
     linkAttachmentShouldThrow = true;
 
-    const p1 = session.processMessage('msg-1', [], (e) => events.push(e), 'req-1');
+    const p1 = session.processMessage(
+      "msg-1",
+      [],
+      (e) => events.push(e),
+      "req-1",
+    );
     await waitForPendingRun(1);
     const run = pendingRuns[0];
     const assistantMsg: Message = {
-      role: 'assistant',
-      content: [{ type: 'text', text: 'attachment-trigger' }],
+      role: "assistant",
+      content: [{ type: "text", text: "attachment-trigger" }],
     };
     run.onEvent({
-      type: 'tool_result',
-      toolUseId: 'tool-1',
-      content: 'ok',
+      type: "tool_result",
+      toolUseId: "tool-1",
+      content: "ok",
       isError: false,
       contentBlocks: [
-         
-        { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0K' } } as any,
+        {
+          type: "image",
+          source: { type: "base64", media_type: "image/png", data: "iVBORw0K" },
+        } as any,
       ],
     });
-    run.onEvent({ type: 'usage', inputTokens: 10, outputTokens: 5, model: 'mock', providerDurationMs: 100 });
-    run.onEvent({ type: 'message_complete', message: assistantMsg });
+    run.onEvent({
+      type: "usage",
+      inputTokens: 10,
+      outputTokens: 5,
+      model: "mock",
+      providerDurationMs: 100,
+    });
+    run.onEvent({ type: "message_complete", message: assistantMsg });
     run.resolve([...run.messages, assistantMsg]);
     await p1;
 
     expect(turnCommitCalls).toHaveLength(1);
     expect(turnCommitCalls[0]).toEqual({
-      workspaceDir: '/tmp',
-      sessionId: 'conv-1',
+      workspaceDir: "/tmp",
+      sessionId: "conv-1",
       turnNumber: 1,
     });
-    const err = events.find((e) => e.type === 'error');
+    const err = events.find((e) => e.type === "error");
     expect(err).toBeDefined();
   });
 
-  test('provider failure during processing emits both session_error and generic error', async () => {
+  test("provider failure during processing emits both session_error and generic error", async () => {
     const allEvents: ServerMessage[] = [];
     const session = makeSession();
     await session.loadFromDb();
 
-    const p1 = session.processMessage('msg-1', [], (e) => allEvents.push(e), 'req-1');
+    const p1 = session.processMessage(
+      "msg-1",
+      [],
+      (e) => allEvents.push(e),
+      "req-1",
+    );
     await waitForPendingRun(1);
 
     // Simulate a provider failure
-    pendingRuns[0].reject(new Error('Connection refused'));
+    pendingRuns[0].reject(new Error("Connection refused"));
     await p1;
 
     // Should get session_error (structured)
-    const sessionErr = allEvents.find((e) => e.type === 'session_error');
+    const sessionErr = allEvents.find((e) => e.type === "session_error");
     expect(sessionErr).toBeDefined();
 
     // Should also get generic error for backward compatibility
-    const genericErr = allEvents.find((e) => e.type === 'error');
+    const genericErr = allEvents.find((e) => e.type === "error");
     expect(genericErr).toBeDefined();
   });
 
-  test('cancel after queued messages produces no session_error for any queued entry', async () => {
+  test("cancel after queued messages produces no session_error for any queued entry", async () => {
     const session = makeSession();
     await session.loadFromDb();
 
     const eventsPerMsg: ServerMessage[][] = [[], [], []];
 
-    session.processMessage('msg-1', [], (e) => eventsPerMsg[0].push(e), 'req-1');
+    session.processMessage(
+      "msg-1",
+      [],
+      (e) => eventsPerMsg[0].push(e),
+      "req-1",
+    );
     await waitForPendingRun(1);
 
-    session.enqueueMessage('msg-2', [], (e) => eventsPerMsg[1].push(e), 'req-2');
-    session.enqueueMessage('msg-3', [], (e) => eventsPerMsg[2].push(e), 'req-3');
+    session.enqueueMessage(
+      "msg-2",
+      [],
+      (e) => eventsPerMsg[1].push(e),
+      "req-2",
+    );
+    session.enqueueMessage(
+      "msg-3",
+      [],
+      (e) => eventsPerMsg[2].push(e),
+      "req-3",
+    );
 
     session.abort();
 
     // No queued message should have received session_error
     for (const events of eventsPerMsg) {
-      const sessionErr = events.find((e) => e.type === 'session_error');
+      const sessionErr = events.find((e) => e.type === "session_error");
       expect(sessionErr).toBeUndefined();
     }
   });
 
-  test('commitTurnChanges never resolving within budget -> turn still completes and drains queue', async () => {
+  test("commitTurnChanges never resolving within budget -> turn still completes and drains queue", async () => {
     const session = makeSession();
     await session.loadFromDb();
 
@@ -1527,11 +1825,16 @@ describe('Regression: cancel semantics and error channel split', () => {
       const events2: ServerMessage[] = [];
 
       // Start first message (promise intentionally not awaited — we test queue drain behavior)
-      const _p1 = session.processMessage('msg-1', [], (e) => events1.push(e), 'req-1');
+      const _p1 = session.processMessage(
+        "msg-1",
+        [],
+        (e) => events1.push(e),
+        "req-1",
+      );
       await waitForPendingRun(1);
 
       // Enqueue a second message while the first is processing
-      session.enqueueMessage('msg-2', [], (e) => events2.push(e), 'req-2');
+      session.enqueueMessage("msg-2", [], (e) => events2.push(e), "req-2");
 
       // Complete the first agent loop run
       resolveRun(0);
@@ -1545,11 +1848,11 @@ describe('Regression: cancel semantics and error channel split', () => {
       await waitForPendingRun(2, 10_000);
 
       // First message should have completed
-      const completion1 = events1.find((e) => e.type === 'message_complete');
+      const completion1 = events1.find((e) => e.type === "message_complete");
       expect(completion1).toBeDefined();
 
       // Second message should have been dequeued
-      const dequeued = events2.find((e) => e.type === 'message_dequeued');
+      const dequeued = events2.find((e) => e.type === "message_dequeued");
       expect(dequeued).toBeDefined();
 
       // The turn commit should have been called

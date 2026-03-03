@@ -279,20 +279,25 @@ public struct DynamicPagePreview: Sendable, Equatable {
     public let description: String?
     public let icon: String?
     public let metrics: [(label: String, value: String)]?
+    public let context: String?
+    public var previewImage: String?
 
-    public init(title: String, subtitle: String? = nil, description: String? = nil, icon: String? = nil, metrics: [(label: String, value: String)]? = nil) {
+    public init(title: String, subtitle: String? = nil, description: String? = nil, icon: String? = nil, metrics: [(label: String, value: String)]? = nil, context: String? = nil, previewImage: String? = nil) {
         self.title = title
         self.subtitle = subtitle
         self.description = description
         self.icon = icon
         self.metrics = metrics
+        self.context = context
+        self.previewImage = previewImage
     }
 
     public static func == (lhs: DynamicPagePreview, rhs: DynamicPagePreview) -> Bool {
         guard lhs.title == rhs.title,
               lhs.subtitle == rhs.subtitle,
               lhs.description == rhs.description,
-              lhs.icon == rhs.icon else { return false }
+              lhs.icon == rhs.icon,
+              lhs.context == rhs.context else { return false }
         switch (lhs.metrics, rhs.metrics) {
         case (.none, .none):
             return true
@@ -415,13 +420,25 @@ public struct TableColumn: Identifiable, Sendable, Equatable {
     }
 }
 
+public struct TableCellValue: Sendable, Equatable {
+    public let text: String
+    public let icon: String?       // SF Symbol name
+    public let iconColor: String?  // "success" | "warning" | "error" | "muted"
+
+    public init(text: String, icon: String? = nil, iconColor: String? = nil) {
+        self.text = text
+        self.icon = icon
+        self.iconColor = iconColor
+    }
+}
+
 public struct TableRow: Identifiable, Sendable, Equatable {
     public let id: String
-    public let cells: [String: String]
+    public let cells: [String: TableCellValue]
     public let selectable: Bool
     public let selected: Bool
 
-    public init(id: String, cells: [String: String], selectable: Bool, selected: Bool) {
+    public init(id: String, cells: [String: TableCellValue], selectable: Bool, selected: Bool) {
         self.id = id
         self.cells = cells
         self.selectable = selectable
@@ -937,7 +954,9 @@ public extension Surface {
             subtitle: dict["subtitle"] as? String,
             description: dict["description"] as? String,
             icon: dict["icon"] as? String,
-            metrics: metrics
+            metrics: metrics,
+            context: dict["context"] as? String,
+            previewImage: dict["previewImage"] as? String
         )
     }
 
@@ -956,7 +975,13 @@ public extension Surface {
         let rows: [TableRow] = rowsArray.compactMap { rowDict in
             guard let id = rowDict["id"] as? String,
                   let cellsRaw = rowDict["cells"] as? [String: Any?] else { return nil }
-            let cells = cellsRaw.compactMapValues { $0 as? String }
+            let cells: [String: TableCellValue] = cellsRaw.compactMapValues { raw -> TableCellValue? in
+                if let s = raw as? String { return TableCellValue(text: s) }
+                if let d = raw as? [String: Any?], let text = d["text"] as? String {
+                    return TableCellValue(text: text, icon: d["icon"] as? String, iconColor: d["iconColor"] as? String)
+                }
+                return nil
+            }
             return TableRow(
                 id: id,
                 cells: cells,
@@ -987,7 +1012,13 @@ public extension Surface {
             rows = rowsArray.compactMap { rowDict in
                 guard let id = rowDict["id"] as? String,
                       let cellsRaw = rowDict["cells"] as? [String: Any?] else { return nil }
-                let cells = cellsRaw.compactMapValues { $0 as? String }
+                let cells: [String: TableCellValue] = cellsRaw.compactMapValues { raw -> TableCellValue? in
+                    if let s = raw as? String { return TableCellValue(text: s) }
+                    if let d = raw as? [String: Any?], let text = d["text"] as? String {
+                        return TableCellValue(text: text, icon: d["icon"] as? String, iconColor: d["iconColor"] as? String)
+                    }
+                    return nil
+                }
                 return TableRow(
                     id: id,
                     cells: cells,

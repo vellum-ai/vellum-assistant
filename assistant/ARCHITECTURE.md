@@ -22,58 +22,73 @@ This document owns assistant-runtime architecture details. The repo-level archit
 - Voice calls mirror the same prompt contract: `CallController` receives guardian context on setup and refreshes it immediately after successful voice challenge verification, so the first post-verification turn is grounded as `actor_role: guardian`.
 - Voice-specific behavior (DTMF/speech verification flow, relay state machine) remains voice-local; only actor-role resolution is shared.
 
-### Vellum Guardian Identity Model (Actor Tokens + Refresh Tokens)
+### Single-Header JWT Auth Model
 
-The vellum channel (macOS desktop, iOS, CLI) uses an identity-bound actor token system to authenticate guardian identity on HTTP routes. This replaces the previous implicit trust model where all local connections were assumed to be the guardian.
+All HTTP API requests use a single `Authorization: Bearer <jwt>` header for authentication. The JWT carries identity, permissions, and policy versioning in a unified token.
+
+**Token schema (JWT claims):**
+
+| Claim | Type | Description |
+|-------|------|-------------|
+| `iss` | `'vellum-auth'` | Issuer — always `vellum-auth` |
+| `aud` | `'vellum-daemon'` or `'vellum-gateway'` | Audience — which service the token targets |
+| `sub` | string | Subject — encodes principal type and identity (see patterns below) |
+| `scope_profile` | string | Named permission bundle (see profiles below) |
+| `exp` | number | Expiry timestamp (seconds since epoch) |
+| `policy_epoch` | number | Policy version — stale tokens are rejected with `refresh_required` |
+| `iat` | number | Issued-at timestamp |
+| `jti` | string | Unique token ID |
+
+**Subject patterns:**
+
+| Pattern | Principal Type | Description |
+|---------|---------------|-------------|
+| `actor:<assistantId>:<actorPrincipalId>` | `actor` | Desktop, iOS, or CLI client |
+| `svc:gateway:<assistantId>` | `svc_gateway` | Gateway service (ingress, webhooks) |
+| `ipc:<assistantId>:<sessionId>` | `ipc` | Internal IPC connections |
+| `svc:daemon:self` | n/a | Daemon self-identification (for internal use) |
+
+**Scope profiles:**
+
+| Profile | Scopes | Used by |
+|---------|--------|---------|
+| `actor_client_v1` | `chat.{read,write}`, `approval.{read,write}`, `settings.{read,write}`, `attachments.{read,write}`, `calls.{read,write}`, `feature_flags.{read,write}` | Desktop, iOS, CLI clients |
+| `gateway_ingress_v1` | `ingress.write`, `internal.write` | Gateway channel inbound + webhook forwarding |
+| `gateway_service_v1` | `settings.read`, `settings.write`, `internal.write` | Gateway service-to-daemon calls |
+| `ipc_v1` | `ipc.all` | Internal IPC connections |
 
 **Identity lifecycle:**
 
-1. **Startup migration** — On daemon start, `ensureVellumGuardianBinding()` (in `guardian-vellum-migration.ts`) backfills a `channel='vellum'` guardian binding with a stable `guardianPrincipalId` (format: `vellum-principal-<uuid>`). Existing installations get a binding with `verifiedVia: 'startup-migration'`; new installs get one via bootstrap. This migration is idempotent and preserves bindings for other channels (Telegram, SMS, etc.).
+1. **Bootstrap (loopback-only, macOS/CLI)** — On first launch, the client calls `POST /v1/integrations/guardian/vellum/bootstrap` with `{ platform, deviceId }`. The endpoint is loopback-only and mints a JWT access token + refresh token pair. Returns `{ guardianPrincipalId, accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt, refreshAfter, isNew }`.
 
-2. **Bootstrap (loopback-only, macOS) — initial issuance only** — On first launch (no existing actor token), the macOS client calls `POST /v1/integrations/guardian/vellum/bootstrap` with `{ platform: 'macos', deviceId }`. The endpoint is loopback-only: it rejects requests with `X-Forwarded-For` and verifies the peer IP is a loopback address (`127.0.0.1`, `::1`, `::ffff:127.0.0.1`). The endpoint ensures a vellum guardian principal exists, revokes any prior token for the same device binding, mints a new HMAC-SHA256 signed actor token with a 30-day TTL and a rotating refresh token, stores only the SHA-256 hashes, and returns `{ guardianPrincipalId, actorToken, actorTokenExpiresAt, refreshToken, refreshTokenExpiresAt, refreshAfter, isNew }`. Bootstrap is only used for initial credential issuance — ongoing renewal is handled exclusively by the refresh endpoint.
+2. **iOS pairing** — iOS devices obtain JWTs through the QR pairing flow. The pairing response includes `accessToken` and `refreshToken` credentials.
 
-3. **iOS pairing — initial issuance only** — iOS devices obtain actor tokens exclusively through the QR pairing flow. When an iOS device completes pairing, the pairing response includes an `actorToken` and `refreshToken` minted against the same vellum guardian principal. The pairing handler in `pairing-routes.ts` calls `mintPairingActorToken()` which looks up the vellum binding and mints a device-specific token pair. iOS does not call the bootstrap endpoint. Re-pairing is only needed if both the actor token and refresh token expire.
+3. **Refresh** — `POST /v1/integrations/guardian/vellum/refresh` accepts `{ refreshToken }` and returns a new access/refresh token pair. Single-use rotation with replay detection and family-based revocation.
 
-4. **IPC identity** — Local IPC connections (Unix domain socket from the macOS native app) do not send actor tokens. Instead, the daemon assigns a deterministic local actor identity via `resolveLocalIpcGuardianContext()` in `local-actor-identity.ts`. This looks up the vellum guardian binding and routes through the same `resolveGuardianContext` trust pipeline used by HTTP channel ingress. When no vellum binding exists yet (pre-bootstrap), a fallback guardian context is returned since the local macOS user is inherently the guardian of their own machine.
+4. **IPC identity** — Local IPC connections use `resolveLocalIpcGuardianContext()` for deterministic identity without tokens.
 
-**Actor token format:** `base64url(JSON claims) + '.' + base64url(HMAC-SHA256 signature)`. Claims include `assistantId`, `platform`, `deviceId`, `guardianPrincipalId`, `iat`, `exp` (30 days from issuance), and `jti`.
+**Route policy enforcement:** Every protected endpoint declares required scopes and allowed principal types in `src/runtime/auth/route-policy.ts`. The `enforcePolicy()` function checks the AuthContext against these requirements and returns 403 when access is denied. A guard test ensures every dispatched endpoint has a corresponding policy entry.
 
-**Hash-only storage:** Only the SHA-256 hex digest of the raw token is persisted in the `actor_token_records` table. Token verification recomputes the hash and looks it up in the store to check revocation status. Tokens are scoped to `(assistantId, guardianPrincipalId, hashedDeviceId)` with a one-active-per-device invariant.
+**Credential storage:** Only hashed tokens are persisted. Access token hashes go in `credential_records`; refresh token hashes in `refresh_token_records`. Raw tokens are returned once and never stored server-side.
 
-**Refresh token lifecycle:**
-
-Refresh tokens provide a rotating credential renewal mechanism that avoids re-bootstrap or re-pairing for ongoing sessions.
-
-- **Issuance:** A refresh token is minted alongside every actor token (during bootstrap or pairing). The response includes `refreshToken`, `refreshTokenExpiresAt`, and `refreshAfter` (the timestamp at which clients should proactively refresh, set to 80% of the actor token TTL).
-- **Dual expiry:** Each refresh token has a 365-day absolute expiry (from issuance) and a 90-day inactivity expiry (from last use). The effective expiry is the earlier of the two. Using a refresh token resets the inactivity window.
-- **Single-use rotation:** Each call to `POST /v1/integrations/guardian/vellum/refresh` consumes the presented refresh token and returns a new actor token + new refresh token pair. The old refresh token is marked as rotated and cannot be reused.
-- **Token family tracking:** Refresh tokens are grouped into families (one family per initial issuance chain). All tokens in a family share a `familyId`.
-- **Replay detection:** If a client presents a refresh token that has already been rotated (i.e., it was used once and a successor was issued), the server treats this as a potential token theft. The entire token family for that device is revoked, forcing re-bootstrap or re-pairing.
-- **Device binding:** Refresh tokens are bound to `(assistantId, guardianPrincipalId, hashedDeviceId)`. A refresh request from a different device binding is rejected.
-- **Hash-only storage:** Only the SHA-256 hex digest of the refresh token is stored in the `actor_refresh_token_records` table. The raw token is returned once and never persisted on the server.
-
-**Refresh endpoint:** `POST /v1/integrations/guardian/vellum/refresh` accepts `{ refreshToken }` in the request body. It validates the token hash, checks expiry and device binding, performs replay detection, rotates the token, mints a new actor token, and returns `{ actorToken, actorTokenExpiresAt, refreshToken, refreshTokenExpiresAt, refreshAfter }`. This endpoint is only reachable through the gateway (bearer-authenticated).
-
-**Signing key management:** A 32-byte random signing key is generated on first startup and persisted at `~/.vellum/protected/actor-token-signing-key` with `chmod 0o600`. The key is loaded on subsequent startups via `loadOrCreateSigningKey()`.
-
-**Strict HTTP enforcement:** Vellum-channel HTTP routes (POST /v1/messages, POST /v1/confirm, POST /v1/guardian-actions/decision, etc.) require a valid actor token via the `X-Actor-Token` header. The middleware in `middleware/actor-token.ts` verifies the HMAC signature, checks the token is active in the store, and resolves a guardian context through the standard trust pipeline. For backward compatibility with the CLI, requests without an actor token that originate from a loopback address (no `X-Forwarded-For` header) fall back to `resolveLocalIpcGuardianContext()`. Gateway-proxied requests (which carry `X-Forwarded-For`) without an actor token are rejected.
-
-**Notification scoping:** Guardian-sensitive notifications (e.g., approval requests, access request alerts) are annotated with `targetGuardianPrincipalId` so the notification pipeline can scope delivery to the correct guardian identity across devices.
+**Notification scoping:** Guardian-sensitive notifications are annotated with `targetGuardianPrincipalId` for identity-scoped delivery.
 
 **Key source files:**
 
 | File | Purpose |
 |------|---------|
-| `src/runtime/actor-token-service.ts` | HMAC-SHA256 mint/verify, signing key management, `hashToken` |
-| `src/runtime/actor-token-store.ts` | Hash-only persistence: create, find by hash/device binding, revoke |
-| `src/runtime/actor-refresh-token-service.ts` | Refresh token rotation, replay detection, family revocation |
-| `src/runtime/actor-refresh-token-store.ts` | Refresh token hash-only persistence: create, find, rotate, revoke by family |
-| `src/runtime/middleware/actor-token.ts` | HTTP middleware: `verifyHttpActorToken`, `verifyHttpActorTokenWithLocalFallback`, `isActorBoundGuardian` |
+| `src/runtime/auth/types.ts` | Core type definitions: `TokenClaims`, `AuthContext`, `ScopeProfile`, `Scope`, `PrincipalType` |
+| `src/runtime/auth/token-service.ts` | JWT signing, verification, and policy epoch management |
+| `src/runtime/auth/credential-service.ts` | Credential pair minting (access token + refresh token) |
+| `src/runtime/auth/scopes.ts` | Scope profile resolver (`resolveScopeProfile`) |
+| `src/runtime/auth/context.ts` | AuthContext builder from JWT claims |
+| `src/runtime/auth/subject.ts` | Subject string parser (`parseSub`) |
+| `src/runtime/auth/middleware.ts` | JWT bearer auth middleware (`authenticateRequest`) |
+| `src/runtime/auth/route-policy.ts` | Route-level scope/principal enforcement |
+| `src/runtime/routes/guardian-bootstrap-routes.ts` | `POST /v1/integrations/guardian/vellum/bootstrap` (initial JWT issuance) |
+| `src/runtime/routes/guardian-refresh-routes.ts` | `POST /v1/integrations/guardian/vellum/refresh` (token rotation) |
+| `src/runtime/routes/pairing-routes.ts` | JWT credential issuance in pairing flow |
 | `src/runtime/local-actor-identity.ts` | `resolveLocalIpcGuardianContext` — deterministic IPC identity |
-| `src/runtime/guardian-vellum-migration.ts` | `ensureVellumGuardianBinding` — startup binding backfill |
-| `src/runtime/routes/guardian-bootstrap-routes.ts` | `POST /v1/integrations/guardian/vellum/bootstrap` handler (initial issuance only) |
-| `src/runtime/routes/guardian-refresh-routes.ts` | `POST /v1/integrations/guardian/vellum/refresh` handler (token rotation) |
-| `src/runtime/routes/pairing-routes.ts` | `mintPairingActorToken` — actor token + refresh token in pairing response |
 | `src/memory/guardian-bindings.ts` | Guardian binding persistence (shared across all channels) |
 
 ### Channel-Agnostic Scoped Approval Grants
@@ -86,10 +101,10 @@ All guardian approval decisions — regardless of how they arrive — route thro
 
 **Core API:**
 
-| Function | Purpose |
-|----------|---------|
-| `applyGuardianDecision(params)` | Apply a guardian decision atomically: downgrade `approve_always` for guardian-on-behalf requests, capture approval info, resolve the pending interaction, update the approval record, and mint a scoped grant on approve. Returns `{ applied, reason?, requestId? }`. |
-| `listGuardianDecisionPrompts({ conversationId })` | List pending prompts for a conversation, aggregating channel guardian approval requests and pending confirmation interactions into a uniform `GuardianDecisionPrompt` shape. |
+| Function                                          | Purpose                                                                                                                                                                                                                                                               |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `applyGuardianDecision(params)`                   | Apply a guardian decision atomically: downgrade `approve_always` for guardian-on-behalf requests, capture approval info, resolve the pending interaction, update the approval record, and mint a scoped grant on approve. Returns `{ applied, reason?, requestId? }`. |
+| `listGuardianDecisionPrompts({ conversationId })` | List pending prompts for a conversation, aggregating channel guardian approval requests and pending confirmation interactions into a uniform `GuardianDecisionPrompt` shape.                                                                                          |
 
 **Security invariants enforced by the primitive:**
 
@@ -107,14 +122,38 @@ All guardian approval decisions — regardless of how they arrive — route thro
 
 **Key source files:**
 
+| File                                           | Purpose                                                                                                                                           |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/approvals/guardian-decision-primitive.ts` | Unified decision application: downgrade, approval info capture, `handleChannelDecision`, record update, grant minting                             |
+| `src/runtime/guardian-decision-types.ts`       | Shared types: `GuardianDecisionPrompt`, `GuardianDecisionAction`, `buildDecisionActions`, `buildPlainTextFallback`, `ApplyGuardianDecisionResult` |
+| `src/runtime/routes/guardian-action-routes.ts` | HTTP route handlers for `GET /v1/guardian-actions/pending` and `POST /v1/guardian-actions/decision`                                               |
+| `src/daemon/handlers/guardian-actions.ts`      | IPC handlers wrapping the same logic for desktop socket clients                                                                                   |
+| `src/daemon/ipc-contract/guardian-actions.ts`  | IPC message type definitions for guardian action requests/responses                                                                               |
+| `src/runtime/channel-approval-types.ts`        | Channel-facing approval action types and `toApprovalActionOptions` bridge                                                                         |
+
+### Temporary Approval Modes (Session-Scoped Overrides)
+
+In addition to persistent trust rules (`always_allow` / `always_deny`), the approval system supports two **temporary** approval modes that auto-approve tool confirmations for the duration of a conversation or a fixed time window. These exist to reduce prompt fatigue during intensive sessions without permanently altering the trust configuration.
+
+**Two modes:**
+
+1. **`allow_thread`** — Auto-approve all tool confirmations for the remainder of the current conversation. The override persists until the session ends, the conversation is closed, or the mode is explicitly cleared.
+2. **`allow_10m`** — Auto-approve all tool confirmations for 10 minutes (configurable). The override expires lazily on the next read after the TTL elapses — no background sweep runs.
+
+**Session-scoped, in-memory only:** Overrides are keyed by `conversationId` and stored in an in-memory `Map` inside `session-approval-overrides.ts`. They do not survive daemon restarts, which is intentional — temporary approvals should not outlive the session that created them.
+
+**Integration with the permission pipeline:** The permission checker (`src/tools/permission-checker.ts`) checks for an active temporary override via `getEffectiveMode()` before prompting the user. If an active override exists for the current conversation, the confirmation is auto-approved without surfacing a prompt. This check runs after persistent trust rules, so a persistent `deny` rule still takes precedence.
+
+**No persistent side effects:** Temporary modes do not write to `trust.json` or create persistent trust rules. They are purely ephemeral. The `buildDecisionActions()` function in `guardian-decision-types.ts` controls whether temporary options (`allow_10m`, `allow_thread`) are surfaced in the approval prompt UI, gated by the `temporaryOptionsAvailable` flag.
+
+**Key source files:**
+
 | File | Purpose |
 |------|---------|
-| `src/approvals/guardian-decision-primitive.ts` | Unified decision application: downgrade, approval info capture, `handleChannelDecision`, record update, grant minting |
-| `src/runtime/guardian-decision-types.ts` | Shared types: `GuardianDecisionPrompt`, `GuardianDecisionAction`, `buildDecisionActions`, `buildPlainTextFallback`, `ApplyGuardianDecisionResult` |
-| `src/runtime/routes/guardian-action-routes.ts` | HTTP route handlers for `GET /v1/guardian-actions/pending` and `POST /v1/guardian-actions/decision` |
-| `src/daemon/handlers/guardian-actions.ts` | IPC handlers wrapping the same logic for desktop socket clients |
-| `src/daemon/ipc-contract/guardian-actions.ts` | IPC message type definitions for guardian action requests/responses |
-| `src/runtime/channel-approval-types.ts` | Channel-facing approval action types and `toApprovalActionOptions` bridge |
+| `src/runtime/session-approval-overrides.ts` | In-memory store: `setThreadMode`, `setTimedMode`, `getEffectiveMode`, `clearMode`, `hasActiveOverride`, `clearAll` |
+| `src/permissions/types.ts` | `UserDecision` type (includes `allow_10m`, `allow_thread`, `temporary_override`), `isAllowDecision()` helper |
+| `src/runtime/guardian-decision-types.ts` | `buildDecisionActions()` — controls which temporary options appear in approval prompts |
+| `src/tools/permission-checker.ts` | Permission pipeline integration — checks temporary overrides before prompting |
 
 ### Canonical Guardian Request System
 
@@ -135,21 +174,22 @@ The canonical guardian request system provides a channel-agnostic, unified domai
 **Resolver registry:** Kind-specific resolvers (`src/approvals/guardian-request-resolvers.ts`) handle side effects after CAS resolution. Built-in resolvers: `tool_approval` (channel/desktop approval path) and `pending_question` (voice call question path). New request kinds register resolvers without touching the core primitive.
 
 **Expiry sweeps:** Three complementary sweeps run on 60-second intervals to clean up stale requests:
+
 - `src/calls/guardian-action-sweep.ts` — voice call guardian action requests
 - `src/runtime/routes/guardian-expiry-sweep.ts` — channel guardian approval requests
 - `src/runtime/routes/canonical-guardian-expiry-sweep.ts` — canonical guardian requests (CAS-safe)
 
 **Key source files:**
 
-| File | Purpose |
-|------|---------|
-| `src/memory/canonical-guardian-store.ts` | Canonical request and delivery persistence (CRUD, CAS resolve, list with filters) |
-| `src/approvals/guardian-decision-primitive.ts` | Unified decision primitive: `applyCanonicalGuardianDecision` (canonical) and `applyGuardianDecision` (legacy) |
-| `src/approvals/guardian-request-resolvers.ts` | Resolver registry: kind-specific side-effect dispatch after CAS resolution |
-| `src/runtime/guardian-reply-router.ts` | Shared inbound router: callback -> code -> NL classification pipeline |
-| `src/runtime/routes/guardian-action-routes.ts` | HTTP endpoints for prompt listing and decision submission |
-| `src/daemon/handlers/guardian-actions.ts` | IPC handlers for desktop socket clients |
-| `src/runtime/routes/canonical-guardian-expiry-sweep.ts` | Canonical request expiry sweep |
+| File                                                    | Purpose                                                                                                       |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `src/memory/canonical-guardian-store.ts`                | Canonical request and delivery persistence (CRUD, CAS resolve, list with filters)                             |
+| `src/approvals/guardian-decision-primitive.ts`          | Unified decision primitive: `applyCanonicalGuardianDecision` (canonical) and `applyGuardianDecision` (legacy) |
+| `src/approvals/guardian-request-resolvers.ts`           | Resolver registry: kind-specific side-effect dispatch after CAS resolution                                    |
+| `src/runtime/guardian-reply-router.ts`                  | Shared inbound router: callback -> code -> NL classification pipeline                                         |
+| `src/runtime/routes/guardian-action-routes.ts`          | HTTP endpoints for prompt listing and decision submission                                                     |
+| `src/daemon/handlers/guardian-actions.ts`               | IPC handlers for desktop socket clients                                                                       |
+| `src/runtime/routes/canonical-guardian-expiry-sweep.ts` | Canonical request expiry sweep                                                                                |
 
 ### Outbound Guardian Verification (HTTP Endpoints)
 
@@ -157,13 +197,13 @@ Guardian verification can be initiated through gateway HTTP endpoints (which for
 
 **HTTP Endpoints:**
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/v1/integrations/guardian/outbound/start` | POST | Start a new outbound verification session. Body: `{ channel, destination?, assistantId?, rebind? }` |
-| `/v1/integrations/guardian/outbound/resend` | POST | Resend the verification code for an active session. Body: `{ channel, assistantId? }` |
-| `/v1/integrations/guardian/outbound/cancel` | POST | Cancel an active outbound verification session. Body: `{ channel, assistantId? }` |
+| Endpoint                                    | Method | Description                                                                                         |
+| ------------------------------------------- | ------ | --------------------------------------------------------------------------------------------------- |
+| `/v1/integrations/guardian/outbound/start`  | POST   | Start a new outbound verification session. Body: `{ channel, destination?, assistantId?, rebind? }` |
+| `/v1/integrations/guardian/outbound/resend` | POST   | Resend the verification code for an active session. Body: `{ channel, assistantId? }`               |
+| `/v1/integrations/guardian/outbound/cancel` | POST   | Cancel an active outbound verification session. Body: `{ channel, assistantId? }`                   |
 
-All endpoints are bearer-authenticated via the gateway token (`~/.vellum/http-token` in local setups). Skills and user-facing tooling should target the gateway URL (default `http://localhost:7830`), not the runtime port.
+All endpoints are JWT-authenticated via `Authorization: Bearer <jwt>`. Skills and user-facing tooling should target the gateway URL (default `http://localhost:7830`), not the runtime port.
 
 **Shared Business Logic:**
 
@@ -179,12 +219,12 @@ The HTTP route handlers (`integration-routes.ts`) and the legacy IPC handlers (`
 
 **Key Source Files:**
 
-| File | Purpose |
-|------|---------|
-| `src/runtime/guardian-outbound-actions.ts` | Shared business logic for start/resend/cancel outbound verification |
-| `src/runtime/routes/integration-routes.ts` | HTTP route handlers for `/v1/integrations/guardian/outbound/*` |
-| `src/daemon/handlers/config-channels.ts` | IPC handler that delegates to the same shared actions |
-| `src/config/vellum-skills/guardian-verify-setup/SKILL.md` | Skill that teaches the assistant how to orchestrate guardian verification via chat |
+| File                                                       | Purpose                                                                            |
+| ---------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `src/runtime/guardian-outbound-actions.ts`                 | Shared business logic for start/resend/cancel outbound verification                |
+| `src/runtime/routes/integration-routes.ts`                 | HTTP route handlers for `/v1/integrations/guardian/outbound/*`                     |
+| `src/daemon/handlers/config-channels.ts`                   | IPC handler that delegates to the same shared actions                              |
+| `src/config/bundled-skills/guardian-verify-setup/SKILL.md` | Skill that teaches the assistant how to orchestrate guardian verification via chat |
 
 **Guardian-Only Tool Invocation Gate:**
 
@@ -232,24 +272,25 @@ When a voice call's ASK_GUARDIAN consultation times out before the guardian resp
 
 **Key source files:**
 
-| File | Purpose |
-|------|---------|
-| `src/memory/guardian-action-store.ts` | Follow-up state machine with atomic transitions (`startFollowupFromExpiredRequest`, `progressFollowupState`, `finalizeFollowup`) and query helpers for pending/expired/follow-up deliveries |
-| `src/runtime/guardian-action-message-composer.ts` | 2-tier text generation: daemon-injected LLM generator with deterministic fallback templates. Covers all scenarios from timeout acknowledgment through follow-up completion |
-| `src/runtime/guardian-action-conversation-turn.ts` | Follow-up decision engine: classifies guardian replies into `call_back`, `message_back`, `decline`, or `keep_pending` dispositions using LLM tool calling |
-| `src/runtime/guardian-action-followup-executor.ts` | Action dispatch: resolves counterparty from call session, executes `message_back` (SMS via gateway) or `call_back` (outbound call via `startCall`), finalizes follow-up state |
-| `src/daemon/guardian-action-generators.ts` | Daemon-injected generator factories: `createGuardianActionCopyGenerator` (latency-optimized text rewriting) and `createGuardianFollowUpConversationGenerator` (tool-calling intent classification) |
-| `src/calls/call-controller.ts` | Voice timeout handling: marks requests as timed out, sends expiry notices, injects `[GUARDIAN_TIMEOUT]` instruction for generated voice response |
-| `src/runtime/routes/inbound-message-handler.ts` | Late reply interception for Telegram/SMS channels: matches late answers to expired requests, routes follow-up conversation turns, dispatches actions |
-| `src/daemon/session-process.ts` | Late reply interception for mac/IPC channel: same logic as inbound-message-handler but using conversation-ID-based delivery lookup |
-| `src/calls/guardian-action-sweep.ts` | Periodic sweep for stale pending requests; sends expiry notices to guardian destinations |
-| `src/memory/migrations/030-guardian-action-followup.ts` | Schema migration adding follow-up columns (`followup_state`, `late_answer_text`, `late_answered_at`, `followup_action`, `followup_completed_at`) |
+| File                                                    | Purpose                                                                                                                                                                                            |
+| ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/memory/guardian-action-store.ts`                   | Follow-up state machine with atomic transitions (`startFollowupFromExpiredRequest`, `progressFollowupState`, `finalizeFollowup`) and query helpers for pending/expired/follow-up deliveries        |
+| `src/runtime/guardian-action-message-composer.ts`       | 2-tier text generation: daemon-injected LLM generator with deterministic fallback templates. Covers all scenarios from timeout acknowledgment through follow-up completion                         |
+| `src/runtime/guardian-action-conversation-turn.ts`      | Follow-up decision engine: classifies guardian replies into `call_back`, `message_back`, `decline`, or `keep_pending` dispositions using LLM tool calling                                          |
+| `src/runtime/guardian-action-followup-executor.ts`      | Action dispatch: resolves counterparty from call session, executes `message_back` (SMS via gateway) or `call_back` (outbound call via `startCall`), finalizes follow-up state                      |
+| `src/daemon/guardian-action-generators.ts`              | Daemon-injected generator factories: `createGuardianActionCopyGenerator` (latency-optimized text rewriting) and `createGuardianFollowUpConversationGenerator` (tool-calling intent classification) |
+| `src/calls/call-controller.ts`                          | Voice timeout handling: marks requests as timed out, sends expiry notices, injects `[GUARDIAN_TIMEOUT]` instruction for generated voice response                                                   |
+| `src/runtime/routes/inbound-message-handler.ts`         | Late reply interception for Telegram/SMS channels: matches late answers to expired requests, routes follow-up conversation turns, dispatches actions                                               |
+| `src/daemon/session-process.ts`                         | Late reply interception for mac/IPC channel: same logic as inbound-message-handler but using conversation-ID-based delivery lookup                                                                 |
+| `src/calls/guardian-action-sweep.ts`                    | Periodic sweep for stale pending requests; sends expiry notices to guardian destinations                                                                                                           |
+| `src/memory/migrations/030-guardian-action-followup.ts` | Schema migration adding follow-up columns (`followup_state`, `late_answer_text`, `late_answered_at`, `followup_action`, `followup_completed_at`)                                                   |
 
 ### SMS Channel (Twilio)
 
 The SMS channel provides text-only messaging via Twilio, sharing the same telephony provider as voice calls. It follows the same ingress/egress pattern as Telegram but uses Twilio's HMAC-SHA1 signature validation instead of a secret header.
 
 **Ingress** (`POST /webhooks/twilio/sms`):
+
 1. Twilio delivers an inbound SMS as a form-encoded POST to the gateway.
 2. The gateway validates the `X-Twilio-Signature` header using HMAC-SHA1 with the Twilio Auth Token against the canonical request URL (reconstructed from `INGRESS_PUBLIC_BASE_URL` when behind a tunnel).
 3. `MessageSid` deduplication prevents reprocessing retried webhooks.
@@ -260,6 +301,7 @@ The SMS channel provides text-only messaging via Twilio, sharing the same teleph
 8. The event is forwarded to the runtime via `POST /channels/inbound`, including SMS-specific transport hints (`chat-first-medium`, `sms-character-limits`, etc.) and a `replyCallbackUrl` pointing to `/deliver/sms`.
 
 **Egress** (`POST /deliver/sms`):
+
 1. The runtime calls the gateway's `/deliver/sms` endpoint with `{ to, text }` or `{ chatId, text }`. The `chatId` field is an alias for `to`, allowing the runtime channel callback (which sends `{ chatId, text }`) to work without translation. When both `to` and `chatId` are provided, `to` takes precedence.
 2. The gateway authenticates the request via bearer token (same fail-closed model as `/deliver/telegram`).
 3. The gateway sends the SMS via the Twilio Messages API using the configured `TWILIO_PHONE_NUMBER` as the `From` number.
@@ -271,6 +313,7 @@ The SMS channel provides text-only messaging via Twilio, sharing the same teleph
 **Credential Clearing Semantics**: `clear_credentials` removes only the authentication credentials (Account SID and Auth Token) from secure storage. The phone number is preserved in both the config file (`sms.phoneNumber`) and the secure key (`credential:twilio:phone_number`) so that re-entering credentials resumes working without needing to reassign the number.
 
 **Webhook Lifecycle**: Twilio webhook URLs are managed through a shared `syncTwilioWebhooks` helper in `config.ts` that computes voice, status-callback, and SMS URLs from the ingress config and pushes them to Twilio. Webhooks are synchronized at three points:
+
 1. **Number provisioning** (`provision_number`) — immediately after purchasing a number.
 2. **Number assignment** (`assign_number`) — when an existing number is assigned to the assistant.
 3. **Ingress URL change** (`ingress_config` set) — when the public ingress URL is updated or enabled, the daemon automatically re-synchronizes Twilio webhooks (fire-and-forget) if credentials and an assigned number are present. This ensures tunnel URL changes (e.g., ngrok restart) propagate without manual re-assignment.
@@ -295,12 +338,14 @@ The WhatsApp channel enables inbound and outbound messaging via the Meta WhatsAp
 8. The event is forwarded to the runtime via `POST /channels/inbound` with WhatsApp-specific transport hints and a `replyCallbackUrl` pointing to `/deliver/whatsapp`.
 
 **Egress** (`POST /deliver/whatsapp`):
+
 1. The runtime calls the gateway's `/deliver/whatsapp` endpoint with `{ to, text }` or `{ chatId, text }` (alias).
 2. The gateway authenticates the request via bearer token (same fail-closed model as other deliver endpoints).
 3. The gateway sends the message via the WhatsApp Cloud API `/{phoneNumberId}/messages` endpoint using the configured access token.
 4. Text is split at 4096 characters if needed.
 
 **Required credentials**:
+
 - `WHATSAPP_PHONE_NUMBER_ID` — the numeric WhatsApp Business phone number ID from Meta
 - `WHATSAPP_ACCESS_TOKEN` — System User or temporary access token
 - `WHATSAPP_APP_SECRET` — App secret for webhook signature verification
@@ -320,21 +365,21 @@ The Slack channel provides text-based messaging via Slack's Socket Mode API. Unl
 
 **Control-plane endpoints** (`/v1/integrations/slack/channel/config`):
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/v1/integrations/slack/channel/config` | GET | Returns current config status: `hasBotToken`, `hasAppToken`, `connected`, plus workspace metadata (`teamId`, `teamName`, `botUserId`, `botUsername`) |
-| `/v1/integrations/slack/channel/config` | POST | Validates and stores credentials. Body: `{ botToken?: string, appToken?: string }` |
-| `/v1/integrations/slack/channel/config` | DELETE | Clears all Slack channel credentials from secure storage and credential metadata |
+| Endpoint                                | Method | Description                                                                                                                                          |
+| --------------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/v1/integrations/slack/channel/config` | GET    | Returns current config status: `hasBotToken`, `hasAppToken`, `connected`, plus workspace metadata (`teamId`, `teamName`, `botUserId`, `botUsername`) |
+| `/v1/integrations/slack/channel/config` | POST   | Validates and stores credentials. Body: `{ botToken?: string, appToken?: string }`                                                                   |
+| `/v1/integrations/slack/channel/config` | DELETE | Clears all Slack channel credentials from secure storage and credential metadata                                                                     |
 
-All endpoints are bearer-authenticated via the runtime HTTP token (`~/.vellum/http-token`).
+All endpoints are JWT-authenticated via `Authorization: Bearer <jwt>`.
 
 **Credential storage pattern:**
 
 Both tokens are stored in the secure key store (macOS Keychain with encrypted file fallback):
 
-| Secure key | Content |
-|-----------|---------|
-| `credential:slack_channel:bot_token` | Slack bot token (used for `chat.postMessage` and `auth.test`) |
+| Secure key                           | Content                                                                    |
+| ------------------------------------ | -------------------------------------------------------------------------- |
+| `credential:slack_channel:bot_token` | Slack bot token (used for `chat.postMessage` and `auth.test`)              |
 | `credential:slack_channel:app_token` | Slack app token (`xapp-...`, used for Socket Mode `apps.connections.open`) |
 
 Workspace metadata (team ID, team name, bot user ID, bot username) is stored as JSON in the credential metadata store under `('slack_channel', 'bot_token')`.
@@ -351,10 +396,10 @@ Both `GET` and `POST` endpoints report `connected: true` only when both `hasBotT
 
 **Key source files:**
 
-| File | Purpose |
-|------|---------|
-| `src/daemon/handlers/config-slack-channel.ts` | Business logic for get/set/clear Slack channel config |
-| `src/runtime/routes/integration-routes.ts` | HTTP route handlers for `/v1/integrations/slack/channel/config` |
+| File                                          | Purpose                                                         |
+| --------------------------------------------- | --------------------------------------------------------------- |
+| `src/daemon/handlers/config-slack-channel.ts` | Business logic for get/set/clear Slack channel config           |
+| `src/runtime/routes/integration-routes.ts`    | HTTP route handlers for `/v1/integrations/slack/channel/config` |
 
 ### Trusted Contact Access (Channel-Agnostic)
 
@@ -363,6 +408,7 @@ External users who are not the guardian can gain access to the assistant through
 **Full design doc:** [`docs/trusted-contact-access.md`](docs/trusted-contact-access.md)
 
 **Flow summary:**
+
 1. Unknown user messages the assistant on any channel.
 2. Ingress ACL (`inbound-message-handler.ts`) rejects the message and emits an `ingress.access_request` notification signal to the guardian.
 3. Guardian approves or denies via callback button or conversational intent (routed through `guardian-approval-interception.ts`).
@@ -376,6 +422,7 @@ External users who are not the guardian can gain access to the assistant through
 **Lifecycle states:** `requested → pending_guardian → verification_pending → active | denied | expired`
 
 **Notification signals:** The flow emits signals at each lifecycle transition via `emitNotificationSignal()`:
+
 - `ingress.access_request` — non-member denied, guardian notified
 - `ingress.trusted_contact.guardian_decision` — guardian approved or denied
 - `ingress.trusted_contact.verification_sent` — code created and delivered
@@ -384,26 +431,26 @@ External users who are not the guardian can gain access to the assistant through
 
 **HTTP API (for management):**
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/v1/ingress/members` | GET | List trusted contacts (filterable by channel, status, policy) |
-| `/v1/ingress/members` | POST | Upsert a member (add/update trusted contact) |
-| `/v1/ingress/members/:id` | DELETE | Revoke a trusted contact |
-| `/v1/ingress/members/:id/block` | POST | Block a member |
+| Endpoint                        | Method | Description                                                   |
+| ------------------------------- | ------ | ------------------------------------------------------------- |
+| `/v1/ingress/members`           | GET    | List trusted contacts (filterable by channel, status, policy) |
+| `/v1/ingress/members`           | POST   | Upsert a member (add/update trusted contact)                  |
+| `/v1/ingress/members/:id`       | DELETE | Revoke a trusted contact                                      |
+| `/v1/ingress/members/:id/block` | POST   | Block a member                                                |
 
 **Key source files:**
 
-| File | Purpose |
-|------|---------|
-| `src/runtime/routes/inbound-message-handler.ts` | Ingress ACL, non-member rejection, verification code interception |
-| `src/runtime/routes/access-request-decision.ts` | Guardian decision → verification session creation |
+| File                                                   | Purpose                                                                       |
+| ------------------------------------------------------ | ----------------------------------------------------------------------------- |
+| `src/runtime/routes/inbound-message-handler.ts`        | Ingress ACL, non-member rejection, verification code interception             |
+| `src/runtime/routes/access-request-decision.ts`        | Guardian decision → verification session creation                             |
 | `src/runtime/routes/guardian-approval-interception.ts` | Routes guardian decisions (button + conversational) to access request handler |
-| `src/runtime/channel-guardian-service.ts` | Verification challenge lifecycle, identity binding, rate limiting |
-| `src/runtime/routes/ingress-routes.ts` | HTTP API handlers for member/invite management |
-| `src/runtime/ingress-service.ts` | Business logic for member CRUD |
-| `src/memory/ingress-member-store.ts` | Member record persistence |
-| `src/memory/channel-guardian-store.ts` | Approval request and verification challenge persistence |
-| `src/config/vellum-skills/trusted-contacts/SKILL.md` | Skill teaching the assistant to manage contacts via HTTP API |
+| `src/runtime/channel-guardian-service.ts`              | Verification challenge lifecycle, identity binding, rate limiting             |
+| `src/runtime/routes/ingress-routes.ts`                 | HTTP API handlers for member/invite management                                |
+| `src/runtime/ingress-service.ts`                       | Business logic for member CRUD                                                |
+| `src/memory/ingress-member-store.ts`                   | Member record persistence                                                     |
+| `src/memory/channel-guardian-store.ts`                 | Approval request and verification challenge persistence                       |
+| `src/config/bundled-skills/trusted-contacts/SKILL.md`  | Skill teaching the assistant to manage contacts via HTTP API                  |
 
 ### Guardian-Initiated Invite Links
 
@@ -448,24 +495,26 @@ A complementary access-granting flow where the guardian proactively creates a sh
 
 **Channel adapter status:**
 
-| Channel | Status | Prerequisites |
-|---------|--------|--------------|
-| Telegram | Shipped | Bot username resolved from credential metadata or `TELEGRAM_BOT_USERNAME` env |
-| Voice | Shipped | Identity-bound voice code redemption via DTMF/speech in the relay state machine. Always-on canonical behavior with personalized friend/guardian name prompts. |
-| SMS | Deferred | Needs a deep-link strategy compatible with SMS (short URL or web redemption page) |
-| Slack | Deferred | Needs DM-safe ingress — Socket Mode handles channel messages but DM-initiated invite flows need routing |
+| Channel  | Status   | Prerequisites                                                                                                                                                 |
+| -------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Telegram | Shipped  | Bot username resolved from credential metadata or `TELEGRAM_BOT_USERNAME` env                                                                                 |
+| Voice    | Shipped  | Identity-bound voice code redemption via DTMF/speech in the relay state machine. Always-on canonical behavior with personalized friend/guardian name prompts. |
+| SMS      | Deferred | Needs a deep-link strategy compatible with SMS (short URL or web redemption page)                                                                             |
+| Slack    | Deferred | Needs DM-safe ingress — Socket Mode handles channel messages but DM-initiated invite flows need routing                                                       |
 
 ### Voice Invite Flow (invite_redemption_pending)
 
 Voice invites use a short numeric code (4-10 digits, default 6) instead of a URL token. The guardian creates an invite bound to the invitee's E.164 phone number; the invitee redeems it by entering the code during an inbound voice call.
 
 **Creation flow:**
+
 1. Guardian creates a voice invite via `POST /v1/ingress/invites` with `sourceChannel: "voice"` and `expectedExternalUserId` (E.164 phone).
 2. `ingress-service.ts` generates a cryptographically random numeric code (`generateVoiceCode`), hashes it with SHA-256 (`hashVoiceCode`), and stores only the hash.
 3. The one-time plaintext `voiceCode` is returned in the creation response. The raw token is NOT returned for voice invites — redemption uses the identity-bound code flow exclusively.
 4. Guardian communicates the code to the invitee out-of-band.
 
 **Call-time redemption subflow (`invite_redemption_pending`):**
+
 1. Unknown caller dials in. `relay-server.ts` resolves trust via `resolveActorTrust`. Caller is `unknown`, no pending guardian challenge.
 2. The relay checks `findActiveVoiceInvites` for invites bound to the caller's phone number.
 3. If active, non-expired invites exist, the relay enters the `invite_redemption_pending` state (reuses the `verification_pending` connection state) and prompts the caller with personalized copy: `Welcome <friend-name>. Please enter the 6-digit code that <guardian-name> provided you to verify your identity.`
@@ -473,6 +522,7 @@ Voice invites use a short numeric code (4-10 digits, default 6) instead of a URL
 5. On invalid/expired code, the caller hears deterministic failure copy: `Sorry, the code you provided is incorrect or has since expired. Please ask <guardian-name> for a new code. Goodbye.` and the call ends immediately.
 
 **Security invariants:**
+
 - The plaintext voice code is returned exactly once at creation time and never stored.
 - Voice invites are identity-bound: `expectedExternalUserId` must match the caller's E.164 number. An attacker with the code but the wrong phone number cannot redeem.
 - Failure responses are intentionally generic (`invalid_or_expired`) to prevent oracle attacks.
@@ -480,20 +530,20 @@ Voice invites use a short numeric code (4-10 digits, default 6) instead of a URL
 
 **Key source files:**
 
-| File | Purpose |
-|------|---------|
-| `src/runtime/invite-redemption-service.ts` | Core redemption engine — token validation, voice code redemption, member creation, discriminated-union outcomes |
-| `src/runtime/invite-redemption-templates.ts` | Deterministic reply templates for each redemption outcome |
-| `src/runtime/channel-invite-transport.ts` | Transport adapter registry with `buildShareableInvite` / `extractInboundToken` interface |
-| `src/runtime/channel-invite-transports/telegram.ts` | Telegram adapter — `t.me/<bot>?start=iv_<token>` deep links, `/start iv_<token>` extraction |
-| `src/runtime/channel-invite-transports/voice.ts` | Voice transport adapter — code-based redemption metadata |
-| `src/daemon/guardian-invite-intent.ts` | Intent detection — routes create/list/revoke requests into the trusted-contacts skill |
-| `src/runtime/ingress-service.ts` | Shared business logic for invite/member operations (used by both HTTP routes and IPC) |
-| `src/runtime/routes/ingress-routes.ts` | HTTP API handlers for member/invite management including voice invite creation and redemption |
-| `src/runtime/routes/inbound-message-handler.ts` | Invite token intercept in the inbound flow (non-member and inactive-member branches) |
-| `src/calls/relay-server.ts` | Voice relay state machine — `invite_redemption_pending` subflow (always-on canonical behavior) |
-| `src/util/voice-code.ts` | Cryptographic voice code generation and SHA-256 hashing |
-| `src/memory/ingress-invite-store.ts` | Invite persistence including `findActiveVoiceInvites` for identity-bound lookup |
+| File                                                | Purpose                                                                                                         |
+| --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `src/runtime/invite-redemption-service.ts`          | Core redemption engine — token validation, voice code redemption, member creation, discriminated-union outcomes |
+| `src/runtime/invite-redemption-templates.ts`        | Deterministic reply templates for each redemption outcome                                                       |
+| `src/runtime/channel-invite-transport.ts`           | Transport adapter registry with `buildShareableInvite` / `extractInboundToken` interface                        |
+| `src/runtime/channel-invite-transports/telegram.ts` | Telegram adapter — `t.me/<bot>?start=iv_<token>` deep links, `/start iv_<token>` extraction                     |
+| `src/runtime/channel-invite-transports/voice.ts`    | Voice transport adapter — code-based redemption metadata                                                        |
+| `src/daemon/guardian-invite-intent.ts`              | Intent detection — routes create/list/revoke requests into the trusted-contacts skill                           |
+| `src/runtime/ingress-service.ts`                    | Shared business logic for invite/member operations (used by both HTTP routes and IPC)                           |
+| `src/runtime/routes/ingress-routes.ts`              | HTTP API handlers for member/invite management including voice invite creation and redemption                   |
+| `src/runtime/routes/inbound-message-handler.ts`     | Invite token intercept in the inbound flow (non-member and inactive-member branches)                            |
+| `src/calls/relay-server.ts`                         | Voice relay state machine — `invite_redemption_pending` subflow (always-on canonical behavior)                  |
+| `src/util/voice-code.ts`                            | Cryptographic voice code generation and SHA-256 hashing                                                         |
+| `src/memory/ingress-invite-store.ts`                | Invite persistence including `findActiveVoiceInvites` for identity-bound lookup                                 |
 
 ### Voice Inbound Security Model (Canonical)
 
@@ -545,6 +595,7 @@ When a pending voice guardian challenge exists (`getPendingChallenge`), the call
 **Canonical decision routing:**
 
 All guardian decisions for voice access requests flow through:
+
 - `applyCanonicalGuardianDecision` (canonical guardian request system)
 - `accessRequestResolver` in `guardian-request-resolvers.ts` (kind-specific resolver)
 - For voice approvals: direct trusted-contact activation (no verification session needed since the caller is already on the line)
@@ -552,20 +603,21 @@ All guardian decisions for voice access requests flow through:
 
 **Key source files:**
 
-| File | Purpose |
-|------|---------|
-| `src/calls/relay-server.ts` | Inbound call decision tree, name capture, guardian approval wait polling |
-| `src/runtime/access-request-helper.ts` | Creates canonical access request and notifies guardian |
-| `src/approvals/guardian-decision-primitive.ts` | `applyCanonicalGuardianDecision` — unified decision primitive |
-| `src/approvals/guardian-request-resolvers.ts` | `access_request` resolver — voice direct activation, text-channel verification session |
-| `src/runtime/actor-trust-resolver.ts` | `resolveActorTrust` — caller trust classification |
-| `src/memory/canonical-guardian-store.ts` | Canonical request persistence and CAS resolution |
+| File                                           | Purpose                                                                                |
+| ---------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `src/calls/relay-server.ts`                    | Inbound call decision tree, name capture, guardian approval wait polling               |
+| `src/runtime/access-request-helper.ts`         | Creates canonical access request and notifies guardian                                 |
+| `src/approvals/guardian-decision-primitive.ts` | `applyCanonicalGuardianDecision` — unified decision primitive                          |
+| `src/approvals/guardian-request-resolvers.ts`  | `access_request` resolver — voice direct activation, text-channel verification session |
+| `src/runtime/actor-trust-resolver.ts`          | `resolveActorTrust` — caller trust classification                                      |
+| `src/memory/canonical-guardian-store.ts`       | Canonical request persistence and CAS resolution                                       |
 
 ### Update Bulletin System
 
 Release-driven update notification system that surfaces release notes to the assistant via the system prompt.
 
 **Data flow:**
+
 1. **Bundled template** (`src/config/templates/UPDATES.md`) — source of release notes, maintained per-release in the repo.
 2. **Startup sync** (`syncUpdateBulletinOnStartup()` in `src/config/update-bulletin.ts`) — materializes the bundled template into the workspace `UPDATES.md` on daemon boot. Uses atomic write (temp + rename) for crash safety.
 3. **System prompt injection** — `buildSystemPrompt()` reads workspace `UPDATES.md` and injects it as a `## Recent Updates` section with judgment-based handling instructions.
@@ -573,20 +625,21 @@ Release-driven update notification system that surfaces release notes to the ass
 5. **Cross-release merge** — if pending updates from a prior release exist when a new release lands, both release blocks coexist in the same file.
 
 **Checkpoint keys** (in `memory_checkpoints` table):
+
 - `updates:active_releases` — JSON array of version strings currently active.
 - `updates:completed_releases` — JSON array of version strings already completed.
 
 **Key source files:**
 
-| File | Purpose |
-|------|---------|
-| `src/config/templates/UPDATES.md` | Bundled release-note template |
-| `src/config/update-bulletin.ts` | Startup sync logic (materialize, delete-complete, merge) |
-| `src/config/update-bulletin-format.ts` | Release block formatter/parser helpers |
-| `src/config/update-bulletin-state.ts` | Checkpoint state helpers for active/completed releases |
-| `src/config/system-prompt.ts` | Prompt injection of updates section |
-| `src/daemon/config-watcher.ts` | File watcher — evicts sessions on UPDATES.md changes |
-| `src/permissions/defaults.ts` | Auto-allow rules for file_read/write/edit + rm UPDATES.md |
+| File                                   | Purpose                                                   |
+| -------------------------------------- | --------------------------------------------------------- |
+| `src/config/templates/UPDATES.md`      | Bundled release-note template                             |
+| `src/config/update-bulletin.ts`        | Startup sync logic (materialize, delete-complete, merge)  |
+| `src/config/update-bulletin-format.ts` | Release block formatter/parser helpers                    |
+| `src/config/update-bulletin-state.ts`  | Checkpoint state helpers for active/completed releases    |
+| `src/config/system-prompt.ts`          | Prompt injection of updates section                       |
+| `src/daemon/config-watcher.ts`         | File watcher — evicts sessions on UPDATES.md changes      |
+| `src/permissions/defaults.ts`          | Auto-allow rules for file_read/write/edit + rm UPDATES.md |
 
 ---
 
@@ -597,6 +650,7 @@ The assistant feature-flag resolver (`src/config/assistant-feature-flags.ts`) is
 **Canonical key format:** `feature_flags.<flag_id>.enabled` (e.g., `feature_flags.hatch-new-assistant.enabled`).
 
 **Resolution priority** (highest wins):
+
 1. `config.assistantFeatureFlagValues[key]` — canonical config section, written by the gateway's PATCH endpoint
 2. Defaults registry `defaultEnabled` — from the unified registry (`meta/feature-flags/feature-flag-registry.json`, filtered to `scope: "assistant"`)
 3. `true` — unknown/undeclared flags with no persisted override default to enabled
@@ -604,19 +658,20 @@ The assistant feature-flag resolver (`src/config/assistant-feature-flags.ts`) is
 **Storage:** Flags are persisted in `~/.vellum/workspace/config.json`. New writes go to the `assistantFeatureFlagValues` section (managed by the gateway's `/v1/feature-flags` API — see [`gateway/ARCHITECTURE.md`](../gateway/ARCHITECTURE.md)). The legacy `featureFlags` section is still read for backward compatibility. The daemon's config watcher hot-reloads this file, so flag changes take effect on the next tool resolution or session.
 
 **Public API:**
+
 - `isAssistantFeatureFlagEnabled(key, config)` — full resolver with the canonical key
 - `isAssistantSkillEnabled(skillId, config)` — convenience wrapper that constructs `feature_flags.<skillId>.enabled` and delegates
 - `isSkillFeatureEnabled(skillId, config)` — deprecated legacy wrapper in `config/skill-state.ts`
 
 **Skill-gating guarantee:** For skills that are explicitly mapped to declared assistant flags, when the flag is OFF the skill is unavailable everywhere — it cannot appear in client UIs, model context, or runtime tool execution. This is enforced at five independent points:
 
-| Enforcement Point | Module | Effect |
-|-------------------|--------|--------|
-| **1. Client skill list** | `resolveSkillStates()` in `config/skill-state.ts` | Skills with flag OFF are excluded from the resolved list returned to IPC clients (macOS skill list, settings UI). The skill never appears in the client. |
-| **2. System prompt skill catalog** | `appendSkillsCatalog()` in `config/system-prompt.ts` | The model-visible `## Skills Catalog` section in the system prompt filters out flagged-off skills. The model cannot see or reference them. |
-| **3. `skill_load` tool** | `executeSkillLoad()` in `tools/skills/load.ts` | If the model attempts to load a flagged-off skill by name, the tool returns an error: `"skill is currently unavailable (disabled by feature flag)"`. |
-| **4. Runtime tool projection** | `projectSkillTools()` in `daemon/session-skill-tools.ts` | Even if a skill was previously active in a session (has `<loaded_skill>` markers in history), the per-turn projection drops it when the flag is OFF. Already-registered tools are unregistered. |
-| **5. Included child skills** | `executeSkillLoad()` in `tools/skills/load.ts` | When a parent skill includes children via the `includes` directive, each child is independently checked against its feature flag. Flagged-off children are silently excluded from the loaded skill content. |
+| Enforcement Point                  | Module                                                   | Effect                                                                                                                                                                                                      |
+| ---------------------------------- | -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **1. Client skill list**           | `resolveSkillStates()` in `config/skill-state.ts`        | Skills with flag OFF are excluded from the resolved list returned to IPC clients (macOS skill list, settings UI). The skill never appears in the client.                                                    |
+| **2. System prompt skill catalog** | `appendSkillsCatalog()` in `config/system-prompt.ts`     | The model-visible `## Skills Catalog` section in the system prompt filters out flagged-off skills. The model cannot see or reference them.                                                                  |
+| **3. `skill_load` tool**           | `executeSkillLoad()` in `tools/skills/load.ts`           | If the model attempts to load a flagged-off skill by name, the tool returns an error: `"skill is currently unavailable (disabled by feature flag)"`.                                                        |
+| **4. Runtime tool projection**     | `projectSkillTools()` in `daemon/session-skill-tools.ts` | Even if a skill was previously active in a session (has `<loaded_skill>` markers in history), the per-turn projection drops it when the flag is OFF. Already-registered tools are unregistered.             |
+| **5. Included child skills**       | `executeSkillLoad()` in `tools/skills/load.ts`           | When a parent skill includes children via the `includes` directive, each child is independently checked against its feature flag. Flagged-off children are silently excluded from the loaded skill content. |
 
 All five enforcement points use `isAssistantSkillEnabled()` from `config/assistant-feature-flags.ts` for consistency.
 
@@ -624,18 +679,18 @@ All five enforcement points use `isAssistantSkillEnabled()` from `config/assista
 
 **Key source files:**
 
-| File | Purpose |
-|------|---------|
-| `src/config/assistant-feature-flags.ts` | Canonical resolver: `isAssistantFeatureFlagEnabled()`, `isAssistantSkillEnabled()`, `getAssistantFeatureFlagDefaults()`, registry loader |
-| `src/config/skill-state.ts` | `isSkillFeatureEnabled()` (deprecated wrapper) — delegates to canonical resolver; `resolveSkillStates()` — enforcement point 1 |
-| `src/config/system-prompt.ts` | `appendSkillsCatalog()` — enforcement point 2 |
-| `src/tools/skills/load.ts` | `executeSkillLoad()` — enforcement points 3 and 5 |
-| `src/daemon/session-skill-tools.ts` | `projectSkillTools()` — enforcement point 4 |
-| `src/config/schema.ts` | `featureFlags` and `assistantFeatureFlagValues` field definitions in `AssistantConfig` (Zod schema) |
-| `src/config/types.ts` | Type definitions for `FeatureFlags` (legacy) and `AssistantFeatureFlagValues` (canonical) |
-| `src/daemon/handlers/skills.ts` | `handleSkillsList()` — uses `resolveSkillStates()` for IPC client responses |
-| `meta/feature-flags/feature-flag-registry.json` | Unified feature flag registry (repo root) — all declared flags with scope, label, default values, and descriptions |
-| `src/config/feature-flag-registry.json` | Bundled copy of the unified registry for compiled binary resolution |
+| File                                            | Purpose                                                                                                                                  |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/config/assistant-feature-flags.ts`         | Canonical resolver: `isAssistantFeatureFlagEnabled()`, `isAssistantSkillEnabled()`, `getAssistantFeatureFlagDefaults()`, registry loader |
+| `src/config/skill-state.ts`                     | `isSkillFeatureEnabled()` (deprecated wrapper) — delegates to canonical resolver; `resolveSkillStates()` — enforcement point 1           |
+| `src/config/system-prompt.ts`                   | `appendSkillsCatalog()` — enforcement point 2                                                                                            |
+| `src/tools/skills/load.ts`                      | `executeSkillLoad()` — enforcement points 3 and 5                                                                                        |
+| `src/daemon/session-skill-tools.ts`             | `projectSkillTools()` — enforcement point 4                                                                                              |
+| `src/config/schema.ts`                          | `featureFlags` and `assistantFeatureFlagValues` field definitions in `AssistantConfig` (Zod schema)                                      |
+| `src/config/types.ts`                           | Type definitions for `FeatureFlags` (legacy) and `AssistantFeatureFlagValues` (canonical)                                                |
+| `src/daemon/handlers/skills.ts`                 | `handleSkillsList()` — uses `resolveSkillStates()` for IPC client responses                                                              |
+| `meta/feature-flags/feature-flag-registry.json` | Unified feature flag registry (repo root) — all declared flags with scope, label, default values, and descriptions                       |
+| `src/config/feature-flag-registry.json`         | Bundled copy of the unified registry for compiled binary resolution                                                                      |
 
 ---
 
@@ -693,7 +748,7 @@ graph LR
     subgraph "~/.vellum/ (Root Files)"
         SOCK["vellum.sock<br/>Unix domain socket"]
         TRUST["protected/trust.json<br/>Tool permission rules"]
-        FF_TOKEN["feature-flag-token<br/>Dedicated auth for PATCH /v1/feature-flags"]
+        FF_TOKEN["feature-flag-token<br/>Client token for feature-flag API"]
     end
 
     subgraph "~/.vellum/workspace/ (Workspace Files)"
@@ -710,7 +765,6 @@ graph LR
 ```
 
 ---
-
 
 ---
 
@@ -979,30 +1033,31 @@ When the daemon receives a CU observation with blob refs, it attempts blob-first
 
 The daemon emits two distinct error message types over IPC:
 
-| Message type | Scope | Purpose | Payload |
-|---|---|---|---|
+| Message type    | Scope          | Purpose                                                                                                        | Payload                                                                       |
+| --------------- | -------------- | -------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
 | `session_error` | Session-scoped | Typed, actionable failures during chat/session runtime (e.g., provider network error, rate limit, API failure) | `sessionId`, `code` (typed enum), `userMessage`, `retryable`, `debugDetails?` |
-| `error` | Global | Generic, non-session failures (e.g., daemon startup errors, unknown message types) | `message` (string) |
+| `error`         | Global         | Generic, non-session failures (e.g., daemon startup errors, unknown message types)                             | `message` (string)                                                            |
 
 **Design rationale:** `session_error` carries structured metadata (error code, retryable flag, debug details) so the client can present actionable UI — a toast with retry/dismiss buttons — rather than a generic error banner. The older `error` type is retained for backward compatibility with non-session contexts.
 
 ### Session Error Codes
 
-| Code | Meaning | Retryable |
-|---|---|---|
-| `PROVIDER_NETWORK` | Unable to reach the LLM provider (connection refused, timeout, DNS) | Yes |
-| `PROVIDER_RATE_LIMIT` | LLM provider rate-limited the request (HTTP 429) | Yes |
-| `PROVIDER_API` | Provider returned a server error (5xx) | Yes |
-| `QUEUE_FULL` | The message queue is full | Yes |
-| `SESSION_ABORTED` | Non-user abort interrupted the request | Yes |
-| `SESSION_PROCESSING_FAILED` | Catch-all for unexpected processing failures | No |
-| `REGENERATE_FAILED` | Failed to regenerate a previous response | Yes |
+| Code                        | Meaning                                                             | Retryable |
+| --------------------------- | ------------------------------------------------------------------- | --------- |
+| `PROVIDER_NETWORK`          | Unable to reach the LLM provider (connection refused, timeout, DNS) | Yes       |
+| `PROVIDER_RATE_LIMIT`       | LLM provider rate-limited the request (HTTP 429)                    | Yes       |
+| `PROVIDER_API`              | Provider returned a server error (5xx)                              | Yes       |
+| `QUEUE_FULL`                | The message queue is full                                           | Yes       |
+| `SESSION_ABORTED`           | Non-user abort interrupted the request                              | Yes       |
+| `SESSION_PROCESSING_FAILED` | Catch-all for unexpected processing failures                        | No        |
+| `REGENERATE_FAILED`         | Failed to regenerate a previous response                            | Yes       |
 
 ### Error Classification
 
 The daemon classifies errors via `classifySessionError()` in `session-error.ts`. Before classification, `isUserCancellation()` checks whether the error is a user-initiated abort (active abort signal or `AbortError`); if so, the daemon emits `generation_cancelled` instead of `session_error` — cancel never surfaces a session-error toast.
 
 Classification uses a two-tier strategy:
+
 1. **Structured provider errors**: If the error is a `ProviderError` with a `statusCode`, the status code determines the category deterministically — `429` maps to `PROVIDER_RATE_LIMIT` (retryable), `5xx` to `PROVIDER_API` (retryable), other `4xx` to `PROVIDER_API` (not retryable).
 2. **Regex fallback**: For non-provider errors or `ProviderError` without a status code, regex pattern matching against the error message detects network failures, rate limits, and API errors. Phase-specific overrides handle queue and regeneration contexts.
 
@@ -1038,7 +1093,7 @@ sequenceDiagram
     end
 ```
 
-1. **Daemon** encounters a session-scoped failure, classifies it via `classifySessionError()`, and sends a `session_error` IPC message with the session ID, typed error code, user-facing message, retryable flag, and optional debug details. Session-scoped failures emit *only* `session_error` (never the generic `error` type) to prevent cross-session bleed.
+1. **Daemon** encounters a session-scoped failure, classifies it via `classifySessionError()`, and sends a `session_error` IPC message with the session ID, typed error code, user-facing message, retryable flag, and optional debug details. Session-scoped failures emit _only_ `session_error` (never the generic `error` type) to prevent cross-session bleed.
 2. **ChatViewModel** receives the error via DaemonClient's `subscribe()` stream (each view model gets an independent stream), sets the `sessionError` property, and transitions out of the streaming/loading state so the UI is interactive. If the error arrives during an active cancel (`wasCancelling == true`), it is suppressed — cancel only shows `generation_cancelled` behavior.
 3. **ChatView** observes the published `sessionError` and displays an actionable toast with a category-specific icon and accent color:
    - **Retry** (shown when `retryable` is true): calls `retryAfterSessionError()`, which clears the error and sends a `regenerate` message to the daemon.
@@ -1088,14 +1143,14 @@ graph TB
 
 The text_qa system prompt includes an action execution hierarchy that guides tool selection toward the least invasive method:
 
-| Priority | Method | Tool | When to use |
-|----------|--------|------|-------------|
-| **BEST** | Sandboxed filesystem/shell | `file_*`, `bash` | Work that can stay isolated in sandbox filesystem |
-| **BETTER** | Explicit host filesystem/shell | `host_file_*`, `host_bash` | Host reads/writes/commands that must touch the real machine |
-| **GOOD** | Headless browser | `browser_*` (bundled `browser` skill) | Web automation, form filling, scraping (background) |
-| **LAST RESORT** | Foreground computer use | `computer_use_request_control` | Only on explicit user request ("go ahead", "take over") |
+| Priority        | Method                         | Tool                                  | When to use                                                 |
+| --------------- | ------------------------------ | ------------------------------------- | ----------------------------------------------------------- |
+| **BEST**        | Sandboxed filesystem/shell     | `file_*`, `bash`                      | Work that can stay isolated in sandbox filesystem           |
+| **BETTER**      | Explicit host filesystem/shell | `host_file_*`, `host_bash`            | Host reads/writes/commands that must touch the real machine |
+| **GOOD**        | Headless browser               | `browser_*` (bundled `browser` skill) | Web automation, form filling, scraping (background)         |
+| **LAST RESORT** | Foreground computer use        | `computer_use_request_control`        | Only on explicit user request ("go ahead", "take over")     |
 
-The `computer_use_request_control` tool is a core proxy tool available only to text_qa sessions. When invoked, the session's `surfaceProxyResolver` creates a CU session and sends a `task_routed` message to the client, effectively escalating from text_qa to foreground computer use. The CU session constructor sets `preactivatedSkillIds: ['computer-use']`, and its `getProjectedCuToolDefinitions()` calls `projectSkillTools()` to load the 12 `computer_use_*` action tools from the bundled `computer-use` skill (via TOOLS.json). These tools are not core-registered at daemon startup; they exist only within CU sessions through skill projection.
+The `computer_use_request_control` tool is a core proxy tool available only to text*qa sessions. When invoked, the session's `surfaceProxyResolver` creates a CU session and sends a `task_routed` message to the client, effectively escalating from text_qa to foreground computer use. The CU session constructor sets `preactivatedSkillIds: ['computer-use']`, and its `getProjectedCuToolDefinitions()` calls `projectSkillTools()` to load the 12 `computer_use*\*`action tools from the bundled`computer-use` skill (via TOOLS.json). These tools are not core-registered at daemon startup; they exist only within CU sessions through skill projection.
 
 ### Sandbox Filesystem and Host Access
 
@@ -1159,6 +1214,7 @@ graph TB
 ```
 
 Key behaviors:
+
 - **Known**: Content is rewritten via `rewriteKnownSlashCommandPrompt` to instruct the model to invoke the skill. Trailing arguments are preserved.
 - **Unknown**: A deterministic `assistant_text_delta` + `message_complete` is emitted listing available slash commands. No message persistence or model call occurs.
 - **Queue**: Queued messages receive the same slash resolution. Unknown slash commands in the queue emit their response and continue draining without stalling.
@@ -1227,6 +1283,7 @@ graph TB
 ```
 
 **Key design decisions:**
+
 - `evaluate_typescript_code` always forces `sandbox.enabled = true` regardless of global config.
 - Snippet contract: must export `default` or `run` with signature `(input: unknown) => unknown | Promise<unknown>`.
 - Managed-store writes are atomic (tmp file + rename) to prevent partial `SKILL.md` or `SKILLS.md` files.
@@ -1256,18 +1313,19 @@ graph LR
 ```
 
 **Validation rules:**
+
 - **Missing children**: If any skill in the recursive graph references an `includes` ID not found in the catalog, validation fails with the full path from root to the missing reference.
 - **Cycles**: Three-state DFS (unseen → visiting → done) detects direct and indirect cycles. The error includes the cycle path.
 - **Fail-closed**: On any validation error, `skill_load` returns `isError: true` with no `<loaded_skill>` marker, preventing the agent from using a skill with broken dependencies.
 
 **Key constraint**: Include metadata is metadata-only. Child skills are **not** auto-activated — the agent must explicitly call `skill_load` for each child. The `projectSkillTools()` function only projects tools for skills with explicit `<loaded_skill>` markers in conversation history.
 
-| Source File | Purpose |
-|---|---|
+| Source File                             | Purpose                                                                                    |
+| --------------------------------------- | ------------------------------------------------------------------------------------------ |
 | `assistant/src/skills/include-graph.ts` | `indexCatalogById()`, `getImmediateChildren()`, `validateIncludes()`, `traverseIncludes()` |
-| `assistant/src/tools/skills/load.ts` | Include validation integration in `skill_load` execute path |
-| `assistant/src/config/skills.ts` | `includes` field parsing from SKILL.md frontmatter |
-| `assistant/src/skills/managed-store.ts` | `includes` emission in `buildSkillMarkdown()` |
+| `assistant/src/tools/skills/load.ts`    | Include validation integration in `skill_load` execute path                                |
+| `assistant/src/config/skills.ts`        | `includes` field parsing from SKILL.md frontmatter                                         |
+| `assistant/src/skills/managed-store.ts` | `includes` emission in `buildSkillMarkdown()`                                              |
 
 ---
 
@@ -1291,16 +1349,16 @@ skills/<skill-id>/
 
 The following capabilities ship as bundled skills in `assistant/src/config/bundled-skills/`:
 
-| Skill ID | Tools | Purpose |
-|----------|-------|---------|
-| `browser` | `browser_navigate`, `browser_snapshot`, `browser_screenshot`, `browser_close`, `browser_click`, `browser_type`, `browser_press_key`, `browser_wait_for`, `browser_extract`, `browser_fill_credential` | Headless browser automation — web scraping, form filling, interaction (previously core-registered as `headless-browser`; now skill-provided with default allow rules) |
-| `gmail` | Gmail search, archive, send, etc. | Email management via OAuth2 integration |
-| `claude-code` | Claude Code tool | Delegate coding tasks to Claude Code subprocess |
-| `computer-use` | `computer_use_click`, `computer_use_double_click`, `computer_use_right_click`, `computer_use_type_text`, `computer_use_key`, `computer_use_scroll`, `computer_use_drag`, `computer_use_open_app`, `computer_use_run_applescript`, `computer_use_wait`, `computer_use_done`, `computer_use_respond` | Computer-use action tools — internally preactivated by `ComputerUseSession` via `preactivatedSkillIds`; not user-invocable or model-discoverable in text sessions. Each wrapper script forwards to `forwardComputerUseProxyTool()` which uses the session's proxy resolver to send actions to the macOS client. |
-| `weather` | `get-weather` | Fetch current weather data |
-| `app-builder` | `app_create`, `app_list`, `app_query`, `app_update`, `app_delete`, `app_file_list`, `app_file_read`, `app_file_edit`, `app_file_write` | Dynamic app authoring — CRUD and file-level editing for persistent apps (activated via `skill_load app-builder`; `app_open` remains a core proxy tool) |
-| `self-upgrade` | (instruction-only) | Self-improvement workflow |
-| `start-the-day` | (instruction-only) | Morning briefing routine |
+| Skill ID        | Tools                                                                                                                                                                                                                                                                                              | Purpose                                                                                                                                                                                                                                                                                                         |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `browser`       | `browser_navigate`, `browser_snapshot`, `browser_screenshot`, `browser_close`, `browser_click`, `browser_type`, `browser_press_key`, `browser_wait_for`, `browser_extract`, `browser_fill_credential`                                                                                              | Headless browser automation — web scraping, form filling, interaction (previously core-registered as `headless-browser`; now skill-provided with default allow rules)                                                                                                                                           |
+| `gmail`         | Gmail search, archive, send, etc.                                                                                                                                                                                                                                                                  | Email management via OAuth2 integration                                                                                                                                                                                                                                                                         |
+| `claude-code`   | Claude Code tool                                                                                                                                                                                                                                                                                   | Delegate coding tasks to Claude Code subprocess                                                                                                                                                                                                                                                                 |
+| `computer-use`  | `computer_use_click`, `computer_use_double_click`, `computer_use_right_click`, `computer_use_type_text`, `computer_use_key`, `computer_use_scroll`, `computer_use_drag`, `computer_use_open_app`, `computer_use_run_applescript`, `computer_use_wait`, `computer_use_done`, `computer_use_respond` | Computer-use action tools — internally preactivated by `ComputerUseSession` via `preactivatedSkillIds`; not user-invocable or model-discoverable in text sessions. Each wrapper script forwards to `forwardComputerUseProxyTool()` which uses the session's proxy resolver to send actions to the macOS client. |
+| `weather`       | `get-weather`                                                                                                                                                                                                                                                                                      | Fetch current weather data                                                                                                                                                                                                                                                                                      |
+| `app-builder`   | `app_create`, `app_list`, `app_query`, `app_update`, `app_delete`, `app_file_list`, `app_file_read`, `app_file_edit`, `app_file_write`                                                                                                                                                             | Dynamic app authoring — CRUD and file-level editing for persistent apps (activated via `skill_load app-builder`; `app_open` remains a core proxy tool)                                                                                                                                                          |
+| `self-upgrade`  | (instruction-only)                                                                                                                                                                                                                                                                                 | Self-improvement workflow                                                                                                                                                                                                                                                                                       |
+| `start-the-day` | (instruction-only)                                                                                                                                                                                                                                                                                 | Morning briefing routine                                                                                                                                                                                                                                                                                        |
 
 ### Activation and Projection Flow
 
@@ -1380,19 +1438,19 @@ graph TB
 
 ### Key Source Files
 
-| File | Role |
-|------|------|
-| `assistant/src/config/skills.ts` | Skill catalog loading: bundled, managed, workspace, extra directories |
-| `assistant/src/config/bundled-skills/` | Bundled skill directories (browser, gmail, claude-code, computer-use, weather, etc.) |
-| `assistant/src/skills/tool-manifest.ts` | `TOOLS.json` parser and validator |
-| `assistant/src/skills/active-skill-tools.ts` | `deriveActiveSkillIds()` — scans history for `<loaded_skill>` markers |
-| `assistant/src/skills/include-graph.ts` | Include graph builder: `indexCatalogById()`, `validateIncludes()`, cycle/missing detection |
-| `assistant/src/daemon/session-skill-tools.ts` | `projectSkillTools()` — per-turn projection, register/unregister lifecycle |
-| `assistant/src/tools/skills/skill-tool-factory.ts` | `createSkillToolsFromManifest()` — manifest entries to Tool objects |
-| `assistant/src/tools/skills/skill-script-runner.ts` | Host runner: dynamic import + `run()` call |
-| `assistant/src/tools/skills/sandbox-runner.ts` | Sandbox runner: isolated subprocess execution |
-| `assistant/src/tools/registry.ts` | `registerSkillTools()` / `unregisterSkillTools()` — global tool registry |
-| `assistant/src/permissions/checker.ts` | Skill-origin default-ask permission policy |
+| File                                                | Role                                                                                       |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `assistant/src/config/skills.ts`                    | Skill catalog loading: bundled, managed, workspace, extra directories                      |
+| `assistant/src/config/bundled-skills/`              | Bundled skill directories (browser, gmail, claude-code, computer-use, weather, etc.)       |
+| `assistant/src/skills/tool-manifest.ts`             | `TOOLS.json` parser and validator                                                          |
+| `assistant/src/skills/active-skill-tools.ts`        | `deriveActiveSkillIds()` — scans history for `<loaded_skill>` markers                      |
+| `assistant/src/skills/include-graph.ts`             | Include graph builder: `indexCatalogById()`, `validateIncludes()`, cycle/missing detection |
+| `assistant/src/daemon/session-skill-tools.ts`       | `projectSkillTools()` — per-turn projection, register/unregister lifecycle                 |
+| `assistant/src/tools/skills/skill-tool-factory.ts`  | `createSkillToolsFromManifest()` — manifest entries to Tool objects                        |
+| `assistant/src/tools/skills/skill-script-runner.ts` | Host runner: dynamic import + `run()` call                                                 |
+| `assistant/src/tools/skills/sandbox-runner.ts`      | Sandbox runner: isolated subprocess execution                                              |
+| `assistant/src/tools/registry.ts`                   | `registerSkillTools()` / `unregisterSkillTools()` — global tool registry                   |
+| `assistant/src/permissions/checker.ts`              | Skill-origin default-ask permission policy                                                 |
 
 ---
 
@@ -1436,19 +1494,19 @@ graph TB
 
 The `permissions.mode` config option (`workspace`, `strict`, or `legacy`) controls the default behavior when no trust rule matches a tool invocation. The default is `workspace`.
 
-| Behavior | Workspace mode (default) | Strict mode | Legacy mode (deprecated) |
-|---|---|---|---|
-| Workspace-scoped ops with no matching rule | Auto-allowed | Prompted | Auto-allowed (low risk) |
-| Non-workspace low-risk tools with no matching rule | Auto-allowed | Prompted | Auto-allowed |
-| Medium-risk tools with no matching rule | Prompted | Prompted | Prompted |
-| High-risk tools with no matching rule | Prompted | Prompted | Prompted |
-| `skill_load` with no matching rule | Prompted | Prompted | Auto-allowed (low risk) |
-| `skill_load` with system default rule | Auto-allowed (`skill_load:*` at priority 100) | Auto-allowed (`skill_load:*` at priority 100) | Auto-allowed (`skill_load:*` at priority 100) |
-| `browser_*` skill tools with system default rules | Auto-allowed (priority 100 allow rules) | Auto-allowed (priority 100 allow rules) | Auto-allowed (priority 100 allow rules) |
-| Skill-origin tools with no matching rule | Prompted | Prompted | Prompted |
-| Allow rules for non-high-risk tools | Auto-allowed | Auto-allowed | Auto-allowed |
-| Allow rules with `allowHighRisk: true` | Auto-allowed (even high risk) | Auto-allowed (even high risk) | Auto-allowed (even high risk) |
-| Deny rules | Blocked | Blocked | Blocked |
+| Behavior                                           | Workspace mode (default)                      | Strict mode                                   | Legacy mode (deprecated)                      |
+| -------------------------------------------------- | --------------------------------------------- | --------------------------------------------- | --------------------------------------------- |
+| Workspace-scoped ops with no matching rule         | Auto-allowed                                  | Prompted                                      | Auto-allowed (low risk)                       |
+| Non-workspace low-risk tools with no matching rule | Auto-allowed                                  | Prompted                                      | Auto-allowed                                  |
+| Medium-risk tools with no matching rule            | Prompted                                      | Prompted                                      | Prompted                                      |
+| High-risk tools with no matching rule              | Prompted                                      | Prompted                                      | Prompted                                      |
+| `skill_load` with no matching rule                 | Prompted                                      | Prompted                                      | Auto-allowed (low risk)                       |
+| `skill_load` with system default rule              | Auto-allowed (`skill_load:*` at priority 100) | Auto-allowed (`skill_load:*` at priority 100) | Auto-allowed (`skill_load:*` at priority 100) |
+| `browser_*` skill tools with system default rules  | Auto-allowed (priority 100 allow rules)       | Auto-allowed (priority 100 allow rules)       | Auto-allowed (priority 100 allow rules)       |
+| Skill-origin tools with no matching rule           | Prompted                                      | Prompted                                      | Prompted                                      |
+| Allow rules for non-high-risk tools                | Auto-allowed                                  | Auto-allowed                                  | Auto-allowed                                  |
+| Allow rules with `allowHighRisk: true`             | Auto-allowed (even high risk)                 | Auto-allowed (even high risk)                 | Auto-allowed (even high risk)                 |
+| Deny rules                                         | Blocked                                       | Blocked                                       | Blocked                                       |
 
 **Workspace mode** (default) auto-allows operations scoped to the workspace (file reads/writes/edits within the workspace directory, sandboxed bash) without prompting. Host operations, network requests, and operations outside the workspace still follow the normal approval flow. Explicit deny and ask rules override auto-allow.
 
@@ -1460,16 +1518,16 @@ The `permissions.mode` config option (`workspace`, `strict`, or `legacy`) contro
 
 Rules are stored in `~/.vellum/protected/trust.json` with version `3`. Each rule can include the following fields:
 
-| Field | Type | Purpose |
-|---|---|---|
-| `id` | `string` | Unique identifier (UUID for user rules, `default:*` for system defaults) |
-| `tool` | `string` | Tool name to match (e.g., `bash`, `file_write`, `skill_load`) |
-| `pattern` | `string` | Minimatch glob pattern for the command/target string |
-| `scope` | `string` | Path prefix or `everywhere` — restricts where the rule applies |
-| `decision` | `allow \| deny \| ask` | What to do when the rule matches |
-| `priority` | `number` | Higher priority wins; deny wins ties at equal priority |
-| `executionTarget` | `string?` | `sandbox` or `host` — restricts by execution context |
-| `allowHighRisk` | `boolean?` | When true, auto-allows even high-risk invocations |
+| Field             | Type                   | Purpose                                                                  |
+| ----------------- | ---------------------- | ------------------------------------------------------------------------ |
+| `id`              | `string`               | Unique identifier (UUID for user rules, `default:*` for system defaults) |
+| `tool`            | `string`               | Tool name to match (e.g., `bash`, `file_write`, `skill_load`)            |
+| `pattern`         | `string`               | Minimatch glob pattern for the command/target string                     |
+| `scope`           | `string`               | Path prefix or `everywhere` — restricts where the rule applies           |
+| `decision`        | `allow \| deny \| ask` | What to do when the rule matches                                         |
+| `priority`        | `number`               | Higher priority wins; deny wins ties at equal priority                   |
+| `executionTarget` | `string?`              | `sandbox` or `host` — restricts by execution context                     |
+| `allowHighRisk`   | `boolean?`             | When true, auto-allows even high-risk invocations                        |
 
 Missing optional fields act as wildcards. A rule with no `executionTarget` matches any target.
 
@@ -1477,16 +1535,16 @@ Missing optional fields act as wildcards. A rule with no `executionTarget` match
 
 The `classifyRisk()` function determines the risk level for each tool invocation:
 
-| Tool | Risk level | Notes |
-|---|---|---|
-| `file_read`, `web_search`, `skill_load` | Low | Read-only or informational |
-| `file_write`, `file_edit` | Medium (default) | Filesystem mutations |
-| `file_write`, `file_edit` targeting skill source paths | **High** | `isSkillSourcePath()` detects managed/bundled/workspace/extra skill roots |
-| `host_file_write`, `host_file_edit` targeting skill source paths | **High** | Same path classification, host variant |
-| `bash`, `host_bash` | Varies | Parsed via tree-sitter: low-risk programs = Low, high-risk programs = High, unknown = Medium |
-| `scaffold_managed_skill`, `delete_managed_skill` | High | Skill lifecycle mutations always high-risk |
-| `evaluate_typescript_code` | High | Arbitrary code execution |
-| Skill-origin tools with no matching rule | Prompted regardless of risk | Even Low-risk skill tools default to `ask` |
+| Tool                                                             | Risk level                  | Notes                                                                                        |
+| ---------------------------------------------------------------- | --------------------------- | -------------------------------------------------------------------------------------------- |
+| `file_read`, `web_search`, `skill_load`                          | Low                         | Read-only or informational                                                                   |
+| `file_write`, `file_edit`                                        | Medium (default)            | Filesystem mutations                                                                         |
+| `file_write`, `file_edit` targeting skill source paths           | **High**                    | `isSkillSourcePath()` detects managed/bundled/workspace/extra skill roots                    |
+| `host_file_write`, `host_file_edit` targeting skill source paths | **High**                    | Same path classification, host variant                                                       |
+| `bash`, `host_bash`                                              | Varies                      | Parsed via tree-sitter: low-risk programs = Low, high-risk programs = High, unknown = Medium |
+| `scaffold_managed_skill`, `delete_managed_skill`                 | High                        | Skill lifecycle mutations always high-risk                                                   |
+| `evaluate_typescript_code`                                       | High                        | Arbitrary code execution                                                                     |
+| Skill-origin tools with no matching rule                         | Prompted regardless of risk | Even Low-risk skill tools default to `ask`                                                   |
 
 The escalation of skill source file mutations to High risk is a privilege-escalation defense: modifying skill source code could grant the agent new capabilities, so such operations always require explicit approval.
 
@@ -1504,14 +1562,14 @@ In strict mode, `skill_load` without a matching rule is always prompted. In lega
 
 The starter bundle is an opt-in set of low-risk allow rules that reduces prompt noise, particularly in strict mode. It covers read-only tools that never mutate the filesystem or execute arbitrary code:
 
-| Rule | Tool | Pattern |
-|---|---|---|
-| `file_read` | `file_read` | `file_read:**` |
-| `glob` | `glob` | `glob:**` |
-| `grep` | `grep` | `grep:**` |
+| Rule             | Tool             | Pattern             |
+| ---------------- | ---------------- | ------------------- |
+| `file_read`      | `file_read`      | `file_read:**`      |
+| `glob`           | `glob`           | `glob:**`           |
+| `grep`           | `grep`           | `grep:**`           |
 | `list_directory` | `list_directory` | `list_directory:**` |
-| `web_search` | `web_search` | `web_search:**` |
-| `web_fetch` | `web_fetch` | `web_fetch:**` |
+| `web_search`     | `web_search`     | `web_search:**`     |
+| `web_fetch`      | `web_fetch`      | `web_fetch:**`      |
 
 Acceptance is idempotent and persisted as `starterBundleAccepted: true` in `trust.json`. Rules are seeded at priority 90 (below user rules at 100, above system defaults at 50).
 
@@ -1519,19 +1577,19 @@ Acceptance is idempotent and persisted as `starterBundleAccepted: true` in `trus
 
 In addition to the opt-in starter bundle, the permission system seeds unconditional default allow rules at priority 100 for two categories:
 
-| Rule ID | Tool | Pattern | Rationale |
-|---|---|---|---|
-| `default:allow-skill_load-global` | `skill_load` | `skill_load:*` | Loading any skill is globally allowed — no prompt for activating bundled, managed, or workspace skills |
-| `default:allow-browser_navigate-global` | `browser_navigate` | `browser_navigate:*` | Browser tools migrated from core to the bundled `browser` skill; default allow preserves frictionless UX |
-| `default:allow-browser_snapshot-global` | `browser_snapshot` | `browser_snapshot:*` | (same) |
-| `default:allow-browser_screenshot-global` | `browser_screenshot` | `browser_screenshot:*` | (same) |
-| `default:allow-browser_close-global` | `browser_close` | `browser_close:*` | (same) |
-| `default:allow-browser_click-global` | `browser_click` | `browser_click:*` | (same) |
-| `default:allow-browser_type-global` | `browser_type` | `browser_type:*` | (same) |
-| `default:allow-browser_press_key-global` | `browser_press_key` | `browser_press_key:*` | (same) |
-| `default:allow-browser_wait_for-global` | `browser_wait_for` | `browser_wait_for:*` | (same) |
-| `default:allow-browser_extract-global` | `browser_extract` | `browser_extract:*` | (same) |
-| `default:allow-browser_fill_credential-global` | `browser_fill_credential` | `browser_fill_credential:*` | (same) |
+| Rule ID                                        | Tool                      | Pattern                     | Rationale                                                                                                |
+| ---------------------------------------------- | ------------------------- | --------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `default:allow-skill_load-global`              | `skill_load`              | `skill_load:*`              | Loading any skill is globally allowed — no prompt for activating bundled, managed, or workspace skills   |
+| `default:allow-browser_navigate-global`        | `browser_navigate`        | `browser_navigate:*`        | Browser tools migrated from core to the bundled `browser` skill; default allow preserves frictionless UX |
+| `default:allow-browser_snapshot-global`        | `browser_snapshot`        | `browser_snapshot:*`        | (same)                                                                                                   |
+| `default:allow-browser_screenshot-global`      | `browser_screenshot`      | `browser_screenshot:*`      | (same)                                                                                                   |
+| `default:allow-browser_close-global`           | `browser_close`           | `browser_close:*`           | (same)                                                                                                   |
+| `default:allow-browser_click-global`           | `browser_click`           | `browser_click:*`           | (same)                                                                                                   |
+| `default:allow-browser_type-global`            | `browser_type`            | `browser_type:*`            | (same)                                                                                                   |
+| `default:allow-browser_press_key-global`       | `browser_press_key`       | `browser_press_key:*`       | (same)                                                                                                   |
+| `default:allow-browser_wait_for-global`        | `browser_wait_for`        | `browser_wait_for:*`        | (same)                                                                                                   |
+| `default:allow-browser_extract-global`         | `browser_extract`         | `browser_extract:*`         | (same)                                                                                                   |
+| `default:allow-browser_fill_credential-global` | `browser_fill_credential` | `browser_fill_credential:*` | (same)                                                                                                   |
 
 These rules are emitted by `getDefaultRuleTemplates()` in `assistant/src/permissions/defaults.ts`. Because they use priority 100 (equal to user rules), they take effect in both strict and legacy modes. The `skill_load` rule means skill activation never prompts; the `browser_*` rules mean the browser skill's tools behave identically to the old core `headless-browser` tool from a permission standpoint.
 
@@ -1554,14 +1612,14 @@ For `bash` and `host_bash` tool invocations, the permission system uses parser-d
 
 When a permission prompt is sent to the client (via `confirmation_request` IPC message), it includes:
 
-| Field | Content |
-|---|---|
-| `toolName` | The tool being invoked |
-| `input` | Redacted tool input (sensitive fields removed) |
-| `riskLevel` | `low`, `medium`, or `high` |
-| `executionTarget` | `sandbox` or `host` — where the action will execute |
-| `allowlistOptions` | Suggested patterns for "always allow" rules |
-| `scopeOptions` | Suggested scopes for rule persistence |
+| Field              | Content                                             |
+| ------------------ | --------------------------------------------------- |
+| `toolName`         | The tool being invoked                              |
+| `input`            | Redacted tool input (sensitive fields removed)      |
+| `riskLevel`        | `low`, `medium`, or `high`                          |
+| `executionTarget`  | `sandbox` or `host` — where the action will execute |
+| `allowlistOptions` | Suggested patterns for "always allow" rules         |
+| `scopeOptions`     | Suggested scopes for rule persistence               |
 
 The user can respond with: `allow` (one-time), `always_allow` (create allow rule), `always_allow_high_risk` (create allow rule with `allowHighRisk: true`), `deny` (one-time), or `always_deny` (create deny rule).
 
@@ -1571,19 +1629,19 @@ File tool candidates include canonical (symlink-resolved) absolute paths via `no
 
 ### Key Source Files
 
-| File | Role |
-|---|---|
-| `assistant/src/permissions/types.ts` | `TrustRule`, `PolicyContext`, `RiskLevel`, `UserDecision` types |
-| `assistant/src/permissions/checker.ts` | `classifyRisk()`, `check()`, `buildCommandCandidates()`, allowlist/scope generation |
+| File                                          | Role                                                                                                                                                                                |
+| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `assistant/src/permissions/types.ts`          | `TrustRule`, `PolicyContext`, `RiskLevel`, `UserDecision` types                                                                                                                     |
+| `assistant/src/permissions/checker.ts`        | `classifyRisk()`, `check()`, `buildCommandCandidates()`, allowlist/scope generation                                                                                                 |
 | `assistant/src/permissions/shell-identity.ts` | `analyzeShellCommand()`, `deriveShellActionKeys()`, `buildShellCommandCandidates()`, `buildShellAllowlistOptions()` — parser-based shell command identity and action key derivation |
-| `assistant/src/permissions/trust-store.ts` | Rule persistence, `findHighestPriorityRule()`, execution-target matching, starter bundle |
-| `assistant/src/permissions/prompter.ts` | IPC prompt flow: `confirmation_request` → `confirmation_response` |
-| `assistant/src/permissions/defaults.ts` | Default rule templates (system ask rules for host tools, CU, etc.) |
-| `assistant/src/skills/version-hash.ts` | `computeSkillVersionHash()` — deterministic SHA-256 of skill source files |
-| `assistant/src/skills/path-classifier.ts` | `isSkillSourcePath()`, `normalizeFilePath()`, skill root detection |
-| `assistant/src/config/schema.ts` | `PermissionsConfigSchema` — `permissions.mode` (`workspace` / `strict` / `legacy`) |
-| `assistant/src/tools/executor.ts` | `ToolExecutor` — orchestrates risk classification, permission check, and execution |
-| `assistant/src/daemon/handlers/config.ts` | `handleToolPermissionSimulate()` — dry-run simulation handler |
+| `assistant/src/permissions/trust-store.ts`    | Rule persistence, `findHighestPriorityRule()`, execution-target matching, starter bundle                                                                                            |
+| `assistant/src/permissions/prompter.ts`       | IPC prompt flow: `confirmation_request` → `confirmation_response`                                                                                                                   |
+| `assistant/src/permissions/defaults.ts`       | Default rule templates (system ask rules for host tools, CU, etc.)                                                                                                                  |
+| `assistant/src/skills/version-hash.ts`        | `computeSkillVersionHash()` — deterministic SHA-256 of skill source files                                                                                                           |
+| `assistant/src/skills/path-classifier.ts`     | `isSkillSourcePath()`, `normalizeFilePath()`, skill root detection                                                                                                                  |
+| `assistant/src/config/schema.ts`              | `PermissionsConfigSchema` — `permissions.mode` (`workspace` / `strict` / `legacy`)                                                                                                  |
+| `assistant/src/tools/executor.ts`             | `ToolExecutor` — orchestrates risk classification, permission check, and execution                                                                                                  |
+| `assistant/src/daemon/handlers/config.ts`     | `handleToolPermissionSimulate()` — dry-run simulation handler                                                                                                                       |
 
 ### Permission Simulation (Tool Permission Tester)
 
@@ -1656,15 +1714,15 @@ sequenceDiagram
 
 ### Config knobs
 
-| Config key | Default | Purpose |
-|---|---:|---|
-| `swarm.enabled` | `true` | Master switch for swarm orchestration |
-| `swarm.maxWorkers` | `3` | Max concurrent worker processes (hard ceiling: 6) |
-| `swarm.maxTasks` | `8` | Max tasks per plan (hard ceiling: 20) |
-| `swarm.maxRetriesPerTask` | `1` | Per-task retry limit (hard ceiling: 3) |
-| `swarm.workerTimeoutSec` | `900` | Worker timeout in seconds |
-| `swarm.plannerModel` | (varies) | Model used for plan generation |
-| `swarm.synthesizerModel` | (varies) | Model used for result synthesis |
+| Config key                |  Default | Purpose                                           |
+| ------------------------- | -------: | ------------------------------------------------- |
+| `swarm.enabled`           |   `true` | Master switch for swarm orchestration             |
+| `swarm.maxWorkers`        |      `3` | Max concurrent worker processes (hard ceiling: 6) |
+| `swarm.maxTasks`          |      `8` | Max tasks per plan (hard ceiling: 20)             |
+| `swarm.maxRetriesPerTask` |      `1` | Per-task retry limit (hard ceiling: 3)            |
+| `swarm.workerTimeoutSec`  |    `900` | Worker timeout in seconds                         |
+| `swarm.plannerModel`      | (varies) | Model used for plan generation                    |
+| `swarm.synthesizerModel`  | (varies) | Model used for result synthesis                   |
 
 ---
 
@@ -1767,24 +1825,24 @@ sequenceDiagram
 
 Events emitted during a session lifecycle:
 
-| Kind | Emitted by | When |
-|------|-----------|------|
-| `request_received` | Handlers / Session | User message or surface action arrives |
-| `request_queued` | Handlers / Session | Message queued while session is busy |
-| `request_dequeued` | Session | Queued message begins processing |
-| `llm_call_started` | Session | LLM API call initiated |
-| `llm_call_finished` | Session | LLM API call completed (carries `inputTokens`, `outputTokens`, `latencyMs`) |
-| `assistant_message` | Session | Assistant response assembled (carries `toolUseCount`) |
-| `tool_started` | ToolTraceListener | Tool execution begins |
-| `tool_permission_requested` | ToolTraceListener | Permission check needed (carries `riskLevel`) |
-| `tool_permission_decided` | ToolTraceListener | Permission granted or denied (carries `decision`) |
-| `tool_finished` | ToolTraceListener | Tool execution completed (carries `durationMs`) |
-| `tool_failed` | ToolTraceListener | Tool execution failed (carries `durationMs`) |
-| `secret_detected` | ToolTraceListener | Secret found in tool output |
-| `generation_handoff` | Session | Yielding to next queued message |
-| `message_complete` | Session | Full request processing finished |
-| `generation_cancelled` | Session | User cancelled the generation |
-| `request_error` | Handlers / Session | Unrecoverable error during processing (includes queue-full rejection and persist-failure paths) |
+| Kind                        | Emitted by         | When                                                                                            |
+| --------------------------- | ------------------ | ----------------------------------------------------------------------------------------------- |
+| `request_received`          | Handlers / Session | User message or surface action arrives                                                          |
+| `request_queued`            | Handlers / Session | Message queued while session is busy                                                            |
+| `request_dequeued`          | Session            | Queued message begins processing                                                                |
+| `llm_call_started`          | Session            | LLM API call initiated                                                                          |
+| `llm_call_finished`         | Session            | LLM API call completed (carries `inputTokens`, `outputTokens`, `latencyMs`)                     |
+| `assistant_message`         | Session            | Assistant response assembled (carries `toolUseCount`)                                           |
+| `tool_started`              | ToolTraceListener  | Tool execution begins                                                                           |
+| `tool_permission_requested` | ToolTraceListener  | Permission check needed (carries `riskLevel`)                                                   |
+| `tool_permission_decided`   | ToolTraceListener  | Permission granted or denied (carries `decision`)                                               |
+| `tool_finished`             | ToolTraceListener  | Tool execution completed (carries `durationMs`)                                                 |
+| `tool_failed`               | ToolTraceListener  | Tool execution failed (carries `durationMs`)                                                    |
+| `secret_detected`           | ToolTraceListener  | Secret found in tool output                                                                     |
+| `generation_handoff`        | Session            | Yielding to next queued message                                                                 |
+| `message_complete`          | Session            | Full request processing finished                                                                |
+| `generation_cancelled`      | Session            | User cancelled the generation                                                                   |
+| `request_error`             | Handlers / Session | Unrecoverable error during processing (includes queue-full rejection and persist-failure paths) |
 
 ### Architecture
 
@@ -1795,7 +1853,6 @@ Events emitted during a session lifecycle:
 - **DebugPanel** (Swift, macOS): SwiftUI view that observes `TraceStore`. Displays a metrics strip (request count, LLM calls, total tokens, average latency, tool failures) and a `TraceTimelineView` showing events grouped by requestId with color-coded status indicators. The timeline auto-scrolls to new events while the user is at the bottom; scrolling up pauses auto-scroll and shows a "Jump to bottom" button that resumes it.
 
 ---
-
 
 ---
 
@@ -1843,13 +1900,13 @@ graph TB
 
 Every event published through the hub is wrapped in an `AssistantEvent` (defined in `runtime/assistant-event.ts`):
 
-| Field | Type | Description |
-|---|---|---|
-| `id` | `string` (UUID) | Globally unique event identifier |
-| `assistantId` | `string` | Logical assistant identifier (`"self"` for HTTP runs) |
-| `sessionId` | `string?` | Resolved conversation ID when available |
-| `emittedAt` | `string` (ISO-8601) | Server-side timestamp |
-| `message` | `ServerMessage` | Unchanged IPC outbound message — no schema fork |
+| Field         | Type                | Description                                           |
+| ------------- | ------------------- | ----------------------------------------------------- |
+| `id`          | `string` (UUID)     | Globally unique event identifier                      |
+| `assistantId` | `string`            | Logical assistant identifier (`"self"` for HTTP runs) |
+| `sessionId`   | `string?`           | Resolved conversation ID when available               |
+| `emittedAt`   | `string` (ISO-8601) | Server-side timestamp                                 |
+| `message`     | `ServerMessage`     | Unchanged IPC outbound message — no schema fork       |
 
 ### SSE Frame Format
 
@@ -1869,22 +1926,22 @@ Keep-alive heartbeats (every 30 s by default):
 
 ### Subscription Lifecycle
 
-| Event | Action |
-|---|---|
-| `GET /v1/events` received | Hub subscribes eagerly before `ReadableStream` is created |
-| Client disconnects / aborts | `req.signal` abort listener disposes subscription and closes stream |
-| Client cancels reader | `ReadableStream.cancel()` disposes subscription and closes stream |
-| New connection pushes over cap (100) | Oldest subscriber evicted (FIFO); its `onEvict` callback closes its stream |
-| Client buffer full (16 queued frames) | `desiredSize <= 0` guard sheds the subscriber immediately |
+| Event                                 | Action                                                                     |
+| ------------------------------------- | -------------------------------------------------------------------------- |
+| `GET /v1/events` received             | Hub subscribes eagerly before `ReadableStream` is created                  |
+| Client disconnects / aborts           | `req.signal` abort listener disposes subscription and closes stream        |
+| Client cancels reader                 | `ReadableStream.cancel()` disposes subscription and closes stream          |
+| New connection pushes over cap (100)  | Oldest subscriber evicted (FIFO); its `onEvict` callback closes its stream |
+| Client buffer full (16 queued frames) | `desiredSize <= 0` guard sheds the subscriber immediately                  |
 
 ### Key Source Files
 
-| File | Role |
-|---|---|
-| `assistant/src/runtime/assistant-event.ts` | `AssistantEvent` type, `buildAssistantEvent()` factory, SSE framing helpers |
-| `assistant/src/runtime/assistant-event-hub.ts` | `AssistantEventHub` class and process-level singleton |
-| `assistant/src/runtime/routes/events-routes.ts` | `handleSubscribeAssistantEvents()` — SSE route handler |
-| `assistant/src/daemon/server.ts` | IPC send/broadcast paths that publish to the hub (`send` → `publishAssistantEvent`) |
+| File                                            | Role                                                                                |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `assistant/src/runtime/assistant-event.ts`      | `AssistantEvent` type, `buildAssistantEvent()` factory, SSE framing helpers         |
+| `assistant/src/runtime/assistant-event-hub.ts`  | `AssistantEventHub` class and process-level singleton                               |
+| `assistant/src/runtime/routes/events-routes.ts` | `handleSubscribeAssistantEvents()` — SSE route handler                              |
+| `assistant/src/daemon/server.ts`                | IPC send/broadcast paths that publish to the hub (`send` → `publishAssistantEvent`) |
 
 ---
 
@@ -1985,24 +2042,24 @@ Connected channels are resolved at signal emission time: vellum is always includ
 
 **Key modules:**
 
-| Module | Purpose |
-|--------|---------|
-| `assistant/src/channels/config.ts` | Channel policy registry — single source of truth for per-channel notification behavior |
-| `assistant/src/notifications/emit-signal.ts` | Single entry point for all producers; orchestrates the full pipeline |
-| `assistant/src/notifications/decision-engine.ts` | LLM-based routing decisions with deterministic fallback |
-| `assistant/src/notifications/deterministic-checks.ts` | Hard invariant checks (dedupe, source-active suppression, channel availability) |
-| `assistant/src/notifications/broadcaster.ts` | Dispatches decisions to channel adapters; emits `notification_thread_created` IPC (creation-only) |
-| `assistant/src/notifications/conversation-pairing.ts` | Materializes conversation + message per delivery; executes thread reuse decisions |
-| `assistant/src/notifications/thread-candidates.ts` | Builds per-channel candidate set of recent conversations for the decision engine |
-| `assistant/src/notifications/adapters/macos.ts` | Vellum adapter — broadcasts `notification_intent` via IPC with deep-link metadata |
-| `assistant/src/notifications/adapters/telegram.ts` | Telegram adapter — POSTs to gateway `/deliver/telegram` |
-| `assistant/src/notifications/adapters/sms.ts` | SMS adapter — POSTs to gateway `/deliver/sms` via Twilio Messages API |
-| `assistant/src/notifications/destination-resolver.ts` | Resolves per-channel endpoints (vellum IPC, Telegram chat ID from guardian binding) |
-| `assistant/src/notifications/copy-composer.ts` | Template-based fallback copy when LLM copy is unavailable |
-| `assistant/src/notifications/preference-extractor.ts` | Detects preference statements in conversation messages |
-| `assistant/src/notifications/preferences-store.ts` | CRUD for user notification preferences |
-| `assistant/src/config/bundled-skills/messaging/tools/send-notification.ts` | Explicit producer tool for user-requested notifications; emits signals into the same routing pipeline |
-| `assistant/src/calls/guardian-dispatch.ts` | Guardian question dispatch that reuses canonical notification pairing and records guardian delivery bookkeeping from pipeline results |
+| Module                                                                     | Purpose                                                                                                                               |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `assistant/src/channels/config.ts`                                         | Channel policy registry — single source of truth for per-channel notification behavior                                                |
+| `assistant/src/notifications/emit-signal.ts`                               | Single entry point for all producers; orchestrates the full pipeline                                                                  |
+| `assistant/src/notifications/decision-engine.ts`                           | LLM-based routing decisions with deterministic fallback                                                                               |
+| `assistant/src/notifications/deterministic-checks.ts`                      | Hard invariant checks (dedupe, source-active suppression, channel availability)                                                       |
+| `assistant/src/notifications/broadcaster.ts`                               | Dispatches decisions to channel adapters; emits `notification_thread_created` IPC (creation-only)                                     |
+| `assistant/src/notifications/conversation-pairing.ts`                      | Materializes conversation + message per delivery; executes thread reuse decisions                                                     |
+| `assistant/src/notifications/thread-candidates.ts`                         | Builds per-channel candidate set of recent conversations for the decision engine                                                      |
+| `assistant/src/notifications/adapters/macos.ts`                            | Vellum adapter — broadcasts `notification_intent` via IPC with deep-link metadata                                                     |
+| `assistant/src/notifications/adapters/telegram.ts`                         | Telegram adapter — POSTs to gateway `/deliver/telegram`                                                                               |
+| `assistant/src/notifications/adapters/sms.ts`                              | SMS adapter — POSTs to gateway `/deliver/sms` via Twilio Messages API                                                                 |
+| `assistant/src/notifications/destination-resolver.ts`                      | Resolves per-channel endpoints (vellum IPC, Telegram chat ID from guardian binding)                                                   |
+| `assistant/src/notifications/copy-composer.ts`                             | Template-based fallback copy when LLM copy is unavailable                                                                             |
+| `assistant/src/notifications/preference-extractor.ts`                      | Detects preference statements in conversation messages                                                                                |
+| `assistant/src/notifications/preferences-store.ts`                         | CRUD for user notification preferences                                                                                                |
+| `assistant/src/config/bundled-skills/messaging/tools/send-notification.ts` | Explicit producer tool for user-requested notifications; emits signals into the same routing pipeline                                 |
+| `assistant/src/calls/guardian-dispatch.ts`                                 | Guardian question dispatch that reuses canonical notification pairing and records guardian delivery bookkeeping from pipeline results |
 
 **Audit trail (SQLite):** `notification_events` → `notification_decisions` (with `threadActions` in validation results) → `notification_deliveries` (with `conversation_id`, `message_id`, `conversation_strategy`, `thread_action`, `thread_target_conversation_id`, `thread_decision_fallback_used`)
 
@@ -2012,50 +2069,48 @@ Connected channels are resolved at signal emission time: vellum is always includ
 
 ## Storage Summary
 
-| What | Where | Format | ORM/Driver | Retention |
-|------|-------|--------|-----------|-----------|
-| API key | macOS Keychain | Encrypted binary | `/usr/bin/security` CLI | Permanent |
-| Credential secrets | macOS Keychain (or encrypted file fallback) | Encrypted binary | `secure-keys.ts` wrapper | Permanent (until deleted via tool) |
-| Credential metadata | `~/.vellum/workspace/data/credentials/metadata.json` | JSON | Atomic file write | Permanent (until deleted via tool) |
-| Integration OAuth tokens | macOS Keychain (or encrypted file fallback, via `secure-keys.ts`) | Encrypted binary | `TokenManager` auto-refresh | Until disconnected or revoked |
-| User preferences | UserDefaults | plist | Foundation | Permanent |
-| Session logs | `~/Library/.../logs/session-*.json` | JSON per session | Swift Codable | Unbounded |
-| Conversations & messages | `~/.vellum/workspace/data/db/assistant.db` | SQLite + WAL | Drizzle ORM (Bun) | Permanent |
-| Memory segments & FTS | `~/.vellum/workspace/data/db/assistant.db` | SQLite FTS5 | Drizzle ORM | Permanent |
-| Extracted facts | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent, deduped |
-| Conflict lifecycle rows | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Pending until clarified, then retained as resolved history |
-| Entity graph (entities/relations/item links) | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent, deduped by unique relation edge |
-| Embeddings | `~/.vellum/workspace/data/db/assistant.db` | JSON float arrays | Drizzle ORM | Permanent |
-| Async job queue | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Completed jobs persist |
-| Attachments | `~/.vellum/workspace/data/db/assistant.db` | Base64 in SQLite | Drizzle ORM | Permanent |
-| Sandbox filesystem | `~/.vellum/workspace` | Real filesystem tree | Node FS APIs | Persistent across sessions |
-| Tool permission rules | `~/.vellum/protected/trust.json` | JSON | File I/O | Permanent |
-| Web users & assistants | PostgreSQL | Relational | Drizzle ORM (pg) | Permanent |
-| Trace events | In-memory (TraceStore) | Structured events | Swift ObservableObject | Max 5,000 per session, ephemeral |
-| Media embed settings | `~/.vellum/workspace/config.json` (`ui.mediaEmbeds`) | JSON | `WorkspaceConfigIO` (atomic merge) | Permanent |
-| Media embed MIME cache | In-memory (`ImageMIMEProbe`) | `NSCache` (500 entries) | HTTP HEAD | Ephemeral; cleared on app restart |
-| IPC blob payloads | `~/.vellum/workspace/data/ipc-blobs/` | Binary files (UUID names) | File I/O (atomic write) | Ephemeral; consumed on hydration, stale sweep every 5min |
-| Tasks & task runs | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent |
-| Work items (Task Queue) | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; archived items retained |
-| Recurrence schedules & runs | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; supports cron and RRULE syntax |
-| Watchers & events | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent, cascade on watcher delete |
-| Proxy CA cert + key | `{dataDir}/proxy-ca/` | PEM files (ca.pem, ca-key.pem) | openssl CLI | Permanent (10-year validity) |
-| Proxy leaf certs | `{dataDir}/proxy-ca/issued/` | PEM files per hostname | openssl CLI, cached | 1-year validity, re-issued on CA change |
-| Proxy sessions | In-memory (SessionManager) | Map<ProxySessionId, ManagedSession> | Manual lifecycle | Ephemeral; 5min idle timeout, cleared on shutdown |
-| Call sessions, events, pending questions | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent, cascade on session delete |
-| Active call controllers | In-memory (CallState) | Map<callSessionId, CallController> | Manual lifecycle | Ephemeral; cleared on call end or destroy |
-| Guardian bindings | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; revoked bindings retained |
-| Guardian verification challenges | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; consumed/expired challenges retained |
-| Guardian approval requests | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; decision outcome retained |
-| Ingress invites | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; token hash stored, raw token never persisted |
-| Ingress members | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; revoked/blocked members retained |
-| Notification events | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; deduplicated by dedupeKey |
-| Notification decisions | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; FK to notification_events |
-| Notification deliveries | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; FK to notification_decisions |
-| Notification preferences | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; per-assistant conversational preferences |
-| IPC transport | `~/.vellum/vellum.sock` | Unix domain socket | NWConnection (Swift) / Bun net | Ephemeral |
-
-
+| What                                         | Where                                                             | Format                              | ORM/Driver                         | Retention                                                  |
+| -------------------------------------------- | ----------------------------------------------------------------- | ----------------------------------- | ---------------------------------- | ---------------------------------------------------------- |
+| API key                                      | macOS Keychain                                                    | Encrypted binary                    | `/usr/bin/security` CLI            | Permanent                                                  |
+| Credential secrets                           | macOS Keychain (or encrypted file fallback)                       | Encrypted binary                    | `secure-keys.ts` wrapper           | Permanent (until deleted via tool)                         |
+| Credential metadata                          | `~/.vellum/workspace/data/credentials/metadata.json`              | JSON                                | Atomic file write                  | Permanent (until deleted via tool)                         |
+| Integration OAuth tokens                     | macOS Keychain (or encrypted file fallback, via `secure-keys.ts`) | Encrypted binary                    | `TokenManager` auto-refresh        | Until disconnected or revoked                              |
+| User preferences                             | UserDefaults                                                      | plist                               | Foundation                         | Permanent                                                  |
+| Session logs                                 | `~/Library/.../logs/session-*.json`                               | JSON per session                    | Swift Codable                      | Unbounded                                                  |
+| Conversations & messages                     | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite + WAL                        | Drizzle ORM (Bun)                  | Permanent                                                  |
+| Memory segments & FTS                        | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite FTS5                         | Drizzle ORM                        | Permanent                                                  |
+| Extracted facts                              | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent, deduped                                         |
+| Conflict lifecycle rows                      | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Pending until clarified, then retained as resolved history |
+| Entity graph (entities/relations/item links) | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent, deduped by unique relation edge                 |
+| Embeddings                                   | `~/.vellum/workspace/data/db/assistant.db`                        | JSON float arrays                   | Drizzle ORM                        | Permanent                                                  |
+| Async job queue                              | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Completed jobs persist                                     |
+| Attachments                                  | `~/.vellum/workspace/data/db/assistant.db`                        | Base64 in SQLite                    | Drizzle ORM                        | Permanent                                                  |
+| Sandbox filesystem                           | `~/.vellum/workspace`                                             | Real filesystem tree                | Node FS APIs                       | Persistent across sessions                                 |
+| Tool permission rules                        | `~/.vellum/protected/trust.json`                                  | JSON                                | File I/O                           | Permanent                                                  |
+| Web users & assistants                       | PostgreSQL                                                        | Relational                          | Drizzle ORM (pg)                   | Permanent                                                  |
+| Trace events                                 | In-memory (TraceStore)                                            | Structured events                   | Swift ObservableObject             | Max 5,000 per session, ephemeral                           |
+| Media embed settings                         | `~/.vellum/workspace/config.json` (`ui.mediaEmbeds`)              | JSON                                | `WorkspaceConfigIO` (atomic merge) | Permanent                                                  |
+| Media embed MIME cache                       | In-memory (`ImageMIMEProbe`)                                      | `NSCache` (500 entries)             | HTTP HEAD                          | Ephemeral; cleared on app restart                          |
+| IPC blob payloads                            | `~/.vellum/workspace/data/ipc-blobs/`                             | Binary files (UUID names)           | File I/O (atomic write)            | Ephemeral; consumed on hydration, stale sweep every 5min   |
+| Tasks & task runs                            | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent                                                  |
+| Work items (Task Queue)                      | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; archived items retained                         |
+| Recurrence schedules & runs                  | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; supports cron and RRULE syntax                  |
+| Watchers & events                            | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent, cascade on watcher delete                       |
+| Proxy CA cert + key                          | `{dataDir}/proxy-ca/`                                             | PEM files (ca.pem, ca-key.pem)      | openssl CLI                        | Permanent (10-year validity)                               |
+| Proxy leaf certs                             | `{dataDir}/proxy-ca/issued/`                                      | PEM files per hostname              | openssl CLI, cached                | 1-year validity, re-issued on CA change                    |
+| Proxy sessions                               | In-memory (SessionManager)                                        | Map<ProxySessionId, ManagedSession> | Manual lifecycle                   | Ephemeral; 5min idle timeout, cleared on shutdown          |
+| Call sessions, events, pending questions     | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent, cascade on session delete                       |
+| Active call controllers                      | In-memory (CallState)                                             | Map<callSessionId, CallController>  | Manual lifecycle                   | Ephemeral; cleared on call end or destroy                  |
+| Guardian bindings                            | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; revoked bindings retained                       |
+| Guardian verification challenges             | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; consumed/expired challenges retained            |
+| Guardian approval requests                   | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; decision outcome retained                       |
+| Ingress invites                              | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; token hash stored, raw token never persisted    |
+| Ingress members                              | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; revoked/blocked members retained                |
+| Notification events                          | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; deduplicated by dedupeKey                       |
+| Notification decisions                       | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; FK to notification_events                       |
+| Notification deliveries                      | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; FK to notification_decisions                    |
+| Notification preferences                     | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; per-assistant conversational preferences        |
+| IPC transport                                | `~/.vellum/vellum.sock`                                           | Unix domain socket                  | NWConnection (Swift) / Bun net     | Ephemeral                                                  |
 
 ### Sensitive Tool Output Placeholder Substitution
 
@@ -2067,7 +2122,7 @@ Some tool outputs contain values that must reach the user's final reply but shou
 
 3. **Post-generation substitution** (`src/agent/loop.ts`): Before emitting streamed `text_delta` events and before building the final `assistantMessage`, all placeholders are deterministically replaced with their real values. The substitution is chunk-safe for streaming (buffering partial placeholder prefixes across deltas).
 
-Key files: `src/tools/sensitive-output-placeholders.ts`, `src/tools/executor.ts` (extraction hook), `src/agent/loop.ts` (substitution), `src/config/vellum-skills/trusted-contacts/SKILL.md` (invite flow adoption).
+Key files: `src/tools/sensitive-output-placeholders.ts`, `src/tools/executor.ts` (extraction hook), `src/agent/loop.ts` (substitution), `src/config/bundled-skills/trusted-contacts/SKILL.md` (invite flow adoption).
 
 ### Notifications
 
@@ -2081,10 +2136,10 @@ The daemon uses a single fixed internal scope constant — `DAEMON_INTERNAL_ASSI
 
 **Key files:**
 
-| File | Purpose |
-|------|---------|
-| `src/runtime/assistant-scope.ts` | Exports `DAEMON_INTERNAL_ASSISTANT_ID` constant |
-| `src/__tests__/assistant-id-boundary-guard.test.ts` | Guard tests enforcing the identity boundary |
+| File                                                | Purpose                                         |
+| --------------------------------------------------- | ----------------------------------------------- |
+| `src/runtime/assistant-scope.ts`                    | Exports `DAEMON_INTERNAL_ASSISTANT_ID` constant |
+| `src/__tests__/assistant-id-boundary-guard.test.ts` | Guard tests enforcing the identity boundary     |
 
 ### Canonical Trust-Context Model
 
@@ -2102,10 +2157,10 @@ The guardian trust system uses a three-valued `TrustClass` — `'guardian'`, `'t
 
 **Key files:**
 
-| File | Purpose |
-|------|---------|
-| `src/daemon/session-runtime-assembly.ts` | `GuardianRuntimeContext` type definition |
-| `src/tools/types.ts` | `ToolContext.guardianTrustClass` (required trust gate) |
-| `src/runtime/channel-retry-sweep.ts` | Strict `trustClass` parser for retry sweep |
-| `src/memory/guardian-bindings.ts` | `GuardianBinding` with required `guardianPrincipalId` |
-| `src/__tests__/trust-context-guards.test.ts` | Guard tests enforcing trust-context type invariants |
+| File                                         | Purpose                                                |
+| -------------------------------------------- | ------------------------------------------------------ |
+| `src/daemon/session-runtime-assembly.ts`     | `GuardianRuntimeContext` type definition               |
+| `src/tools/types.ts`                         | `ToolContext.guardianTrustClass` (required trust gate) |
+| `src/runtime/channel-retry-sweep.ts`         | Strict `trustClass` parser for retry sweep             |
+| `src/memory/guardian-bindings.ts`            | `GuardianBinding` with required `guardianPrincipalId`  |
+| `src/__tests__/trust-context-guards.test.ts` | Guard tests enforcing trust-context type invariants    |

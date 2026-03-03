@@ -66,6 +66,17 @@ enum BootstrapState: String {
     case complete = "complete"
 }
 
+/// Categorises the most recent bootstrap failure so diagnostic messages
+/// can be specific rather than generic escalating text.
+private enum BootstrapFailureKind {
+    case socketMissing
+    case daemonNotRunning
+    case connectionRefused
+    case gatewayUnhealthy
+    case authFailed
+    case unknown
+}
+
 /// Carbon event handler for the Quick Input hotkey (Cmd+Shift+/).
 /// Must be a free function because Carbon callbacks are C function pointers.
 private func quickInputHotKeyHandler(
@@ -156,6 +167,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     private var bootstrapInterstitialWindow: NSWindow?
     /// Active task for the bootstrap retry coordinator. Cancelled on dismiss.
     private var bootstrapRetryTask: Task<Void, Never>?
+    /// Tracks the most recent failure kind during bootstrap retries so that
+    /// diagnostic messages reflect the actual problem, not generic escalating text.
+    private var bootstrapFailureKind: BootstrapFailureKind = .unknown
     /// Background task that retries actor-token bootstrap until success.
     private var actorTokenBootstrapTask: Task<Void, Never>?
     /// Tracks file paths of .vellumapp bundles awaiting daemon responses (FIFO).
@@ -198,6 +212,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     /// Whether the current assistant runs remotely (cloud != "local").
     /// When true, local daemon hatching is skipped.
     private var isCurrentAssistantRemote = false
+
+    /// Whether the current assistant is platform-managed (cloud == "vellum").
+    /// When true, actor credential bootstrap is skipped since identity is
+    /// derived from the platform session, not local actor tokens.
+    private var isCurrentAssistantManaged = false
 
     @AppStorage("themePreference") private var themePreference: String = "system"
 
@@ -345,6 +364,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         setupDaemonClient(isFirstLaunch: isFirstLaunch)
         setupMenuBar()
         setupFileMenu()
+        setupViewMenu()
         setupHotKey()
         setupEscapeMonitor()
         setupVoiceInput()
@@ -360,7 +380,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         // Ensure actor credentials are present. On first launch this performs
         // initial bootstrap; on subsequent launches it schedules proactive
         // refresh when the access token nears expiry.
-        ensureActorCredentials()
+        // Skipped in managed mode where actor identity is derived from the
+        // platform session, not local actor tokens.
+        if !isCurrentAssistantManaged {
+            ensureActorCredentials()
+        }
 
         if isFirstLaunch {
             // Enter the bootstrap state machine. The sequence is:
@@ -508,20 +532,93 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
         bootstrapRetryTask = Task {
             while !Task.isCancelled {
+                // Reset so the displayed message always reflects the most
+                // recent failure, not a stale one from a previous iteration.
+                bootstrapFailureKind = .unknown
+
                 if daemonClient.isConnected {
-                    log.info("Daemon connected during bootstrap retry — proceeding to wake-up send")
+                    // Daemon is connected — check gateway health before proceeding.
+                    // Remote assistants don't run a local gateway, so skip the check.
+                    let gatewayHealthy = await isGatewayHealthy()
+                    let gatewayOk = isCurrentAssistantRemote || gatewayHealthy
+                    if !gatewayOk {
+                        // Gateway is unhealthy but daemon is connected. Record for
+                        // diagnostics but proceed anyway — the gateway being down
+                        // only affects external ingress (Twilio, OAuth), not core
+                        // assistant functionality. Blocking here causes a deadlock
+                        // when the lockfile-exists fallback hatches with daemonOnly.
+                        bootstrapFailureKind = .gatewayUnhealthy
+                        log.warning("Gateway unhealthy during bootstrap retry but daemon is connected — proceeding anyway (some features like Twilio/OAuth ingress may be unavailable)")
+                    } else {
+                        log.info("Daemon connected during bootstrap retry — proceeding to wake-up send")
+                    }
                     transitionBootstrap(to: .pendingWakeupSend)
                     dismissBootstrapInterstitialWindow()
                     await performRetriableWakeUpSend()
-                    // Only nil out if we're still the active task (no new coordinator was started)
                     if !Task.isCancelled {
                         bootstrapRetryTask = nil
                     }
                     return
                 }
 
-                // Surface escalating diagnostics so the user isn't staring
-                // at a spinner with no context.
+                // If the daemon socket doesn't exist, the daemon process
+                // likely isn't running (e.g. hatch failed). Re-attempt hatch
+                // so we don't loop forever on connect-only retries.
+                // Managed mode skips local hatch — the platform hosts the daemon.
+                if !isCurrentAssistantManaged {
+                    let socketPath = DaemonClient.resolveSocketPath()
+                    if !FileManager.default.fileExists(atPath: socketPath) {
+                        bootstrapFailureKind = .socketMissing
+                        log.info("Daemon socket missing during bootstrap retry — re-attempting hatch")
+                        try? await assistantCli.hatch(daemonOnly: true)
+                    } else if !DaemonClient.isDaemonProcessAlive() {
+                        bootstrapFailureKind = .daemonNotRunning
+                        log.info("Daemon process not alive during bootstrap retry — re-attempting hatch")
+                        try? await assistantCli.hatch(daemonOnly: true)
+                    }
+                }
+
+                // Attempt a connection if not already connected or in progress.
+                if !daemonClient.isConnected && !daemonClient.isConnecting {
+                    do {
+                        try await daemonClient.connect()
+                    } catch {
+                        if bootstrapFailureKind == .unknown {
+                            if error is DaemonClient.AuthError {
+                                bootstrapFailureKind = .authFailed
+                            } else {
+                                bootstrapFailureKind = .connectionRefused
+                            }
+                        }
+                        log.error("Bootstrap retry connect attempt failed: \(error)")
+                    }
+                }
+
+                if daemonClient.isConnected {
+                    // Connected — verify gateway health before proceeding.
+                    // Remote assistants don't run a local gateway, so skip the check.
+                    let gatewayHealthy = await isGatewayHealthy()
+                    let gatewayOk = isCurrentAssistantRemote || gatewayHealthy
+                    if !gatewayOk {
+                        // Same rationale as the check above: gateway health is a
+                        // warning, not a gate. Blocking here deadlocks when hatch
+                        // ran with daemonOnly (lockfile-exists fallback).
+                        bootstrapFailureKind = .gatewayUnhealthy
+                        log.warning("Gateway unhealthy after bootstrap retry connect but daemon is connected — proceeding anyway (some features like Twilio/OAuth ingress may be unavailable)")
+                    } else {
+                        log.info("Daemon connected after bootstrap retry connect — proceeding to wake-up send")
+                    }
+                    transitionBootstrap(to: .pendingWakeupSend)
+                    dismissBootstrapInterstitialWindow()
+                    await performRetriableWakeUpSend()
+                    if !Task.isCancelled {
+                        bootstrapRetryTask = nil
+                    }
+                    return
+                }
+
+                // Surface diagnostics so the user isn't staring at a
+                // spinner with no context.
                 let elapsed = CFAbsoluteTimeGetCurrent() - retryStart
                 if elapsed > 30 {
                     updateBootstrapInterstitial(
@@ -530,54 +627,57 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                     )
                 }
 
-                // If the daemon socket doesn't exist, the daemon process
-                // likely isn't running (e.g. hatch failed). Re-attempt hatch
-                // so we don't loop forever on connect-only retries.
-                let socketPath = DaemonClient.resolveSocketPath()
-                if !FileManager.default.fileExists(atPath: socketPath) {
-                    log.info("Daemon socket missing during bootstrap retry — re-attempting hatch")
-                    try? await assistantCli.hatch(daemonOnly: true)
-                }
-
-                // Attempt a connection if not already in progress
-                if !daemonClient.isConnecting {
-                    do {
-                        try await daemonClient.connect()
-                    } catch {
-                        log.error("Bootstrap retry connect attempt failed: \(error)")
-                    }
-                }
-
-                if daemonClient.isConnected {
-                    log.info("Daemon connected after bootstrap retry connect — proceeding to wake-up send")
-                    transitionBootstrap(to: .pendingWakeupSend)
-                    dismissBootstrapInterstitialWindow()
-                    await performRetriableWakeUpSend()
-                    // Only nil out if we're still the active task (no new coordinator was started)
-                    if !Task.isCancelled {
-                        bootstrapRetryTask = nil
-                    }
-                    return
-                }
-
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
             }
         }
     }
 
-    /// Returns a user-facing diagnostic message based on how long the bootstrap
-    /// retry has been running. Messages escalate in specificity over time.
+    /// Returns a user-facing diagnostic message based on the current failure
+    /// kind and how long the bootstrap retry has been running.
     private func bootstrapDiagnosticMessage(elapsed: CFAbsoluteTime) -> String {
-        if elapsed > 120 {
-            return "Your assistant is taking unusually long to start. "
-                + "Try quitting the app (\u{2318}Q) and reopening it. "
-                + "If the issue persists, retire and re-hatch your assistant."
-        } else if elapsed > 60 {
-            return "This is taking longer than expected. "
-                + "A background process may have crashed. "
-                + "The app will keep retrying automatically."
-        } else {
-            return "Still working on it \u{2014} this can take a minute on first launch."
+        switch bootstrapFailureKind {
+        case .socketMissing:
+            if elapsed > 60 {
+                return "Assistant files are missing. Try quitting (\u{2318}Q) and reopening."
+            }
+            return "Restarting your assistant\u{2026}"
+
+        case .daemonNotRunning:
+            if elapsed > 60 {
+                return "Unable to restart assistant. Try quitting (\u{2318}Q) and reopening."
+            }
+            return "Assistant process stopped \u{2014} restarting\u{2026}"
+
+        case .connectionRefused:
+            if elapsed > 60 {
+                return "Connection keeps failing. Try quitting (\u{2318}Q) and reopening."
+            }
+            return "Connecting to your assistant\u{2026}"
+
+        case .gatewayUnhealthy:
+            if elapsed > 60 {
+                return "Network services are not responding. Try quitting (\u{2318}Q) and reopening."
+            }
+            return "Waiting for network services\u{2026}"
+
+        case .authFailed:
+            if elapsed > 60 {
+                return "Authentication issue. You may need to re-pair your assistant."
+            }
+            return "Authenticating\u{2026}"
+
+        case .unknown:
+            if elapsed > 120 {
+                return "Your assistant is taking unusually long to start. "
+                    + "Try quitting the app (\u{2318}Q) and reopening it. "
+                    + "If the issue persists, retire and re-hatch your assistant."
+            } else if elapsed > 60 {
+                return "This is taking longer than expected. "
+                    + "A background process may have crashed. "
+                    + "The app will keep retrying automatically."
+            } else {
+                return "Still working on it \u{2014} this can take a minute on first launch."
+            }
         }
     }
 
@@ -742,6 +842,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             state: state,
             daemonClient: daemonClient,
             authManager: authManager,
+            managedBootstrapEnabled: isCurrentAssistantManaged,
             onComplete: { [weak self] in
                 self?.proceedToApp()
             },
@@ -864,21 +965,54 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     }
 
     /// Switches the app to a different lockfile assistant: stops the current
-    /// daemon, updates persisted state, and restarts with the new assistant.
+    /// daemon, resets assistant-scoped state, updates persisted state, and
+    /// restarts with the new assistant.
+    ///
+    /// The sequence is intentionally ordered to avoid stale references:
+    /// 1. Stop lifecycle monitoring and daemon processes
+    /// 2. Disconnect daemon transport
+    /// 3. Clear assistant-scoped runtime state (threads, sessions, callbacks)
+    /// 4. Persist the new assistant selection
+    /// 5. Reconfigure daemon transport and reconnect
+    /// 6. Resume monitoring and credential bootstrap
     func performSwitchAssistant(to assistant: LockfileAssistant) {
+        // 1. Stop lifecycle monitoring and daemon processes
+        assistantCli.stopMonitoring()
         assistantCli.stop()
+
+        // 2. Disconnect daemon transport (handled by reconfigure in step 5)
+        daemonClient.disconnect()
+
+        // 3. Clear assistant-scoped runtime state
+        // Force-stop any active recording to avoid stale session references
+        recordingManager.forceStop()
+        recordingHUDWindow?.dismiss()
+        // Close and recreate the main window to reset thread/session state
+        mainWindow?.close()
+        mainWindow = nil
+
+        // Cancel any in-progress bootstrap tasks from the previous assistant
+        bootstrapRetryTask?.cancel()
+        bootstrapRetryTask = nil
+
+        // 4. Persist the new assistant selection
         UserDefaults.standard.set(assistant.assistantId, forKey: "connectedAssistantId")
         assistant.writeToWorkspaceConfig()
 
-        // Clear stale actor token for the previous assistant and re-bootstrap
-        // for the new one once the daemon connects.
+        // Clear stale actor token for the previous assistant
         actorTokenBootstrapTask?.cancel()
         actorTokenBootstrapTask = nil
         ActorTokenManager.deleteToken()
 
+        // 5. Reconfigure daemon transport and reconnect
         hasSetupDaemon = false
         setupDaemonClient()
-        ensureActorCredentials()
+
+        // 6. Resume credential bootstrap and show UI
+        if !isCurrentAssistantManaged {
+            ensureActorCredentials()
+        }
+        showMainWindow()
     }
 
     @objc func performRetire() {
@@ -899,11 +1033,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         }
 
         if let name = assistantName {
-            // Stop processes FIRST while PID files and lockfile entry still exist.
-            // retire() internally tries to stop them again, which is idempotent.
-            daemonClient.disconnect()
-            assistantCli.stop()
-
             do {
                 try await assistantCli.retire(name: name)
             } catch {
@@ -915,12 +1044,23 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                 alert.addButton(withTitle: "Force Remove")
                 alert.addButton(withTitle: "Cancel")
                 if alert.runModal() != .alertFirstButtonReturn {
+                    // Daemon is still running — user can continue using the app.
+                    // retire() already set isStopping=true and stopped monitoring;
+                    // restart monitoring so the health check remains active.
+                    assistantCli.startMonitoring()
                     return false
                 }
-                // Retire failed but user chose Force Remove — clean the stale
-                // lockfile entry so onboarding can re-run with a fresh lockfile.
+                // Retire failed but user chose Force Remove — stop the daemon
+                // before cleaning up local state.
+                daemonClient.disconnect()
+                assistantCli.stop()
                 self.removeLockfileEntry(assistantId: name)
             }
+
+            // Stop processes after retire succeeds (or user chose Force Remove).
+            // This keeps the daemon alive if the user cancels a failed retire.
+            daemonClient.disconnect()
+            assistantCli.stop()
         } else {
             assistantCli.stop()
         }
@@ -1055,11 +1195,34 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     }
 
     /// Configure the daemon client's transport based on the lockfile assistant.
-    /// Remote assistants (cloud != "local") use HTTP+SSE via the gateway URL.
+    /// Managed assistants (cloud == "vellum") use platform proxy with session token auth.
+    /// Other remote assistants (cloud != "local") use HTTP+SSE via the gateway URL.
     /// Local assistants use the default Unix domain socket, unless the
     /// `localHttpEnabled` flag redirects them to the daemon's runtime HTTP server.
     private func configureDaemonTransport(for assistant: LockfileAssistant?) {
         isCurrentAssistantRemote = assistant?.isRemote ?? false
+        isCurrentAssistantManaged = assistant?.isManaged ?? false
+
+        // Managed assistant: use platform proxy URLs with session token auth.
+        if let assistant, assistant.isManaged {
+            let platformBaseURL = assistant.runtimeUrl ?? AuthService.shared.baseURL
+            let metadata = TransportMetadata(
+                routeMode: .platformAssistantProxy,
+                authMode: .sessionToken,
+                platformAssistantId: assistant.assistantId
+            )
+            let config = DaemonConfig(
+                transport: .http(
+                    baseURL: platformBaseURL,
+                    bearerToken: nil,
+                    conversationKey: assistant.assistantId
+                ),
+                transportMetadata: metadata
+            )
+            services.reconfigureDaemonClient(config: config)
+            log.info("Configured managed transport for assistant \(assistant.assistantId) via platform at \(platformBaseURL, privacy: .public)")
+            return
+        }
 
         guard let assistant, assistant.isRemote, let runtimeUrl = assistant.runtimeUrl else {
             // Local assistant or no assistant.
@@ -1077,6 +1240,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                 ))
                 services.reconfigureDaemonClient(config: config)
                 log.info("Configured local HTTP transport (localHttpEnabled flag) on port \(port)")
+            } else {
+                // Reset to default socket transport in case the previous assistant used HTTP.
+                services.reconfigureDaemonClient(config: .default)
             }
             return
         }
@@ -1087,9 +1253,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             conversationKey: assistant.assistantId
         ))
 
-        // Replace the daemon client's config. Since DaemonClient.config is let,
-        // we need to create a new DaemonClient with the HTTP config.
-        // The services property is mutable for this purpose.
+        // Reconfigure the daemon client's transport in place. This preserves
+        // object identity so all long-lived holders keep a valid reference.
         services.reconfigureDaemonClient(config: config)
 
         log.info("Configured HTTP transport for remote assistant \(assistant.assistantId) at \(runtimeUrl, privacy: .public)")
@@ -1111,8 +1276,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
         configureDaemonTransport(for: assistant)
 
-        // Rebind the menu bar icon observer to the (potentially new) daemon client
-        // so status changes on the replacement client trigger icon updates.
+        // Rebind the menu bar icon observer after transport reconfiguration
+        // so connection status changes continue to update the icon.
         rebindConnectionStatusObserver()
 
         daemonClient.onNotificationIntent = { [weak self] msg in
@@ -1310,23 +1475,51 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
         Task {
             if !isCurrentAssistantRemote {
-                // On first launch post-onboarding, use daemonOnly: false so the CLI
-                // creates a lockfile entry. On subsequent launches, daemonOnly: true
-                // prevents duplicates.
-                let needsLockfileEntry = isFirstLaunch && !self.lockfileHasAssistants()
-                do {
-                    try await assistantCli.hatch(daemonOnly: !needsLockfileEntry)
-                } catch {
-                    log.error("Failed to hatch assistant during daemon setup: \(error)")
-                    if needsLockfileEntry {
-                        log.info("Full hatch failed on first launch — retrying daemon-only as fallback")
-                        try? await assistantCli.hatch(daemonOnly: true)
+                // If the hatching step already started the gateway (e.g. `vellum-cli hatch --remote local`),
+                // skip the CLI hatch to avoid spawning a duplicate gateway process.
+                // Require BOTH lockfile and healthy gateway — a stale lockfile with an unhealthy
+                // gateway falls through to the normal hatch path.
+                let lockfileExists = self.lockfileHasAssistants()
+                var gatewayHealthy = false
+                if lockfileExists {
+                    if isFirstLaunch {
+                        // Retry window: gateway may still be starting from onboarding hatch
+                        for _ in 0..<3 {
+                            if await isGatewayHealthy() { gatewayHealthy = true; break }
+                            try? await Task.sleep(nanoseconds: 1_000_000_000)
+                        }
+                    } else {
+                        // Non-first-launch: single check, no retry delay
+                        gatewayHealthy = await isGatewayHealthy()
                     }
                 }
-                if needsLockfileEntry {
-                    _ = self.loadAssistantFromLockfile()
+
+                if lockfileExists && gatewayHealthy {
+                    log.info("Lockfile and gateway already present — skipping CLI hatch to avoid duplicate gateway")
+                    assistantCli.startMonitoring()
+                } else {
+                    // On first launch post-onboarding, use daemonOnly: false so the CLI
+                    // creates a lockfile entry. On subsequent launches, daemonOnly: true
+                    // prevents duplicates.
+                    let needsLockfileEntry = isFirstLaunch && !lockfileExists
+                    let daemonOnly = !needsLockfileEntry
+                    // Pass the selected assistant ID so the gateway starts
+                    // with the correct default assistant (not a random name).
+                    let assistantName = assistant?.assistantId
+                    do {
+                        try await assistantCli.hatch(name: assistantName, daemonOnly: daemonOnly)
+                    } catch {
+                        log.error("Failed to hatch assistant during daemon setup: \(error)")
+                        if needsLockfileEntry {
+                            log.info("Full hatch failed on first launch — retrying daemon-only as fallback")
+                            try? await assistantCli.hatch(name: assistantName, daemonOnly: true)
+                        }
+                    }
+                    if needsLockfileEntry {
+                        _ = self.loadAssistantFromLockfile()
+                    }
+                    assistantCli.startMonitoring()
                 }
-                assistantCli.startMonitoring()
             }
             // Skip connect if the bootstrap retry coordinator already connected
             // or has a connect in flight (hatch can take a long time; the
@@ -2202,6 +2395,24 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             return false
         }
         return !assistants.isEmpty
+    }
+
+    /// Check whether the local gateway is healthy by hitting its /healthz endpoint.
+    /// Reads port from GATEWAY_PORT env var (default 7830) to match local.ts runtime behavior.
+    private func isGatewayHealthy() async -> Bool {
+        let port = ProcessInfo.processInfo.environment["GATEWAY_PORT"] ?? "7830"
+        guard let url = URL(string: "http://localhost:\(port)/healthz") else { return false }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 2
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            if let http = response as? HTTPURLResponse, http.statusCode == 200 {
+                return true
+            }
+        } catch {
+            // Gateway not reachable — not healthy
+        }
+        return false
     }
 
     /// Remove a specific assistant entry from the lockfile. Used after a
