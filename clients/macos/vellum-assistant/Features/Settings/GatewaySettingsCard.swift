@@ -105,14 +105,10 @@ struct GatewaySettingsCard: View {
                 .help(store.tunnelLastChecked != nil ? "Last checked: \(relativeTunnelTime)" : "Test tunnel")
             }
 
-            // Save / Cancel buttons at the bottom
-            HStack(spacing: VSpacing.sm) {
+            // Save button at the bottom
+            HStack {
                 VButton(label: "Save", style: .secondary, size: .medium) {
                     store.saveIngressPublicBaseUrl(gatewayUrlText)
-                    isGatewayUrlFocused = false
-                }
-                VButton(label: "Cancel", style: .tertiary, size: .medium) {
-                    gatewayUrlText = store.ingressPublicBaseUrl
                     isGatewayUrlFocused = false
                 }
             }
