@@ -61,7 +61,7 @@ function parseAddressList(header: string): string[] {
 function extractEmail(address: string): string {
   const segments = [...address.matchAll(/<([^>]+)>/g)].map((m) => m[1]);
   if (segments.length > 0) {
-    const emailSegment = segments.findLast((s) => s.includes('@'));
+    const emailSegment = [...segments].reverse().find((s) => s.includes('@'));
     return (emailSegment ?? segments[segments.length - 1]).trim().toLowerCase();
   }
   return address.trim().toLowerCase();
