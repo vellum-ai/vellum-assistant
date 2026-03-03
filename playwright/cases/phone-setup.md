@@ -11,15 +11,14 @@ Verify that we're able to configure everything needed for the assistant to be ab
 
 ## Steps
 
-1. Launch the App
-2. Open a chat thread
-3. Send the message "Can you make phone calls for me?"
-4. Verify that the assistant responds in the affirmative that it is able to make phone calls, but that some initial setup is needed.
-5. You should be asked to provider your Twilio Account SID, your Twilio Auth Token, and your ngrok Auth Token, all through new windows that pop open titled "Secure Credential."
-6. Verify that you were able to supply all three credentals through a secure window and were NOT encouraged to provide them conversationally through the chat interface.
-7. You should be asked what voice you want the assistant to have and be presented with a few options to choose from.
-8. You should be offered to make a test call to your phone number. You can reject this offer.
-9. Once it seems like phone calling is fully set up, go to Preferences -> Settings -> Channels. There you should see that phone calling is fully configured.
+1. Go through whatever onboarding steps are needed until the assistant appears to be fully set up and ready to receive its first instruction.
+2. Send the message "Can you make phone calls for me?"
+3. Verify that the assistant responds in the affirmative that it is able to make phone calls, but that some initial setup is needed.
+4. You should be asked to provider your Twilio Account SID, your Twilio Auth Token, and your ngrok Auth Token, all through new windows that pop open titled "Secure Credential."
+5. Verify that you were able to supply all three credentals through a secure window and were NOT encouraged to provide them conversationally through the chat interface.
+6. You should be asked what voice you want the assistant to have and be presented with a few options to choose from.
+7. You should be offered to make a test call to your phone number. You can reject this offer.
+8. Once it seems like phone calling is fully set up, go to Preferences -> Settings -> Channels. There you should see that phone calling is fully configured.
 
 
 ## Expected
