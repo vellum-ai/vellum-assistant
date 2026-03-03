@@ -63,6 +63,10 @@ export class ScaffoldManagedSkillTool implements Tool {
             items: { type: 'string' },
             description: 'Optional list of child skill IDs that this skill includes (metadata only, no auto-activation).',
           },
+          reason: {
+            type: 'string',
+            description: 'Brief non-technical explanation of what you are creating and why, shown to the user as a status update. Use simple language a non-technical person would understand.',
+          },
         },
         required: ['skill_id', 'name', 'description', 'body_markdown'],
       },

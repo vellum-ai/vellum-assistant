@@ -247,6 +247,10 @@ class WebSearchTool implements Tool {
             type: 'string',
             description: 'Filter by recency: "pd" (past day), "pw" (past week), "pm" (past month), "py" (past year). Only used with Brave provider.',
           },
+          reason: {
+            type: 'string',
+            description: 'Brief non-technical explanation of what you are searching for and why, shown to the user as a status update. Use simple language a non-technical person would understand.',
+          },
         },
         required: ['query'],
       },

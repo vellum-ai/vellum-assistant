@@ -29,7 +29,7 @@ class FileWriteTool implements Tool {
           },
           reason: {
             type: 'string',
-            description: 'Brief human-readable explanation of why this file is being written, shown to the user in the permission prompt',
+            description: 'Brief non-technical explanation of why this file is being written, shown to the user as a status update. Use simple language a non-technical person would understand.',
           },
         },
         required: ['path', 'content', 'reason'],

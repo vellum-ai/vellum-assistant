@@ -39,6 +39,10 @@ export class OpenSystemSettingsTool implements Tool {
             enum: [...VALID_PANES],
             description: 'The System Settings pane to open',
           },
+          reason: {
+            type: 'string',
+            description: 'Brief non-technical explanation of what you are opening and why, shown to the user as a status update. Use simple language a non-technical person would understand.',
+          },
         },
         required: ['pane'],
       },
