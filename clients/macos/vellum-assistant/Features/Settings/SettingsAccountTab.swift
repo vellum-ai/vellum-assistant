@@ -114,7 +114,7 @@ struct SettingsAccountTab: View {
 
             if store.isDevMode {
                 Text("Platform URL")
-                    .font(VFont.caption)
+                    .font(VFont.inputLabel)
                     .foregroundColor(VColor.textSecondary)
 
                 // When platform is reachable, show a Connected badge and keep the input field
@@ -350,9 +350,9 @@ struct SettingsAccountTab: View {
                 .foregroundColor(VColor.textPrimary)
 
             VStack(alignment: .leading, spacing: VSpacing.lg) {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
                     Text("Retire this assistant")
-                        .font(VFont.body)
+                        .font(VFont.inputLabel)
                         .foregroundColor(VColor.textSecondary)
                     if lockfileAssistants.count > 1 {
                         Text("Stops the current assistant and switches to another.")
@@ -439,9 +439,9 @@ struct SettingsAccountTab: View {
                     .foregroundColor(VColor.textPrimary)
 
                 VStack(alignment: .leading, spacing: VSpacing.lg) {
-                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
                         Text("Hatch a new assistant")
-                            .font(VFont.body)
+                            .font(VFont.inputLabel)
                             .foregroundColor(VColor.textSecondary)
                         Text("Starts the initial setup flow to create a new assistant.")
                             .font(VFont.caption)

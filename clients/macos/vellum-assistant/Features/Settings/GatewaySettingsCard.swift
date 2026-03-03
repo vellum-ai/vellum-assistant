@@ -16,12 +16,12 @@ struct GatewaySettingsCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
                 Text("Gateway")
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
                 Text("Local gateway that forwards requests to this assistant")
-                    .font(VFont.caption)
+                    .font(VFont.sectionDescription)
                     .foregroundColor(VColor.textMuted)
             }
 
@@ -80,9 +80,9 @@ struct GatewaySettingsCard: View {
 
     private var tunnelConfigEntry: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
                 Text("Local Gateway Target")
-                    .font(VFont.caption)
+                    .font(VFont.inputLabel)
                     .foregroundColor(VColor.textSecondary)
                 HStack(spacing: VSpacing.sm) {
                     Text(store.localGatewayTarget)
@@ -123,7 +123,7 @@ struct GatewaySettingsCard: View {
             }
 
             Text("Gateway URL")
-                .font(VFont.caption)
+                .font(VFont.inputLabel)
                 .foregroundColor(VColor.textSecondary)
 
             TextField("https://your-tunnel.example.com", text: $gatewayUrlText)

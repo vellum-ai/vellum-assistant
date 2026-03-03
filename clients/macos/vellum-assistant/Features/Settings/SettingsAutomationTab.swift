@@ -20,9 +20,9 @@ struct SettingsAutomationTab: View {
                         .foregroundColor(VColor.textPrimary)
 
                     VStack(alignment: .leading, spacing: VSpacing.lg) {
-                        VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        VStack(alignment: .leading, spacing: VSpacing.sm) {
                             Text("Manage Reminders")
-                                .font(VFont.body)
+                                .font(VFont.inputLabel)
                                 .foregroundColor(VColor.textSecondary)
                             Text("View and manage one-shot reminders created by the assistant")
                                 .font(VFont.caption)
@@ -44,9 +44,9 @@ struct SettingsAutomationTab: View {
                         .foregroundColor(VColor.textPrimary)
 
                     VStack(alignment: .leading, spacing: VSpacing.lg) {
-                        VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        VStack(alignment: .leading, spacing: VSpacing.sm) {
                             Text("Manage Scheduled Tasks")
-                                .font(VFont.body)
+                                .font(VFont.inputLabel)
                                 .foregroundColor(VColor.textSecondary)
                             Text("View and manage recurring tasks (cron and RRULE schedules)")
                                 .font(VFont.caption)

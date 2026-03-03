@@ -77,7 +77,7 @@ struct SettingsAdvancedDevTab: View {
             }
 
             Text("Sourced from the gateway API. Changes are synced remotely.")
-                .font(VFont.caption)
+                .font(VFont.sectionDescription)
                 .foregroundColor(VColor.textMuted)
 
             if let error = assistantFlagsError {
@@ -195,7 +195,7 @@ struct SettingsAdvancedDevTab: View {
                 .foregroundColor(VColor.textPrimary)
 
             Text("Local-only flags stored in UserDefaults on this Mac.")
-                .font(VFont.caption)
+                .font(VFont.sectionDescription)
                 .foregroundColor(VColor.textMuted)
 
             if macOSFlagStates.isEmpty {
@@ -225,9 +225,9 @@ struct SettingsAdvancedDevTab: View {
                     .foregroundColor(VColor.textPrimary)
 
                 VStack(alignment: .leading, spacing: VSpacing.md) {
-                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
                         Text("Environment Variables")
-                            .font(VFont.body)
+                            .font(VFont.inputLabel)
                             .foregroundColor(VColor.textSecondary)
                         Text("View env vars for both the app and daemon processes")
                             .font(VFont.caption)

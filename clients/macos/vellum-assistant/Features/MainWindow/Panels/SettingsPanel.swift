@@ -250,19 +250,19 @@ struct SettingsPanel: View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             // ANTHROPIC section
             VStack(alignment: .leading, spacing: VSpacing.md) {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
                     Text("Anthropic")
                         .font(VFont.sectionTitle)
                         .foregroundColor(VColor.textPrimary)
                     Text("Required for AI responses")
-                        .font(VFont.caption)
+                        .font(VFont.sectionDescription)
                         .foregroundColor(VColor.textMuted)
                 }
 
                 if store.hasKey {
-                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
                         Text("Active Model")
-                            .font(VFont.body)
+                            .font(VFont.inputLabel)
                             .foregroundColor(VColor.textSecondary)
                         VDropdown(
                             placeholder: "Select a model…",
@@ -291,7 +291,7 @@ struct SettingsPanel: View {
                 } else if anthropicSetupExpanded {
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
                         Text("API Key")
-                            .font(VFont.caption)
+                            .font(VFont.inputLabel)
                             .foregroundColor(VColor.textSecondary)
 
                         SecureField("This is your private generated key", text: $apiKeyText)
@@ -336,12 +336,12 @@ struct SettingsPanel: View {
 
             // PERPLEXITY SEARCH section
             VStack(alignment: .leading, spacing: VSpacing.md) {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
                     Text("Perplexity Search")
                         .font(VFont.sectionTitle)
                         .foregroundColor(VColor.textPrimary)
                     Text("Enables real-time web search in responses")
-                        .font(VFont.caption)
+                        .font(VFont.sectionDescription)
                         .foregroundColor(VColor.textMuted)
                 }
 
@@ -357,7 +357,7 @@ struct SettingsPanel: View {
                 } else if perplexitySetupExpanded {
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
                         Text("API Key")
-                            .font(VFont.caption)
+                            .font(VFont.inputLabel)
                             .foregroundColor(VColor.textSecondary)
 
                         SecureField("Your Perplexity API key", text: $perplexityKeyText)
@@ -402,12 +402,12 @@ struct SettingsPanel: View {
 
             // BRAVE SEARCH section
             VStack(alignment: .leading, spacing: VSpacing.md) {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
                     Text("Brave Search")
                         .font(VFont.sectionTitle)
                         .foregroundColor(VColor.textPrimary)
                     Text("Enables private web search in responses")
-                        .font(VFont.caption)
+                        .font(VFont.sectionDescription)
                         .foregroundColor(VColor.textMuted)
                 }
 
@@ -423,7 +423,7 @@ struct SettingsPanel: View {
                 } else if braveSetupExpanded {
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
                         Text("API Key")
-                            .font(VFont.caption)
+                            .font(VFont.inputLabel)
                             .foregroundColor(VColor.textSecondary)
 
                         SecureField("Your Brave Search API key", text: $braveKeyText)
@@ -468,12 +468,12 @@ struct SettingsPanel: View {
 
             // IMAGE GENERATION section
             VStack(alignment: .leading, spacing: VSpacing.md) {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
                     Text("Image Generation")
                         .font(VFont.sectionTitle)
                         .foregroundColor(VColor.textPrimary)
                     Text("Enables AI image generation via Gemini")
-                        .font(VFont.caption)
+                        .font(VFont.sectionDescription)
                         .foregroundColor(VColor.textMuted)
                 }
 
@@ -492,7 +492,7 @@ struct SettingsPanel: View {
 
                     HStack {
                         Text("Model")
-                            .font(VFont.body)
+                            .font(VFont.inputLabel)
                             .foregroundColor(VColor.textSecondary)
                         Spacer()
                         Picker("", selection: Binding(
@@ -510,7 +510,7 @@ struct SettingsPanel: View {
                 } else if imageGenSetupExpanded {
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
                         Text("API Key")
-                            .font(VFont.caption)
+                            .font(VFont.inputLabel)
                             .foregroundColor(VColor.textSecondary)
 
                         SecureField("Your Gemini API key", text: $imageGenKeyText)
@@ -579,12 +579,12 @@ struct SettingsPanel: View {
 
     private var twitterSection: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
                 Text("Twitter / X")
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
                 Text("Post and read tweets as your assistant")
-                    .font(VFont.caption)
+                    .font(VFont.sectionDescription)
                     .foregroundColor(VColor.textMuted)
             }
 
@@ -641,7 +641,7 @@ struct SettingsPanel: View {
                 // OAuth client credentials entry
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     Text("OAuth Client ID")
-                        .font(VFont.caption)
+                        .font(VFont.inputLabel)
                         .foregroundColor(VColor.textSecondary)
 
                     TextField("OAuth Client ID", text: $twitterClientId)
@@ -650,7 +650,7 @@ struct SettingsPanel: View {
                         .foregroundColor(VColor.textPrimary)
 
                     Text("OAuth Client Secret (optional)")
-                        .font(VFont.caption)
+                        .font(VFont.inputLabel)
                         .foregroundColor(VColor.textSecondary)
 
                     SecureField("OAuth Client Secret (optional)", text: $twitterClientSecret)
