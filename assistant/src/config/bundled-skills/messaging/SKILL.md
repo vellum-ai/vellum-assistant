@@ -329,9 +329,10 @@ When a user asks to declutter, clean up, or organize their email — start scann
 
 - **Zero results**: Tell the user "No newsletter emails found" and suggest broadening the query (e.g. removing the category filter or extending the date range)
 - **Unsubscribe failures**: Report per-sender success/failure; the existing `gmail_unsubscribe` tool handles edge cases
-- **Truncation handling**: The scan covers up to 5000 messages (default 2000). If `truncated` is true:
-  - **Default**: The top senders are captured — this is usually fine. Mention "partial scan" in the summary.
-  - **Comprehensive** (user said "full inbox", "everything", "all of it"): Silently continue scanning with `page_token`, merge results across passes, and present once when complete. Don't ask — just keep going until done.
+- **Truncation handling**: The scan covers up to 2000 messages per call (cap 5000). The default 2000 captures the vast majority of newsletter senders. If `truncated` is true:
+  - Tell the user: "Scanned [N] messages — here are your top senders." The top senders are almost always captured in the first pass.
+  - If the user explicitly asks to scan more, make ONE additional call with the `page_token`. Never chain more than 2 calls total.
+- **Time budget exceeded**: If the scan returns `time_budget_exceeded: true`, present whatever results were collected. Do not retry or continue — the partial results are useful as-is.
 
 ### Scan ID
 
