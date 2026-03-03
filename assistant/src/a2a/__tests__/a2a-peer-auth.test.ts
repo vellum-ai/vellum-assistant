@@ -672,6 +672,35 @@ describe('verifyRequest', () => {
     if (!result2.ok) expect(result2.reason).toBe('nonce_replayed');
   });
 
+  test('wrong inbound credential rejected with credential_mismatch', () => {
+    const realCred = generateCredentialToken();
+    const wrongCred = generateCredentialToken();
+    const { connection } = createActiveConnection(realCred);
+    const body = '{"test":"credential_mismatch"}';
+    const now = Date.now();
+    const nonceStore = new NonceStore();
+
+    // Sign with the wrong credential (which also means the HMAC would fail,
+    // but the credential hash check should reject it first)
+    const headers = signRequest(connection.id, wrongCred, body, now);
+
+    const result = verifyRequest({
+      headers: {
+        [HEADER_SIGNATURE]: headers[HEADER_SIGNATURE],
+        [HEADER_TIMESTAMP]: headers[HEADER_TIMESTAMP],
+        [HEADER_NONCE]: headers[HEADER_NONCE],
+        [HEADER_CONNECTION_ID]: connection.id,
+      },
+      body,
+      inboundCredential: wrongCred,
+      nonceStore,
+      now,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe('credential_mismatch');
+  });
+
   test('tampered body fails signature verification', () => {
     const inboundCred = generateCredentialToken();
     const { connection } = createActiveConnection(inboundCred);

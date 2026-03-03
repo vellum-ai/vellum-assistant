@@ -63,7 +63,7 @@ export interface SignedRequestHeaders {
 
 export type VerifyResult =
   | { ok: true; connectionId: string }
-  | { ok: false; reason: 'missing_headers' | 'connection_not_found' | 'connection_not_active' | 'invalid_signature' | 'timestamp_expired' | 'nonce_replayed' | 'credential_revoked' };
+  | { ok: false; reason: 'missing_headers' | 'connection_not_found' | 'connection_not_active' | 'invalid_signature' | 'timestamp_expired' | 'nonce_replayed' | 'credential_revoked' | 'credential_mismatch' };
 
 export type RotateResult =
   | { ok: true; newCredentials: CredentialPair; connection: A2APeerConnection }
@@ -248,10 +248,10 @@ export interface VerifyRequestParams {
  * Checks (in order):
  * 1. Required headers are present.
  * 2. The connection exists and is active.
- * 3. The timestamp is within the replay window.
- * 4. The nonce has not been seen before.
- * 5. The HMAC signature matches using the stored inbound credential hash
- *    (re-derived by comparing against the stored hash).
+ * 3. The caller-supplied inbound credential matches the connection's stored hash.
+ * 4. The timestamp is within the replay window.
+ * 5. The nonce has not been seen before.
+ * 6. The HMAC signature matches.
  *
  * The inbound credential hash in the connection store is the SHA-256 hash
  * of the raw credential the peer uses to sign. We cannot reverse the hash,
@@ -311,18 +311,24 @@ export function verifyRequest(
     return { ok: false, reason: 'connection_not_active' };
   }
 
-  // 3. Check timestamp within replay window
+  // 3. Validate the caller-supplied credential matches the stored hash
+  const inboundCredentialHash = hashHandshakeSecret(inboundCredential);
+  if (!connection.inboundCredentialHash || !timingSafeCompare(inboundCredentialHash, connection.inboundCredentialHash)) {
+    return { ok: false, reason: 'credential_mismatch' };
+  }
+
+  // 4. Check timestamp within replay window
   const requestTime = parseInt(timestamp, 10);
   if (isNaN(requestTime) || Math.abs(currentTime - requestTime) > replayWindowMs) {
     return { ok: false, reason: 'timestamp_expired' };
   }
 
-  // 4. Check nonce not replayed
+  // 5. Check nonce not replayed
   if (nonceStore.hasBeenSeen(nonce, currentTime)) {
     return { ok: false, reason: 'nonce_replayed' };
   }
 
-  // 5. Verify HMAC signature
+  // 6. Verify HMAC signature
   const payload = buildSigningPayload(timestamp, nonce, body);
   const expectedSignature = computeHmac(inboundCredential, payload);
 
