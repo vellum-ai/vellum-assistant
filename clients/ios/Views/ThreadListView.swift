@@ -396,6 +396,7 @@ struct ThreadListView: View {
                 .contentShape(Rectangle())
             }
         }
+    }
 
     // MARK: - Thread Row
 

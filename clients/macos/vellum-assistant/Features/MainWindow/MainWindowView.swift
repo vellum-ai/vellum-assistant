@@ -1320,6 +1320,42 @@ struct MainWindowView: View {
                                 // Single-thread group: render inline without a disclosure wrapper
                                 threadItem(thread)
                                     .padding(.bottom, VSpacing.xxs)
+                                    .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
+                                        if sidebar.dropTargetThreadId == thread.id {
+                                            Rectangle()
+                                                .fill(adaptiveColor(light: Forest._500, dark: Forest._400))
+                                                .frame(height: 2)
+                                                .transition(.opacity)
+                                        }
+                                    }
+                                    .dropDestination(for: String.self) { items, _ in
+                                        sidebar.dropTargetThreadId = nil
+                                        sidebar.draggingThreadId = nil
+                                        guard let droppedId = items.first,
+                                              let sourceUUID = UUID(uuidString: droppedId),
+                                              sourceUUID != thread.id else { return false }
+                                        return threadManager.moveThread(sourceId: sourceUUID, targetId: thread.id)
+                                    } isTargeted: { isTargeted in
+                                        if isTargeted && thread.id != sidebar.draggingThreadId {
+                                            if let dragId = sidebar.draggingThreadId {
+                                                let sourceIsSchedule = threadManager.visibleThreads.first(where: { $0.id == dragId })?.isScheduleThread ?? false
+                                                if !sourceIsSchedule {
+                                                    sidebar.dropTargetThreadId = displayedScheduleThreads.first?.id ?? thread.id
+                                                    sidebar.dropIndicatorAtBottom = false
+                                                } else {
+                                                    sidebar.dropTargetThreadId = thread.id
+                                                    let visible = threadManager.visibleThreads
+                                                    let sIdx = visible.firstIndex(where: { $0.id == dragId }) ?? 0
+                                                    let tIdx = visible.firstIndex(where: { $0.id == thread.id }) ?? 0
+                                                    sidebar.dropIndicatorAtBottom = sIdx < tIdx
+                                                }
+                                            } else {
+                                                sidebar.dropTargetThreadId = thread.id
+                                            }
+                                        } else if !isTargeted && (sidebar.dropTargetThreadId == thread.id || sidebar.dropTargetThreadId == displayedScheduleThreads.first?.id) {
+                                            sidebar.dropTargetThreadId = nil
+                                        }
+                                    }
                             } else {
                                 // Multi-thread group: DisclosureGroup with fully-tappable label
                                 DisclosureGroup(
@@ -1340,6 +1376,42 @@ struct MainWindowView: View {
                                         ForEach(group.threads) { thread in
                                             threadItem(thread)
                                                 .padding(.bottom, VSpacing.xxs)
+                                                .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
+                                                    if sidebar.dropTargetThreadId == thread.id {
+                                                        Rectangle()
+                                                            .fill(adaptiveColor(light: Forest._500, dark: Forest._400))
+                                                            .frame(height: 2)
+                                                            .transition(.opacity)
+                                                    }
+                                                }
+                                                .dropDestination(for: String.self) { items, _ in
+                                                    sidebar.dropTargetThreadId = nil
+                                                    sidebar.draggingThreadId = nil
+                                                    guard let droppedId = items.first,
+                                                          let sourceUUID = UUID(uuidString: droppedId),
+                                                          sourceUUID != thread.id else { return false }
+                                                    return threadManager.moveThread(sourceId: sourceUUID, targetId: thread.id)
+                                                } isTargeted: { isTargeted in
+                                                    if isTargeted && thread.id != sidebar.draggingThreadId {
+                                                        if let dragId = sidebar.draggingThreadId {
+                                                            let sourceIsSchedule = threadManager.visibleThreads.first(where: { $0.id == dragId })?.isScheduleThread ?? false
+                                                            if !sourceIsSchedule {
+                                                                sidebar.dropTargetThreadId = displayedScheduleThreads.first?.id ?? thread.id
+                                                                sidebar.dropIndicatorAtBottom = false
+                                                            } else {
+                                                                sidebar.dropTargetThreadId = thread.id
+                                                                let visible = threadManager.visibleThreads
+                                                                let sIdx = visible.firstIndex(where: { $0.id == dragId }) ?? 0
+                                                                let tIdx = visible.firstIndex(where: { $0.id == thread.id }) ?? 0
+                                                                sidebar.dropIndicatorAtBottom = sIdx < tIdx
+                                                            }
+                                                        } else {
+                                                            sidebar.dropTargetThreadId = thread.id
+                                                        }
+                                                    } else if !isTargeted && (sidebar.dropTargetThreadId == thread.id || sidebar.dropTargetThreadId == displayedScheduleThreads.first?.id) {
+                                                        sidebar.dropTargetThreadId = nil
+                                                    }
+                                                }
                                         }
                                     }
                                 } label: {
