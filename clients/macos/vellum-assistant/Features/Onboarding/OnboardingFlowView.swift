@@ -200,7 +200,9 @@ struct OnboardingFlowView: View {
             }
 
             let runtimeUrl = AuthService.shared.baseURL
-            let hatchedAt = ISO8601DateFormatter().string(from: Date())
+            let isoFormatter = ISO8601DateFormatter()
+            isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            let hatchedAt = isoFormatter.string(from: Date())
 
             let success = LockfileAssistant.upsertManagedEntry(
                 assistantId: assistant.id,
