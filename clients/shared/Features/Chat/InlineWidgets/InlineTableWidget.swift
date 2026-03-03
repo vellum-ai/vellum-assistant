@@ -12,12 +12,31 @@ public struct InlineTableWidget: View {
         self.onAction = onAction
     }
 
+    private var selectableIds: Set<String> {
+        Set(data.rows.filter(\.selectable).map(\.id))
+    }
+
+    private var allSelected: Bool {
+        let ids = selectableIds
+        return !ids.isEmpty && ids.isSubset(of: selectedIds)
+    }
+
     public var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             // Column headers
             HStack(spacing: 0) {
-                if data.selectionMode != .none {
-                    // Checkbox column header
+                if data.selectionMode == .multiple {
+                    Button {
+                        toggleSelectAll()
+                    } label: {
+                        Image(systemName: allSelected ? "checkmark.square.fill" : "square")
+                            .font(.system(size: 14))
+                            .foregroundColor(allSelected ? VColor.accent : VColor.textMuted)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(allSelected ? "Deselect all" : "Select all")
+                    .frame(width: 28)
+                } else if data.selectionMode != .none {
                     Color.clear
                         .frame(width: 28)
                 }
@@ -95,6 +114,15 @@ public struct InlineTableWidget: View {
                 toggleSelection(row.id)
             }
         }
+    }
+
+    private func toggleSelectAll() {
+        if allSelected {
+            selectedIds.subtract(selectableIds)
+        } else {
+            selectedIds.formUnion(selectableIds)
+        }
+        onAction("selection_changed", ["selectedIds": AnyCodable(Array(selectedIds))])
     }
 
     private func toggleSelection(_ id: String) {

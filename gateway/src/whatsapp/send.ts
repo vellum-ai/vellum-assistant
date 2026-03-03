@@ -28,6 +28,23 @@ const WHATSAPP_BUTTON_TITLE_MAX_LEN = 20;
 // WhatsApp supports a maximum of 3 reply buttons
 const WHATSAPP_MAX_BUTTONS = 3;
 
+/**
+ * Select up to WHATSAPP_MAX_BUTTONS actions for WhatsApp interactive buttons.
+ * When there are more actions than the cap allows, this ensures that `reject`
+ * and `approve_always` are always preserved (they are the most important
+ * decisions), with remaining slots filled by other approve variants in order.
+ */
+function selectWhatsAppButtons(actions: Array<{ id: string; label: string }>): Array<{ id: string; label: string }> {
+  if (actions.length <= WHATSAPP_MAX_BUTTONS) return actions;
+
+  // Always preserve reject and approve_always when present
+  const pinned = actions.filter(a => a.id === 'reject' || a.id === 'approve_always');
+  const rest = actions.filter(a => a.id !== 'reject' && a.id !== 'approve_always');
+  const slotsForRest = WHATSAPP_MAX_BUTTONS - pinned.length;
+  const selected = [...rest.slice(0, slotsForRest), ...pinned];
+  return selected;
+}
+
 export async function sendWhatsAppReply(
   config: GatewayConfig,
   to: string,
@@ -35,8 +52,11 @@ export async function sendWhatsAppReply(
   approval?: ApprovalPayload,
 ): Promise<void> {
   if (approval) {
-    // WhatsApp interactive buttons: up to 3 buttons, 20-char titles, 1024-char body
-    const buttons = approval.actions.slice(0, WHATSAPP_MAX_BUTTONS).map((action) => ({
+    // WhatsApp interactive buttons: up to 3 buttons, 20-char titles, 1024-char body.
+    // When there are more actions than the button cap allows, prioritize keeping
+    // the reject action visible alongside the most important approve variants.
+    const selectedActions = selectWhatsAppButtons(approval.actions);
+    const buttons = selectedActions.map((action) => ({
       id: `apr:${approval.runId}:${action.id}`,
       title: action.label.slice(0, WHATSAPP_BUTTON_TITLE_MAX_LEN),
     }));

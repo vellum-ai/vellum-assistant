@@ -10,16 +10,16 @@ import {
 import type { ServerMessage } from '../../daemon/ipc-contract.js';
 import { PairingStore } from '../../daemon/pairing-store.js';
 import { getLogger } from '../../util/logger.js';
-import { mintCredentialPair } from '../actor-refresh-token-service.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
+import { mintCredentialPair } from '../auth/credential-service.js';
 import { ensureVellumGuardianBinding } from '../guardian-vellum-migration.js';
 import { httpError } from '../http-errors.js';
 
 const log = getLogger('runtime-http');
 
 interface PairingCredentials {
-  actorToken: string;
-  actorTokenExpiresAt: number;
+  accessToken: string;
+  accessTokenExpiresAt: number;
   refreshToken: string;
   refreshTokenExpiresAt: number;
   refreshAfter: number;
@@ -50,8 +50,8 @@ function mintPairingCredentials(deviceId: string, platform: string): PairingCred
 
     log.info({ assistantId, platform }, 'Minted credentials during pairing');
     return {
-      actorToken: credentials.actorToken,
-      actorTokenExpiresAt: credentials.actorTokenExpiresAt,
+      accessToken: credentials.accessToken,
+      accessTokenExpiresAt: credentials.accessTokenExpiresAt,
       refreshToken: credentials.refreshToken,
       refreshTokenExpiresAt: credentials.refreshTokenExpiresAt,
       refreshAfter: credentials.refreshAfter,
@@ -155,7 +155,10 @@ export async function handlePairingRegister(req: Request, ctx: PairingHandlerCon
 
     const result = ctx.pairingStore.register({ pairingRequestId, pairingSecret, gatewayUrl, localLanUrl });
     if (!result.ok) {
-      return httpError('CONFLICT', 'Conflict: pairingRequestId exists with different secret', 409);
+      const message = result.reason === 'active_pairing'
+        ? 'A pairing request is already in progress'
+        : 'Conflict: pairingRequestId exists with different secret';
+      return httpError('CONFLICT', message, 409);
     }
 
     return Response.json({ ok: true });
@@ -213,8 +216,8 @@ export async function handlePairingRequest(req: Request, ctx: PairingHandlerCont
         localLanUrl: entry.localLanUrl,
         ...(ctx.featureFlagToken ? { featureFlagToken: ctx.featureFlagToken } : {}),
         ...(credentials ? {
-          actorToken: credentials.actorToken,
-          actorTokenExpiresAt: credentials.actorTokenExpiresAt,
+          accessToken: credentials.accessToken,
+          accessTokenExpiresAt: credentials.accessTokenExpiresAt,
           refreshToken: credentials.refreshToken,
           refreshTokenExpiresAt: credentials.refreshTokenExpiresAt,
           refreshAfter: credentials.refreshAfter,
@@ -312,8 +315,8 @@ export function handlePairingStatus(url: URL, ctx: PairingHandlerContext): Respo
       localLanUrl: entry.localLanUrl,
       ...(ctx.featureFlagToken ? { featureFlagToken: ctx.featureFlagToken } : {}),
       ...(credentialEntry ? {
-        actorToken: credentialEntry.credentials.actorToken,
-        actorTokenExpiresAt: credentialEntry.credentials.actorTokenExpiresAt,
+        accessToken: credentialEntry.credentials.accessToken,
+        accessTokenExpiresAt: credentialEntry.credentials.accessTokenExpiresAt,
         refreshToken: credentialEntry.credentials.refreshToken,
         refreshTokenExpiresAt: credentialEntry.credentials.refreshTokenExpiresAt,
         refreshAfter: credentialEntry.credentials.refreshAfter,

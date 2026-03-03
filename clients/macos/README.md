@@ -54,6 +54,42 @@ Requires Apple Developer account + App Store Connect setup. Deferred to PR 12-13
 
 **Daemon Connection Note:** The iOS app connects to the daemon through the HTTP gateway. Pair via QR code (Settings → Connect → Show QR Code on Mac, Scan QR Code on iPhone). All pairings require Mac-side approval. Devices approved with "Always Allow" auto-approve on future pairings.
 
+## Managed Mode
+
+The app supports a **managed sign-in** flow that connects to a platform-hosted assistant instead of a local daemon.
+
+### Sign-in Flow
+
+1. User clicks "Sign in" during first-run onboarding
+2. WorkOS authentication opens in the system browser
+3. On success, `ManagedAssistantBootstrapService.ensureManagedAssistant()` discovers or creates a platform assistant
+4. A lockfile entry is written with `cloud: "vellum"` and the `connectedAssistantId` is persisted in UserDefaults
+5. HTTP transport is configured in `platformAssistantProxy` mode with session token auth
+
+### Transport Modes
+
+The `HTTPTransport` supports two route modes:
+
+- **`runtimeFlat`** -- Used for local daemon connections and custom remote setups. Paths follow the runtime layout (e.g., `/v1/messages`, `/v1/events`).
+- **`platformAssistantProxy`** -- Used in managed mode. Paths are scoped under `/v1/assistants/{id}/` with trailing slashes (Django convention), e.g., `/v1/assistants/{id}/messages/`.
+
+### Key Differences in Managed Mode
+
+- No local daemon process -- the assistant runs on the Vellum platform
+- No actor credentials or bearer token -- session token auth is used instead (stored in Keychain)
+- Onboarding skips local daemon hatching and Fn key setup
+- If bootstrap fails, the user stays on the onboarding screen with a retry option
+
+### Where State Lives
+
+| State | Location |
+|-------|----------|
+| Session token | Keychain (`AuthManager`) |
+| Lockfile entry | `~/.vellum.lock.json` (with `cloud: "vellum"`) |
+| Connected assistant ID | UserDefaults (`connectedAssistantId`) |
+
+For the full managed sign-in architecture, see `clients/ARCHITECTURE.md`.
+
 ## Download
 
 To install the pre-built macOS app, download the signed and notarized DMG:
@@ -323,6 +359,7 @@ For example, views with dependencies need them passed in:
         state: OnboardingState(),
         daemonClient: DaemonClient(),
         authManager: AuthManager(),
+        managedBootstrapEnabled: true,
         onComplete: {},
         onOpenSettings: {}
     )

@@ -53,6 +53,8 @@ export interface EventHandlerState {
   firstTextDeltaEmitted: boolean;
   /** Tracks whether a thinking delta has been emitted this turn for activity state transitions. */
   firstThinkingDeltaEmitted: boolean;
+  /** Name of the last completed tool, used to generate contextual statusText. */
+  lastCompletedToolName: string | undefined;
 }
 
 /** Immutable context shared across event handlers within a single agent loop run. */
@@ -92,6 +94,7 @@ export function createEventHandlerState(): EventHandlerState {
     currentTurnToolNames: [],
     firstTextDeltaEmitted: false,
     firstThinkingDeltaEmitted: false,
+    lastCompletedToolName: undefined,
   };
 }
 
@@ -130,6 +133,29 @@ function truncateForIpc(value: string, maxChars: number, suffix: string): string
   return value.slice(0, maxChars - suffix.length) + suffix;
 }
 
+// ── Friendly Tool Names ──────────────────────────────────────────────
+
+const TOOL_FRIENDLY_NAMES: Record<string, string> = {
+  bash: 'command',
+  web_search: 'web search',
+  web_fetch: 'web fetch',
+  file_read: 'file read',
+  file_write: 'file write',
+  file_edit: 'file edit',
+  browser_navigate: 'browser',
+  browser_click: 'browser',
+  browser_type: 'browser',
+  browser_screenshot: 'browser',
+  browser_scroll: 'browser',
+  browser_wait: 'browser',
+  app_create: 'app',
+  app_update: 'app',
+};
+
+function friendlyToolName(name: string): string {
+  return TOOL_FRIENDLY_NAMES[name] ?? name.replace(/_/g, ' ');
+}
+
 // ── Individual Handlers ──────────────────────────────────────────────
 
 export function handleTextDelta(
@@ -158,7 +184,18 @@ export function handleThinkingDelta(
 ): void {
   if (!state.firstThinkingDeltaEmitted) {
     state.firstThinkingDeltaEmitted = true;
-    deps.ctx.emitActivityState('thinking', 'thinking_delta', 'assistant_turn', deps.reqId);
+    const lastToolName = state.lastCompletedToolName;
+    // Only emit an activity state when a tool just completed, so we can
+    // show "Processing <tool> results". When no tool has completed yet
+    // (e.g. right after confirmation_resolved), skip the emission entirely
+    // so the client preserves its current status text (e.g. "Resuming
+    // after approval"). Even omitting statusText from the message would
+    // cause the client to clear it, since the client overwrites
+    // assistantStatusText for every assistant_activity_state event.
+    if (lastToolName) {
+      const statusText = `Processing ${friendlyToolName(lastToolName)} results`;
+      deps.ctx.emitActivityState('thinking', 'thinking_delta', 'assistant_turn', deps.reqId, statusText);
+    }
   }
   if (!deps.ctx.streamThinking) return;
   emitLlmCallStartedIfNeeded(state, deps);
@@ -172,7 +209,8 @@ export function handleToolUse(
 ): void {
   state.toolUseIdToName.set(event.id, event.name);
   state.currentTurnToolNames.push(event.name);
-  deps.ctx.emitActivityState('tool_running', 'tool_use_start', 'assistant_turn', deps.reqId);
+  const statusText = `Running ${friendlyToolName(event.name)}`;
+  deps.ctx.emitActivityState('tool_running', 'tool_use_start', 'assistant_turn', deps.reqId, statusText);
   deps.onEvent({ type: 'tool_use_start', toolName: event.name, input: event.input, sessionId: deps.ctx.conversationId });
 }
 
@@ -273,6 +311,9 @@ export function handleToolResult(
       }
     }
   }
+
+  // Track last completed tool for contextual statusText on next thinking phase
+  state.lastCompletedToolName = state.toolUseIdToName.get(event.toolUseId);
 
   // Reset so that the next LLM exchange (think → stream) after this tool
   // call re-emits the activity state transitions.

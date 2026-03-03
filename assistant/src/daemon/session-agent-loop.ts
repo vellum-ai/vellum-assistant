@@ -98,6 +98,7 @@ export interface AgentLoopSessionContext {
   currentPage?: string;
   readonly surfaceState: Map<string, { surfaceType: SurfaceType; data: SurfaceData; title?: string }>;
   pendingSurfaceActions: Map<string, { surfaceType: SurfaceType }>;
+  surfaceActionRequestIds: Set<string>;
   currentTurnSurfaces: Array<{ surfaceId: string; surfaceType: SurfaceType; title?: string; data: SurfaceData; actions?: Array<{ id: string; label: string; style?: string }>; display?: string }>;
 
   workingDir: string;
@@ -135,6 +136,7 @@ export interface AgentLoopSessionContext {
     reason: 'message_dequeued' | 'thinking_delta' | 'first_text_delta' | 'tool_use_start' | 'confirmation_requested' | 'confirmation_resolved' | 'message_complete' | 'generation_cancelled' | 'error_terminal',
     anchor?: 'assistant_turn' | 'user_turn' | 'global',
     requestId?: string,
+    statusText?: string,
   ): void;
   emitConfirmationStateChanged(params: import('./ipc-contract/messages.js').ConfirmationStateChanged extends { type: infer _ } ? Omit<import('./ipc-contract/messages.js').ConfirmationStateChanged, 'type'> : never): void;
 
@@ -158,7 +160,7 @@ export async function runAgentLoopImpl(
   content: string,
   userMessageId: string,
   onEvent: (msg: ServerMessage) => void,
-  options?: { skipPreMessageRollback?: boolean; isInteractive?: boolean; titleText?: string },
+  options?: { skipPreMessageRollback?: boolean; isInteractive?: boolean; isUserMessage?: boolean; titleText?: string },
 ): Promise<void> {
   if (!ctx.abortController) {
     throw new Error('runAgentLoop called without prior persistUserMessage');
@@ -211,6 +213,24 @@ export async function runAgentLoopImpl(
   let turnStarted = false;
 
   try {
+    // Auto-complete stale interactive surfaces from previous turns.
+    // Only dismiss when the user sends a new message (not a surface action
+    // response), so internal turns (subagent notifications, lifecycle
+    // instructions) don't accidentally clear active interactive prompts.
+    // Placed inside try so the finally block still runs if onEvent throws.
+    if (options?.isUserMessage && !ctx.surfaceActionRequestIds.has(reqId)) {
+      for (const [surfaceId, entry] of ctx.pendingSurfaceActions) {
+        if (entry.surfaceType === 'dynamic_page') continue;
+        onEvent({
+          type: 'ui_surface_complete',
+          sessionId: ctx.conversationId,
+          surfaceId,
+          summary: 'Dismissed',
+        });
+        ctx.pendingSurfaceActions.delete(surfaceId);
+      }
+    }
+
     const preMessageResult = await getHookManager().trigger('pre-message', {
       sessionId: ctx.conversationId,
       messagePreview: truncate(content, 200, ''),
@@ -839,6 +859,7 @@ export async function runAgentLoopImpl(
 
     ctx.abortController = null;
     ctx.processing = false;
+    ctx.surfaceActionRequestIds.delete(ctx.currentRequestId ?? '');
     ctx.currentRequestId = undefined;
     ctx.currentActiveSurfaceId = undefined;
     ctx.allowedToolNames = undefined;

@@ -37,9 +37,12 @@ struct ChatView: View {
     let assistantActivityPhase: String
     let assistantActivityAnchor: String
     let assistantActivityReason: String?
+    let assistantStatusText: String?
     let onConfirmationAllow: (String) -> Void
     let onConfirmationDeny: (String) -> Void
     let onAlwaysAllow: (String, String, String, String) -> Void
+    /// Called when a temporary approval option is selected: (requestId, decision).
+    var onTemporaryAllow: ((String, String) -> Void)?
     var onGuardianAction: ((String, String) -> Void)?
     let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
     let sessionError: SessionError?
@@ -184,6 +187,7 @@ struct ChatView: View {
                             assistantActivityPhase: assistantActivityPhase,
                             assistantActivityAnchor: assistantActivityAnchor,
                             assistantActivityReason: assistantActivityReason,
+                            assistantStatusText: assistantStatusText,
                             selectedModel: selectedModel,
                             configuredProviders: configuredProviders,
                             activeSubagents: activeSubagents,
@@ -191,6 +195,7 @@ struct ChatView: View {
                             onConfirmationAllow: onConfirmationAllow,
                             onConfirmationDeny: onConfirmationDeny,
                             onAlwaysAllow: onAlwaysAllow,
+                            onTemporaryAllow: onTemporaryAllow,
                             onSurfaceAction: onSurfaceAction,
                             onGuardianAction: onGuardianAction,
                             onDismissDocumentWidget: onDismissDocumentWidget,
@@ -631,6 +636,7 @@ private struct ChatViewPreviewWrapper: View {
                 assistantActivityPhase: "idle",
                 assistantActivityAnchor: "global",
                 assistantActivityReason: nil,
+                assistantStatusText: nil,
                 onConfirmationAllow: { _ in },
                 onConfirmationDeny: { _ in },
                 onAlwaysAllow: { _, _, _, _ in },

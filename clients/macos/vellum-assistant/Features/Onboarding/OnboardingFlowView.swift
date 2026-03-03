@@ -6,10 +6,18 @@ struct OnboardingFlowView: View {
     @Bindable var state: OnboardingState
     let daemonClient: DaemonClientProtocol
     @Bindable var authManager: AuthManager
+    let managedBootstrapEnabled: Bool
     var onComplete: () -> Void
     var onOpenSettings: () -> Void
 
     @State private var isAdvancingFromWakeUp = false
+    @State private var isBootstrappingManaged = false
+    @State private var managedBootstrapError: String?
+
+    private static let appIcon: NSImage? = {
+        guard let path = ResourceBundle.bundle.path(forResource: "vellum-app-icon", ofType: "png") else { return nil }
+        return NSImage(contentsOfFile: path)
+    }()
 
     private var maxOnboardingStep: Int {
         state.userHostedEnabled ? 2 : 1
@@ -42,8 +50,7 @@ struct OnboardingFlowView: View {
                 VStack(spacing: 0) {
                     Spacer()
 
-                    if let iconPath = ResourceBundle.bundle.path(forResource: "vellum-app-icon", ofType: "png"),
-                       let nsImage = NSImage(contentsOfFile: iconPath) {
+                    if let nsImage = Self.appIcon {
                         Image(nsImage: nsImage)
                             .resizable()
                             .aspectRatio(contentMode: .fit)
@@ -55,32 +62,36 @@ struct OnboardingFlowView: View {
                     // Step content — Group flattens into parent VStack so
                     // the inner Spacer flexes with the top Spacer above.
                     Group {
-                        switch state.currentStep {
-                        case 0:
-                            WakeUpStepView(
-                                state: state,
-                                authManager: authManager,
-                                isAdvancing: isAdvancingFromWakeUp,
-                                onStartWithAPIKey: {
-                                    guard !isAdvancingFromWakeUp else { return }
-                                    isAdvancingFromWakeUp = true
-                                    state.hasHatched = true
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                        state.advance()
+                        if isBootstrappingManaged {
+                            managedBootstrapView
+                        } else {
+                            switch state.currentStep {
+                            case 0:
+                                WakeUpStepView(
+                                    state: state,
+                                    authManager: authManager,
+                                    isAdvancing: isAdvancingFromWakeUp,
+                                    onStartWithAPIKey: {
+                                        guard !isAdvancingFromWakeUp else { return }
+                                        isAdvancingFromWakeUp = true
+                                        state.hasHatched = true
+                                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                            state.advance()
+                                        }
+                                    },
+                                    onContinueWithVellum: {
+                                        Task {
+                                            await authManager.startWorkOSLogin()
+                                        }
                                     }
-                                },
-                                onContinueWithVellum: {
-                                    Task {
-                                        await authManager.startWorkOSLogin()
-                                    }
-                                }
-                            )
-                        case 1:
-                            APIKeyStepView(state: state)
-                        case 2:
-                            CloudCredentialsStepView(state: state)
-                        default:
-                            EmptyView()
+                                )
+                            case 1:
+                                APIKeyStepView(state: state)
+                            case 2:
+                                CloudCredentialsStepView(state: state)
+                            default:
+                                EmptyView()
+                            }
                         }
                     }
                     .transition(
@@ -89,7 +100,7 @@ struct OnboardingFlowView: View {
                             removal: .opacity.combined(with: .offset(y: -8))
                         )
                     )
-                    .id(state.currentStep)
+                    .id(isBootstrappingManaged ? -1 : state.currentStep)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(
@@ -118,13 +129,98 @@ struct OnboardingFlowView: View {
         }
         .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
             if isAuthenticated {
-                onComplete()
+                if managedBootstrapEnabled {
+                    Task {
+                        await performManagedBootstrap()
+                    }
+                } else {
+                    onComplete()
+                }
             }
         }
         .onChange(of: state.hatchCompleted) { _, completed in
             if completed {
                 onComplete()
             }
+        }
+    }
+
+    // MARK: - Managed Bootstrap
+
+    @ViewBuilder
+    private var managedBootstrapView: some View {
+        VStack(spacing: VSpacing.lg) {
+            if managedBootstrapError == nil {
+                HStack(spacing: VSpacing.sm) {
+                    ProgressView()
+                        .controlSize(.small)
+                        .progressViewStyle(.circular)
+                    Text("Setting up your assistant...")
+                        .font(VFont.monoMedium)
+                        .foregroundColor(VColor.textSecondary)
+                }
+            } else {
+                Text("Setup failed")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundColor(VColor.textPrimary)
+
+                if let error = managedBootstrapError {
+                    Text(error)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.error)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 280)
+                }
+
+                OnboardingButton(title: "Try again", style: .primary) {
+                    Task {
+                        await performManagedBootstrap()
+                    }
+                }
+                .frame(maxWidth: 280)
+            }
+        }
+
+        Spacer()
+    }
+
+    private func performManagedBootstrap() async {
+        isBootstrappingManaged = true
+        managedBootstrapError = nil
+
+        do {
+            let outcome = try await ManagedAssistantBootstrapService.shared.ensureManagedAssistant()
+
+            let assistant: PlatformAssistant
+            switch outcome {
+            case .reusedExisting(let existing):
+                assistant = existing
+            case .createdNew(let created):
+                assistant = created
+            }
+
+            let runtimeUrl = AuthService.shared.baseURL
+            let isoFormatter = ISO8601DateFormatter()
+            isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            let hatchedAt = isoFormatter.string(from: Date())
+
+            let success = LockfileAssistant.upsertManagedEntry(
+                assistantId: assistant.id,
+                runtimeUrl: runtimeUrl,
+                hatchedAt: hatchedAt
+            )
+
+            guard success else {
+                managedBootstrapError = "Failed to save assistant configuration. Please try again."
+                return
+            }
+
+            UserDefaults.standard.set(assistant.id, forKey: "connectedAssistantId")
+
+            isBootstrappingManaged = false
+            onComplete()
+        } catch {
+            managedBootstrapError = error.localizedDescription
         }
     }
 
@@ -135,6 +231,7 @@ struct OnboardingFlowView: View {
         state: OnboardingState(),
         daemonClient: DaemonClient(),
         authManager: AuthManager(),
+        managedBootstrapEnabled: true,
         onComplete: {},
         onOpenSettings: {}
     )

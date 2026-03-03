@@ -80,16 +80,17 @@ import {
 } from '../memory/channel-guardian-store.js';
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import { conversations, externalConversationBindings } from '../memory/schema.js';
+import { initAuthSigningKey } from '../runtime/auth/token-service.js';
 import * as gatewayClient from '../runtime/gateway-client.js';
 import * as pendingInteractions from '../runtime/pending-interactions.js';
 import {
   _setTestPollMaxWait,
   handleChannelInbound,
   sweepExpiredGuardianApprovals,
-  verifyGatewayOrigin,
 } from '../runtime/routes/channel-routes.js';
 
 initializeDb();
+initAuthSigningKey(Buffer.from('test-signing-key-at-least-32-bytes-long'));
 
 afterAll(() => {
   resetDb();
@@ -174,8 +175,9 @@ function registerPendingInteraction(
   return handleConfirmationResponse;
 }
 
-/** Default bearer token used by tests. Include the X-Gateway-Origin header
- *  so that verifyGatewayOrigin does not reject the request. */
+/** Legacy bearer token constant — retained for use in X-Gateway-Origin
+ *  headers in test request construction. Gateway-origin proof is now
+ *  handled by JWT auth; these headers are ignored by the handler. */
 const TEST_BEARER_TOKEN = 'token';
 
 function makeInboundRequest(overrides: Record<string, unknown> = {}): Request {
@@ -255,7 +257,7 @@ describe('inbound callback metadata triggers decision handling', () => {
 
     // Establish the conversation to get a conversationId mapping
     const initReq = makeInboundRequest({ content: 'init' });
-    await handleChannelInbound(initReq, noopProcessMessage, 'token');
+    await handleChannelInbound(initReq, noopProcessMessage);
 
     const db = getDb();
     const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
@@ -272,7 +274,7 @@ describe('inbound callback metadata triggers decision handling', () => {
       callbackData: 'apr:req-cb-1:approve_once',
     });
 
-    const res = await handleChannelInbound(req, noopProcessMessage, 'token');
+    const res = await handleChannelInbound(req, noopProcessMessage);
     const body = await res.json() as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
@@ -286,7 +288,7 @@ describe('inbound callback metadata triggers decision handling', () => {
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
 
     const initReq = makeInboundRequest({ content: 'init' });
-    await handleChannelInbound(initReq, noopProcessMessage, 'token');
+    await handleChannelInbound(initReq, noopProcessMessage);
 
     const db = getDb();
     const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
@@ -300,7 +302,7 @@ describe('inbound callback metadata triggers decision handling', () => {
       callbackData: 'apr:req-cb-2:reject',
     });
 
-    const res = await handleChannelInbound(req, noopProcessMessage, 'token');
+    const res = await handleChannelInbound(req, noopProcessMessage);
     const body = await res.json() as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
@@ -330,7 +332,7 @@ describe('inbound text matching approval phrases triggers decision handling', ()
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
 
     const initReq = makeInboundRequest({ content: 'init' });
-    await handleChannelInbound(initReq, noopProcessMessage, 'token');
+    await handleChannelInbound(initReq, noopProcessMessage);
 
     const db = getDb();
     const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
@@ -340,7 +342,7 @@ describe('inbound text matching approval phrases triggers decision handling', ()
     const sessionMock = registerPendingInteraction('req-txt-1', conversationId!, 'shell');
 
     const req = makeInboundRequest({ content: 'approve' });
-    const res = await handleChannelInbound(req, noopProcessMessage, 'token');
+    const res = await handleChannelInbound(req, noopProcessMessage);
     const body = await res.json() as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
@@ -354,7 +356,7 @@ describe('inbound text matching approval phrases triggers decision handling', ()
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
 
     const initReq = makeInboundRequest({ content: 'init' });
-    await handleChannelInbound(initReq, noopProcessMessage, 'token');
+    await handleChannelInbound(initReq, noopProcessMessage);
 
     const db = getDb();
     const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
@@ -364,7 +366,7 @@ describe('inbound text matching approval phrases triggers decision handling', ()
     const sessionMock = registerPendingInteraction('req-txt-2', conversationId!, 'shell');
 
     const req = makeInboundRequest({ content: 'always' });
-    const res = await handleChannelInbound(req, noopProcessMessage, 'token');
+    const res = await handleChannelInbound(req, noopProcessMessage);
     const body = await res.json() as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
@@ -394,7 +396,7 @@ describe('non-decision messages during pending approval (legacy fallback)', () =
     const replySpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
 
     const initReq = makeInboundRequest({ content: 'init' });
-    await handleChannelInbound(initReq, noopProcessMessage, 'token');
+    await handleChannelInbound(initReq, noopProcessMessage);
 
     const db = getDb();
     const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
@@ -405,7 +407,7 @@ describe('non-decision messages during pending approval (legacy fallback)', () =
 
     // Send a message that is NOT a decision
     const req = makeInboundRequest({ content: 'what is the weather?' });
-    const res = await handleChannelInbound(req, noopProcessMessage, 'token');
+    const res = await handleChannelInbound(req, noopProcessMessage);
     const body = await res.json() as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
@@ -432,7 +434,7 @@ describe('non-decision messages during pending approval (legacy fallback)', () =
 describe('messages without pending approval proceed normally', () => {
   test('proceeds to normal processing when no pending approval exists', async () => {
     const req = makeInboundRequest({ content: 'hello world' });
-    const res = await handleChannelInbound(req, noopProcessMessage, 'token');
+    const res = await handleChannelInbound(req, noopProcessMessage);
     const body = await res.json() as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
@@ -441,7 +443,7 @@ describe('messages without pending approval proceed normally', () => {
 
   test('text "approve" is processed normally when no pending approval exists', async () => {
     const req = makeInboundRequest({ content: 'approve' });
-    const res = await handleChannelInbound(req, noopProcessMessage, 'token');
+    const res = await handleChannelInbound(req, noopProcessMessage);
     const body = await res.json() as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
@@ -476,7 +478,7 @@ describe('empty content with callbackData bypasses validation', () => {
   test('allows empty content when callbackData is present', async () => {
     // Establish the conversation first
     const initReq = makeInboundRequest({ content: 'init' });
-    await handleChannelInbound(initReq, noopProcessMessage, 'token');
+    await handleChannelInbound(initReq, noopProcessMessage);
 
     const db = getDb();
     const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
@@ -492,7 +494,7 @@ describe('empty content with callbackData bypasses validation', () => {
       callbackData: 'apr:req-empty-1:approve_once',
     });
 
-    const res = await handleChannelInbound(req, noopProcessMessage, 'token');
+    const res = await handleChannelInbound(req, noopProcessMessage);
     expect(res.status).toBe(200);
     const body = await res.json() as Record<string, unknown>;
     expect(body.accepted).toBe(true);
@@ -505,7 +507,7 @@ describe('empty content with callbackData bypasses validation', () => {
   test('allows undefined content when callbackData is present', async () => {
     // Establish the conversation first
     const initReq = makeInboundRequest({ content: 'init' });
-    await handleChannelInbound(initReq, noopProcessMessage, 'token');
+    await handleChannelInbound(initReq, noopProcessMessage);
 
     const db = getDb();
     const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
@@ -535,7 +537,7 @@ describe('empty content with callbackData bypasses validation', () => {
       body: JSON.stringify(reqBody),
     });
 
-    const res = await handleChannelInbound(req, noopProcessMessage, TEST_BEARER_TOKEN);
+    const res = await handleChannelInbound(req, noopProcessMessage);
     expect(res.status).toBe(200);
     const resBody = await res.json() as Record<string, unknown>;
     expect(resBody.accepted).toBe(true);
@@ -563,7 +565,7 @@ describe('callback requestId validation', () => {
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
 
     const initReq = makeInboundRequest({ content: 'init' });
-    await handleChannelInbound(initReq, noopProcessMessage, 'token');
+    await handleChannelInbound(initReq, noopProcessMessage);
 
     const db = getDb();
     const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
@@ -579,7 +581,7 @@ describe('callback requestId validation', () => {
       callbackData: 'apr:stale-request-id:approve_once',
     });
 
-    const res = await handleChannelInbound(req, noopProcessMessage, 'token');
+    const res = await handleChannelInbound(req, noopProcessMessage);
     const body = await res.json() as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
@@ -594,7 +596,7 @@ describe('callback requestId validation', () => {
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
 
     const initReq = makeInboundRequest({ content: 'init' });
-    await handleChannelInbound(initReq, noopProcessMessage, 'token');
+    await handleChannelInbound(initReq, noopProcessMessage);
 
     const db = getDb();
     const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
@@ -609,7 +611,7 @@ describe('callback requestId validation', () => {
       callbackData: 'apr:req-match:approve_once',
     });
 
-    const res = await handleChannelInbound(req, noopProcessMessage, 'token');
+    const res = await handleChannelInbound(req, noopProcessMessage);
     const body = await res.json() as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
@@ -623,7 +625,7 @@ describe('callback requestId validation', () => {
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
 
     const initReq = makeInboundRequest({ content: 'init' });
-    await handleChannelInbound(initReq, noopProcessMessage, 'token');
+    await handleChannelInbound(initReq, noopProcessMessage);
 
     const db = getDb();
     const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
@@ -634,7 +636,7 @@ describe('callback requestId validation', () => {
 
     // Send plain text "yes" — no requestId in the parsed result
     const req = makeInboundRequest({ content: 'yes' });
-    const res = await handleChannelInbound(req, noopProcessMessage, 'token');
+    const res = await handleChannelInbound(req, noopProcessMessage);
     const body = await res.json() as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
@@ -664,7 +666,7 @@ describe('no immediate reply after approval decision', () => {
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
 
     const initReq = makeInboundRequest({ content: 'init' });
-    await handleChannelInbound(initReq, noopProcessMessage, 'token');
+    await handleChannelInbound(initReq, noopProcessMessage);
 
     const db = getDb();
     const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
@@ -682,7 +684,7 @@ describe('no immediate reply after approval decision', () => {
       callbackData: 'apr:req-noreply-1:approve_once',
     });
 
-    const res = await handleChannelInbound(req, noopProcessMessage, 'token');
+    const res = await handleChannelInbound(req, noopProcessMessage);
     const body = await res.json() as Record<string, unknown>;
 
     expect(body.approval).toBe('decision_applied');
@@ -698,7 +700,7 @@ describe('no immediate reply after approval decision', () => {
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
 
     const initReq = makeInboundRequest({ content: 'init' });
-    await handleChannelInbound(initReq, noopProcessMessage, 'token');
+    await handleChannelInbound(initReq, noopProcessMessage);
 
     const db = getDb();
     const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
@@ -711,7 +713,7 @@ describe('no immediate reply after approval decision', () => {
 
     // Send a plain-text approval
     const req = makeInboundRequest({ content: 'approve' });
-    const res = await handleChannelInbound(req, noopProcessMessage, 'token');
+    const res = await handleChannelInbound(req, noopProcessMessage);
     const body = await res.json() as Record<string, unknown>;
 
     expect(body.approval).toBe('decision_applied');
@@ -733,7 +735,7 @@ describe('stale callback handling', () => {
       callbackData: 'apr:stale-req:approve_once',
     });
 
-    const res = await handleChannelInbound(req, noopProcessMessage, 'token');
+    const res = await handleChannelInbound(req, noopProcessMessage);
     const body = await res.json() as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
@@ -748,7 +750,7 @@ describe('stale callback handling', () => {
       callbackData: 'apr:stale-req:approve_once',
     });
 
-    const res = await handleChannelInbound(req, noopProcessMessage, 'token');
+    const res = await handleChannelInbound(req, noopProcessMessage);
     const body = await res.json() as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
@@ -759,7 +761,7 @@ describe('stale callback handling', () => {
     // Regular text message (no callbackData) should proceed normally
     const req = makeInboundRequest({ content: 'hello world' });
 
-    const res = await handleChannelInbound(req, noopProcessMessage, 'token');
+    const res = await handleChannelInbound(req, noopProcessMessage);
     const body = await res.json() as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
@@ -809,7 +811,7 @@ describe('SMS channel approval decisions', () => {
 
     // Establish the conversation via SMS
     const initReq = makeSmsInboundRequest({ content: 'init' });
-    await handleChannelInbound(initReq, noopProcessMessage, 'token');
+    await handleChannelInbound(initReq, noopProcessMessage);
 
     const db = getDb();
     const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
@@ -819,7 +821,7 @@ describe('SMS channel approval decisions', () => {
     const sessionMock = registerPendingInteraction('req-sms-1', conversationId!, 'shell');
 
     const req = makeSmsInboundRequest({ content: 'yes' });
-    const res = await handleChannelInbound(req, noopProcessMessage, 'token');
+    const res = await handleChannelInbound(req, noopProcessMessage);
     const body = await res.json() as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
@@ -833,7 +835,7 @@ describe('SMS channel approval decisions', () => {
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
 
     const initReq = makeSmsInboundRequest({ content: 'init' });
-    await handleChannelInbound(initReq, noopProcessMessage, 'token');
+    await handleChannelInbound(initReq, noopProcessMessage);
 
     const db = getDb();
     const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
@@ -843,7 +845,7 @@ describe('SMS channel approval decisions', () => {
     const sessionMock = registerPendingInteraction('req-sms-2', conversationId!, 'shell');
 
     const req = makeSmsInboundRequest({ content: 'no' });
-    const res = await handleChannelInbound(req, noopProcessMessage, 'token');
+    const res = await handleChannelInbound(req, noopProcessMessage);
     const body = await res.json() as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
@@ -858,7 +860,7 @@ describe('SMS channel approval decisions', () => {
     const approvalSpy = spyOn(gatewayClient, 'deliverApprovalPrompt').mockResolvedValue(undefined);
 
     const initReq = makeSmsInboundRequest({ content: 'init' });
-    await handleChannelInbound(initReq, noopProcessMessage, 'token');
+    await handleChannelInbound(initReq, noopProcessMessage);
 
     const db = getDb();
     const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
@@ -868,7 +870,7 @@ describe('SMS channel approval decisions', () => {
     registerPendingInteraction('req-sms-3', conversationId!, 'shell');
 
     const req = makeSmsInboundRequest({ content: 'what is happening?' });
-    const res = await handleChannelInbound(req, noopProcessMessage, 'token');
+    const res = await handleChannelInbound(req, noopProcessMessage);
     const body = await res.json() as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
@@ -919,7 +921,7 @@ describe('SMS guardian verify intercept', () => {
       }),
     });
 
-    const res = await handleChannelInbound(req, noopProcessMessage, TEST_BEARER_TOKEN);
+    const res = await handleChannelInbound(req, noopProcessMessage);
     const body = await res.json() as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
@@ -960,7 +962,7 @@ describe('SMS guardian verify intercept', () => {
       }),
     });
 
-    const res = await handleChannelInbound(req, noopProcessMessage, TEST_BEARER_TOKEN);
+    const res = await handleChannelInbound(req, noopProcessMessage);
     const body = await res.json() as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
@@ -1013,7 +1015,7 @@ describe('SMS guardian verify intercept', () => {
       }),
     });
 
-    const res = await handleChannelInbound(req, processMessage, TEST_BEARER_TOKEN);
+    const res = await handleChannelInbound(req, processMessage);
     const body = await res.json() as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
@@ -1080,7 +1082,7 @@ describe('guardian decision scoping — multiple pending approvals', () => {
       actorExternalId: 'guardian-scope-user',
     });
 
-    const res = await handleChannelInbound(req, noopProcessMessage, 'token');
+    const res = await handleChannelInbound(req, noopProcessMessage);
     const body = await res.json() as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
@@ -1159,8 +1161,7 @@ describe('ambiguous plain-text decision with multiple pending requests', () => {
     });
 
     const res = await handleChannelInbound(
-      req, noopProcessMessage, 'token', 'self', undefined,
-      undefined, mockConversationGenerator,
+      req, noopProcessMessage, 'self', undefined, mockConversationGenerator,
     );
     const body = await res.json() as Record<string, unknown>;
 
@@ -1208,7 +1209,7 @@ describe('expired guardian approval auto-denies via sweep', () => {
     });
 
     // Run the sweep
-    sweepExpiredGuardianApprovals('https://gateway.test', 'token');
+    sweepExpiredGuardianApprovals('https://gateway.test', () => 'token');
 
     // Wait for async notifications
     await new Promise((resolve) => setTimeout(resolve, 200));
@@ -1261,7 +1262,7 @@ describe('expired guardian approval auto-denies via sweep', () => {
       expiresAt: Date.now() + 300_000, // still valid
     });
 
-    sweepExpiredGuardianApprovals('https://gateway.test', 'token');
+    sweepExpiredGuardianApprovals('https://gateway.test', () => 'token');
 
     await new Promise((resolve) => setTimeout(resolve, 200));
 
@@ -1319,7 +1320,7 @@ describe('assistant-scoped guardian verification via handleChannelInbound', () =
       actorExternalId: 'user-default-asst',
     });
 
-    const res = await handleChannelInbound(req, noopProcessMessage, 'token');
+    const res = await handleChannelInbound(req, noopProcessMessage);
     const body = await res.json() as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
@@ -1342,7 +1343,7 @@ describe('assistant-scoped guardian verification via handleChannelInbound', () =
       actorExternalId: 'user-for-asst-x',
     });
 
-    const res = await handleChannelInbound(req, noopProcessMessage, 'token', 'asst-route-X');
+    const res = await handleChannelInbound(req, noopProcessMessage, 'asst-route-X');
     const body = await res.json() as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
@@ -1368,7 +1369,7 @@ describe('assistant-scoped guardian verification via handleChannelInbound', () =
       actorExternalId: 'user-cross-test',
     });
 
-    const res = await handleChannelInbound(req, noopProcessMessage, 'token', 'asst-B-cross');
+    const res = await handleChannelInbound(req, noopProcessMessage, 'asst-B-cross');
     const body = await res.json() as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
@@ -1396,7 +1397,7 @@ describe('assistant-scoped guardian verification via handleChannelInbound', () =
       actorExternalId: 'incoming-user',
     });
 
-    const res = await handleChannelInbound(req, noopProcessMessage, 'token', 'asst-non-self');
+    const res = await handleChannelInbound(req, noopProcessMessage, 'asst-non-self');
     expect(res.status).toBe(200);
 
     const binding = db
@@ -1409,142 +1410,9 @@ describe('assistant-scoped guardian verification via handleChannelInbound', () =
   });
 });
 
-// ═══════════════════════════════════════════════════════════════════════════
-// 28. Gateway-origin proof hardening — dedicated secret support
-// ═══════════════════════════════════════════════════════════════════════════
-
-describe('verifyGatewayOrigin with dedicated gateway-origin secret', () => {
-  function makeReqWithHeader(value?: string): Request {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (value !== undefined) {
-      headers['X-Gateway-Origin'] = value;
-    }
-    return new Request('http://localhost/channels/inbound', {
-      method: 'POST',
-      headers,
-      body: '{}',
-    });
-  }
-
-  test('returns true when no secrets configured (local dev)', () => {
-    expect(verifyGatewayOrigin(makeReqWithHeader(), undefined, undefined)).toBe(true);
-  });
-
-  test('falls back to bearerToken when no dedicated secret is set', () => {
-    expect(verifyGatewayOrigin(makeReqWithHeader('my-bearer'), 'my-bearer', undefined)).toBe(true);
-    expect(verifyGatewayOrigin(makeReqWithHeader('wrong'), 'my-bearer', undefined)).toBe(false);
-    expect(verifyGatewayOrigin(makeReqWithHeader(), 'my-bearer', undefined)).toBe(false);
-  });
-
-  test('uses dedicated secret when set, ignoring bearer token', () => {
-    expect(verifyGatewayOrigin(makeReqWithHeader('dedicated-secret'), 'bearer-token', 'dedicated-secret')).toBe(true);
-    expect(verifyGatewayOrigin(makeReqWithHeader('bearer-token'), 'bearer-token', 'dedicated-secret')).toBe(false);
-  });
-
-  test('validates dedicated secret even when bearer token is not configured', () => {
-    expect(verifyGatewayOrigin(makeReqWithHeader('my-secret'), undefined, 'my-secret')).toBe(true);
-    expect(verifyGatewayOrigin(makeReqWithHeader('wrong'), undefined, 'my-secret')).toBe(false);
-  });
-
-  test('rejects missing header when any secret is configured', () => {
-    expect(verifyGatewayOrigin(makeReqWithHeader(), 'bearer', undefined)).toBe(false);
-    expect(verifyGatewayOrigin(makeReqWithHeader(), undefined, 'secret')).toBe(false);
-    expect(verifyGatewayOrigin(makeReqWithHeader(), 'bearer', 'secret')).toBe(false);
-  });
-
-  test('rejects mismatched length headers (constant-time comparison guard)', () => {
-    expect(verifyGatewayOrigin(makeReqWithHeader('short'), 'a-much-longer-secret', undefined)).toBe(false);
-    expect(verifyGatewayOrigin(makeReqWithHeader('a-much-longer-secret'), 'short', undefined)).toBe(false);
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════════════════
-// 29. handleChannelInbound passes gatewayOriginSecret to verifyGatewayOrigin
-// ═══════════════════════════════════════════════════════════════════════════
-
-describe('handleChannelInbound gatewayOriginSecret integration', () => {
-  test('rejects request when bearer token matches but dedicated secret does not', async () => {
-    const bearerToken = 'my-bearer';
-    const gwOriginToken = 'dedicated-gw-test-value';
-
-    const req = new Request('http://localhost/channels/inbound', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Gateway-Origin': bearerToken,
-      },
-      body: JSON.stringify({
-        sourceChannel: 'telegram',
-        interface: 'telegram',
-        conversationExternalId: 'chat-gw-secret-test',
-        externalMessageId: `msg-${Date.now()}-${Math.random()}`,
-        content: 'hello',
-      }),
-    });
-
-    const res = await handleChannelInbound(
-      req, noopProcessMessage, bearerToken, 'self', gwOriginToken,
-    );
-    expect(res.status).toBe(403);
-    const body = await res.json() as { code: string };
-    expect(body.code).toBe('GATEWAY_ORIGIN_REQUIRED');
-  });
-
-  test('accepts request when dedicated secret matches', async () => {
-    const bearerToken = 'my-bearer';
-    const gwOriginToken = 'dedicated-gw-test-value';
-
-    const req = new Request('http://localhost/channels/inbound', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Gateway-Origin': gwOriginToken,
-      },
-      body: JSON.stringify({
-        sourceChannel: 'telegram',
-        interface: 'telegram',
-        conversationExternalId: 'chat-gw-secret-pass',
-        externalMessageId: `msg-${Date.now()}-${Math.random()}`,
-        content: 'hello',
-        actorExternalId: 'telegram-user-default',
-      }),
-    });
-
-    const res = await handleChannelInbound(
-      req, noopProcessMessage, bearerToken, 'self', gwOriginToken,
-    );
-    expect(res.status).toBe(200);
-    const body = await res.json() as Record<string, unknown>;
-    expect(body.accepted).toBe(true);
-  });
-
-  test('falls back to bearer token when no dedicated secret is set', async () => {
-    const bearerToken = 'my-bearer';
-
-    const req = new Request('http://localhost/channels/inbound', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Gateway-Origin': bearerToken,
-      },
-      body: JSON.stringify({
-        sourceChannel: 'telegram',
-        interface: 'telegram',
-        conversationExternalId: 'chat-gw-fallback',
-        externalMessageId: `msg-${Date.now()}-${Math.random()}`,
-        content: 'hello',
-        actorExternalId: 'telegram-user-default',
-      }),
-    });
-
-    const res = await handleChannelInbound(
-      req, noopProcessMessage, bearerToken, 'self',
-    );
-    expect(res.status).toBe(200);
-    const body = await res.json() as Record<string, unknown>;
-    expect(body.accepted).toBe(true);
-  });
-});
+// Sections 28-29 (verifyGatewayOrigin / gatewayOriginSecret integration) removed:
+// gateway-origin proof is now handled by JWT auth — the gateway proves its
+// identity by minting a daemon-audience token with the shared signing key.
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Conversational approval engine — standard path
@@ -1565,7 +1433,7 @@ describe('conversational approval engine — standard path', () => {
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
 
     const initReq = makeInboundRequest({ content: 'init' });
-    await handleChannelInbound(initReq, noopProcessMessage, 'token');
+    await handleChannelInbound(initReq, noopProcessMessage);
 
     const db = getDb();
     const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
@@ -1583,8 +1451,7 @@ describe('conversational approval engine — standard path', () => {
 
     const req = makeInboundRequest({ content: 'what does this command do?' });
     const res = await handleChannelInbound(
-      req, noopProcessMessage, 'token', 'self', undefined,
-      undefined, mockConversationGenerator,
+      req, noopProcessMessage, 'self', undefined, mockConversationGenerator,
     );
     const body = await res.json() as Record<string, unknown>;
 
@@ -1608,7 +1475,7 @@ describe('conversational approval engine — standard path', () => {
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
 
     const initReq = makeInboundRequest({ content: 'init' });
-    await handleChannelInbound(initReq, noopProcessMessage, 'token');
+    await handleChannelInbound(initReq, noopProcessMessage);
 
     const db = getDb();
     const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
@@ -1626,8 +1493,7 @@ describe('conversational approval engine — standard path', () => {
 
     const req = makeInboundRequest({ content: 'yeah go ahead and run it' });
     const res = await handleChannelInbound(
-      req, noopProcessMessage, 'token', 'self', undefined,
-      undefined, mockConversationGenerator,
+      req, noopProcessMessage, 'self', undefined, mockConversationGenerator,
     );
     const body = await res.json() as Record<string, unknown>;
 
@@ -1644,7 +1510,7 @@ describe('conversational approval engine — standard path', () => {
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
 
     const initReq = makeInboundRequest({ content: 'init' });
-    await handleChannelInbound(initReq, noopProcessMessage, 'token');
+    await handleChannelInbound(initReq, noopProcessMessage);
 
     const db = getDb();
     const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
@@ -1662,8 +1528,7 @@ describe('conversational approval engine — standard path', () => {
 
     const req = makeInboundRequest({ content: 'nevermind, don\'t run that' });
     const res = await handleChannelInbound(
-      req, noopProcessMessage, 'token', 'self', undefined,
-      undefined, mockConversationGenerator,
+      req, noopProcessMessage, 'self', undefined, mockConversationGenerator,
     );
     const body = await res.json() as Record<string, unknown>;
 
@@ -1679,7 +1544,7 @@ describe('conversational approval engine — standard path', () => {
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
 
     const initReq = makeInboundRequest({ content: 'init' });
-    await handleChannelInbound(initReq, noopProcessMessage, 'token');
+    await handleChannelInbound(initReq, noopProcessMessage);
 
     const db = getDb();
     const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
@@ -1700,8 +1565,7 @@ describe('conversational approval engine — standard path', () => {
     });
 
     const res = await handleChannelInbound(
-      req, noopProcessMessage, 'token', 'self', undefined,
-      undefined, mockConversationGenerator,
+      req, noopProcessMessage, 'self', undefined, mockConversationGenerator,
     );
     const body = await res.json() as Record<string, unknown>;
 
@@ -1761,8 +1625,7 @@ describe('guardian conversational approval via conversation engine', () => {
     });
 
     const res = await handleChannelInbound(
-      req, noopProcessMessage, 'token', 'self', undefined,
-      undefined, mockConversationGenerator,
+      req, noopProcessMessage, 'self', undefined, mockConversationGenerator,
     );
     const body = await res.json() as Record<string, unknown>;
 
@@ -1826,8 +1689,7 @@ describe('guardian conversational approval via conversation engine', () => {
     });
 
     const res = await handleChannelInbound(
-      req, noopProcessMessage, 'token', 'self', undefined,
-      undefined, mockConversationGenerator,
+      req, noopProcessMessage, 'self', undefined, mockConversationGenerator,
     );
     const body = await res.json() as Record<string, unknown>;
 
@@ -1886,7 +1748,7 @@ describe('guardian conversational approval via conversation engine', () => {
     });
 
     const res = await handleChannelInbound(
-      req, noopProcessMessage, 'token', 'self',
+      req, noopProcessMessage, 'self',
     );
     const body = await res.json() as Record<string, unknown>;
 
@@ -1956,8 +1818,7 @@ describe('guardian conversational approval via conversation engine', () => {
     });
 
     const res = await handleChannelInbound(
-      req, noopProcessMessage, 'token', 'self', undefined,
-      undefined, mockConversationGenerator,
+      req, noopProcessMessage, 'self', undefined, mockConversationGenerator,
     );
     const body = await res.json() as Record<string, unknown>;
 
@@ -2003,7 +1864,7 @@ describe('keep_pending remains conversational — standard path', () => {
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
 
     const initReq = makeInboundRequest({ content: 'init' });
-    await handleChannelInbound(initReq, noopProcessMessage, 'token');
+    await handleChannelInbound(initReq, noopProcessMessage);
 
     const db = getDb();
     const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
@@ -2019,8 +1880,7 @@ describe('keep_pending remains conversational — standard path', () => {
 
     const req = makeInboundRequest({ content: 'approve' });
     const res = await handleChannelInbound(
-      req, noopProcessMessage, 'token', 'self', undefined,
-      undefined, mockConversationGenerator,
+      req, noopProcessMessage, 'self', undefined, mockConversationGenerator,
     );
     const body = await res.json() as Record<string, unknown>;
 
@@ -2078,8 +1938,7 @@ describe('keep_pending remains conversational — guardian path', () => {
       actorExternalId: 'guardian-user-fb',
     });
     const res = await handleChannelInbound(
-      guardianReq, noopProcessMessage, 'token', 'self', undefined,
-      undefined, mockConversationGenerator,
+      guardianReq, noopProcessMessage, 'self', undefined, mockConversationGenerator,
     );
     const body = await res.json() as Record<string, unknown>;
 
@@ -2120,7 +1979,7 @@ describe('requester cancel of guardian-gated pending request', () => {
       conversationExternalId: 'requester-cancel-chat',
       actorExternalId: 'requester-cancel-user',
     });
-    await handleChannelInbound(initReq, noopProcessMessage, 'token');
+    await handleChannelInbound(initReq, noopProcessMessage);
 
     const db = getDb();
     const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
@@ -2156,8 +2015,7 @@ describe('requester cancel of guardian-gated pending request', () => {
       actorExternalId: 'requester-cancel-user',
     });
     const res = await handleChannelInbound(
-      req, noopProcessMessage, 'token', 'self', undefined,
-      undefined, mockConversationGenerator,
+      req, noopProcessMessage, 'self', undefined, mockConversationGenerator,
     );
     const body = await res.json() as Record<string, unknown>;
 
@@ -2188,7 +2046,7 @@ describe('requester cancel of guardian-gated pending request', () => {
       conversationExternalId: 'requester-cancel-chat',
       actorExternalId: 'requester-cancel-user',
     });
-    await handleChannelInbound(initReq, noopProcessMessage, 'token');
+    await handleChannelInbound(initReq, noopProcessMessage);
 
     const db = getDb();
     const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
@@ -2224,8 +2082,7 @@ describe('requester cancel of guardian-gated pending request', () => {
       actorExternalId: 'requester-cancel-user',
     });
     const res = await handleChannelInbound(
-      req, noopProcessMessage, 'token', 'self', undefined,
-      undefined, mockConversationGenerator,
+      req, noopProcessMessage, 'self', undefined, mockConversationGenerator,
     );
     const body = await res.json() as Record<string, unknown>;
 
@@ -2249,7 +2106,7 @@ describe('requester cancel of guardian-gated pending request', () => {
       conversationExternalId: 'requester-cancel-chat',
       actorExternalId: 'requester-cancel-user',
     });
-    await handleChannelInbound(initReq, noopProcessMessage, 'token');
+    await handleChannelInbound(initReq, noopProcessMessage);
 
     const db = getDb();
     const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
@@ -2285,8 +2142,7 @@ describe('requester cancel of guardian-gated pending request', () => {
       actorExternalId: 'requester-cancel-user',
     });
     const res = await handleChannelInbound(
-      req, noopProcessMessage, 'token', 'self', undefined,
-      undefined, mockConversationGenerator,
+      req, noopProcessMessage, 'self', undefined, mockConversationGenerator,
     );
     const body = await res.json() as Record<string, unknown>;
 
@@ -2310,7 +2166,7 @@ describe('requester cancel of guardian-gated pending request', () => {
       conversationExternalId: 'requester-cancel-chat',
       actorExternalId: 'requester-cancel-user',
     });
-    await handleChannelInbound(initReq, noopProcessMessage, 'token');
+    await handleChannelInbound(initReq, noopProcessMessage);
 
     const db = getDb();
     const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
@@ -2341,7 +2197,7 @@ describe('requester cancel of guardian-gated pending request', () => {
       conversationExternalId: 'requester-cancel-chat',
       actorExternalId: 'requester-cancel-user',
     });
-    const res = await handleChannelInbound(req, noopProcessMessage, 'token');
+    const res = await handleChannelInbound(req, noopProcessMessage);
     const body = await res.json() as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
@@ -2371,7 +2227,7 @@ describe('engine decision race condition — standard path', () => {
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
 
     const initReq = makeInboundRequest({ content: 'init' });
-    await handleChannelInbound(initReq, noopProcessMessage, 'token');
+    await handleChannelInbound(initReq, noopProcessMessage);
 
     const db = getDb();
     const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
@@ -2394,8 +2250,7 @@ describe('engine decision race condition — standard path', () => {
 
     const req = makeInboundRequest({ content: 'go ahead' });
     const res = await handleChannelInbound(
-      req, noopProcessMessage, 'token', 'self', undefined,
-      undefined, mockConversationGenerator,
+      req, noopProcessMessage, 'self', undefined, mockConversationGenerator,
     );
     const body = await res.json() as Record<string, unknown>;
 
@@ -2466,8 +2321,7 @@ describe('engine decision race condition — guardian path', () => {
       actorExternalId: 'guardian-race-user',
     });
     const res = await handleChannelInbound(
-      guardianReq, noopProcessMessage, 'token', 'self', undefined,
-      undefined, mockConversationGenerator,
+      guardianReq, noopProcessMessage, 'self', undefined, mockConversationGenerator,
     );
     const body = await res.json() as Record<string, unknown>;
 
@@ -2517,7 +2371,7 @@ describe('non-decision status reply for different channels', () => {
 
     // Establish the conversation using sms (non-rich channel)
     const initReq = makeInboundRequest({ content: 'init', sourceChannel: 'sms' });
-    await handleChannelInbound(initReq, noopProcessMessage, 'token');
+    await handleChannelInbound(initReq, noopProcessMessage);
 
     const db = getDb();
     const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
@@ -2528,7 +2382,7 @@ describe('non-decision status reply for different channels', () => {
 
     // Send a non-decision message
     const req = makeInboundRequest({ content: 'what is happening?', sourceChannel: 'sms' });
-    const res = await handleChannelInbound(req, noopProcessMessage, 'token');
+    const res = await handleChannelInbound(req, noopProcessMessage);
     const body = await res.json() as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
@@ -2551,7 +2405,7 @@ describe('non-decision status reply for different channels', () => {
 
     // Establish the conversation using telegram (rich channel)
     const initReq = makeInboundRequest({ content: 'init', sourceChannel: 'telegram' });
-    await handleChannelInbound(initReq, noopProcessMessage, 'token');
+    await handleChannelInbound(initReq, noopProcessMessage);
 
     const db = getDb();
     const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
@@ -2562,7 +2416,7 @@ describe('non-decision status reply for different channels', () => {
 
     // Send a non-decision message
     const req = makeInboundRequest({ content: 'what is happening?', sourceChannel: 'telegram' });
-    const res = await handleChannelInbound(req, noopProcessMessage, 'token');
+    const res = await handleChannelInbound(req, noopProcessMessage);
     const body = await res.json() as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
@@ -2623,7 +2477,7 @@ describe('background channel processing approval prompts', () => {
       externalMessageId: 'msg-bg-1',
     });
 
-    const res = await handleChannelInbound(req, processMessage as unknown as typeof noopProcessMessage, 'token');
+    const res = await handleChannelInbound(req, processMessage as unknown as typeof noopProcessMessage);
     const body = await res.json() as Record<string, unknown>;
     expect(body.accepted).toBe(true);
 
@@ -2677,7 +2531,7 @@ describe('background channel processing approval prompts', () => {
       externalMessageId: 'msg-bg-format-1',
     });
 
-    const res = await handleChannelInbound(req, processMessage as unknown as typeof noopProcessMessage, 'token');
+    const res = await handleChannelInbound(req, processMessage as unknown as typeof noopProcessMessage);
     const body = await res.json() as Record<string, unknown>;
     expect(body.accepted).toBe(true);
 
@@ -2722,7 +2576,7 @@ describe('background channel processing approval prompts', () => {
       externalMessageId: 'msg-ng-1',
     });
 
-    const res = await handleChannelInbound(req, processMessage as unknown as typeof noopProcessMessage, 'token');
+    const res = await handleChannelInbound(req, processMessage as unknown as typeof noopProcessMessage);
     const body = await res.json() as Record<string, unknown>;
     expect(body.accepted).toBe(true);
 
@@ -2765,7 +2619,7 @@ describe('background channel processing approval prompts', () => {
       externalMessageId: 'msg-bg-unverified-1',
     });
 
-    const res = await handleChannelInbound(req, processMessage as unknown as typeof noopProcessMessage, 'token');
+    const res = await handleChannelInbound(req, processMessage as unknown as typeof noopProcessMessage);
     const body = await res.json() as Record<string, unknown>;
     expect(body.accepted).toBe(true);
 
@@ -2838,7 +2692,7 @@ describe('NL approval routing via destination-scoped canonical requests', () => 
       content: 'yes',
       externalMessageId: `msg-nl-approve-${Date.now()}`,
     });
-    const res = await handleChannelInbound(req, noopProcessMessage as any, TEST_BEARER_TOKEN);
+    const res = await handleChannelInbound(req, noopProcessMessage as any);
     const body = await res.json() as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
@@ -2890,7 +2744,7 @@ describe('NL approval routing via destination-scoped canonical requests', () => 
       content: 'approve',
       externalMessageId: `msg-nl-mismatch-${Date.now()}`,
     });
-    const res = await handleChannelInbound(req, noopProcessMessage as any, TEST_BEARER_TOKEN);
+    const res = await handleChannelInbound(req, noopProcessMessage as any);
     const body = await res.json() as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
@@ -2931,7 +2785,7 @@ describe('trusted-contact self-approval blocked before guardian approval row exi
       conversationExternalId: 'tc-selfapproval-chat',
       actorExternalId: 'tc-selfapproval-user',
     });
-    await handleChannelInbound(initReq, noopProcessMessage, 'token');
+    await handleChannelInbound(initReq, noopProcessMessage);
 
     const db = getDb();
     const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
@@ -2960,8 +2814,7 @@ describe('trusted-contact self-approval blocked before guardian approval row exi
       actorExternalId: 'tc-selfapproval-user',
     });
     const res = await handleChannelInbound(
-      req, noopProcessMessage, 'token', 'self', undefined,
-      undefined, mockConversationGenerator,
+      req, noopProcessMessage, 'self', undefined, mockConversationGenerator,
     );
     const body = await res.json() as Record<string, unknown>;
 
@@ -2987,7 +2840,7 @@ describe('trusted-contact self-approval blocked before guardian approval row exi
       conversationExternalId: 'tc-selfapproval-chat',
       actorExternalId: 'tc-selfapproval-user',
     });
-    await handleChannelInbound(initReq, noopProcessMessage, 'token');
+    await handleChannelInbound(initReq, noopProcessMessage);
 
     const db = getDb();
     const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
@@ -3006,7 +2859,7 @@ describe('trusted-contact self-approval blocked before guardian approval row exi
       conversationExternalId: 'tc-selfapproval-chat',
       actorExternalId: 'tc-selfapproval-user',
     });
-    const res = await handleChannelInbound(req, noopProcessMessage, 'token');
+    const res = await handleChannelInbound(req, noopProcessMessage);
     const body = await res.json() as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);

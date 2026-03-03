@@ -29,7 +29,7 @@ import {
   type GuardianActionRequest,
 } from '../memory/guardian-action-store.js';
 import { getLogger } from '../util/logger.js';
-import { readHttpToken } from '../util/platform.js';
+import { mintDaemonDeliveryToken } from './auth/token-service.js';
 import { deliverChannelReply } from './gateway-client.js';
 import { composeGuardianActionMessageGenerative } from './guardian-action-message-composer.js';
 import type { GuardianActionCopyGenerator } from './http-types.js';
@@ -115,7 +115,7 @@ async function executeMessageBack(
 
     const gatewayBase = getGatewayInternalBaseUrl();
     const deliverUrl = `${gatewayBase}/deliver/sms`;
-    const bearerToken = readHttpToken() ?? undefined;
+    const bearerToken = mintDaemonDeliveryToken();
 
     await deliverChannelReply(
       deliverUrl,

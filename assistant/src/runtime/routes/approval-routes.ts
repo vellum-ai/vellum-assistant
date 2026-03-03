@@ -4,63 +4,43 @@
  * These endpoints resolve pending confirmations, secrets, and trust rules
  * by requestId — orthogonal to message sending.
  *
- * All approval endpoints require a valid actor token via the X-Actor-Token
- * header (with local CLI fallback). Guardian decisions additionally verify
- * that the actor is the bound guardian.
+ * All approval endpoints require a valid JWT via the Authorization: Bearer
+ * header. Guardian decisions additionally verify that the actor is the
+ * bound guardian.
  */
+import { isHttpAuthDisabled } from '../../config/env.js';
 import { getConversationByKey } from '../../memory/conversation-key-store.js';
+import { getActiveBinding } from '../../memory/guardian-bindings.js';
 import { addRule } from '../../permissions/trust-store.js';
+import type { UserDecision } from '../../permissions/types.js';
 import { getTool } from '../../tools/registry.js';
 import { getLogger } from '../../util/logger.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
+import type { AuthContext } from '../auth/types.js';
 import { httpError } from '../http-errors.js';
-import {
-  isActorBoundGuardian,
-  isLocalFallbackBoundGuardian,
-  type ServerWithRequestIP,
-  verifyHttpActorTokenWithLocalFallback,
-} from '../middleware/actor-token.js';
 import * as pendingInteractions from '../pending-interactions.js';
 
 const log = getLogger('approval-routes');
 
 /**
- * Verify the actor token from the request with local fallback.
- * Returns an error Response if verification fails, or null if
- * the actor is authenticated (via actor token or local identity).
+ * Verify the actor from AuthContext is the bound guardian for the vellum channel.
+ * Returns an error Response if not, or null if allowed.
  */
-function requireActorToken(req: Request, server: ServerWithRequestIP): Response | null {
-  const result = verifyHttpActorTokenWithLocalFallback(req, server);
-  if (!result.ok) {
-    return httpError(
-      result.status === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN',
-      result.message,
-      result.status,
-    );
+function requireBoundGuardian(authContext: AuthContext): Response | null {
+  // Dev bypass: when auth is disabled, skip guardian binding check
+  // (mirrors enforcePolicy dev bypass in route-policy.ts)
+  if (isHttpAuthDisabled()) {
+    return null;
   }
-  return null;
-}
-
-/**
- * Verify the actor token and confirm the actor is the bound guardian.
- * When no actor token is present (bearer-authenticated local client),
- * falls back to local IPC identity resolution and checks the local
- * identity is the bound guardian.
- */
-function requireBoundGuardian(req: Request, server: ServerWithRequestIP): Response | null {
-  const result = verifyHttpActorTokenWithLocalFallback(req, server);
-  if (!result.ok) {
-    return httpError(
-      result.status === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN',
-      result.message,
-      result.status,
-    );
+  if (!authContext.actorPrincipalId) {
+    return httpError('FORBIDDEN', 'Actor is not the bound guardian for this channel', 403);
   }
-  // For actor-token-authenticated requests, check the token's identity.
-  // For local fallback (bearer-auth only), check the local identity.
-  const isBoundGuardian = result.claims
-    ? isActorBoundGuardian(result.claims)
-    : isLocalFallbackBoundGuardian();
-  if (!isBoundGuardian) {
+  const binding = getActiveBinding(DAEMON_INTERNAL_ASSISTANT_ID, 'vellum');
+  if (!binding) {
+    // No binding yet — in pre-bootstrap state, allow through
+    return null;
+  }
+  if (binding.guardianExternalUserId !== authContext.actorPrincipalId) {
     return httpError('FORBIDDEN', 'Actor is not the bound guardian for this channel', 403);
   }
   return null;
@@ -68,10 +48,10 @@ function requireBoundGuardian(req: Request, server: ServerWithRequestIP): Respon
 
 /**
  * POST /v1/confirm — resolve a pending confirmation by requestId.
- * Requires a valid actor token (guardian-bound).
+ * Requires AuthContext with guardian-bound actor.
  */
-export async function handleConfirm(req: Request, server: ServerWithRequestIP): Promise<Response> {
-  const authError = requireBoundGuardian(req, server);
+export async function handleConfirm(req: Request, authContext: AuthContext): Promise<Response> {
+  const authError = requireBoundGuardian(authContext);
   if (authError) return authError;
 
   const body = await req.json() as {
@@ -85,8 +65,9 @@ export async function handleConfirm(req: Request, server: ServerWithRequestIP): 
     return httpError('BAD_REQUEST', 'requestId is required', 400);
   }
 
-  if (decision !== 'allow' && decision !== 'deny') {
-    return httpError('BAD_REQUEST', 'decision must be "allow" or "deny"', 400);
+  const validConfirmDecisions = ['allow', 'allow_10m', 'allow_thread', 'deny'];
+  if (typeof decision !== 'string' || !validConfirmDecisions.includes(decision)) {
+    return httpError('BAD_REQUEST', `decision must be one of: ${validConfirmDecisions.join(', ')}`, 400);
   }
 
   const interaction = pendingInteractions.resolve(requestId);
@@ -94,7 +75,7 @@ export async function handleConfirm(req: Request, server: ServerWithRequestIP): 
     return httpError('NOT_FOUND', 'No pending interaction found for this requestId', 404);
   }
 
-  interaction.session.handleConfirmationResponse(requestId, decision, undefined, undefined, undefined, {
+  interaction.session.handleConfirmationResponse(requestId, decision as UserDecision, undefined, undefined, undefined, {
     source: 'button',
   });
   return Response.json({ accepted: true });
@@ -102,10 +83,10 @@ export async function handleConfirm(req: Request, server: ServerWithRequestIP): 
 
 /**
  * POST /v1/secret — resolve a pending secret request by requestId.
- * Requires a valid actor token (guardian-bound).
+ * Requires AuthContext with guardian-bound actor.
  */
-export async function handleSecret(req: Request, server: ServerWithRequestIP): Promise<Response> {
-  const authError = requireBoundGuardian(req, server);
+export async function handleSecret(req: Request, authContext: AuthContext): Promise<Response> {
+  const authError = requireBoundGuardian(authContext);
   if (authError) return authError;
 
   const body = await req.json() as {
@@ -139,15 +120,15 @@ export async function handleSecret(req: Request, server: ServerWithRequestIP): P
 
 /**
  * POST /v1/trust-rules — add a trust rule for a pending confirmation.
- * Requires a valid actor token (guardian-bound).
+ * Requires AuthContext with guardian-bound actor.
  *
  * Does NOT resolve the confirmation itself (the client still needs to
  * POST /v1/confirm to approve/deny). Validates the pattern and scope
  * against the server-provided allowlist options from the original
  * confirmation_request.
  */
-export async function handleTrustRule(req: Request, server: ServerWithRequestIP): Promise<Response> {
-  const authError = requireBoundGuardian(req, server);
+export async function handleTrustRule(req: Request, authContext: AuthContext): Promise<Response> {
+  const authError = requireBoundGuardian(authContext);
   if (authError) return authError;
 
   const body = await req.json() as {
@@ -227,15 +208,16 @@ export async function handleTrustRule(req: Request, server: ServerWithRequestIP)
 
 /**
  * GET /v1/pending-interactions?conversationKey=...
- * Requires a valid actor token.
+ * Requires AuthContext (already verified upstream by JWT middleware).
  *
  * Returns pending confirmations and secrets for a conversation, allowing
  * polling-based clients (like the CLI) to discover approval requests
  * without SSE.
  */
-export function handleListPendingInteractions(url: URL, req: Request, server: ServerWithRequestIP): Response {
-  const authError = requireActorToken(req, server);
-  if (authError) return authError;
+export function handleListPendingInteractions(url: URL, _authContext: AuthContext): Response {
+  // Auth is already verified by JWT middleware upstream — no additional
+  // verification needed here. The _authContext parameter is accepted for
+  // type consistency and potential future use.
   const conversationKey = url.searchParams.get('conversationKey');
   const conversationId = url.searchParams.get('conversationId');
 
@@ -273,6 +255,7 @@ export function handleListPendingInteractions(url: URL, req: Request, server: Se
           })),
           scopeOptions: confirmation.confirmationDetails?.scopeOptions,
           persistentDecisionsAllowed: confirmation.confirmationDetails?.persistentDecisionsAllowed,
+          temporaryOptionsAvailable: confirmation.confirmationDetails?.temporaryOptionsAvailable,
         }
       : null,
     pendingSecret: secret

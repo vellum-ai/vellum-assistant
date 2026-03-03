@@ -34,6 +34,8 @@ import { SecretPrompter } from '../permissions/secret-prompter.js';
 import type { UserDecision } from '../permissions/types.js';
 import type { Message } from '../providers/types.js';
 import type { Provider } from '../providers/types.js';
+import type { AuthContext } from '../runtime/auth/types.js';
+import * as approvalOverrides from '../runtime/session-approval-overrides.js';
 import { ToolExecutor } from '../tools/executor.js';
 import type { AssistantAttachmentDraft } from './assistant-attachments.js';
 import type { AssistantActivityState, ConfirmationStateChanged } from './ipc-contract/messages.js';
@@ -142,10 +144,12 @@ export class Session {
   /** @internal */ currentPage?: string;
   /** @internal */ channelCapabilities?: ChannelCapabilities;
   /** @internal */ guardianContext?: GuardianRuntimeContext;
+  /** @internal */ authContext?: AuthContext;
   /** @internal */ loadedHistoryTrustClass?: GuardianRuntimeContext['trustClass'];
   /** @internal */ voiceCallControlPrompt?: string;
   /** @internal */ assistantId?: string;
   /** @internal */ commandIntent?: { type: string; payload?: string; languageCode?: string };
+  /** @internal */ surfaceActionRequestIds = new Set<string>();
   /** @internal */ pendingSurfaceActions = new Map<string, { surfaceType: SurfaceType }>();
   /** @internal */ lastSurfaceAction = new Map<string, { actionId: string; data?: Record<string, unknown> }>();
   /** @internal */ surfaceState = new Map<string, { surfaceType: SurfaceType; data: SurfaceData; title?: string }>();
@@ -205,7 +209,7 @@ export class Session {
       if (state === 'pending') {
         this.emitActivityState('awaiting_confirmation', 'confirmation_requested', 'assistant_turn');
       } else if (state === 'timed_out') {
-        this.emitActivityState('thinking', 'confirmation_resolved', 'assistant_turn');
+        this.emitActivityState('thinking', 'confirmation_resolved', 'assistant_turn', undefined, 'Resuming after timeout');
       }
     });
     this.secretPrompter = new SecretPrompter(sendToClient);
@@ -427,6 +431,7 @@ export class Session {
   }
 
   dispose(): void {
+    approvalOverrides.clearMode(this.conversationId);
     disposeSession(this);
   }
 
@@ -498,6 +503,12 @@ export class Session {
       decisionText?: string;
     },
   ): void {
+    // Guard: only proceed if the confirmation is still pending. Stale or
+    // already-resolved requests must not activate overrides or emit events.
+    if (!this.prompter.hasPendingRequest(requestId)) {
+      return;
+    }
+
     this.prompter.resolveConfirmation(
       requestId,
       decision,
@@ -505,6 +516,11 @@ export class Session {
       selectedScope,
       decisionContext,
     );
+
+    // Mode activation (setTimedMode / setThreadMode) is intentionally NOT
+    // done here. It is handled in permission-checker.ts where
+    // persistentDecisionsAllowed context is available — this prevents
+    // proxied bash commands from escalating into blanket auto-approval.
 
     // Emit authoritative confirmation state and activity transition centrally
     // so ALL callers (IPC handlers, /v1/confirm, channel bridges) get
@@ -520,7 +536,7 @@ export class Session {
       ...(emissionContext?.causedByRequestId ? { causedByRequestId: emissionContext.causedByRequestId } : {}),
       ...(emissionContext?.decisionText ? { decisionText: emissionContext.decisionText } : {}),
     });
-    this.emitActivityState('thinking', 'confirmation_resolved', 'assistant_turn');
+    this.emitActivityState('thinking', 'confirmation_resolved', 'assistant_turn', undefined, 'Resuming after approval');
   }
 
   handleSecretResponse(requestId: string, value?: string, delivery?: 'store' | 'transient_send'): void {
@@ -540,6 +556,7 @@ export class Session {
     reason: AssistantActivityState['reason'],
     anchor: AssistantActivityState['anchor'] = 'assistant_turn',
     requestId?: string,
+    statusText?: string,
   ): void {
     this.activityVersion++;
     const msg: ServerMessage = {
@@ -550,6 +567,7 @@ export class Session {
       anchor,
       requestId,
       reason,
+      ...(statusText ? { statusText } : {}),
     } as ServerMessage;
     this.sendToClient(msg);
     this.onStateSignal?.(msg);
@@ -561,6 +579,14 @@ export class Session {
 
   setGuardianContext(ctx: GuardianRuntimeContext | null): void {
     this.guardianContext = ctx ?? undefined;
+  }
+
+  setAuthContext(ctx: AuthContext | null): void {
+    this.authContext = ctx ?? undefined;
+  }
+
+  getAuthContext(): AuthContext | undefined {
+    return this.authContext;
   }
 
   setVoiceCallControlPrompt(prompt: string | null): void {
@@ -614,7 +640,7 @@ export class Session {
     content: string,
     userMessageId: string,
     onEvent: (msg: ServerMessage) => void,
-    options?: { skipPreMessageRollback?: boolean; isInteractive?: boolean; titleText?: string },
+    options?: { skipPreMessageRollback?: boolean; isInteractive?: boolean; isUserMessage?: boolean; titleText?: string },
   ): Promise<void> {
     return runAgentLoopImpl(this, content, userMessageId, onEvent, options);
   }

@@ -12,7 +12,7 @@ The macOS app uses a centralized service container (`AppServices`) created once 
 
 | Service | Type | Purpose |
 |---------|------|---------|
-| `daemonClient` | `DaemonClient` | Unix socket IPC to daemon |
+| `daemonClient` | `DaemonClient` | Unix socket IPC to daemon (local mode) or HTTP+SSE to platform proxy (managed mode) |
 | `ambientAgent` | `AmbientAgent` | Coordinates Ride Shotgun trigger, session, and floating windows |
 | `surfaceManager` | `SurfaceManager` | Routes `ui_surface_show` messages |
 | `toolConfirmationManager` | `ToolConfirmationManager` | Handles tool permission prompts |
@@ -565,6 +565,72 @@ The avatar uses a simple image-based approach: a custom user-uploaded profile pi
 
 **Fallback:** When no custom avatar exists, `buildInitialLetterAvatar(name:)` renders a Forest._600 circle with the assistant's first initial in white.
 
+## Managed Sign-In (macOS)
+
+Managed sign-in allows macOS users to connect to a platform-hosted assistant during first-run onboarding instead of running a local daemon. When a user clicks "Sign in" on the onboarding screen, the app authenticates via WorkOS through the platform, discovers or creates a managed assistant, and connects to it through platform proxy endpoints.
+
+### Sign-In Flow
+
+```
+User clicks "Sign in"
+  --> WorkOS authentication (via AuthManager)
+  --> ManagedAssistantBootstrapService.ensureManagedAssistant()
+      --> GET /v1/assistants/current/  (discover existing)
+      --> If 404: POST /v1/assistants/hatch/  (create new)
+  --> Upsert lockfile entry (cloud: "vellum")
+  --> Set connectedAssistantId in UserDefaults
+  --> Configure managed HTTP transport
+  --> Proceed to app
+```
+
+If managed bootstrap fails, the user stays on the onboarding screen with an error message and a retry option. The app does not proceed until bootstrap succeeds or the user chooses a different path.
+
+### Transport Modes
+
+`HTTPDaemonClient` supports two route modes, selected based on the lockfile entry's `cloud` field:
+
+| Mode | Route Pattern | Auth Header | When Used |
+|------|--------------|-------------|-----------|
+| `runtimeFlat` | `/healthz`, `/v1/messages`, `/v1/events` | `Authorization: Bearer {token}` | Local daemon, gateway-proxied remote |
+| `platformAssistantProxy` | `/v1/assistants/{id}/healthz/`, `/v1/assistants/{id}/messages/` | `X-Session-Token: {token}` | Platform-managed assistants (`cloud == "vellum"`) |
+
+The route mode and auth mode are carried in `TransportMetadata` (defined in `DaemonConfig.swift`) and threaded through the `DaemonConfig` to the `HTTPDaemonClient`. `AppDelegate.configureDaemonTransport(for:)` selects the mode based on `LockfileAssistant.isManaged`.
+
+### Startup Guardrails
+
+When the current assistant is managed (`isCurrentAssistantManaged == true`), the app skips:
+- **Local daemon hatching** -- the platform hosts the daemon, so `assistantCli.hatch()` is not called.
+- **Actor credential bootstrap** -- identity is derived from the platform session token, not local actor tokens. The `ensureActorCredentials()` flow is skipped entirely.
+- **Socket-missing re-hatch** -- the reconnection loop does not attempt local re-hatch when the socket file is absent.
+
+### Credential and State Storage
+
+| Data | Storage | Location |
+|------|---------|----------|
+| Session token | Keychain | provider: `session-token` (via `SessionTokenManager`) |
+| Platform token file | Filesystem | `~/.vellum/platform-token` (0600 permissions, daemon-readable) |
+| Managed lockfile entry | Filesystem | `~/.vellum.lock.json` (entry with `cloud: "vellum"`) |
+| Connected assistant ID | UserDefaults | `connectedAssistantId` |
+
+### 401 Handling in Managed Mode
+
+When a managed-mode HTTP request receives a 401, the `HTTPDaemonClient` does not attempt the bearer token refresh flow (which is designed for local actor tokens). Instead, it emits a `session_error` event so the app can prompt re-authentication through the platform.
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `clients/shared/App/Auth/ManagedAssistantBootstrapService.swift` | Discover-or-create orchestrator for managed assistants |
+| `clients/shared/App/Auth/AuthService.swift` | Platform API methods (`getCurrentAssistant`, `hatchAssistant`) |
+| `clients/shared/App/Auth/SessionTokenManager.swift` | Session token storage (Keychain + `~/.vellum/platform-token` file bridge) |
+| `clients/shared/IPC/DaemonConfig.swift` | `RouteMode`, `AuthMode`, `TransportMetadata` types |
+| `clients/shared/IPC/HTTPDaemonClient.swift` | Endpoint builder and auth application for both route modes |
+| `clients/macos/vellum-assistant/App/AppDelegate.swift` | Transport selection (`configureDaemonTransport`) and startup guardrails |
+| `clients/macos/vellum-assistant/Features/Onboarding/OnboardingFlowView.swift` | Onboarding sign-in UI and managed bootstrap invocation |
+| `clients/macos/vellum-assistant/Features/MainWindow/Panels/IdentityData.swift` | `LockfileAssistant.isManaged` computed property and managed entry upsert |
+
+---
+
 ## iOS Connection Architecture
 
 The iOS app connects to the macOS assistant exclusively via HTTPS through the gateway. There is no direct TCP or Unix socket connection path.
@@ -591,7 +657,7 @@ iOS pairing uses a v4 QR code protocol with Mac-side approval. There is no manua
   "id": "<mac-hash>",
   "g": "<resolved-gateway-url>",
   "pairingRequestId": "<uuid>",
-  "pairingSecret": "<random-32b-hex>",
+  "pairingSecret": "<Random Hex Value>",
   "localLanUrl": "http://<lan-ip>:7830"
 }
 ```
@@ -615,32 +681,32 @@ iOS pairing uses a v4 QR code protocol with Mac-side approval. There is no manua
 
 **Approved devices:** Devices paired with "Always Allow" are persisted to `~/.vellum/protected/approved-devices.json` (keyed by hashed deviceId). Future pairings from allowlisted devices auto-approve without a prompt. The macOS Connect tab shows an Approved Devices list with remove/clear actions.
 
-### Actor Credential Refresh (Shared: macOS + iOS)
+### JWT Credential Refresh (Shared: macOS + iOS)
 
-Both macOS and iOS clients use a shared credential refresh mechanism to maintain valid actor tokens without re-bootstrapping or re-pairing. Bootstrap (macOS) and pairing (iOS) are only used for initial credential issuance.
+Both macOS and iOS clients use a single JWT access token for all HTTP authentication, sent as `Authorization: Bearer <jwt>`. The JWT serves as both authentication and identity — there is no separate `X-Actor-Token` header. A shared credential refresh mechanism maintains valid tokens without re-bootstrapping or re-pairing. Bootstrap (macOS) and pairing (iOS) are only used for initial credential issuance.
 
-**Credential storage:** The client stores the following in the Keychain alongside the bearer token:
+**Credential storage:** The client stores the following in the Keychain:
 
 | Data | Storage | Purpose |
 |------|---------|---------|
-| Actor token | Keychain | `X-Actor-Token` header for authenticated requests |
+| Access token (JWT) | Keychain | `Authorization: Bearer <jwt>` header for authenticated requests |
 | Refresh token | Keychain | Presented to the refresh endpoint to rotate credentials |
-| Actor token expiry | Keychain | Absolute expiry timestamp of the current actor token |
+| Access token expiry | Keychain | Absolute expiry timestamp of the current access token |
 | Refresh token expiry | Keychain | Absolute expiry timestamp of the current refresh token |
-| `refreshAfter` | Keychain | Timestamp at which the client should proactively refresh (80% of actor token TTL) |
+| `refreshAfter` | Keychain | Timestamp at which the client should proactively refresh (80% of access token TTL) |
 
-**Proactive refresh:** Both macOS and iOS run a periodic check every 5 minutes. If `now >= refreshAfter`, the client calls `POST /v1/integrations/guardian/vellum/refresh` (through the gateway) with the current refresh token. On success, the response provides a new `actorToken`, `refreshToken`, `actorTokenExpiresAt`, `refreshTokenExpiresAt`, and `refreshAfter`. All stored credentials are updated atomically.
+**Proactive refresh:** Both macOS and iOS run a periodic check every 5 minutes. If `now >= refreshAfter`, the client calls `POST /v1/integrations/guardian/vellum/refresh` (through the gateway) with the current refresh token and `Authorization: Bearer <jwt>`. On success, the response provides a new `accessToken`, `refreshToken`, `accessTokenExpiresAt`, `refreshTokenExpiresAt`, and `refreshAfter`. All stored credentials are updated atomically.
 
-**401 recovery:** When an HTTP request receives a 401 response, the `HTTPDaemonClient` attempts a single refresh before surfacing a "Session expired" error. If the refresh succeeds, the original request is retried with the new actor token. If the refresh also fails (e.g., refresh token expired or revoked), the client surfaces the session-expired error and the user must re-pair (iOS) or re-bootstrap (macOS).
+**401 recovery:** When an HTTP request receives a 401 response with `{ "code": "refresh_required" }`, the `HTTPTransport` attempts a single refresh before surfacing a "Session expired" error. If the refresh succeeds, the original request is retried with the new JWT. If the 401 contains a different code or the refresh fails (e.g., refresh token expired or revoked), the client surfaces the session-expired error and the user must re-pair (iOS) or re-bootstrap (macOS).
 
 **Shared utility:** `ActorCredentialRefresher` is a shared utility used by both platforms. It encapsulates the refresh HTTP call, credential update, and error handling. `ActorTokenManager` on each platform delegates to this refresher for both proactive and reactive (401-recovery) refresh flows.
 
-**No legacy bootstrap-as-renewal:** macOS no longer re-bootstraps on every launch. Bootstrap runs only when no actor token exists at all (first launch or after credential wipe). All subsequent renewal is handled by the refresh flow.
+**No legacy bootstrap-as-renewal:** macOS no longer re-bootstraps on every launch. Bootstrap runs only when no access token exists at all (first launch or after credential wipe). All subsequent renewal is handled by the refresh flow.
 
 ### Prerequisites
 
 - A gateway URL must be configured (cloud tunnel or LAN). LAN pairing works automatically via `localLanUrl` in the QR payload.
-- The bearer token is read from `~/.vellum/http-token` and persists across daemon restarts.
+- The legacy bearer token from `~/.vellum/http-token` is used only as a fallback for initial bootstrap before the first JWT is issued.
 - A conversation key is auto-generated on first connect and stored in UserDefaults.
 - iOS maintains a stable `deviceId` (UUID) in the Keychain across reinstalls.
 

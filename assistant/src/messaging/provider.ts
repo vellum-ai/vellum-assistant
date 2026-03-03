@@ -41,7 +41,7 @@ export interface MessagingProvider {
   markRead?(token: string, conversationId: string, messageId?: string): Promise<void>;
 
   /** Scan messages and group by sender for bulk cleanup (e.g. newsletter decluttering). */
-  senderDigest?(token: string, query: string, options?: { maxMessages?: number; maxSenders?: number }): Promise<SenderDigestResult>;
+  senderDigest?(token: string, query: string, options?: { maxMessages?: number; maxSenders?: number; pageToken?: string }): Promise<SenderDigestResult>;
   /** Archive messages matching a search query. */
   archiveByQuery?(token: string, query: string): Promise<ArchiveResult>;
 

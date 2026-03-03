@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { basename, extname } from 'node:path';
 
-import { sendMessageRaw } from '../../../../messaging/providers/gmail/client.js';
+import { createDraftRaw } from '../../../../messaging/providers/gmail/client.js';
 import { buildMultipartMime } from '../../../../messaging/providers/gmail/mime-builder.js';
 import { getMessagingProvider } from '../../../../messaging/registry.js';
 import { withValidToken } from '../../../../security/token-manager.js';
@@ -67,11 +67,10 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
       );
 
       const raw = buildMultipartMime({ to, subject, body, inReplyTo, attachments });
-      const result = await sendMessageRaw(token, raw, threadId);
+      const draft = await createDraftRaw(token, raw, threadId);
 
       const filenames = attachments.map((a) => a.filename).join(', ');
-      const threadSuffix = result.threadId ? `, "thread_id": "${result.threadId}"` : '';
-      return ok(`Message sent with ${attachments.length} attachment(s): ${filenames} (ID: ${result.id}${threadSuffix}).`);
+      return ok(`Gmail draft created with ${attachments.length} attachment(s): ${filenames} (Draft ID: ${draft.id}). Review in Gmail Drafts, then tell me to send it or send it yourself.`);
     });
   } catch (e) {
     return err(e instanceof Error ? e.message : String(e));

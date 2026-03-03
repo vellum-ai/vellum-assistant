@@ -33,6 +33,7 @@ export class GmailApiError extends Error {
 
 const MAX_RETRIES = 3;
 const INITIAL_BACKOFF_MS = 1000;
+const REQUEST_TIMEOUT_MS = 30_000;
 
 function isRetryable(status: number): boolean {
   return status === 429 || (status >= 500 && status < 600);
@@ -57,6 +58,7 @@ async function request<T>(token: string, path: string, options?: GmailRequestOpt
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     const resp = await fetch(url, {
       ...options,
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       headers: {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
@@ -191,12 +193,17 @@ export async function createDraft(
   subject: string,
   body: string,
   inReplyTo?: string,
+  cc?: string,
+  bcc?: string,
+  threadId?: string,
 ): Promise<GmailDraft> {
   const headers = [
     `To: ${to}`,
     `Subject: ${subject}`,
     'Content-Type: text/plain; charset=utf-8',
   ];
+  if (cc) headers.push(`Cc: ${cc}`);
+  if (bcc) headers.push(`Bcc: ${bcc}`);
   if (inReplyTo) {
     headers.push(`In-Reply-To: ${inReplyTo}`);
     headers.push(`References: ${inReplyTo}`);
@@ -206,9 +213,36 @@ export async function createDraft(
     .replace(/\+/g, '-')
     .replace(/\//g, '_')
     .replace(/=+$/, '');
+  const message: Record<string, unknown> = { raw };
+  if (threadId) message.threadId = threadId;
   return request<GmailDraft>(token, '/drafts', {
     method: 'POST',
-    body: JSON.stringify({ message: { raw } }),
+    body: JSON.stringify({ message }),
+  });
+}
+
+/** Create a draft from a pre-built base64url MIME payload. */
+export async function createDraftRaw(
+  token: string,
+  raw: string,
+  threadId?: string,
+): Promise<GmailDraft> {
+  const message: Record<string, unknown> = { raw };
+  if (threadId) message.threadId = threadId;
+  return request<GmailDraft>(token, '/drafts', {
+    method: 'POST',
+    body: JSON.stringify({ message }),
+  });
+}
+
+/** Send an existing draft by ID. */
+export async function sendDraft(
+  token: string,
+  draftId: string,
+): Promise<GmailMessage> {
+  return request<GmailMessage>(token, '/drafts/send', {
+    method: 'POST',
+    body: JSON.stringify({ id: draftId }),
   });
 }
 

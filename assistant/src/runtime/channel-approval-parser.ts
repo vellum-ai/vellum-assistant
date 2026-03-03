@@ -18,21 +18,27 @@ import type { ApprovalAction, ApprovalDecisionResult } from './channel-approval-
 // ---------------------------------------------------------------------------
 
 const APPROVE_ONCE_PHRASES = ['yes', 'approve', 'approve once', 'allow', 'go ahead'];
+const APPROVE_10M_PHRASES = ['approve for 10 minutes', 'allow for 10 minutes', 'approve 10m', 'allow 10m', 'approve 10 min', 'allow 10 min'];
+const APPROVE_THREAD_PHRASES = ['approve for thread', 'allow for thread', 'approve thread', 'allow thread'];
 const APPROVE_ALWAYS_PHRASES = ['always', 'approve always', 'allow always'];
 const REJECT_PHRASES = ['no', 'reject', 'deny', 'cancel'];
 
 /**
- * Build a Map from lowercased phrase to action. "Approve always" phrases
- * are checked first (longest-match-wins) because "approve" is a prefix
- * of "approve always".
+ * Build a Map from lowercased phrase to action. Longer phrases are
+ * inserted first so iteration order does not matter — we match on
+ * exact equality after normalising, not prefix matching.
  */
 function buildPhraseMap(): Map<string, ApprovalAction> {
   const map = new Map<string, ApprovalAction>();
 
-  // Insert longer phrases first so iteration order does not matter —
-  // we match on exact equality after normalising, not prefix matching.
   for (const phrase of APPROVE_ALWAYS_PHRASES) {
     map.set(phrase, 'approve_always');
+  }
+  for (const phrase of APPROVE_10M_PHRASES) {
+    map.set(phrase, 'approve_10m');
+  }
+  for (const phrase of APPROVE_THREAD_PHRASES) {
+    map.set(phrase, 'approve_thread');
   }
   for (const phrase of APPROVE_ONCE_PHRASES) {
     map.set(phrase, 'approve_once');

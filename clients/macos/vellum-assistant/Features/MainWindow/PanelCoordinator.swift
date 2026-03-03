@@ -667,9 +667,11 @@ struct ActiveChatViewWrapper: View {
             assistantActivityPhase: viewModel.assistantActivityPhase,
             assistantActivityAnchor: viewModel.assistantActivityAnchor,
             assistantActivityReason: viewModel.assistantActivityReason,
+            assistantStatusText: viewModel.assistantStatusText,
             onConfirmationAllow: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "allow") },
             onConfirmationDeny: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "deny") },
             onAlwaysAllow: { requestId, selectedPattern, selectedScope, decision in viewModel.respondToAlwaysAllow(requestId: requestId, selectedPattern: selectedPattern, selectedScope: selectedScope, decision: decision) },
+            onTemporaryAllow: { requestId, decision in viewModel.respondToConfirmation(requestId: requestId, decision: decision) },
             onGuardianAction: { requestId, action in viewModel.submitGuardianDecision(requestId: requestId, action: action) },
             onSurfaceAction: { surfaceId, actionId, data in viewModel.sendSurfaceAction(surfaceId: surfaceId, actionId: actionId, data: data) },
             sessionError: viewModel.sessionError,
@@ -855,6 +857,11 @@ struct DynamicWorkspaceWrapper: View {
                 onSnapshotCaptured: data.appId != nil ? { [weak daemonClient] base64 in
                     guard let appId = data.appId else { return }
                     try? daemonClient?.sendAppUpdatePreview(appId: appId, preview: base64)
+                    NotificationCenter.default.post(
+                        name: .appPreviewImageCaptured,
+                        object: nil,
+                        userInfo: ["appId": appId, "previewImage": base64]
+                    )
                 } : nil,
                 onLinkOpen: { url, metadata in
                     surfaceManager.onLinkOpen?(url, metadata)

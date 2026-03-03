@@ -6,6 +6,7 @@
  * The gateway simply proxies to the daemon's pairing endpoints.
  */
 
+import { mintServiceToken } from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
 import { fetchImpl } from "../../fetch.js";
 import { getLogger } from "../../logger.js";
@@ -31,10 +32,8 @@ export function createPairingProxyHandler(config: GatewayConfig) {
     reqHeaders.delete("host");
     reqHeaders.delete("authorization");
 
-    // Add the runtime's bearer token for daemon auth on the register endpoint
-    if (config.runtimeBearerToken) {
-      reqHeaders.set("authorization", `Bearer ${config.runtimeBearerToken}`);
-    }
+    // Mint a short-lived service token for gateway->runtime auth
+    reqHeaders.set("authorization", `Bearer ${mintServiceToken()}`);
 
     const hasBody = req.method !== "GET" && req.method !== "HEAD";
 

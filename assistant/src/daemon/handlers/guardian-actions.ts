@@ -8,7 +8,7 @@ import { listGuardianDecisionPrompts } from '../../runtime/routes/guardian-actio
 import type { GuardianActionDecision, GuardianActionsPendingRequest } from '../ipc-protocol.js';
 import { defineHandlers, log } from './shared.js';
 
-const VALID_ACTIONS = new Set<string>(['approve_once', 'approve_always', 'reject']);
+const VALID_ACTIONS = new Set<string>(['approve_once', 'approve_10m', 'approve_thread', 'approve_always', 'reject']);
 
 export const guardianActionsHandlers = defineHandlers({
   guardian_actions_pending_request: (msg: GuardianActionsPendingRequest, socket, ctx) => {

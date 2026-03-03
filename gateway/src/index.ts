@@ -1,10 +1,11 @@
 process.title = "vellum-gateway";
 
 import { randomBytes } from "node:crypto";
-import { readFileSync, watch, existsSync, mkdirSync, type FSWatcher } from "node:fs";
-import { join, dirname } from "node:path";
-import { homedir } from "node:os";
 import { AuthRateLimiter } from "./auth-rate-limiter.js";
+import { loadOrCreateSigningKey, initSigningKey, verifyToken } from "./auth/token-service.js";
+import { validateEdgeToken } from "./auth/token-exchange.js";
+import { resolveScopeProfile } from "./auth/scopes.js";
+import type { Scope } from "./auth/types.js";
 import { ConfigFileWatcher } from "./config-file-watcher.js";
 import { loadConfig, isSlackChannelConfigured, type GatewayConfig } from "./config.js";
 import { CredentialWatcher } from "./credential-watcher.js";
@@ -37,7 +38,6 @@ import { createTwilioControlPlaneProxyHandler } from "./http/routes/twilio-contr
 import { createChannelReadinessProxyHandler } from "./http/routes/channel-readiness-proxy.js";
 import { createRuntimeHealthProxyHandler } from "./http/routes/runtime-health-proxy.js";
 import { createBrainGraphProxyHandler } from "./http/routes/brain-graph-proxy.js";
-import { validateBearerToken } from "./http/auth/bearer.js";
 import { getLogger, initLogger } from "./logger.js";
 import { CircuitBreakerOpenError } from "./runtime/client.js";
 import { buildSchema } from "./schema.js";
@@ -73,112 +73,17 @@ function getClientIp(req: Request, server: ReturnType<typeof Bun.serve>, trustPr
   return addr?.address ?? "unknown";
 }
 
-/**
- * Watch `~/.vellum/http-token` and update the config when the daemon
- * writes a new token. Without this, a gateway started before the daemon
- * would hold a stale bearer token and reject authenticated requests (401).
- */
-function startHttpTokenWatcher(cfg: GatewayConfig): FSWatcher | null {
-  const tokenPath = process.env.VELLUM_HTTP_TOKEN_PATH
-    ?? join(process.env.BASE_DATA_DIR?.trim() || homedir(), ".vellum", "http-token");
-
-  const dir = dirname(tokenPath);
-  try {
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
-    }
-  } catch (err) {
-    log.warn({ err, path: dir }, "Cannot create token directory, skipping http-token watcher");
-    return null;
-  }
-
-  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-
-  function refresh(): void {
-    // Skip file-based refresh when env vars explicitly pin the tokens —
-    // respect the same precedence as loadConfig().
-    if (process.env.RUNTIME_BEARER_TOKEN) return;
-
-    try {
-      const token = readFileSync(tokenPath, "utf-8").trim() || undefined;
-      if (token && token !== cfg.runtimeBearerToken) {
-        cfg.runtimeBearerToken = token;
-        cfg.runtimeProxyBearerToken = process.env.RUNTIME_PROXY_BEARER_TOKEN || token;
-        cfg.runtimeGatewayOriginSecret = process.env.RUNTIME_GATEWAY_ORIGIN_SECRET || token;
-        log.info("Runtime bearer token refreshed from http-token file");
-      }
-    } catch {
-      // File doesn't exist yet — will be created by the daemon
-    }
-  }
-
-  try {
-    const watcher = watch(existsSync(tokenPath) ? tokenPath : dir, { persistent: false }, (_event, filename) => {
-      if (!existsSync(tokenPath) && filename !== "http-token") return;
-      if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(refresh, 500);
-    });
-    log.info({ path: tokenPath }, "Watching http-token for runtime bearer token changes");
-    return watcher;
-  } catch (err) {
-    log.warn({ err, path: tokenPath }, "Failed to watch http-token file");
-    return null;
-  }
-}
-
-/**
- * Watch `~/.vellum/feature-flag-token` and update the config when the file
- * changes. Mirrors startHttpTokenWatcher but for the feature-flag client token.
- */
-function startFeatureFlagTokenWatcher(cfg: GatewayConfig): FSWatcher | null {
-  const tokenPath = process.env.FEATURE_FLAG_TOKEN_PATH
-    ?? join(process.env.BASE_DATA_DIR?.trim() || homedir(), ".vellum", "feature-flag-token");
-
-  const dir = dirname(tokenPath);
-  try {
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
-    }
-  } catch (err) {
-    log.warn({ err, path: dir }, "Cannot create token directory, skipping feature-flag-token watcher");
-    return null;
-  }
-
-  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-
-  function refresh(): void {
-    if (process.env.FEATURE_FLAG_TOKEN) return;
-
-    try {
-      const token = readFileSync(tokenPath, "utf-8").trim() || undefined;
-      if (token && token !== cfg.featureFlagToken) {
-        cfg.featureFlagToken = token;
-        log.info("Feature-flag token refreshed from file");
-      }
-    } catch {
-      // File doesn't exist yet
-    }
-  }
-
-  try {
-    const watcher = watch(existsSync(tokenPath) ? tokenPath : dir, { persistent: false }, (_event, filename) => {
-      if (!existsSync(tokenPath) && filename !== "feature-flag-token") return;
-      if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(refresh, 500);
-    });
-    log.info({ path: tokenPath }, "Watching feature-flag-token for changes");
-    return watcher;
-  } catch (err) {
-    log.warn({ err, path: tokenPath }, "Failed to watch feature-flag-token file");
-    return null;
-  }
-}
-
 function main() {
   const config = loadConfig();
   initLogger(config.logFile);
 
   log.info("Starting Vellum Gateway...");
+
+  // Initialize the JWT signing key shared with the daemon.
+  // This must happen before any request handling.
+  const signingKey = loadOrCreateSigningKey();
+  initSigningKey(signingKey);
+  log.info("JWT signing key initialized");
 
   const { handler: handleTelegramWebhook, dedupCache: telegramDedupCache } = createTelegramWebhookHandler(config);
   const handleTelegramDeliver = createTelegramDeliverHandler(config);
@@ -428,44 +333,68 @@ function main() {
         return res;
       }
 
-      function requireRuntimeBearerAuth(): Response | null {
-        if (!config.runtimeBearerToken) {
-          return Response.json(
-            { error: "Service not configured: bearer token required" },
-            { status: 503 },
-          );
+      /**
+       * Validate a JWT bearer token (aud=vellum-gateway) for client-facing routes.
+       * Returns null on success, or a Response to short-circuit with.
+       */
+      function requireEdgeAuth(): Response | null {
+        const authHeader = tracedReq.headers.get("authorization");
+        if (!authHeader || !authHeader.toLowerCase().startsWith("bearer ")) {
+          authRateLimiter.recordFailure(getClientIp(req, svr, config.trustProxy));
+          return Response.json({ error: "Unauthorized" }, { status: 401 });
         }
-        const authResult = validateBearerToken(
-          tracedReq.headers.get("authorization"),
-          config.runtimeBearerToken,
-        );
-        if (!authResult.authorized) {
+        const token = authHeader.slice(7);
+        const result = validateEdgeToken(token);
+        if (!result.ok) {
           authRateLimiter.recordFailure(getClientIp(req, svr, config.trustProxy));
           return Response.json({ error: "Unauthorized" }, { status: 401 });
         }
         return null;
       }
 
+      /**
+       * Validate a JWT bearer token and check that its scope profile
+       * includes a specific scope. Returns null on success.
+       */
+      function requireEdgeAuthWithScope(scope: Scope): Response | null {
+        const authHeader = tracedReq.headers.get("authorization");
+        if (!authHeader || !authHeader.toLowerCase().startsWith("bearer ")) {
+          authRateLimiter.recordFailure(getClientIp(req, svr, config.trustProxy));
+          return Response.json({ error: "Unauthorized" }, { status: 401 });
+        }
+        const token = authHeader.slice(7);
+        const result = validateEdgeToken(token);
+        if (!result.ok) {
+          authRateLimiter.recordFailure(getClientIp(req, svr, config.trustProxy));
+          return Response.json({ error: "Unauthorized" }, { status: 401 });
+        }
+        const scopes = resolveScopeProfile(result.claims.scope_profile);
+        if (!scopes.has(scope)) {
+          return Response.json({ error: "Forbidden" }, { status: 403 });
+        }
+        return null;
+      }
+
       // ── Runtime health proxy ──
       if (url.pathname === "/v1/health" && req.method === "GET") {
-        const authError = requireRuntimeBearerAuth();
+        const authError = requireEdgeAuth();
         if (authError) return authError;
         return runtimeHealthProxy.handleRuntimeHealth(tracedReq);
       }
 
       // ── Brain graph proxy ──
       if (url.pathname === "/v1/brain-graph" && req.method === "GET") {
-        const authError = requireRuntimeBearerAuth();
+        const authError = requireEdgeAuth();
         if (authError) return authError;
         return brainGraphProxy.handleBrainGraph(tracedReq);
       }
       if (url.pathname === "/v1/brain-graph-ui" && req.method === "GET") {
-        const authError = requireRuntimeBearerAuth();
+        const authError = requireEdgeAuth();
         if (authError) return authError;
         return brainGraphProxy.handleBrainGraphUI(tracedReq);
       }
       if (url.pathname === "/v1/home-base-ui" && req.method === "GET") {
-        const authError = requireRuntimeBearerAuth();
+        const authError = requireEdgeAuth();
         if (authError) return authError;
         return brainGraphProxy.handleHomeBaseUI(tracedReq);
       }
@@ -478,7 +407,7 @@ function main() {
         || (url.pathname === "/v1/integrations/telegram/commands" && req.method === "POST")
         || (url.pathname === "/v1/integrations/telegram/setup" && req.method === "POST")
       ) {
-        const authError = requireRuntimeBearerAuth();
+        const authError = requireEdgeAuth();
         if (authError) return authError;
 
         if (url.pathname === "/v1/integrations/telegram/config" && req.method === "GET") {
@@ -499,7 +428,7 @@ function main() {
       // ── Ingress members/invites control-plane proxy ──
       const ingressRoute = matchIngressControlPlaneRoute(url.pathname, req.method);
       if (ingressRoute) {
-        const authError = requireRuntimeBearerAuth();
+        const authError = requireEdgeAuth();
         if (authError) return authError;
 
         switch (ingressRoute.kind) {
@@ -524,7 +453,7 @@ function main() {
 
       // ── Guardian vellum bootstrap (actor token) ──
       if (url.pathname === "/v1/integrations/guardian/vellum/bootstrap" && req.method === "POST") {
-        const authError = requireRuntimeBearerAuth();
+        const authError = requireEdgeAuth();
         if (authError) return authError;
         return guardianControlPlaneProxy.handleGuardianVellumBootstrap(tracedReq);
       }
@@ -537,7 +466,7 @@ function main() {
         || (url.pathname === "/v1/integrations/guardian/outbound/resend" && req.method === "POST")
         || (url.pathname === "/v1/integrations/guardian/outbound/cancel" && req.method === "POST")
       ) {
-        const authError = requireRuntimeBearerAuth();
+        const authError = requireEdgeAuth();
         if (authError) return authError;
 
         if (url.pathname === "/v1/integrations/guardian/challenge") {
@@ -556,9 +485,23 @@ function main() {
       }
 
       // ── Guardian vellum refresh proxy ──
+      // Accept expired-but-otherwise-valid JWTs on the refresh path.
+      // The refresh endpoint's purpose is to obtain a new access token,
+      // so rejecting expired tokens here would create a deadlock once
+      // the JWT expires. Signature, audience, and policy epoch are still
+      // verified — only the expiration check is relaxed.
       if (url.pathname === "/v1/integrations/guardian/vellum/refresh" && req.method === "POST") {
-        const authError = requireRuntimeBearerAuth();
-        if (authError) return authError;
+        const authHeader = tracedReq.headers.get("authorization");
+        if (!authHeader || !authHeader.toLowerCase().startsWith("bearer ")) {
+          authRateLimiter.recordFailure(getClientIp(req, svr, config.trustProxy));
+          return Response.json({ error: "Unauthorized" }, { status: 401 });
+        }
+        const token = authHeader.slice(7);
+        const result = validateEdgeToken(token, { allowExpired: true });
+        if (!result.ok) {
+          authRateLimiter.recordFailure(getClientIp(req, svr, config.trustProxy));
+          return Response.json({ error: "Unauthorized" }, { status: 401 });
+        }
         return guardianControlPlaneProxy.handleGuardianRefresh(tracedReq);
       }
 
@@ -576,7 +519,7 @@ function main() {
         || (url.pathname === "/v1/integrations/twilio/sms/test" && req.method === "POST")
         || (url.pathname === "/v1/integrations/twilio/sms/doctor" && req.method === "POST")
       ) {
-        const authError = requireRuntimeBearerAuth();
+        const authError = requireEdgeAuth();
         if (authError) return authError;
 
         if (url.pathname === "/v1/integrations/twilio/config" && req.method === "GET") {
@@ -617,7 +560,7 @@ function main() {
         /^\/v1\/integrations\/twilio\/sms\/compliance\/tollfree\/([^/]+)$/,
       );
       if (tollfreeVerificationMatch && (req.method === "PATCH" || req.method === "DELETE")) {
-        const authError = requireRuntimeBearerAuth();
+        const authError = requireEdgeAuth();
         if (authError) return authError;
 
         const verificationSid = decodeURIComponent(tollfreeVerificationMatch[1]);
@@ -632,7 +575,7 @@ function main() {
         (url.pathname === "/v1/channels/readiness" && req.method === "GET")
         || (url.pathname === "/v1/channels/readiness/refresh" && req.method === "POST")
       ) {
-        const authError = requireRuntimeBearerAuth();
+        const authError = requireEdgeAuth();
         if (authError) return authError;
 
         if (url.pathname === "/v1/channels/readiness" && req.method === "GET") {
@@ -642,7 +585,7 @@ function main() {
       }
 
       if (url.pathname === "/integrations/status" && req.method === "GET") {
-        const authError = requireRuntimeBearerAuth();
+        const authError = requireEdgeAuth();
         if (authError) return authError;
         return Response.json({
           email: {
@@ -654,7 +597,7 @@ function main() {
       // ── Pairing proxy ──
       // Register requires bearer auth (privileged operation from CLI/macOS)
       if (url.pathname === "/pairing/register" && tracedReq.method === "POST") {
-        const authError = requireRuntimeBearerAuth();
+        const authError = requireEdgeAuth();
         if (authError) return authError;
         return pairingProxy.handlePairingRegister(tracedReq);
       }
@@ -676,66 +619,18 @@ function main() {
       }
 
       // ── Feature flags API ──
+      // Feature flag access is scope-based: actor_client_v1 includes
+      // feature_flags.read/write. No separate feature flag token needed.
       if (url.pathname === "/v1/feature-flags" && req.method === "GET") {
-        if (!config.runtimeBearerToken && !config.featureFlagToken) {
-          return Response.json(
-            { error: "Service not configured: bearer token required" },
-            { status: 503 },
-          );
-        }
-        // GET accepts either the runtime bearer token or the feature-flag token
-        const authHeader = tracedReq.headers.get("authorization");
-        let authorized = false;
-        if (config.runtimeBearerToken) {
-          const runtimeAuth = validateBearerToken(authHeader, config.runtimeBearerToken);
-          if (runtimeAuth.authorized) authorized = true;
-        }
-        if (!authorized && config.featureFlagToken) {
-          const flagAuth = validateBearerToken(authHeader, config.featureFlagToken);
-          if (flagAuth.authorized) authorized = true;
-        }
-        if (!authorized) {
-          authRateLimiter.recordFailure(getClientIp(req, svr, config.trustProxy));
-          return Response.json({ error: "Unauthorized" }, { status: 401 });
-        }
+        const authError = requireEdgeAuthWithScope('feature_flags.read');
+        if (authError) return authError;
         return handleFeatureFlagsGet(tracedReq);
       }
 
       const featureFlagPatchMatch = url.pathname.match(/^\/v1\/feature-flags\/(.+)$/);
       if (featureFlagPatchMatch && req.method === "PATCH") {
-        if (!config.featureFlagToken) {
-          return Response.json(
-            { error: "Service not configured: feature-flag token required" },
-            { status: 503 },
-          );
-        }
-
-        // Explicitly reject the runtime bearer token on PATCH even if it is
-        // otherwise valid — PATCH requires the dedicated feature-flag token.
-        // The !== guard handles the (unlikely) edge case where both tokens are
-        // equal due to explicit env-var override — loadConfig() logs a warning
-        // and regenerates in the normal case to prevent collision.
-        if (config.runtimeBearerToken && config.runtimeBearerToken !== config.featureFlagToken) {
-          const isRuntimeToken = validateBearerToken(
-            tracedReq.headers.get("authorization"),
-            config.runtimeBearerToken,
-          );
-          if (isRuntimeToken.authorized) {
-            return Response.json(
-              { error: "Forbidden: runtime token cannot be used for feature-flag mutations" },
-              { status: 403 },
-            );
-          }
-        }
-
-        const authResult = validateBearerToken(
-          tracedReq.headers.get("authorization"),
-          config.featureFlagToken,
-        );
-        if (!authResult.authorized) {
-          authRateLimiter.recordFailure(getClientIp(req, svr, config.trustProxy));
-          return Response.json({ error: "Unauthorized" }, { status: 401 });
-        }
+        const authError = requireEdgeAuthWithScope('feature_flags.write');
+        if (authError) return authError;
         let flagKey: string;
         try {
           flagKey = decodeURIComponent(featureFlagPatchMatch[1]);
@@ -911,9 +806,6 @@ function main() {
 
   configFileWatcher.start();
 
-  const httpTokenWatcher = startHttpTokenWatcher(config);
-  const featureFlagTokenWatcher = startFeatureFlagTokenWatcher(config);
-
   const drainMs = config.shutdownDrainMs;
 
   process.on("SIGTERM", () => {
@@ -921,8 +813,6 @@ function main() {
     draining = true;
     credentialWatcher.stop();
     configFileWatcher.stop();
-    httpTokenWatcher?.close();
-    featureFlagTokenWatcher?.close();
     telegramDedupCache.stopCleanup();
     smsDedupCache.stopCleanup();
     whatsappDedupCache.stopCleanup();

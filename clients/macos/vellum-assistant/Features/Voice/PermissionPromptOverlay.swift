@@ -1,5 +1,7 @@
 import AppKit
+import SwiftUI
 import os
+import VellumAssistantShared
 
 private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "PermissionPrompt")
 
@@ -98,13 +100,13 @@ final class PermissionPromptOverlay {
         // Title
         let titleLabel = NSTextField(labelWithString: title)
         titleLabel.font = NSFont.systemFont(ofSize: 14, weight: .semibold)
-        titleLabel.textColor = .labelColor
+        titleLabel.textColor = NSColor(VColor.textPrimary)
         titleLabel.alignment = .center
 
         // Body
         let bodyLabel = NSTextField(wrappingLabelWithString: body)
         bodyLabel.font = NSFont.systemFont(ofSize: 12)
-        bodyLabel.textColor = .secondaryLabelColor
+        bodyLabel.textColor = NSColor(VColor.textSecondary)
         bodyLabel.alignment = .center
         bodyLabel.maximumNumberOfLines = 3
         bodyLabel.preferredMaxLayoutWidth = 300
@@ -241,8 +243,8 @@ final class PermissionPromptOverlay {
         if isPrimary {
             button.contentTintColor = .white
             button.wantsLayer = true
-            button.layer?.backgroundColor = NSColor.systemBlue.cgColor
-            button.layer?.cornerRadius = 6
+            button.layer?.backgroundColor = NSColor(VColor.accent).cgColor
+            button.layer?.cornerRadius = VRadius.sm
         }
 
         return button
@@ -266,14 +268,14 @@ private final class OverlayActionButton: NSButton {
     }
 }
 
-/// Rounded, semi-transparent background matching the app's dark surface style.
+/// Rounded, semi-transparent background using design system tokens.
 private class PermissionOverlayBackground: NSView {
     override var wantsUpdateLayer: Bool { true }
 
     override func updateLayer() {
-        layer?.backgroundColor = NSColor(white: 0.15, alpha: 0.95).cgColor
-        layer?.cornerRadius = 14
+        layer?.backgroundColor = NSColor(VColor.surface).withAlphaComponent(0.95).cgColor
+        layer?.cornerRadius = VRadius.lg
         layer?.borderWidth = 1
-        layer?.borderColor = NSColor(white: 0.25, alpha: 1.0).cgColor
+        layer?.borderColor = NSColor(VColor.surfaceBorder).cgColor
     }
 }

@@ -2,7 +2,7 @@ import * as net from 'node:net';
 
 import type { ChannelId } from '../../channels/types.js';
 import { isChannelId, isInterfaceId } from '../../channels/types.js';
-import { getGatewayInternalBaseUrl, getRuntimeProxyBearerToken } from '../../config/env.js';
+import { getGatewayInternalBaseUrl } from '../../config/env.js';
 import { getLatestStoredPayload } from '../../memory/channel-delivery-store.js';
 import type { GuardianApprovalRequest } from '../../memory/channel-guardian-store.js';
 import {
@@ -12,6 +12,7 @@ import {
 } from '../../memory/channel-guardian-store.js';
 import { addMessage, getMessages } from '../../memory/conversation-store.js';
 import { getBindingByConversation } from '../../memory/external-conversation-store.js';
+import { mintDaemonDeliveryToken } from '../../runtime/auth/token-service.js';
 import { deliverChannelReply } from '../../runtime/gateway-client.js';
 import {
   blockIngressMember,
@@ -325,7 +326,7 @@ async function executeApprove(
   const replyCallbackUrl = typeof payload?.replyCallbackUrl === 'string'
     ? payload.replyCallbackUrl
     : null;
-  const bearerToken = getRuntimeProxyBearerToken();
+  const bearerToken = mintDaemonDeliveryToken();
 
   if (replyCallbackUrl) {
     const binding = getBindingByConversation(conversationId);
@@ -372,7 +373,7 @@ async function executeDeny(
 
   const gatewayBaseUrl = getGatewayInternalBaseUrl();
   const deliverUrl = `${gatewayBaseUrl}/deliver/${sourceChannel}`;
-  const bearerToken = getRuntimeProxyBearerToken();
+  const bearerToken = mintDaemonDeliveryToken();
 
   const denialText = reason
     ? `Your message was reviewed and declined. Reason: ${reason}`

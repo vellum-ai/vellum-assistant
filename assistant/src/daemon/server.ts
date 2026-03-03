@@ -1,61 +1,91 @@
-import { chmodSync, existsSync, readFileSync,statSync } from 'node:fs';
-import * as net from 'node:net';
-import { join } from 'node:path';
-import * as tls from 'node:tls';
+import { chmodSync, existsSync, readFileSync, statSync } from "node:fs";
+import * as net from "node:net";
+import { join } from "node:path";
+import * as tls from "node:tls";
 
-import { createAssistantMessage,createUserMessage } from '../agent/message-types.js';
-import { type ChannelId, type InterfaceId,parseChannelId, parseInterfaceId } from '../channels/types.js';
-import { getConfig } from '../config/loader.js';
-import { buildSystemPrompt } from '../config/system-prompt.js';
-import type { HeartbeatService } from '../heartbeat/heartbeat-service.js';
-import { bootstrapHomeBaseAppLink } from '../home-base/bootstrap.js';
-import * as attachmentsStore from '../memory/attachments-store.js';
+import {
+  createAssistantMessage,
+  createUserMessage,
+} from "../agent/message-types.js";
+import {
+  type ChannelId,
+  type InterfaceId,
+  parseChannelId,
+  parseInterfaceId,
+} from "../channels/types.js";
+import { getConfig } from "../config/loader.js";
+import { buildSystemPrompt } from "../config/system-prompt.js";
+import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
+import { bootstrapHomeBaseAppLink } from "../home-base/bootstrap.js";
+import * as attachmentsStore from "../memory/attachments-store.js";
 import {
   createCanonicalGuardianRequest,
   generateCanonicalRequestCode,
-} from '../memory/canonical-guardian-store.js';
-import * as conversationStore from '../memory/conversation-store.js';
-import { provenanceFromGuardianContext } from '../memory/conversation-store.js';
-import { RateLimitProvider } from '../providers/ratelimit.js';
-import { getFailoverProvider, initializeProviders } from '../providers/registry.js';
-import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
-import { bridgeConfirmationRequestToGuardian } from '../runtime/confirmation-request-guardian-bridge.js';
-import * as pendingInteractions from '../runtime/pending-interactions.js';
-import { checkIngressForSecrets } from '../security/secret-ingress.js';
-import { getSubagentManager } from '../subagent/index.js';
-import { IngressBlockedError } from '../util/errors.js';
-import { getLogger } from '../util/logger.js';
-import { getLocalIPv4 } from '../util/network-info.js';
-import { getSandboxWorkingDir, getSocketPath, getTCPHost, getTCPPort, getWorkspacePromptPath, isIOSPairingEnabled,isTCPEnabled, removeSocketFile } from '../util/platform.js';
-import { registerDaemonCallbacks } from '../work-items/work-item-runner.js';
-import { AuthManager } from './auth-manager.js';
-import { ComputerUseSession } from './computer-use-session.js';
-import { ConfigWatcher } from './config-watcher.js';
-import { handleMessage, type HandlerContext, type SessionCreateOptions } from './handlers.js';
-import { parseIdentityFields } from './handlers/identity.js';
-import { cleanupRecordingsOnDisconnect } from './handlers/recording.js';
-import { ensureBlobDir, sweepStaleBlobs } from './ipc-blob-store.js';
-import { IpcSender } from './ipc-handler.js';
+} from "../memory/canonical-guardian-store.js";
+import * as conversationStore from "../memory/conversation-store.js";
+import { provenanceFromGuardianContext } from "../memory/conversation-store.js";
+import { RateLimitProvider } from "../providers/ratelimit.js";
+import {
+  getFailoverProvider,
+  initializeProviders,
+} from "../providers/registry.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
+import { bridgeConfirmationRequestToGuardian } from "../runtime/confirmation-request-guardian-bridge.js";
+import * as pendingInteractions from "../runtime/pending-interactions.js";
+import { checkIngressForSecrets } from "../security/secret-ingress.js";
+import { getSubagentManager } from "../subagent/index.js";
+import { IngressBlockedError } from "../util/errors.js";
+import { getLogger } from "../util/logger.js";
+import { getLocalIPv4 } from "../util/network-info.js";
+import {
+  getSandboxWorkingDir,
+  getSocketPath,
+  getTCPHost,
+  getTCPPort,
+  getWorkspacePromptPath,
+  isIOSPairingEnabled,
+  isTCPEnabled,
+  removeSocketFile,
+} from "../util/platform.js";
+import { registerDaemonCallbacks } from "../work-items/work-item-runner.js";
+import { AuthManager } from "./auth-manager.js";
+import { ComputerUseSession } from "./computer-use-session.js";
+import { ConfigWatcher } from "./config-watcher.js";
+import {
+  handleMessage,
+  type HandlerContext,
+  type SessionCreateOptions,
+} from "./handlers.js";
+import { parseIdentityFields } from "./handlers/identity.js";
+import { cleanupRecordingsOnDisconnect } from "./handlers/recording.js";
+import { ensureBlobDir, sweepStaleBlobs } from "./ipc-blob-store.js";
+import { IpcSender } from "./ipc-handler.js";
 import {
   createMessageParser,
   MAX_LINE_SIZE,
   normalizeThreadType,
   serialize,
   type ServerMessage,
-} from './ipc-protocol.js';
-import { validateClientMessage } from './ipc-validate.js';
-import { DEFAULT_MEMORY_POLICY, Session, type SessionMemoryPolicy } from './session.js';
-import { SessionEvictor } from './session-evictor.js';
-import { resolveChannelCapabilities } from './session-runtime-assembly.js';
-import { resolveSlash } from './session-slash.js';
-import { ensureTlsCert } from './tls-certs.js';
+} from "./ipc-protocol.js";
+import { validateClientMessage } from "./ipc-validate.js";
+import {
+  DEFAULT_MEMORY_POLICY,
+  Session,
+  type SessionMemoryPolicy,
+} from "./session.js";
+import { SessionEvictor } from "./session-evictor.js";
+import { resolveChannelCapabilities } from "./session-runtime-assembly.js";
+import { resolveSlash } from "./session-slash.js";
+import { ensureTlsCert } from "./tls-certs.js";
 
-const log = getLogger('server');
+const log = getLogger("server");
 
 function readPackageVersion(): string | undefined {
   try {
-    const pkgPath = join(import.meta.dir, '../../package.json');
-    const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8')) as { version?: string };
+    const pkgPath = join(import.meta.dir, "../../package.json");
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as {
+      version?: string;
+    };
     return pkg.version;
   } catch {
     return undefined;
@@ -64,7 +94,10 @@ function readPackageVersion(): string | undefined {
 
 const daemonVersion = readPackageVersion();
 
-function resolveTurnChannel(sourceChannel?: string, transportChannelId?: string): ChannelId {
+function resolveTurnChannel(
+  sourceChannel?: string,
+  transportChannelId?: string,
+): ChannelId {
   if (sourceChannel != null) {
     const parsed = parseChannelId(sourceChannel);
     if (!parsed) {
@@ -79,7 +112,7 @@ function resolveTurnChannel(sourceChannel?: string, transportChannelId?: string)
     }
     return parsed;
   }
-  return 'vellum';
+  return "vellum";
 }
 
 function resolveTurnInterface(sourceInterface?: string): InterfaceId {
@@ -92,17 +125,19 @@ function resolveTurnInterface(sourceInterface?: string): InterfaceId {
   }
   // Interface and channel are orthogonal dimensions; default explicitly
   // instead of deriving interface from channel.
-  return 'vellum';
+  return "vellum";
 }
 
-function resolveCanonicalRequestSourceType(sourceChannel: string | undefined): 'desktop' | 'channel' | 'voice' {
-  if (sourceChannel === 'voice') {
-    return 'voice';
+function resolveCanonicalRequestSourceType(
+  sourceChannel: string | undefined,
+): "desktop" | "channel" | "voice" {
+  if (sourceChannel === "voice") {
+    return "voice";
   }
-  if (sourceChannel === 'vellum') {
-    return 'desktop';
+  if (sourceChannel === "vellum") {
+    return "desktop";
   }
-  return 'channel';
+  return "channel";
 }
 
 /**
@@ -115,11 +150,11 @@ function makePendingInteractionRegistrar(
   conversationId: string,
 ): (msg: ServerMessage) => void {
   return (msg: ServerMessage) => {
-    if (msg.type === 'confirmation_request') {
+    if (msg.type === "confirmation_request") {
       pendingInteractions.register(msg.requestId, {
         session,
         conversationId,
-        kind: 'confirmation',
+        kind: "confirmation",
         confirmationDetails: {
           toolName: msg.toolName,
           input: msg.input,
@@ -128,6 +163,7 @@ function makePendingInteractionRegistrar(
           allowlistOptions: msg.allowlistOptions,
           scopeOptions: msg.scopeOptions,
           persistentDecisionsAllowed: msg.persistentDecisionsAllowed,
+          temporaryOptionsAvailable: msg.temporaryOptionsAvailable,
         },
       });
 
@@ -135,19 +171,20 @@ function makePendingInteractionRegistrar(
       // via applyCanonicalGuardianDecision.
       try {
         const guardianContext = session.guardianContext;
-        const sourceChannel = guardianContext?.sourceChannel ?? 'vellum';
+        const sourceChannel = guardianContext?.sourceChannel ?? "vellum";
         const canonicalRequest = createCanonicalGuardianRequest({
           id: msg.requestId,
-          kind: 'tool_approval',
+          kind: "tool_approval",
           sourceType: resolveCanonicalRequestSourceType(sourceChannel),
           sourceChannel,
           conversationId,
           requesterExternalUserId: guardianContext?.requesterExternalUserId,
           requesterChatId: guardianContext?.requesterChatId,
           guardianExternalUserId: guardianContext?.guardianExternalUserId,
-          guardianPrincipalId: guardianContext?.guardianPrincipalId ?? undefined,
+          guardianPrincipalId:
+            guardianContext?.guardianPrincipalId ?? undefined,
           toolName: msg.toolName,
-          status: 'pending',
+          status: "pending",
           requestCode: generateCanonicalRequestCode(),
           expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
         });
@@ -166,14 +203,14 @@ function makePendingInteractionRegistrar(
       } catch (err) {
         log.debug(
           { err, requestId: msg.requestId, conversationId },
-          'Failed to create canonical request from pending interaction registrar',
+          "Failed to create canonical request from pending interaction registrar",
         );
       }
-    } else if (msg.type === 'secret_request') {
+    } else if (msg.type === "secret_request") {
       pendingInteractions.register(msg.requestId, {
         session,
         conversationId,
-        kind: 'secret',
+        kind: "secret",
       });
     }
   };
@@ -206,7 +243,7 @@ export class DaemonServer {
   /**
    * Logical assistant identifier used when publishing to the assistant-events hub.
    */
-  assistantId: string = 'default';
+  assistantId: string = "default";
 
   /** Optional heartbeat service reference for "Run Now" from the UI. */
   private _heartbeatService?: HeartbeatService;
@@ -216,8 +253,9 @@ export class DaemonServer {
   }
 
   private deriveMemoryPolicy(conversationId: string): SessionMemoryPolicy {
-    const threadType = conversationStore.getConversationThreadType(conversationId);
-    if (threadType === 'private') {
+    const threadType =
+      conversationStore.getConversationThreadType(conversationId);
+    if (threadType === "private") {
       return {
         scopeId: conversationStore.getConversationMemoryScopeId(conversationId),
         includeDefaultFallback: true,
@@ -227,10 +265,16 @@ export class DaemonServer {
     return DEFAULT_MEMORY_POLICY;
   }
 
-  private applyTransportMetadata(_session: Session, options: SessionCreateOptions | undefined): void {
+  private applyTransportMetadata(
+    _session: Session,
+    options: SessionCreateOptions | undefined,
+  ): void {
     const transport = options?.transport;
     if (!transport) return;
-    log.debug({ channelId: transport.channelId }, 'Transport metadata received');
+    log.debug(
+      { channelId: transport.channelId },
+      "Transport metadata received",
+    );
   }
 
   constructor() {
@@ -242,26 +286,57 @@ export class DaemonServer {
     };
     this.evictor.shouldProtect = (sessionId: string) => {
       const children = getSubagentManager().getChildrenOf(sessionId);
-      return children.some((c) => c.status === 'running' || c.status === 'pending');
+      return children.some(
+        (c) => c.status === "running" || c.status === "pending",
+      );
     };
-    getSubagentManager().onSubagentFinished = async (parentSessionId, message, sendToClient, notification) => {
+    getSubagentManager().onSubagentFinished = async (
+      parentSessionId,
+      message,
+      sendToClient,
+      notification,
+    ) => {
       const parentSession = this.sessions.get(parentSessionId);
       if (!parentSession) {
-        log.warn({ parentSessionId }, 'Subagent finished but parent session not found');
+        log.warn(
+          { parentSessionId },
+          "Subagent finished but parent session not found",
+        );
         return;
       }
       const requestId = `subagent-notify-${Date.now()}`;
       const metadata = { subagentNotification: notification };
-      const enqueueResult = parentSession.enqueueMessage(message, [], sendToClient, requestId, undefined, undefined, metadata);
+      const enqueueResult = parentSession.enqueueMessage(
+        message,
+        [],
+        sendToClient,
+        requestId,
+        undefined,
+        undefined,
+        metadata,
+      );
       if (enqueueResult.rejected) {
-        log.warn({ parentSessionId }, 'Parent session queue full, dropping subagent notification');
+        log.warn(
+          { parentSessionId },
+          "Parent session queue full, dropping subagent notification",
+        );
         return;
       }
       if (!enqueueResult.queued) {
-        const messageId = await parentSession.persistUserMessage(message, [], undefined, metadata);
-        parentSession.runAgentLoop(message, messageId, sendToClient).catch((err) => {
-          log.error({ parentSessionId, err }, 'Failed to process subagent notification in parent');
-        });
+        const messageId = await parentSession.persistUserMessage(
+          message,
+          [],
+          undefined,
+          metadata,
+        );
+        parentSession
+          .runAgentLoop(message, messageId, sendToClient)
+          .catch((err) => {
+            log.error(
+              { parentSessionId, err },
+              "Failed to process subagent notification in parent",
+            );
+          });
       }
     };
   }
@@ -284,11 +359,13 @@ export class DaemonServer {
 
   private broadcastIdentityChanged(): void {
     try {
-      const identityPath = getWorkspacePromptPath('IDENTITY.md');
-      const content = existsSync(identityPath) ? readFileSync(identityPath, 'utf-8') : '';
+      const identityPath = getWorkspacePromptPath("IDENTITY.md");
+      const content = existsSync(identityPath)
+        ? readFileSync(identityPath, "utf-8")
+        : "";
       const fields = parseIdentityFields(content);
       this.broadcast({
-        type: 'identity_changed',
+        type: "identity_changed",
         name: fields.name,
         role: fields.role,
         personality: fields.personality,
@@ -296,7 +373,7 @@ export class DaemonServer {
         home: fields.home,
       });
     } catch (err) {
-      log.error({ err }, 'Failed to broadcast identity change');
+      log.error({ err }, "Failed to broadcast identity change");
     }
   }
 
@@ -312,22 +389,29 @@ export class DaemonServer {
     try {
       bootstrapHomeBaseAppLink();
     } catch (err) {
-      log.warn({ err }, 'Failed to bootstrap Home Base app link at daemon startup');
+      log.warn(
+        { err },
+        "Failed to bootstrap Home Base app link at daemon startup",
+      );
     }
 
     this.evictor.start();
 
     registerDaemonCallbacks({
-      getOrCreateSession: (conversationId) => this.getOrCreateSession(conversationId),
+      getOrCreateSession: (conversationId) =>
+        this.getOrCreateSession(conversationId),
       broadcast: (msg) => this.broadcast(msg),
     });
 
     ensureBlobDir();
-    this.blobSweepTimer = setInterval(() => {
-      sweepStaleBlobs(30 * 60 * 1000).catch((err) => {
-        log.warn({ err }, 'Blob sweep failed');
-      });
-    }, 5 * 60 * 1000);
+    this.blobSweepTimer = setInterval(
+      () => {
+        sweepStaleBlobs(30 * 60 * 1000).catch((err) => {
+          log.warn({ err }, "Blob sweep failed");
+        });
+      },
+      5 * 60 * 1000,
+    );
 
     this.configWatcher.start(
       () => this.evictSessionsForReload(),
@@ -335,12 +419,16 @@ export class DaemonServer {
     );
     this.auth.initToken();
 
-    let tlsCreds: { cert: string; key: string; fingerprint: string } | null = null;
+    let tlsCreds: { cert: string; key: string; fingerprint: string } | null =
+      null;
     if (isTCPEnabled()) {
       try {
         tlsCreds = await ensureTlsCert();
       } catch (err) {
-        log.error({ err }, 'Failed to generate TLS certificate — TCP listener will not start');
+        log.error(
+          { err },
+          "Failed to generate TLS certificate — TCP listener will not start",
+        );
       }
     }
 
@@ -351,53 +439,68 @@ export class DaemonServer {
 
       const oldUmask = process.umask(0o177);
 
-      this.server.once('error', (err) => {
+      this.server.once("error", (err) => {
         process.umask(oldUmask);
-        log.error({ err, socketPath: this.socketPath }, 'Server failed to start (is another daemon already running?)');
+        log.error(
+          { err, socketPath: this.socketPath },
+          "Server failed to start (is another daemon already running?)",
+        );
         reject(err);
       });
 
       this.server.listen(this.socketPath, () => {
         process.umask(oldUmask);
-        this.server!.removeAllListeners('error');
-        this.server!.on('error', (err) => {
-          log.error({ err, socketPath: this.socketPath }, 'Server socket error while running');
+        this.server!.removeAllListeners("error");
+        this.server!.on("error", (err) => {
+          log.error(
+            { err, socketPath: this.socketPath },
+            "Server socket error while running",
+          );
         });
         chmodSync(this.socketPath, 0o600);
         // Validate the chmod actually took effect — some filesystems
         // (e.g. FAT32 mounts, container overlays) silently ignore chmod.
         const socketStat = statSync(this.socketPath);
         if ((socketStat.mode & 0o077) !== 0) {
-          const actual = '0o' + (socketStat.mode & 0o777).toString(8);
+          const actual = "0o" + (socketStat.mode & 0o777).toString(8);
           log.error(
             { socketPath: this.socketPath, mode: actual },
-            'IPC socket is accessible by other users (expected 0600) — filesystem may not support Unix permissions',
+            "IPC socket is accessible by other users (expected 0600) — filesystem may not support Unix permissions",
           );
         }
-        log.info({ socketPath: this.socketPath }, 'Daemon server listening');
+        log.info({ socketPath: this.socketPath }, "Daemon server listening");
 
         if (tlsCreds) {
           const tcpPort = getTCPPort();
           const tcpHost = getTCPHost();
           this.tcpServer = tls.createServer(
             { cert: tlsCreds.cert, key: tlsCreds.key },
-            (socket) => { this.handleConnection(socket); },
+            (socket) => {
+              this.handleConnection(socket);
+            },
           );
-          this.tcpServer.on('error', (err) => {
-            log.error({ err, tcpPort }, 'TLS TCP server error');
+          this.tcpServer.on("error", (err) => {
+            log.error({ err, tcpPort }, "TLS TCP server error");
           });
           const fingerprint = tlsCreds.fingerprint;
           this.tcpServer.listen(tcpPort, tcpHost, () => {
             const localIP = getLocalIPv4();
             log.info(
-              { tcpPort, tcpHost, fingerprint, localIP, iosPairing: isIOSPairingEnabled() },
-              'TLS TCP listener started',
+              {
+                tcpPort,
+                tcpHost,
+                fingerprint,
+                localIP,
+                iosPairing: isIOSPairingEnabled(),
+              },
+              "TLS TCP listener started",
             );
             if (isIOSPairingEnabled() && localIP) {
               log.warn(
                 { localIP, tcpPort },
-                'iOS pairing enabled — daemon is reachable on the local network at %s:%d',
-                localIP, tcpPort,
+                "iOS pairing enabled — daemon is reachable on the local network at %s:%d",
+                localIP,
+                tcpPort,
               );
             }
           });
@@ -424,7 +527,10 @@ export class DaemonServer {
           try {
             removeSocketFile(this.socketPath);
           } catch (err) {
-            log.warn({ err, socketPath: this.socketPath }, 'Failed to remove socket file during shutdown');
+            log.warn(
+              { err, socketPath: this.socketPath },
+              "Failed to remove socket file during shutdown",
+            );
           }
           resolve();
         });
@@ -462,75 +568,117 @@ export class DaemonServer {
     this.cuObservationParseSequence.clear();
 
     await Promise.all([serverClosed, tcpServerClosed]);
-    log.info('Daemon server stopped');
+    log.info("Daemon server stopped");
   }
 
   // ── Connection handling ─────────────────────────────────────────────
 
   private handleConnection(socket: net.Socket): void {
     if (this.connectedSockets.size >= DaemonServer.MAX_CONNECTIONS) {
-      log.warn({ current: this.connectedSockets.size, max: DaemonServer.MAX_CONNECTIONS }, 'Connection limit reached, rejecting client');
-      socket.once('error', (err) => {
-        log.error({ err }, 'Socket error while rejecting connection');
+      log.warn(
+        {
+          current: this.connectedSockets.size,
+          max: DaemonServer.MAX_CONNECTIONS,
+        },
+        "Connection limit reached, rejecting client",
+      );
+      socket.once("error", (err) => {
+        log.error({ err }, "Socket error while rejecting connection");
       });
-      socket.write(serialize({ type: 'error', message: `Connection limit reached (max ${DaemonServer.MAX_CONNECTIONS})` }));
+      socket.write(
+        serialize({
+          type: "error",
+          message: `Connection limit reached (max ${DaemonServer.MAX_CONNECTIONS})`,
+        }),
+      );
       socket.destroy();
       return;
     }
 
-    log.info('Client connected');
+    log.info("Client connected");
     this.connectedSockets.add(socket);
     const parser = createMessageParser({ maxLineSize: MAX_LINE_SIZE });
 
     if (this.auth.shouldAutoAuth()) {
       this.auth.markAuthenticated(socket);
-      log.warn('Auto-authenticated client (VELLUM_DAEMON_NOAUTH is set — token auth bypassed)');
-      this.send(socket, { type: 'auth_result', success: true });
+      log.warn(
+        "Auto-authenticated client (VELLUM_DAEMON_NOAUTH is set — token auth bypassed)",
+      );
+      this.send(socket, { type: "auth_result", success: true });
       this.sendInitialSession(socket).catch((err) => {
-        log.error({ err }, 'Failed to send initial session info after auto-auth');
+        log.error(
+          { err },
+          "Failed to send initial session info after auto-auth",
+        );
       });
     }
 
     this.auth.startTimeout(socket, () => {
-      this.send(socket, { type: 'error', message: 'Authentication timeout' });
+      this.send(socket, { type: "error", message: "Authentication timeout" });
       socket.destroy();
     });
 
-    socket.on('data', (data) => {
+    socket.on("data", (data) => {
       const chunkReceivedAtMs = Date.now();
       const parseStartNs = process.hrtime.bigint();
       let parsed;
       try {
         parsed = parser.feedRaw(data.toString());
       } catch (err) {
-        log.error({ err }, 'IPC parse error (malformed JSON or message exceeded size limit), dropping client');
-        socket.write(serialize({ type: 'error', message: `IPC parse error: ${(err as Error).message}` }));
+        log.error(
+          { err },
+          "IPC parse error (malformed JSON or message exceeded size limit), dropping client",
+        );
+        socket.write(
+          serialize({
+            type: "error",
+            message: `IPC parse error: ${(err as Error).message}`,
+          }),
+        );
         socket.destroy();
         return;
       }
       const parsedAtMs = Date.now();
-      const parseDurationMs = Number(process.hrtime.bigint() - parseStartNs) / 1_000_000;
+      const parseDurationMs =
+        Number(process.hrtime.bigint() - parseStartNs) / 1_000_000;
       for (const entry of parsed) {
         const msg = entry.msg;
-        if (typeof msg === 'object' && msg != null && (msg as { type?: unknown }).type === 'cu_observation') {
+        if (
+          typeof msg === "object" &&
+          msg != null &&
+          (msg as { type?: unknown }).type === "cu_observation"
+        ) {
           const maybeSessionId = (msg as { sessionId?: unknown }).sessionId;
-          const sessionId = typeof maybeSessionId === 'string' ? maybeSessionId : 'unknown';
-          const previousSequence = this.cuObservationParseSequence.get(sessionId) ?? 0;
+          const sessionId =
+            typeof maybeSessionId === "string" ? maybeSessionId : "unknown";
+          const previousSequence =
+            this.cuObservationParseSequence.get(sessionId) ?? 0;
           const sequence = previousSequence + 1;
           this.cuObservationParseSequence.set(sessionId, sequence);
-          log.info({
-            sessionId,
-            sequence,
-            chunkReceivedAtMs,
-            parsedAtMs,
-            parseDurationMs,
-            messageBytes: entry.rawByteLength,
-          }, 'IPC_METRIC cu_observation_parse');
+          log.info(
+            {
+              sessionId,
+              sequence,
+              chunkReceivedAtMs,
+              parsedAtMs,
+              parseDurationMs,
+              messageBytes: entry.rawByteLength,
+            },
+            "IPC_METRIC cu_observation_parse",
+          );
         }
         const result = validateClientMessage(msg);
         if (!result.valid) {
-          log.warn({ reason: result.reason }, 'Invalid IPC message, dropping client');
-          socket.write(serialize({ type: 'error', message: `Invalid message: ${result.reason}` }));
+          log.warn(
+            { reason: result.reason },
+            "Invalid IPC message, dropping client",
+          );
+          socket.write(
+            serialize({
+              type: "error",
+              message: `Invalid message: ${result.reason}`,
+            }),
+          );
           socket.destroy();
           return;
         }
@@ -539,29 +687,42 @@ export class DaemonServer {
         if (!this.auth.isAuthenticated(socket)) {
           this.auth.clearTimeout(socket);
 
-          if (result.message.type === 'auth') {
-            const authMsg = result.message as { type: 'auth'; token: string };
+          if (result.message.type === "auth") {
+            const authMsg = result.message as { type: "auth"; token: string };
             if (this.auth.authenticate(socket, authMsg.token)) {
-              this.send(socket, { type: 'auth_result', success: true });
+              this.send(socket, { type: "auth_result", success: true });
               this.sendInitialSession(socket).catch((err) => {
-                log.error({ err }, 'Failed to send initial session info after auth');
+                log.error(
+                  { err },
+                  "Failed to send initial session info after auth",
+                );
               });
             } else {
-              this.send(socket, { type: 'auth_result', success: false, message: 'Invalid token' });
+              this.send(socket, {
+                type: "auth_result",
+                success: false,
+                message: "Invalid token",
+              });
               socket.destroy();
             }
             continue;
           }
 
-          log.warn({ type: result.message.type }, 'Unauthenticated client sent non-auth message, disconnecting');
-          this.send(socket, { type: 'error', message: 'Authentication required' });
+          log.warn(
+            { type: result.message.type },
+            "Unauthenticated client sent non-auth message, disconnecting",
+          );
+          this.send(socket, {
+            type: "error",
+            message: "Authentication required",
+          });
           socket.destroy();
           return;
         }
 
         // Already-authenticated socket sending auth (e.g. auto-auth'd + local token)
-        if (result.message.type === 'auth') {
-          this.send(socket, { type: 'auth_result', success: true });
+        if (result.message.type === "auth") {
+          this.send(socket, { type: "auth_result", success: true });
           continue;
         }
 
@@ -569,7 +730,7 @@ export class DaemonServer {
       }
     });
 
-    socket.on('close', () => {
+    socket.on("close", () => {
       this.auth.cleanupSocket(socket);
       this.connectedSockets.delete(socket);
       this.socketSandboxOverride.delete(socket);
@@ -604,11 +765,14 @@ export class DaemonServer {
         }
       }
       this.socketToCuSession.delete(socket);
-      log.info('Client disconnected');
+      log.info("Client disconnected");
     });
 
-    socket.on('error', (err) => {
-      log.error({ err, remoteAddress: socket.remoteAddress }, 'Client socket error');
+    socket.on("error", (err) => {
+      log.error(
+        { err, remoteAddress: socket.remoteAddress },
+        "Client socket error",
+      );
     });
   }
 
@@ -617,7 +781,7 @@ export class DaemonServer {
   setHttpPort(port: number): void {
     this.httpPort = port;
     this.broadcast({
-      type: 'daemon_status',
+      type: "daemon_status",
       httpPort: port,
       version: daemonVersion,
     });
@@ -670,7 +834,7 @@ export class DaemonServer {
     const conversation = conversationStore.getLatestConversation();
     if (!conversation) {
       this.send(socket, {
-        type: 'daemon_status',
+        type: "daemon_status",
         httpPort: this.httpPort,
         version: daemonVersion,
       });
@@ -680,14 +844,14 @@ export class DaemonServer {
     await this.getOrCreateSession(conversation.id, undefined, false);
 
     this.send(socket, {
-      type: 'session_info',
+      type: "session_info",
       sessionId: conversation.id,
-      title: conversation.title ?? 'New Conversation',
+      title: conversation.title ?? "New Conversation",
       threadType: normalizeThreadType(conversation.threadType),
     });
 
     this.send(socket, {
-      type: 'daemon_status',
+      type: "daemon_status",
       httpPort: this.httpPort,
       version: daemonVersion,
     });
@@ -710,7 +874,7 @@ export class DaemonServer {
       getSubagentManager().updateParentSender(conversationId, sendToClient);
     };
 
-    if (options && Object.values(options).some(v => v !== undefined)) {
+    if (options && Object.values(options).some((v) => v !== undefined)) {
       this.sessionOptions.set(conversationId, {
         ...this.sessionOptions.get(conversationId),
         ...options,
@@ -734,14 +898,25 @@ export class DaemonServer {
 
       const createPromise = (async () => {
         const config = getConfig();
-        let provider = getFailoverProvider(config.provider, config.providerOrder);
+        let provider = getFailoverProvider(
+          config.provider,
+          config.providerOrder,
+        );
         const { rateLimit } = config;
-        if (rateLimit.maxRequestsPerMinute > 0 || rateLimit.maxTokensPerSession > 0) {
-          provider = new RateLimitProvider(provider, rateLimit, this.sharedRequestTimestamps);
+        if (
+          rateLimit.maxRequestsPerMinute > 0 ||
+          rateLimit.maxTokensPerSession > 0
+        ) {
+          provider = new RateLimitProvider(
+            provider,
+            rateLimit,
+            this.sharedRequestTimestamps,
+          );
         }
         const workingDir = getSandboxWorkingDir();
 
-        const systemPrompt = storedOptions?.systemPromptOverride ?? buildSystemPrompt();
+        const systemPrompt =
+          storedOptions?.systemPromptOverride ?? buildSystemPrompt();
         const maxTokens = storedOptions?.maxResponseTokens ?? config.maxTokens;
 
         const memoryPolicy = this.deriveMemoryPolicy(conversationId);
@@ -795,7 +970,9 @@ export class DaemonServer {
       sharedRequestTimestamps: this.sharedRequestTimestamps,
       debounceTimers: this.configWatcher.timers,
       suppressConfigReload: this.configWatcher.suppressConfigReload,
-      setSuppressConfigReload: (value: boolean) => { this.configWatcher.suppressConfigReload = value; },
+      setSuppressConfigReload: (value: boolean) => {
+        this.configWatcher.suppressConfigReload = value;
+      },
       updateConfigFingerprint: () => {
         this.configWatcher.updateFingerprint();
       },
@@ -809,16 +986,25 @@ export class DaemonServer {
     };
   }
 
-  private dispatchMessage(msg: Parameters<typeof handleMessage>[0], socket: net.Socket): void {
-    if (msg.type !== 'ping') {
+  private dispatchMessage(
+    msg: Parameters<typeof handleMessage>[0],
+    socket: net.Socket,
+  ): void {
+    if (msg.type !== "ping") {
       const now = Date.now();
-      if (now - this.configWatcher.lastConfigRefreshTime >= ConfigWatcher.REFRESH_INTERVAL_MS) {
+      if (
+        now - this.configWatcher.lastConfigRefreshTime >=
+        ConfigWatcher.REFRESH_INTERVAL_MS
+      ) {
         try {
           const changed = this.configWatcher.refreshConfigFromSources();
           if (changed) this.evictSessionsForReload();
           this.configWatcher.lastConfigRefreshTime = now;
         } catch (err) {
-          log.warn({ err }, 'Failed to refresh config from secure sources before handling IPC message');
+          log.warn(
+            { err },
+            "Failed to refresh config from secure sources before handling IPC message",
+          );
         }
       }
     }
@@ -834,24 +1020,48 @@ export class DaemonServer {
     options: SessionCreateOptions | undefined,
     sourceChannel: string | undefined,
     sourceInterface: string | undefined,
-  ): Promise<{ session: Session; attachments: { id: string; filename: string; mimeType: string; data: string }[] }> {
+  ): Promise<{
+    session: Session;
+    attachments: {
+      id: string;
+      filename: string;
+      mimeType: string;
+      data: string;
+    }[];
+  }> {
     const ingressCheck = checkIngressForSecrets(content);
     if (ingressCheck.blocked) {
-      throw new IngressBlockedError(ingressCheck.userNotice!, ingressCheck.detectedTypes);
+      throw new IngressBlockedError(
+        ingressCheck.userNotice!,
+        ingressCheck.detectedTypes,
+      );
     }
 
-    const session = await this.getOrCreateSession(conversationId, undefined, true, options);
+    const session = await this.getOrCreateSession(
+      conversationId,
+      undefined,
+      true,
+      options,
+    );
 
     if (session.isProcessing()) {
-      throw new Error('Session is already processing a message');
+      throw new Error("Session is already processing a message");
     }
 
-    const resolvedChannel = resolveTurnChannel(sourceChannel, options?.transport?.channelId);
+    const resolvedChannel = resolveTurnChannel(
+      sourceChannel,
+      options?.transport?.channelId,
+    );
     const resolvedInterface = resolveTurnInterface(sourceInterface);
-    session.setAssistantId(options?.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID);
+    session.setAssistantId(
+      options?.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
+    );
     session.setGuardianContext(options?.guardianContext ?? null);
+    session.setAuthContext(options?.authContext ?? null);
     await session.ensureActorScopedHistory();
-    session.setChannelCapabilities(resolveChannelCapabilities(sourceChannel, sourceInterface));
+    session.setChannelCapabilities(
+      resolveChannelCapabilities(sourceChannel, sourceInterface),
+    );
     session.setCommandIntent(options?.commandIntent ?? null);
     session.setTurnChannelContext({
       userMessageChannel: resolvedChannel,
@@ -883,11 +1093,20 @@ export class DaemonServer {
     sourceInterface?: string,
   ): Promise<{ messageId: string }> {
     const { session, attachments } = await this.prepareSessionForMessage(
-      conversationId, content, attachmentIds, options, sourceChannel, sourceInterface,
+      conversationId,
+      content,
+      attachmentIds,
+      options,
+      sourceChannel,
+      sourceInterface,
     );
 
     const requestId = crypto.randomUUID();
-    const messageId = await session.persistUserMessage(content, attachments, requestId);
+    const messageId = await session.persistUserMessage(
+      content,
+      attachments,
+      requestId,
+    );
 
     // Register pending interactions so channel approval interception can
     // find the session by requestId when confirmation/secret events fire.
@@ -900,16 +1119,23 @@ export class DaemonServer {
       session.updateClient(onEvent, false);
     }
 
-    session.runAgentLoop(content, messageId, onEvent, { isInteractive: options?.isInteractive ?? false })
+    session
+      .runAgentLoop(content, messageId, onEvent, {
+        isInteractive: options?.isInteractive ?? false,
+        isUserMessage: true,
+      })
       .finally(() => {
         // Only reset if no other caller (e.g. a real IPC client) has rebound
         // the session's sender while the agent loop was running.
-        if (options?.isInteractive === true && session.getCurrentSender() === onEvent) {
+        if (
+          options?.isInteractive === true &&
+          session.getCurrentSender() === onEvent
+        ) {
           session.updateClient(() => {}, true);
         }
       })
       .catch((err) => {
-        log.error({ err, conversationId }, 'Background agent loop failed');
+        log.error({ err, conversationId }, "Background agent loop failed");
       });
 
     return { messageId };
@@ -924,28 +1150,42 @@ export class DaemonServer {
     sourceInterface?: string,
   ): Promise<{ messageId: string }> {
     const { session, attachments } = await this.prepareSessionForMessage(
-      conversationId, content, attachmentIds, options, sourceChannel, sourceInterface,
+      conversationId,
+      content,
+      attachmentIds,
+      options,
+      sourceChannel,
+      sourceInterface,
     );
 
     const slashResult = resolveSlash(content);
 
-    if (slashResult.kind === 'unknown') {
+    if (slashResult.kind === "unknown") {
       const serverTurnCtx = session.getTurnChannelContext();
       const serverInterfaceCtx = session.getTurnInterfaceContext();
-      const serverProvenance = provenanceFromGuardianContext(session.guardianContext);
+      const serverProvenance = provenanceFromGuardianContext(
+        session.guardianContext,
+      );
       const serverChannelMeta = {
         ...serverProvenance,
         ...(serverTurnCtx
-          ? { userMessageChannel: serverTurnCtx.userMessageChannel, assistantMessageChannel: serverTurnCtx.assistantMessageChannel }
+          ? {
+              userMessageChannel: serverTurnCtx.userMessageChannel,
+              assistantMessageChannel: serverTurnCtx.assistantMessageChannel,
+            }
           : {}),
         ...(serverInterfaceCtx
-          ? { userMessageInterface: serverInterfaceCtx.userMessageInterface, assistantMessageInterface: serverInterfaceCtx.assistantMessageInterface }
+          ? {
+              userMessageInterface: serverInterfaceCtx.userMessageInterface,
+              assistantMessageInterface:
+                serverInterfaceCtx.assistantMessageInterface,
+            }
           : {}),
       };
       const userMsg = createUserMessage(content, attachments);
       const persisted = await conversationStore.addMessage(
         conversationId,
-        'user',
+        "user",
         JSON.stringify(userMsg.content),
         serverChannelMeta,
       );
@@ -953,23 +1193,35 @@ export class DaemonServer {
 
       if (serverTurnCtx) {
         try {
-          conversationStore.setConversationOriginChannelIfUnset(conversationId, serverTurnCtx.userMessageChannel);
+          conversationStore.setConversationOriginChannelIfUnset(
+            conversationId,
+            serverTurnCtx.userMessageChannel,
+          );
         } catch (err) {
-          log.warn({ err, conversationId }, 'Failed to set origin channel (best-effort)');
+          log.warn(
+            { err, conversationId },
+            "Failed to set origin channel (best-effort)",
+          );
         }
       }
       if (serverInterfaceCtx) {
         try {
-          conversationStore.setConversationOriginInterfaceIfUnset(conversationId, serverInterfaceCtx.userMessageInterface);
+          conversationStore.setConversationOriginInterfaceIfUnset(
+            conversationId,
+            serverInterfaceCtx.userMessageInterface,
+          );
         } catch (err) {
-          log.warn({ err, conversationId }, 'Failed to set origin interface (best-effort)');
+          log.warn(
+            { err, conversationId },
+            "Failed to set origin interface (best-effort)",
+          );
         }
       }
 
       const assistantMsg = createAssistantMessage(slashResult.message);
       await conversationStore.addMessage(
         conversationId,
-        'assistant',
+        "assistant",
         JSON.stringify(assistantMsg.content),
         serverChannelMeta,
       );
@@ -979,14 +1231,18 @@ export class DaemonServer {
 
     const resolvedContent = slashResult.content;
 
-    if (slashResult.kind === 'rewritten') {
+    if (slashResult.kind === "rewritten") {
       session.setPreactivatedSkillIds([slashResult.skillId]);
     }
 
     const requestId = crypto.randomUUID();
     let messageId: string;
     try {
-      messageId = await session.persistUserMessage(resolvedContent, attachments, requestId);
+      messageId = await session.persistUserMessage(
+        resolvedContent,
+        attachments,
+        requestId,
+      );
     } catch (err) {
       session.setPreactivatedSkillIds(undefined);
       throw err;
@@ -1004,16 +1260,17 @@ export class DaemonServer {
     }
 
     try {
-      await session.runAgentLoop(
-        resolvedContent,
-        messageId,
-        onEvent,
-        { isInteractive: options?.isInteractive ?? false },
-      );
+      await session.runAgentLoop(resolvedContent, messageId, onEvent, {
+        isInteractive: options?.isInteractive ?? false,
+        isUserMessage: true,
+      });
     } finally {
       // Only reset if no other caller (e.g. a real IPC client) has rebound
       // the session's sender while the agent loop was running.
-      if (options?.isInteractive === true && session.getCurrentSender() === onEvent) {
+      if (
+        options?.isInteractive === true &&
+        session.getCurrentSender() === onEvent
+      ) {
         session.updateClient(() => {}, true);
       }
     }
@@ -1029,4 +1286,12 @@ export class DaemonServer {
     return this.getOrCreateSession(conversationId, undefined, true);
   }
 
+  /**
+   * Look up an active session by ID without creating one.
+   * Checks both normal sessions and computer-use sessions so the HTTP
+   * surface-action path is consistent with IPC dispatch.
+   */
+  findSession(sessionId: string): Session | ComputerUseSession | undefined {
+    return this.cuSessions.get(sessionId) ?? this.sessions.get(sessionId);
+  }
 }

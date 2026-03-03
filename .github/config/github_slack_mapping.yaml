@@ -1,6 +1,5 @@
 github_to_slack_all_notifications:
   noanflaherty: U04C2QS2404
-  asharma53: U04BTP01B2S
   AnitaKirkovska: U060M1MUT7F
   ashleeradka: U06LGSYA9JP
   awlevin: U07CLDQ4TB3
@@ -13,6 +12,7 @@ github_to_slack_all_notifications:
   Jasonnnz: U09DVL1JN3V
 
 github_to_slack_failure_notifications: # neutral good
+  asharma53: U04BTP01B2S
   siddseethepalli: U04C0B3038A
   dvargas92495: U05D5EGNNMS
   clopen-set: U08QQU27M0W

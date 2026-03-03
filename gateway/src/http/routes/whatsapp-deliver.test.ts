@@ -29,11 +29,8 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     maxWebhookPayloadBytes: 1024 * 1024,
     port: 7830,
     routingEntries: [],
-    runtimeBearerToken: undefined,
-    runtimeGatewayOriginSecret: undefined,
     runtimeInitialBackoffMs: 500,
     runtimeMaxRetries: 2,
-    runtimeProxyBearerToken: undefined,
     runtimeProxyEnabled: false,
     runtimeProxyRequireAuth: true,
     runtimeTimeoutMs: 30000,
@@ -65,9 +62,6 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     trustProxy: false,
     ...overrides,
   };
-  if (merged.runtimeGatewayOriginSecret === undefined) {
-    merged.runtimeGatewayOriginSecret = merged.runtimeBearerToken;
-  }
   return merged;
 }
 
@@ -103,7 +97,6 @@ describe("/deliver/whatsapp", () => {
   it("rejects when no bearer token and bypass not set with 503", async () => {
     const handler = createWhatsAppDeliverHandler(
       makeConfig({
-        runtimeProxyBearerToken: undefined,
         whatsappDeliverAuthBypass: false,
       }),
     );
@@ -116,7 +109,7 @@ describe("/deliver/whatsapp", () => {
 
   it("rejects request without Authorization header with 401", async () => {
     const handler = createWhatsAppDeliverHandler(
-      makeConfig({ runtimeProxyBearerToken: TOKEN }),
+      makeConfig({}),
     );
     const req = makeRequest({ to: "+15559876543", text: "hello" });
     const res = await handler(req);
@@ -127,7 +120,7 @@ describe("/deliver/whatsapp", () => {
 
   it("rejects request with wrong bearer token with 401", async () => {
     const handler = createWhatsAppDeliverHandler(
-      makeConfig({ runtimeProxyBearerToken: TOKEN }),
+      makeConfig({}),
     );
     const req = makeRequest({ to: "+15559876543", text: "hello" }, {
       authorization: "Bearer wrong-token",
@@ -140,7 +133,7 @@ describe("/deliver/whatsapp", () => {
 
   it("accepts request with correct bearer token", async () => {
     const handler = createWhatsAppDeliverHandler(
-      makeConfig({ runtimeProxyBearerToken: TOKEN }),
+      makeConfig({}),
     );
     const req = makeRequest({ to: "+15559876543", text: "hello" }, {
       authorization: `Bearer ${TOKEN}`,
@@ -154,7 +147,6 @@ describe("/deliver/whatsapp", () => {
   it("allows unauthenticated access when bypass flag is set and no token configured", async () => {
     const handler = createWhatsAppDeliverHandler(
       makeConfig({
-        runtimeProxyBearerToken: undefined,
         whatsappDeliverAuthBypass: true,
       }),
     );

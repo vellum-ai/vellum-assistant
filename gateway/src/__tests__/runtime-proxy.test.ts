@@ -20,11 +20,8 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     defaultAssistantId: undefined,
     unmappedPolicy: "reject",
     port: 7830,
-    runtimeBearerToken: undefined,
-    runtimeGatewayOriginSecret: undefined,
     runtimeProxyEnabled: true,
     runtimeProxyRequireAuth: false,
-    runtimeProxyBearerToken: undefined,
     shutdownDrainMs: 5000,
     runtimeTimeoutMs: 30000,
     runtimeMaxRetries: 2,
@@ -57,9 +54,6 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     trustProxy: false,
     ...overrides,
   };
-  if (merged.runtimeGatewayOriginSecret === undefined) {
-    merged.runtimeGatewayOriginSecret = merged.runtimeBearerToken;
-  }
   return merged;
 }
 
@@ -253,7 +247,7 @@ describe("runtime proxy handler", () => {
     });
 
     const handler = createRuntimeProxyHandler(
-      makeConfig({ runtimeProxyBearerToken: "daemon-token" }),
+      makeConfig({}),
     );
     const req = new Request("http://localhost:7830/v1/health", {
       headers: { authorization: "Bearer client-token" },
@@ -415,7 +409,7 @@ describe("runtime proxy handler", () => {
       });
 
       const handler = createRuntimeProxyHandler(
-        makeConfig({ runtimeBearerToken: "runtime-secret" }),
+        makeConfig({}),
       );
       const req = new Request("http://localhost:7830/v1/channels/inbound", {
         method: "POST",
@@ -435,7 +429,7 @@ describe("runtime proxy handler", () => {
       });
 
       const handler = createRuntimeProxyHandler(
-        makeConfig({ runtimeBearerToken: undefined }),
+        makeConfig({}),
       );
       const req = new Request("http://localhost:7830/v1/channels/inbound", {
         method: "POST",

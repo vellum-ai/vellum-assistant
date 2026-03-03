@@ -16,8 +16,8 @@ import { sendMessage as sendSms } from "../messaging/providers/sms/client.js";
 import { getCredentialMetadata } from "../tools/credentials/metadata-store.js";
 import { getLogger } from "../util/logger.js";
 import { normalizePhoneNumber } from "../util/phone.js";
-import { readHttpToken } from "../util/platform.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
+import { mintDaemonDeliveryToken } from "./auth/token-service.js";
 import {
   countRecentSendsToDestination,
   createOutboundSession,
@@ -153,13 +153,7 @@ function deliverVerificationSms(
   (async () => {
     try {
       const gatewayUrl = getGatewayInternalBaseUrl();
-      const bearerToken = readHttpToken();
-      if (!bearerToken) {
-        log.error(
-          "Cannot deliver verification SMS: no runtime HTTP token available",
-        );
-        return;
-      }
+      const bearerToken = mintDaemonDeliveryToken();
       await sendSms(gatewayUrl, bearerToken, to, text, assistantId);
       log.info({ to, assistantId }, "Verification SMS delivered");
     } catch (err) {
@@ -184,13 +178,7 @@ function deliverVerificationTelegram(
   (async () => {
     try {
       const gatewayUrl = getGatewayInternalBaseUrl();
-      const bearerToken = readHttpToken();
-      if (!bearerToken) {
-        log.error(
-          "Cannot deliver verification Telegram message: no runtime HTTP token available",
-        );
-        return;
-      }
+      const bearerToken = mintDaemonDeliveryToken();
       const url = `${gatewayUrl}/deliver/telegram`;
       const resp = await fetch(url, {
         method: "POST",
@@ -646,13 +634,7 @@ function deliverVerificationSlack(
   (async () => {
     try {
       const gatewayUrl = getGatewayInternalBaseUrl();
-      const bearerToken = readHttpToken();
-      if (!bearerToken) {
-        log.error(
-          "Cannot deliver verification Slack DM: no runtime HTTP token available",
-        );
-        return;
-      }
+      const bearerToken = mintDaemonDeliveryToken();
       const url = `${gatewayUrl}/deliver/slack`;
       const resp = await fetch(url, {
         method: "POST",

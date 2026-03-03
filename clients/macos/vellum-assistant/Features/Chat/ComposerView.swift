@@ -1089,8 +1089,12 @@ private final class ComposerNativeTextView: NSTextView {
         // keyDown where the send/accept/slash-menu logic lives.
         // Match exact .command only — Cmd+Opt+Enter, Cmd+Ctrl+Enter, etc.
         // must propagate normally, matching the keyDown equality check.
+        // Use an explicit modifier set instead of .deviceIndependentFlagsMask
+        // because the latter includes .numericPad and .capsLock, which would
+        // cause this check to fail when CapsLock is on or numpad Enter
+        // (keyCode 76) is pressed.
         if cmdEnterToSend,
-           event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+           event.modifierFlags.intersection([.shift, .command, .control, .option]) == [.command],
            (event.keyCode == 36 || event.keyCode == 76) {
             self.keyDown(with: event)
             return true

@@ -1,5 +1,7 @@
 import AppKit
+import SwiftUI
 import os
+import VellumAssistantShared
 
 private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "DictationOverlay")
 
@@ -138,7 +140,7 @@ final class DictationOverlayWindow {
         case .recording:
             let dot = NSView(frame: NSRect(x: 0, y: 0, width: 8, height: 8))
             dot.wantsLayer = true
-            dot.layer?.backgroundColor = NSColor.systemRed.cgColor
+            dot.layer?.backgroundColor = NSColor(VColor.error).cgColor
             dot.layer?.cornerRadius = 4
             dot.widthAnchor.constraint(equalToConstant: 8).isActive = true
             dot.heightAnchor.constraint(equalToConstant: 8).isActive = true
@@ -156,21 +158,21 @@ final class DictationOverlayWindow {
             return s
 
         case .transforming:
-            return makeSymbolView("wand.and.stars", color: .systemPurple)
+            return makeSymbolView("wand.and.stars", color: VColor.accent)
 
         case .done:
-            return makeSymbolView("checkmark.circle.fill", color: .systemGreen)
+            return makeSymbolView("checkmark.circle.fill", color: VColor.success)
 
         case .error:
-            return makeSymbolView("exclamationmark.triangle.fill", color: .systemRed)
+            return makeSymbolView("exclamationmark.triangle.fill", color: VColor.error)
         }
     }
 
-    private func makeSymbolView(_ name: String, color: NSColor) -> NSView {
+    private func makeSymbolView(_ name: String, color: Color) -> NSView {
         let imageView = NSImageView()
         if let img = NSImage(systemSymbolName: name, accessibilityDescription: nil) {
             imageView.image = img
-            imageView.contentTintColor = color
+            imageView.contentTintColor = NSColor(color)
         }
         imageView.widthAnchor.constraint(equalToConstant: 16).isActive = true
         imageView.heightAnchor.constraint(equalToConstant: 16).isActive = true
@@ -180,23 +182,23 @@ final class DictationOverlayWindow {
     private func labelContent(for state: DictationState) -> (String, NSColor) {
         switch state {
         case .recording:
-            return ("Recording...", .secondaryLabelColor)
+            return ("Recording...", NSColor(VColor.textSecondary))
         case .processing:
-            return ("Processing...", .secondaryLabelColor)
+            return ("Processing...", NSColor(VColor.textSecondary))
         case .transforming(let instruction):
             let truncated = instruction.count > 30 ? String(instruction.prefix(30)) + "..." : instruction
-            return ("Transforming: \(truncated)", .secondaryLabelColor)
+            return ("Transforming: \(truncated)", NSColor(VColor.textSecondary))
         case .done:
-            return ("Done", .systemGreen)
+            return ("Done", NSColor(VColor.success))
         case .error(let message):
-            return (message, .systemRed)
+            return (message, NSColor(VColor.error))
         }
     }
 
     private func makeLabel(for state: DictationState) -> NSTextField {
         let (text, color) = labelContent(for: state)
         let field = NSTextField(labelWithString: text)
-        field.font = NSFont.systemFont(ofSize: 11)
+        field.font = NSFont(name: "Inter", size: 11) ?? NSFont.systemFont(ofSize: 11)
         field.textColor = color
         field.lineBreakMode = .byTruncatingTail
         field.maximumNumberOfLines = 1
@@ -205,14 +207,14 @@ final class DictationOverlayWindow {
     }
 }
 
-/// Rounded, semi-transparent background matching the app's dark surface style.
+/// Rounded, semi-transparent background using design system tokens.
 private class OverlayBackgroundView: NSView {
     override var wantsUpdateLayer: Bool { true }
 
     override func updateLayer() {
-        layer?.backgroundColor = NSColor(white: 0.15, alpha: 0.95).cgColor
-        layer?.cornerRadius = 12
+        layer?.backgroundColor = NSColor(VColor.surface).withAlphaComponent(0.95).cgColor
+        layer?.cornerRadius = VRadius.lg
         layer?.borderWidth = 1
-        layer?.borderColor = NSColor(white: 0.25, alpha: 1.0).cgColor
+        layer?.borderColor = NSColor(VColor.surfaceBorder).cgColor
     }
 }

@@ -19,8 +19,8 @@ import { loadConfig } from '../../../config/loader.js';
 import { getOrCreateConversation } from '../../../memory/conversation-key-store.js';
 import * as externalConversationStore from '../../../memory/external-conversation-store.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../../../runtime/assistant-scope.js';
+import { mintDaemonDeliveryToken } from '../../../runtime/auth/token-service.js';
 import { getSecureKey } from '../../../security/secure-keys.js';
-import { readHttpToken } from '../../../util/platform.js';
 import type { MessagingProvider } from '../../provider.js';
 import type {
   ConnectionInfo,
@@ -40,13 +40,9 @@ function getGatewayUrl(): string {
   return getGatewayInternalBaseUrl();
 }
 
-/** Read the runtime HTTP bearer token used to authenticate with the gateway. */
+/** Mint a short-lived JWT for authenticating with the gateway. */
 function getBearerToken(): string {
-  const token = readHttpToken();
-  if (!token) {
-    throw new Error('No runtime HTTP bearer token available — is the daemon running?');
-  }
-  return token;
+  return mintDaemonDeliveryToken();
 }
 
 /** Check whether Twilio credentials are stored. */

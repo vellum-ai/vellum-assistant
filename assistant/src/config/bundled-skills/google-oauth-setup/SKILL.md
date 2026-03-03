@@ -20,7 +20,7 @@ Determine whether the user has browser automation available (macOS desktop app) 
 
 # Path A: Manual Setup for Channels (Telegram, SMS, etc.)
 
-When the user is on Telegram or any non-macOS client, walk them through a text-based setup. No browser automation is used — the user follows links and performs each action manually.
+When the user is on Telegram or any non-macOS client, walk them through a text-based setup. No browser automation is used; the user follows links and performs each action manually.
 
 ### Channel Step 1: Confirm and Explain
 
@@ -47,7 +47,7 @@ Tell the user:
 >
 > Set the project name to **"Vellum Assistant"** and click **Create**.
 >
-> Let me know when it's done (or if you already have a project you'd like to use — just tell me the project ID).
+> Let me know when it's done (or if you already have a project you'd like to use, just tell me the project ID).
 
 Wait for confirmation. Note the project ID for subsequent steps.
 
@@ -115,13 +115,13 @@ Tell the user:
 > 4. Under **Authorized redirect URIs**, click **Add URI** and paste the redirect URI shown above
 > 5. Click **Create**
 >
-> A dialog will show your **Client ID** and **Client Secret**. Copy both values — you'll need them in the next step.
+> A dialog will show your **Client ID** and **Client Secret**. Copy both values, you'll need them in the next step.
 
 **Important:** Channel users must use **"Web application"** credentials (not Desktop app) because the OAuth callback goes through the gateway URL.
 
 ### Channel Step 6: Store Credentials
 
-**Step 6a — Client ID (safe to send in chat):**
+**Step 6a: Client ID (safe to send in chat)**
 
 Tell the user:
 
@@ -138,7 +138,7 @@ credential_store store:
   value: "<the Client ID the user sent>"
 ```
 
-**Step 6b — Client Secret (requires split entry to avoid security filters):**
+**Step 6b: Client Secret (requires split entry to avoid security filters)**
 
 The Client Secret starts with `GOCSPX-` which triggers the ingress secret scanner on channel messages. To work around this, ask the user to send only the portion *after* the prefix.
 
@@ -200,7 +200,7 @@ You will automate the entire GCP setup via the browser while the user watches in
 
 Google Cloud Console's UI changes frequently. Do NOT memorize or depend on specific element IDs, CSS selectors, or DOM structures. Instead:
 
-1. **Snapshot first, act second.** Before every interaction, use `browser_snapshot` to discover interactive elements and their IDs. This is your primary navigation tool — it gives you the accessibility tree with clickable/typeable element IDs. Use `browser_screenshot` for visual context when the snapshot alone isn't enough.
+1. **Snapshot first, act second.** Before every interaction, use `browser_snapshot` to discover interactive elements and their IDs. This is your primary navigation tool; it gives you the accessibility tree with clickable/typeable element IDs. Use `browser_screenshot` for visual context when the snapshot alone isn't enough.
 2. **Adapt to what you see.** If an element's label or position differs from what you expect, use the snapshot to find the correct element. GCP may rename buttons, reorganize menus, or change form layouts at any time.
 3. **Verify after every action.** After clicking, typing, or navigating, take a new snapshot to confirm the action succeeded. If it didn't, try an alternative interaction (e.g., if a dropdown didn't open on click, try pressing Space or Enter on the element).
 4. **Never assume DOM structure.** Dropdowns may be `<select>`, `<mat-select>`, `<div role="listbox">`, or something else entirely. Use the snapshot to identify element types and interact accordingly.
@@ -214,31 +214,31 @@ Each step has a **retry budget of 3 attempts**. An attempt is one try at the ste
 2. **Fall back to manual.** Tell the user what you were trying to do and ask them to complete that step manually in the Chrome window (which they can see on the side). Give them the direct URL and clear text instructions.
 3. **Resume automation** at the next step once the user confirms the manual step is done.
 
-If **two or more steps** require manual fallback, abandon the automated flow entirely and switch to giving the user the remaining steps as clear text instructions with links — using "Desktop app" as the OAuth application type.
+If **two or more steps** require manual fallback, abandon the automated flow entirely and switch to giving the user the remaining steps as clear text instructions with links, using "Desktop app" as the OAuth application type.
 
-## Things That Do Not Work — Do Not Attempt
+## Things That Do Not Work: Do Not Attempt
 
 These actions are technically impossible in the browser automation environment. Attempting them wastes time and leads to loops:
 
 - **Downloading files.** `browser_click` on a Download button does not save files to disk. There is NO JSON file to find at `~/Downloads` or anywhere else. Never click Download buttons.
 - **Clipboard operations.** You cannot copy/paste via browser automation. The user must manually copy values from the Chrome window.
-- **Deleting and recreating OAuth clients** to get a fresh secret — this orphans the stored client_id and causes `invalid_client` errors.
-- **Navigating away from the credential dialog** before both credentials are stored — you will lose the Client Secret display and cannot get it back without creating a new client.
+- **Deleting and recreating OAuth clients** to get a fresh secret. This orphans the stored client_id and causes `invalid_client` errors.
+- **Navigating away from the credential dialog** before both credentials are stored. You will lose the Client Secret display and cannot get it back without creating a new client.
 
 ## Step 1: Single Upfront Confirmation
 
-Use `ui_show` with `surface_type: "confirmation"` and this message:
+Use `ui_show` with `surface_type: "confirmation"`. Set `message` to just the title, and `detail` to the body:
 
-> **Set up Google Cloud for Gmail & Calendar**
->
-> Here's what will happen:
-> 1. **A browser opens on the side** — you'll be able to watch everything I do
-> 2. **You sign in** to your Google account in the browser
-> 3. **I automate everything** — project creation, APIs, OAuth config, credentials
-> 4. **One copy-paste** — I'll ask you to copy the Client Secret from the browser into a secure prompt
-> 5. **You authorize Vellum** with one click
->
-> The whole thing takes 2-3 minutes. Ready?
+- **message:** `Set up Google Cloud for Gmail & Calendar`
+- **detail:**
+  > Here's what will happen:
+  > 1. **A browser opens on the side** so you can watch everything I do
+  > 2. **You sign in** to your Google account in the browser
+  > 3. **I automate everything** including project creation, APIs, OAuth config, and credentials
+  > 4. **One copy-paste** where I'll ask you to copy the Client Secret from the browser into a secure prompt
+  > 5. **You authorize Vellum** with one click
+  >
+  > The whole thing takes 2-3 minutes. Ready?
 
 If the user declines, acknowledge and stop. No further confirmations are needed after this point.
 
@@ -250,9 +250,9 @@ Navigate to `https://console.cloud.google.com/`.
 
 Take a screenshot to check the page state:
 
-- **Sign-in page:** Tell the user: "Please sign in to your Google account in the Chrome window on the right side of your screen." Then auto-detect sign-in completion by polling with `browser_screenshot` every 5-10 seconds — check if the URL has moved away from `accounts.google.com` to `console.cloud.google.com`. Do NOT ask the user to "let me know when you're done" — detect it automatically. Once sign-in is detected, tell the user: "Signed in! Starting the automated setup now..."
-- **Already signed in:** Tell the user: "Already signed in — starting setup now..." and continue immediately.
-- **CAPTCHA:** The browser automation's built-in handoff will handle this. If it persists, tell the user: "There's a CAPTCHA in the browser — please complete it and I'll continue automatically."
+- **Sign-in page:** Tell the user: "Please sign in to your Google account in the Chrome window on the right side of your screen." Then auto-detect sign-in completion by polling with `browser_screenshot` every 5-10 seconds to check if the URL has moved away from `accounts.google.com` to `console.cloud.google.com`. Do NOT ask the user to "let me know when you're done"; detect it automatically. Once sign-in is detected, tell the user: "Signed in! Starting the automated setup now..."
+- **Already signed in:** Tell the user: "Already signed in, starting setup now..." and continue immediately.
+- **CAPTCHA:** The browser automation's built-in handoff will handle this. If it persists, tell the user: "There's a CAPTCHA in the browser, please complete it and I'll continue automatically."
 
 **What you should see when done:** URL contains `console.cloud.google.com` and no sign-in overlay is visible.
 
@@ -266,10 +266,10 @@ Navigate to `https://console.cloud.google.com/projectcreate`.
 
 Take a `browser_snapshot`. Find the project name input field (look for an element with label containing "Project name" or a text input near the top of the form). Type "Vellum Assistant" into it.
 
-Look for a "Create" button in the snapshot and click it. Wait 10-15 seconds for project creation — take a screenshot to check for:
-- **Success message** or redirect to the new project dashboard — note the project ID from the URL or page content.
-- **"Project name already in use" error** — that's fine. Navigate to `https://console.cloud.google.com/cloud-resource-manager` to find and select the existing "Vellum Assistant" project. Use `browser_extract` to read the project ID from the page.
-- **Organization restriction or quota error** — tell the user what happened and ask them to resolve it.
+Look for a "Create" button in the snapshot and click it. Wait 10-15 seconds for project creation, then take a screenshot to check for:
+- **Success message** or redirect to the new project dashboard. Note the project ID from the URL or page content.
+- **"Project name already in use" error**: that's fine. Navigate to `https://console.cloud.google.com/cloud-resource-manager` to find and select the existing "Vellum Assistant" project. Use `browser_extract` to read the project ID from the page.
+- **Organization restriction or quota error**: tell the user what happened and ask them to resolve it.
 
 **What you should see when done:** The project selector in the top bar shows the project name, and you have the project ID (something like `vellum-assistant-12345`).
 
@@ -286,8 +286,8 @@ Navigate to each API's library page and enable it if not already enabled:
 2. `https://console.cloud.google.com/apis/library/calendar-json.googleapis.com?project=PROJECT_ID`
 
 For each page: take a `browser_snapshot`. Look for:
-- **"Enable" button** — click it, wait a few seconds, take another snapshot to confirm.
-- **"Manage" button or "API enabled" text** — the API is already enabled. Skip it.
+- **"Enable" button**: click it, wait a few seconds, take another snapshot to confirm.
+- **"Manage" button or "API enabled" text**: the API is already enabled. Skip it.
 
 **What you should see when done:** Both API pages show "Manage" or "API enabled" status.
 
@@ -297,7 +297,7 @@ Tell the user: "APIs enabled!"
 
 **Goal:** An OAuth consent screen is configured with External user type, the required scopes, and the user added as a test user.
 
-Tell the user: "Setting up OAuth consent screen — this is the longest step but it's fully automated..."
+Tell the user: "Setting up OAuth consent screen. This is the longest step but it's fully automated..."
 
 Navigate to `https://console.cloud.google.com/apis/credentials/consent?project=PROJECT_ID`.
 
@@ -354,12 +354,12 @@ Tell the user: "Creating OAuth credentials..."
 
 Navigate to `https://console.cloud.google.com/apis/credentials?project=PROJECT_ID`.
 
-Take a `browser_snapshot`. Find and click a button labeled **"Create Credentials"** or **"+ Create Credentials"**. A dropdown menu should appear — take another snapshot and click **"OAuth client ID"**.
+Take a `browser_snapshot`. Find and click a button labeled **"Create Credentials"** or **"+ Create Credentials"**. A dropdown menu should appear. Take another snapshot and click **"OAuth client ID"**.
 
 On the creation form (take a snapshot to see the fields):
-- **Application type**: Find the dropdown and select **"Desktop app"**. This may be a `<select>` element or a custom dropdown — use the snapshot to identify it. You might need to click the dropdown first, then take another snapshot to see the options, then click "Desktop app".
+- **Application type**: Find the dropdown and select **"Desktop app"**. This may be a `<select>` element or a custom dropdown. Use the snapshot to identify it. You might need to click the dropdown first, then take another snapshot to see the options, then click "Desktop app".
 - **Name**: Type "Vellum Assistant" in the name field.
-- Do NOT add any redirect URIs — the desktop app flow doesn't need them.
+- Do NOT add any redirect URIs. The desktop app flow doesn't need them.
 
 Click **"Create"** to submit the form.
 
@@ -387,9 +387,9 @@ credential_store prompt:
   placeholder: "xxxxx.apps.googleusercontent.com"
 ```
 
-**Then** — whether the Client ID was auto-read or prompted — tell the user:
+**Then**, whether the Client ID was auto-read or prompted, tell the user:
 
-> "Got the Client ID! Now I need the Client Secret. You can see it in the dialog in the Chrome window — it starts with `GOCSPX-`. Please copy it and paste it into the secure prompt below."
+> "Got the Client ID! Now I need the Client Secret. You can see it in the dialog in the Chrome window. It starts with `GOCSPX-`. Please copy it and paste it into the secure prompt below."
 
 And present the secure prompt:
 
@@ -404,7 +404,7 @@ credential_store prompt:
 
 Wait for the user to complete the prompt. **Do not take any other browser actions until the user has pasted the secret.** The dialog must stay open so they can see and copy the value.
 
-If the user has trouble locating the secret, take a `browser_screenshot` and describe where the secret field is on the screen — but do NOT attempt to read the secret value yourself. It must come from the user for accuracy.
+If the user has trouble locating the secret, take a `browser_screenshot` and describe where the secret field is on the screen, but do NOT attempt to read the secret value yourself. It must come from the user for accuracy.
 
 **What you should see when done:** `credential_store list` shows both `client_id` and `client_secret` for `integration:gmail`.
 
@@ -414,7 +414,7 @@ Tell the user: "Credentials stored securely!"
 
 **Goal:** The user authorizes Vellum to access their Gmail and Calendar via OAuth.
 
-Tell the user: "Opening Google authorization — just click 'Allow' on the consent page."
+Tell the user: "Starting the authorization flow — a Google sign-in page will open in a few seconds. Just click 'Allow' when it appears."
 
 Use `credential_store` with:
 
@@ -425,7 +425,7 @@ service: "integration:gmail"
 
 This auto-reads client_id and client_secret from the secure store and auto-fills auth_url, token_url, scopes, and extra_params from well-known config.
 
-**If the user sees a "This app isn't verified" warning:** Tell them: "You'll see an 'app isn't verified' warning — this is normal for personal apps in testing mode. Click **Advanced**, then **Go to Vellum Assistant (unsafe)** to proceed."
+**If the user sees a "This app isn't verified" warning:** Tell them: "You'll see an 'app isn't verified' warning. This is normal for personal apps in testing mode. Click **Advanced**, then **Go to Vellum Assistant (unsafe)** to proceed."
 
 **Verify:** The `oauth2_connect` call returns a success message with the connected account email.
 
@@ -437,7 +437,7 @@ Tell the user: "**Gmail and Calendar are connected!** You can now read, search, 
 
 - **Page load failures:** Retry navigation once. If it still fails, tell the user and ask them to check their internet connection.
 - **Permission errors in GCP:** The user may need billing enabled or organization-level permissions. Explain clearly and ask them to resolve it.
-- **Consent screen already configured:** Don't overwrite — skip to credential creation.
-- **Element not found:** Take a fresh `browser_snapshot` to re-assess. The GCP UI may have changed. Describe what you see and try alternative approaches. If stuck after 2 attempts, ask the user for guidance — they can see the Chrome window too.
+- **Consent screen already configured:** Don't overwrite. Skip to credential creation.
+- **Element not found:** Take a fresh `browser_snapshot` to re-assess. The GCP UI may have changed. Describe what you see and try alternative approaches. If stuck after 2 attempts, ask the user for guidance. They can see the Chrome window too.
 - **OAuth flow timeout or failure:** Offer to retry. The credentials are already stored, so reconnecting only requires re-running the authorization flow.
 - **Any unexpected state:** Take a `browser_screenshot`, describe what you see, and ask the user for guidance.

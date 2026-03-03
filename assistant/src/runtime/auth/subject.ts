@@ -1,0 +1,68 @@
+/**
+ * Sub (subject) pattern parser for JWT tokens.
+ *
+ * The sub claim encodes principal type, assistant scope, and optional
+ * actor/session identifiers in a colon-delimited string.
+ */
+
+import type { PrincipalType } from './types.js';
+
+// ---------------------------------------------------------------------------
+// Result types
+// ---------------------------------------------------------------------------
+
+export type ParseSubResult =
+  | {
+      ok: true;
+      principalType: PrincipalType;
+      assistantId: string;
+      actorPrincipalId?: string;
+      sessionId?: string;
+    }
+  | { ok: false; reason: string };
+
+// ---------------------------------------------------------------------------
+// Parser
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse a JWT sub claim into its constituent parts.
+ *
+ * Supported patterns:
+ *   actor:<assistantId>:<actorPrincipalId>
+ *   svc:gateway:<assistantId>
+ *   ipc:<assistantId>:<sessionId>
+ */
+export function parseSub(sub: string): ParseSubResult {
+  if (!sub || typeof sub !== 'string') {
+    return { ok: false, reason: 'sub is empty or not a string' };
+  }
+
+  const parts = sub.split(':');
+
+  if (parts[0] === 'actor' && parts.length === 3) {
+    const [, assistantId, actorPrincipalId] = parts;
+    if (!assistantId || !actorPrincipalId) {
+      return { ok: false, reason: 'actor sub has empty assistantId or actorPrincipalId' };
+    }
+    return { ok: true, principalType: 'actor', assistantId, actorPrincipalId };
+  }
+
+  if (parts[0] === 'svc' && parts[1] === 'gateway' && parts.length === 3) {
+    const assistantId = parts[2];
+    if (!assistantId) {
+      return { ok: false, reason: 'svc:gateway sub has empty assistantId' };
+    }
+    return { ok: true, principalType: 'svc_gateway', assistantId };
+  }
+
+  if (parts[0] === 'ipc' && parts.length === 3) {
+    const [, assistantId, sessionId] = parts;
+    if (!assistantId || !sessionId) {
+      return { ok: false, reason: 'ipc sub has empty assistantId or sessionId' };
+    }
+    return { ok: true, principalType: 'ipc', assistantId, sessionId };
+  }
+
+  return { ok: false, reason: `unrecognized sub pattern: ${sub}` };
+}

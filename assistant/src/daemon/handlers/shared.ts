@@ -6,6 +6,7 @@ import { v4 as uuid } from 'uuid';
 import { getConfig } from '../../config/loader.js';
 import type { HeartbeatService } from '../../heartbeat/heartbeat-service.js';
 import type { SecretPromptResult } from '../../permissions/secret-prompter.js';
+import type { AuthContext } from '../../runtime/auth/types.js';
 import type { DebouncerMap } from '../../util/debounce.js';
 import { getLogger } from '../../util/logger.js';
 import { estimateBase64Bytes } from '../assistant-attachments.js';
@@ -105,6 +106,8 @@ export interface SessionCreateOptions {
   transport?: SessionTransportMetadata;
   assistantId?: string;
   guardianContext?: GuardianRuntimeContext;
+  /** Normalized auth context for the session (IPC or HTTP-derived). */
+  authContext?: AuthContext;
   /** Whether this turn can block on interactive approval prompts. */
   isInteractive?: boolean;
   memoryScopeId?: string;

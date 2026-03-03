@@ -19,7 +19,7 @@ import { GENERATING_TITLE, queueGenerateConversationTitle, UNTITLED_FALLBACK } f
 import * as externalConversationStore from '../../memory/external-conversation-store.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../../runtime/assistant-scope.js';
 import { routeGuardianReply } from '../../runtime/guardian-reply-router.js';
-import { resolveLocalIpcGuardianContext } from '../../runtime/local-actor-identity.js';
+import { resolveLocalIpcAuthContext, resolveLocalIpcGuardianContext } from '../../runtime/local-actor-identity.js';
 import * as pendingInteractions from '../../runtime/pending-interactions.js';
 import { checkIngressForSecrets } from '../../security/secret-ingress.js';
 import { compileCustomPatterns, redactSecrets } from '../../security/secret-scanner.js';
@@ -119,6 +119,7 @@ function makeIpcEventSender(params: {
           allowlistOptions: event.allowlistOptions,
           scopeOptions: event.scopeOptions,
           persistentDecisionsAllowed: event.persistentDecisionsAllowed,
+          temporaryOptionsAvailable: event.temporaryOptionsAvailable,
         },
       });
 
@@ -286,6 +287,8 @@ export async function handleUserMessage(
       // the guardianPrincipalId, and resolveGuardianContext classifies the
       // local user as 'guardian' via binding match.
       session.setGuardianContext(resolveLocalIpcGuardianContext(ipcChannel));
+      // Align IPC sessions with the same AuthContext shape as HTTP sessions.
+      session.setAuthContext(resolveLocalIpcAuthContext(msg.sessionId));
       session.setCommandIntent(null);
       // Fire-and-forget: don't block the IPC handler so the connection can
       // continue receiving messages (e.g. cancel, confirmations, or

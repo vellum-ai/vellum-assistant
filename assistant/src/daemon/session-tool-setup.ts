@@ -6,31 +6,50 @@
  * keeping the constructor body focused on wiring.
  */
 
-import { generateAllowlistOptions, generateScopeOptions, normalizeWebFetchUrl } from '../permissions/checker.js';
-import type { PermissionPrompter } from '../permissions/prompter.js';
-import type { SecretPrompter } from '../permissions/secret-prompter.js';
-import { addRule, findHighestPriorityRule } from '../permissions/trust-store.js';
-import type { Message, ToolDefinition } from '../providers/types.js';
-import type { ToolExecutor } from '../tools/executor.js';
-import type { ToolExecutionResult, ToolLifecycleEventHandler } from '../tools/types.js';
-import { getLogger } from '../util/logger.js';
-import { isDoordashCommand, markDoordashStepInProgress } from './doordash-steps.js';
-import type { ServerMessage, UiSurfaceShow } from './ipc-protocol.js';
-import { runPostExecutionSideEffects } from './tool-side-effects.js';
-
-const log = getLogger('session-tool-setup');
-import { coreAppProxyTools } from '../tools/apps/definitions.js';
-import { registerSessionSender } from '../tools/browser/browser-screencast.js';
-import { requestComputerControlTool } from '../tools/computer-use/request-computer-control.js';
-import type { ProxyApprovalCallback, ProxyApprovalRequest } from '../tools/network/script-proxy/index.js';
-import { getAllToolDefinitions } from '../tools/registry.js';
-import { allUiSurfaceTools } from '../tools/ui-surface/definitions.js';
-import type { GuardianRuntimeContext } from './session-runtime-assembly.js';
-import { projectSkillTools, type SkillProjectionCache } from './session-skill-tools.js';
-import type { SurfaceSessionContext } from './session-surfaces.js';
 import {
-  surfaceProxyResolver,
-} from './session-surfaces.js';
+  generateAllowlistOptions,
+  generateScopeOptions,
+  normalizeWebFetchUrl,
+} from "../permissions/checker.js";
+import type { PermissionPrompter } from "../permissions/prompter.js";
+import type { SecretPrompter } from "../permissions/secret-prompter.js";
+import {
+  addRule,
+  findHighestPriorityRule,
+} from "../permissions/trust-store.js";
+import { isAllowDecision } from "../permissions/types.js";
+import type { Message, ToolDefinition } from "../providers/types.js";
+import { getEffectiveMode } from "../runtime/session-approval-overrides.js";
+import type { ToolExecutor } from "../tools/executor.js";
+import type {
+  ToolExecutionResult,
+  ToolLifecycleEventHandler,
+} from "../tools/types.js";
+import { getLogger } from "../util/logger.js";
+import {
+  isDoordashCommand,
+  markDoordashStepInProgress,
+} from "./doordash-steps.js";
+import type { ServerMessage, UiSurfaceShow } from "./ipc-protocol.js";
+import { runPostExecutionSideEffects } from "./tool-side-effects.js";
+
+const log = getLogger("session-tool-setup");
+import { coreAppProxyTools } from "../tools/apps/definitions.js";
+import { registerSessionSender } from "../tools/browser/browser-screencast.js";
+import { requestComputerControlTool } from "../tools/computer-use/request-computer-control.js";
+import type {
+  ProxyApprovalCallback,
+  ProxyApprovalRequest,
+} from "../tools/network/script-proxy/index.js";
+import { getAllToolDefinitions } from "../tools/registry.js";
+import { allUiSurfaceTools } from "../tools/ui-surface/definitions.js";
+import type { GuardianRuntimeContext } from "./session-runtime-assembly.js";
+import {
+  projectSkillTools,
+  type SkillProjectionCache,
+} from "./session-skill-tools.js";
+import type { SurfaceSessionContext } from "./session-surfaces.js";
+import { surfaceProxyResolver } from "./session-surfaces.js";
 
 // ── Context Interface ────────────────────────────────────────────────
 
@@ -94,11 +113,19 @@ export function createToolExecutor(
   ctx: ToolSetupContext,
   handleToolLifecycleEvent: ToolLifecycleEventHandler,
   broadcastToAllClients?: (msg: ServerMessage) => void,
-): (name: string, input: Record<string, unknown>, onOutput?: (chunk: string) => void) => Promise<ToolExecutionResult> {
+): (
+  name: string,
+  input: Record<string, unknown>,
+  onOutput?: (chunk: string) => void,
+) => Promise<ToolExecutionResult> {
   // Register the session's sendToClient for browser screencast surface messages
   registerSessionSender(ctx.conversationId, (msg) => ctx.sendToClient(msg));
 
-  return async (name: string, input: Record<string, unknown>, onOutput?: (chunk: string) => void) => {
+  return async (
+    name: string,
+    input: Record<string, unknown>,
+    onOutput?: (chunk: string) => void,
+  ) => {
     if (isDoordashCommand(name, input)) {
       markDoordashStepInProgress(ctx, input);
     }
@@ -110,9 +137,11 @@ export function createToolExecutor(
       assistantId: ctx.assistantId,
       requestId: ctx.currentRequestId,
       taskRunId: ctx.taskRunId,
-      guardianTrustClass: ctx.guardianContext?.trustClass ?? 'guardian',
+      guardianTrustClass: ctx.guardianContext?.trustClass ?? "guardian",
       executionChannel: ctx.guardianContext?.sourceChannel,
       callSessionId: ctx.callSessionId,
+      triggeredBySurfaceAction:
+        ctx.surfaceActionRequestIds?.has(ctx.currentRequestId ?? "") ?? false,
       requesterExternalUserId: ctx.guardianContext?.requesterExternalUserId,
       requesterChatId: ctx.guardianContext?.requesterChatId,
       onOutput,
@@ -126,7 +155,7 @@ export function createToolExecutor(
         // Tool context's sendToClient uses a loose { type: string; [key: string]: unknown }
         // signature, but at runtime these are always ServerMessage instances.
         ctx.sendToClient(msg as ServerMessage);
-        if (msg.type === 'ui_surface_show') {
+        if (msg.type === "ui_surface_show") {
           const s = msg as unknown as UiSurfaceShow;
           ctx.currentTurnSurfaces.push({
             surfaceId: s.surfaceId,
@@ -139,31 +168,59 @@ export function createToolExecutor(
         }
       },
       isInteractive: !ctx.hasNoClient && !ctx.headlessLock,
-      proxyToolResolver: (toolName: string, proxyInput: Record<string, unknown>) => surfaceProxyResolver(ctx, toolName, proxyInput),
+      proxyToolResolver: (
+        toolName: string,
+        proxyInput: Record<string, unknown>,
+      ) => surfaceProxyResolver(ctx, toolName, proxyInput),
       proxyApprovalCallback: createProxyApprovalCallback(prompter, ctx),
       requestSecret: async (params) => {
         return secretPrompter.prompt(
-          params.service, params.field, params.label,
-          params.description, params.placeholder,
+          params.service,
+          params.field,
+          params.label,
+          params.description,
+          params.placeholder,
           ctx.conversationId,
-          params.purpose, params.allowedTools, params.allowedDomains,
+          params.purpose,
+          params.allowedTools,
+          params.allowedDomains,
         );
       },
       requestConfirmation: async (req) => {
         // Check trust store before prompting
         const existingRule = findHighestPriorityRule(
-          'cc:' + req.toolName,
-          [req.toolName, `cc:${req.toolName}`, 'cc:*'],
+          "cc:" + req.toolName,
+          [req.toolName, `cc:${req.toolName}`, "cc:*"],
           ctx.workingDir,
         );
-        if (existingRule && existingRule.decision !== 'ask') {
+        if (existingRule && existingRule.decision !== "ask") {
           return {
-            decision: existingRule.decision === 'allow' ? 'allow' as const : 'deny' as const,
+            decision:
+              existingRule.decision === "allow"
+                ? ("allow" as const)
+                : ("deny" as const),
           };
         }
+        // Auto-approve sub-tool confirmations when a temporary approval
+        // override is active for this conversation (guardian only).
+        const guardianTrust = ctx.guardianContext?.trustClass ?? "guardian";
+        if (
+          guardianTrust === "guardian" &&
+          getEffectiveMode(ctx.conversationId) !== undefined
+        ) {
+          return { decision: "allow" as const };
+        }
         const allowlistOptions = [
-          { label: `cc:${req.toolName}`, description: `Claude Code ${req.toolName}`, pattern: `cc:${req.toolName}` },
-          { label: 'cc:*', description: 'All Claude Code sub-tools', pattern: 'cc:*' },
+          {
+            label: `cc:${req.toolName}`,
+            description: `Claude Code ${req.toolName}`,
+            pattern: `cc:${req.toolName}`,
+          },
+          {
+            label: "cc:*",
+            description: "All Claude Code sub-tools",
+            pattern: "cc:*",
+          },
         ];
         const scopeOptions = generateScopeOptions(ctx.workingDir);
         const response = await prompter.prompt(
@@ -172,26 +229,69 @@ export function createToolExecutor(
           req.riskLevel,
           allowlistOptions,
           scopeOptions,
-          undefined, undefined,
+          undefined,
+          undefined,
           ctx.conversationId,
           req.executionTarget,
         );
-        if ((response.decision === 'always_allow' || response.decision === 'always_allow_high_risk') && response.selectedPattern && response.selectedScope) {
-          log.info({ toolName: 'cc:' + req.toolName, pattern: response.selectedPattern, scope: response.selectedScope, highRisk: response.decision === 'always_allow_high_risk' }, 'Persisting always-allow trust rule');
-          addRule('cc:' + req.toolName, response.selectedPattern, response.selectedScope, 'allow', 100,
-            response.decision === 'always_allow_high_risk' ? { allowHighRisk: true } : undefined);
+        if (
+          (response.decision === "always_allow" ||
+            response.decision === "always_allow_high_risk") &&
+          response.selectedPattern &&
+          response.selectedScope
+        ) {
+          log.info(
+            {
+              toolName: "cc:" + req.toolName,
+              pattern: response.selectedPattern,
+              scope: response.selectedScope,
+              highRisk: response.decision === "always_allow_high_risk",
+            },
+            "Persisting always-allow trust rule",
+          );
+          addRule(
+            "cc:" + req.toolName,
+            response.selectedPattern,
+            response.selectedScope,
+            "allow",
+            100,
+            response.decision === "always_allow_high_risk"
+              ? { allowHighRisk: true }
+              : undefined,
+          );
         }
-        if (response.decision === 'always_deny' && response.selectedPattern && response.selectedScope) {
-          log.info({ toolName: 'cc:' + req.toolName, pattern: response.selectedPattern, scope: response.selectedScope }, 'Persisting always-deny trust rule');
-          addRule('cc:' + req.toolName, response.selectedPattern, response.selectedScope, 'deny');
+        if (
+          response.decision === "always_deny" &&
+          response.selectedPattern &&
+          response.selectedScope
+        ) {
+          log.info(
+            {
+              toolName: "cc:" + req.toolName,
+              pattern: response.selectedPattern,
+              scope: response.selectedScope,
+            },
+            "Persisting always-deny trust rule",
+          );
+          addRule(
+            "cc:" + req.toolName,
+            response.selectedPattern,
+            response.selectedScope,
+            "deny",
+          );
         }
         return {
-          decision: (response.decision === 'allow' || response.decision === 'always_allow' || response.decision === 'always_allow_high_risk') ? 'allow' as const : 'deny' as const,
+          decision: isAllowDecision(response.decision)
+            ? ("allow" as const)
+            : ("deny" as const),
         };
       },
     });
 
-    runPostExecutionSideEffects(name, input, result, { ctx, broadcastToAllClients });
+    runPostExecutionSideEffects(name, input, result, {
+      ctx,
+      broadcastToAllClients,
+    });
 
     return result;
   };
@@ -215,19 +315,20 @@ export function createProxyApprovalCallback(
 
     // Use the standard network_request tool name so trust rules align with
     // the checker's URL-based candidate generation and allowlist options.
-    const toolName = 'network_request';
+    const toolName = "network_request";
     const { scheme } = decision.target;
-    const url = `${scheme}://${hostname}${port ? ':' + port : ''}${path}`;
+    const url = `${scheme}://${hostname}${port ? ":" + port : ""}${path}`;
 
     const input: Record<string, unknown> = {
       url,
       proxy_session_id: request.sessionId,
     };
-    if (decision.kind === 'ask_missing_credential') {
+    if (decision.kind === "ask_missing_credential") {
       input.matching_patterns = decision.matchingPatterns;
     }
 
-    const riskLevel = decision.kind === 'ask_missing_credential' ? 'high' : 'medium';
+    const riskLevel =
+      decision.kind === "ask_missing_credential" ? "high" : "medium";
 
     // Check trust store before prompting — build candidates that mirror
     // buildCommandCandidates() in checker.ts for network_request.
@@ -241,16 +342,23 @@ export function createProxyApprovalCallback(
     // Deduplicate
     const uniqueCandidates = [...new Set(candidates)];
 
-    const existingRule = findHighestPriorityRule(toolName, uniqueCandidates, ctx.workingDir);
-    if (existingRule && existingRule.decision !== 'ask') {
-      if (existingRule.decision === 'deny') return false;
+    const existingRule = findHighestPriorityRule(
+      toolName,
+      uniqueCandidates,
+      ctx.workingDir,
+    );
+    if (existingRule && existingRule.decision !== "ask") {
+      if (existingRule.decision === "deny") return false;
       // For high-risk proxy decisions, a plain allow rule (without allowHighRisk)
       // must fall through to prompting — mirroring the checker's behavior.
-      if (riskLevel !== 'high' || existingRule.allowHighRisk === true) return true;
+      if (riskLevel !== "high" || existingRule.allowHighRisk === true)
+        return true;
     }
 
     // Use the checker's built-in allowlist generation for network_request
-    const allowlistOptions = await generateAllowlistOptions('network_request', { url });
+    const allowlistOptions = await generateAllowlistOptions("network_request", {
+      url,
+    });
 
     const scopeOptions = generateScopeOptions(ctx.workingDir);
 
@@ -259,6 +367,11 @@ export function createProxyApprovalCallback(
     if (ctx.hasNoClient) {
       return false;
     }
+
+    // Proxied network requests require per-invocation approval and must
+    // not be auto-approved by temporary overrides (allow_10m / allow_thread).
+    // Unlike regular tool invocations, these represent outbound network
+    // actions that should always receive explicit confirmation.
 
     const response = await prompter.prompt(
       toolName,
@@ -272,19 +385,54 @@ export function createProxyApprovalCallback(
     );
 
     // Persist trust rule if the user chose "always allow" or "always deny"
-    if ((response.decision === 'always_allow' || response.decision === 'always_allow_high_risk') && response.selectedPattern && response.selectedScope) {
-      log.info({ toolName, pattern: response.selectedPattern, scope: response.selectedScope, highRisk: response.decision === 'always_allow_high_risk' }, 'Persisting always-allow trust rule (proxy)');
-      addRule(toolName, response.selectedPattern, response.selectedScope, 'allow', 100,
-        response.decision === 'always_allow_high_risk' ? { allowHighRisk: true } : undefined);
+    if (
+      (response.decision === "always_allow" ||
+        response.decision === "always_allow_high_risk") &&
+      response.selectedPattern &&
+      response.selectedScope
+    ) {
+      log.info(
+        {
+          toolName,
+          pattern: response.selectedPattern,
+          scope: response.selectedScope,
+          highRisk: response.decision === "always_allow_high_risk",
+        },
+        "Persisting always-allow trust rule (proxy)",
+      );
+      addRule(
+        toolName,
+        response.selectedPattern,
+        response.selectedScope,
+        "allow",
+        100,
+        response.decision === "always_allow_high_risk"
+          ? { allowHighRisk: true }
+          : undefined,
+      );
     }
-    if (response.decision === 'always_deny' && response.selectedPattern && response.selectedScope) {
-      log.info({ toolName, pattern: response.selectedPattern, scope: response.selectedScope }, 'Persisting always-deny trust rule (proxy)');
-      addRule(toolName, response.selectedPattern, response.selectedScope, 'deny');
+    if (
+      response.decision === "always_deny" &&
+      response.selectedPattern &&
+      response.selectedScope
+    ) {
+      log.info(
+        {
+          toolName,
+          pattern: response.selectedPattern,
+          scope: response.selectedScope,
+        },
+        "Persisting always-deny trust rule (proxy)",
+      );
+      addRule(
+        toolName,
+        response.selectedPattern,
+        response.selectedScope,
+        "deny",
+      );
     }
 
-    return response.decision === 'allow'
-      || response.decision === 'always_allow'
-      || response.decision === 'always_allow_high_risk';
+    return isAllowDecision(response.decision);
   };
 }
 
@@ -295,7 +443,7 @@ export function createProxyApprovalCallback(
  * history or explicit preactivation. Without this, their tools are
  * unavailable in fresh sessions until `skill_load` is called.
  */
-const DEFAULT_PREACTIVATED_SKILL_IDS = ['tasks', 'notifications'];
+const DEFAULT_PREACTIVATED_SKILL_IDS = ["tasks", "notifications"];
 
 /**
  * Subset of Session state that the resolveTools callback reads at each
