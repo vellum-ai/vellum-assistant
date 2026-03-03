@@ -128,6 +128,9 @@ final class AssistantCli {
         if restart {
             arguments.append("--restart")
         }
+        #if DEBUG
+        arguments.append("--watch")
+        #endif
         if let name {
             arguments += ["--name", name]
         }
