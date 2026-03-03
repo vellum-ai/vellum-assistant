@@ -1021,7 +1021,9 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    /// Re-sync all keys to daemon on reconnect, including deletions for cleared keys.
+    /// Re-sync locally-known keys to daemon on reconnect.
+    /// Only pushes keys that are present in the macOS keychain — never deletes,
+    /// because the daemon may hold keys set through other flows (e.g. CLI).
     private func syncAllKeysToDaemon() {
         let apiKeyProviders: [(String, String?)] = [
             ("anthropic", APIKeyManager.getKey()),
@@ -1032,16 +1034,12 @@ public final class SettingsStore: ObservableObject {
         for (provider, value) in apiKeyProviders {
             if let key = value {
                 syncKeyToDaemon(provider: provider, value: key)
-            } else {
-                deleteKeyFromDaemon(provider: provider)
             }
         }
 
         // ElevenLabs uses the credential type, not api_key
         if let key = APIKeyManager.getKey(for: "elevenlabs") {
             syncCredentialToDaemon(name: "elevenlabs:api_key", value: key)
-        } else {
-            deleteCredentialFromDaemon(name: "elevenlabs:api_key")
         }
     }
 
