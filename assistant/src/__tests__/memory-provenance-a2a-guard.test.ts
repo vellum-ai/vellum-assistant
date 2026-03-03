@@ -21,6 +21,31 @@ import { describe, expect, it } from "bun:test";
 
 const srcDir = join(import.meta.dir, "..");
 
+/**
+ * Extract the full expression surrounding an `isTrustedActor` assignment or
+ * check. Instead of inspecting a single line, this finds the line containing
+ * the identifier and then extends forward until it reaches the statement
+ * terminator (`;`). This catches multiline `||` / `&&` conditions that would
+ * slip past a single-line check.
+ */
+function extractTrustGateExpression(
+  source: string,
+  identifier: string,
+  lineFilter: (line: string) => boolean,
+): string | undefined {
+  const lines = source.split("\n");
+  const startIdx = lines.findIndex((l) => l.includes(identifier) && lineFilter(l));
+  if (startIdx === -1) return undefined;
+
+  // Accumulate lines from the match until we see a semicolon (statement end)
+  const collected: string[] = [];
+  for (let i = startIdx; i < lines.length; i++) {
+    collected.push(lines[i]);
+    if (lines[i].includes(";")) break;
+  }
+  return collected.join("\n");
+}
+
 describe("memory provenance A2A guard", () => {
   // -----------------------------------------------------------------------
   // (a) Indexer write gate — peer_assistant excluded from extraction
@@ -45,20 +70,24 @@ describe("memory provenance A2A guard", () => {
       "indexer.ts must check for undefined provenance (legacy/desktop actors) in isTrustedActor.",
     ).toBe(true);
 
-    // The indexer must NOT have peer_assistant in its trusted check
-    const trustedLine = source
-      .split("\n")
-      .find((l) => l.includes("isTrustedActor") && l.includes("="));
+    // The indexer must NOT have peer_assistant in its trust-gate expression.
+    // We extract the full multiline expression (up to the semicolon) to catch
+    // regressions where peer_assistant is added on a continuation line.
+    const trustExpr = extractTrustGateExpression(
+      source,
+      "isTrustedActor",
+      (l) => l.includes("="),
+    );
     expect(
-      trustedLine,
+      trustExpr,
       "Expected to find isTrustedActor assignment in indexer.ts",
     ).toBeDefined();
 
     expect(
-      trustedLine!.includes("peer_assistant"),
-      "indexer.ts isTrustedActor must NOT include peer_assistant. " +
+      trustExpr!.includes("peer_assistant"),
+      "indexer.ts isTrustedActor expression must NOT include peer_assistant. " +
         "A2A peers must not trigger profile extraction. " +
-        `Found: "${trustedLine!.trim()}"`,
+        `Found: "${trustExpr!.trim()}"`,
     ).toBe(false);
   });
 
@@ -88,26 +117,30 @@ describe("memory provenance A2A guard", () => {
     );
 
     // The read gate must check strictly for 'guardian' only.
-    const trustedLine = source
-      .split("\n")
-      .find((l) => l.includes("isTrustedActor") && l.includes("==="));
+    // We extract the full multiline expression (up to the semicolon) to catch
+    // regressions where peer_assistant is added on a continuation line.
+    const trustExpr = extractTrustGateExpression(
+      source,
+      "isTrustedActor",
+      (l) => l.includes("==="),
+    );
     expect(
-      trustedLine,
+      trustExpr,
       "Expected to find isTrustedActor check in session-memory.ts",
     ).toBeDefined();
 
     expect(
-      trustedLine!.includes("'guardian'"),
+      trustExpr!.includes("'guardian'"),
       "session-memory.ts isTrustedActor must check for 'guardian'. " +
-        `Found: "${trustedLine!.trim()}"`,
+        `Found: "${trustExpr!.trim()}"`,
     ).toBe(true);
 
     // Must NOT include peer_assistant as trusted
     expect(
-      trustedLine!.includes("peer_assistant"),
-      "session-memory.ts isTrustedActor must NOT include 'peer_assistant'. " +
+      trustExpr!.includes("peer_assistant"),
+      "session-memory.ts isTrustedActor expression must NOT include 'peer_assistant'. " +
         "A2A peers must not receive memory recall or conflict disclosures. " +
-        `Found: "${trustedLine!.trim()}"`,
+        `Found: "${trustExpr!.trim()}"`,
     ).toBe(false);
   });
 
