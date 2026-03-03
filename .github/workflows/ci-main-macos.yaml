@@ -1,4 +1,4 @@
-name: CI Main macOS Tests
+name: CI Main macOS Build & Tests
 
 on:
   workflow_dispatch:
@@ -29,6 +29,10 @@ jobs:
           restore-keys: |
             macos-spm-${{ hashFiles('clients/Package.resolved') }}-
             macos-spm-
+
+      - name: Build executable
+        working-directory: clients
+        run: swift build --product vellum-assistant
 
       - name: Run tests
         working-directory: clients/macos
