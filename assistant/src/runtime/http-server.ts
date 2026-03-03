@@ -176,6 +176,16 @@ import {
   handlePairingRequest,
   handlePairingStatus,
 } from "./routes/pairing-routes.js";
+import {
+  handleA2AApprove,
+  handleA2AConnect,
+  handleA2AConnectionStatus,
+  handleA2AInvite,
+  handleA2AListConnections,
+  handleA2ARedeem,
+  handleA2ARevoke,
+  handleA2AVerify,
+} from './routes/a2a-routes.js';
 import { handleAddSecret, handleDeleteSecret } from "./routes/secret-routes.js";
 import { handleSurfaceAction } from "./routes/surface-action-routes.js";
 import {
@@ -1322,6 +1332,20 @@ export class RuntimeHttpServer {
       if (endpoint === 'brain-graph-ui' && req.method === 'GET') return handleServeBrainGraphUI(mintUiPageToken());
       if (endpoint === 'home-base-ui' && req.method === 'GET') return handleServeHomeBaseUI(mintUiPageToken());
       if (endpoint === 'events' && req.method === 'GET') return handleSubscribeAssistantEvents(req, url, { authContext });
+
+      // A2A connection management endpoints
+      if (endpoint === 'a2a/invite' && req.method === 'POST') return await handleA2AInvite(req);
+      if (endpoint === 'a2a/redeem' && req.method === 'POST') return await handleA2ARedeem(req);
+      if (endpoint === 'a2a/connect' && req.method === 'POST') return await handleA2AConnect(req);
+      if (endpoint === 'a2a/approve' && req.method === 'POST') return await handleA2AApprove(req);
+      if (endpoint === 'a2a/verify' && req.method === 'POST') return await handleA2AVerify(req);
+      if (endpoint === 'a2a/revoke' && req.method === 'POST') return await handleA2ARevoke(req);
+      if (endpoint === 'a2a/connections' && req.method === 'GET') return handleA2AListConnections(url);
+
+      const a2aConnectionStatusMatch = endpoint.match(/^a2a\/connections\/([^/]+)\/status$/);
+      if (a2aConnectionStatusMatch && req.method === 'GET') {
+        return handleA2AConnectionStatus(a2aConnectionStatusMatch[1]);
+      }
 
       // Internal OAuth callback endpoint (gateway -> runtime)
       if (endpoint === 'internal/oauth/callback' && req.method === 'POST') {
