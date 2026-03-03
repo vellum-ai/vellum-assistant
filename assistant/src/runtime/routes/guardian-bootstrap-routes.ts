@@ -22,6 +22,7 @@ import { mintCredentialPair } from '../actor-refresh-token-service.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
 import { httpError } from '../http-errors.js';
 import type { ServerWithRequestIP } from '../middleware/actor-token.js';
+import { isHttpAuthDisabled } from '../../config/env.js';
 
 const log = getLogger('guardian-bootstrap');
 
@@ -75,13 +76,13 @@ const LOOPBACK_ADDRESSES = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
  */
 export async function handleGuardianBootstrap(req: Request, server: ServerWithRequestIP): Promise<Response> {
   // Reject proxied requests — bootstrap is local-only
-  if (req.headers.get('x-forwarded-for')) {
+  if (req.headers.get('x-forwarded-for') && !isHttpAuthDisabled()) {
     return httpError('FORBIDDEN', 'Bootstrap endpoint is local-only', 403);
   }
 
   // Reject non-loopback peers
   const peerIp = server.requestIP(req)?.address;
-  if (!peerIp || !LOOPBACK_ADDRESSES.has(peerIp)) {
+  if ((!peerIp || !LOOPBACK_ADDRESSES.has(peerIp)) && !isHttpAuthDisabled()) {
     return httpError('FORBIDDEN', 'Bootstrap endpoint is local-only', 403);
   }
 
