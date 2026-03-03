@@ -299,10 +299,42 @@ export async function handleSkillsInstall(
       (s) => s.id === msg.slug && s.source === "bundled",
     );
     if (bundled) {
+      // Auto-enable the bundled skill so it's immediately usable
+      try {
+        const raw = loadRawConfig();
+        ensureSkillEntry(raw, msg.slug).enabled = true;
+        ctx.setSuppressConfigReload(true);
+        try {
+          saveRawConfig(raw);
+        } catch (err) {
+          ctx.setSuppressConfigReload(false);
+          throw err;
+        }
+        invalidateConfigCache();
+        ctx.debounceTimers.schedule(
+          "__suppress_reset__",
+          () => {
+            ctx.setSuppressConfigReload(false);
+          },
+          CONFIG_RELOAD_DEBOUNCE_MS,
+        );
+        ctx.updateConfigFingerprint();
+      } catch (err) {
+        log.warn(
+          { err, skillId: msg.slug },
+          "Failed to auto-enable bundled skill",
+        );
+      }
+
       ctx.send(socket, {
         type: "skills_operation_response",
         operation: "install",
         success: true,
+      });
+      ctx.broadcast({
+        type: "skills_state_changed",
+        name: msg.slug,
+        state: "enabled",
       });
       return;
     }
