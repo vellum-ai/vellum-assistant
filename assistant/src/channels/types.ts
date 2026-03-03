@@ -1,5 +1,5 @@
 export const CHANNEL_IDS = [
-  'telegram', 'sms', 'voice', 'vellum', 'whatsapp', 'slack', 'email',
+  'telegram', 'sms', 'voice', 'vellum', 'whatsapp', 'slack', 'email', 'assistant',
 ] as const;
 
 export type ChannelId = (typeof CHANNEL_IDS)[number];
@@ -37,7 +37,7 @@ export interface TurnChannelContext {
 
 export const INTERFACE_IDS = [
   'macos', 'ios', 'cli',
-  'telegram', 'sms', 'voice', 'vellum', 'whatsapp', 'slack', 'email',
+  'telegram', 'sms', 'voice', 'vellum', 'whatsapp', 'slack', 'email', 'assistant',
 ] as const;
 
 export type InterfaceId = (typeof INTERFACE_IDS)[number];

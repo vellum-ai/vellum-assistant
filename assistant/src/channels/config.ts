@@ -63,6 +63,12 @@ const CHANNEL_POLICIES = {
       conversationStrategy: 'not_deliverable',
     },
   },
+  assistant: {
+    notification: {
+      deliveryEnabled: false,
+      conversationStrategy: 'continue_existing_conversation',
+    },
+  },
 } as const satisfies Record<ChannelId, ChannelNotificationPolicy>;
 
 export type ChannelPolicies = typeof CHANNEL_POLICIES;

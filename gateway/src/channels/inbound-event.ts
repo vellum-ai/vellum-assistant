@@ -8,7 +8,7 @@ import type { ChannelId } from './types.js';
  * The discriminated union is keyed by `sourceChannel`.
  */
 
-export type InboundChannelId = Extract<ChannelId, 'telegram' | 'sms' | 'whatsapp' | 'slack'>;
+export type InboundChannelId = Extract<ChannelId, 'telegram' | 'sms' | 'whatsapp' | 'slack' | 'assistant'>;
 
 interface InboundEventBase<C extends InboundChannelId> {
   version: 'v1';
@@ -50,9 +50,11 @@ export type TelegramInboundEvent = InboundEventBase<'telegram'>;
 export type SmsInboundEvent = InboundEventBase<'sms'>;
 export type WhatsAppInboundEvent = InboundEventBase<'whatsapp'>;
 export type SlackInboundEvent = InboundEventBase<'slack'>;
+export type AssistantInboundEvent = InboundEventBase<'assistant'>;
 
 export type GatewayInboundEvent =
   | TelegramInboundEvent
   | SmsInboundEvent
   | WhatsAppInboundEvent
-  | SlackInboundEvent;
+  | SlackInboundEvent
+  | AssistantInboundEvent;
