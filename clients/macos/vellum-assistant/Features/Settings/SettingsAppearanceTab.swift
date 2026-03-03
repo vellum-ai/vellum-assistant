@@ -47,6 +47,8 @@ struct SettingsAppearanceTab: View {
                     .fixedSize()
                 }
 
+                Divider().background(VColor.surfaceBorder)
+
                 HStack(alignment: .top, spacing: VSpacing.lg) {
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
                         Text("User timezone")
