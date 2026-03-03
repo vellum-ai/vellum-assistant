@@ -1663,8 +1663,7 @@ export class RelayConnection {
   /**
    * Resolve a human-readable guardian label for voice wait copy.
    * Prefers displayName from the guardian binding metadata, falls back
-   * to @username, then the user's preferred name from USER.md, then
-   * "my guardian".
+   * to @username, then the user's preferred name from USER.md.
    */
   private resolveGuardianLabel(): string {
     const assistantId = this.accessRequestAssistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
@@ -1697,15 +1696,7 @@ export class RelayConnection {
       }
     }
 
-    // Fall back to the guardian's preferred name from USER.md (set during
-    // onboarding). Safe to share with unauthenticated callers — it's just
-    // a first name used in hold messages like "Still waiting on Noa".
-    const userRef = resolveUserReference();
-    if (userRef !== 'my human') {
-      return userRef;
-    }
-
-    return 'my guardian';
+    return resolveUserReference();
   }
 
   /**

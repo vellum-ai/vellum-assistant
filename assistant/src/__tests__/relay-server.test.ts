@@ -2276,7 +2276,7 @@ describe("relay-server", () => {
         .map((raw) => JSON.parse(raw) as { type: string; token?: string })
         .filter((m) => m.type === "text");
       const promptText = textMessages.map((m) => m.token ?? "").join("");
-      expect(promptText).toContain("Hi, this is my guardian's assistant.");
+      expect(promptText).toContain("Hi, this is my human's assistant.");
       expect(promptText).not.toContain("Vellum");
       expect(promptText).toContain("don't recognize this number");
       expect(promptText).toContain("Can I get your name");
@@ -2326,13 +2326,13 @@ describe("relay-server", () => {
     // Should have transitioned to awaiting guardian decision
     expect(relay.getConnectionState()).toBe("awaiting_guardian_decision");
 
-    // Should have sent the hold message (guardian label defaults to "my guardian")
+    // Should have sent the hold message (guardian label defaults to "my human")
     const textMessages = ws.sentMessages
       .map((raw) => JSON.parse(raw) as { type: string; token?: string })
       .filter((m) => m.type === "text");
     expect(
       textMessages.some((m) =>
-        (m.token ?? "").includes("I've let my guardian know"),
+        (m.token ?? "").includes("I've let my human know"),
       ),
     ).toBe(true);
     expect(
