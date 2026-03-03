@@ -801,21 +801,24 @@ export class RelayConnection {
     assistantId: string;
     fromNumber: string;
     callerName?: string;
+    skipMemberActivation?: boolean;
   }): void {
     const { assistantId, fromNumber, callerName } = params;
 
-    try {
-      upsertMember({
-        assistantId,
-        sourceChannel: 'voice',
-        externalUserId: fromNumber,
-        externalChatId: fromNumber,
-        displayName: callerName,
-        status: 'active',
-        policy: 'allow',
-      });
-    } catch (err) {
-      log.error({ err, callSessionId: this.callSessionId }, 'Failed to activate voice caller as trusted contact');
+    if (!params.skipMemberActivation) {
+      try {
+        upsertMember({
+          assistantId,
+          sourceChannel: 'voice',
+          externalUserId: fromNumber,
+          externalChatId: fromNumber,
+          displayName: callerName,
+          status: 'active',
+          policy: 'allow',
+        });
+      } catch (err) {
+        log.error({ err, callSessionId: this.callSessionId }, 'Failed to activate voice caller as trusted contact');
+      }
     }
 
     const updatedTrust = resolveActorTrust({
@@ -1625,6 +1628,7 @@ export class RelayConnection {
         assistantId: this.inviteRedemptionAssistantId,
         fromNumber: this.inviteRedemptionFromNumber,
         callerName: this.inviteRedemptionFriendName ?? undefined,
+        skipMemberActivation: true,
       });
     } else {
       // On any invalid/expired code, emit exact deterministic failure copy and end call immediately.
