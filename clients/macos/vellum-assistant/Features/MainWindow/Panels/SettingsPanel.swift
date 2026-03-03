@@ -897,6 +897,7 @@ struct SettingsPanel: View {
         }
         .padding(VSpacing.md)
         .vCard(background: VColor.surfaceSubtle)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func integrationDisplayName(_ id: String) -> String {

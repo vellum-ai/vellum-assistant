@@ -73,6 +73,7 @@ struct SettingsPrivacyTab: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(VSpacing.lg)
         .vCard(background: VColor.surfaceSubtle)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Data Loading

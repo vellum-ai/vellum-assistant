@@ -256,6 +256,7 @@ struct SettingsChannelsTab: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(VSpacing.lg)
         .vCard(background: VColor.surfaceSubtle)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Telegram Channel Card
@@ -310,6 +311,7 @@ struct SettingsChannelsTab: View {
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Telegram Approved Users
@@ -455,6 +457,7 @@ struct SettingsChannelsTab: View {
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Slack Channel Credential Entry
@@ -584,6 +587,7 @@ struct SettingsChannelsTab: View {
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Phone Calling Card
@@ -659,6 +663,7 @@ struct SettingsChannelsTab: View {
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Twilio Credential Entry
@@ -1519,6 +1524,7 @@ struct SettingsChannelsTab: View {
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder

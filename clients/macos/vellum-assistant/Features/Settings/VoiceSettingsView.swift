@@ -169,6 +169,7 @@ struct VoiceSettingsView: View {
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Custom Key Recording
@@ -368,6 +369,7 @@ struct VoiceSettingsView: View {
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func wakeWordStepCard(number: String, title: String, description: String) -> some View {
@@ -391,6 +393,7 @@ struct VoiceSettingsView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(VSpacing.lg)
         .vCard(background: VColor.surfaceSubtle)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private let timeoutOptions: [(label: String, value: Int)] = [
@@ -464,5 +467,6 @@ struct VoiceSettingsView: View {
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

@@ -196,6 +196,7 @@ struct SettingsAccountTab: View {
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Assistant Info
@@ -242,6 +243,7 @@ struct SettingsAccountTab: View {
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func infoRow(label: String, value: String, mono: Bool = false) -> some View {
@@ -330,6 +332,7 @@ struct SettingsAccountTab: View {
             .padding(VSpacing.lg)
             .frame(maxWidth: .infinity, alignment: .leading)
             .vCard(background: VColor.surfaceSubtle)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -369,6 +372,7 @@ struct SettingsAccountTab: View {
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Hatch New Assistant
@@ -452,6 +456,7 @@ struct SettingsAccountTab: View {
             .padding(VSpacing.lg)
             .frame(maxWidth: .infinity, alignment: .leading)
             .vCard(background: VColor.surfaceSubtle)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }
