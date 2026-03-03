@@ -27,6 +27,7 @@ import { canonicalizeInboundIdentity } from '../../util/canonicalize-identity.js
 import { IngressBlockedError } from '../../util/errors.js';
 import { getLogger } from '../../util/logger.js';
 import { notifyGuardianOfAccessRequest } from '../access-request-helper.js';
+import { resolveUserReference } from '../../config/user-reference.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
 import { mintDaemonDeliveryToken } from '../auth/token-service.js';
 import {
@@ -1577,10 +1578,8 @@ function startTrustedContactApprovalNotifier(params: {
           const guardianName = resolveGuardianDisplayName(
             assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
             sourceChannel,
-          );
-          const waitingText = guardianName
-            ? `Waiting for ${guardianName}'s approval...`
-            : 'Waiting for your guardian\'s approval...';
+          ) ?? resolveUserReference();
+          const waitingText = `Waiting for ${guardianName}'s approval...`;
           try {
             await deliverChannelReply(replyCallbackUrl, {
               chatId: externalChatId,

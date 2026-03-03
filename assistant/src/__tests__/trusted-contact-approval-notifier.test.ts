@@ -123,6 +123,7 @@ mock.module("../config/env.js", () => ({
 // Import module under test AFTER mocks are set up
 import type { ChannelId } from "../channels/types.js";
 import type { GuardianContext } from "../runtime/guardian-context-resolver.js";
+import { resolveUserReference } from "../config/user-reference.js";
 
 // We need to test the private functions by importing the module.
 // Since startTrustedContactApprovalNotifier is not exported, we test it
@@ -220,9 +221,7 @@ async function simulateNotifierPoll(params: {
     }
   }
 
-  const waitingText = guardianName
-    ? `Waiting for ${guardianName}'s approval...`
-    : "Waiting for your guardian's approval...";
+  const waitingText = `Waiting for ${guardianName ?? resolveUserReference()}'s approval...`;
 
   try {
     await deliverChannelReply(
@@ -330,7 +329,7 @@ describe("trusted-contact pending-approval notifier", () => {
     );
   });
 
-  test("uses generic phrasing when no guardian name is available", async () => {
+  test("falls back to user reference when no guardian name is available", async () => {
     mockPendingApprovals = [
       {
         requestId: "req-3",
@@ -359,11 +358,11 @@ describe("trusted-contact pending-approval notifier", () => {
 
     expect(deliveredReplies).toHaveLength(1);
     expect(deliveredReplies[0].payload.text).toBe(
-      "Waiting for your guardian's approval...",
+      "Waiting for my human's approval...",
     );
   });
 
-  test("uses generic phrasing when no guardian binding exists", async () => {
+  test("falls back to user reference when no guardian binding exists", async () => {
     mockPendingApprovals = [
       {
         requestId: "req-4",
@@ -388,7 +387,7 @@ describe("trusted-contact pending-approval notifier", () => {
 
     expect(deliveredReplies).toHaveLength(1);
     expect(deliveredReplies[0].payload.text).toBe(
-      "Waiting for your guardian's approval...",
+      "Waiting for my human's approval...",
     );
   });
 
@@ -736,7 +735,7 @@ describe("trusted-contact pending-approval notifier", () => {
     expect(deliveredReplies).toHaveLength(1);
     // Falls back to generic phrasing
     expect(deliveredReplies[0].payload.text).toBe(
-      "Waiting for your guardian's approval...",
+      "Waiting for my human's approval...",
     );
   });
 });
