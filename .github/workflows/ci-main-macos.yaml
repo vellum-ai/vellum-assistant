@@ -42,6 +42,7 @@ jobs:
     name: Slack Notification
     needs: [test]
     if: always()
+    continue-on-error: true
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
