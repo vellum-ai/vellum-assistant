@@ -15,6 +15,7 @@
  * they occur during the handshake before credentials are exchanged.
  */
 
+import { mintServiceToken } from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
 import { fetchImpl } from "../../fetch.js";
 import { getLogger } from "../../logger.js";
@@ -47,10 +48,8 @@ export function createA2AProxyHandler(config: GatewayConfig) {
       reqHeaders.set("x-forwarded-for", clientIp);
     }
 
-    // Add the runtime's bearer token for daemon auth
-    if (config.runtimeBearerToken) {
-      reqHeaders.set("authorization", `Bearer ${config.runtimeBearerToken}`);
-    }
+    // Mint a short-lived service token for gateway->runtime auth
+    reqHeaders.set("authorization", `Bearer ${mintServiceToken()}`);
 
     const hasBody = req.method !== "GET" && req.method !== "HEAD";
 

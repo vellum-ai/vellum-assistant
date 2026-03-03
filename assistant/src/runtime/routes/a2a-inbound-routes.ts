@@ -206,7 +206,7 @@ export async function handleA2AMessageInbound(
       });
       break;
     default:
-      textContent = '';
+      return httpError('BAD_REQUEST', `Unsupported A2A message content type: ${content.type}`, 400);
   }
 
   if (!processMessage) {
