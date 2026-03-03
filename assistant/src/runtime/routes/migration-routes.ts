@@ -132,7 +132,7 @@ export async function handleMigrationExport(req: Request): Promise<Response> {
     const timestamp = manifest.created_at.replace(/[:.]/g, "-");
     const filename = `export-${timestamp}.vbundle`;
 
-    return new Response(archive, {
+    return new Response(new Blob([archive]), {
       status: 200,
       headers: {
         "Content-Type": "application/octet-stream",
