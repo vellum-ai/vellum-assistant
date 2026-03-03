@@ -10,7 +10,7 @@ struct SettingsAutomationTab: View {
     @Binding var showingHeartbeatConfig: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.xl) {
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
             // Reminders section (from old Schedules tab)
             if daemonClient != nil {
                 VStack(alignment: .leading, spacing: VSpacing.md) {

@@ -15,7 +15,7 @@ struct SettingsAppearanceTab: View {
     @State private var showTimezonePicker = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.xl) {
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
             // DISPLAY section
             VStack(alignment: .leading, spacing: VSpacing.md) {
                 Text("Display")
