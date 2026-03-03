@@ -162,15 +162,8 @@ export class PermissionChecker {
         // skip the interactive prompt and auto-approve. Only applies to
         // guardian actors — untrusted actors cannot leverage this to bypass
         // guardian-required gates (those are enforced in pre-execution gates).
-        // Proxied bash commands require per-invocation approval and must not
-        // be auto-approved by a temporary override — they are excluded here
-        // by requiring persistent decisions to be allowed.
-        const persistentDecisionsAllowedForOverride = !(
-          name === "bash" && input.network_mode === "proxied"
-        );
         if (
           context.trustClass === "guardian" &&
-          persistentDecisionsAllowedForOverride &&
           getEffectiveMode(context.conversationId) !== undefined
         ) {
           log.info(
@@ -207,18 +200,12 @@ export class PermissionChecker {
           sandboxed = wrapped.sandboxed;
         }
 
-        // Proxied bash prompts are non-persistent — no trust rule saving allowed
-        const persistentDecisionsAllowed = !(
-          name === "bash" && input.network_mode === "proxied"
-        );
+        const persistentDecisionsAllowed = true;
 
-        // Only offer temporary approval options to guardians when persistent
-        // decisions are allowed (proxied bash is excluded since it requires
-        // per-invocation approval).
+        // Offer temporary approval options to guardians.
         const temporaryOptionsAvailable:
           | Array<"allow_10m" | "allow_thread">
           | undefined =
-          persistentDecisionsAllowed &&
           context.trustClass === "guardian"
             ? ["allow_10m", "allow_thread"]
             : undefined;
@@ -399,19 +386,13 @@ export class PermissionChecker {
         // time-limited or thread-scoped override. Subsequent tool
         // invocations in this conversation will auto-approve without
         // prompting (checked above in the temporary override block).
-        // Gated on persistentDecisionsAllowed so that proxied bash
-        // commands (which require per-invocation approval) cannot
-        // escalate into blanket auto-approval.
-        if (persistentDecisionsAllowed && response.decision === "allow_10m") {
+        if (response.decision === "allow_10m") {
           setTimedMode(context.conversationId);
           log.info(
             { toolName: name, conversationId: context.conversationId },
             "Activated timed (10m) temporary approval mode",
           );
-        } else if (
-          persistentDecisionsAllowed &&
-          response.decision === "allow_thread"
-        ) {
+        } else if (response.decision === "allow_thread") {
           setThreadMode(context.conversationId);
           log.info(
             { toolName: name, conversationId: context.conversationId },

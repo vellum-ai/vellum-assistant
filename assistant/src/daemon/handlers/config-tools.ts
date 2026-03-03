@@ -105,11 +105,7 @@ export async function handleToolPermissionSimulate(
     if (result.decision === 'prompt') {
       const allowlistOptions = await generateAllowlistOptions(msg.toolName, msg.input);
       const scopeOptions = generateScopeOptions(workingDir, msg.toolName);
-      const persistentDecisionsAllowed = !(
-        msg.toolName === 'bash'
-        && msg.input.network_mode === 'proxied'
-      );
-      promptPayload = { allowlistOptions, scopeOptions, persistentDecisionsAllowed };
+      promptPayload = { allowlistOptions, scopeOptions, persistentDecisionsAllowed: true };
     }
 
     ctx.send(socket, {

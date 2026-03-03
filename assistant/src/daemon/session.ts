@@ -532,9 +532,8 @@ export class Session {
     );
 
     // Mode activation (setTimedMode / setThreadMode) is intentionally NOT
-    // done here. It is handled in permission-checker.ts where
-    // persistentDecisionsAllowed context is available — this prevents
-    // proxied bash commands from escalating into blanket auto-approval.
+    // done here. It is handled in permission-checker.ts where the
+    // guardian trust-class and conversation context are available.
 
     // Emit authoritative confirmation state and activity transition centrally
     // so ALL callers (IPC handlers, /v1/confirm, channel bridges) get
