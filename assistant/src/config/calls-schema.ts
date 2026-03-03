@@ -19,30 +19,6 @@ export const CallsSafetyConfigSchema = z.object({
     .default([]),
 });
 
-export const CallsElevenLabsConfigSchema = z.object({
-  voiceModelId: z
-    .string({ error: 'calls.voice.elevenlabs.voiceModelId must be a string' })
-    .default(''),
-  speed: z
-    .number({ error: 'calls.voice.elevenlabs.speed must be a number' })
-    .min(0.7, 'calls.voice.elevenlabs.speed must be >= 0.7')
-    .max(1.2, 'calls.voice.elevenlabs.speed must be <= 1.2')
-    .default(1.0),
-  stability: z
-    .number({ error: 'calls.voice.elevenlabs.stability must be a number' })
-    .min(0, 'calls.voice.elevenlabs.stability must be >= 0')
-    .max(1, 'calls.voice.elevenlabs.stability must be <= 1')
-    .default(0.5),
-  similarityBoost: z
-    .number({ error: 'calls.voice.elevenlabs.similarityBoost must be a number' })
-    .min(0, 'calls.voice.elevenlabs.similarityBoost must be >= 0')
-    .max(1, 'calls.voice.elevenlabs.similarityBoost must be <= 1')
-    .default(0.75),
-  useSpeakerBoost: z
-    .boolean({ error: 'calls.voice.elevenlabs.useSpeakerBoost must be a boolean' })
-    .default(true),
-});
-
 export const CallsVoiceConfigSchema = z.object({
   language: z
     .string({ error: 'calls.voice.language must be a string' })
@@ -52,7 +28,6 @@ export const CallsVoiceConfigSchema = z.object({
       error: `calls.voice.transcriptionProvider must be one of: ${VALID_CALL_TRANSCRIPTION_PROVIDERS.join(', ')}`,
     })
     .default('Deepgram'),
-  elevenlabs: CallsElevenLabsConfigSchema.default(CallsElevenLabsConfigSchema.parse({})),
 });
 
 export const CallerIdentityConfigSchema = z.object({
@@ -151,6 +126,5 @@ export type CallsConfig = z.infer<typeof CallsConfigSchema>;
 export type CallsDisclosureConfig = z.infer<typeof CallsDisclosureConfigSchema>;
 export type CallsSafetyConfig = z.infer<typeof CallsSafetyConfigSchema>;
 export type CallsVoiceConfig = z.infer<typeof CallsVoiceConfigSchema>;
-export type CallsElevenLabsConfig = z.infer<typeof CallsElevenLabsConfigSchema>;
 export type CallerIdentityConfig = z.infer<typeof CallerIdentityConfigSchema>;
 export type CallsVerificationConfig = z.infer<typeof CallsVerificationConfigSchema>;

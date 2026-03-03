@@ -54,6 +54,6 @@ export function resolveVoiceQualityProfile(config?: ReturnType<typeof loadConfig
     language: voice.language,
     transcriptionProvider: voice.transcriptionProvider,
     ttsProvider: 'ElevenLabs',
-    voice: buildElevenLabsVoiceSpec({ voiceId: cfg.elevenlabs.voiceId, ...voice.elevenlabs }),
+    voice: buildElevenLabsVoiceSpec(cfg.elevenlabs),
   };
 }

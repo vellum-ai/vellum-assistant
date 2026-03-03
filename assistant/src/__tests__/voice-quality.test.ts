@@ -68,7 +68,6 @@ describe("resolveVoiceQualityProfile", () => {
         voice: {
           language: "en-US",
           transcriptionProvider: "Deepgram",
-          elevenlabs: {},
         },
       },
     };
@@ -83,7 +82,6 @@ describe("resolveVoiceQualityProfile", () => {
         voice: {
           language: "en-US",
           transcriptionProvider: "Deepgram",
-          elevenlabs: {},
         },
       },
     };
@@ -98,7 +96,6 @@ describe("resolveVoiceQualityProfile", () => {
         voice: {
           language: "es-MX",
           transcriptionProvider: "Google",
-          elevenlabs: {},
         },
       },
     };
@@ -109,17 +106,17 @@ describe("resolveVoiceQualityProfile", () => {
 
   test("builds voice spec with model and tuning params", () => {
     mockConfig = {
-      elevenlabs: { voiceId: "voice1" },
+      elevenlabs: {
+        voiceId: "voice1",
+        voiceModelId: "turbo_v2_5",
+        speed: 0.9,
+        stability: 0.8,
+        similarityBoost: 0.9,
+      },
       calls: {
         voice: {
           language: "en-US",
           transcriptionProvider: "Deepgram",
-          elevenlabs: {
-            voiceModelId: "turbo_v2_5",
-            speed: 0.9,
-            stability: 0.8,
-            similarityBoost: 0.9,
-          },
         },
       },
     };

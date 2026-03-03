@@ -243,13 +243,13 @@ Fine-tune how the selected voice sounds. These parameters apply to all ElevenLab
 
 ```bash
 # Playback speed (0.7 = slower, 1.0 = normal, 1.2 = faster)
-vellum config set calls.voice.elevenlabs.speed 1.0
+vellum config set elevenlabs.speed 1.0
 
 # Stability (0.0 = more expressive/variable, 1.0 = more consistent/monotone)
-vellum config set calls.voice.elevenlabs.stability 0.5
+vellum config set elevenlabs.stability 0.5
 
 # Similarity boost (0.0 = more creative, 1.0 = closer to original voice)
-vellum config set calls.voice.elevenlabs.similarityBoost 0.75
+vellum config set elevenlabs.similarityBoost 0.75
 ```
 
 Lower stability makes the voice more expressive but less predictable — good for conversational calls. Higher stability is better for scripted/formal calls.
@@ -261,7 +261,7 @@ By default, the system sends a **bare** `voiceId` to Twilio ConversationRelay (n
 If you want to force Twilio's extended voice spec, you can optionally set a model ID:
 
 ```bash
-vellum config set calls.voice.elevenlabs.voiceModelId "flash_v2_5"
+vellum config set elevenlabs.voiceModelId "flash_v2_5"
 ```
 
 When `voiceModelId` is set, the emitted voice string becomes:
@@ -531,10 +531,10 @@ All call-related settings can be managed via `vellum config`:
 | `calls.voice.language`                      | Language code for TTS and transcription                                                                    | `en-US`                                                                                                  |
 | `calls.voice.transcriptionProvider`         | Speech-to-text provider (`Deepgram`, `Google`)                                                             | `Deepgram`                                                                                               |
 | `elevenlabs.voiceId`                        | ElevenLabs voice ID used by both in-app TTS and phone calls. Set during setup from the curated voice list. Defaults to Rachel  | `21m00Tcm4TlvDq8ikWAM`                                                                                  |
-| `calls.voice.elevenlabs.voiceModelId`       | Optional Twilio ConversationRelay model suffix. Leave empty to send bare `voiceId`                         | _(empty)_                                                                                                |
-| `calls.voice.elevenlabs.speed`              | Playback speed (`0.7` – `1.2`)                                                                             | `1.0`                                                                                                    |
-| `calls.voice.elevenlabs.stability`          | Voice stability (`0.0` – `1.0`)                                                                            | `0.5`                                                                                                    |
-| `calls.voice.elevenlabs.similarityBoost`    | Voice similarity boost (`0.0` – `1.0`)                                                                     | `0.75`                                                                                                   |
+| `elevenlabs.voiceModelId`                   | Optional Twilio ConversationRelay model suffix. Leave empty to send bare `voiceId`                         | _(empty)_                                                                                                |
+| `elevenlabs.speed`                          | Playback speed (`0.7` – `1.2`)                                                                             | `1.0`                                                                                                    |
+| `elevenlabs.stability`                      | Voice stability (`0.0` – `1.0`)                                                                            | `0.5`                                                                                                    |
+| `elevenlabs.similarityBoost`                | Voice similarity boost (`0.0` – `1.0`)                                                                     | `0.75`                                                                                                   |
 
 ### Adjusting settings
 
@@ -616,7 +616,7 @@ The system has a 30-second silence timeout. If nobody speaks for 30 seconds, the
 ### Twilio says "application error" right after answer
 
 - This often means ConversationRelay rejected voice configuration after TwiML fetch
-- Keep `calls.voice.elevenlabs.voiceModelId` empty first (bare `voiceId` mode)
+- Keep `elevenlabs.voiceModelId` empty first (bare `voiceId` mode)
 - If you set `voiceModelId`, try clearing it and retesting:
-  `vellum config set calls.voice.elevenlabs.voiceModelId ""`
+  `vellum config set elevenlabs.voiceModelId ""`
 

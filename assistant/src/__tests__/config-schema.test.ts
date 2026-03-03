@@ -672,13 +672,6 @@ describe("AssistantConfigSchema", () => {
       voice: {
         language: "en-US",
         transcriptionProvider: "Deepgram",
-        elevenlabs: {
-          voiceModelId: "",
-          speed: 1.0,
-          stability: 0.5,
-          similarityBoost: 0.75,
-          useSpeakerBoost: true,
-        },
       },
       callerIdentity: {
         allowPerCallOverride: true,
@@ -785,33 +778,26 @@ describe("AssistantConfigSchema", () => {
     const result = AssistantConfigSchema.parse({});
     expect(result.calls.voice.language).toBe("en-US");
     expect(result.calls.voice.transcriptionProvider).toBe("Deepgram");
-    expect(result.calls.voice.elevenlabs.voiceModelId).toBe("");
-    expect(result.calls.voice.elevenlabs.speed).toBe(1.0);
-    expect(result.calls.voice.elevenlabs.stability).toBe(0.5);
-    expect(result.calls.voice.elevenlabs.similarityBoost).toBe(0.75);
-    expect(result.calls.voice.elevenlabs.useSpeakerBoost).toBe(true);
   });
 
-  test("legacy style field is silently stripped by schema", () => {
-    const result = AssistantConfigSchema.parse({
-      calls: { voice: { elevenlabs: { style: 0.5 } } },
-    });
-    expect(
-      (result.calls.voice.elevenlabs as Record<string, unknown>).style,
-    ).toBeUndefined();
-    expect(result.calls.voice.elevenlabs.speed).toBe(1.0);
+  test("elevenlabs tuning params have correct defaults", () => {
+    const result = AssistantConfigSchema.parse({});
+    expect(result.elevenlabs.voiceModelId).toBe("");
+    expect(result.elevenlabs.speed).toBe(1.0);
+    expect(result.elevenlabs.stability).toBe(0.5);
+    expect(result.elevenlabs.similarityBoost).toBe(0.75);
   });
 
-  test("rejects calls.voice.elevenlabs.speed below 0.7", () => {
+  test("rejects elevenlabs.speed below 0.7", () => {
     const result = AssistantConfigSchema.safeParse({
-      calls: { voice: { elevenlabs: { speed: 0.5 } } },
+      elevenlabs: { speed: 0.5 },
     });
     expect(result.success).toBe(false);
   });
 
-  test("rejects calls.voice.elevenlabs.speed above 1.2", () => {
+  test("rejects elevenlabs.speed above 1.2", () => {
     const result = AssistantConfigSchema.safeParse({
-      calls: { voice: { elevenlabs: { speed: 1.5 } } },
+      elevenlabs: { speed: 1.5 },
     });
     expect(result.success).toBe(false);
   });
@@ -822,18 +808,18 @@ describe("AssistantConfigSchema", () => {
         voice: {
           language: "es-ES",
           transcriptionProvider: "Google",
-          elevenlabs: {
-            stability: 0.8,
-          },
         },
+      },
+      elevenlabs: {
+        stability: 0.8,
       },
     });
     expect(result.calls.voice.language).toBe("es-ES");
     expect(result.calls.voice.transcriptionProvider).toBe("Google");
-    expect(result.calls.voice.elevenlabs.stability).toBe(0.8);
+    expect(result.elevenlabs.stability).toBe(0.8);
     // Defaults preserved for unset fields
-    expect(result.calls.voice.elevenlabs.voiceModelId).toBe("");
-    expect(result.calls.voice.elevenlabs.similarityBoost).toBe(0.75);
+    expect(result.elevenlabs.voiceModelId).toBe("");
+    expect(result.elevenlabs.similarityBoost).toBe(0.75);
   });
 
   test("rejects invalid calls.voice.transcriptionProvider", () => {
@@ -849,9 +835,9 @@ describe("AssistantConfigSchema", () => {
     }
   });
 
-  test("rejects calls.voice.elevenlabs.stability out of range", () => {
+  test("rejects elevenlabs.stability out of range", () => {
     const result = AssistantConfigSchema.safeParse({
-      calls: { voice: { elevenlabs: { stability: 1.5 } } },
+      elevenlabs: { stability: 1.5 },
     });
     expect(result.success).toBe(false);
   });
@@ -949,18 +935,14 @@ describe("resolveVoiceQualityProfile", () => {
     expect(profile.voice).toBe("21m00Tcm4TlvDq8ikWAM");
   });
 
-  test("applies call-specific voice tuning params from calls.voice.elevenlabs", () => {
+  test("applies voice tuning params from elevenlabs config", () => {
     const config = AssistantConfigSchema.parse({
-      elevenlabs: { voiceId: "abc123" },
-      calls: {
-        voice: {
-          elevenlabs: {
-            voiceModelId: "turbo_v2_5",
-            speed: 0.9,
-            stability: 0.8,
-            similarityBoost: 0.9,
-          },
-        },
+      elevenlabs: {
+        voiceId: "abc123",
+        voiceModelId: "turbo_v2_5",
+        speed: 0.9,
+        stability: 0.8,
+        similarityBoost: 0.9,
       },
     });
     const profile = resolveVoiceQualityProfile(config);
@@ -1010,10 +992,7 @@ describe("buildElevenLabsVoiceSpec", () => {
     const config = AssistantConfigSchema.parse({
       elevenlabs: { voiceId: "test" },
     });
-    const spec = buildElevenLabsVoiceSpec({
-      voiceId: config.elevenlabs.voiceId,
-      ...config.calls.voice.elevenlabs,
-    });
+    const spec = buildElevenLabsVoiceSpec(config.elevenlabs);
     expect(spec).toBe("test");
   });
 });
