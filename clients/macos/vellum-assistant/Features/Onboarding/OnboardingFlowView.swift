@@ -14,6 +14,11 @@ struct OnboardingFlowView: View {
     @State private var isBootstrappingManaged = false
     @State private var managedBootstrapError: String?
 
+    private static let appIcon: NSImage? = {
+        guard let path = ResourceBundle.bundle.path(forResource: "vellum-app-icon", ofType: "png") else { return nil }
+        return NSImage(contentsOfFile: path)
+    }()
+
     private var maxOnboardingStep: Int {
         state.userHostedEnabled ? 2 : 1
     }
@@ -45,8 +50,7 @@ struct OnboardingFlowView: View {
                 VStack(spacing: 0) {
                     Spacer()
 
-                    if let iconPath = ResourceBundle.bundle.path(forResource: "vellum-app-icon", ofType: "png"),
-                       let nsImage = NSImage(contentsOfFile: iconPath) {
+                    if let nsImage = Self.appIcon {
                         Image(nsImage: nsImage)
                             .resizable()
                             .aspectRatio(contentMode: .fit)
