@@ -97,13 +97,12 @@ struct SettingsPanel: View {
             settingsNav
                 .frame(width: 200)
 
-            // Right: tab content lives in its own surface panel
+            // Right: tab content on plain window background
             ScrollView {
                 selectedTabContent
                     .padding(VSpacing.lg)
                     .frame(maxWidth: .infinity, alignment: .top)
             }
-            .vCard(radius: VRadius.lg, background: VColor.surface)
             .padding(.trailing, VSpacing.lg)
             .padding(.vertical, VSpacing.lg)
         }
