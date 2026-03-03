@@ -23,10 +23,16 @@ interface WatcherEventPayload {
 
 /**
  * Extract a bare email address from a "Name <email>" or plain "email" string.
+ * Handles RFC 5322 addresses where display names or trailing comments may
+ * contain angle brackets (e.g., `"Team <Ops>" <user@example.com>`).
  */
 function extractEmail(from: string): string | undefined {
-  const match = from.match(/<([^>]+)>/);
-  if (match) return match[1].toLowerCase();
+  const segments = [...from.matchAll(/<([^>]+)>/g)].map((m) => m[1]);
+  if (segments.length > 0) {
+    const emailSegment = segments.findLast((s) => s.includes('@'));
+    if (emailSegment) return emailSegment.trim().toLowerCase();
+    return segments[segments.length - 1].trim().toLowerCase();
+  }
   if (from.includes('@')) return from.trim().toLowerCase();
   return undefined;
 }

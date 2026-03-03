@@ -29,6 +29,7 @@ type FixtureFactory = (options: FixtureOptions) => Promise<FixtureContext>;
 
 const FIXTURE_REGISTRY: Record<string, FixtureFactory> = {
   "desktop-app": createDesktopAppFixture,
+  "desktop-app-hatched": createDesktopAppHatchedFixture,
 };
 
 // ── Fixture Implementations ─────────────────────────────────────────
@@ -51,32 +52,10 @@ function defaultsDomain(workerIndex: number): string {
 
 async function createDesktopAppFixture(options: FixtureOptions): Promise<FixtureContext> {
   const workerIndex = options.workerIndex ?? 0;
-  const appDir = path.resolve(__dirname, "../../clients/macos/dist");
   const appDisplayName = process.env.APP_DISPLAY_NAME ?? "Vellum";
-  const appPath = path.join(appDir, `${appDisplayName}.app`);
 
-  // Verify the built macOS app exists
-  if (!existsSync(appPath)) {
-    throw new Error(`Built macOS app not found at: ${appPath}`);
-  }
-
-  // Log `vellum ps` output for debugging
-  try {
-    const psOutput = execSync("vellum ps", {
-      encoding: "utf-8",
-      timeout: 30_000,
-      shell: "/bin/bash",
-    });
-    const logsDir = path.resolve(__dirname, "../test-results/agent-logs");
-    mkdirSync(logsDir, { recursive: true });
-    writeFileSync(path.join(logsDir, "vellum-ps.log"), psOutput);
-  } catch (err) {
-    // Log the error but don't fail the fixture setup
-    const logsDir = path.resolve(__dirname, "../test-results/agent-logs");
-    mkdirSync(logsDir, { recursive: true });
-    const message = err instanceof Error ? err.message : String(err);
-    writeFileSync(path.join(logsDir, "vellum-ps.log"), `vellum ps failed: ${message}\n`);
-  }
+  verifyAppExists(appDisplayName);
+  logVellumPs();
 
   // Clear any previous onboarding state
   const domain = defaultsDomain(workerIndex);
@@ -91,17 +70,195 @@ async function createDesktopAppFixture(options: FixtureOptions): Promise<Fixture
 
   return {
     teardown: async () => {
-      // Kill the app on teardown
-      try {
-        execSync(
-          `osascript -e 'tell application "${appDisplayName}" to quit'`,
-          { timeout: 5_000 },
-        );
-      } catch {
-        // App may already be closed
-      }
+      retireAssistant();
+      quitApp(appDisplayName);
     },
   };
+}
+
+/**
+ * Fixture for tests that assume an assistant is already hatched.
+ *
+ * Skips clearing onboarding state so the desktop app opens straight
+ * to the already-hatched assistant instead of showing the setup flow.
+ */
+async function createDesktopAppHatchedFixture(options: FixtureOptions): Promise<FixtureContext> {
+  const _workerIndex = options.workerIndex ?? 0;
+  const appDisplayName = process.env.APP_DISPLAY_NAME ?? "Vellum";
+
+  verifyAppExists(appDisplayName);
+  ensureVellumInPath(appDisplayName);
+  ensureAssistantHatched();
+
+  return {
+    teardown: async () => {
+      retireAssistant();
+      quitApp(appDisplayName);
+    },
+  };
+}
+
+// ── Shared Helpers ──────────────────────────────────────────────────
+
+function verifyAppExists(appDisplayName: string): void {
+  const appDir = path.resolve(__dirname, "../../clients/macos/dist");
+  const appPath = path.join(appDir, `${appDisplayName}.app`);
+  if (!existsSync(appPath)) {
+    throw new Error(`Built macOS app not found at: ${appPath}`);
+  }
+
+  // Restore execute permissions on all binaries inside the app bundle.
+  // CI artifact extraction (zip/unzip) strips the +x bit from Mach-O
+  // binaries, which prevents the app and its helpers from launching.
+  const macosDir = path.join(appPath, "Contents", "MacOS");
+  if (existsSync(macosDir)) {
+    execSync(`chmod +x ${JSON.stringify(macosDir)}/*`);
+  }
+}
+
+function logVellumPs(): void {
+  try {
+    const psOutput = execSync("vellum ps", {
+      encoding: "utf-8",
+      timeout: 30_000,
+      shell: "/bin/bash",
+    });
+    const logsDir = path.resolve(__dirname, "../test-results/agent-logs");
+    mkdirSync(logsDir, { recursive: true });
+    writeFileSync(path.join(logsDir, "vellum-ps.log"), psOutput);
+  } catch (err) {
+    const logsDir = path.resolve(__dirname, "../test-results/agent-logs");
+    mkdirSync(logsDir, { recursive: true });
+    const message = err instanceof Error ? err.message : String(err);
+    writeFileSync(path.join(logsDir, "vellum-ps.log"), `vellum ps failed: ${message}\n`);
+  }
+}
+
+/**
+ * Resolves the path to the bundled `vellum-cli` binary inside the
+ * desktop app and creates a `vellum` symlink in a temporary bin
+ * directory that is prepended to PATH. This ensures all subsequent
+ * `vellum` commands use the CLI that ships with the app under test.
+ */
+function ensureVellumInPath(appDisplayName: string): void {
+  const appDir = path.resolve(__dirname, "../../clients/macos/dist");
+  const cliBinary = path.join(appDir, `${appDisplayName}.app`, "Contents", "MacOS", "vellum-cli");
+
+  if (!existsSync(cliBinary)) {
+    throw new Error(`Bundled CLI not found at: ${cliBinary}`);
+  }
+
+  // Create a temp bin dir with a `vellum` symlink pointing to the bundled CLI
+  const tmpBin = path.join(__dirname, "../.vellum-bin");
+  mkdirSync(tmpBin, { recursive: true });
+  const symlinkPath = path.join(tmpBin, "vellum");
+
+  try {
+    // Remove stale symlink if it exists
+    if (existsSync(symlinkPath)) {
+      execSync(`rm -f ${JSON.stringify(symlinkPath)}`);
+    }
+    execSync(`ln -s ${JSON.stringify(cliBinary)} ${JSON.stringify(symlinkPath)}`);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`Failed to create vellum symlink: ${message}`);
+  }
+
+  // Prepend the temp bin dir to PATH
+  if (!process.env.PATH?.includes(tmpBin)) {
+    process.env.PATH = `${tmpBin}:${process.env.PATH ?? ""}`;
+  }
+
+  // Verify it works
+  try {
+    execSync("vellum --version", {
+      encoding: "utf-8",
+      timeout: 10_000,
+      shell: "/bin/bash",
+      env: process.env,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `vellum CLI not working after symlinking bundled binary from ${cliBinary}: ${message}`,
+    );
+  }
+}
+
+/**
+ * Ensures an assistant is hatched.
+ *
+ * Checks `vellum ps` for an existing assistant. If none is found,
+ * runs `vellum hatch` to create one.
+ */
+function ensureAssistantHatched(): void {
+  let psOutput: string;
+  try {
+    psOutput = execSync("vellum ps", {
+      encoding: "utf-8",
+      timeout: 30_000,
+      shell: "/bin/bash",
+    });
+  } catch {
+    // vellum ps failed — try hatching
+    psOutput = "";
+  }
+
+  const lines = psOutput
+    .split("\n")
+    .filter((l) => l.trim() && !l.includes("NAME") && !l.startsWith("  -"));
+
+  if (lines.length > 0) {
+    logVellumPs();
+    return;
+  }
+
+  // No assistant found — hatch one
+  try {
+    execSync("vellum hatch", {
+      stdio: "inherit",
+      timeout: 300_000,
+      shell: "/bin/bash",
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`Failed to hatch assistant: ${message}`);
+  }
+
+  logVellumPs();
+}
+
+function retireAssistant(): void {
+  try {
+    const psOutput = execSync("vellum ps", {
+      encoding: "utf-8",
+      timeout: 30_000,
+      shell: "/bin/bash",
+    });
+    const lines = psOutput
+      .split("\n")
+      .filter((l) => l.trim() && !l.includes("NAME") && !l.startsWith("  -"));
+    const assistantName = lines[0]?.trim().split(/\s{2,}/)[0];
+    if (assistantName) {
+      execSync(`vellum retire ${assistantName}`, {
+        timeout: 30_000,
+        shell: "/bin/bash",
+      });
+    }
+  } catch {
+    // vellum CLI may not be installed or no assistant to retire
+  }
+}
+
+function quitApp(appDisplayName: string): void {
+  try {
+    execSync(
+      `osascript -e 'tell application "${appDisplayName}" to quit'`,
+      { timeout: 5_000 },
+    );
+  } catch {
+    // App may already be closed
+  }
 }
 
 // ── Public API ──────────────────────────────────────────────────────
