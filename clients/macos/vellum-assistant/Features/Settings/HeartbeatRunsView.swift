@@ -9,6 +9,8 @@ struct HeartbeatRunsView: View {
     @State private var isRunning: Bool = false
     @State private var runError: String?
     @State private var expandedRunId: String?
+    @State private var previousRunNowCallback: ((IPCHeartbeatRunNowResponse) -> Void)?
+    @State private var previousRunsListCallback: ((IPCHeartbeatRunsListResponse) -> Void)?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -181,6 +183,9 @@ struct HeartbeatRunsView: View {
     }
 
     private func setupCallbacks() {
+        previousRunsListCallback = daemonClient.onHeartbeatRunsListResponse
+        previousRunNowCallback = daemonClient.onHeartbeatRunNowResponse
+
         daemonClient.onHeartbeatRunsListResponse = { response in
             Task { @MainActor in
                 self.runs = response.runs
@@ -199,7 +204,7 @@ struct HeartbeatRunsView: View {
     }
 
     private func clearCallbacks() {
-        daemonClient.onHeartbeatRunsListResponse = nil
-        daemonClient.onHeartbeatRunNowResponse = nil
+        daemonClient.onHeartbeatRunsListResponse = previousRunsListCallback
+        daemonClient.onHeartbeatRunNowResponse = previousRunNowCallback
     }
 }
