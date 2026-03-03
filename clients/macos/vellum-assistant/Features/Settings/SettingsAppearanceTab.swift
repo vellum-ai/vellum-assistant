@@ -3,6 +3,8 @@ import VellumAssistantShared
 
 /// Appearance settings tab — theme selection, keyboard shortcuts, and media embed configuration.
 struct SettingsAppearanceTab: View {
+    private static let knownTimezones: [String] = TimeZone.knownTimeZoneIdentifiers.sorted()
+
     @ObservedObject var store: SettingsStore
     @AppStorage("themePreference") private var themePreference: String = "system"
     @State private var newAllowlistDomain = ""
@@ -57,7 +59,7 @@ struct SettingsAppearanceTab: View {
                     Spacer()
                     Picker("", selection: $selectedTimezone) {
                         Text("Not Set").tag("")
-                        ForEach(TimeZone.knownTimeZoneIdentifiers.sorted(), id: \.self) { identifier in
+                        ForEach(Self.knownTimezones, id: \.self) { identifier in
                             Text(identifier).tag(identifier)
                         }
                     }

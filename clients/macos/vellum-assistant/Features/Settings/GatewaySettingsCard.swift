@@ -27,36 +27,9 @@ struct GatewaySettingsCard: View {
 
             // Gateway running status row
             if store.gatewayReachable == true {
-                HStack(spacing: VSpacing.sm) {
-                    VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .large) {}
-
-                    // Copy the local gateway target address
-                    Button {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(store.localGatewayTarget, forType: .string)
-                        gatewayTargetCopied = true
-                        Task {
-                            try? await Task.sleep(nanoseconds: 2_000_000_000)
-                            gatewayTargetCopied = false
-                        }
-                    } label: {
-                        Image(systemName: gatewayTargetCopied ? "checkmark" : "doc.on.doc")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(gatewayTargetCopied ? VColor.success : VColor.textSecondary)
-                            .frame(width: 28, height: 28)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Copy gateway address")
-                    .help("Copy local gateway address: \(store.localGatewayTarget)")
-                }
-
-                // Show the local gateway target as a readable label
-                Text(store.localGatewayTarget)
-                    .font(VFont.mono)
-                    .foregroundColor(VColor.textMuted)
-                    .textSelection(.enabled)
-            } else if tunnelSetupExpanded {
+                VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .large) {}
+                tunnelConfigEntry
+            } else if tunnelSetupExpanded || !gatewayUrlText.isEmpty {
                 tunnelConfigEntry
             } else {
                 VButton(label: "Set Up Tunnel", style: .secondary, size: .large) {

@@ -117,10 +117,15 @@ struct SettingsAccountTab: View {
                     .font(VFont.caption)
                     .foregroundColor(VColor.textSecondary)
 
-                // When platform is reachable, show a Connected badge and hide the input field.
-                // When not reachable/configured, show the inline field for editing.
+                // When platform is reachable, show a Connected badge and keep the input field
+                // visible so the URL can still be changed.
+                // When not reachable/configured, show the inline field or a Set Up prompt.
                 if store.vellumPlatformReachable == true {
                     VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .large) {}
+                    VInlineActionField(text: $platformUrlText, placeholder: "https://platform.vellum.ai", isFocused: $isPlatformUrlFocused) {
+                        store.savePlatformBaseUrl(platformUrlText)
+                        Task { await store.checkVellumPlatform() }
+                    }
                 } else if isPlatformUrlFocused || !platformUrlText.isEmpty {
                     VInlineActionField(text: $platformUrlText, placeholder: "https://platform.vellum.ai", isFocused: $isPlatformUrlFocused) {
                         store.savePlatformBaseUrl(platformUrlText)
