@@ -35,6 +35,7 @@ export function migrateKeychainToEncrypted(): void {
   if (encryptedStore.getKey(MIGRATION_MARKER) === "true") return;
 
   let migrated = 0;
+  let hadErrors = false;
   const allKeys = [...API_KEY_PROVIDERS, ...CREDENTIAL_KEYS];
 
   for (const account of allKeys) {
@@ -45,8 +46,14 @@ export function migrateKeychainToEncrypted(): void {
         migrated++;
       }
     } catch {
-      // Keychain unavailable or locked -- skip silently
+      hadErrors = true;
+      log.warn({ account }, "Keychain read failed during migration");
     }
+  }
+
+  if (hadErrors) {
+    log.warn("Skipping migration marker — will retry on next startup");
+    return;
   }
 
   encryptedStore.setKey(MIGRATION_MARKER, "true");
