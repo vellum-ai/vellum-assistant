@@ -1,4 +1,5 @@
 import { batchGetMessages,listMessages } from '../../../../messaging/providers/gmail/client.js';
+import type { GmailMessage } from '../../../../messaging/providers/gmail/types.js';
 import { getMessagingProvider } from '../../../../messaging/registry.js';
 import { withValidToken } from '../../../../security/token-manager.js';
 import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
@@ -44,10 +45,13 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
   try {
     const provider = getMessagingProvider('gmail');
     return withValidToken(provider.credentialService, async (token) => {
-      // Paginate through listMessages to collect up to maxMessages IDs
+      // Pipeline: fire metadata fetches for each page of IDs as they arrive,
+      // overlapping fetch latency with pagination latency
       const allMessageIds: string[] = [];
+      const fetchPromises: Promise<GmailMessage[]>[] = [];
       let pageToken: string | undefined = inputPageToken;
       let truncated = false;
+      const metadataHeaders = ['From', 'List-Unsubscribe', 'Subject', 'Date'];
 
       while (allMessageIds.length < maxMessages) {
         const pageSize = Math.min(100, maxMessages - allMessageIds.length);
@@ -55,6 +59,7 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
         const ids = (listResp.messages ?? []).map((m) => m.id);
         if (ids.length === 0) break;
         allMessageIds.push(...ids);
+        fetchPromises.push(batchGetMessages(token, ids, 'metadata', metadataHeaders));
         pageToken = listResp.nextPageToken ?? undefined;
         if (!pageToken) break;
       }
@@ -68,10 +73,7 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
         return ok(JSON.stringify({ senders: [], total_scanned: 0, message: 'No emails found matching the query. Try broadening the search (e.g. remove category filter or extend date range).' }));
       }
 
-      // Batch-fetch metadata headers
-      const messages = await batchGetMessages(token, allMessageIds, 'metadata', [
-        'From', 'List-Unsubscribe', 'Subject', 'Date',
-      ]);
+      const messages = (await Promise.all(fetchPromises)).flat();
 
       // Group by sender email
       const senderMap = new Map<string, SenderAggregation>();
