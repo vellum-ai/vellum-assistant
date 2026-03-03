@@ -43,6 +43,9 @@ import {
   recordInviteUse,
 } from '../memory/ingress-invite-store.js';
 
+import { emitNotificationSignal } from '../notifications/emit-signal.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -503,6 +506,28 @@ export function initiateConnection(params: {
   const session = createHandshakeSession({ inviteTokenHash });
   handshakeSessions.set(connection.id, session);
 
+  // Emit notification signal: a peer has requested a connection
+  void emitNotificationSignal({
+    sourceEventName: 'a2a.connection_requested',
+    sourceChannel: 'a2a',
+    sourceSessionId: connection.id,
+    assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
+    attentionHints: {
+      requiresAction: true,
+      urgency: 'high',
+      isAsyncBackground: false,
+      visibleInSourceNow: false,
+    },
+    contextPayload: {
+      connectionId: connection.id,
+      peerGatewayUrl: params.peerGatewayUrl,
+      peerAssistantId: params.peerAssistantId ?? null,
+      protocolVersion: params.protocolVersion,
+      capabilities: params.capabilities,
+    },
+    dedupeKey: `a2a:connection-requested:${connection.id}`,
+  });
+
   return {
     ok: true,
     connectionId: connection.id,
@@ -541,6 +566,27 @@ export function approveConnection(params: {
     }
     // Clean up handshake session
     handshakeSessions.delete(params.connectionId);
+
+    // Emit notification signal: connection denied
+    void emitNotificationSignal({
+      sourceEventName: 'a2a.connection_denied',
+      sourceChannel: 'a2a',
+      sourceSessionId: params.connectionId,
+      assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
+      attentionHints: {
+        requiresAction: false,
+        urgency: 'low',
+        isAsyncBackground: false,
+        visibleInSourceNow: false,
+      },
+      contextPayload: {
+        connectionId: params.connectionId,
+        peerGatewayUrl: connection.peerGatewayUrl,
+        peerAssistantId: connection.peerAssistantId ?? null,
+      },
+      dedupeKey: `a2a:connection-denied:${params.connectionId}`,
+    });
+
     return { ok: true };
   }
 
@@ -574,6 +620,49 @@ export function approveConnection(params: {
 
   // Save updated session
   handshakeSessions.set(params.connectionId, toVerification.session);
+
+  // Emit notification signal: connection approved
+  void emitNotificationSignal({
+    sourceEventName: 'a2a.connection_approved',
+    sourceChannel: 'a2a',
+    sourceSessionId: params.connectionId,
+    assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
+    attentionHints: {
+      requiresAction: false,
+      urgency: 'medium',
+      isAsyncBackground: false,
+      visibleInSourceNow: false,
+    },
+    contextPayload: {
+      connectionId: params.connectionId,
+      peerGatewayUrl: connection.peerGatewayUrl,
+      peerAssistantId: connection.peerAssistantId ?? null,
+    },
+    dedupeKey: `a2a:connection-approved:${params.connectionId}`,
+  });
+
+  // Emit notification signal: verification code is ready for IRL exchange.
+  // Separate from connection_approved so surfaces can observe code readiness
+  // independently of the approval event.
+  void emitNotificationSignal({
+    sourceEventName: 'a2a.verification_code_ready',
+    sourceChannel: 'a2a',
+    sourceSessionId: params.connectionId,
+    assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
+    attentionHints: {
+      requiresAction: true,
+      urgency: 'high',
+      isAsyncBackground: false,
+      visibleInSourceNow: false,
+    },
+    contextPayload: {
+      connectionId: params.connectionId,
+      verificationCode,
+      peerGatewayUrl: connection.peerGatewayUrl,
+      peerAssistantId: connection.peerAssistantId ?? null,
+    },
+    dedupeKey: `a2a:verification-code-ready:${params.connectionId}`,
+  });
 
   return {
     ok: true,
@@ -665,7 +754,30 @@ export function submitVerificationCode(params: {
   // Clean up handshake session — connection is now active
   handshakeSessions.delete(params.connectionId);
 
-  return { ok: true, connection: connectionWithCredentials ?? updatedConnection };
+  const finalConnection = connectionWithCredentials ?? updatedConnection;
+
+  // Emit notification signal: connection is now fully established
+  void emitNotificationSignal({
+    sourceEventName: 'a2a.connection_established',
+    sourceChannel: 'a2a',
+    sourceSessionId: params.connectionId,
+    assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
+    attentionHints: {
+      requiresAction: false,
+      urgency: 'medium',
+      isAsyncBackground: false,
+      visibleInSourceNow: false,
+    },
+    contextPayload: {
+      connectionId: params.connectionId,
+      peerGatewayUrl: finalConnection.peerGatewayUrl,
+      peerAssistantId: finalConnection.peerAssistantId ?? null,
+      status: finalConnection.status,
+    },
+    dedupeKey: `a2a:connection-established:${params.connectionId}`,
+  });
+
+  return { ok: true, connection: finalConnection };
 }
 
 /**
@@ -687,6 +799,10 @@ export function revokeConnection(params: {
     return { ok: true };
   }
 
+  // Capture connection details before tombstoning
+  const peerGatewayUrl = connection.peerGatewayUrl;
+  const peerAssistantId = connection.peerAssistantId;
+
   // Tombstone credentials
   updateConnectionCredentials(params.connectionId, {
     outboundCredentialHash: '',
@@ -698,6 +814,26 @@ export function revokeConnection(params: {
 
   // Clean up any lingering handshake session
   handshakeSessions.delete(params.connectionId);
+
+  // Emit notification signal: connection revoked
+  void emitNotificationSignal({
+    sourceEventName: 'a2a.connection_revoked',
+    sourceChannel: 'a2a',
+    sourceSessionId: params.connectionId,
+    assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
+    attentionHints: {
+      requiresAction: false,
+      urgency: 'low',
+      isAsyncBackground: false,
+      visibleInSourceNow: false,
+    },
+    contextPayload: {
+      connectionId: params.connectionId,
+      peerGatewayUrl,
+      peerAssistantId: peerAssistantId ?? null,
+    },
+    dedupeKey: `a2a:connection-revoked:${params.connectionId}`,
+  });
 
   return { ok: true };
 }
