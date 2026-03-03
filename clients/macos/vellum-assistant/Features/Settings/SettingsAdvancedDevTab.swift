@@ -222,7 +222,7 @@ struct SettingsAdvancedDevTab: View {
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
 
-                HStack {
+                VStack(alignment: .leading, spacing: VSpacing.md) {
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
                         Text("Environment Variables")
                             .font(VFont.body)
@@ -231,8 +231,7 @@ struct SettingsAdvancedDevTab: View {
                             .font(VFont.caption)
                             .foregroundColor(VColor.textMuted)
                     }
-                    Spacer()
-                    VButton(label: "View...", style: .tertiary) {
+                    VButton(label: "View...", style: .secondary, size: .large) {
                         appEnvVars = ProcessInfo.processInfo.environment
                             .sorted(by: { $0.key < $1.key })
                             .map { ($0.key, $0.value) }
