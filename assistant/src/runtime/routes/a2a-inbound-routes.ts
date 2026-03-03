@@ -149,7 +149,7 @@ export async function handleA2AMessageInbound(
   const content = envelope.content;
   switch (content.type) {
     case 'text':
-      textContent = content.text;
+      textContent = content.text ?? '';
       break;
     case 'structured_request':
       textContent = JSON.stringify({

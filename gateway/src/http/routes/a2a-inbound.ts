@@ -49,14 +49,14 @@ export function createA2AInboundHandler(config: GatewayConfig) {
 
     let bodyText: string;
     try {
-      bodyText = await req.text();
+      const bodyBuffer = await req.arrayBuffer();
+      if (bodyBuffer.byteLength > MAX_A2A_MESSAGE_BYTES) {
+        log.warn({ bodyBytes: bodyBuffer.byteLength }, 'A2A inbound payload too large');
+        return Response.json({ error: 'Payload too large' }, { status: 413 });
+      }
+      bodyText = new TextDecoder().decode(bodyBuffer);
     } catch {
       return Response.json({ error: 'Failed to read request body' }, { status: 400 });
-    }
-
-    if (bodyText.length > MAX_A2A_MESSAGE_BYTES) {
-      log.warn({ bodyLength: bodyText.length }, 'A2A inbound payload too large');
-      return Response.json({ error: 'Payload too large' }, { status: 413 });
     }
 
     let envelope: A2AInboundEnvelope;
