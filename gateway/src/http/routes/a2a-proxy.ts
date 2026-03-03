@@ -32,6 +32,7 @@ export function createA2AProxyHandler(config: GatewayConfig) {
     req: Request,
     upstreamPath: string,
     upstreamSearch: string,
+    clientIp?: string,
   ): Promise<Response> {
     const start = performance.now();
     const upstream = `${config.assistantRuntimeBaseUrl}${upstreamPath}${upstreamSearch}`;
@@ -39,6 +40,12 @@ export function createA2AProxyHandler(config: GatewayConfig) {
     const reqHeaders = stripHopByHop(new Headers(req.headers));
     reqHeaders.delete("host");
     reqHeaders.delete("authorization");
+
+    // Overwrite X-Forwarded-For with the actual client IP to prevent spoofing,
+    // matching the pattern used by the runtime proxy.
+    if (clientIp) {
+      reqHeaders.set("x-forwarded-for", clientIp);
+    }
 
     // Add the runtime's bearer token for daemon auth
     if (config.runtimeBearerToken) {
@@ -108,18 +115,18 @@ export function createA2AProxyHandler(config: GatewayConfig) {
 
   return {
     /** POST /v1/a2a/connect — proxy to daemon (unauthenticated, invite-token-gated) */
-    async handleConnect(req: Request): Promise<Response> {
-      return proxyToRuntime(req, "/v1/a2a/connect", "");
+    async handleConnect(req: Request, clientIp?: string): Promise<Response> {
+      return proxyToRuntime(req, "/v1/a2a/connect", "", clientIp);
     },
 
     /** POST /v1/a2a/verify — proxy to daemon (unauthenticated during handshake) */
-    async handleVerify(req: Request): Promise<Response> {
-      return proxyToRuntime(req, "/v1/a2a/verify", "");
+    async handleVerify(req: Request, clientIp?: string): Promise<Response> {
+      return proxyToRuntime(req, "/v1/a2a/verify", "", clientIp);
     },
 
     /** GET /v1/a2a/connections/:connectionId/status — proxy to daemon */
-    async handleConnectionStatus(req: Request, connectionId: string): Promise<Response> {
-      return proxyToRuntime(req, `/v1/a2a/connections/${encodeURIComponent(connectionId)}/status`, "");
+    async handleConnectionStatus(req: Request, connectionId: string, clientIp?: string): Promise<Response> {
+      return proxyToRuntime(req, `/v1/a2a/connections/${encodeURIComponent(connectionId)}/status`, "", clientIp);
     },
   };
 }

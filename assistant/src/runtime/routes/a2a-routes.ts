@@ -26,6 +26,7 @@ import {
   statusPollingLimiter,
 } from '../../a2a/a2a-rate-limiter.js';
 import { getConnection } from '../../a2a/a2a-peer-connection-store.js';
+import { getIngressPublicBaseUrl } from '../../config/env.js';
 import { getLogger } from '../../util/logger.js';
 import { httpError } from '../http-errors.js';
 
@@ -116,7 +117,10 @@ export async function handleA2AConnect(req: Request): Promise<Response> {
   const protocolVersion = typeof body.protocolVersion === 'string' ? body.protocolVersion : A2A_PROTOCOL_VERSION;
   const capabilities = Array.isArray(body.capabilities) ? body.capabilities.filter((c): c is string => typeof c === 'string') : [];
   const peerAssistantId = typeof body.peerAssistantId === 'string' ? body.peerAssistantId : undefined;
-  const ownGatewayUrl = typeof body.ownGatewayUrl === 'string' ? body.ownGatewayUrl : undefined;
+
+  // Derive ownGatewayUrl server-side from config instead of trusting the
+  // request body, so peers cannot forge it to bypass the self-loop guard.
+  const ownGatewayUrl = getIngressPublicBaseUrl();
 
   if (!peerGatewayUrl) {
     return httpError('BAD_REQUEST', 'Missing required field: peerGatewayUrl', 400);
