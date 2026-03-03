@@ -335,11 +335,15 @@ struct LockfileAssistant {
         let path = lockfilePath ?? LockfilePaths.primaryPath
         let fileURL = URL(fileURLWithPath: path)
 
-        // Read existing lockfile or start fresh.
+        // Read existing lockfile: try primary first, then fall back to
+        // LockfilePaths.read() which includes legacy path migration.
         var lockfile: [String: Any]
         if let data = try? Data(contentsOf: fileURL),
            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             lockfile = json
+        } else if lockfilePath == nil, let legacy = LockfilePaths.read() {
+            // Primary doesn't exist but legacy does — migrate entries forward.
+            lockfile = legacy
         } else {
             lockfile = [:]
         }
