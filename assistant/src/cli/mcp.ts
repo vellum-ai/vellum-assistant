@@ -230,7 +230,7 @@ export function registerMcpCommand(program: Command): void {
 
       saveRawConfig(raw);
       log.info(`Added MCP server "${name}" (${opts.transportType})`);
-      log.info('Restart the daemon for changes to take effect: vellum daemon restart');
+      log.info('Restart the daemon for changes to take effect: vellum sleep && vellum wake');
     });
 
   mcp
@@ -351,7 +351,7 @@ export function registerMcpCommand(program: Command): void {
       provider.stopCallbackServer();
 
       log.info(`Authentication successful for "${name}".`);
-      log.info('Restart the daemon for changes to take effect: vellum daemon restart');
+      log.info('Restart the daemon for changes to take effect: vellum sleep && vellum wake');
       process.exit(0);
     });
 
@@ -383,6 +383,6 @@ export function registerMcpCommand(program: Command): void {
       delete servers[name];
       saveRawConfig(raw);
       log.info(`Removed MCP server "${name}".`);
-      log.info('Restart the daemon for changes to take effect: vellum daemon restart');
+      log.info('Restart the daemon for changes to take effect: vellum sleep && vellum wake');
     });
 }

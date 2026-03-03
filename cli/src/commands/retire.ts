@@ -96,7 +96,7 @@ async function retireCustom(entry: AssistantEntry): Promise<void> {
   console.log(`\u{1F5D1}\ufe0f  Retiring custom instance on ${sshHost}...\n`);
 
   const remoteCmd = [
-    "bunx vellum daemon stop 2>/dev/null || true",
+    "bunx vellum sleep 2>/dev/null || true",
     "pkill -f gateway 2>/dev/null || true",
     "rm -rf ~/.vellum",
   ].join(" && ");

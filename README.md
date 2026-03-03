@@ -638,7 +638,7 @@ Over SSH-forwarded sockets, the probe fails automatically (the filesystems don't
 | CLI: "could not connect to daemon socket" | Is the SSH socket tunnel active? Check `VELLUM_DAEMON_SOCKET` path |
 | CLI: daemon starts locally despite socket override | Check that `VELLUM_DAEMON_AUTOSTART` is not set to `1` |
 | macOS: not connecting | Verify socket path in `VELLUM_DAEMON_SOCKET` exists and is writable |
-| Any: "connection refused" | Is the remote daemon running? (`vellum daemon status` on remote) |
+| Any: "connection refused" | Is the remote daemon running? (`vellum ps` on remote) |
 
 Run `vellum doctor` for a full diagnostic check including socket path and autostart policy.
 

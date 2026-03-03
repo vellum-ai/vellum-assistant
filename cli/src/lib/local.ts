@@ -1,7 +1,9 @@
 import { execFileSync, spawn } from "child_process";
 import {
+  closeSync,
   existsSync,
   mkdirSync,
+  openSync,
   readFileSync,
   unlinkSync,
   writeFileSync,
@@ -155,6 +157,43 @@ function resolveDaemonMainPath(assistantIndex: string): string {
 async function startDaemonFromSource(assistantIndex: string): Promise<void> {
   const daemonMainPath = resolveDaemonMainPath(assistantIndex);
 
+  const vellumDir = join(homedir(), ".vellum");
+  mkdirSync(vellumDir, { recursive: true });
+
+  const pidFile = join(vellumDir, "vellum.pid");
+  const socketFile = join(vellumDir, "vellum.sock");
+
+  // --- Lifecycle guard: prevent split-brain daemon state ---
+  if (existsSync(pidFile)) {
+    try {
+      const pid = parseInt(readFileSync(pidFile, "utf-8").trim(), 10);
+      if (!isNaN(pid)) {
+        try {
+          process.kill(pid, 0);
+          console.log(`   Daemon already running (pid ${pid})\n`);
+          return;
+        } catch {
+          try { unlinkSync(pidFile); } catch {}
+        }
+      }
+    } catch {}
+  }
+
+  if (await isSocketResponsive(socketFile)) {
+    const ownerPid = findSocketOwnerPid(socketFile);
+    if (ownerPid) {
+      writeFileSync(pidFile, String(ownerPid), "utf-8");
+      console.log(
+        `   Daemon socket is responsive (pid ${ownerPid}) — skipping restart\n`,
+      );
+    } else {
+      console.log("   Daemon socket is responsive — skipping restart\n");
+    }
+    return;
+  }
+
+  try { unlinkSync(socketFile); } catch {}
+
   const env: Record<string, string | undefined> = {
     ...process.env,
     RUNTIME_HTTP_PORT: process.env.RUNTIME_HTTP_PORT || "7821",
@@ -165,20 +204,19 @@ async function startDaemonFromSource(assistantIndex: string): Promise<void> {
       process.env.VELLUM_DAEMON_TCP_ENABLED || "1";
   }
 
-  const vellumDir = join(homedir(), ".vellum");
-  mkdirSync(vellumDir, { recursive: true });
-
+  // Use fd inheritance instead of pipes so the daemon's stdout/stderr survive
+  // after the parent (hatch) exits. Bun does not ignore SIGPIPE, so piped
+  // stdio would kill the daemon on its first write after the parent closes.
   const logFd = openLogFile("hatch.log");
   const child = spawn("bun", ["run", daemonMainPath], {
     detached: true,
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: ["ignore", logFd, logFd],
     env,
   });
-  pipeToLogFile(child, logFd, "daemon");
+  if (typeof logFd === "number") closeSync(logFd);
   child.unref();
 
   if (child.pid) {
-    const pidFile = join(vellumDir, "vellum.pid");
     writeFileSync(pidFile, String(child.pid), "utf-8");
   }
 }

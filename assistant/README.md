@@ -87,7 +87,6 @@ bun run src/index.ts dev            # dev mode (auto-restart on file changes)
 | `vellum sleep` | Stop daemon + gateway processes |
 | `vellum ps` | List assistants and per-assistant process status |
 | `vellum` | Launch interactive CLI session |
-| `vellum daemon start\|stop\|restart\|status` | Manage the daemon process (low-level) |
 | `vellum dev` | Run daemon with auto-restart on file changes |
 | `vellum sessions list\|new\|export\|clear` | Manage conversation sessions |
 | `vellum config set\|get\|list` | Manage configuration |
