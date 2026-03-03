@@ -13,8 +13,8 @@
  */
 
 export type TemporaryApprovalMode =
-  | { kind: 'thread' }
-  | { kind: 'timed'; expiresAt: number };
+  | { kind: "thread" }
+  | { kind: "timed"; expiresAt: number };
 
 const DEFAULT_TIMED_DURATION_MS = 10 * 60 * 1000; // 10 minutes
 
@@ -26,7 +26,7 @@ const store = new Map<string, TemporaryApprovalMode>();
  * Replaces any existing mode for the conversation.
  */
 export function setThreadMode(conversationId: string): void {
-  store.set(conversationId, { kind: 'thread' });
+  store.set(conversationId, { kind: "thread" });
 }
 
 /**
@@ -41,7 +41,7 @@ export function setTimedMode(
   durationMs: number = DEFAULT_TIMED_DURATION_MS,
 ): void {
   store.set(conversationId, {
-    kind: 'timed',
+    kind: "timed",
     expiresAt: Date.now() + durationMs,
   });
 }
@@ -56,16 +56,18 @@ export function clearMode(conversationId: string): void {
 /**
  * Get the effective temporary approval mode for a conversation.
  *
- * Returns null if no mode is set or if a timed mode has expired.
+ * Returns undefined if no mode is set or if a timed mode has expired.
  * Expired timed modes are cleaned up lazily on read.
  */
-export function getEffectiveMode(conversationId: string): TemporaryApprovalMode | null {
+export function getEffectiveMode(
+  conversationId: string,
+): TemporaryApprovalMode | undefined {
   const mode = store.get(conversationId);
-  if (!mode) return null;
+  if (!mode) return undefined;
 
-  if (mode.kind === 'timed' && Date.now() >= mode.expiresAt) {
+  if (mode.kind === "timed" && Date.now() >= mode.expiresAt) {
     store.delete(conversationId);
-    return null;
+    return undefined;
   }
 
   return mode;
@@ -75,7 +77,7 @@ export function getEffectiveMode(conversationId: string): TemporaryApprovalMode 
  * Check whether a conversation has an active (non-expired) temporary approval.
  */
 export function hasActiveOverride(conversationId: string): boolean {
-  return getEffectiveMode(conversationId) !== null;
+  return getEffectiveMode(conversationId) !== undefined;
 }
 
 /** Clear all overrides. Useful for testing. */

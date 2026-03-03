@@ -1118,10 +1118,14 @@ describe("session-agent-loop", () => {
       // dynamic_page should be preserved
       ctx.pendingSurfaceActions.set("page-1", { surfaceType: "dynamic_page" });
 
-      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg), { isUserMessage: true });
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg), {
+        isUserMessage: true,
+      });
 
       // The stale table and form surfaces should have been auto-completed
-      const completeEvents = events.filter((e) => e.type === "ui_surface_complete");
+      const completeEvents = events.filter(
+        (e) => e.type === "ui_surface_complete",
+      );
       expect(completeEvents).toHaveLength(2);
       for (const evt of completeEvents) {
         const typed = evt as { surfaceId: string; summary: string };
@@ -1144,10 +1148,18 @@ describe("session-agent-loop", () => {
       ctx.currentRequestId = "surface-action-req";
       ctx.surfaceActionRequestIds.add("surface-action-req");
 
-      await runAgentLoopImpl(ctx, "[User action on table surface]", "msg-1", (msg) => events.push(msg), { isUserMessage: true });
+      await runAgentLoopImpl(
+        ctx,
+        "[User action on table surface]",
+        "msg-1",
+        (msg) => events.push(msg),
+        { isUserMessage: true },
+      );
 
       // No ui_surface_complete should have been emitted
-      const completeEvents = events.filter((e) => e.type === "ui_surface_complete");
+      const completeEvents = events.filter(
+        (e) => e.type === "ui_surface_complete",
+      );
       expect(completeEvents).toHaveLength(0);
       // The pending surface should still be there
       expect(ctx.pendingSurfaceActions.has("active-table-1")).toBe(true);
@@ -1159,9 +1171,13 @@ describe("session-agent-loop", () => {
       const ctx = makeCtx();
       // No pending surfaces
 
-      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg), { isUserMessage: true });
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg), {
+        isUserMessage: true,
+      });
 
-      const completeEvents = events.filter((e) => e.type === "ui_surface_complete");
+      const completeEvents = events.filter(
+        (e) => e.type === "ui_surface_complete",
+      );
       expect(completeEvents).toHaveLength(0);
     });
 
@@ -1173,10 +1189,14 @@ describe("session-agent-loop", () => {
       ctx.pendingSurfaceActions.set("active-form-1", { surfaceType: "form" });
 
       // Internal turn: no isUserMessage option
-      await runAgentLoopImpl(ctx, "subagent notification", "msg-1", (msg) => events.push(msg));
+      await runAgentLoopImpl(ctx, "subagent notification", "msg-1", (msg) =>
+        events.push(msg),
+      );
 
       // No ui_surface_complete should have been emitted
-      const completeEvents = events.filter((e) => e.type === "ui_surface_complete");
+      const completeEvents = events.filter(
+        (e) => e.type === "ui_surface_complete",
+      );
       expect(completeEvents).toHaveLength(0);
       // Pending surfaces should still be there
       expect(ctx.pendingSurfaceActions.has("active-table-1")).toBe(true);
@@ -1184,12 +1204,12 @@ describe("session-agent-loop", () => {
     });
 
     test("finally block still runs if onEvent throws during stale surface dismissal", async () => {
-      let eventCount = 0;
+      let _eventCount = 0;
       const ctx = makeCtx();
       ctx.pendingSurfaceActions.set("stale-table-1", { surfaceType: "table" });
 
       const throwingOnEvent = (msg: ServerMessage) => {
-        eventCount++;
+        _eventCount++;
         if (msg.type === "ui_surface_complete") {
           throw new Error("onEvent sink failed");
         }
@@ -1197,7 +1217,9 @@ describe("session-agent-loop", () => {
 
       // The error from onEvent should be caught by the try/catch,
       // and the finally block should still clean up session state
-      await runAgentLoopImpl(ctx, "hello", "msg-1", throwingOnEvent, { isUserMessage: true });
+      await runAgentLoopImpl(ctx, "hello", "msg-1", throwingOnEvent, {
+        isUserMessage: true,
+      });
 
       expect(ctx.processing).toBe(false);
       expect(ctx.abortController).toBeNull();
