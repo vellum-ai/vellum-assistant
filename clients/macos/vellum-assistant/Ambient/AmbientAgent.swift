@@ -133,6 +133,10 @@ public final class AmbientAgent: ObservableObject {
         showProgress()
     }
 
+    // NOTE: Learn sessions depend on Chrome running with CDP (--remote-debugging-port=9222)
+    // for network recording. The daemon's ride-shotgun-handler connects directly to
+    // localhost:9222. If Chrome isn't running with CDP, network capture will silently fail.
+    // TODO: Move CDP Chrome launch to the daemon side (ride-shotgun-handler.ts).
     func startLearnSession(targetDomain: String, durationSeconds: Int = 300) {
         Task { @MainActor in
             startRideShotgun(durationSeconds: durationSeconds, mode: "learn", targetDomain: targetDomain)
