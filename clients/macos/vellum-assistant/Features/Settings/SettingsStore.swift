@@ -559,7 +559,7 @@ public final class SettingsStore: ObservableObject {
                 }
             } else {
                 if let error = response.error {
-                    self.slackChannelError = "Failed to save: \(error)"
+                    self.slackChannelError = error
                 }
             }
         }
@@ -567,9 +567,10 @@ public final class SettingsStore: ObservableObject {
         // Wire up ingress member IPC response (Telegram approved members)
         daemonClient?.onIngressMemberResponse = { [weak self] response in
             guard let self else { return }
-            self.telegramApprovedMembersLoading = false
             if response.success {
                 if let members = response.members {
+                    // Only clear loading for list responses, not revoke responses
+                    self.telegramApprovedMembersLoading = false
                     let guardianId = self.telegramGuardianIdentity
                     self.telegramApprovedMembers = members.compactMap { m in
                         let externalUserId = m.externalUserId
@@ -591,6 +592,7 @@ public final class SettingsStore: ObservableObject {
                     self.telegramRevokingMemberIds.remove(member.id)
                 }
             } else {
+                self.telegramApprovedMembersLoading = false
                 self.telegramApprovedMembersError = response.error ?? "Unknown error"
                 // On failure, clear all revoking states and refresh to restore UI
                 if !self.telegramRevokingMemberIds.isEmpty {
@@ -1083,9 +1085,14 @@ public final class SettingsStore: ObservableObject {
     }
 
     /// Notify the daemon that an API key was deleted.
-    /// Returns true if the IPC connection was available and the request was dispatched.
+    /// Returns true if the IPC socket connection was available and the request was dispatched.
+    /// Returns false when on HTTP transport (secrets IPC is not handled over HTTP),
+    /// so tombstones are preserved for replay on the next IPC reconnect.
     @discardableResult
     private func deleteKeyFromDaemon(provider: String) -> Bool {
+        // Secrets config is only handled over the IPC socket, not HTTP transport.
+        // Return false when on HTTP so the deletion tombstone is preserved for retry.
+        guard daemonClient?.httpTransport == nil else { return false }
         do {
             try daemonClient?.sendSecretsConfig(action: "delete", secretType: "api_key", name: provider)
             return daemonClient?.isConnected == true
@@ -1105,9 +1112,11 @@ public final class SettingsStore: ObservableObject {
     }
 
     /// Notify the daemon that a credential was deleted.
-    /// Returns true if the IPC connection was available and the request was dispatched.
+    /// Returns true if the IPC socket connection was available and the request was dispatched.
+    /// Returns false when on HTTP transport so tombstones are preserved for retry.
     @discardableResult
     private func deleteCredentialFromDaemon(name: String) -> Bool {
+        guard daemonClient?.httpTransport == nil else { return false }
         do {
             try daemonClient?.sendSecretsConfig(action: "delete", secretType: "credential", name: name)
             return daemonClient?.isConnected == true
@@ -1153,6 +1162,11 @@ public final class SettingsStore: ObservableObject {
         let trimmedBot = botToken.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedApp = appToken.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedBot.isEmpty, !trimmedApp.isEmpty else { return }
+        // Slack channel config is only handled over IPC socket, not HTTP transport.
+        guard daemonClient?.httpTransport == nil else {
+            slackChannelError = "Slack channel settings require a local connection"
+            return
+        }
         slackChannelSaveInProgress = true
         slackChannelError = nil
         do {
