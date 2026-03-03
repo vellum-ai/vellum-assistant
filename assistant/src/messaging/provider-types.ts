@@ -101,6 +101,8 @@ export interface SenderDigestResult {
   queryUsed: string;
   /** True when pagination was stopped because the scan cap was reached but more messages exist. */
   truncated?: boolean;
+  /** Resume token for sequential scanning — present when truncated is true. */
+  nextPageToken?: string;
 }
 
 export interface ArchiveResult {
