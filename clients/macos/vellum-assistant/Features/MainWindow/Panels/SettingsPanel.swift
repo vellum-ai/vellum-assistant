@@ -87,20 +87,6 @@ struct SettingsPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Header (matches VSidePanel style)
-            HStack {
-                Text("Settings")
-                    .font(VFont.panelTitle)
-                    .foregroundColor(VColor.textPrimary)
-                Spacer()
-                VIconButton(label: "Close Settings", icon: "xmark", iconOnly: true, action: onClose)
-            }
-            .padding(.horizontal, VSpacing.lg)
-            .padding(.vertical, VSpacing.lg)
-
-            Divider()
-                .background(VColor.surfaceBorder)
-
             // Two-column layout
             HStack(spacing: 0) {
                 // Left: nav sidebar
@@ -224,6 +210,24 @@ struct SettingsPanel: View {
 
     private var settingsNav: some View {
         VStack(alignment: .leading, spacing: VSpacing.xxs) {
+            // Back to app link at top of sidebar
+            Button(action: onClose) {
+                HStack(spacing: VSpacing.sm) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(VColor.textMuted)
+                    Text("Back to app")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textMuted)
+                }
+                .padding(.horizontal, VSpacing.sm)
+                .padding(.vertical, VSpacing.xs)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.bottom, VSpacing.md)
+
+            // Tab nav items
             ForEach(SettingsTab.visibleTabs(isDevMode: store.isDevMode), id: \.self) { tab in
                 SettingsNavRow(tab: tab, isSelected: selectedTab == tab) {
                     selectedTab = tab
