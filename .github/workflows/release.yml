@@ -159,10 +159,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        environment: [dev, production]
         platform:
           - linux/amd64
           - linux/arm64
-    environment: dev
+    environment: ${{ matrix.environment }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -195,8 +196,8 @@ jobs:
           context: assistant
           platforms: ${{ matrix.platform }}
           outputs: type=image,name=${{ steps.image.outputs.name }},push-by-digest=true,name-canonical=true,push=true
-          cache-from: type=gha,scope=assistant-${{ matrix.platform }}
-          cache-to: type=gha,mode=max,scope=assistant-${{ matrix.platform }}
+          cache-from: type=gha,scope=assistant-${{ matrix.environment }}-${{ matrix.platform }}
+          cache-to: type=gha,mode=max,scope=assistant-${{ matrix.environment }}-${{ matrix.platform }}
 
       - name: Export digest
         run: |
@@ -213,7 +214,7 @@ jobs:
       - name: Upload digest
         uses: actions/upload-artifact@v4
         with:
-          name: assistant-digests-${{ steps.platform.outputs.suffix }}
+          name: assistant-digests-${{ matrix.environment }}-${{ steps.platform.outputs.suffix }}
           path: /tmp/digests/*
           retention-days: 1
 
@@ -224,7 +225,11 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    environment: dev
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [dev, production]
+    environment: ${{ matrix.environment }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -251,7 +256,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: /tmp/digests
-          pattern: assistant-digests-*
+          pattern: assistant-digests-${{ matrix.environment }}-*
           merge-multiple: true
 
       - name: Compute image tags
@@ -286,8 +291,9 @@ jobs:
 
       - name: Summary
         run: |
-          echo "## Assistant Image Published" >> $GITHUB_STEP_SUMMARY
+          echo "## Assistant Image Published (${{ matrix.environment }})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** \`${{ matrix.environment }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** \`${{ needs.bump-and-tag.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**SHA tag:** \`${{ steps.release-sha.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
 
@@ -301,10 +307,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        environment: [dev, production]
         platform:
           - linux/amd64
           - linux/arm64
-    environment: dev
+    environment: ${{ matrix.environment }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -337,8 +344,8 @@ jobs:
           context: gateway
           platforms: ${{ matrix.platform }}
           outputs: type=image,name=${{ steps.image.outputs.name }},push-by-digest=true,name-canonical=true,push=true
-          cache-from: type=gha,scope=gateway-${{ matrix.platform }}
-          cache-to: type=gha,mode=max,scope=gateway-${{ matrix.platform }}
+          cache-from: type=gha,scope=gateway-${{ matrix.environment }}-${{ matrix.platform }}
+          cache-to: type=gha,mode=max,scope=gateway-${{ matrix.environment }}-${{ matrix.platform }}
 
       - name: Export digest
         run: |
@@ -355,7 +362,7 @@ jobs:
       - name: Upload digest
         uses: actions/upload-artifact@v4
         with:
-          name: gateway-digests-${{ steps.platform.outputs.suffix }}
+          name: gateway-digests-${{ matrix.environment }}-${{ steps.platform.outputs.suffix }}
           path: /tmp/digests/*
           retention-days: 1
 
@@ -366,7 +373,11 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    environment: dev
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [dev, production]
+    environment: ${{ matrix.environment }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -393,7 +404,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: /tmp/digests
-          pattern: gateway-digests-*
+          pattern: gateway-digests-${{ matrix.environment }}-*
           merge-multiple: true
 
       - name: Compute image tags
@@ -428,8 +439,9 @@ jobs:
 
       - name: Summary
         run: |
-          echo "## Gateway Image Published" >> $GITHUB_STEP_SUMMARY
+          echo "## Gateway Image Published (${{ matrix.environment }})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** \`${{ matrix.environment }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** \`${{ needs.bump-and-tag.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**SHA tag:** \`${{ steps.release-sha.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
 
@@ -455,13 +467,13 @@ jobs:
       - name: Download assistant amd64 digest
         uses: actions/download-artifact@v4
         with:
-          name: assistant-digests-linux-amd64
+          name: assistant-digests-${{ matrix.environment }}-linux-amd64
           path: /tmp/assistant-digest
 
       - name: Download gateway amd64 digest
         uses: actions/download-artifact@v4
         with:
-          name: gateway-digests-linux-amd64
+          name: gateway-digests-${{ matrix.environment }}-linux-amd64
           path: /tmp/gateway-digest
 
       - name: Extract amd64 digests
