@@ -2138,22 +2138,22 @@ describe("call-controller", () => {
     controller.destroy();
   });
 
-  test('silence timeout suppressed during in-call guardian consultation (pendingConsultation)', async () => {
+  test('silence timeout suppressed during in-call guardian consultation (pendingGuardianInput)', async () => {
     mockSilenceTimeoutMs = 50; // Short timeout for testing
     mockConsultationTimeoutMs = 10_000; // Long enough to not interfere
 
-    // LLM emits an ASK_GUARDIAN marker so the controller creates a pendingConsultation
+    // LLM emits an ASK_GUARDIAN marker so the controller creates a pendingGuardianInput
     mockStartVoiceTurn.mockImplementation(
       createMockVoiceTurn(["Let me check with your guardian. [ASK_GUARDIAN: Can this caller access the account?]"]),
     );
     const { relay, controller } = setupController();
 
-    // Trigger a turn that creates a pending consultation
+    // Trigger a turn that creates a pending guardian input request
     await controller.handleCallerUtterance("I need to access the account");
     // Allow turn to complete
     await new Promise((r) => setTimeout(r, 50));
 
-    // Verify a consultation is now pending
+    // Verify a guardian input request is now pending
     expect(controller.getPendingConsultationQuestionId()).not.toBeNull();
     // Relay state is still 'connected' (not 'awaiting_guardian_decision')
     expect(relay.mockConnectionState).toBe("connected");
@@ -2165,7 +2165,7 @@ describe("call-controller", () => {
     await new Promise((r) => setTimeout(r, 200));
 
     // "Are you still there?" should NOT have been sent because
-    // pendingConsultation is active
+    // pendingGuardianInput is active
     const silenceTokens = relay.sentTokens.filter((t) =>
       t.token.includes("Are you still there?"),
     );
@@ -2178,17 +2178,17 @@ describe("call-controller", () => {
     mockSilenceTimeoutMs = 50; // Short timeout for testing
     mockConsultationTimeoutMs = 10_000; // Long enough to not interfere
 
-    // LLM emits an ASK_GUARDIAN marker so the controller creates a pendingConsultation
+    // LLM emits an ASK_GUARDIAN marker so the controller creates a pendingGuardianInput
     mockStartVoiceTurn.mockImplementation(
       createMockVoiceTurn(["Let me check. [ASK_GUARDIAN: Is this approved?]"]),
     );
     const { relay, controller } = setupController();
 
-    // Trigger a turn that creates a pending consultation
+    // Trigger a turn that creates a pending guardian input request
     await controller.handleCallerUtterance("Can I do this?");
     await new Promise((r) => setTimeout(r, 50));
 
-    // Verify consultation is pending
+    // Verify guardian input request is pending
     expect(controller.getPendingConsultationQuestionId()).not.toBeNull();
 
     // Now resolve the consultation by providing an answer
@@ -2200,7 +2200,7 @@ describe("call-controller", () => {
     // Allow the answer-driven turn to complete
     await new Promise((r) => setTimeout(r, 100));
 
-    // Consultation should now be cleared
+    // Guardian input request should now be cleared
     expect(controller.getPendingConsultationQuestionId()).toBeNull();
 
     // Clear tokens from the answer turn
@@ -2209,7 +2209,7 @@ describe("call-controller", () => {
     // Wait for the silence timeout to fire again
     await new Promise((r) => setTimeout(r, 200));
 
-    // "Are you still there?" SHOULD fire now that consultation is resolved
+    // "Are you still there?" SHOULD fire now that guardian wait is resolved
     const silenceTokens = relay.sentTokens.filter((t) =>
       t.token.includes("Are you still there?"),
     );
