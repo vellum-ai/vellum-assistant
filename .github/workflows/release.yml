@@ -1648,7 +1648,7 @@ jobs:
           fi
 
           # Build CI status icons
-          ci_icon() { if [ "$1" = "success" ]; then printf '✅'; else printf '❌'; fi; }
+          ci_icon() { if [ "$1" = "success" ]; then printf '✅'; elif [ "$1" = "skipped" ]; then printf '⏭️'; else printf '❌'; fi; }
 
           A=$(ci_icon "${{ needs.ci-assistant.result }}")
           C=$(ci_icon "${{ needs.ci-cli.result }}")
