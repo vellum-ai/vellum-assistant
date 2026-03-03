@@ -24,11 +24,10 @@ struct SettingsAppearanceTab: View {
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
 
-                HStack {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text("Theme")
                         .font(VFont.body)
                         .foregroundColor(VColor.textSecondary)
-                    Spacer()
                     VSegmentedControl(
                         items: [
                             (label: "System", tag: "system"),
@@ -44,7 +43,7 @@ struct SettingsAppearanceTab: View {
                         ),
                         style: .pill
                     )
-                    .frame(width: 220)
+                    .fixedSize()
                 }
 
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
