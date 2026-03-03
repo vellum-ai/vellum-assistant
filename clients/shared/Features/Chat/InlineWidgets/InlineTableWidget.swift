@@ -106,12 +106,7 @@ public struct InlineTableWidget: View {
             }
 
             ForEach(data.columns) { column in
-                Text(row.cells[column.id] ?? "")
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
-                    .lineLimit(2)
-                    .columnFrame(column.width)
-                    .textSelection(.enabled)
+                cellView(row.cells[column.id], width: column.width)
             }
         }
         .padding(.vertical, VSpacing.xs)
@@ -124,6 +119,33 @@ public struct InlineTableWidget: View {
             if row.selectable && data.selectionMode != .none {
                 toggleSelection(row.id)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func cellView(_ value: TableCellValue?, width: Int?) -> some View {
+        HStack(spacing: VSpacing.xs) {
+            if let icon = value?.icon {
+                Image(systemName: icon)
+                    .font(.system(size: 12))
+                    .foregroundColor(resolveIconColor(value?.iconColor))
+            }
+            Text(value?.text ?? "")
+                .font(VFont.body)
+                .foregroundColor(VColor.textPrimary)
+                .lineLimit(2)
+                .textSelection(.enabled)
+        }
+        .columnFrame(width)
+    }
+
+    private func resolveIconColor(_ token: String?) -> Color {
+        switch token {
+        case "success": return Emerald._500
+        case "warning": return Amber._500
+        case "error": return Danger._500
+        case "muted": return VColor.textMuted
+        default: return VColor.textPrimary
         }
     }
 
@@ -165,9 +187,9 @@ public struct InlineTableWidget: View {
                     TableColumn(id: "count", label: "Emails", width: nil),
                 ],
                 rows: [
-                    TableRow(id: "1", cells: ["sender": "newsletter@tech.co", "count": "47"], selectable: true, selected: false),
-                    TableRow(id: "2", cells: ["sender": "deals@store.com", "count": "32"], selectable: true, selected: false),
-                    TableRow(id: "3", cells: ["sender": "updates@social.app", "count": "28"], selectable: true, selected: false),
+                    TableRow(id: "1", cells: ["sender": TableCellValue(text: "newsletter@tech.co"), "count": TableCellValue(text: "47")], selectable: true, selected: false),
+                    TableRow(id: "2", cells: ["sender": TableCellValue(text: "deals@store.com"), "count": TableCellValue(text: "32")], selectable: true, selected: false),
+                    TableRow(id: "3", cells: ["sender": TableCellValue(text: "updates@social.app"), "count": TableCellValue(text: "28", icon: "checkmark.circle.fill", iconColor: "success")], selectable: true, selected: false),
                 ],
                 selectionMode: .multiple,
                 caption: "3 newsletters found from last 30 days"

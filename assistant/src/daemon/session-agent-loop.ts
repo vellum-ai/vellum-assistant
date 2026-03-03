@@ -133,7 +133,7 @@ export interface AgentLoopSessionContext {
 
   emitActivityState(
     phase: 'idle' | 'thinking' | 'streaming' | 'tool_running' | 'awaiting_confirmation',
-    reason: 'message_dequeued' | 'thinking_delta' | 'first_text_delta' | 'tool_use_start' | 'confirmation_requested' | 'confirmation_resolved' | 'message_complete' | 'generation_cancelled' | 'error_terminal',
+    reason: 'message_dequeued' | 'thinking_delta' | 'first_text_delta' | 'tool_use_start' | 'tool_result_received' | 'confirmation_requested' | 'confirmation_resolved' | 'message_complete' | 'generation_cancelled' | 'error_terminal',
     anchor?: 'assistant_turn' | 'user_turn' | 'global',
     requestId?: string,
     statusText?: string,
