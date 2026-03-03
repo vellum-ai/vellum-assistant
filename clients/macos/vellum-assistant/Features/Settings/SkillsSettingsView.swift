@@ -447,7 +447,7 @@ private struct SkillRow: View {
             VToggle(isOn: Binding(
                 get: { skill.state == "enabled" },
                 set: { newValue in onToggle(newValue) }
-            ))
+            ), size: .medium)
         }
         .padding(.vertical, 2)
     }

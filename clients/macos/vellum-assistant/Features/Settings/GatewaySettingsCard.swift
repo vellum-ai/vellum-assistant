@@ -27,12 +27,12 @@ struct GatewaySettingsCard: View {
 
             // Gateway running status row
             if store.gatewayReachable == true {
-                VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .large) {}
+                VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .medium) {}
                 tunnelConfigEntry
             } else if tunnelSetupExpanded || !gatewayUrlText.isEmpty {
                 tunnelConfigEntry
             } else {
-                VButton(label: "Set Up", style: .secondary, size: .large) {
+                VButton(label: "Set Up", style: .secondary, size: .medium) {
                     tunnelSetupExpanded = true
                 }
             }
@@ -132,13 +132,13 @@ struct GatewaySettingsCard: View {
                 .foregroundColor(VColor.textPrimary)
 
             HStack(spacing: VSpacing.sm) {
-                VButton(label: "Save", style: .primary, size: .large) {
+                VButton(label: "Save", style: .primary, size: .medium) {
                     store.saveIngressPublicBaseUrl(gatewayUrlText)
                     isGatewayUrlFocused = false
                     tunnelSetupExpanded = false
                 }
                 // No .disabled() — empty URL is valid (clears the tunnel target)
-                VButton(label: "Cancel", style: .tertiary, size: .large) {
+                VButton(label: "Cancel", style: .tertiary, size: .medium) {
                     gatewayUrlText = store.ingressPublicBaseUrl
                     isGatewayUrlFocused = false
                     tunnelSetupExpanded = false

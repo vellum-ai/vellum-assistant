@@ -97,11 +97,11 @@ struct SettingsAppearanceTab: View {
                     }
 
                     if isRecordingGlobalHotkey {
-                        VButton(label: "Press shortcut...", style: .outlined, size: .large) {
+                        VButton(label: "Press shortcut...", style: .outlined, size: .medium) {
                             stopRecording()
                         }
                     } else {
-                        VButton(label: "Record", style: .outlined, size: .large) {
+                        VButton(label: "Record", style: .outlined, size: .medium) {
                             startRecording()
                         }
                     }
@@ -130,11 +130,11 @@ struct SettingsAppearanceTab: View {
                     }
 
                     if isRecordingQuickInputHotkey {
-                        VButton(label: "Press shortcut...", style: .outlined, size: .large) {
+                        VButton(label: "Press shortcut...", style: .outlined, size: .medium) {
                             stopRecording()
                         }
                     } else {
-                        VButton(label: "Record", style: .outlined, size: .large) {
+                        VButton(label: "Record", style: .outlined, size: .medium) {
                             startRecordingQuickInput()
                         }
                     }
@@ -160,7 +160,7 @@ struct SettingsAppearanceTab: View {
                     VToggle(isOn: Binding(
                         get: { store.cmdEnterToSend },
                         set: { store.cmdEnterToSend = $0 }
-                    ))
+                    ), size: .medium)
                 }
                 .padding(.vertical, VSpacing.md)
             }
@@ -185,7 +185,7 @@ struct SettingsAppearanceTab: View {
                     VToggle(isOn: Binding(
                         get: { store.mediaEmbedsEnabled },
                         set: { store.setMediaEmbedsEnabled($0) }
-                    ))
+                    ), size: .medium)
                 }
 
                 Text("Automatically embed images, videos, and other media shared in chat messages.")
@@ -231,7 +231,7 @@ struct SettingsAppearanceTab: View {
                         .padding(.vertical, VSpacing.xs)
                     }
 
-                    VButton(label: "Reset to Defaults", style: .secondary, size: .large) {
+                    VButton(label: "Reset to Defaults", style: .secondary, size: .medium) {
                         store.setMediaEmbedVideoAllowlistDomains(MediaEmbedSettings.defaultDomains)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)

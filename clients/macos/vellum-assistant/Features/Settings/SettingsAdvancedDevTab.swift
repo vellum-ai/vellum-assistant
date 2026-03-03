@@ -152,7 +152,7 @@ struct SettingsAdvancedDevTab: View {
                 }
             }
             Spacer()
-            VToggle(isOn: flagBinding)
+            VToggle(isOn: flagBinding, size: .medium)
                 .accessibilityLabel(flag.displayName)
         }
         .contentShape(Rectangle())
@@ -179,7 +179,7 @@ struct SettingsAdvancedDevTab: View {
                 }
             }
             Spacer()
-            VToggle(isOn: flagBinding)
+            VToggle(isOn: flagBinding, size: .medium)
                 .accessibilityLabel(entry.label)
         }
         .contentShape(Rectangle())
@@ -233,7 +233,7 @@ struct SettingsAdvancedDevTab: View {
                             .font(VFont.caption)
                             .foregroundColor(VColor.textMuted)
                     }
-                    VButton(label: "View...", style: .secondary, size: .large) {
+                    VButton(label: "View...", style: .secondary, size: .medium) {
                         appEnvVars = ProcessInfo.processInfo.environment
                             .sorted(by: { $0.key < $1.key })
                             .map { ($0.key, $0.value) }

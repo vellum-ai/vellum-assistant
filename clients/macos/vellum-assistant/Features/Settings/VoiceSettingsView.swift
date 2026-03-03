@@ -81,7 +81,7 @@ struct VoiceSettingsView: View {
                             selectActivator(.off)
                         }
                     }
-                ))
+                ), size: .medium)
                 .accessibilityLabel("Enable Push to Talk")
             }
 
@@ -298,7 +298,7 @@ struct VoiceSettingsView: View {
                         .foregroundColor(VColor.textMuted)
                 }
                 Spacer()
-                VToggle(isOn: $wakeWordEnabled)
+                VToggle(isOn: $wakeWordEnabled, size: .medium)
                     .accessibilityLabel("Enable wake word listening")
             }
 
@@ -419,8 +419,8 @@ struct VoiceSettingsView: View {
 
             if store.hasElevenLabsKey {
                 HStack(spacing: VSpacing.sm) {
-                    VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .large) {}
-                    VButton(label: "Disconnect", style: .danger, size: .large) {
+                    VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .medium) {}
+                    VButton(label: "Disconnect", style: .danger, size: .medium) {
                         store.clearElevenLabsKey()
                         elevenLabsKeyText = ""
                         ttsSetupExpanded = false
@@ -447,19 +447,19 @@ struct VoiceSettingsView: View {
                     }
 
                     HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Connect", style: .secondary, size: .large, isDisabled: elevenLabsKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
+                        VButton(label: "Connect", style: .secondary, size: .medium, isDisabled: elevenLabsKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
                             store.saveElevenLabsKey(elevenLabsKeyText)
                             elevenLabsKeyText = ""
                             ttsSetupExpanded = false
                         }
-                        VButton(label: "Cancel", style: .tertiary, size: .large) {
+                        VButton(label: "Cancel", style: .tertiary, size: .medium) {
                             ttsSetupExpanded = false
                             elevenLabsKeyText = ""
                         }
                     }
                 }
             } else {
-                VButton(label: "Set Up", style: .secondary, size: .large) {
+                VButton(label: "Set Up", style: .secondary, size: .medium) {
                     ttsSetupExpanded = true
                 }
             }
