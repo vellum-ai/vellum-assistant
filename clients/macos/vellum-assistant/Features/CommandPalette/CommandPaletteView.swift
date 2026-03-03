@@ -98,8 +98,22 @@ struct CommandPaletteView: View {
                         // Server results sections
                         let serverOffset = actions.count + recents.count
                         serverResultsSections(startIndex: serverOffset)
+
+                        // Deep search indicator
+                        if viewModel.isDeepSearching {
+                            HStack(spacing: VSpacing.sm) {
+                                ProgressView()
+                                    .controlSize(.mini)
+                                Text("Searching deeper...")
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.textMuted)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(.vertical, VSpacing.sm)
+                        }
                     }
                     .padding(.vertical, VSpacing.xs)
+                    .animation(.easeInOut(duration: VAnimation.durationFast), value: viewModel.serverResults.memories.count)
                 }
                 .frame(maxHeight: 400)
             }
@@ -388,12 +402,21 @@ struct CommandPaletteView: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: VSpacing.sm) {
-            Text(viewModel.query.isEmpty ? "Type to search..." : "No results found.")
-                .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
-                .multilineTextAlignment(.center)
+        VStack(spacing: VSpacing.xs) {
+            if viewModel.query.isEmpty {
+                Text("Type to search...")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+            } else {
+                Text("No results found.")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textSecondary)
+                Text("Try rephrasing your search.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+            }
         }
+        .multilineTextAlignment(.center)
         .padding(VSpacing.xl)
         .frame(maxWidth: .infinity)
     }
