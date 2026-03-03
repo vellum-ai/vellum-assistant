@@ -1338,7 +1338,6 @@ struct MainWindowView: View {
                                 ) {
                                     ForEach(group.threads) { thread in
                                         threadItem(thread)
-                                            .padding(.bottom, VSpacing.xxs)
                                     }
                                 } label: {
                                     HStack(spacing: VSpacing.sm) {
