@@ -186,6 +186,7 @@ import {
   handleA2ARevoke,
   handleA2AVerify,
 } from './routes/a2a-routes.js';
+import { handleA2AMessageInbound } from './routes/a2a-inbound-routes.js';
 import { handleAddSecret, handleDeleteSecret } from "./routes/secret-routes.js";
 import { handleSurfaceAction } from "./routes/surface-action-routes.js";
 import {
@@ -1345,6 +1346,11 @@ export class RuntimeHttpServer {
       const a2aConnectionStatusMatch = endpoint.match(/^a2a\/connections\/([^/]+)\/status$/);
       if (a2aConnectionStatusMatch && req.method === 'GET') {
         return handleA2AConnectionStatus(a2aConnectionStatusMatch[1]);
+      }
+
+      // A2A inbound message endpoint (gateway -> runtime)
+      if (endpoint === 'a2a/messages/inbound' && req.method === 'POST') {
+        return await handleA2AMessageInbound(req, this.processMessage);
       }
 
       // Internal OAuth callback endpoint (gateway -> runtime)

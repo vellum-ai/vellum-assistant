@@ -743,12 +743,15 @@ export function submitVerificationCode(params: {
     return { ok: false, reason: 'invalid_state' };
   }
 
-  // Generate and persist credentials only after successful status transition
+  // Generate and persist credentials only after successful status transition.
+  // The raw inbound credential is stored alongside its hash so the runtime
+  // can verify HMAC-SHA256 signatures on inbound A2A messages.
   const credentials = generateCredentialPair();
 
   const connectionWithCredentials = updateConnectionCredentials(params.connectionId, {
     outboundCredentialHash: credentials.outboundCredentialHash,
     inboundCredentialHash: credentials.inboundCredentialHash,
+    inboundCredential: credentials.inboundCredential,
   });
 
   // Clean up handshake session — connection is now active
@@ -807,6 +810,7 @@ export function revokeConnection(params: {
   updateConnectionCredentials(params.connectionId, {
     outboundCredentialHash: '',
     inboundCredentialHash: '',
+    inboundCredential: '',
   });
 
   // Transition to revoked

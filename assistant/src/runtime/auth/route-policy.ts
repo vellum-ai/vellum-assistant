@@ -246,6 +246,12 @@ registerPolicy('channels/inbound', {
   allowedPrincipalTypes: ['svc_gateway'],
 });
 
+// A2A inbound messages: gateway-only
+registerPolicy('a2a/messages/inbound', {
+  requiredScopes: ['ingress.write'],
+  allowedPrincipalTypes: ['svc_gateway'],
+});
+
 // Internal forwarding endpoints: gateway-only
 const INTERNAL_ENDPOINTS = [
   'internal/twilio/voice-webhook',

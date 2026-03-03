@@ -101,6 +101,30 @@ export function resolveActorTrust(input: ResolveActorTrustInput): ActorTrustCont
 
   const identifier = senderUsername ? `@${senderUsername}` : canonicalSenderId ?? undefined;
 
+  // Assistant channel actors are always classified as peer_assistant.
+  // This is a fail-closed classification: if identity cannot be established,
+  // the message is rejected as unknown rather than falling through to a
+  // more permissive trust class.
+  if (input.sourceChannel === 'assistant') {
+    return {
+      canonicalSenderId,
+      guardianBindingMatch: null,
+      guardianPrincipalId: undefined,
+      memberRecord: null,
+      trustClass: canonicalSenderId ? 'peer_assistant' : 'unknown',
+      actorMetadata: {
+        identifier,
+        displayName: senderDisplayName,
+        senderDisplayName,
+        memberDisplayName: undefined,
+        username: senderUsername,
+        channel: input.sourceChannel,
+        trustStatus: canonicalSenderId ? 'peer_assistant' : 'unknown',
+      },
+      denialReason: canonicalSenderId ? undefined : 'no_identity',
+    };
+  }
+
   // No identity at all => unknown
   if (!canonicalSenderId) {
     return {
