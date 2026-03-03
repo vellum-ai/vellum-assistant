@@ -213,7 +213,52 @@ curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/a2a/connections/<connection_id>/status" \
 
 The response contains `{ connectionId, status, peerGatewayUrl, protocolVersion, createdAt, updatedAt }`.
 
-### 8. Revoke a connection
+### 8. View connection scopes
+
+Use this to show the user what scopes (permissions) are granted to a specific A2A connection. Scopes control what actions a peer assistant can perform.
+
+```bash
+TOKEN=$(cat ~/.vellum/http-token)
+curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/a2a/connections/<connection_id>/scopes" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+The response contains `{ connectionId, scopes }` where `scopes` is an array of scope IDs.
+
+Available scope IDs and their meanings:
+- `message` -- Send and receive text messages
+- `read_availability` -- Read calendar free/busy information
+- `create_events` -- Create calendar events (medium risk)
+- `read_profile` -- Read basic profile info (name, timezone)
+- `execute_requests` -- Execute structured A2A requests (high risk)
+
+**Presenting results**: Show the scopes as a readable list with their descriptions. If no scopes are granted, tell the user no permissions are currently set for this connection.
+
+### 9. Update connection scopes
+
+Use this when the user wants to grant or revoke specific permissions for a peer connection. **Scope changes take effect immediately** -- the peer's next request will be evaluated against the updated scopes.
+
+```bash
+TOKEN=$(cat ~/.vellum/http-token)
+curl -s -X PUT "$INTERNAL_GATEWAY_BASE_URL/v1/a2a/connections/<connection_id>/scopes" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d "{\"scopes\": [\"message\", \"read_profile\"]}"
+```
+
+The `scopes` array replaces the existing scopes entirely. To add a scope, include it alongside existing ones. To remove a scope, omit it from the array.
+
+The response contains `{ connectionId, previousScopes, newScopes }`.
+
+**Presenting results**: Show what changed clearly:
+> Updated scopes for [peer name or URL]:
+> - Added: `read_profile`
+> - Removed: `create_events`
+> - Current scopes: `message`, `read_profile`
+
+**Confirmation**: Granting high-risk scopes (`execute_requests`, `create_events`) should be confirmed with the user before proceeding. Revoking scopes or granting low-risk scopes (`message`, `read_profile`, `read_availability`) does not require extra confirmation.
+
+### 10. Revoke a connection
 
 Use this when the user wants to disconnect from a peer. **Always confirm with the user before revoking.**
 
@@ -232,6 +277,8 @@ On success, the response is `{ ok: true }`.
 ## Confirmation Requirements
 
 **Revoking a connection requires explicit user confirmation before execution.** Modifying who can communicate with the assistant should always be a deliberate choice.
+
+**Granting high-risk scopes** (`execute_requests`, `create_events`) requires explicit user confirmation. Granting low-risk scopes or revoking any scope does not require extra confirmation.
 
 Generating invites, redeeming invites, and approving/denying connections do not require additional confirmation since the user is explicitly initiating those actions.
 
@@ -256,6 +303,8 @@ If a request returns an error JSON (typically `{ error: { code, message } }`), r
 | `expired` (410) | The verification code or handshake session expired | The handshake timed out. The peer needs to send a new connect request. |
 | `max_attempts` (429) | Too many incorrect code attempts | Rate limited. Wait and try again, or revoke and start fresh. |
 | `identity_mismatch` (403) | The peer identity does not match the connection | The verification is being attempted from the wrong peer. |
+| `invalid_scopes` (400) | One or more scope IDs are not recognized | Check the scope IDs against the available list: `message`, `read_availability`, `create_events`, `read_profile`, `execute_requests`. |
+| `not_active` (409) | Connection is not active (scopes can only be managed on active connections) | The connection must be fully established before managing scopes. |
 | HTTP 429 (rate limited) | Too many requests | Tell the user to wait a moment before retrying. The response includes a `Retry-After` header. |
 | HTTP 502/504 (gateway error) | Peer assistant unreachable | The peer's gateway may be offline. Ask the user to confirm the peer is running and try again later. |
 
@@ -281,7 +330,24 @@ If a request returns an error JSON (typically `{ error: { code, message } }`), r
 **"Disconnect from [name/URL]"** / **"Revoke connection to [name]"**:
 1. List connections to identify the target
 2. Confirm with the user
-3. Revoke the connection (Action 8)
+3. Revoke the connection (Action 10)
+
+**"Allow messaging with [connection]"** / **"Grant message scope to [name]"**:
+1. List connections to identify the target (Action 6)
+2. Get current scopes (Action 8)
+3. Add the requested scope to the existing list
+4. Update scopes (Action 9)
+
+**"Revoke calendar access from [connection]"** / **"Remove create_events scope"**:
+1. List connections to identify the target (Action 6)
+2. Get current scopes (Action 8)
+3. Remove the specified scope from the list
+4. Update scopes (Action 9)
+
+**"Show scopes for [connection]"** / **"What can [name] do?"**:
+1. List connections to identify the target (Action 6)
+2. Get scopes (Action 8)
+3. Present the scopes with descriptions
 
 **Incoming connection request (notification)**:
 When the assistant receives a notification about a pending connection request from a peer, present it to the guardian and ask whether to approve or deny. If approved, display the verification code with out-of-band sharing instructions.
