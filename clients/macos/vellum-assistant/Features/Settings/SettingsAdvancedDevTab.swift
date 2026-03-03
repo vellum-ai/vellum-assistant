@@ -249,6 +249,7 @@ struct SettingsAdvancedDevTab: View {
                 }
             }
             .padding(VSpacing.lg)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .vCard(background: VColor.surfaceSubtle)
         }
     }

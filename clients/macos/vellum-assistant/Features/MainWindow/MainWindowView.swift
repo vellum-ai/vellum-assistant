@@ -495,12 +495,19 @@ struct MainWindowView: View {
             }
     }
 
+    private var isSettingsOpen: Bool {
+        if case .panel(.settings) = windowState.selection { return true }
+        return false
+    }
+
     /// Top bar extracted to break up type-checker complexity.
     private var topBarView: some View {
         HStack(spacing: VSpacing.sm) {
-            VIconButton(label: "Sidebar", icon: "sidebar.left", isActive: sidebarExpanded, iconOnly: true, tooltip: sidebarExpanded ? "Collapse sidebar" : "Expand sidebar") {
-                withAnimation(VAnimation.panel) {
-                    sidebarExpanded.toggle()
+            if !isSettingsOpen {
+                VIconButton(label: "Sidebar", icon: "sidebar.left", isActive: sidebarExpanded, iconOnly: true, tooltip: sidebarExpanded ? "Collapse sidebar" : "Expand sidebar") {
+                    withAnimation(VAnimation.panel) {
+                        sidebarExpanded.toggle()
+                    }
                 }
             }
             Spacer()
@@ -578,7 +585,9 @@ struct MainWindowView: View {
 
                     // Main container: sidebar + content with uniform padding
                     HStack(spacing: 16) {
-                        sidebarView
+                        if !isSettingsOpen {
+                            sidebarView
+                        }
 
                         chatContentView(geometry: geometry)
                             .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
