@@ -949,7 +949,7 @@ export class CallController {
           canonicalDeliveries,
           this.assistantId,
           getGatewayInternalBaseUrl(),
-          mintDaemonDeliveryToken(),
+          () => mintDaemonDeliveryToken(),
         ).catch((err) => {
           log.error(
             { err, callSessionId: this.callSessionId, requestId: pendingActionRequest.id },

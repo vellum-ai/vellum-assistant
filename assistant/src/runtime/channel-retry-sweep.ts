@@ -54,7 +54,7 @@ function parseGuardianRuntimeContext(value: unknown): GuardianRuntimeContext | u
  */
 export async function sweepFailedEvents(
   processMessage: MessageProcessor,
-  bearerToken: string | undefined,
+  mintBearerToken: (() => string) | undefined,
 ): Promise<void> {
   const events = channelDeliveryStore.getRetryableEvents();
   if (events.length === 0) return;
@@ -175,7 +175,7 @@ export async function sweepFailedEvents(
             event.conversationId,
             externalChatId,
             replyCallbackUrl,
-            bearerToken,
+            mintBearerToken?.(),
             assistantId,
             {
               startFromSegment: 0,
