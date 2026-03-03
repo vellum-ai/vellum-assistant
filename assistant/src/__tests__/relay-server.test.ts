@@ -22,6 +22,7 @@ import {
   beforeEach,
   describe,
   expect,
+  jest,
   type Mock,
   mock,
   test,
@@ -2741,20 +2742,28 @@ describe("relay-server", () => {
       }),
     );
 
-    // Provide name
-    await relay.handleMessage(
-      JSON.stringify({
-        type: "prompt",
-        voicePrompt: "Timeout Tester",
-        lang: "en-US",
-        last: true,
-      }),
-    );
+    jest.useFakeTimers();
+    try {
+      // Provide name
+      await relay.handleMessage(
+        JSON.stringify({
+          type: "prompt",
+          voicePrompt: "Timeout Tester",
+          lang: "en-US",
+          last: true,
+        }),
+      );
 
-    expect(relay.getConnectionState()).toBe("awaiting_guardian_decision");
+      expect(relay.getConnectionState()).toBe("awaiting_guardian_decision");
 
-    // Wait for timeout (2 seconds + buffer)
-    await new Promise((resolve) => setTimeout(resolve, 2500));
+      // Advance past the 2s timeout + endSession delay
+      jest.advanceTimersByTime(2500);
+    } finally {
+      jest.useRealTimers();
+    }
+
+    // Let async fire-and-forget work settle
+    await new Promise((resolve) => setTimeout(resolve, 50));
 
     // Should be disconnecting after timeout
     expect(relay.getConnectionState()).toBe("disconnecting");
@@ -2782,9 +2791,6 @@ describe("relay-server", () => {
     expect(
       events.some((e) => e.eventType === "inbound_acl_access_timeout"),
     ).toBe(true);
-
-    // Let the delayed endSession callback flush
-    await new Promise((resolve) => setTimeout(resolve, 100));
 
     // Restore default timeout
     mockConfig.calls.userConsultTimeoutSeconds = 120;
@@ -3090,29 +3096,34 @@ describe("relay-server", () => {
       }),
     );
 
-    await relay.handleMessage(
-      JSON.stringify({
-        type: "prompt",
-        voicePrompt: "OptIn Tester",
-        lang: "en-US",
-        last: true,
-      }),
-    );
+    jest.useFakeTimers();
+    try {
+      await relay.handleMessage(
+        JSON.stringify({
+          type: "prompt",
+          voicePrompt: "OptIn Tester",
+          lang: "en-US",
+          last: true,
+        }),
+      );
 
-    expect(relay.getConnectionState()).toBe("awaiting_guardian_decision");
+      expect(relay.getConnectionState()).toBe("awaiting_guardian_decision");
 
-    // Trigger impatience to get callback offer
-    await relay.handleMessage(
-      JSON.stringify({
-        type: "prompt",
-        voicePrompt: "Hurry up please",
-        lang: "en-US",
-        last: true,
-      }),
-    );
+      // Trigger impatience to get callback offer
+      await relay.handleMessage(
+        JSON.stringify({
+          type: "prompt",
+          voicePrompt: "Hurry up please",
+          lang: "en-US",
+          last: true,
+        }),
+      );
 
-    // Wait for cooldown
-    await new Promise((resolve) => setTimeout(resolve, 3100));
+      // Advance past the 3s cooldown
+      jest.advanceTimersByTime(3200);
+    } finally {
+      jest.useRealTimers();
+    }
 
     const msgCountBeforeOptIn = ws.sentMessages.length;
 
@@ -3342,53 +3353,58 @@ describe("relay-server", () => {
       }),
     );
 
-    // Provide name to enter guardian wait
-    await relay.handleMessage(
-      JSON.stringify({
-        type: "prompt",
-        voicePrompt: "Callback Tester",
-        lang: "en-US",
-        last: true,
-      }),
-    );
+    jest.useFakeTimers();
+    try {
+      // Provide name to enter guardian wait
+      await relay.handleMessage(
+        JSON.stringify({
+          type: "prompt",
+          voicePrompt: "Callback Tester",
+          lang: "en-US",
+          last: true,
+        }),
+      );
 
-    expect(relay.getConnectionState()).toBe("awaiting_guardian_decision");
+      expect(relay.getConnectionState()).toBe("awaiting_guardian_decision");
 
-    // Trigger impatience to get callback offer
-    await relay.handleMessage(
-      JSON.stringify({
-        type: "prompt",
-        voicePrompt: "Hurry up please",
-        lang: "en-US",
-        last: true,
-      }),
-    );
+      // Trigger impatience to get callback offer
+      await relay.handleMessage(
+        JSON.stringify({
+          type: "prompt",
+          voicePrompt: "Hurry up please",
+          lang: "en-US",
+          last: true,
+        }),
+      );
 
-    // Accept callback offer (callback decisions bypass cooldown)
-    await relay.handleMessage(
-      JSON.stringify({
-        type: "prompt",
-        voicePrompt: "Yes, please call me back",
-        lang: "en-US",
-        last: true,
-      }),
-    );
+      // Accept callback offer (callback decisions bypass cooldown)
+      await relay.handleMessage(
+        JSON.stringify({
+          type: "prompt",
+          voicePrompt: "Yes, please call me back",
+          lang: "en-US",
+          last: true,
+        }),
+      );
 
-    // Verify callback opt-in was set
-    const eventsBeforeTimeout = getCallEvents(session.id);
-    expect(
-      eventsBeforeTimeout.some(
-        (e) => e.eventType === "voice_guardian_wait_callback_opt_in_set",
-      ),
-    ).toBe(true);
+      // Verify callback opt-in was set
+      const eventsBeforeTimeout = getCallEvents(session.id);
+      expect(
+        eventsBeforeTimeout.some(
+          (e) => e.eventType === "voice_guardian_wait_callback_opt_in_set",
+        ),
+      ).toBe(true);
 
-    // Wait for timeout (2s) plus settling time
-    await new Promise((resolve) => setTimeout(resolve, 2500));
+      // Advance past the 2s timeout + endSession delay
+      jest.advanceTimersByTime(2500);
+    } finally {
+      jest.useRealTimers();
+    }
+
+    // Let async notification emission settle
+    await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(relay.getConnectionState()).toBe("disconnecting");
-
-    // Allow async notification emission to complete
-    await new Promise((resolve) => setTimeout(resolve, 200));
 
     const events = getCallEvents(session.id);
     // Should have exactly one callback_handoff_notified event (or callback_handoff_failed
@@ -3440,23 +3456,29 @@ describe("relay-server", () => {
       }),
     );
 
-    await relay.handleMessage(
-      JSON.stringify({
-        type: "prompt",
-        voicePrompt: "No Callback Tester",
-        lang: "en-US",
-        last: true,
-      }),
-    );
+    jest.useFakeTimers();
+    try {
+      await relay.handleMessage(
+        JSON.stringify({
+          type: "prompt",
+          voicePrompt: "No Callback Tester",
+          lang: "en-US",
+          last: true,
+        }),
+      );
 
-    expect(relay.getConnectionState()).toBe("awaiting_guardian_decision");
+      expect(relay.getConnectionState()).toBe("awaiting_guardian_decision");
 
-    // Wait for timeout without opting into callback
-    await new Promise((resolve) => setTimeout(resolve, 2500));
+      // Advance past the 2s timeout + endSession delay
+      jest.advanceTimersByTime(2500);
+    } finally {
+      jest.useRealTimers();
+    }
+
+    // Let async work settle
+    await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(relay.getConnectionState()).toBe("disconnecting");
-
-    await new Promise((resolve) => setTimeout(resolve, 200));
 
     const events = getCallEvents(session.id);
     // Should NOT have callback handoff events
@@ -3561,41 +3583,47 @@ describe("relay-server", () => {
       }),
     );
 
-    await relay.handleMessage(
-      JSON.stringify({
-        type: "prompt",
-        voicePrompt: "Race Tester",
-        lang: "en-US",
-        last: true,
-      }),
-    );
+    jest.useFakeTimers();
+    try {
+      await relay.handleMessage(
+        JSON.stringify({
+          type: "prompt",
+          voicePrompt: "Race Tester",
+          lang: "en-US",
+          last: true,
+        }),
+      );
 
-    // Opt into callback (callback decisions bypass cooldown)
-    await relay.handleMessage(
-      JSON.stringify({
-        type: "prompt",
-        voicePrompt: "Hurry up please",
-        lang: "en-US",
-        last: true,
-      }),
-    );
+      // Opt into callback (callback decisions bypass cooldown)
+      await relay.handleMessage(
+        JSON.stringify({
+          type: "prompt",
+          voicePrompt: "Hurry up please",
+          lang: "en-US",
+          last: true,
+        }),
+      );
 
-    await relay.handleMessage(
-      JSON.stringify({
-        type: "prompt",
-        voicePrompt: "Yes call me back",
-        lang: "en-US",
-        last: true,
-      }),
-    );
+      await relay.handleMessage(
+        JSON.stringify({
+          type: "prompt",
+          voicePrompt: "Yes call me back",
+          lang: "en-US",
+          last: true,
+        }),
+      );
 
-    // Wait for timeout to fire (2s) plus settling time
-    await new Promise((resolve) => setTimeout(resolve, 2500));
+      // Advance past the 2s timeout
+      jest.advanceTimersByTime(2500);
+    } finally {
+      jest.useRealTimers();
+    }
 
     // Now transport close too (simulating race)
     relay.handleTransportClosed(1000, "Normal closure");
 
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    // Let async work settle
+    await new Promise((resolve) => setTimeout(resolve, 50));
 
     const events = getCallEvents(session.id);
     // Guard should ensure only ONE handoff event
@@ -3633,45 +3661,51 @@ describe("relay-server", () => {
       }),
     );
 
-    await relay.handleMessage(
-      JSON.stringify({
-        type: "prompt",
-        voicePrompt: "Member Tester",
-        lang: "en-US",
-        last: true,
-      }),
-    );
+    jest.useFakeTimers();
+    try {
+      await relay.handleMessage(
+        JSON.stringify({
+          type: "prompt",
+          voicePrompt: "Member Tester",
+          lang: "en-US",
+          last: true,
+        }),
+      );
 
-    expect(relay.getConnectionState()).toBe("awaiting_guardian_decision");
+      expect(relay.getConnectionState()).toBe("awaiting_guardian_decision");
 
-    // Add the caller as a trusted contact AFTER the access request flow
-    // is entered so resolveActorTrust doesn't skip the flow. The handoff
-    // code uses findMember to resolve requesterMemberId at handoff time.
-    addTrustedVoiceContact("+15557770024");
+      // Add the caller as a trusted contact AFTER the access request flow
+      // is entered so resolveActorTrust doesn't skip the flow. The handoff
+      // code uses findMember to resolve requesterMemberId at handoff time.
+      addTrustedVoiceContact("+15557770024");
 
-    // Opt into callback (callback decisions bypass cooldown)
-    await relay.handleMessage(
-      JSON.stringify({
-        type: "prompt",
-        voicePrompt: "Hurry up",
-        lang: "en-US",
-        last: true,
-      }),
-    );
+      // Opt into callback (callback decisions bypass cooldown)
+      await relay.handleMessage(
+        JSON.stringify({
+          type: "prompt",
+          voicePrompt: "Hurry up",
+          lang: "en-US",
+          last: true,
+        }),
+      );
 
-    await relay.handleMessage(
-      JSON.stringify({
-        type: "prompt",
-        voicePrompt: "Yes please call me back",
-        lang: "en-US",
-        last: true,
-      }),
-    );
+      await relay.handleMessage(
+        JSON.stringify({
+          type: "prompt",
+          voicePrompt: "Yes please call me back",
+          lang: "en-US",
+          last: true,
+        }),
+      );
 
-    // Wait for timeout (2s) plus settling time
-    await new Promise((resolve) => setTimeout(resolve, 2500));
+      // Advance past the 2s timeout
+      jest.advanceTimersByTime(2500);
+    } finally {
+      jest.useRealTimers();
+    }
 
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    // Let async work settle
+    await new Promise((resolve) => setTimeout(resolve, 50));
 
     const events = getCallEvents(session.id);
     const handoffEvents = events.filter(
@@ -3720,40 +3754,46 @@ describe("relay-server", () => {
       }),
     );
 
-    await relay.handleMessage(
-      JSON.stringify({
-        type: "prompt",
-        voicePrompt: "No Member Tester",
-        lang: "en-US",
-        last: true,
-      }),
-    );
+    jest.useFakeTimers();
+    try {
+      await relay.handleMessage(
+        JSON.stringify({
+          type: "prompt",
+          voicePrompt: "No Member Tester",
+          lang: "en-US",
+          last: true,
+        }),
+      );
 
-    expect(relay.getConnectionState()).toBe("awaiting_guardian_decision");
+      expect(relay.getConnectionState()).toBe("awaiting_guardian_decision");
 
-    // Opt into callback (callback decisions bypass cooldown)
-    await relay.handleMessage(
-      JSON.stringify({
-        type: "prompt",
-        voicePrompt: "Come on hurry up",
-        lang: "en-US",
-        last: true,
-      }),
-    );
+      // Opt into callback (callback decisions bypass cooldown)
+      await relay.handleMessage(
+        JSON.stringify({
+          type: "prompt",
+          voicePrompt: "Come on hurry up",
+          lang: "en-US",
+          last: true,
+        }),
+      );
 
-    await relay.handleMessage(
-      JSON.stringify({
-        type: "prompt",
-        voicePrompt: "Yes callback please",
-        lang: "en-US",
-        last: true,
-      }),
-    );
+      await relay.handleMessage(
+        JSON.stringify({
+          type: "prompt",
+          voicePrompt: "Yes callback please",
+          lang: "en-US",
+          last: true,
+        }),
+      );
 
-    // Wait for timeout (2s) plus settling time
-    await new Promise((resolve) => setTimeout(resolve, 2500));
+      // Advance past the 2s timeout
+      jest.advanceTimersByTime(2500);
+    } finally {
+      jest.useRealTimers();
+    }
 
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    // Let async work settle
+    await new Promise((resolve) => setTimeout(resolve, 50));
 
     const events = getCallEvents(session.id);
     const handoffEvents = events.filter(
@@ -3915,7 +3955,9 @@ describe("relay-server", () => {
       .map((raw) => JSON.parse(raw) as { type: string; token?: string })
       .filter((m) => m.type === "text");
     expect(
-      textMessages.some((m) => (m.token ?? "").includes("said I can speak with you")),
+      textMessages.some((m) =>
+        (m.token ?? "").includes("said I can speak with you"),
+      ),
     ).toBe(true);
 
     // No end message should have been sent — call stays alive
@@ -3926,9 +3968,7 @@ describe("relay-server", () => {
 
     // assistant_spoke event should have been recorded for the handoff
     const events = getCallEvents(session.id);
-    expect(
-      events.some((e) => e.eventType === "assistant_spoke"),
-    ).toBe(true);
+    expect(events.some((e) => e.eventType === "assistant_spoke")).toBe(true);
 
     // Session should be in_progress (not completed/failed)
     const updated = getCallSession(session.id);
@@ -4050,7 +4090,9 @@ describe("relay-server", () => {
       .map((raw) => JSON.parse(raw) as { type: string; token?: string })
       .filter((m) => m.type === "text");
     expect(
-      textMessages.some((m) => (m.token ?? "").includes("said I can speak with you")),
+      textMessages.some((m) =>
+        (m.token ?? "").includes("said I can speak with you"),
+      ),
     ).toBe(true);
 
     // No end message — call stays alive
