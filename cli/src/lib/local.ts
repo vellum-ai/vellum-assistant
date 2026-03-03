@@ -237,19 +237,15 @@ async function startDaemonWatchFromSource(assistantIndex: string): Promise<void>
     RUNTIME_HTTP_PORT: process.env.RUNTIME_HTTP_PORT || "7821",
   };
 
-  const daemonLogFd = openLogFile("daemon.log");
-  let daemonPid: number | undefined;
-  try {
-    const child = spawn("bun", ["--watch", "run", mainPath], {
-      detached: true,
-      stdio: ["ignore", daemonLogFd, daemonLogFd],
-      env,
-    });
-    child.unref();
-    daemonPid = child.pid;
-  } finally {
-    closeLogFile(daemonLogFd);
-  }
+  const daemonLogFd = openLogFile("hatch.log");
+  const child = spawn("bun", ["--watch", "run", mainPath], {
+    detached: true,
+    stdio: ["ignore", "pipe", "pipe"],
+    env,
+  });
+  pipeToLogFile(child, daemonLogFd, "daemon");
+  child.unref();
+  const daemonPid = child.pid;
 
   if (daemonPid) {
     writeFileSync(pidFile, String(daemonPid), "utf-8");
