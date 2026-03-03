@@ -82,6 +82,7 @@ jobs:
         working-directory: clients/macos
         run: |
           SKIP_CLEAN=1 \
+          SKIP_RELEASE_OPTIMIZATIONS=1 \
           RELEASE_ARCH_FLAGS="--arch arm64" \
           ./build.sh release
           ls -la "dist/Vellum.app"
