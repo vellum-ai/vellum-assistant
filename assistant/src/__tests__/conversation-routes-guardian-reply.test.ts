@@ -58,8 +58,8 @@ mock.module('../runtime/local-actor-identity.js', () => ({
   resolveLocalIpcGuardianContext: () => ({ trustClass: 'guardian', sourceChannel: 'vellum' }),
 }));
 
-import { handleSendMessage } from '../runtime/routes/conversation-routes.js';
 import type { AuthContext } from '../runtime/auth/types.js';
+import { handleSendMessage } from '../runtime/routes/conversation-routes.js';
 
 const testAuthContext: AuthContext = {
   subject: 'actor:self:test-guardian',

@@ -66,7 +66,7 @@ describe('enforcePolicy', () => {
     const result = enforcePolicy('channels/inbound', ctx);
     expect(result).not.toBeNull();
     expect(result!.status).toBe(403);
-    const body = result!.json();
+    const _body = result!.json();
     // Response.json() returns a promise
   });
 

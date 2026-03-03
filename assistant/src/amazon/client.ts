@@ -51,8 +51,8 @@
 import type { ExtensionCommand, ExtensionResponse } from '../browser-extension-relay/protocol.js';
 import { extensionRelayServer } from '../browser-extension-relay/server.js';
 import { getGatewayInternalBaseUrl } from '../config/env.js';
-import type { ExtractedCredential } from '../tools/browser/network-recording-types.js';
 import { isSigningKeyInitialized, mintEdgeRelayToken } from '../runtime/auth/token-service.js';
+import type { ExtractedCredential } from '../tools/browser/network-recording-types.js';
 import {
   type AmazonSession,
   loadSession,

@@ -16,8 +16,8 @@ import { sendMessage as sendSms } from "../messaging/providers/sms/client.js";
 import { getCredentialMetadata } from "../tools/credentials/metadata-store.js";
 import { getLogger } from "../util/logger.js";
 import { normalizePhoneNumber } from "../util/phone.js";
-import { mintDaemonDeliveryToken } from "./auth/token-service.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
+import { mintDaemonDeliveryToken } from "./auth/token-service.js";
 import {
   countRecentSendsToDestination,
   createOutboundSession,

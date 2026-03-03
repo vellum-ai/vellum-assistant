@@ -11,12 +11,12 @@
  * assistant entries.
  */
 
-import { readLockfile } from '../../util/platform.js';
 import { getLogger } from '../../util/logger.js';
+import { readLockfile } from '../../util/platform.js';
 
 const log = getLogger('external-assistant-id');
 
-let cached: string | null = null;
+let cached: string | undefined;
 
 /**
  * Get the external assistant ID from the lockfile.
@@ -28,7 +28,7 @@ let cached: string | null = null;
  *   3. Fallback: 'self'
  */
 export function getExternalAssistantId(): string {
-  if (cached !== null) {
+  if (cached !== undefined) {
     return cached;
   }
 
@@ -65,5 +65,5 @@ export function getExternalAssistantId(): string {
  * re-resolution on the next call.
  */
 export function resetExternalAssistantIdCache(): void {
-  cached = null;
+  cached = undefined;
 }

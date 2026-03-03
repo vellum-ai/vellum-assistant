@@ -19,9 +19,9 @@ import {
 } from '../memory/canonical-guardian-store.js';
 import { revokeScopedApprovalGrantsForContext } from '../memory/scoped-approval-grants.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
+import { mintDaemonDeliveryToken } from '../runtime/auth/token-service.js';
 import { computeToolApprovalDigest } from '../security/tool-approval-digest.js';
 import { getLogger } from '../util/logger.js';
-import { mintDaemonDeliveryToken } from '../runtime/auth/token-service.js';
 import { getMaxCallDurationMs, getSilenceTimeoutMs, getUserConsultationTimeoutMs } from './call-constants.js';
 import { persistCallCompletionMessage } from './call-conversation-messages.js';
 import { addPointerMessage, formatDuration } from './call-pointer-messages.js';

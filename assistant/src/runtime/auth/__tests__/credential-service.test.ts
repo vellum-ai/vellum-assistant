@@ -34,9 +34,9 @@ mock.module('../../../util/logger.js', () => ({
 
 import { getSqlite, initializeDb, resetDb } from '../../../memory/db.js';
 import { findActiveByTokenHash } from '../../actor-token-store.js';
-import { hashToken, initAuthSigningKey, verifyToken } from '../token-service.js';
-import { resetExternalAssistantIdCache } from '../external-assistant-id.js';
 import { mintCredentialPair, rotateCredentials } from '../credential-service.js';
+import { resetExternalAssistantIdCache } from '../external-assistant-id.js';
+import { hashToken, initAuthSigningKey, verifyToken } from '../token-service.js';
 
 const TEST_KEY = Buffer.from('test-signing-key-32-bytes-long!!');
 

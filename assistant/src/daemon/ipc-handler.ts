@@ -5,9 +5,9 @@
  */
 import * as net from 'node:net';
 
-import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
 import { buildAssistantEvent } from '../runtime/assistant-event.js';
 import { assistantEventHub } from '../runtime/assistant-event-hub.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
 import { CURRENT_POLICY_EPOCH } from '../runtime/auth/policy.js';
 import { resolveScopeProfile } from '../runtime/auth/scopes.js';
 import type { AuthContext } from '../runtime/auth/types.js';

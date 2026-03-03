@@ -21,9 +21,9 @@ import {
   listCanonicalGuardianRequests,
 } from '../../memory/canonical-guardian-store.js';
 import { getActiveBinding } from '../../memory/guardian-bindings.js';
-import type { ApprovalAction } from '../channel-approval-types.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
 import type { AuthContext } from '../auth/types.js';
+import type { ApprovalAction } from '../channel-approval-types.js';
 import type { GuardianDecisionPrompt } from '../guardian-decision-types.js';
 import { buildDecisionActions } from '../guardian-decision-types.js';
 import { httpError } from '../http-errors.js';

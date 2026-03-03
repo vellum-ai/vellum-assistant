@@ -19,8 +19,8 @@ import { loadConfig } from '../../../config/loader.js';
 import { getOrCreateConversation } from '../../../memory/conversation-key-store.js';
 import * as externalConversationStore from '../../../memory/external-conversation-store.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../../../runtime/assistant-scope.js';
-import { getSecureKey } from '../../../security/secure-keys.js';
 import { mintDaemonDeliveryToken } from '../../../runtime/auth/token-service.js';
+import { getSecureKey } from '../../../security/secure-keys.js';
 import type { MessagingProvider } from '../../provider.js';
 import type {
   ConnectionInfo,

@@ -14,8 +14,8 @@
 import { getGatewayInternalBaseUrl } from '../../../config/env.js';
 import { getOrCreateConversation } from '../../../memory/conversation-key-store.js';
 import * as externalConversationStore from '../../../memory/external-conversation-store.js';
-import { getSecureKey } from '../../../security/secure-keys.js';
 import { mintDaemonDeliveryToken } from '../../../runtime/auth/token-service.js';
+import { getSecureKey } from '../../../security/secure-keys.js';
 import type { MessagingProvider } from '../../provider.js';
 import type {
   ConnectionInfo,

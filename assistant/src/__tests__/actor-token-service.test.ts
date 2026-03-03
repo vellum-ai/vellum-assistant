@@ -40,8 +40,6 @@ import {
   createBinding,
   getActiveBinding,
 } from '../memory/guardian-bindings.js';
-import { hashToken, initAuthSigningKey } from '../runtime/auth/token-service.js';
-import { resetExternalAssistantIdCache } from '../runtime/auth/external-assistant-id.js';
 import {
   createActorTokenRecord,
   findActiveByDeviceBinding,
@@ -49,6 +47,8 @@ import {
   revokeByDeviceBinding,
   revokeByTokenHash,
 } from '../runtime/actor-token-store.js';
+import { resetExternalAssistantIdCache } from '../runtime/auth/external-assistant-id.js';
+import { hashToken, initAuthSigningKey } from '../runtime/auth/token-service.js';
 import { ensureVellumGuardianBinding } from '../runtime/guardian-vellum-migration.js';
 import { resolveLocalIpcAuthContext, resolveLocalIpcGuardianContext } from '../runtime/local-actor-identity.js';
 

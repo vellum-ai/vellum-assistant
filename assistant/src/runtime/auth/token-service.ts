@@ -5,8 +5,8 @@
  * HMAC-SHA256. Owns the signing key lifecycle (load/create/persist).
  */
 
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 import { getLogger } from '../../util/logger.js';
@@ -20,7 +20,7 @@ const log = getLogger('token-service');
 // Signing key management
 // ---------------------------------------------------------------------------
 
-let _authSigningKey: Buffer | null = null;
+let _authSigningKey: Buffer | undefined;
 
 /**
  * Path to the persisted signing key file.
@@ -90,7 +90,7 @@ export function initAuthSigningKey(key: Buffer): void {
  * mint JWTs or must fall back to the legacy shared-secret token.
  */
 export function isSigningKeyInitialized(): boolean {
-  return _authSigningKey !== null;
+  return _authSigningKey !== undefined;
 }
 
 // ---------------------------------------------------------------------------

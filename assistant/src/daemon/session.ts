@@ -34,6 +34,7 @@ import { SecretPrompter } from '../permissions/secret-prompter.js';
 import type { UserDecision } from '../permissions/types.js';
 import type { Message } from '../providers/types.js';
 import type { Provider } from '../providers/types.js';
+import type { AuthContext } from '../runtime/auth/types.js';
 import * as approvalOverrides from '../runtime/session-approval-overrides.js';
 import { ToolExecutor } from '../tools/executor.js';
 import type { AssistantAttachmentDraft } from './assistant-attachments.js';
@@ -74,7 +75,6 @@ import {
 } from './session-process.js';
 import type { QueueDrainReason, QueueMetrics } from './session-queue-manager.js';
 import { MessageQueue } from './session-queue-manager.js';
-import type { AuthContext } from '../runtime/auth/types.js';
 import type { ChannelCapabilities, GuardianRuntimeContext } from './session-runtime-assembly.js';
 import type { SkillProjectionCache } from './session-skill-tools.js';
 import {

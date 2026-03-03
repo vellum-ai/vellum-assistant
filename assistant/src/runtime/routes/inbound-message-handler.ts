@@ -28,6 +28,7 @@ import { IngressBlockedError } from '../../util/errors.js';
 import { getLogger } from '../../util/logger.js';
 import { notifyGuardianOfAccessRequest } from '../access-request-helper.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
+import { mintDaemonDeliveryToken } from '../auth/token-service.js';
 import {
   buildApprovalUIMetadata,
   getApprovalInfoByConversation,
@@ -64,7 +65,6 @@ import type {
 import { redeemInvite } from '../invite-redemption-service.js';
 import { getInviteRedemptionReply } from '../invite-redemption-templates.js';
 import { deliverReplyViaCallback } from './channel-delivery-routes.js';
-import { mintDaemonDeliveryToken } from '../auth/token-service.js';
 import {
   canonicalChannelAssistantId,
   GUARDIAN_APPROVAL_TTL_MS,

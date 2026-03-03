@@ -8,9 +8,9 @@
  */
 
 import { getGatewayInternalBaseUrl } from '../../config/env.js';
+import { mintDaemonDeliveryToken } from '../../runtime/auth/token-service.js';
 import { deliverChannelReply } from '../../runtime/gateway-client.js';
 import { getLogger } from '../../util/logger.js';
-import { mintDaemonDeliveryToken } from '../../runtime/auth/token-service.js';
 import { nonEmpty } from '../copy-composer.js';
 import { isThreadSeedSane } from '../thread-seed-composer.js';
 import type {

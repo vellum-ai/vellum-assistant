@@ -43,13 +43,13 @@ import { getLogger } from '../util/logger.js';
 import { buildAssistantEvent } from './assistant-event.js';
 import { assistantEventHub } from './assistant-event-hub.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from './assistant-scope.js';
-import { sweepFailedEvents } from './channel-retry-sweep.js';
-import { httpError } from './http-errors.js';
 // Auth
 import { authenticateRequest } from './auth/middleware.js';
 import { enforcePolicy, getPolicy } from './auth/route-policy.js';
 import { verifyToken } from './auth/token-service.js';
 import type { AuthContext } from './auth/types.js';
+import { sweepFailedEvents } from './channel-retry-sweep.js';
+import { httpError } from './http-errors.js';
 // Middleware
 import {
   extractBearerToken,

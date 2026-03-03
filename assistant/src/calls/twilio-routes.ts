@@ -9,8 +9,8 @@
 import { getCallWelcomeGreeting, getRuntimeProxyBearerToken } from '../config/env.js';
 import { loadConfig } from '../config/loader.js';
 import { getTwilioRelayUrl } from '../inbound/public-ingress-urls.js';
-import { getLogger } from '../util/logger.js';
 import { mintEdgeRelayToken } from '../runtime/auth/token-service.js';
+import { getLogger } from '../util/logger.js';
 import { persistCallCompletionMessage } from './call-conversation-messages.js';
 import { createInboundVoiceSession } from './call-domain.js';
 import { logDeadLetterEvent } from './call-recovery.js';

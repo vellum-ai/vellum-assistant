@@ -66,7 +66,6 @@ mock.module('../memory/ingress-member-store.js', () => ({
   }),
   updateLastSeen: () => {},
 }));
-import { initAuthSigningKey } from '../runtime/auth/token-service.js';
 import type { Session } from '../daemon/session.js';
 import {
   createCanonicalGuardianDelivery,
@@ -81,6 +80,7 @@ import {
 } from '../memory/channel-guardian-store.js';
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import { conversations, externalConversationBindings } from '../memory/schema.js';
+import { initAuthSigningKey } from '../runtime/auth/token-service.js';
 import * as gatewayClient from '../runtime/gateway-client.js';
 import * as pendingInteractions from '../runtime/pending-interactions.js';
 import {
