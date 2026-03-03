@@ -153,7 +153,7 @@ struct SettingsAppearanceTab: View {
 
                 Divider().background(VColor.surfaceBorder)
 
-                ShortcutRow(label: "Start voice input", shortcut: "Hold Fn")
+                ShortcutRow(label: "Start voice input", shortcut: PTTActivator.fromStored().kind != .none ? "Hold \(PTTActivator.fromStored().displayName)" : "Disabled")
 
                 Divider().background(VColor.surfaceBorder)
 

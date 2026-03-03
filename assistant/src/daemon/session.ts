@@ -15,81 +15,94 @@
  * - session-usage.ts        — recordUsage
  */
 
-import { AgentLoop, type ResolvedSystemPrompt } from '../agent/loop.js';
-import type { TurnChannelContext, TurnInterfaceContext } from '../channels/types.js';
-import { getConfig } from '../config/loader.js';
-import { buildSystemPrompt } from '../config/system-prompt.js';
-import { ContextWindowManager } from '../context/window-manager.js';
-import { EventBus } from '../events/bus.js';
-import type { AssistantDomainEvents } from '../events/domain-events.js';
-import { createToolAuditListener } from '../events/tool-audit-listener.js';
-import { createToolDomainEventPublisher } from '../events/tool-domain-event-publisher.js';
-import { registerToolMetricsLoggingListener } from '../events/tool-metrics-listener.js';
-import { registerToolNotificationListener } from '../events/tool-notification-listener.js';
-import { registerToolProfilingListener,ToolProfiler } from '../events/tool-profiling-listener.js';
-import { registerToolTraceListener } from '../events/tool-trace-listener.js';
-import { getHookManager } from '../hooks/manager.js';
-import { PermissionPrompter } from '../permissions/prompter.js';
-import { SecretPrompter } from '../permissions/secret-prompter.js';
-import type { UserDecision } from '../permissions/types.js';
-import type { Message } from '../providers/types.js';
-import type { Provider } from '../providers/types.js';
-import type { AuthContext } from '../runtime/auth/types.js';
-import * as approvalOverrides from '../runtime/session-approval-overrides.js';
-import { ToolExecutor } from '../tools/executor.js';
-import type { AssistantAttachmentDraft } from './assistant-attachments.js';
-import type { AssistantActivityState, ConfirmationStateChanged } from './ipc-contract/messages.js';
-import type { ServerMessage, SurfaceData,SurfaceType, UsageStats, UserMessageAttachment } from './ipc-protocol.js';
+import { AgentLoop, type ResolvedSystemPrompt } from "../agent/loop.js";
+import type {
+  TurnChannelContext,
+  TurnInterfaceContext,
+} from "../channels/types.js";
+import { getConfig } from "../config/loader.js";
+import { buildSystemPrompt } from "../config/system-prompt.js";
+import { ContextWindowManager } from "../context/window-manager.js";
+import { EventBus } from "../events/bus.js";
+import type { AssistantDomainEvents } from "../events/domain-events.js";
+import { createToolAuditListener } from "../events/tool-audit-listener.js";
+import { createToolDomainEventPublisher } from "../events/tool-domain-event-publisher.js";
+import { registerToolMetricsLoggingListener } from "../events/tool-metrics-listener.js";
+import { registerToolNotificationListener } from "../events/tool-notification-listener.js";
 import {
-  classifyResponseTierAsync,
-  classifyResponseTierDetailed,
-  resolveWithHint,
-  type SessionTierHint,
-  tierMaxTokens,
-  tierModel,
-} from './response-tier.js';
-import { runAgentLoopImpl } from './session-agent-loop.js';
-import { ConflictGate } from './session-conflict-gate.js';
+  registerToolProfilingListener,
+  ToolProfiler,
+} from "../events/tool-profiling-listener.js";
+import { registerToolTraceListener } from "../events/tool-trace-listener.js";
+import { getHookManager } from "../hooks/manager.js";
+import { PermissionPrompter } from "../permissions/prompter.js";
+import { SecretPrompter } from "../permissions/secret-prompter.js";
+import type { UserDecision } from "../permissions/types.js";
+import type { Message } from "../providers/types.js";
+import type { Provider } from "../providers/types.js";
+import type { AuthContext } from "../runtime/auth/types.js";
+import * as approvalOverrides from "../runtime/session-approval-overrides.js";
+import { ToolExecutor } from "../tools/executor.js";
+import type { AssistantAttachmentDraft } from "./assistant-attachments.js";
+import type {
+  AssistantActivityState,
+  ConfirmationStateChanged,
+} from "./ipc-contract/messages.js";
+import type {
+  ServerMessage,
+  SurfaceData,
+  SurfaceType,
+  UsageStats,
+  UserMessageAttachment,
+} from "./ipc-protocol.js";
+import { runAgentLoopImpl } from "./session-agent-loop.js";
+import { ConflictGate } from "./session-conflict-gate.js";
 import {
   type HistorySessionContext,
   regenerate as regenerateImpl,
   undo as undoImpl,
-} from './session-history.js';
+} from "./session-history.js";
 import {
   abortSession,
   disposeSession,
   loadFromDb as loadFromDbImpl,
-} from './session-lifecycle.js';
+} from "./session-lifecycle.js";
 import {
   enqueueMessage as enqueueMessageImpl,
   persistUserMessage as persistUserMessageImpl,
   redirectToSecurePrompt as redirectToSecurePromptImpl,
   type RedirectToSecurePromptOptions,
-} from './session-messaging.js';
+} from "./session-messaging.js";
 // Extracted modules
-import { registerSessionNotifiers } from './session-notifiers.js';
+import { registerSessionNotifiers } from "./session-notifiers.js";
 import {
   drainQueue as drainQueueImpl,
   processMessage as processMessageImpl,
   type ProcessSessionContext,
-} from './session-process.js';
-import type { QueueDrainReason, QueueMetrics } from './session-queue-manager.js';
-import { MessageQueue } from './session-queue-manager.js';
-import type { ChannelCapabilities, GuardianRuntimeContext } from './session-runtime-assembly.js';
-import type { SkillProjectionCache } from './session-skill-tools.js';
+} from "./session-process.js";
+import type {
+  QueueDrainReason,
+  QueueMetrics,
+} from "./session-queue-manager.js";
+import { MessageQueue } from "./session-queue-manager.js";
+import type {
+  ChannelCapabilities,
+  GuardianRuntimeContext,
+} from "./session-runtime-assembly.js";
+import type { SkillProjectionCache } from "./session-skill-tools.js";
 import {
   createSurfaceMutex,
   handleSurfaceAction as handleSurfaceActionImpl,
   handleSurfaceUndo as handleSurfaceUndoImpl,
-} from './session-surfaces.js';
+} from "./session-surfaces.js";
 import {
   buildToolDefinitions,
   createResolveToolsCallback,
   createToolExecutor,
   type ToolSetupContext,
-} from './session-tool-setup.js';
-import { refreshWorkspaceTopLevelContextIfNeeded as refreshWorkspaceImpl } from './session-workspace.js';
-import { TraceEmitter } from './trace-emitter.js';
+} from "./session-tool-setup.js";
+import { refreshWorkspaceTopLevelContextIfNeeded as refreshWorkspaceImpl } from "./session-workspace.js";
+import { TraceEmitter } from "./trace-emitter.js";
 
 export interface SessionMemoryPolicy {
   scopeId: string;
@@ -97,14 +110,19 @@ export interface SessionMemoryPolicy {
   strictSideEffects: boolean;
 }
 
-export const DEFAULT_MEMORY_POLICY: Readonly<SessionMemoryPolicy> = Object.freeze({
-  scopeId: 'default',
-  includeDefaultFallback: false,
-  strictSideEffects: false,
-});
+export const DEFAULT_MEMORY_POLICY: Readonly<SessionMemoryPolicy> =
+  Object.freeze({
+    scopeId: "default",
+    includeDefaultFallback: false,
+    strictSideEffects: false,
+  });
 
-export { findLastUndoableUserMessageIndex } from './session-history.js';
-export { MAX_QUEUE_DEPTH, type QueueDrainReason, type QueuePolicy } from './session-queue-manager.js';
+export { findLastUndoableUserMessageIndex } from "./session-history.js";
+export {
+  MAX_QUEUE_DEPTH,
+  type QueueDrainReason,
+  type QueuePolicy,
+} from "./session-queue-manager.js";
 
 export class Session {
   public readonly conversationId: string;
@@ -128,7 +146,11 @@ export class Session {
   /** @internal */ coreToolNames: Set<string>;
   /** @internal */ readonly skillProjectionState = new Map<string, string>();
   /** @internal */ readonly skillProjectionCache: SkillProjectionCache = {};
-  /** @internal */ usageStats: UsageStats = { inputTokens: 0, outputTokens: 0, estimatedCost: 0 };
+  /** @internal */ usageStats: UsageStats = {
+    inputTokens: 0,
+    outputTokens: 0,
+    estimatedCost: 0,
+  };
   /** @internal */ readonly systemPrompt: string;
   /** @internal */ contextWindowManager: ContextWindowManager;
   /** @internal */ contextCompactedMessageCount = 0;
@@ -145,18 +167,41 @@ export class Session {
   /** @internal */ channelCapabilities?: ChannelCapabilities;
   /** @internal */ guardianContext?: GuardianRuntimeContext;
   /** @internal */ authContext?: AuthContext;
-  /** @internal */ loadedHistoryTrustClass?: GuardianRuntimeContext['trustClass'];
+  /** @internal */ loadedHistoryTrustClass?: GuardianRuntimeContext["trustClass"];
   /** @internal */ voiceCallControlPrompt?: string;
   /** @internal */ assistantId?: string;
-  /** @internal */ commandIntent?: { type: string; payload?: string; languageCode?: string };
+  /** @internal */ commandIntent?: {
+    type: string;
+    payload?: string;
+    languageCode?: string;
+  };
   /** @internal */ surfaceActionRequestIds = new Set<string>();
-  /** @internal */ pendingSurfaceActions = new Map<string, { surfaceType: SurfaceType }>();
-  /** @internal */ lastSurfaceAction = new Map<string, { actionId: string; data?: Record<string, unknown> }>();
-  /** @internal */ surfaceState = new Map<string, { surfaceType: SurfaceType; data: SurfaceData; title?: string }>();
+  /** @internal */ pendingSurfaceActions = new Map<
+    string,
+    { surfaceType: SurfaceType }
+  >();
+  /** @internal */ lastSurfaceAction = new Map<
+    string,
+    { actionId: string; data?: Record<string, unknown> }
+  >();
+  /** @internal */ surfaceState = new Map<
+    string,
+    { surfaceType: SurfaceType; data: SurfaceData; title?: string }
+  >();
   /** @internal */ surfaceUndoStacks = new Map<string, string[]>();
   /** @internal */ withSurface = createSurfaceMutex();
-  /** @internal */ currentTurnSurfaces: Array<{ surfaceId: string; surfaceType: SurfaceType; title?: string; data: SurfaceData; actions?: Array<{ id: string; label: string; style?: string }>; display?: string }> = [];
-  /** @internal */ onEscalateToComputerUse?: (task: string, sourceSessionId: string) => boolean;
+  /** @internal */ currentTurnSurfaces: Array<{
+    surfaceId: string;
+    surfaceType: SurfaceType;
+    title?: string;
+    data: SurfaceData;
+    actions?: Array<{ id: string; label: string; style?: string }>;
+    display?: string;
+  }> = [];
+  /** @internal */ onEscalateToComputerUse?: (
+    task: string,
+    sourceSessionId: string,
+  ) => boolean;
   /** @internal */ workspaceTopLevelContext: string | null = null;
   /** @internal */ workspaceTopLevelDirty = true;
   public readonly traceEmitter: TraceEmitter;
@@ -166,7 +211,8 @@ export class Session {
   public lastAssistantAttachments: AssistantAttachmentDraft[] = [];
   public lastAttachmentWarnings: string[] = [];
   /** @internal */ currentTurnChannelContext: TurnChannelContext | null = null;
-  /** @internal */ currentTurnInterfaceContext: TurnInterfaceContext | null = null;
+  /** @internal */ currentTurnInterfaceContext: TurnInterfaceContext | null =
+    null;
   /** @internal */ activityVersion = 0;
   /**
    * Optional callback invoked whenever a server-authoritative state signal
@@ -193,7 +239,9 @@ export class Session {
     this.provider = provider;
     this.workingDir = workingDir;
     this.sendToClient = sendToClient;
-    this.memoryPolicy = memoryPolicy ? { ...memoryPolicy } : { ...DEFAULT_MEMORY_POLICY };
+    this.memoryPolicy = memoryPolicy
+      ? { ...memoryPolicy }
+      : { ...DEFAULT_MEMORY_POLICY };
     this.traceEmitter = new TraceEmitter(conversationId, sendToClient);
     this.prompter = new PermissionPrompter(sendToClient);
     this.prompter.setOnStateChanged((requestId, state, source) => {
@@ -206,10 +254,20 @@ export class Session {
         source,
       });
       // Emit activity state transitions for confirmation lifecycle
-      if (state === 'pending') {
-        this.emitActivityState('awaiting_confirmation', 'confirmation_requested', 'assistant_turn');
-      } else if (state === 'timed_out') {
-        this.emitActivityState('thinking', 'confirmation_resolved', 'assistant_turn', undefined, 'Resuming after timeout');
+      if (state === "pending") {
+        this.emitActivityState(
+          "awaiting_confirmation",
+          "confirmation_requested",
+          "assistant_turn",
+        );
+      } else if (state === "timed_out") {
+        this.emitActivityState(
+          "thinking",
+          "confirmation_resolved",
+          "assistant_turn",
+          undefined,
+          "Resuming after timeout",
+        );
       }
     });
     this.secretPrompter = new SecretPrompter(sendToClient);
@@ -221,12 +279,18 @@ export class Session {
     this.executor = new ToolExecutor(this.prompter);
     this.profiler = new ToolProfiler();
     registerToolMetricsLoggingListener(this.eventBus);
-    registerToolNotificationListener(this.eventBus, (msg) => this.sendToClient(msg));
+    registerToolNotificationListener(this.eventBus, (msg) =>
+      this.sendToClient(msg),
+    );
     registerToolTraceListener(this.eventBus, this.traceEmitter);
     registerToolProfilingListener(this.eventBus, this.profiler);
     const auditToolLifecycleEvent = createToolAuditListener();
-    const publishToolDomainEvent = createToolDomainEventPublisher(this.eventBus);
-    const handleToolLifecycleEvent = (event: import('../tools/types.js').ToolLifecycleEvent) => {
+    const publishToolDomainEvent = createToolDomainEventPublisher(
+      this.eventBus,
+    );
+    const handleToolLifecycleEvent = (
+      event: import("../tools/types.js").ToolLifecycleEvent,
+    ) => {
       auditToolLifecycleEvent(event);
       return publishToolDomainEvent(event);
     };
@@ -247,105 +311,31 @@ export class Session {
     const resolveTools = createResolveToolsCallback(toolDefs, this);
 
     const configuredMaxTokens = maxTokens;
-    // When a systemPromptOverride was provided, skip tier-based prompt
-    // rebuilding and use the override as-is — only scale maxTokens and model.
+    // When a systemPromptOverride was provided, use it as-is; otherwise
+    // rebuild the full prompt each turn (picks up any workspace file changes).
     const hasSystemPromptOverride = systemPrompt !== buildSystemPrompt();
 
-    // Known runtime-injected XML context block prefixes. Using an explicit
-    // list avoids false-positives on user messages that start with HTML/XML.
-    const INJECTED_PREFIXES = [
-      '<channel_capabilities>',
-      '<channel_command_context>',
-      '<channel_turn_context>',
-      '<temporal_context>',
-      '<guardian_context>',
-      '<inbound_actor_context>',
-      '<voice_call_control>',
-      '<workspace_top_level>',
-      '<active_workspace>',
-      '<active_dynamic_page>',
-      '<dynamic-profile-context>',
-      '<memory_recall',
-      '<memory source=',
-      '<memory',
-      '<system_notice>',
-      '<interface_turn_context>',
-    ];
-
-    // Track the last user-message tier so tool-use continuation turns
-    // (where user text is empty — only tool_result blocks) inherit it
-    // instead of falling to 'low'.
-    let lastUserMessageTier: import('./response-tier.js').ResponseTier = 'high';
-    let sessionTierHint: SessionTierHint | null = null;
-    const recentUserTexts: string[] = []; // circular buffer, max 3
-    const MAX_RECENT_TEXTS = 3;
-
-    const resolveSystemPromptCallback = (history: import('../providers/types.js').Message[]): ResolvedSystemPrompt => {
-      // Extract last user message text, ignoring runtime-injected context blocks
-      const lastUserMsg = [...history].reverse().find((m) => m.role === 'user');
-      let userText = '';
-      let isToolResultOnly = false;
-      if (lastUserMsg) {
-        const _hasToolResult = lastUserMsg.content.some((b) => b.type === 'tool_result');
-        for (const block of lastUserMsg.content) {
-          if (block.type === 'text') {
-            const trimmed = block.text.trimStart();
-            if (!INJECTED_PREFIXES.some((p) => trimmed.startsWith(p))) {
-              userText += block.text;
-            }
-          }
-        }
-        // Inherit previous tier when there's no real user text — either
-        // tool_result-only messages or system nudges where all text was
-        // filtered out as injected context.
-        isToolResultOnly = userText.trim().length === 0;
-      }
-
-      let tier: import('./response-tier.js').ResponseTier;
-
-      if (isToolResultOnly) {
-        // Tool-use continuation: inherit previous tier
-        tier = lastUserMessageTier;
-      } else {
-        const classification = classifyResponseTierDetailed(userText, this.turnCount);
-        tier = resolveWithHint(classification, sessionTierHint, this.turnCount);
-        lastUserMessageTier = tier;
-
-        // Update recent user texts buffer
-        const trimmedText = userText.trim();
-        if (trimmedText) {
-          if (recentUserTexts.length >= MAX_RECENT_TEXTS) {
-            recentUserTexts.shift();
-          }
-          recentUserTexts.push(trimmedText);
-        }
-
-        // Fire background Haiku classification when confidence is low
-        if (classification.confidence === 'low') {
-          void classifyResponseTierAsync([...recentUserTexts]).then((asyncTier) => {
-            if (asyncTier) {
-              sessionTierHint = {
-                tier: asyncTier,
-                turn: this.turnCount,
-                timestamp: Date.now(),
-              };
-            }
-          });
-        }
-      }
-
-      const model = tierModel(tier, provider.name);
-      return {
-        systemPrompt: hasSystemPromptOverride ? systemPrompt : buildSystemPrompt(tier),
-        maxTokens: tierMaxTokens(tier, configuredMaxTokens),
-        model,
+    const resolveSystemPromptCallback = (
+      _history: import("../providers/types.js").Message[],
+    ): ResolvedSystemPrompt => {
+      const resolved = {
+        systemPrompt: hasSystemPromptOverride
+          ? systemPrompt
+          : buildSystemPrompt(),
+        maxTokens: configuredMaxTokens,
       };
+      return resolved;
     };
 
     this.agentLoop = new AgentLoop(
       provider,
       systemPrompt,
-      { maxTokens, maxInputTokens: config.contextWindow.maxInputTokens, thinking: config.thinking, maxToolUseTurns: config.maxToolUseTurns },
+      {
+        maxTokens,
+        maxInputTokens: config.contextWindow.maxInputTokens,
+        thinking: config.thinking,
+        maxToolUseTurns: config.maxToolUseTurns,
+      },
       toolDefs.length > 0 ? toolDefs : undefined,
       toolDefs.length > 0 ? toolExecutor : undefined,
       resolveTools,
@@ -357,7 +347,7 @@ export class Session {
       config.contextWindow,
     );
 
-    void getHookManager().trigger('session-start', {
+    void getHookManager().trigger("session-start", {
       sessionId: this.conversationId,
       workingDir: this.workingDir,
     });
@@ -375,7 +365,10 @@ export class Session {
     await this.loadFromDb();
   }
 
-  updateClient(sendToClient: (msg: ServerMessage) => void, hasNoClient = false): void {
+  updateClient(
+    sendToClient: (msg: ServerMessage) => void,
+    hasNoClient = false,
+  ): void {
     this.sendToClient = sendToClient;
     this.hasNoClient = hasNoClient;
     this.prompter.updateSender(sendToClient);
@@ -403,7 +396,9 @@ export class Session {
     this.sandboxOverride = enabled;
   }
 
-  setEscalationHandler(handler: (task: string, sourceSessionId: string) => boolean): void {
+  setEscalationHandler(
+    handler: (task: string, sourceSessionId: string) => boolean,
+  ): void {
     this.onEscalateToComputerUse = handler;
   }
 
@@ -437,8 +432,16 @@ export class Session {
 
   // ── Messaging ────────────────────────────────────────────────────
 
-  redirectToSecurePrompt(detectedTypes: string[], options?: RedirectToSecurePromptOptions): void {
-    redirectToSecurePromptImpl(this.conversationId, this.secretPrompter, detectedTypes, options);
+  redirectToSecurePrompt(
+    detectedTypes: string[],
+    options?: RedirectToSecurePromptOptions,
+  ): void {
+    redirectToSecurePromptImpl(
+      this.conversationId,
+      this.secretPrompter,
+      detectedTypes,
+      options,
+    );
   }
 
   enqueueMessage(
@@ -452,7 +455,18 @@ export class Session {
     options?: { isInteractive?: boolean },
     displayContent?: string,
   ): { queued: boolean; rejected?: boolean; requestId: string } {
-    return enqueueMessageImpl(this, content, attachments, onEvent, requestId, activeSurfaceId, currentPage, metadata, options, displayContent);
+    return enqueueMessageImpl(
+      this,
+      content,
+      attachments,
+      onEvent,
+      requestId,
+      activeSurfaceId,
+      currentPage,
+      metadata,
+      options,
+      displayContent,
+    );
   }
 
   getQueueDepth(): number {
@@ -498,7 +512,7 @@ export class Session {
     selectedScope?: string,
     decisionContext?: string,
     emissionContext?: {
-      source?: ConfirmationStateChanged['source'];
+      source?: ConfirmationStateChanged["source"];
       causedByRequestId?: string;
       decisionText?: string;
     },
@@ -525,42 +539,62 @@ export class Session {
     // Emit authoritative confirmation state and activity transition centrally
     // so ALL callers (IPC handlers, /v1/confirm, channel bridges) get
     // consistent events without duplicating emission logic.
-    const resolvedState = (decision === 'deny' || decision === 'always_deny')
-      ? 'denied' as const
-      : 'approved' as const;
+    const resolvedState =
+      decision === "deny" || decision === "always_deny"
+        ? ("denied" as const)
+        : ("approved" as const);
     this.emitConfirmationStateChanged({
       sessionId: this.conversationId,
       requestId,
       state: resolvedState,
-      source: emissionContext?.source ?? 'button',
-      ...(emissionContext?.causedByRequestId ? { causedByRequestId: emissionContext.causedByRequestId } : {}),
-      ...(emissionContext?.decisionText ? { decisionText: emissionContext.decisionText } : {}),
+      source: emissionContext?.source ?? "button",
+      ...(emissionContext?.causedByRequestId
+        ? { causedByRequestId: emissionContext.causedByRequestId }
+        : {}),
+      ...(emissionContext?.decisionText
+        ? { decisionText: emissionContext.decisionText }
+        : {}),
     });
-    this.emitActivityState('thinking', 'confirmation_resolved', 'assistant_turn', undefined, 'Resuming after approval');
+    this.emitActivityState(
+      "thinking",
+      "confirmation_resolved",
+      "assistant_turn",
+      undefined,
+      "Resuming after approval",
+    );
   }
 
-  handleSecretResponse(requestId: string, value?: string, delivery?: 'store' | 'transient_send'): void {
+  handleSecretResponse(
+    requestId: string,
+    value?: string,
+    delivery?: "store" | "transient_send",
+  ): void {
     this.secretPrompter.resolveSecret(requestId, value, delivery);
   }
 
   // ── Server-authoritative state signals ─────────────────────────────
 
-  emitConfirmationStateChanged(params: Omit<ConfirmationStateChanged, 'type'>): void {
-    const msg: ServerMessage = { type: 'confirmation_state_changed', ...params } as ServerMessage;
+  emitConfirmationStateChanged(
+    params: Omit<ConfirmationStateChanged, "type">,
+  ): void {
+    const msg: ServerMessage = {
+      type: "confirmation_state_changed",
+      ...params,
+    } as ServerMessage;
     this.sendToClient(msg);
     this.onStateSignal?.(msg);
   }
 
   emitActivityState(
-    phase: AssistantActivityState['phase'],
-    reason: AssistantActivityState['reason'],
-    anchor: AssistantActivityState['anchor'] = 'assistant_turn',
+    phase: AssistantActivityState["phase"],
+    reason: AssistantActivityState["reason"],
+    anchor: AssistantActivityState["anchor"] = "assistant_turn",
     requestId?: string,
     statusText?: string,
   ): void {
     this.activityVersion++;
     const msg: ServerMessage = {
-      type: 'assistant_activity_state',
+      type: "assistant_activity_state",
       sessionId: this.conversationId,
       activityVersion: this.activityVersion,
       phase,
@@ -597,7 +631,9 @@ export class Session {
     this.assistantId = assistantId ?? undefined;
   }
 
-  setCommandIntent(intent: { type: string; payload?: string; languageCode?: string } | null): void {
+  setCommandIntent(
+    intent: { type: string; payload?: string; languageCode?: string } | null,
+  ): void {
     this.commandIntent = intent ?? undefined;
   }
 
@@ -631,7 +667,14 @@ export class Session {
     if (!this.processing) {
       await this.ensureActorScopedHistory();
     }
-    return persistUserMessageImpl(this, content, attachments, requestId, metadata, displayContent);
+    return persistUserMessageImpl(
+      this,
+      content,
+      attachments,
+      requestId,
+      metadata,
+      displayContent,
+    );
   }
 
   // ── Agent Loop ───────────────────────────────────────────────────
@@ -640,13 +683,17 @@ export class Session {
     content: string,
     userMessageId: string,
     onEvent: (msg: ServerMessage) => void,
-    options?: { skipPreMessageRollback?: boolean; isInteractive?: boolean; isUserMessage?: boolean; titleText?: string },
+    options?: {
+      skipPreMessageRollback?: boolean;
+      isInteractive?: boolean;
+      isUserMessage?: boolean;
+      titleText?: string;
+    },
   ): Promise<void> {
     return runAgentLoopImpl(this, content, userMessageId, onEvent, options);
   }
 
-
-  drainQueue(reason: QueueDrainReason = 'loop_complete'): Promise<void> {
+  drainQueue(reason: QueueDrainReason = "loop_complete"): Promise<void> {
     return drainQueueImpl(this as ProcessSessionContext, reason);
   }
 
@@ -660,7 +707,17 @@ export class Session {
     options?: { isInteractive?: boolean },
     displayContent?: string,
   ): Promise<string> {
-    return processMessageImpl(this as ProcessSessionContext, content, attachments, onEvent, requestId, activeSurfaceId, currentPage, options, displayContent);
+    return processMessageImpl(
+      this as ProcessSessionContext,
+      content,
+      attachments,
+      onEvent,
+      requestId,
+      activeSurfaceId,
+      currentPage,
+      options,
+      displayContent,
+    );
   }
 
   // ── History ──────────────────────────────────────────────────────
@@ -673,13 +730,20 @@ export class Session {
     return undoImpl(this as HistorySessionContext);
   }
 
-  async regenerate(onEvent: (msg: ServerMessage) => void, requestId?: string): Promise<void> {
+  async regenerate(
+    onEvent: (msg: ServerMessage) => void,
+    requestId?: string,
+  ): Promise<void> {
     return regenerateImpl(this as HistorySessionContext, onEvent, requestId);
   }
 
   // ── Surfaces ─────────────────────────────────────────────────────
 
-  handleSurfaceAction(surfaceId: string, actionId: string, data?: Record<string, unknown>): void {
+  handleSurfaceAction(
+    surfaceId: string,
+    actionId: string,
+    data?: Record<string, unknown>,
+  ): void {
     handleSurfaceActionImpl(this, surfaceId, actionId, data);
   }
 

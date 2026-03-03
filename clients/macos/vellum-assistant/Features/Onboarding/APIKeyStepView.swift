@@ -195,30 +195,12 @@ struct APIKeyStepView: View {
     // MARK: - Primary Button
 
     private var primaryButton: some View {
-        Button(action: { saveAndContinue() }) {
-            Text(userHostedEnabled && hostingMode != .local ? "Continue" : "Hatch!")
-                .font(.system(size: 15, weight: .medium))
-                .foregroundColor(.white)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, VSpacing.lg)
-                .background(
-                    RoundedRectangle(cornerRadius: VRadius.lg)
-                        .fill(primaryButtonDisabled
-                            ? adaptiveColor(
-                                light: Stone._900.opacity(0.3),
-                                dark: Forest._600.opacity(0.3)
-                            )
-                            : adaptiveColor(
-                                light: Stone._900,
-                                dark: Forest._600
-                            )
-                        )
-                )
-        }
-        .buttonStyle(.plain)
-        .disabled(primaryButtonDisabled)
-        .onHover { hovering in
-            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+        OnboardingButton(
+            title: userHostedEnabled && hostingMode != .local ? "Continue" : "Hatch!",
+            style: .primary,
+            disabled: primaryButtonDisabled
+        ) {
+            saveAndContinue()
         }
     }
 

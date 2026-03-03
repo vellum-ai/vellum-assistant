@@ -969,24 +969,24 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     /// restarts with the new assistant.
     ///
     /// The sequence is intentionally ordered to avoid stale references:
-    /// 1. Stop lifecycle monitoring and daemon processes
-    /// 2. Disconnect daemon transport
-    /// 3. Clear assistant-scoped runtime state (threads, sessions, callbacks)
+    /// 1. Stop lifecycle monitoring
+    /// 2. Clear assistant-scoped runtime state (recording, windows, callbacks)
+    /// 3. Stop daemon processes and disconnect transport
     /// 4. Persist the new assistant selection
     /// 5. Reconfigure daemon transport and reconnect
     /// 6. Resume monitoring and credential bootstrap
     func performSwitchAssistant(to assistant: LockfileAssistant) {
-        // 1. Stop lifecycle monitoring and daemon processes
+        // 1. Stop lifecycle monitoring
         assistantCli.stopMonitoring()
-        assistantCli.stop()
 
-        // 2. Disconnect daemon transport (handled by reconfigure in step 5)
-        daemonClient.disconnect()
-
-        // 3. Clear assistant-scoped runtime state
-        // Force-stop any active recording to avoid stale session references
+        // 2. Clear assistant-scoped runtime state while the daemon is still
+        // running so forceStop can deliver a recording_status IPC message.
         recordingManager.forceStop()
         recordingHUDWindow?.dismiss()
+
+        // 3. Stop daemon processes and disconnect transport
+        assistantCli.stop()
+        daemonClient.disconnect()
         // Close and recreate the main window to reset thread/session state
         mainWindow?.close()
         mainWindow = nil
@@ -2463,21 +2463,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
     // MARK: - Wake-Up Greeting
 
-    /// Generates a time-aware greeting for the assistant's first message.
-    /// Intentionally unnamed — the assistant has no identity yet at hatch.
     private func wakeUpGreeting() -> String {
-        let hour = Calendar.current.component(.hour, from: Date())
-        switch hour {
-        case 5..<12:
-            return "Good morning. Time to wake up."
-        case 12..<18:
-            return "Wake up, my friend."
-        case 18..<22:
-            return "Evening. Ready when you are."
-        default:
-            // 22–4 (late night)
-            return "Burning the midnight oil? Let's go."
-        }
+        return "Wake up, my friend."
     }
 
     // MARK: - Main Window

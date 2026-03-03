@@ -240,13 +240,8 @@ describe("buildSystemPrompt", () => {
     expect(section).toContain("Do NOT improvise Twilio setup instructions");
   });
 
-  test("phone calls routing section excluded from low tier", () => {
-    const result = buildSystemPrompt("low");
-    expect(result).not.toContain("## Routing: Phone Calls");
-  });
-
-  test("includes memory persistence section in high tier", () => {
-    const result = buildSystemPrompt("high");
+  test("includes memory persistence section", () => {
+    const result = buildSystemPrompt();
     expect(result).toContain("## Memory Persistence");
     expect(result).toContain("memory_save");
     expect(result).toContain("Saved > unsaved. Always.");

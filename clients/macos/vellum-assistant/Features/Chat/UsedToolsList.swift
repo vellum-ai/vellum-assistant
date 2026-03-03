@@ -13,6 +13,14 @@ struct UsedToolsList: View {
     private var pillLabel: String {
         let count = toolCalls.count
         if count == 1 { return toolCalls[0].actionDescription }
+
+        // If all tool calls are app-building related, show a friendly summary
+        let appToolNames: Set<String> = ["app_create", "app_update", "app_file_edit", "app_file_write"]
+        let appTools = toolCalls.filter { appToolNames.contains($0.toolName) }
+        if appTools.count == count {
+            return "Built your app"
+        }
+
         return "Completed \(count) steps"
     }
 

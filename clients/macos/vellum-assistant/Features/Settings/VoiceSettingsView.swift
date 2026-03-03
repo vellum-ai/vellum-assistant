@@ -14,22 +14,39 @@ struct VoiceSettingsView: View {
 
     @State private var elevenLabsKeyText: String = ""
     @State private var ttsSetupExpanded: Bool = false
+    @State private var isRecordingCustomKey: Bool = false
+    @State private var recordingMonitors: [Any] = []
+    @State private var modifierHoldTimer: Timer? = nil
 
     private let suggestedKeywords = ["computer", "jarvis", "hey vellum", "assistant"]
 
-    private var selectedActivationKey: ActivationKey {
-        ActivationKey(rawValue: activationKey) ?? .fn
+    private var currentActivator: PTTActivator {
+        // Read activationKey to establish SwiftUI dependency tracking —
+        // without this, SwiftUI doesn't know the body depends on this
+        // @AppStorage value and skips re-rendering when it changes.
+        _ = activationKey
+        return PTTActivator.fromStored()
     }
 
     private var pttEnabled: Bool {
-        selectedActivationKey != .none
+        currentActivator.kind != .none
     }
+
+    /// Preset activators shown as quick-select capsules.
+    private let presets: [(label: String, activator: PTTActivator)] = [
+        ("Fn", .modifierOnly(flags: .function)),
+        ("Ctrl", .modifierOnly(flags: .control)),
+        ("Fn+Shift", .modifierOnly(flags: [.function, .shift])),
+    ]
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             pttCard
             wakeWordCard
             ttsCard
+        }
+        .onDisappear {
+            stopRecordingCustomKey()
         }
     }
 
@@ -57,11 +74,11 @@ struct VoiceSettingsView: View {
                     get: { pttEnabled },
                     set: { enabled in
                         if enabled {
-                            if activationKey == ActivationKey.none.rawValue {
-                                activationKey = ActivationKey.fn.rawValue
+                            if currentActivator.kind == .none {
+                                selectActivator(.modifierOnly(flags: .function))
                             }
                         } else {
-                            activationKey = ActivationKey.none.rawValue
+                            selectActivator(.off)
                         }
                     }
                 ))
@@ -74,20 +91,186 @@ struct VoiceSettingsView: View {
                         .font(VFont.bodyMedium)
                         .foregroundColor(VColor.textPrimary)
 
-                    VSegmentedControl(
-                        items: ActivationKey.allCases.filter { $0 != .none }.map {
-                            (label: $0.displayName, tag: $0.rawValue)
-                        },
-                        selection: $activationKey,
-                        style: .pill
-                    )
-                    .frame(width: 360)
+                    HStack(spacing: VSpacing.sm) {
+                        // Preset buttons
+                        ForEach(Array(presets.enumerated()), id: \.offset) { _, preset in
+                            let isSelected = currentActivator == preset.activator
+                            Button(preset.label) {
+                                selectActivator(preset.activator)
+                            }
+                            .buttonStyle(.plain)
+                            .font(VFont.caption)
+                            .foregroundColor(isSelected ? .white : VColor.textMuted)
+                            .padding(.horizontal, VSpacing.sm)
+                            .padding(.vertical, VSpacing.xs)
+                            .contentShape(Capsule())
+                            .background(
+                                Capsule()
+                                    .fill(isSelected ? Forest._700 : VColor.surface)
+                            )
+                            .overlay(
+                                Capsule()
+                                    .strokeBorder(isSelected ? Color.clear : VColor.surfaceBorder, lineWidth: 1)
+                            )
+                        }
+
+                        // Custom button / recording state
+                        if isRecordingCustomKey {
+                            Button("Press any key...") {
+                                stopRecordingCustomKey()
+                            }
+                            .buttonStyle(.plain)
+                            .font(VFont.caption)
+                            .foregroundColor(.white)
+                            .padding(.horizontal, VSpacing.sm)
+                            .padding(.vertical, VSpacing.xs)
+                            .contentShape(Capsule())
+                            .background(
+                                Capsule()
+                                    .fill(VColor.accent)
+                            )
+                        } else {
+                            let isCustom = !presets.contains(where: { $0.activator == currentActivator })
+                            Button(isCustom ? currentActivator.displayName : "Custom...") {
+                                startRecordingCustomKey()
+                            }
+                            .buttonStyle(.plain)
+                            .font(VFont.caption)
+                            .foregroundColor(isCustom ? .white : VColor.textMuted)
+                            .padding(.horizontal, VSpacing.sm)
+                            .padding(.vertical, VSpacing.xs)
+                            .contentShape(Capsule())
+                            .background(
+                                Capsule()
+                                    .fill(isCustom ? Forest._700 : VColor.surface)
+                            )
+                            .overlay(
+                                Capsule()
+                                    .strokeBorder(isCustom ? Color.clear : VColor.surfaceBorder, lineWidth: 1)
+                            )
+                        }
+                    }
+
+                    // Show info note when a regular key (not modifier-only, not off) is selected
+                    if currentActivator.kind == .key {
+                        HStack(alignment: .top, spacing: VSpacing.xs) {
+                            Image(systemName: "info.circle")
+                                .font(.system(size: 10))
+                                .foregroundColor(VColor.textMuted)
+                            Text("This key will still type in other apps while held. For seamless use, a dedicated key (F-key, mouse button) is recommended.")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                                .lineSpacing(1)
+                        }
+                    }
                 }
             }
         }
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
+    }
+
+    // MARK: - Custom Key Recording
+
+    private func selectActivator(_ newActivator: PTTActivator) {
+        stopRecordingCustomKey()
+        // Write directly to UserDefaults as JSON (or legacy string for presets).
+        // We set the @AppStorage property to the same value so SwiftUI refreshes,
+        // avoiding a race where @AppStorage would overwrite the JSON with a sentinel.
+        if let legacy = newActivator.legacyString {
+            activationKey = legacy
+        } else {
+            let json = (try? JSONEncoder().encode(newActivator))
+                .flatMap { String(data: $0, encoding: .utf8) } ?? "fn"
+            activationKey = json
+        }
+        NotificationCenter.default.post(name: .activationKeyChanged, object: nil)
+    }
+
+    private func startRecordingCustomKey() {
+        isRecordingCustomKey = true
+
+        // Monitor flagsChanged for modifier-only detection
+        let globalFlags = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { [self] event in
+            handleRecordingFlagsChanged(event)
+        }
+        let localFlags = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [self] event in
+            handleRecordingFlagsChanged(event)
+            return event
+        }
+
+        // Monitor keyDown for key or modifier+key
+        let globalKeyDown = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [self] event in
+            handleRecordingKeyDown(event)
+        }
+        let localKeyDown = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [self] event in
+            if handleRecordingKeyDown(event) {
+                return nil // suppress
+            }
+            return event
+        }
+
+        if let m = globalFlags { recordingMonitors.append(m) }
+        if let m = localFlags { recordingMonitors.append(m) }
+        if let m = globalKeyDown { recordingMonitors.append(m) }
+        if let m = localKeyDown { recordingMonitors.append(m) }
+    }
+
+    private func stopRecordingCustomKey() {
+        isRecordingCustomKey = false
+        modifierHoldTimer?.invalidate()
+        modifierHoldTimer = nil
+        for monitor in recordingMonitors {
+            NSEvent.removeMonitor(monitor)
+        }
+        recordingMonitors = []
+    }
+
+    private func handleRecordingFlagsChanged(_ event: NSEvent) {
+        // Cancel any pending modifier-only timer
+        modifierHoldTimer?.invalidate()
+        modifierHoldTimer = nil
+
+        let relevant: NSEvent.ModifierFlags = [.command, .shift, .control, .option, .function]
+        let held = event.modifierFlags.intersection(relevant)
+
+        guard !held.isEmpty else { return }
+
+        // Start a 500ms timer: if no keyDown arrives, accept as modifier-only
+        modifierHoldTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [self] _ in
+            let activator = PTTActivator.modifierOnly(flags: held)
+            selectActivator(activator)
+        }
+    }
+
+    /// Returns true if the event was consumed (should be suppressed in local monitor).
+    @discardableResult
+    private func handleRecordingKeyDown(_ event: NSEvent) -> Bool {
+        guard !event.isARepeat else { return false }
+
+        // Escape cancels recording
+        if event.keyCode == 53 {
+            stopRecordingCustomKey()
+            return true
+        }
+
+        // Cancel modifier-only timer since a key was pressed
+        modifierHoldTimer?.invalidate()
+        modifierHoldTimer = nil
+
+        let relevant: NSEvent.ModifierFlags = [.command, .shift, .control, .option, .function]
+        let held = event.modifierFlags.intersection(relevant)
+
+        let activator: PTTActivator
+        if held.isEmpty {
+            activator = .key(code: event.keyCode)
+        } else {
+            activator = .modifierKey(code: event.keyCode, flags: held)
+        }
+
+        selectActivator(activator)
+        return true
     }
 
     // MARK: - Wake Word Card

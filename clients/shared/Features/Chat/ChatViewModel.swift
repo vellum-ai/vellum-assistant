@@ -495,7 +495,7 @@ public final class ChatViewModel: ObservableObject {
     /// Recompute and cache the displayedMessages from the current messages array.
     /// Call this after any mutation to messages.
     private func updateDisplayedMessages() {
-        displayedMessages = messages.filter { !$0.isSubagentNotification }
+        displayedMessages = messages.filter { !$0.isSubagentNotification && !$0.isHidden }
     }
 
     // MARK: - Daemon History Pagination
@@ -754,7 +754,7 @@ public final class ChatViewModel: ObservableObject {
         messageManager.$messages
             .throttle(for: .milliseconds(100), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] newMessages in
-                self?.displayedMessages = newMessages.filter { !$0.isSubagentNotification }
+                self?.displayedMessages = newMessages.filter { !$0.isSubagentNotification && !$0.isHidden }
             }
             .store(in: &cancellables)
 
@@ -912,7 +912,7 @@ public final class ChatViewModel: ObservableObject {
 
     // MARK: - Sending
 
-    public func sendMessage() {
+    public func sendMessage(hidden: Bool = false) {
         let rawText = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         let text = rawText
         let hasAttachments = !pendingAttachments.isEmpty
@@ -957,7 +957,9 @@ public final class ChatViewModel: ObservableObject {
                     IPCAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
                 }
                 isThinking = true
-                messages.append(ChatMessage(role: .user, text: rawText, status: .sent, skillInvocation: pendingSkillInvocation, attachments: attachments))
+                var userMsg = ChatMessage(role: .user, text: rawText, status: .sent, skillInvocation: pendingSkillInvocation, attachments: attachments)
+                userMsg.isHidden = hidden
+                messages.append(userMsg)
                 pendingSkillInvocation = nil
                 inputText = ""
                 suggestion = nil
@@ -991,7 +993,8 @@ public final class ChatViewModel: ObservableObject {
         var queuedMessageId: UUID?
         if !isWorkspaceRefinement {
             let status: ChatMessageStatus = willBeQueued ? .queued(position: 0) : .sent
-            let userMessage = ChatMessage(role: .user, text: rawText, status: status, skillInvocation: pendingSkillInvocation, attachments: attachments)
+            var userMessage = ChatMessage(role: .user, text: rawText, status: status, skillInvocation: pendingSkillInvocation, attachments: attachments)
+            userMessage.isHidden = hidden
             messages.append(userMessage)
             if willBeQueued {
                 pendingMessageIds.append(userMessage.id)

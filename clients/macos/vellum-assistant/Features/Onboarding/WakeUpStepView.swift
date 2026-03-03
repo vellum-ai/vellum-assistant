@@ -29,7 +29,7 @@ struct WakeUpStepView: View {
     var body: some View {
         // Title
         Text("Welcome to Vellum")
-            .font(.system(size: 32, weight: .bold))
+            .font(.system(size: 32, weight: .regular, design: .serif))
             .foregroundColor(VColor.textPrimary)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
@@ -37,7 +37,7 @@ struct WakeUpStepView: View {
 
         // Subtitle
         Text("The safest way to create your\npersonal assistant.")
-            .font(.system(size: 16, design: .monospaced))
+            .font(.system(size: 16))
             .foregroundColor(VColor.textSecondary)
             .multilineTextAlignment(.center)
             .opacity(showSubtext ? 1 : 0)
@@ -45,7 +45,7 @@ struct WakeUpStepView: View {
             .padding(.bottom, VSpacing.xxl)
 
         // Buttons
-        VStack(spacing: VSpacing.md) {
+        VStack(spacing: VSpacing.sm) {
             if authManager?.isSubmitting == true {
                 HStack(spacing: VSpacing.sm) {
                     ProgressView()

@@ -20,15 +20,16 @@ struct OnboardingButton: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(VFont.bodyMedium)
+                .font(.system(size: 15, weight: .medium))
                 .foregroundColor(foregroundColor)
                 .frame(maxWidth: .infinity)
-                .padding(.horizontal, VSpacing.xxl)
-                .padding(.vertical, VSpacing.md + VSpacing.xxs)
+                .padding(.horizontal, VSpacing.xl)
+                .padding(.vertical, VSpacing.lg)
+                .contentShape(Rectangle())
                 .background(background)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
                 .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.md)
+                    RoundedRectangle(cornerRadius: VRadius.lg)
                         .stroke(borderColor, lineWidth: style == .tertiary ? 1 : 0)
                 )
         }
@@ -39,6 +40,13 @@ struct OnboardingButton: View {
         .onHover { hovering in
             withAnimation(.easeOut(duration: 0.15)) {
                 isHovered = hovering
+            }
+            if !disabled {
+                if hovering {
+                    NSCursor.pointingHand.push()
+                } else {
+                    NSCursor.pop()
+                }
             }
         }
         .onAppear {
