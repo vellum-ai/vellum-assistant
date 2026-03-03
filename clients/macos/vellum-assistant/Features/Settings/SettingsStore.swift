@@ -6,6 +6,9 @@ import VellumAssistantShared
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "SettingsStore")
 
+/// UserDefaults key for tracking explicit key deletions that may not have reached the daemon.
+private let kPendingKeyDeletionTombstones = "pendingKeyDeletionTombstones"
+
 /// Single source of truth for settings state shared between `SettingsPanel`
 /// (main window side panel) and its extracted tab views.
 @MainActor
@@ -695,6 +698,7 @@ public final class SettingsStore: ObservableObject {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         APIKeyManager.setKey(trimmed)
+        removeDeletionTombstone(type: "api_key", name: "anthropic")
         syncKeyToDaemon(provider: "anthropic", value: trimmed)
         hasKey = true
         maskedKey = Self.maskKey(trimmed)
@@ -702,6 +706,7 @@ public final class SettingsStore: ObservableObject {
 
     func clearAPIKey() {
         APIKeyManager.deleteKey()
+        addDeletionTombstone(type: "api_key", name: "anthropic")
         deleteKeyFromDaemon(provider: "anthropic")
         hasKey = false
         maskedKey = ""
@@ -711,6 +716,7 @@ public final class SettingsStore: ObservableObject {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         APIKeyManager.setKey(trimmed, for: "brave")
+        removeDeletionTombstone(type: "api_key", name: "brave")
         syncKeyToDaemon(provider: "brave", value: trimmed)
         hasBraveKey = true
         maskedBraveKey = Self.maskKey(trimmed)
@@ -718,6 +724,7 @@ public final class SettingsStore: ObservableObject {
 
     func clearBraveKey() {
         APIKeyManager.deleteKey(for: "brave")
+        addDeletionTombstone(type: "api_key", name: "brave")
         deleteKeyFromDaemon(provider: "brave")
         hasBraveKey = false
         maskedBraveKey = ""
@@ -727,6 +734,7 @@ public final class SettingsStore: ObservableObject {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         APIKeyManager.setKey(trimmed, for: "perplexity")
+        removeDeletionTombstone(type: "api_key", name: "perplexity")
         syncKeyToDaemon(provider: "perplexity", value: trimmed)
         hasPerplexityKey = true
         maskedPerplexityKey = Self.maskKey(trimmed)
@@ -734,6 +742,7 @@ public final class SettingsStore: ObservableObject {
 
     func clearPerplexityKey() {
         APIKeyManager.deleteKey(for: "perplexity")
+        addDeletionTombstone(type: "api_key", name: "perplexity")
         deleteKeyFromDaemon(provider: "perplexity")
         hasPerplexityKey = false
         maskedPerplexityKey = ""
@@ -743,6 +752,7 @@ public final class SettingsStore: ObservableObject {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         APIKeyManager.setKey(trimmed, for: "gemini")
+        removeDeletionTombstone(type: "api_key", name: "gemini")
         syncKeyToDaemon(provider: "gemini", value: trimmed)
         hasImageGenKey = true
         maskedImageGenKey = Self.maskKey(trimmed)
@@ -750,6 +760,7 @@ public final class SettingsStore: ObservableObject {
 
     func clearImageGenKey() {
         APIKeyManager.deleteKey(for: "gemini")
+        addDeletionTombstone(type: "api_key", name: "gemini")
         deleteKeyFromDaemon(provider: "gemini")
         hasImageGenKey = false
         maskedImageGenKey = ""
@@ -759,6 +770,7 @@ public final class SettingsStore: ObservableObject {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         APIKeyManager.setKey(trimmed, for: "elevenlabs")
+        removeDeletionTombstone(type: "credential", name: "elevenlabs:api_key")
         syncCredentialToDaemon(name: "elevenlabs:api_key", value: trimmed)
         hasElevenLabsKey = true
         maskedElevenLabsKey = Self.maskKey(trimmed)
@@ -766,6 +778,7 @@ public final class SettingsStore: ObservableObject {
 
     func clearElevenLabsKey() {
         APIKeyManager.deleteKey(for: "elevenlabs")
+        addDeletionTombstone(type: "credential", name: "elevenlabs:api_key")
         deleteCredentialFromDaemon(name: "elevenlabs:api_key")
         hasElevenLabsKey = false
         maskedElevenLabsKey = ""
@@ -973,6 +986,43 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
+    // MARK: - Key Deletion Tombstones
+
+    /// Record that a key was explicitly cleared so the deletion can be replayed on reconnect.
+    private func addDeletionTombstone(type: String, name: String) {
+        var tombstones = UserDefaults.standard.array(forKey: kPendingKeyDeletionTombstones)
+            as? [[String: String]] ?? []
+        let entry: [String: String] = ["type": type, "name": name]
+        if !tombstones.contains(where: { $0["type"] == type && $0["name"] == name }) {
+            tombstones.append(entry)
+            UserDefaults.standard.set(tombstones, forKey: kPendingKeyDeletionTombstones)
+        }
+    }
+
+    /// Remove a tombstone when the user re-saves a key, making the pending deletion moot.
+    private func removeDeletionTombstone(type: String, name: String) {
+        var tombstones = UserDefaults.standard.array(forKey: kPendingKeyDeletionTombstones)
+            as? [[String: String]] ?? []
+        tombstones.removeAll { $0["type"] == type && $0["name"] == name }
+        UserDefaults.standard.set(tombstones, forKey: kPendingKeyDeletionTombstones)
+    }
+
+    /// Replay pending deletion tombstones and clear them.
+    private func replayDeletionTombstones() {
+        let tombstones = UserDefaults.standard.array(forKey: kPendingKeyDeletionTombstones)
+            as? [[String: String]] ?? []
+        guard !tombstones.isEmpty else { return }
+        for entry in tombstones {
+            guard let type = entry["type"], let name = entry["name"] else { continue }
+            if type == "api_key" {
+                deleteKeyFromDaemon(provider: name)
+            } else if type == "credential" {
+                deleteCredentialFromDaemon(name: name)
+            }
+        }
+        UserDefaults.standard.removeObject(forKey: kPendingKeyDeletionTombstones)
+    }
+
     /// Notify the daemon that an API key was deleted.
     private func deleteKeyFromDaemon(provider: String) {
         guard let http = resolveRuntimeHTTP() else { return }
@@ -1022,8 +1072,8 @@ public final class SettingsStore: ObservableObject {
     }
 
     /// Re-sync locally-known keys to daemon on reconnect.
-    /// Only pushes keys that are present in the macOS keychain — never deletes,
-    /// because the daemon may hold keys set through other flows (e.g. CLI).
+    /// Pushes keys present in the macOS keychain, and replays any pending
+    /// deletion tombstones so user-initiated clears are eventually consistent.
     private func syncAllKeysToDaemon() {
         let apiKeyProviders: [(String, String?)] = [
             ("anthropic", APIKeyManager.getKey()),
@@ -1041,6 +1091,8 @@ public final class SettingsStore: ObservableObject {
         if let key = APIKeyManager.getKey(for: "elevenlabs") {
             syncCredentialToDaemon(name: "elevenlabs:api_key", value: key)
         }
+
+        replayDeletionTombstones()
     }
 
     func fetchSlackChannelConfig() {
