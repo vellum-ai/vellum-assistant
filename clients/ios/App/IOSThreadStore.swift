@@ -18,8 +18,17 @@ struct IOSThread: Identifiable {
     /// Private threads are excluded from the normal thread list and persist only
     /// for the current session. They match the macOS "temporary chat" behavior.
     var isPrivate: Bool
+    /// The schedule job ID that created this thread, if any.
+    /// Threads sharing the same scheduleJobId belong to the same schedule group.
+    var scheduleJobId: String?
 
-    init(id: UUID = UUID(), title: String = "New Chat", createdAt: Date = Date(), lastActivityAt: Date? = nil, sessionId: String? = nil, isArchived: Bool = false, isPrivate: Bool = false) {
+    /// Whether this thread was created by a schedule or reminder trigger.
+    var isScheduleThread: Bool {
+        if scheduleJobId != nil { return true }
+        return title.hasPrefix("Schedule: ") || title.hasPrefix("Schedule (manual): ") || title.hasPrefix("Reminder: ")
+    }
+
+    init(id: UUID = UUID(), title: String = "New Chat", createdAt: Date = Date(), lastActivityAt: Date? = nil, sessionId: String? = nil, isArchived: Bool = false, isPrivate: Bool = false, scheduleJobId: String? = nil) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
@@ -27,6 +36,7 @@ struct IOSThread: Identifiable {
         self.sessionId = sessionId
         self.isArchived = isArchived
         self.isPrivate = isPrivate
+        self.scheduleJobId = scheduleJobId
     }
 }
 
@@ -41,6 +51,7 @@ private struct PersistedThread: Codable {
     var isArchived: Bool?
     var isPrivate: Bool?
     var sessionId: String?
+    var scheduleJobId: String?
 }
 
 // MARK: - IOSThreadStore
@@ -140,6 +151,29 @@ class IOSThreadStore: ObservableObject {
         daemon.onMessageContentResponse = { [weak self] response in
             self?.handleMessageContentResponse(response)
         }
+        daemon.onScheduleThreadCreated = { [weak self] msg in
+            guard let self else { return }
+            // Avoid duplicates
+            guard !self.threads.contains(where: { $0.sessionId == msg.conversationId }) else { return }
+            let thread = IOSThread(
+                title: msg.title,
+                sessionId: msg.conversationId,
+                scheduleJobId: msg.scheduleJobId
+            )
+            // Remove the empty placeholder thread if it's still present (race:
+            // schedule_thread_created can arrive before the first session_list_response).
+            if self.threads.count == 1,
+               self.threads[0].sessionId == nil,
+               self.viewModels[self.threads[0].id]?.messages.isEmpty ?? true,
+               self.viewModels[self.threads[0].id]?.sessionId == nil {
+                self.viewModels.removeValue(forKey: self.threads[0].id)
+                self.threads = [thread]
+            } else {
+                self.threads.insert(thread, at: 0)
+            }
+            self.isLoadingInitialThreads = false
+            self.saveConnectedCache()
+        }
 
         // Fetch session list once connected. Try immediately if already connected,
         // otherwise wait for the daemonDidReconnect notification.
@@ -217,6 +251,7 @@ class IOSThreadStore: ObservableObject {
             oldDaemon.onHistoryResponse = nil
             oldDaemon.onSubagentDetailResponse = nil
             oldDaemon.onMessageContentResponse = nil
+            oldDaemon.onScheduleThreadCreated = nil
         }
 
         daemonClient = newClient
@@ -312,7 +347,8 @@ class IOSThreadStore: ObservableObject {
                 title: session.title,
                 createdAt: Date(timeIntervalSince1970: TimeInterval(effectiveCreatedAt) / 1000.0),
                 lastActivityAt: Date(timeIntervalSince1970: TimeInterval(session.updatedAt) / 1000.0),
-                sessionId: session.id
+                sessionId: session.id,
+                scheduleJobId: session.scheduleJobId
             )
             let vm = ChatViewModel(daemonClient: daemonClient)
             vm.sessionId = session.id
@@ -358,7 +394,8 @@ class IOSThreadStore: ObservableObject {
                             createdAt: restored.createdAt,
                             lastActivityAt: restored.lastActivityAt,
                             sessionId: restored.sessionId,
-                            isArchived: local.isArchived
+                            isArchived: local.isArchived,
+                            scheduleJobId: restored.scheduleJobId
                         )
                     }
                     merged.append(restored)
@@ -690,7 +727,7 @@ class IOSThreadStore: ObservableObject {
             UserDefaults.standard.removeObject(forKey: Self.connectedCacheKey)
             return
         }
-        let persisted = cacheable.map { PersistedThread(id: $0.id, title: $0.title, createdAt: $0.createdAt, lastActivityAt: $0.lastActivityAt, isArchived: $0.isArchived, isPrivate: false, sessionId: $0.sessionId) }
+        let persisted = cacheable.map { PersistedThread(id: $0.id, title: $0.title, createdAt: $0.createdAt, lastActivityAt: $0.lastActivityAt, isArchived: $0.isArchived, isPrivate: false, sessionId: $0.sessionId, scheduleJobId: $0.scheduleJobId) }
         if let data = try? JSONEncoder().encode(persisted) {
             UserDefaults.standard.set(data, forKey: Self.connectedCacheKey)
         }
@@ -703,7 +740,7 @@ class IOSThreadStore: ObservableObject {
         }
         return persisted.compactMap { p in
             guard p.sessionId != nil, !(p.isPrivate ?? false) else { return nil }
-            return IOSThread(id: p.id, title: p.title, createdAt: p.createdAt, lastActivityAt: p.lastActivityAt, sessionId: p.sessionId, isArchived: p.isArchived ?? false, isPrivate: false)
+            return IOSThread(id: p.id, title: p.title, createdAt: p.createdAt, lastActivityAt: p.lastActivityAt, sessionId: p.sessionId, isArchived: p.isArchived ?? false, isPrivate: false, scheduleJobId: p.scheduleJobId)
         }
     }
 
@@ -714,7 +751,7 @@ class IOSThreadStore: ObservableObject {
     private func save() {
         // Don't persist daemon-synced threads — they're loaded on connect.
         guard !isConnectedMode else { return }
-        let persisted = threads.map { PersistedThread(id: $0.id, title: $0.title, createdAt: $0.createdAt, lastActivityAt: $0.lastActivityAt, isArchived: $0.isArchived, isPrivate: $0.isPrivate, sessionId: $0.sessionId) }
+        let persisted = threads.map { PersistedThread(id: $0.id, title: $0.title, createdAt: $0.createdAt, lastActivityAt: $0.lastActivityAt, isArchived: $0.isArchived, isPrivate: $0.isPrivate, sessionId: $0.sessionId, scheduleJobId: $0.scheduleJobId) }
         if let data = try? JSONEncoder().encode(persisted) {
             UserDefaults.standard.set(data, forKey: Self.persistenceKey)
         }
@@ -725,7 +762,7 @@ class IOSThreadStore: ObservableObject {
               let persisted = try? JSONDecoder().decode([PersistedThread].self, from: data) else {
             return []
         }
-        return persisted.map { IOSThread(id: $0.id, title: $0.title, createdAt: $0.createdAt, lastActivityAt: $0.lastActivityAt, sessionId: $0.sessionId, isArchived: $0.isArchived ?? false, isPrivate: $0.isPrivate ?? false) }
+        return persisted.map { IOSThread(id: $0.id, title: $0.title, createdAt: $0.createdAt, lastActivityAt: $0.lastActivityAt, sessionId: $0.sessionId, isArchived: $0.isArchived ?? false, isPrivate: $0.isPrivate ?? false, scheduleJobId: $0.scheduleJobId) }
     }
 }
 #endif

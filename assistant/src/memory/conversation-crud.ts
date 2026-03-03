@@ -99,6 +99,7 @@ export interface ConversationRow {
   originChannel: string | null;
   originInterface: string | null;
   isAutoTitle: number;
+  scheduleJobId: string | null;
 }
 
 export const parseConversation = createRowMapper<
@@ -121,6 +122,7 @@ export const parseConversation = createRowMapper<
   originChannel: "originChannel",
   originInterface: "originInterface",
   isAutoTitle: "isAutoTitle",
+  scheduleJobId: "scheduleJobId",
 });
 
 export interface MessageRow {

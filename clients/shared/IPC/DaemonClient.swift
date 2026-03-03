@@ -458,6 +458,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when a task run creates a conversation so the client can show it as a visible chat thread.
     public var onTaskRunThreadCreated: ((IPCTaskRunThreadCreated) -> Void)?
 
+    /// Called when a schedule creates a conversation so the client can show it as a visible chat thread.
+    public var onScheduleThreadCreated: ((IPCScheduleThreadCreated) -> Void)?
+
     /// Called when the daemon requests pairing approval from macOS.
     public var onPairingApprovalRequest: ((PairingApprovalRequestMessage) -> Void)?
 
