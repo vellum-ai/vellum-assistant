@@ -588,13 +588,10 @@ struct MessageListView: View {
                 DispatchQueue.main.async {
                     // Skip scroll-to-bottom when an anchor message is pending —
                     // the anchorMessageId onChange handler will scroll to the
-                    // specific message instead.
+                    // specific message instead. Stale anchors from other threads
+                    // are cleared by ThreadManager.activeThreadId.didSet, so
+                    // anchorMessageId here always belongs to the current thread.
                     if anchorMessageId == nil {
-                        proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
-                    } else if !messages.contains(where: { $0.id == anchorMessageId }) {
-                        // Anchor is stale (belongs to a different thread) — clear
-                        // it and scroll to bottom normally.
-                        anchorMessageId = nil
                         proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
                     }
                 }
@@ -611,9 +608,11 @@ struct MessageListView: View {
                     anchorMessageId = nil
                 }
             }
-            .onChange(of: messages) {
-                // Retry anchor scroll when messages update (e.g., history loads
-                // after a thread switch triggered by a notification deep-link).
+            .onChange(of: messages.count) {
+                // Retry anchor scroll when new messages arrive (e.g., history
+                // loads after a thread switch triggered by a notification
+                // deep-link). Uses messages.count instead of messages to avoid
+                // O(n) array equality checks on every streaming token.
                 guard let id = anchorMessageId else { return }
                 if messages.contains(where: { $0.id == id }) {
                     withAnimation {

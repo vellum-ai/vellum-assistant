@@ -60,6 +60,13 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
                     lastActiveThreadIdString = nil
                 }
             }
+            // Clear stale anchor when switching away from the thread that
+            // owns it — prevents the anchor from suppressing scroll-to-bottom
+            // on unrelated thread switches.
+            if let anchorThread = pendingAnchorThreadId, anchorThread != activeThreadId {
+                pendingAnchorMessageId = nil
+                pendingAnchorThreadId = nil
+            }
             // Subscribe to the new active view model's changes
             subscribeToActiveViewModel()
         }
@@ -103,6 +110,9 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     private var interactionStateCancellables: [UUID: Set<AnyCancellable>] = [:]
     /// Pending anchor message ID for scroll-to behavior on notification deep links.
     @Published var pendingAnchorMessageId: UUID?
+    /// Tracks which thread the pending anchor belongs to so stale anchors are
+    /// cleared automatically when the user switches to a different thread.
+    private var pendingAnchorThreadId: UUID?
     /// Session IDs whose seen signals are deferred pending undo expiration.
     private var pendingSeenSessionIds: [String] = []
     /// Task that auto-commits deferred seen signals after the undo window.
@@ -1031,6 +1041,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     func setPendingAnchorMessage(threadId: UUID, messageId: UUID) {
         guard activeThreadId == threadId else { return }
         pendingAnchorMessageId = messageId
+        pendingAnchorThreadId = threadId
     }
 
     /// Consume the pending anchor message, returning it if present. Resets to nil.
