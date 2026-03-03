@@ -92,7 +92,7 @@ export interface InboundActorContext {
  *
  * Maps the runtime trust class into the model-facing inbound actor context.
  */
-export function inboundActorContextFromGuardian(
+export function inboundActorContextFromTrustContext(
   ctx: TrustContext,
 ): InboundActorContext {
   return {

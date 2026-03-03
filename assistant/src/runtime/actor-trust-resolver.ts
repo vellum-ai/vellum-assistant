@@ -203,14 +203,14 @@ export function resolveActorTrust(input: ResolveActorTrustInput): ActorTrustCont
 }
 
 /**
- * Convert an ActorTrustContext into the runtime trust context shape used by
+ * Convert an ActorTrustContext into the runtime TrustContext shape used by
  * sessions/tooling.
  *
  * This is the single canonical conversion from resolved trust to runtime
  * context. The guardianExternalUserId is canonicalized to handle phone-
  * channel formatting variance (e.g. stored binding vs E.164).
  */
-export function toGuardianRuntimeContextFromTrust(
+export function toTrustContext(
   ctx: ActorTrustContext,
   conversationExternalId: string,
 ): TrustContext {

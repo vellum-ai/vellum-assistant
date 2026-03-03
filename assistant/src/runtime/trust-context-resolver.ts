@@ -6,13 +6,13 @@
  *
  * Trust resolution itself lives in actor-trust-resolver.ts; the resolved
  * ActorTrustContext is converted to TrustContext via
- * toGuardianRuntimeContextFromTrust.
+ * toTrustContext.
  */
 import type { TrustContext } from '../daemon/session-runtime-assembly.js';
 import {
   resolveActorTrust,
   type ResolveActorTrustInput,
-  toGuardianRuntimeContextFromTrust,
+  toTrustContext,
 } from './actor-trust-resolver.js';
 export type { DenialReason } from './actor-trust-resolver.js';
 
@@ -20,11 +20,11 @@ export type { DenialReason } from './actor-trust-resolver.js';
  * Resolve route-level trust context from canonical identity state.
  *
  * Delegates to resolveActorTrust for classification, then converts to
- * the canonical TrustContext via toGuardianRuntimeContextFromTrust.
+ * the canonical TrustContext via toTrustContext.
  */
 export function resolveTrustContext(input: ResolveActorTrustInput): TrustContext {
   const trust = resolveActorTrust(input);
-  return toGuardianRuntimeContextFromTrust(trust, input.conversationExternalId);
+  return toTrustContext(trust, input.conversationExternalId);
 }
 
 // ---------------------------------------------------------------------------
