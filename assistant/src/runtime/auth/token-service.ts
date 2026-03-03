@@ -5,16 +5,28 @@
  * HMAC-SHA256. Owns the signing key lifecycle (load/create/persist).
  */
 
-import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import {
+  createHash,
+  createHmac,
+  randomBytes,
+  timingSafeEqual,
+} from "node:crypto";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
 
-import { getLogger } from '../../util/logger.js';
-import { getRootDir } from '../../util/platform.js';
-import { CURRENT_POLICY_EPOCH, isStaleEpoch } from './policy.js';
-import type { ScopeProfile, TokenAudience, TokenClaims } from './types.js';
+import { getLogger } from "../../util/logger.js";
+import { getRootDir } from "../../util/platform.js";
+import { CURRENT_POLICY_EPOCH, isStaleEpoch } from "./policy.js";
+import type { ScopeProfile, TokenAudience, TokenClaims } from "./types.js";
 
-const log = getLogger('token-service');
+const log = getLogger("token-service");
 
 // ---------------------------------------------------------------------------
 // Signing key management
@@ -27,7 +39,7 @@ let _authSigningKey: Buffer | undefined;
  * Stored in the protected directory alongside other sensitive material.
  */
 function getSigningKeyPath(): string {
-  return join(getRootDir(), 'protected', 'actor-token-signing-key');
+  return join(getRootDir(), "protected", "actor-token-signing-key");
 }
 
 /**
@@ -42,12 +54,12 @@ export function loadOrCreateSigningKey(): Buffer {
     try {
       const raw = readFileSync(keyPath);
       if (raw.length === 32) {
-        log.info('Auth signing key loaded from disk');
+        log.info("Auth signing key loaded from disk");
         return raw;
       }
-      log.warn('Signing key file has unexpected length, regenerating');
+      log.warn("Signing key file has unexpected length, regenerating");
     } catch (err) {
-      log.warn({ err }, 'Failed to read signing key file, regenerating');
+      log.warn({ err }, "Failed to read signing key file, regenerating");
     }
   }
 
@@ -57,18 +69,24 @@ export function loadOrCreateSigningKey(): Buffer {
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
-  const tmpPath = keyPath + '.tmp.' + process.pid;
+  const tmpPath = keyPath + ".tmp." + process.pid;
   writeFileSync(tmpPath, newKey, { mode: 0o600 });
   renameSync(tmpPath, keyPath);
   chmodSync(keyPath, 0o600);
 
-  log.info('Auth signing key generated and persisted');
+  log.info("Auth signing key generated and persisted");
   return newKey;
 }
 
 function getSigningKey(): Buffer {
   if (!_authSigningKey) {
-    throw new Error('Auth signing key not initialized — call initAuthSigningKey() during startup');
+    if (process.env.NODE_ENV === "test") {
+      _authSigningKey = randomBytes(32);
+      return _authSigningKey;
+    }
+    throw new Error(
+      "Auth signing key not initialized — call initAuthSigningKey() during startup",
+    );
   }
   return _authSigningKey;
 }
@@ -98,12 +116,12 @@ export function isSigningKeyInitialized(): boolean {
 // ---------------------------------------------------------------------------
 
 function base64urlEncode(data: Buffer | string): string {
-  const buf = typeof data === 'string' ? Buffer.from(data, 'utf-8') : data;
-  return buf.toString('base64url');
+  const buf = typeof data === "string" ? Buffer.from(data, "utf-8") : data;
+  return buf.toString("base64url");
 }
 
 function base64urlDecode(str: string): Buffer {
-  return Buffer.from(str, 'base64url');
+  return Buffer.from(str, "base64url");
 }
 
 // ---------------------------------------------------------------------------
@@ -118,7 +136,9 @@ export type VerifyResult =
 // JWT header — static for HMAC-SHA256
 // ---------------------------------------------------------------------------
 
-const JWT_HEADER = base64urlEncode(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
+const JWT_HEADER = base64urlEncode(
+  JSON.stringify({ alg: "HS256", typ: "JWT" }),
+);
 
 // ---------------------------------------------------------------------------
 // Mint
@@ -138,23 +158,21 @@ export function mintToken(params: {
 }): string {
   const now = Math.floor(Date.now() / 1000);
   const claims: TokenClaims = {
-    iss: 'vellum-auth',
+    iss: "vellum-auth",
     aud: params.aud,
     sub: params.sub,
     scope_profile: params.scope_profile,
     exp: now + params.ttlSeconds,
     policy_epoch: params.policy_epoch,
     iat: now,
-    jti: randomBytes(16).toString('hex'),
+    jti: randomBytes(16).toString("hex"),
   };
 
   const payload = base64urlEncode(JSON.stringify(claims));
-  const sigInput = JWT_HEADER + '.' + payload;
-  const sig = createHmac('sha256', getSigningKey())
-    .update(sigInput)
-    .digest();
+  const sigInput = JWT_HEADER + "." + payload;
+  const sig = createHmac("sha256", getSigningKey()).update(sigInput).digest();
 
-  return sigInput + '.' + base64urlEncode(sig);
+  return sigInput + "." + base64urlEncode(sig);
 }
 
 // ---------------------------------------------------------------------------
@@ -168,52 +186,61 @@ export function mintToken(params: {
  * Does NOT check revocation — callers must additionally verify the
  * token hash against a revocation store if needed.
  */
-export function verifyToken(token: string, expectedAud: TokenAudience): VerifyResult {
-  const parts = token.split('.');
+export function verifyToken(
+  token: string,
+  expectedAud: TokenAudience,
+): VerifyResult {
+  const parts = token.split(".");
   if (parts.length !== 3) {
-    return { ok: false, reason: 'malformed_token: expected 3 dot-separated parts' };
+    return {
+      ok: false,
+      reason: "malformed_token: expected 3 dot-separated parts",
+    };
   }
 
   const [headerPart, payloadPart, sigPart] = parts;
 
   // Recompute HMAC over header.payload
-  const sigInput = headerPart + '.' + payloadPart;
-  const expectedSig = createHmac('sha256', getSigningKey())
+  const sigInput = headerPart + "." + payloadPart;
+  const expectedSig = createHmac("sha256", getSigningKey())
     .update(sigInput)
     .digest();
   const actualSig = base64urlDecode(sigPart);
 
   if (expectedSig.length !== actualSig.length) {
-    return { ok: false, reason: 'invalid_signature' };
+    return { ok: false, reason: "invalid_signature" };
   }
 
   if (!timingSafeEqual(expectedSig, actualSig)) {
-    return { ok: false, reason: 'invalid_signature' };
+    return { ok: false, reason: "invalid_signature" };
   }
 
   // Decode and parse claims
   let claims: TokenClaims;
   try {
-    const decoded = base64urlDecode(payloadPart).toString('utf-8');
+    const decoded = base64urlDecode(payloadPart).toString("utf-8");
     claims = JSON.parse(decoded) as TokenClaims;
   } catch {
-    return { ok: false, reason: 'malformed_claims' };
+    return { ok: false, reason: "malformed_claims" };
   }
 
   // Audience check
   if (claims.aud !== expectedAud) {
-    return { ok: false, reason: `audience_mismatch: expected ${expectedAud}, got ${claims.aud}` };
+    return {
+      ok: false,
+      reason: `audience_mismatch: expected ${expectedAud}, got ${claims.aud}`,
+    };
   }
 
   // Expiration check (claims.exp is in seconds)
   const nowSeconds = Math.floor(Date.now() / 1000);
   if (claims.exp <= nowSeconds) {
-    return { ok: false, reason: 'token_expired' };
+    return { ok: false, reason: "token_expired" };
   }
 
   // Policy epoch check
   if (isStaleEpoch(claims.policy_epoch)) {
-    return { ok: false, reason: 'stale_policy_epoch' };
+    return { ok: false, reason: "stale_policy_epoch" };
   }
 
   return { ok: true, claims };
@@ -234,9 +261,9 @@ export function verifyToken(token: string, expectedAud: TokenAudience): VerifyRe
  */
 export function mintDaemonDeliveryToken(): string {
   return mintToken({
-    aud: 'vellum-daemon',
-    sub: 'svc:daemon:self',
-    scope_profile: 'gateway_service_v1',
+    aud: "vellum-daemon",
+    sub: "svc:daemon:self",
+    scope_profile: "gateway_service_v1",
     policy_epoch: CURRENT_POLICY_EPOCH,
     ttlSeconds: 60,
   });
@@ -257,9 +284,9 @@ export function mintDaemonDeliveryToken(): string {
  */
 export function mintEdgeRelayToken(): string {
   return mintToken({
-    aud: 'vellum-gateway',
-    sub: 'svc:daemon:self',
-    scope_profile: 'gateway_service_v1',
+    aud: "vellum-gateway",
+    sub: "svc:daemon:self",
+    scope_profile: "gateway_service_v1",
     policy_epoch: CURRENT_POLICY_EPOCH,
     ttlSeconds: 60,
   });
@@ -294,5 +321,5 @@ export function mintUiPageToken(): string {
 
 /** SHA-256 hex digest of a raw token string (for revocation store lookups). */
 export function hashToken(token: string): string {
-  return createHash('sha256').update(token).digest('hex');
+  return createHash("sha256").update(token).digest("hex");
 }

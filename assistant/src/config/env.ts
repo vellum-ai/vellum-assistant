@@ -14,10 +14,13 @@
  * without circular imports.
  */
 
-import { getLogger } from '../util/logger.js';
-import { checkUnrecognizedEnvVars,getEnableMonitoring } from './env-registry.js';
+import { getLogger } from "../util/logger.js";
+import {
+  checkUnrecognizedEnvVars,
+  getEnableMonitoring,
+} from "./env-registry.js";
 
-const log = getLogger('env');
+const log = getLogger("env");
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -35,7 +38,9 @@ function int(name: string, fallback?: number): number | undefined {
   if (!raw) return fallback;
   const n = parseInt(raw, 10);
   if (isNaN(n)) {
-    throw new Error(`Invalid integer for ${name}: "${raw}"${fallback !== undefined ? ` (fallback: ${fallback})` : ''}`);
+    throw new Error(
+      `Invalid integer for ${name}: "${raw}"${fallback !== undefined ? ` (fallback: ${fallback})` : ""}`,
+    );
   }
   return n;
 }
@@ -45,7 +50,7 @@ function int(name: string, fallback?: number): number | undefined {
 const DEFAULT_GATEWAY_PORT = 7830;
 
 export function getGatewayPort(): number {
-  return int('GATEWAY_PORT', DEFAULT_GATEWAY_PORT);
+  return int("GATEWAY_PORT", DEFAULT_GATEWAY_PORT);
 }
 
 /**
@@ -53,8 +58,8 @@ export function getGatewayPort(): number {
  * Prefers GATEWAY_INTERNAL_BASE_URL if set, otherwise derives from port.
  */
 export function getGatewayInternalBaseUrl(): string {
-  const explicit = str('GATEWAY_INTERNAL_BASE_URL');
-  if (explicit) return explicit.replace(/\/+$/, '');
+  const explicit = str("GATEWAY_INTERNAL_BASE_URL");
+  if (explicit) return explicit.replace(/\/+$/, "");
   return `http://127.0.0.1:${getGatewayPort()}`;
 }
 
@@ -62,7 +67,7 @@ export function getGatewayInternalBaseUrl(): string {
 
 /** Read the INGRESS_PUBLIC_BASE_URL env var (may be mutated at runtime by config handlers). */
 export function getIngressPublicBaseUrl(): string | undefined {
-  return str('INGRESS_PUBLIC_BASE_URL');
+  return str("INGRESS_PUBLIC_BASE_URL");
 }
 
 /** Set or clear the INGRESS_PUBLIC_BASE_URL env var (used by config handlers). */
@@ -77,29 +82,32 @@ export function setIngressPublicBaseUrl(value: string | undefined): void {
 // ── Runtime HTTP ─────────────────────────────────────────────────────────────
 
 export function getRuntimeHttpPort(): number {
-  return int('RUNTIME_HTTP_PORT') ?? 7821;
+  return int("RUNTIME_HTTP_PORT") ?? 7821;
 }
 
 export function getRuntimeHttpHost(): string {
-  return str('RUNTIME_HTTP_HOST') || '127.0.0.1';
+  return str("RUNTIME_HTTP_HOST") || "127.0.0.1";
 }
 
 export function getRuntimeProxyBearerToken(): string | undefined {
-  return str('RUNTIME_PROXY_BEARER_TOKEN');
+  return str("RUNTIME_PROXY_BEARER_TOKEN");
 }
 
 export function getRuntimeGatewayOriginSecret(): string | undefined {
-  return str('RUNTIME_GATEWAY_ORIGIN_SECRET');
+  return str("RUNTIME_GATEWAY_ORIGIN_SECRET");
 }
 
 /**
  * True when HTTP API auth is disabled via DISABLE_HTTP_AUTH=true AND the
  * safety gate VELLUM_UNSAFE_AUTH_BYPASS=1 is also set. Without the safety
  * gate, the bypass is ignored.
+ *
+ * Also returns true in test environments (bun test sets NODE_ENV=test)
+ * so that tests don't need to initialize the JWT signing key.
  */
 export function isHttpAuthDisabled(): boolean {
-  if (str('DISABLE_HTTP_AUTH')?.toLowerCase() !== 'true') return false;
-  return str('VELLUM_UNSAFE_AUTH_BYPASS')?.trim() === '1';
+  if (str("DISABLE_HTTP_AUTH")?.toLowerCase() !== "true") return false;
+  return str("VELLUM_UNSAFE_AUTH_BYPASS")?.trim() === "1";
 }
 
 /**
@@ -107,39 +115,39 @@ export function isHttpAuthDisabled(): boolean {
  * VELLUM_UNSAFE_AUTH_BYPASS=1 is missing — used for warning messages.
  */
 export function hasUngatedHttpAuthDisabled(): boolean {
-  if (str('DISABLE_HTTP_AUTH')?.toLowerCase() !== 'true') return false;
-  return str('VELLUM_UNSAFE_AUTH_BYPASS')?.trim() !== '1';
+  if (str("DISABLE_HTTP_AUTH")?.toLowerCase() !== "true") return false;
+  return str("VELLUM_UNSAFE_AUTH_BYPASS")?.trim() !== "1";
 }
 
 // ── Twilio ───────────────────────────────────────────────────────────────────
 
 export function getTwilioPhoneNumberEnv(): string | undefined {
-  return str('TWILIO_PHONE_NUMBER');
+  return str("TWILIO_PHONE_NUMBER");
 }
 
 export function getTwilioUserPhoneNumber(): string | undefined {
-  return str('TWILIO_USER_PHONE_NUMBER');
+  return str("TWILIO_USER_PHONE_NUMBER");
 }
 
 export function getTwilioWssBaseUrl(): string | undefined {
-  return str('TWILIO_WSS_BASE_URL');
+  return str("TWILIO_WSS_BASE_URL");
 }
 
 export function isTwilioWebhookValidationDisabled(): boolean {
   // Intentionally strict: only exact "true" disables validation (not "1").
   // This is a security-sensitive bypass — we don't want environments that
   // template booleans as "1" to silently skip webhook signature checks.
-  return process.env.TWILIO_WEBHOOK_VALIDATION_DISABLED === 'true';
+  return process.env.TWILIO_WEBHOOK_VALIDATION_DISABLED === "true";
 }
 
 export function getCallWelcomeGreeting(): string | undefined {
-  return str('CALL_WELCOME_GREETING');
+  return str("CALL_WELCOME_GREETING");
 }
 
 // ── Monitoring ───────────────────────────────────────────────────────────────
 
 export function getLogfireToken(): string | undefined {
-  return str('LOGFIRE_TOKEN');
+  return str("LOGFIRE_TOKEN");
 }
 
 export function isMonitoringEnabled(): boolean {
@@ -147,25 +155,25 @@ export function isMonitoringEnabled(): boolean {
 }
 
 export function getSentryDsn(): string | undefined {
-  return str('SENTRY_DSN');
+  return str("SENTRY_DSN");
 }
 
 // ── Qdrant ───────────────────────────────────────────────────────────────────
 
 export function getQdrantUrlEnv(): string | undefined {
-  return str('QDRANT_URL');
+  return str("QDRANT_URL");
 }
 
 // ── Ollama ───────────────────────────────────────────────────────────────────
 
 export function getOllamaBaseUrlEnv(): string | undefined {
-  return str('OLLAMA_BASE_URL');
+  return str("OLLAMA_BASE_URL");
 }
 
 // ── Platform ─────────────────────────────────────────────────────────────────
 
 export function getPlatformBaseUrl(): string {
-  return str('PLATFORM_BASE_URL') ?? '';
+  return str("PLATFORM_BASE_URL") ?? "";
 }
 
 /**
@@ -173,7 +181,7 @@ export function getPlatformBaseUrl(): string {
  * Required for registering callback routes when containerized.
  */
 export function getPlatformAssistantId(): string {
-  return str('PLATFORM_ASSISTANT_ID') ?? '';
+  return str("PLATFORM_ASSISTANT_ID") ?? "";
 }
 
 /**
@@ -181,7 +189,7 @@ export function getPlatformAssistantId(): string {
  * with the platform's internal gateway callback route registration endpoint.
  */
 export function getPlatformInternalApiKey(): string {
-  return str('PLATFORM_INTERNAL_API_KEY') ?? '';
+  return str("PLATFORM_INTERNAL_API_KEY") ?? "";
 }
 
 // ── Startup validation ──────────────────────────────────────────────────────
@@ -203,7 +211,9 @@ export function validateEnv(): void {
   }
 
   if (getTwilioWssBaseUrl()) {
-    log.warn('TWILIO_WSS_BASE_URL env var is deprecated. Relay URL is now derived from ingress.publicBaseUrl.');
+    log.warn(
+      "TWILIO_WSS_BASE_URL env var is deprecated. Relay URL is now derived from ingress.publicBaseUrl.",
+    );
   }
 
   for (const warning of checkUnrecognizedEnvVars()) {

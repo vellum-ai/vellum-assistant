@@ -6,45 +6,50 @@
  * - Messages are queued (202, queued: true) when the session is busy, not 409.
  * - SSE subscribers receive events from messages sent via this endpoint.
  */
-import { mkdtempSync, realpathSync,rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-import { afterAll, beforeEach, describe, expect, mock,test } from 'bun:test';
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { ServerMessage } from '../daemon/ipc-protocol.js';
-import type { Session } from '../daemon/session.js';
-import { createCanonicalGuardianRequest } from '../memory/canonical-guardian-store.js';
-import { createBinding } from '../memory/channel-guardian-store.js';
-import { getOrCreateConversation } from '../memory/conversation-key-store.js';
+mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
-const testDir = realpathSync(mkdtempSync(join(tmpdir(), 'send-endpoint-busy-test-')));
+import type { ServerMessage } from "../daemon/ipc-protocol.js";
+import type { Session } from "../daemon/session.js";
+import { createCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
+import { createBinding } from "../memory/channel-guardian-store.js";
+import { getOrCreateConversation } from "../memory/conversation-key-store.js";
 
-mock.module('../util/platform.js', () => ({
+const testDir = realpathSync(
+  mkdtempSync(join(tmpdir(), "send-endpoint-busy-test-")),
+);
+
+mock.module("../util/platform.js", () => ({
   getRootDir: () => testDir,
   getDataDir: () => testDir,
-  isMacOS: () => process.platform === 'darwin',
-  isLinux: () => process.platform === 'linux',
-  isWindows: () => process.platform === 'win32',
-  getSocketPath: () => join(testDir, 'test.sock'),
-  getPidPath: () => join(testDir, 'test.pid'),
-  getDbPath: () => join(testDir, 'test.db'),
-  getLogPath: () => join(testDir, 'test.log'),
+  isMacOS: () => process.platform === "darwin",
+  isLinux: () => process.platform === "linux",
+  isWindows: () => process.platform === "win32",
+  getSocketPath: () => join(testDir, "test.sock"),
+  getPidPath: () => join(testDir, "test.pid"),
+  getDbPath: () => join(testDir, "test.db"),
+  getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
 }));
 
-mock.module('../util/logger.js', () => ({
-  getLogger: () => new Proxy({} as Record<string, unknown>, {
-    get: () => () => {},
-  }),
+mock.module("../util/logger.js", () => ({
+  getLogger: () =>
+    new Proxy({} as Record<string, unknown>, {
+      get: () => () => {},
+    }),
 }));
 
-mock.module('../config/loader.js', () => ({
+mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
 
-    model: 'test',
-    provider: 'test',
+    model: "test",
+    provider: "test",
     apiKeys: {},
     memory: { enabled: false },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
@@ -54,27 +59,27 @@ mock.module('../config/loader.js', () => ({
 
 // Mock guardian-vellum-migration to use a stable principal matching the one
 // in createCanonicalGuardianRequest calls below ('test-principal-id').
-mock.module('../runtime/guardian-vellum-migration.js', () => ({
-  ensureVellumGuardianBinding: () => 'test-principal-id',
+mock.module("../runtime/guardian-vellum-migration.js", () => ({
+  ensureVellumGuardianBinding: () => "test-principal-id",
 }));
 
 // Mock local-actor-identity to return a stable guardian context that uses
 // the same principal as the canonical requests created in tests.
-mock.module('../runtime/local-actor-identity.js', () => ({
+mock.module("../runtime/local-actor-identity.js", () => ({
   resolveLocalIpcGuardianContext: () => ({
-    sourceChannel: 'vellum',
-    trustClass: 'guardian',
-    guardianPrincipalId: 'test-principal-id',
-    guardianExternalUserId: 'test-principal-id',
+    sourceChannel: "vellum",
+    trustClass: "guardian",
+    guardianPrincipalId: "test-principal-id",
+    guardianExternalUserId: "test-principal-id",
   }),
 }));
 
-import { getDb, initializeDb, resetDb } from '../memory/db.js';
-import type { AssistantEvent } from '../runtime/assistant-event.js';
-import { AssistantEventHub } from '../runtime/assistant-event-hub.js';
-import { RuntimeHttpServer } from '../runtime/http-server.js';
-import type { ApprovalConversationGenerator } from '../runtime/http-types.js';
-import * as pendingInteractions from '../runtime/pending-interactions.js';
+import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import type { AssistantEvent } from "../runtime/assistant-event.js";
+import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
+import { RuntimeHttpServer } from "../runtime/http-server.js";
+import type { ApprovalConversationGenerator } from "../runtime/http-types.js";
+import * as pendingInteractions from "../runtime/pending-interactions.js";
 
 initializeDb();
 
@@ -88,11 +93,19 @@ function makeCompletingSession(): Session {
   const messages: unknown[] = [];
   return {
     isProcessing: () => processing,
-    persistUserMessage: (_content: string, _attachments: unknown[], requestId?: string) => {
+    persistUserMessage: (
+      _content: string,
+      _attachments: unknown[],
+      requestId?: string,
+    ) => {
       processing = true;
-      return requestId ?? 'msg-1';
+      return requestId ?? "msg-1";
     },
-    memoryPolicy: { scopeId: 'default', includeDefaultFallback: false, strictSideEffects: false },
+    memoryPolicy: {
+      scopeId: "default",
+      includeDefaultFallback: false,
+      strictSideEffects: false,
+    },
     setChannelCapabilities: () => {},
     setAssistantId: () => {},
     setGuardianContext: () => {},
@@ -105,10 +118,14 @@ function makeCompletingSession(): Session {
     hasPendingConfirmation: () => false,
     denyAllPendingConfirmations: () => {},
     getQueueDepth: () => 0,
-    enqueueMessage: () => ({ queued: false, requestId: 'noop' }),
-    runAgentLoop: async (_content: string, _messageId: string, onEvent: (msg: ServerMessage) => void) => {
-      onEvent({ type: 'assistant_text_delta', text: 'Hello!' });
-      onEvent({ type: 'message_complete', sessionId: 'test-session' });
+    enqueueMessage: () => ({ queued: false, requestId: "noop" }),
+    runAgentLoop: async (
+      _content: string,
+      _messageId: string,
+      onEvent: (msg: ServerMessage) => void,
+    ) => {
+      onEvent({ type: "assistant_text_delta", text: "Hello!" });
+      onEvent({ type: "message_complete", sessionId: "test-session" });
       processing = false;
     },
     handleConfirmationResponse: () => {},
@@ -121,14 +138,26 @@ function makeCompletingSession(): Session {
 function makeHangingSession(): Session {
   let processing = false;
   const messages: unknown[] = [];
-  const enqueuedMessages: Array<{ content: string; onEvent: (msg: ServerMessage) => void; requestId: string }> = [];
+  const enqueuedMessages: Array<{
+    content: string;
+    onEvent: (msg: ServerMessage) => void;
+    requestId: string;
+  }> = [];
   return {
     isProcessing: () => processing,
-    persistUserMessage: (_content: string, _attachments: unknown[], requestId?: string) => {
+    persistUserMessage: (
+      _content: string,
+      _attachments: unknown[],
+      requestId?: string,
+    ) => {
       processing = true;
-      return requestId ?? 'msg-1';
+      return requestId ?? "msg-1";
     },
-    memoryPolicy: { scopeId: 'default', includeDefaultFallback: false, strictSideEffects: false },
+    memoryPolicy: {
+      scopeId: "default",
+      includeDefaultFallback: false,
+      strictSideEffects: false,
+    },
     setChannelCapabilities: () => {},
     setAssistantId: () => {},
     setGuardianContext: () => {},
@@ -141,7 +170,12 @@ function makeHangingSession(): Session {
     hasPendingConfirmation: () => false,
     denyAllPendingConfirmations: () => {},
     getQueueDepth: () => enqueuedMessages.length,
-    enqueueMessage: (content: string, _attachments: unknown[], onEvent: (msg: ServerMessage) => void, requestId: string) => {
+    enqueueMessage: (
+      content: string,
+      _attachments: unknown[],
+      onEvent: (msg: ServerMessage) => void,
+      requestId: string,
+    ) => {
       enqueuedMessages.push({ content, onEvent, requestId });
       return { queued: true, requestId };
     },
@@ -171,10 +205,17 @@ function makePendingApprovalSession(
   const pending = new Set([requestId]);
   const messages: unknown[] = [];
   const runAgentLoopMock = mock(async () => {});
-  const enqueueMessageMock = mock((_content: string, _attachments: unknown[], _onEvent: (msg: ServerMessage) => void, queuedRequestId: string) => ({
-    queued: true,
-    requestId: queuedRequestId,
-  }));
+  const enqueueMessageMock = mock(
+    (
+      _content: string,
+      _attachments: unknown[],
+      _onEvent: (msg: ServerMessage) => void,
+      queuedRequestId: string,
+    ) => ({
+      queued: true,
+      requestId: queuedRequestId,
+    }),
+  );
   const denyAllPendingConfirmationsMock = mock(() => {
     pending.clear();
   });
@@ -184,8 +225,16 @@ function makePendingApprovalSession(
 
   const session = {
     isProcessing: () => processing,
-    persistUserMessage: (_content: string, _attachments: unknown[], reqId?: string) => reqId ?? 'msg-1',
-    memoryPolicy: { scopeId: 'default', includeDefaultFallback: false, strictSideEffects: false },
+    persistUserMessage: (
+      _content: string,
+      _attachments: unknown[],
+      reqId?: string,
+    ) => reqId ?? "msg-1",
+    memoryPolicy: {
+      scopeId: "default",
+      includeDefaultFallback: false,
+      strictSideEffects: false,
+    },
     setChannelCapabilities: () => {},
     setAssistantId: () => {},
     setGuardianContext: () => {},
@@ -195,7 +244,8 @@ function makePendingApprovalSession(
     setStateSignalListener: () => {},
     updateClient: () => {},
     hasAnyPendingConfirmation: () => pending.size > 0,
-    hasPendingConfirmation: (candidateRequestId: string) => pending.has(candidateRequestId),
+    hasPendingConfirmation: (candidateRequestId: string) =>
+      pending.has(candidateRequestId),
     denyAllPendingConfirmations: denyAllPendingConfirmationsMock,
     emitConfirmationStateChanged: () => {},
     emitActivityState: () => {},
@@ -220,30 +270,30 @@ function makePendingApprovalSession(
 // Tests
 // ---------------------------------------------------------------------------
 
-const TEST_TOKEN = 'test-bearer-token-send';
+const TEST_TOKEN = "test-bearer-token-send";
 const AUTH_HEADERS = { Authorization: `Bearer ${TEST_TOKEN}` };
 
-describe('POST /v1/messages — queue-if-busy and hub publishing', () => {
+describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
   let server: RuntimeHttpServer;
   let port: number;
   let eventHub: AssistantEventHub;
 
   beforeEach(() => {
     const db = getDb();
-    db.run('DELETE FROM messages');
-    db.run('DELETE FROM conversations');
-    db.run('DELETE FROM conversation_keys');
-    db.run('DELETE FROM canonical_guardian_deliveries');
-    db.run('DELETE FROM canonical_guardian_requests');
-    db.run('DELETE FROM channel_guardian_bindings');
+    db.run("DELETE FROM messages");
+    db.run("DELETE FROM conversations");
+    db.run("DELETE FROM conversation_keys");
+    db.run("DELETE FROM canonical_guardian_deliveries");
+    db.run("DELETE FROM canonical_guardian_requests");
+    db.run("DELETE FROM channel_guardian_bindings");
     pendingInteractions.clear();
 
     createBinding({
-      assistantId: 'self',
-      channel: 'vellum',
-      guardianExternalUserId: 'guardian-vellum',
-      guardianDeliveryChatId: 'vellum',
-      guardianPrincipalId: 'test-principal-id',
+      assistantId: "self",
+      channel: "vellum",
+      guardianExternalUserId: "guardian-vellum",
+      guardianDeliveryChatId: "vellum",
+      guardianPrincipalId: "test-principal-id",
     });
 
     eventHub = new AssistantEventHub();
@@ -251,7 +301,11 @@ describe('POST /v1/messages — queue-if-busy and hub publishing', () => {
 
   afterAll(() => {
     resetDb();
-    try { rmSync(testDir, { recursive: true, force: true }); } catch { /* best effort */ }
+    try {
+      rmSync(testDir, { recursive: true, force: true });
+    } catch {
+      /* best effort */
+    }
   });
 
   async function startServer(
@@ -282,20 +336,20 @@ describe('POST /v1/messages — queue-if-busy and hub publishing', () => {
 
   // ── Idle session: immediate processing ──────────────────────────────
 
-  test('returns 202 with accepted: true and messageId when session is idle', async () => {
+  test("returns 202 with accepted: true and messageId when session is idle", async () => {
     await startServer(() => makeCompletingSession());
 
     const res = await fetch(messagesUrl(), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
       body: JSON.stringify({
-        conversationKey: 'conv-idle',
-        content: 'Hello',
-        sourceChannel: 'vellum',
-        interface: 'macos',
+        conversationKey: "conv-idle",
+        content: "Hello",
+        sourceChannel: "vellum",
+        interface: "macos",
       }),
     });
-    const body = await res.json() as { accepted: boolean; messageId: string };
+    const body = (await res.json()) as { accepted: boolean; messageId: string };
 
     expect(res.status).toBe(202);
     expect(body.accepted).toBe(true);
@@ -304,24 +358,23 @@ describe('POST /v1/messages — queue-if-busy and hub publishing', () => {
     await stopServer();
   });
 
-  test('publishes events to assistantEventHub when session is idle', async () => {
+  test("publishes events to assistantEventHub when session is idle", async () => {
     const publishedEvents: AssistantEvent[] = [];
 
     await startServer(() => makeCompletingSession());
 
-    eventHub.subscribe(
-      { assistantId: 'self' },
-      (event) => { publishedEvents.push(event); },
-    );
+    eventHub.subscribe({ assistantId: "self" }, (event) => {
+      publishedEvents.push(event);
+    });
 
     const res = await fetch(messagesUrl(), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
       body: JSON.stringify({
-        conversationKey: 'conv-hub',
-        content: 'Hello hub',
-        sourceChannel: 'vellum',
-        interface: 'macos',
+        conversationKey: "conv-hub",
+        content: "Hello hub",
+        sourceChannel: "vellum",
+        interface: "macos",
       }),
     });
     expect(res.status).toBe(202);
@@ -331,16 +384,16 @@ describe('POST /v1/messages — queue-if-busy and hub publishing', () => {
 
     // Should have received assistant_text_delta and message_complete
     const types = publishedEvents.map((e) => e.message.type);
-    expect(types).toContain('assistant_text_delta');
-    expect(types).toContain('message_complete');
+    expect(types).toContain("assistant_text_delta");
+    expect(types).toContain("message_complete");
 
     await stopServer();
   });
 
-  test('consumes explicit approval text when a single pending confirmation exists (idle)', async () => {
-    const conversationKey = 'conv-inline-idle';
+  test("consumes explicit approval text when a single pending confirmation exists (idle)", async () => {
+    const conversationKey = "conv-inline-idle";
     const { conversationId } = getOrCreateConversation(conversationKey);
-    const requestId = 'req-inline-idle';
+    const requestId = "req-inline-idle";
     const {
       session,
       runAgentLoopMock,
@@ -352,34 +405,38 @@ describe('POST /v1/messages — queue-if-busy and hub publishing', () => {
     pendingInteractions.register(requestId, {
       session,
       conversationId,
-      kind: 'confirmation',
+      kind: "confirmation",
     });
     createCanonicalGuardianRequest({
       id: requestId,
-      kind: 'tool_approval',
-      sourceType: 'desktop',
-      sourceChannel: 'vellum',
+      kind: "tool_approval",
+      sourceType: "desktop",
+      sourceChannel: "vellum",
       conversationId,
-      toolName: 'call_start',
-      guardianPrincipalId: 'test-principal-id',
-      status: 'pending',
-      requestCode: 'ABC123',
+      toolName: "call_start",
+      guardianPrincipalId: "test-principal-id",
+      status: "pending",
+      requestCode: "ABC123",
       expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
     });
 
     await startServer(() => session);
 
     const res = await fetch(messagesUrl(), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
       body: JSON.stringify({
         conversationKey,
-        content: 'yes',
-        sourceChannel: 'vellum',
-        interface: 'macos',
+        content: "yes",
+        sourceChannel: "vellum",
+        interface: "macos",
       }),
     });
-    const body = await res.json() as { accepted: boolean; messageId?: string; queued?: boolean };
+    const body = (await res.json()) as {
+      accepted: boolean;
+      messageId?: string;
+      queued?: boolean;
+    };
 
     expect(res.status).toBe(202);
     expect(body.accepted).toBe(true);
@@ -393,10 +450,10 @@ describe('POST /v1/messages — queue-if-busy and hub publishing', () => {
     await stopServer();
   });
 
-  test('consumes natural-language approval text when approval conversation generator is configured', async () => {
-    const conversationKey = 'conv-inline-nl';
+  test("consumes natural-language approval text when approval conversation generator is configured", async () => {
+    const conversationKey = "conv-inline-nl";
     const { conversationId } = getOrCreateConversation(conversationKey);
-    const requestId = 'req-inline-nl';
+    const requestId = "req-inline-nl";
     const {
       session,
       runAgentLoopMock,
@@ -408,40 +465,46 @@ describe('POST /v1/messages — queue-if-busy and hub publishing', () => {
     pendingInteractions.register(requestId, {
       session,
       conversationId,
-      kind: 'confirmation',
+      kind: "confirmation",
     });
     createCanonicalGuardianRequest({
       id: requestId,
-      kind: 'tool_approval',
-      sourceType: 'desktop',
-      sourceChannel: 'vellum',
+      kind: "tool_approval",
+      sourceType: "desktop",
+      sourceChannel: "vellum",
       conversationId,
-      toolName: 'call_start',
-      status: 'pending',
-      guardianPrincipalId: 'test-principal-id',
-      requestCode: 'C0FFEE',
+      toolName: "call_start",
+      status: "pending",
+      guardianPrincipalId: "test-principal-id",
+      requestCode: "C0FFEE",
       expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
     });
 
-    const approvalConversationGenerator: ApprovalConversationGenerator = async (context) => ({
-      disposition: 'approve_once',
-      replyText: 'Approved.',
+    const approvalConversationGenerator: ApprovalConversationGenerator = async (
+      context,
+    ) => ({
+      disposition: "approve_once",
+      replyText: "Approved.",
       targetRequestId: context.pendingApprovals[0]?.requestId,
     });
 
     await startServer(() => session, { approvalConversationGenerator });
 
     const res = await fetch(messagesUrl(), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
       body: JSON.stringify({
         conversationKey,
         content: "sure let's do that",
-        sourceChannel: 'vellum',
-        interface: 'macos',
+        sourceChannel: "vellum",
+        interface: "macos",
       }),
     });
-    const body = await res.json() as { accepted: boolean; messageId?: string; queued?: boolean };
+    const body = (await res.json()) as {
+      accepted: boolean;
+      messageId?: string;
+      queued?: boolean;
+    };
 
     expect(res.status).toBe(202);
     expect(body.accepted).toBe(true);
@@ -455,10 +518,10 @@ describe('POST /v1/messages — queue-if-busy and hub publishing', () => {
     await stopServer();
   });
 
-  test('consumes explicit approval text while busy instead of auto-denying and queueing', async () => {
-    const conversationKey = 'conv-inline-busy';
+  test("consumes explicit approval text while busy instead of auto-denying and queueing", async () => {
+    const conversationKey = "conv-inline-busy";
     const { conversationId } = getOrCreateConversation(conversationKey);
-    const requestId = 'req-inline-busy';
+    const requestId = "req-inline-busy";
     const {
       session,
       runAgentLoopMock,
@@ -470,34 +533,38 @@ describe('POST /v1/messages — queue-if-busy and hub publishing', () => {
     pendingInteractions.register(requestId, {
       session,
       conversationId,
-      kind: 'confirmation',
+      kind: "confirmation",
     });
     createCanonicalGuardianRequest({
       id: requestId,
-      kind: 'tool_approval',
-      sourceType: 'desktop',
-      sourceChannel: 'vellum',
+      kind: "tool_approval",
+      sourceType: "desktop",
+      sourceChannel: "vellum",
       conversationId,
-      toolName: 'call_start',
-      status: 'pending',
-      guardianPrincipalId: 'test-principal-id',
-      requestCode: 'DEF456',
+      toolName: "call_start",
+      status: "pending",
+      guardianPrincipalId: "test-principal-id",
+      requestCode: "DEF456",
       expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
     });
 
     await startServer(() => session);
 
     const res = await fetch(messagesUrl(), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
       body: JSON.stringify({
         conversationKey,
-        content: 'approve',
-        sourceChannel: 'vellum',
-        interface: 'macos',
+        content: "approve",
+        sourceChannel: "vellum",
+        interface: "macos",
       }),
     });
-    const body = await res.json() as { accepted: boolean; messageId?: string; queued?: boolean };
+    const body = (await res.json()) as {
+      accepted: boolean;
+      messageId?: string;
+      queued?: boolean;
+    };
 
     expect(res.status).toBe(202);
     expect(body.accepted).toBe(true);
@@ -511,10 +578,10 @@ describe('POST /v1/messages — queue-if-busy and hub publishing', () => {
     await stopServer();
   });
 
-  test('consumes explicit approval text while busy even when queue depth is non-zero', async () => {
-    const conversationKey = 'conv-inline-busy-queued';
+  test("consumes explicit approval text while busy even when queue depth is non-zero", async () => {
+    const conversationKey = "conv-inline-busy-queued";
     const { conversationId } = getOrCreateConversation(conversationKey);
-    const requestId = 'req-inline-busy-queued';
+    const requestId = "req-inline-busy-queued";
     const {
       session,
       runAgentLoopMock,
@@ -526,34 +593,38 @@ describe('POST /v1/messages — queue-if-busy and hub publishing', () => {
     pendingInteractions.register(requestId, {
       session,
       conversationId,
-      kind: 'confirmation',
+      kind: "confirmation",
     });
     createCanonicalGuardianRequest({
       id: requestId,
-      kind: 'tool_approval',
-      sourceType: 'desktop',
-      sourceChannel: 'vellum',
+      kind: "tool_approval",
+      sourceType: "desktop",
+      sourceChannel: "vellum",
       conversationId,
-      toolName: 'call_start',
-      status: 'pending',
-      guardianPrincipalId: 'test-principal-id',
-      requestCode: 'Q2D456',
+      toolName: "call_start",
+      status: "pending",
+      guardianPrincipalId: "test-principal-id",
+      requestCode: "Q2D456",
       expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
     });
 
     await startServer(() => session);
 
     const res = await fetch(messagesUrl(), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
       body: JSON.stringify({
         conversationKey,
-        content: 'approve',
-        sourceChannel: 'vellum',
-        interface: 'macos',
+        content: "approve",
+        sourceChannel: "vellum",
+        interface: "macos",
       }),
     });
-    const body = await res.json() as { accepted: boolean; messageId?: string; queued?: boolean };
+    const body = (await res.json()) as {
+      accepted: boolean;
+      messageId?: string;
+      queued?: boolean;
+    };
 
     expect(res.status).toBe(202);
     expect(body.accepted).toBe(true);
@@ -567,10 +638,10 @@ describe('POST /v1/messages — queue-if-busy and hub publishing', () => {
     await stopServer();
   });
 
-  test('consumes explicit rejection text when a single pending confirmation exists (idle)', async () => {
-    const conversationKey = 'conv-inline-reject';
+  test("consumes explicit rejection text when a single pending confirmation exists (idle)", async () => {
+    const conversationKey = "conv-inline-reject";
     const { conversationId } = getOrCreateConversation(conversationKey);
-    const requestId = 'req-inline-reject';
+    const requestId = "req-inline-reject";
     const {
       session,
       runAgentLoopMock,
@@ -582,34 +653,38 @@ describe('POST /v1/messages — queue-if-busy and hub publishing', () => {
     pendingInteractions.register(requestId, {
       session,
       conversationId,
-      kind: 'confirmation',
+      kind: "confirmation",
     });
     createCanonicalGuardianRequest({
       id: requestId,
-      kind: 'tool_approval',
-      sourceType: 'desktop',
-      sourceChannel: 'vellum',
+      kind: "tool_approval",
+      sourceType: "desktop",
+      sourceChannel: "vellum",
       conversationId,
-      toolName: 'call_start',
-      status: 'pending',
-      guardianPrincipalId: 'test-principal-id',
-      requestCode: 'GHI789',
+      toolName: "call_start",
+      status: "pending",
+      guardianPrincipalId: "test-principal-id",
+      requestCode: "GHI789",
       expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
     });
 
     await startServer(() => session);
 
     const res = await fetch(messagesUrl(), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
       body: JSON.stringify({
         conversationKey,
-        content: 'no',
-        sourceChannel: 'vellum',
-        interface: 'macos',
+        content: "no",
+        sourceChannel: "vellum",
+        interface: "macos",
       }),
     });
-    const body = await res.json() as { accepted: boolean; messageId?: string; queued?: boolean };
+    const body = (await res.json()) as {
+      accepted: boolean;
+      messageId?: string;
+      queued?: boolean;
+    };
 
     expect(res.status).toBe(202);
     expect(body.accepted).toBe(true);
@@ -624,46 +699,50 @@ describe('POST /v1/messages — queue-if-busy and hub publishing', () => {
     await stopServer();
   });
 
-  test('does not consume ambiguous text — falls through to normal message handling', async () => {
-    const conversationKey = 'conv-inline-ambiguous';
+  test("does not consume ambiguous text — falls through to normal message handling", async () => {
+    const conversationKey = "conv-inline-ambiguous";
     const { conversationId } = getOrCreateConversation(conversationKey);
-    const requestId = 'req-inline-ambiguous';
-    const {
-      session,
-      runAgentLoopMock,
-    } = makePendingApprovalSession(requestId, false);
+    const requestId = "req-inline-ambiguous";
+    const { session, runAgentLoopMock } = makePendingApprovalSession(
+      requestId,
+      false,
+    );
 
     pendingInteractions.register(requestId, {
       session,
       conversationId,
-      kind: 'confirmation',
+      kind: "confirmation",
     });
     createCanonicalGuardianRequest({
       id: requestId,
-      kind: 'tool_approval',
-      sourceType: 'desktop',
-      sourceChannel: 'vellum',
+      kind: "tool_approval",
+      sourceType: "desktop",
+      sourceChannel: "vellum",
       conversationId,
-      toolName: 'call_start',
-      status: 'pending',
-      guardianPrincipalId: 'test-principal-id',
-      requestCode: 'JKL012',
+      toolName: "call_start",
+      status: "pending",
+      guardianPrincipalId: "test-principal-id",
+      requestCode: "JKL012",
       expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
     });
 
     await startServer(() => session);
 
     const res = await fetch(messagesUrl(), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
       body: JSON.stringify({
         conversationKey,
-        content: 'What is the weather today?',
-        sourceChannel: 'vellum',
-        interface: 'macos',
+        content: "What is the weather today?",
+        sourceChannel: "vellum",
+        interface: "macos",
       }),
     });
-    const body = await res.json() as { accepted: boolean; messageId?: string; queued?: boolean };
+    const body = (await res.json()) as {
+      accepted: boolean;
+      messageId?: string;
+      queued?: boolean;
+    };
 
     // Ambiguous text should NOT be consumed — falls through to normal send path
     expect(res.status).toBe(202);
@@ -677,23 +756,26 @@ describe('POST /v1/messages — queue-if-busy and hub publishing', () => {
 
   // ── Busy session: queue-if-busy ─────────────────────────────────────
 
-  test('returns 202 with queued: true when session is busy (not 409)', async () => {
+  test("returns 202 with queued: true when session is busy (not 409)", async () => {
     const session = makeHangingSession();
     await startServer(() => session);
 
     // First message starts the agent loop and makes the session busy
     const res1 = await fetch(messagesUrl(), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
       body: JSON.stringify({
-        conversationKey: 'conv-busy',
-        content: 'First',
-        sourceChannel: 'vellum',
-        interface: 'macos',
+        conversationKey: "conv-busy",
+        content: "First",
+        sourceChannel: "vellum",
+        interface: "macos",
       }),
     });
     expect(res1.status).toBe(202);
-    const body1 = await res1.json() as { accepted: boolean; messageId: string };
+    const body1 = (await res1.json()) as {
+      accepted: boolean;
+      messageId: string;
+    };
     expect(body1.accepted).toBe(true);
     expect(body1.messageId).toBeDefined();
 
@@ -702,16 +784,16 @@ describe('POST /v1/messages — queue-if-busy and hub publishing', () => {
 
     // Second message should be queued, not rejected
     const res2 = await fetch(messagesUrl(), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
       body: JSON.stringify({
-        conversationKey: 'conv-busy',
-        content: 'Second',
-        sourceChannel: 'vellum',
-        interface: 'macos',
+        conversationKey: "conv-busy",
+        content: "Second",
+        sourceChannel: "vellum",
+        interface: "macos",
       }),
     });
-    const body2 = await res2.json() as { accepted: boolean; queued: boolean };
+    const body2 = (await res2.json()) as { accepted: boolean; queued: boolean };
 
     expect(res2.status).toBe(202);
     expect(body2.accepted).toBe(true);
@@ -722,30 +804,30 @@ describe('POST /v1/messages — queue-if-busy and hub publishing', () => {
 
   // ── Validation ──────────────────────────────────────────────────────
 
-  test('returns 400 when sourceChannel is missing', async () => {
+  test("returns 400 when sourceChannel is missing", async () => {
     await startServer(() => makeCompletingSession());
 
     const res = await fetch(messagesUrl(), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
-      body: JSON.stringify({ conversationKey: 'conv-val', content: 'Hello' }),
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
+      body: JSON.stringify({ conversationKey: "conv-val", content: "Hello" }),
     });
     expect(res.status).toBe(400);
 
     await stopServer();
   });
 
-  test('returns 400 when content is empty', async () => {
+  test("returns 400 when content is empty", async () => {
     await startServer(() => makeCompletingSession());
 
     const res = await fetch(messagesUrl(), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
       body: JSON.stringify({
-        conversationKey: 'conv-empty',
-        content: '',
-        sourceChannel: 'vellum',
-        interface: 'macos',
+        conversationKey: "conv-empty",
+        content: "",
+        sourceChannel: "vellum",
+        interface: "macos",
       }),
     });
     expect(res.status).toBe(400);
@@ -753,16 +835,16 @@ describe('POST /v1/messages — queue-if-busy and hub publishing', () => {
     await stopServer();
   });
 
-  test('returns 400 when conversationKey is missing', async () => {
+  test("returns 400 when conversationKey is missing", async () => {
     await startServer(() => makeCompletingSession());
 
     const res = await fetch(messagesUrl(), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
       body: JSON.stringify({
-        content: 'Hello',
-        sourceChannel: 'vellum',
-        interface: 'macos',
+        content: "Hello",
+        sourceChannel: "vellum",
+        interface: "macos",
       }),
     });
     expect(res.status).toBe(400);
