@@ -3,7 +3,6 @@ import * as net from 'node:net';
 import type { ChannelId } from '../../channels/types.js';
 import { isChannelId, isInterfaceId } from '../../channels/types.js';
 import { getGatewayInternalBaseUrl } from '../../config/env.js';
-import { mintDaemonDeliveryToken } from '../../runtime/auth/token-service.js';
 import { getLatestStoredPayload } from '../../memory/channel-delivery-store.js';
 import type { GuardianApprovalRequest } from '../../memory/channel-guardian-store.js';
 import {
@@ -13,6 +12,7 @@ import {
 } from '../../memory/channel-guardian-store.js';
 import { addMessage, getMessages } from '../../memory/conversation-store.js';
 import { getBindingByConversation } from '../../memory/external-conversation-store.js';
+import { mintDaemonDeliveryToken } from '../../runtime/auth/token-service.js';
 import { deliverChannelReply } from '../../runtime/gateway-client.js';
 import {
   blockIngressMember,
