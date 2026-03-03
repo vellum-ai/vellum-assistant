@@ -1356,6 +1356,7 @@ struct MainWindowView: View {
                                             .foregroundColor(VColor.textPrimary)
                                             .lineLimit(1)
                                             .truncationMode(.tail)
+                                            .padding(.leading, 2)
                                         Text("\(group.threads.count)")
                                             .font(.system(size: 10, weight: .medium))
                                             .foregroundColor(VColor.textMuted)
