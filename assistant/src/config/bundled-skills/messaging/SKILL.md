@@ -162,6 +162,10 @@ SMS is supported as a messaging provider with limited capabilities. The conversa
 
 - **Add Reaction**: Add an emoji reaction to a message
 - **Leave Channel**: Leave a Slack channel
+- **Edit Message**: `slack_edit_message` — edit a message the assistant previously sent. Requires `channel_id` and the message timestamp (`ts`) from the original send response. High risk — requires confidence score.
+- **Delete Message**: `slack_delete_message` — delete a message the assistant previously sent. Requires `channel_id` and the message timestamp (`ts`). High risk — requires confidence score. This is irreversible.
+
+When sending a Slack message, retain the `ts` (message timestamp) from the send response — it is needed to edit or delete that message later. Only messages sent by the assistant's bot can be edited or deleted.
 
 ### Gmail-specific
 
