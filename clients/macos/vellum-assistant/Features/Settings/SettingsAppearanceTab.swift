@@ -56,6 +56,7 @@ struct SettingsAppearanceTab: View {
                             .font(VFont.caption)
                             .foregroundColor(VColor.textMuted)
                     }
+                    Spacer()
                     VDropdown(
                         placeholder: "Not Set",
                         selection: $selectedTimezone,
