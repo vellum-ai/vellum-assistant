@@ -34,6 +34,7 @@ public struct InlineTableWidget: View {
                             .foregroundColor(allSelected ? VColor.accent : VColor.textMuted)
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel(allSelected ? "Deselect all" : "Select all")
                     .frame(width: 28)
                 } else if data.selectionMode != .none {
                     Color.clear
