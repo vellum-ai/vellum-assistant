@@ -209,7 +209,6 @@ struct OnboardingFlowView: View {
             )
 
             guard success else {
-                isBootstrappingManaged = false
                 managedBootstrapError = "Failed to save assistant configuration. Please try again."
                 return
             }
