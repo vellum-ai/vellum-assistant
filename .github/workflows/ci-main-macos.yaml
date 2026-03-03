@@ -81,6 +81,7 @@ jobs:
       - name: Build release .app
         working-directory: clients/macos
         run: |
+          SIGN_IDENTITY="Developer ID Application" \
           SKIP_CLEAN=1 \
           RELEASE_ARCH_FLAGS="--arch arm64" \
           ./build.sh release
