@@ -361,7 +361,7 @@ export async function processMessage(
   session.currentPage = currentPage;
   const trimmedContent = content.trim();
   const canonicalPendingRequestHintIdsForConversation = trimmedContent.length > 0
-    ? listPendingRequestsByConversationScope(session.conversationId).map((request) => request.id)
+    ? listPendingRequestsByConversationScope(session.conversationId, 'vellum').map((request) => request.id)
     : [];
   const canonicalPendingRequestIdsForConversation = canonicalPendingRequestHintIdsForConversation.length > 0
     ? canonicalPendingRequestHintIdsForConversation

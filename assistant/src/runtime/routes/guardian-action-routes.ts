@@ -48,7 +48,7 @@ export function handleGuardianActionsPending(url: URL, _authContext: AuthContext
     return httpError('BAD_REQUEST', 'conversationId query parameter is required', 400);
   }
 
-  const prompts = listGuardianDecisionPrompts({ conversationId });
+  const prompts = listGuardianDecisionPrompts({ conversationId, channel: 'vellum' });
   return Response.json({ conversationId, prompts });
 }
 
@@ -116,9 +116,11 @@ export async function handleGuardianActionDecision(req: Request, authContext: Au
   // Verify conversationId scoping before applying the canonical decision.
   // The decision is allowed when the conversationId matches the request's
   // source conversation OR a recorded delivery destination conversation.
+  // Channel is scoped to 'vellum' to prevent cross-channel approval when
+  // conversation ID namespaces overlap.
   if (conversationId) {
     const canonicalRequest = getCanonicalGuardianRequest(requestId);
-    if (canonicalRequest && canonicalRequest.conversationId && !isRequestInConversationScope(requestId, conversationId)) {
+    if (canonicalRequest && canonicalRequest.conversationId && !isRequestInConversationScope(requestId, conversationId, 'vellum')) {
       return httpError('NOT_FOUND', 'No pending guardian action found for this requestId', 404);
     }
   }
@@ -184,11 +186,12 @@ export async function handleGuardianActionDecision(req: Request, authContext: Au
  */
 export function listGuardianDecisionPrompts(params: {
   conversationId: string;
+  channel?: string;
 }): GuardianDecisionPrompt[] {
-  const { conversationId } = params;
+  const { conversationId, channel } = params;
   const prompts: GuardianDecisionPrompt[] = [];
 
-  const canonicalRequests = listPendingRequestsByConversationScope(conversationId);
+  const canonicalRequests = listPendingRequestsByConversationScope(conversationId, channel);
 
   for (const req of canonicalRequests) {
     // Skip expired canonical requests
