@@ -151,7 +151,7 @@ struct SettingsAccountTab: View {
                         }
                         .disabled(platformUrlText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         VButton(label: "Cancel", style: .tertiary, size: .medium) {
-                            platformUrlText = ""
+                            platformUrlText = store.platformBaseUrl
                             isPlatformUrlFocused = false
                         }
                     }

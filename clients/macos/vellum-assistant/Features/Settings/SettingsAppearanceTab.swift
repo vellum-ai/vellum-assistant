@@ -65,7 +65,8 @@ struct SettingsAppearanceTab: View {
                     )
                     .frame(width: 200)
                 }
-                .onChange(of: selectedTimezone) { _, newValue in
+                .onChange(of: selectedTimezone) { oldValue, newValue in
+                    guard oldValue != newValue else { return }
                     if newValue.isEmpty {
                         store.clearUserTimezone()
                     } else {
@@ -79,6 +80,12 @@ struct SettingsAppearanceTab: View {
             .vCard(background: VColor.surfaceSubtle)
             .onAppear {
                 selectedTimezone = store.userTimezone ?? ""
+            }
+            .onChange(of: store.userTimezone) { _, newStoreValue in
+                let mapped = newStoreValue ?? ""
+                if mapped != selectedTimezone {
+                    selectedTimezone = mapped
+                }
             }
 
             // KEYBOARD SHORTCUTS section
