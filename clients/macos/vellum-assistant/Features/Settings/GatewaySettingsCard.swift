@@ -95,16 +95,13 @@ struct GatewaySettingsCard: View {
                     .foregroundColor(VColor.textPrimary)
                     .focused($isGatewayUrlFocused)
 
-                // Tunnel status inline at end of URL row (only when URL is non-empty)
-                if !gatewayUrlText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    InlineConnectionStatus(
-                        status: tunnelStatusInfo,
-                        isRefreshing: store.isCheckingTunnel,
-                        lastChecked: store.tunnelLastChecked,
-                        accessibilityLabel: "tunnel"
-                    ) {
-                        Task { await store.testTunnelOnly() }
-                    }
+                InlineConnectionStatus(
+                    status: tunnelStatusInfo,
+                    isRefreshing: store.isCheckingTunnel,
+                    lastChecked: store.tunnelLastChecked,
+                    accessibilityLabel: "tunnel"
+                ) {
+                    Task { await store.testTunnelOnly() }
                 }
             }
 
@@ -168,6 +165,11 @@ struct GatewaySettingsCard: View {
 
     private var tunnelStatusInfo: ConnectionStatusInfo {
         let trimmedUrl = store.ingressPublicBaseUrl.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // No URL entered yet
+        if trimmedUrl.isEmpty {
+            return ConnectionStatusInfo(label: "Not set", color: VColor.textMuted, icon: "questionmark.circle.fill")
+        }
 
         // URL is non-empty but not a valid absolute HTTP(S) URL
         if let parsed = URL(string: trimmedUrl), let scheme = parsed.scheme, ["http", "https"].contains(scheme.lowercased()) {
