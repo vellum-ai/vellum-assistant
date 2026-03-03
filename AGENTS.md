@@ -379,10 +379,23 @@ A guard test (`memory-provenance-a2a-guard.test.ts`) enforces that all four gate
 
 ## Guardian Privilege Isolation Invariant
 
-Untrusted actors (`non-guardian`, `unverified_channel`) must never receive privileged host/tool capabilities or privileged conversation context directly.
+Untrusted actors (`non_guardian`, `unverified_channel`, `peer_assistant`) must never receive privileged host/tool capabilities or privileged conversation context directly.
 
-- Tool execution gate: untrusted actors cannot execute host-target tools or side-effect tools in-band. These actions require guardian-mediated approval flow. Enforcement lives in `assistant/src/tools/tool-approval-handler.ts`.
+- Tool execution gate: untrusted actors cannot execute host-target tools or side-effect tools in-band. These actions require guardian-mediated approval flow. For `peer_assistant` actors, tool execution is further gated by connection scopes (see A2A Connection Service below). Enforcement lives in `assistant/src/tools/tool-approval-handler.ts`.
 - History view gate: when loading session history for untrusted actors, only untrusted-provenance messages are included and compacted summaries are suppressed. This prevents replay of guardian-era context after trust downgrades. Enforcement lives in `assistant/src/daemon/session-lifecycle.ts` and actor-scoped reload wiring in `assistant/src/daemon/session.ts`.
+
+## A2A Connection Service
+
+All A2A (assistant-to-assistant) connection lifecycle operations -- invite generation, connection handshake, scope management, message sending, revocation -- **MUST** go through `A2AConnectionService` in `assistant/src/a2a/a2a-connection-service.ts`. Do not bypass the service by directly manipulating the `a2a_peer_connections` table or calling handshake/auth primitives from outside the service layer.
+
+The service is the single orchestration point consumed by all interaction surfaces (HTTP routes, chat skills, future Telegram handlers, future Settings UI). It enforces:
+- Target URL validation (SSRF protection via `validateA2ATarget()`)
+- Handshake state machine transitions
+- Credential lifecycle (generation, exchange, tombstoning)
+- Scope validation against the catalog (`a2a-scope-catalog.ts`)
+- Idempotency guarantees
+
+When adding new A2A functionality, extend the service methods rather than adding parallel code paths. See [`assistant/docs/architecture/a2a-architecture.md`](assistant/docs/architecture/a2a-architecture.md) for the full architecture reference.
 
 ## Tooling Direction
 

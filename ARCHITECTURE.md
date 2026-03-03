@@ -17,7 +17,9 @@ This file is the cross-system architecture index. Detailed designs live in domai
 | Gateway SMS parity checklist | [`gateway/docs/sms-twilio-parity-checklist.md`](gateway/docs/sms-twilio-parity-checklist.md) |
 | Trusted contact access design | [`assistant/docs/trusted-contact-access.md`](assistant/docs/trusted-contact-access.md) |
 | Trusted contacts operator runbook | [`assistant/docs/runbook-trusted-contacts.md`](assistant/docs/runbook-trusted-contacts.md) |
-| A2A communications design | [`assistant/docs/architecture/a2a-communications.md`](assistant/docs/architecture/a2a-communications.md) |
+| A2A architecture (comprehensive) | [`assistant/docs/architecture/a2a-architecture.md`](assistant/docs/architecture/a2a-architecture.md) |
+| A2A communications design (constraints, threat model) | [`assistant/docs/architecture/a2a-communications.md`](assistant/docs/architecture/a2a-communications.md) |
+| A2A scope model | [`assistant/docs/architecture/a2a-scope-model.md`](assistant/docs/architecture/a2a-scope-model.md) |
 
 ## Cross-Cutting Invariants
 
@@ -28,6 +30,7 @@ This file is the cross-system architecture index. Detailed designs live in domai
 - Memory extraction/recall must enforce actor-role provenance gates for untrusted actors.
 - Trusted contact ingress ACL is channel-agnostic; identity binding adapts per channel (chat ID, E.164 phone, external user ID) without channel-specific branching.
 - macOS managed sign-in connects the desktop app to a platform-hosted assistant via Django assistant-scoped proxy endpoints (`/v1/assistants/{id}/...`). The `HTTPDaemonClient` operates in `platformAssistantProxy` route mode with `X-Session-Token` auth. Managed lockfile entries have `cloud: "vellum"`. Startup guardrails skip local daemon hatching and actor credential bootstrap. See [`clients/ARCHITECTURE.md`](clients/ARCHITECTURE.md) for the full flow.
+- **A2A (Assistant-to-Assistant) communications** route all peer traffic through the gateway. Peer assistants receive a `peer_assistant` trust classification with zero default capabilities; guardians grant scopes per connection. Handshake uses an invite + IRL verification code exchange as the trust anchor. Post-handshake messages are HMAC-SHA256 signed with per-connection credentials. See [`assistant/docs/architecture/a2a-architecture.md`](assistant/docs/architecture/a2a-architecture.md) for the full architecture.
 - **Assistant feature flags** control skill availability at runtime. The canonical key format is `feature_flags.<flagId>.enabled`; the legacy `skills.<id>.enabled` format is no longer supported. All declared flags live in the unified registry at `meta/feature-flags/feature-flag-registry.json`, scoped by `scope` (`assistant` or `macos`). Labels come from the registry. Bundled copies exist at `assistant/src/config/feature-flag-registry.json` and `gateway/src/feature-flag-registry.json`. The gateway owns the `/v1/feature-flags` REST API (see [`gateway/ARCHITECTURE.md`](gateway/ARCHITECTURE.md)); the daemon resolves effective flag state via the assistant feature-flag resolver (see [`assistant/ARCHITECTURE.md`](assistant/ARCHITECTURE.md)). When a flag is OFF, the corresponding skill is excluded from all exposure surfaces: client skill lists, system prompt catalog, `skill_load`, runtime tool projection, and included child skills. Guard tests enforce that all flag keys in code use the canonical format and that all referenced flags are declared in the unified registry.
 
 ## System Overview
@@ -201,6 +204,18 @@ graph TB
             VISIBILITY_POLICY["MediaVisibilityPolicy<br/>private thread gate"]
         end
 
+        subgraph "A2A Communications"
+            A2A_SERVICE["A2AConnectionService<br/>stateless orchestration"]
+            A2A_STORE["a2a_peer_connections<br/>connection lifecycle"]
+            A2A_HANDSHAKE["Handshake FSM<br/>invite → verify → active"]
+            A2A_AUTH["Peer Auth<br/>HMAC-SHA256 sign/verify"]
+            A2A_SCOPE["Scope Policy<br/>catalog + evaluation"]
+            A2A_DELIVERY["Outbound Delivery<br/>HMAC-signed messages"]
+            A2A_REVOKE["Revocation<br/>delivery + sweep"]
+            A2A_DEDUP["Message Dedup<br/>(connectionId, nonce)"]
+            DB_A2A["a2a_peer_connections"]
+        end
+
         HTTP_SERVER["RuntimeHttpServer<br/>(optional, RUNTIME_HTTP_PORT)"]
     end
 
@@ -227,6 +242,8 @@ graph TB
         GW_OAUTH["OAuth Callback<br/>/webhooks/oauth/callback"]
         GW_PROXY["Runtime Proxy<br/>(optional, bearer auth)"]
         GW_FEATURE_FLAGS["Feature Flags API<br/>GET /v1/feature-flags<br/>PATCH /v1/feature-flags/:key"]
+        GW_A2A_PROXY["A2A Proxy<br/>/v1/a2a/connect<br/>/v1/a2a/verify<br/>/v1/a2a/connections/:id/status"]
+        GW_A2A_INBOUND["A2A Inbound<br/>/v1/a2a/messages/inbound<br/>/v1/a2a/revoke-notify"]
         GW_PROBES["/healthz + /readyz<br/>k8s liveness/readiness"]
     end
 
@@ -444,6 +461,28 @@ graph TB
     ASSET_SEARCH --> VISIBILITY_POLICY
     ASSET_MATERIALIZE --> DB_ATTACH
     ASSET_MATERIALIZE --> VISIBILITY_POLICY
+
+    %% A2A data flow — handshake proxy (peer → gateway → runtime)
+    GW_A2A_PROXY -->|"proxy to runtime<br/>(bearer auth injected)"| HTTP_SERVER
+    HTTP_SERVER -->|"A2A routes"| A2A_SERVICE
+    A2A_SERVICE --> A2A_HANDSHAKE
+    A2A_SERVICE --> A2A_STORE
+    A2A_SERVICE --> A2A_AUTH
+    A2A_SERVICE --> A2A_SCOPE
+    A2A_STORE --> DB_A2A
+    A2A_SERVICE --> DB_INGRESS_INVITES
+
+    %% A2A data flow — inbound messages (peer → gateway → runtime)
+    GW_A2A_INBOUND -->|"forward + HMAC headers"| HTTP_SERVER
+    HTTP_SERVER -->|"HMAC verify + dedup<br/>+ scope check"| A2A_DEDUP
+    A2A_DEDUP -->|"route to session<br/>peer_assistant trust"| SESSION_MGR
+
+    %% A2A data flow — outbound delivery (runtime → peer gateway)
+    A2A_SERVICE --> A2A_DELIVERY
+    A2A_DELIVERY -->|"HMAC-signed POST<br/>/v1/a2a/messages/inbound"| GW_A2A_INBOUND
+
+    %% A2A data flow — revocation
+    A2A_SERVICE --> A2A_REVOKE
 
     %% Local storage
     APP_SUPPORT --- SESSION_LOGS

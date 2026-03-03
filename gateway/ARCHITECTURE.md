@@ -218,6 +218,46 @@ Channel readiness endpoints are exposed directly by the gateway and forwarded to
 | `gateway/src/http/routes/channel-readiness-proxy.ts` | Channel readiness proxy handlers and upstream forwarding |
 | `gateway/src/index.ts` | Route registration and bearer-auth enforcement for `/v1/channels/readiness*` |
 
+### A2A (Assistant-to-Assistant) Routes
+
+The gateway serves as the public-facing ingress point for all A2A peer-to-peer traffic. It provides two categories of routes:
+
+**Handshake proxy routes** (`a2a-proxy.ts`) -- unauthenticated or invite-token-gated endpoints that peers call during the connection handshake. The gateway proxies these directly to the runtime with bearer auth injected:
+
+| Method | Path | Auth at Gateway | Purpose |
+|--------|------|-----------------|---------|
+| POST | `/v1/a2a/connect` | Unauthenticated (invite-token-gated at runtime) | Peer initiates a connection |
+| POST | `/v1/a2a/verify` | Unauthenticated (during handshake) | Peer submits verification code |
+| GET | `/v1/a2a/connections/:id/status` | Unauthenticated (during handshake) | Peer polls connection status |
+
+The gateway strips the caller's auth headers, injects its own runtime bearer token, and overwrites `X-Forwarded-For` with the actual client IP to prevent spoofing. Payload size is capped at 64 KB.
+
+**Inbound message routes** (`a2a-inbound.ts`) -- authenticated endpoints for post-handshake message exchange and lifecycle events. The gateway validates payload structure and passes HMAC auth headers through to the runtime for verification:
+
+| Method | Path | Auth at Gateway | Purpose |
+|--------|------|-----------------|---------|
+| POST | `/v1/a2a/messages/inbound` | HMAC headers forwarded to runtime | Peer sends a message |
+| POST | `/v1/a2a/revoke-notify` | HMAC headers forwarded to runtime | Peer sends revocation notification |
+
+The gateway does NOT verify A2A HMAC signatures -- it passes `x-a2a-signature`, `x-a2a-timestamp`, `x-a2a-nonce`, and `x-a2a-connection-id` headers through to the runtime, which has access to the stored inbound credentials for HMAC verification. Payload size is capped at 256 KB for messages and 64 KB for revocation notifications.
+
+**Proxy behavior:**
+
+- Both route categories inject `Authorization: Bearer <ingress-token>` for internal runtime authentication
+- Connection/timeout errors return `502 Bad Gateway` or `504 Gateway Timeout`
+- Upstream error responses are passed through with their original status codes
+- 15-second timeout for all proxied requests
+
+**Key source files:**
+
+| File | Purpose |
+|------|---------|
+| `src/http/routes/a2a-proxy.ts` | Handshake proxy handlers (connect, verify, status) |
+| `src/http/routes/a2a-inbound.ts` | Inbound message and revocation notification handlers |
+| `src/a2a/normalize.ts` | Type definitions for the A2A inbound envelope |
+
+**Full A2A architecture reference**: [`assistant/docs/architecture/a2a-architecture.md`](../assistant/docs/architecture/a2a-architecture.md)
+
 ### Channel Binding Lifecycle (Lane Separation)
 
 Each channel (desktop, Telegram, etc.) operates in its own **lane**: conversations created by an external channel are never displayed in the desktop thread list, and desktop conversations are never exposed to external channels. The `channelBinding` metadata on a conversation is used solely for routing inbound/outbound messages within that lane and for filtering sessions during desktop session restoration.
