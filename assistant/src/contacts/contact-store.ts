@@ -37,6 +37,17 @@ function parseChannel(row: typeof contactChannels.$inferSelect): ContactChannel 
     type: row.type,
     address: row.address,
     isPrimary: row.isPrimary,
+    externalUserId: row.externalUserId,
+    externalChatId: row.externalChatId,
+    status: row.status as ContactChannel['status'],
+    policy: row.policy as ContactChannel['policy'],
+    verifiedAt: row.verifiedAt,
+    verifiedVia: row.verifiedVia,
+    inviteId: row.inviteId,
+    revokedReason: row.revokedReason,
+    blockedReason: row.blockedReason,
+    lastSeenAt: row.lastSeenAt,
+    updatedAt: row.updatedAt,
     createdAt: row.createdAt,
   };
 }

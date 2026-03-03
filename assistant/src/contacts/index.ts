@@ -7,5 +7,5 @@ export {
   searchContacts,
   upsertContact,
 } from './contact-store.js';
-export type { ChannelType,Contact, ContactChannel, ContactWithChannels } from './types.js';
+export type { ChannelPolicy, ChannelStatus, ChannelType, Contact, ContactChannel, ContactRole, ContactWithChannels } from './types.js';
 export { CHANNEL_TYPES } from './types.js';

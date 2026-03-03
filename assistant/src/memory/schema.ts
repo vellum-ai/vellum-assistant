@@ -418,18 +418,38 @@ export const contacts = sqliteTable("contacts", {
   principalId: text("principal_id"), // internal auth principal (nullable)
 });
 
-export const contactChannels = sqliteTable("contact_channels", {
-  id: text("id").primaryKey(),
-  contactId: text("contact_id")
-    .notNull()
-    .references(() => contacts.id, { onDelete: "cascade" }),
-  type: text("type").notNull(), // 'email', 'slack', 'whatsapp', 'phone', etc.
-  address: text("address").notNull(), // the actual identifier on that channel
-  isPrimary: integer("is_primary", { mode: "boolean" })
-    .notNull()
-    .default(false),
-  createdAt: integer("created_at").notNull(),
-});
+export const contactChannels = sqliteTable(
+  "contact_channels",
+  {
+    id: text("id").primaryKey(),
+    contactId: text("contact_id")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    type: text("type").notNull(), // 'email', 'slack', 'whatsapp', 'phone', etc.
+    address: text("address").notNull(), // the actual identifier on that channel
+    isPrimary: integer("is_primary", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    externalUserId: text("external_user_id"), // channel-native user ID (e.g., Telegram numeric ID, E.164 phone)
+    externalChatId: text("external_chat_id"), // delivery/notification routing address (e.g., Telegram chat ID)
+    status: text("status").notNull().default("unverified"), // 'active' | 'pending' | 'revoked' | 'blocked' | 'unverified'
+    policy: text("policy").notNull().default("allow"), // 'allow' | 'deny' | 'escalate'
+    verifiedAt: integer("verified_at"), // epoch ms
+    verifiedVia: text("verified_via"), // 'challenge' | 'invite' | 'bootstrap' | etc.
+    inviteId: text("invite_id"), // reference to invite that onboarded
+    revokedReason: text("revoked_reason"),
+    blockedReason: text("blocked_reason"),
+    lastSeenAt: integer("last_seen_at"), // epoch ms
+    updatedAt: integer("updated_at"), // epoch ms
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    index("idx_contact_channels_type_ext_user").on(
+      table.type,
+      table.externalUserId,
+    ),
+  ],
+);
 
 // ── Triage Results ───────────────────────────────────────────────────
 

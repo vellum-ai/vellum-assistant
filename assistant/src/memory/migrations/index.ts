@@ -70,6 +70,7 @@ export { migrateGuardianPrincipalIdColumns } from './125-guardian-principal-id-c
 export { migrateBackfillGuardianPrincipalId } from './126-backfill-guardian-principal-id.js';
 export { migrateGuardianPrincipalIdNotNull } from './127-guardian-principal-id-not-null.js';
 export { migrateContactsRolePrincipal } from './128-contacts-role-principal.js';
+export { migrateContactChannelsAccessFields } from './129-contact-channels-access-fields.js';
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,
