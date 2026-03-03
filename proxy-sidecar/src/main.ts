@@ -133,16 +133,15 @@ function shutdown(signal: string): void {
     }
   };
 
-  // Close health server first so probes report not-ready during drain
-  if (healthServer) {
-    pending++;
-    healthServer.close(onClosed('health'));
-  }
-
-  // Stop accepting new proxy connections and wait for in-flight requests.
+  // Close proxy server first to drain in-flight requests while health probes remain available
   if (server) {
     pending++;
     server.close(onClosed('proxy'));
+  }
+
+  if (healthServer) {
+    pending++;
+    healthServer.close(onClosed('health'));
   }
 
   // Force-exit after 10 seconds if graceful shutdown stalls.

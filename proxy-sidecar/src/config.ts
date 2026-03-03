@@ -31,7 +31,13 @@ export interface SidecarConfig {
  */
 export function loadConfig(env: Record<string, string | undefined> = process.env): SidecarConfig {
   const port = parsePort(env.PROXY_PORT, 'PROXY_PORT');
-  const healthPort = parsePort(env.PROXY_HEALTH_PORT, 'PROXY_HEALTH_PORT', 8081);
+  const defaultHealthPort = port === 8081 ? 8082 : 8081;
+  const healthPort = parsePort(env.PROXY_HEALTH_PORT, 'PROXY_HEALTH_PORT', defaultHealthPort);
+  if (healthPort === port) {
+    throw new ConfigError(
+      `PROXY_HEALTH_PORT (${healthPort}) must differ from PROXY_PORT (${port})`,
+    );
+  }
   const host = env.PROXY_HOST ?? '0.0.0.0';
   const caDir = env.PROXY_CA_DIR ?? null;
   const logLevel = parseLogLevel(env.PROXY_LOG_LEVEL);
