@@ -30,9 +30,10 @@ enum VoiceServiceError: Error, LocalizedError {
 /// Voice service: SFSpeechRecognizer STT (on-device) + TTS (ElevenLabs REST API).
 /// Records audio, detects silence, transcribes via SFSpeechRecognizer, speaks via ElevenLabs.
 @MainActor
-final class OpenAIVoiceService: ObservableObject {
+final class OpenAIVoiceService: ObservableObject, VoiceServiceProtocol {
     @Published var amplitude: Float = 0
     @Published var speakingAmplitude: Float = 0
+    @Published var livePartialText: String = ""
 
     // MARK: - Recording State
 
@@ -129,6 +130,7 @@ final class OpenAIVoiceService: ObservableObject {
         hasSpeechOccurred = false
         rmsLogCounter = 0
         latestTranscription = ""
+        livePartialText = ""
 
         let inputNode = audioEngine.inputNode
         let format = inputNode.outputFormat(forBus: 0)
@@ -163,6 +165,7 @@ final class OpenAIVoiceService: ObservableObject {
                 log.debug("Partial transcription: \(text, privacy: .public)")
                 Task { @MainActor [weak self] in
                     self?.latestTranscription = text
+                    self?.livePartialText = text
                 }
 
                 if result.isFinal {
@@ -346,6 +349,7 @@ final class OpenAIVoiceService: ObservableObject {
         recognitionRequest = nil
         speechRecognizer = nil
         latestTranscription = ""
+        livePartialText = ""
     }
 
     // MARK: - ElevenLabs TTS (REST API)

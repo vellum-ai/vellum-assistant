@@ -5,6 +5,59 @@ import VellumAssistantShared
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "DynamicPage")
 
+/// NSView that clips its subviews to a rounded rect using a CAShapeLayer mask.
+/// This reliably clips WKWebView content, which ignores plain masksToBounds.
+private class RoundedClipView: NSView {
+    var cornerRadius: CGFloat = 0 { didSet { needsLayout = true } }
+    var maskedCorners: CACornerMask = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner] { didSet { needsLayout = true } }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func layout() {
+        super.layout()
+        guard cornerRadius > 0 else {
+            layer?.mask = nil
+            return
+        }
+        let mask = CAShapeLayer()
+        mask.path = makeRoundedPath(bounds, radius: cornerRadius, corners: maskedCorners)
+        layer?.mask = mask
+    }
+
+    /// Build a CGPath with selective corner rounding.
+    /// CACornerMask uses CA coordinate space (origin bottom-left), which matches
+    /// AppKit's non-flipped NSView. For flipped views the Y mapping inverts, but
+    /// NSViewRepresentable hosts are non-flipped by default so the mapping is direct.
+    private func makeRoundedPath(_ rect: CGRect, radius r: CGFloat, corners: CACornerMask) -> CGPath {
+        let minX = rect.minX, minY = rect.minY, maxX = rect.maxX, maxY = rect.maxY
+        let tl = corners.contains(.layerMinXMaxYCorner) ? r : 0  // top-left (CA: minX maxY)
+        let tr = corners.contains(.layerMaxXMaxYCorner) ? r : 0  // top-right (CA: maxX maxY)
+        let br = corners.contains(.layerMaxXMinYCorner) ? r : 0  // bottom-right (CA: maxX minY)
+        let bl = corners.contains(.layerMinXMinYCorner) ? r : 0  // bottom-left (CA: minX minY)
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: minX + tl, y: maxY))
+        path.addLine(to: CGPoint(x: maxX - tr, y: maxY))
+        if tr > 0 { path.addArc(tangent1End: CGPoint(x: maxX, y: maxY), tangent2End: CGPoint(x: maxX, y: maxY - tr), radius: tr) }
+        else { path.addLine(to: CGPoint(x: maxX, y: maxY)) }
+        path.addLine(to: CGPoint(x: maxX, y: minY + br))
+        if br > 0 { path.addArc(tangent1End: CGPoint(x: maxX, y: minY), tangent2End: CGPoint(x: maxX - br, y: minY), radius: br) }
+        else { path.addLine(to: CGPoint(x: maxX, y: minY)) }
+        path.addLine(to: CGPoint(x: minX + bl, y: minY))
+        if bl > 0 { path.addArc(tangent1End: CGPoint(x: minX, y: minY), tangent2End: CGPoint(x: minX, y: minY + bl), radius: bl) }
+        else { path.addLine(to: CGPoint(x: minX, y: minY)) }
+        path.addLine(to: CGPoint(x: minX, y: maxY - tl))
+        if tl > 0 { path.addArc(tangent1End: CGPoint(x: minX, y: maxY), tangent2End: CGPoint(x: minX + tl, y: maxY), radius: tl) }
+        else { path.addLine(to: CGPoint(x: minX, y: maxY)) }
+        path.closeSubpath()
+        return path
+    }
+}
+
 extension DynamicPageSurfaceView {
     /// CSS design system loaded once from the resource bundle and escaped for JS injection.
     static let designSystemCSS: String = {
@@ -50,6 +103,10 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
     let sandboxMode: Bool
     let topContentInset: CGFloat
     let bottomContentInset: CGFloat
+    /// Corner radius applied at the AppKit layer to clip WKWebView content.
+    let cornerRadius: CGFloat
+    /// Which corners to round (defaults to all corners).
+    let maskedCorners: CACornerMask
 
     init(
         data: DynamicPageSurfaceData,
@@ -62,7 +119,9 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         onLinkOpen: ((String, [String: Any]?) -> Void)? = nil,
         sandboxMode: Bool = false,
         topContentInset: CGFloat = 0,
-        bottomContentInset: CGFloat = 0
+        bottomContentInset: CGFloat = 0,
+        cornerRadius: CGFloat = 0,
+        maskedCorners: CACornerMask = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
     ) {
         self.data = data
         self.onAction = onAction
@@ -75,13 +134,15 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         self.sandboxMode = sandboxMode
         self.topContentInset = topContentInset
         self.bottomContentInset = bottomContentInset
+        self.cornerRadius = cornerRadius
+        self.maskedCorners = maskedCorners
     }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(onAction: onAction, onDataRequest: onDataRequest, onPageChanged: onPageChanged, onSnapshotCaptured: onSnapshotCaptured, onLinkOpen: onLinkOpen, currentHTML: data.html, sandboxMode: sandboxMode)
     }
 
-    func makeNSView(context: Context) -> WKWebView {
+    func makeNSView(context: Context) -> NSView {
         // Console forwarding: capture JS console.log/error/warn and route to os.Logger.
         var jsSource = """
             (function() {
@@ -381,7 +442,22 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
             let origin = "https://surface.vellum.local/"
             webView.loadHTMLString(data.html, baseURL: URL(string: origin))
         }
-        return webView
+        // Wrap in a RoundedClipView so the WKWebView's layer tree is
+        // clipped via a CAShapeLayer mask (masksToBounds alone doesn't work).
+        let container = RoundedClipView()
+        container.cornerRadius = cornerRadius
+        container.maskedCorners = maskedCorners
+
+        webView.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(webView)
+        NSLayoutConstraint.activate([
+            webView.topAnchor.constraint(equalTo: container.topAnchor),
+            webView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            webView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            webView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+        ])
+
+        return container
     }
 
     private func fullReload(_ webView: WKWebView, html: String, origin: String, coordinator: Coordinator) {
@@ -394,7 +470,13 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         }
     }
 
-    func updateNSView(_ webView: WKWebView, context: Context) {
+    func updateNSView(_ containerView: NSView, context: Context) {
+        guard let webView = containerView.subviews.first as? WKWebView else { return }
+        // Keep clipping container corners in sync (mode may change between .app and .appEditing).
+        if let clipView = containerView as? RoundedClipView {
+            clipView.cornerRadius = cornerRadius
+            clipView.maskedCorners = maskedCorners
+        }
         context.coordinator.onAction = onAction
         context.coordinator.onDataRequest = onDataRequest
         context.coordinator.onPageChanged = onPageChanged

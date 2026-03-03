@@ -1,5 +1,6 @@
 ---
 fixture: desktop-app
+status: stable
 ---
 
 # Hello World: Open Desktop App and Enter API Key

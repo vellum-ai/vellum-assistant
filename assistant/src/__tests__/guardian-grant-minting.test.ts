@@ -137,6 +137,7 @@ function registerPendingInteraction(
 
 function makeGuardianContext(): GuardianContext {
   return {
+    sourceChannel: 'telegram',
     trustClass: 'guardian',
     denialReason: undefined,
   };
@@ -555,6 +556,7 @@ describe('approval interception trust-class regression coverage', () => {
       actorExternalId: 'intruder-user-1',
       replyCallbackUrl: 'https://gateway.test/deliver',
       guardianCtx: {
+        sourceChannel: 'telegram',
         trustClass: 'unknown',
       },
       assistantId: ASSISTANT_ID,
@@ -581,6 +583,7 @@ describe('approval interception trust-class regression coverage', () => {
       actorExternalId: undefined,
       replyCallbackUrl: 'https://gateway.test/deliver',
       guardianCtx: {
+        sourceChannel: 'telegram',
         trustClass: 'unknown',
         denialReason: 'no_identity',
       },

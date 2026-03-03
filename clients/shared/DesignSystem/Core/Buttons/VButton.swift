@@ -109,15 +109,12 @@ private struct VButtonStyle: ButtonStyle {
     }
 
     private var cornerRadius: CGFloat {
-        switch style {
-        case .outlined: return VRadius.xl
-        default: return VRadius.lg
-        }
+        return VRadius.md
     }
 
     private var borderLineWidth: CGFloat {
         switch style {
-        case .tertiary: return 1
+        case .tertiary: return 2
         case .outlined: return 2.5
         default: return 0
         }

@@ -74,15 +74,6 @@ extension MainWindowView {
             sidebarView
         case .avatarCustomization:
             AvatarCustomizationPanel(onClose: { windowState.selection = .panel(windowState.avatarCustomizationReturnPanel) })
-        case .voiceMode:
-            VoiceModePanel(
-                manager: voiceModeManager,
-                voiceService: voiceModeManager.voiceService,
-                onClose: {
-                    voiceModeManager.deactivate()
-                    windowState.selection = nil
-                }
-            )
         case .apps:
             AppsGridView(
                 appListManager: appListManager,
@@ -189,7 +180,7 @@ extension MainWindowView {
             if let surface = windowState.activeDynamicParsedSurface,
                case .dynamicPage(let dpData) = surface.data {
                 dynamicWorkspaceView(surface: surface, data: dpData)
-                    .background(VColor.backgroundSubtle)
+                    .background(VColor.background)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
             } else {
                 // Loading state while waiting for daemon to send surface data
@@ -229,8 +220,7 @@ extension MainWindowView {
                     },
                     panel: {
                         dynamicWorkspaceView(surface: surface, data: dpData)
-                            .background(adaptiveColor(light: Moss._100, dark: Moss._900))
-                            .clipShape(UnevenRoundedRectangle(topLeadingRadius: VRadius.xl, bottomLeadingRadius: VRadius.xl))
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
                     }
                 )
             } else {
@@ -315,53 +305,16 @@ extension MainWindowView {
                     .background(adaptiveColor(light: Moss._50, dark: Moss._950))
                 }
             } else if panelType == .apps {
-                if isAppChatOpen {
-                    // VSplitView: ChatView (left) + Apps grid (right)
-                    let contentWidth = Double(geometry.size.width) / zoomManager.zoomLevel - Double(VSpacing.sm)
-                    let effectiveWidth = Binding<Double>(
-                        get: { appPanelWidth > 0 ? appPanelWidth : contentWidth * 0.7 },
-                        set: { appPanelWidth = $0 }
-                    )
-                    VSplitView(
-                        panelWidth: effectiveWidth,
-                        showPanel: true,
-                        main: {
-                            chatView
-                        },
-                        panel: {
-                            AppsGridView(
-                                appListManager: appListManager,
-                                daemonClient: daemonClient,
-                                onOpenApp: { appId in
-                                    try? daemonClient.sendAppOpen(appId: appId)
-                                    windowState.selection = .app(appId)
-                                }
-                            )
-                            .background(adaptiveColor(light: Moss._100, dark: Moss._900))
-                            .clipShape(UnevenRoundedRectangle(topLeadingRadius: VRadius.xl, bottomLeadingRadius: VRadius.xl))
-                        }
-                    )
-                    .onAppear {
-                        if threadManager.activeViewModel == nil {
-                            if let firstThread = threadManager.visibleThreads.first {
-                                threadManager.selectThread(id: firstThread.id)
-                            } else {
-                                threadManager.createThread()
-                            }
-                        }
+                AppsGridView(
+                    appListManager: appListManager,
+                    daemonClient: daemonClient,
+                    onOpenApp: { appId in
+                        try? daemonClient.sendAppOpen(appId: appId)
+                        windowState.selection = .app(appId)
                     }
-                } else {
-                    AppsGridView(
-                        appListManager: appListManager,
-                        daemonClient: daemonClient,
-                        onOpenApp: { appId in
-                            try? daemonClient.sendAppOpen(appId: appId)
-                            windowState.selection = .app(appId)
-                        }
-                    )
-                    .overlay(alignment: .topTrailing) { panelDismissButton }
-                    .background(adaptiveColor(light: Moss._50, dark: Moss._950))
-                }
+                )
+                .overlay(alignment: .topTrailing) { panelDismissButton }
+                .background(adaptiveColor(light: Moss._50, dark: Moss._950))
             } else if panelType == .documentEditor {
                 let config = windowState.layoutConfig
                 VSplitView(
@@ -374,16 +327,6 @@ extension MainWindowView {
                             daemonClient: daemonClient,
                             onClose: { windowState.selection = nil; documentManager.closeDocument() }
                         )
-                    }
-                )
-            } else if panelType == .voiceMode {
-                // Voice mode: split view with chat on left, voice panel on right
-                VSplitView(
-                    panelWidth: $sidePanelWidth,
-                    showPanel: true,
-                    main: { chatView },
-                    panel: {
-                        nativePanelView(.voiceMode)
                     }
                 )
             } else if isAppChatOpen {
@@ -470,6 +413,11 @@ extension MainWindowView {
                     settingsStore: settingsStore,
                     onMicrophoneToggle: onMicrophoneToggle,
                     isTemporaryChat: activeThread?.kind == .private,
+                    voiceModeManager: voiceModeManager,
+                    voiceService: voiceModeManager.openAIVoiceService,
+                    onEndVoiceMode: {
+                        voiceModeManager.deactivate()
+                    },
                     threadId: threadManager.activeThreadId
                 )
                 .environment(\.conversationZoomScale, conversationZoomManager.zoomLevel)
@@ -653,6 +601,9 @@ struct ActiveChatViewWrapper: View {
     @ObservedObject var settingsStore: SettingsStore
     let onMicrophoneToggle: () -> Void
     var isTemporaryChat: Bool = false
+    var voiceModeManager: VoiceModeManager? = nil
+    var voiceService: OpenAIVoiceService? = nil
+    var onEndVoiceMode: (() -> Void)? = nil
     var threadId: UUID?
 
     /// Reads the persisted bootstrap state so the chat view can suppress
@@ -716,6 +667,7 @@ struct ActiveChatViewWrapper: View {
             assistantActivityPhase: viewModel.assistantActivityPhase,
             assistantActivityAnchor: viewModel.assistantActivityAnchor,
             assistantActivityReason: viewModel.assistantActivityReason,
+            assistantStatusText: viewModel.assistantStatusText,
             onConfirmationAllow: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "allow") },
             onConfirmationDeny: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "deny") },
             onAlwaysAllow: { requestId, selectedPattern, selectedScope, decision in viewModel.respondToAlwaysAllow(requestId: requestId, selectedPattern: selectedPattern, selectedScope: selectedScope, decision: decision) },
@@ -766,6 +718,9 @@ struct ActiveChatViewWrapper: View {
             dismissedDocumentSurfaceIds: viewModel.dismissedDocumentSurfaceIds,
             onDismissDocumentWidget: { viewModel.dismissDocumentSurface(id: $0) },
             connectionDiagnosticHint: viewModel.connectionDiagnosticHint,
+            voiceModeManager: voiceModeManager,
+            voiceService: voiceService,
+            onEndVoiceMode: onEndVoiceMode,
             threadId: threadId,
             displayedMessageCount: viewModel.displayedMessageCount,
             hasMoreMessages: viewModel.hasMoreMessages,
@@ -844,6 +799,15 @@ struct DynamicWorkspaceWrapper: View {
     @State private var showVersionHistory = false
     @State private var publishUrlCopied = false
 
+    /// Corner radius for the WKWebView clipping container, matched to the SwiftUI clipShape.
+    private var webViewCornerRadius: CGFloat { VRadius.lg }
+
+    /// Which corners to round — all corners for both standalone and split editing
+    /// since each panel is individually rounded in its own container.
+    private var webViewMaskedCorners: CACornerMask {
+        [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+    }
+
     var body: some View {
         ZStack {
             if showVersionHistory, let appId = data.appId {
@@ -892,12 +856,19 @@ struct DynamicWorkspaceWrapper: View {
                 onSnapshotCaptured: data.appId != nil ? { [weak daemonClient] base64 in
                     guard let appId = data.appId else { return }
                     try? daemonClient?.sendAppUpdatePreview(appId: appId, preview: base64)
+                    NotificationCenter.default.post(
+                        name: .appPreviewImageCaptured,
+                        object: nil,
+                        userInfo: ["appId": appId, "previewImage": base64]
+                    )
                 } : nil,
                 onLinkOpen: { url, metadata in
                     surfaceManager.onLinkOpen?(url, metadata)
                 },
                 topContentInset: 56,
-                bottomContentInset: 0
+                bottomContentInset: 0,
+                cornerRadius: webViewCornerRadius,
+                maskedCorners: webViewMaskedCorners
             )
 
             VStack(spacing: 0) {
@@ -1112,7 +1083,7 @@ private struct AppLoadingView: View {
 struct MainWindowView_Previews: PreviewProvider {
     static var previews: some View {
         let dc = DaemonClient()
-        MainWindowView(threadManager: ThreadManager(daemonClient: dc), appListManager: AppListManager(), zoomManager: ZoomManager(), conversationZoomManager: ConversationZoomManager(), traceStore: TraceStore(), daemonClient: dc, surfaceManager: SurfaceManager(), ambientAgent: AmbientAgent(), settingsStore: SettingsStore(daemonClient: dc), authManager: AuthManager(), windowState: MainWindowState(), documentManager: DocumentManager())
+        MainWindowView(threadManager: ThreadManager(daemonClient: dc), appListManager: AppListManager(), zoomManager: ZoomManager(), conversationZoomManager: ConversationZoomManager(), traceStore: TraceStore(), daemonClient: dc, surfaceManager: SurfaceManager(), ambientAgent: AmbientAgent(), settingsStore: SettingsStore(daemonClient: dc), authManager: AuthManager(), windowState: MainWindowState(), documentManager: DocumentManager(), voiceModeManager: VoiceModeManager())
             .frame(width: 900, height: 600)
             .padding(.top, 36)
     }

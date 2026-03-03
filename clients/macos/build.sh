@@ -21,6 +21,28 @@ set -euo pipefail
 #   BUILD_VERSION     Override CFBundleVersion (default: 1)
 #   SIGN_IDENTITY     Override code signing identity
 
+# ---------------------------------------------------------------------------
+# swift_with_retry — run a swift command with retries for transient SPM
+# package-resolution failures (e.g. network timeouts downloading binary
+# artifacts). Retries up to MAX_ATTEMPTS times with a short delay.
+# ---------------------------------------------------------------------------
+swift_with_retry() {
+    local max_attempts="${SWIFT_RETRY_ATTEMPTS:-3}"
+    local attempt=1
+    while true; do
+        if "$@"; then
+            return 0
+        fi
+        if [ "$attempt" -ge "$max_attempts" ]; then
+            echo "ERROR: swift command failed after $max_attempts attempts: $*"
+            return 1
+        fi
+        echo "warning: swift command failed (attempt $attempt/$max_attempts), retrying in 10s..."
+        sleep 10
+        attempt=$((attempt + 1))
+    done
+}
+
 if [ -z "${DEVELOPER_DIR:-}" ]; then
     # Use xcode-select, but fall back to Xcode.app if it points to
     # CommandLineTools (which lacks PreviewsMacros needed for #Preview).
@@ -188,7 +210,7 @@ case "$CMD" in
     test)
         echo "Running tests..."
         set +e
-        TEST_OUTPUT=$(swift test --filter vellum_assistantTests 2>&1)
+        TEST_OUTPUT=$(swift_with_retry swift test --filter vellum_assistantTests 2>&1)
         TEST_EXIT=$?
         set -e
         echo "$TEST_OUTPUT"
@@ -213,7 +235,7 @@ case "$CMD" in
         ;;
     lint)
         echo "Linting (strict concurrency)..."
-        swift build --product "$APP_NAME" -Xswiftc -strict-concurrency=complete
+        swift_with_retry swift build --product "$APP_NAME" -Xswiftc -strict-concurrency=complete
         echo "Lint passed."
         exit 0
         ;;
@@ -241,7 +263,11 @@ SWIFT_FLAGS=""
 if [ "$CMD" = "release" ]; then
     CONFIG="release"
     SWIFT_FLAGS="-c release ${RELEASE_ARCH_FLAGS:---arch arm64 --arch x86_64}"
-    if [ "${SKIP_CLEAN:-}" = "1" ]; then
+    if [ -n "${PREBUILT_BIN_PATH:-}" ]; then
+        # Using prebuilt binaries from parallel CI jobs — only clean dist
+        echo "Release build: using prebuilt binaries, cleaning dist only..."
+        rm -rf "$SCRIPT_DIR/dist"
+    elif [ "${SKIP_CLEAN:-}" = "1" ]; then
         echo "Release build: skipping .build clean (SKIP_CLEAN=1, using cached artifacts)"
         rm -rf "$SCRIPT_DIR/dist"
     else
@@ -251,18 +277,24 @@ if [ "$CMD" = "release" ]; then
     fi
 fi
 
-# 1. Build with SPM
-echo "Building ($CONFIG)..."
-# Only build the macOS product — the shared Package.swift also contains an iOS
-# target that cannot compile on macOS (UIKit), so we must scope the build.
-SWIFT_FLAGS="$SWIFT_FLAGS --product $APP_NAME"
-# Get bin path first (fast, doesn't rebuild)
-BIN_PATH=$(swift build $SWIFT_FLAGS --show-bin-path)
+# 1. Build with SPM (or use prebuilt binaries if PREBUILT_BIN_PATH is set)
+if [ -n "${PREBUILT_BIN_PATH:-}" ]; then
+    echo "Using prebuilt binaries from $PREBUILT_BIN_PATH"
+    BIN_PATH="$(cd "$PREBUILT_BIN_PATH" && pwd)"
+    EXECUTABLE="$BIN_PATH/$APP_NAME"
+else
+    echo "Building ($CONFIG)..."
+    # Only build the macOS product — the shared Package.swift also contains an iOS
+    # target that cannot compile on macOS (UIKit), so we must scope the build.
+    SWIFT_FLAGS="$SWIFT_FLAGS --product $APP_NAME"
+    # Get bin path first (fast, doesn't rebuild)
+    BIN_PATH=$(swift build $SWIFT_FLAGS --show-bin-path)
 
-# Then build (or use cached if nothing changed)
-swift build $SWIFT_FLAGS
+    # Then build (or use cached if nothing changed)
+    swift_with_retry swift build $SWIFT_FLAGS
 
-EXECUTABLE="$BIN_PATH/$APP_NAME"
+    EXECUTABLE="$BIN_PATH/$APP_NAME"
+fi
 
 if [ ! -f "$EXECUTABLE" ]; then
     echo "ERROR: executable not found at $EXECUTABLE"
@@ -546,6 +578,8 @@ cat > "$CONTENTS/Info.plist" <<PLIST
     <key>SUAutomaticallyUpdate</key>
     <true/>
     <key>CFBundleIconName</key>
+    <string>AppIcon</string>
+    <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>NSAppTransportSecurity</key>
     <dict>

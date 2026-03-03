@@ -33,6 +33,7 @@ import {
   migrateGuardianBootstrapToken,
   migrateGuardianDeliveryConversationIndex,
   migrateGuardianPrincipalIdColumns,
+  migrateGuardianPrincipalIdNotNull,
   migrateGuardianVerificationPurpose,
   migrateGuardianVerificationSessions,
   migrateMessagesFtsBackfill,
@@ -184,6 +185,9 @@ export function initializeDb(): void {
 
   // 30. Backfill guardianPrincipalId for existing bindings and requests, expire unresolvable pending requests
   migrateBackfillGuardianPrincipalId(database);
+
+  // 31. Enforce NOT NULL on channel_guardian_bindings.guardian_principal_id
+  migrateGuardianPrincipalIdNotNull(database);
 
   validateMigrationState(database);
 }

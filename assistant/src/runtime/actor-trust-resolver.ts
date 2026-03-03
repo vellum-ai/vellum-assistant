@@ -20,6 +20,8 @@ import { canonicalizeInboundIdentity } from '../util/canonicalize-identity.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from './assistant-scope.js';
 import { getGuardianBinding } from './channel-guardian-service.js';
 
+export type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -35,8 +37,8 @@ export interface ActorTrustContext {
     guardianExternalUserId: string;
     guardianDeliveryChatId: string | null;
   } | null;
-  /** Canonical principal ID from the guardian binding. Nullable for backward compatibility — M5 will make this required. */
-  guardianPrincipalId?: string | null;
+  /** Canonical principal ID from the guardian binding. */
+  guardianPrincipalId?: string;
   /** Ingress member record, if any, for this sender. */
   memberRecord: IngressMember | null;
   /** Trust classification. */
@@ -184,7 +186,7 @@ export function resolveActorTrust(input: ResolveActorTrustInput): ActorTrustCont
   return {
     canonicalSenderId,
     guardianBindingMatch,
-    guardianPrincipalId: binding?.guardianPrincipalId ?? undefined,
+    guardianPrincipalId: binding?.guardianPrincipalId,
     memberRecord,
     trustClass,
     actorMetadata: {
@@ -203,17 +205,24 @@ export function resolveActorTrust(input: ResolveActorTrustInput): ActorTrustCont
 /**
  * Convert an ActorTrustContext into the runtime trust context shape used by
  * sessions/tooling.
+ *
+ * This is the single canonical conversion from resolved trust to runtime
+ * context. The guardianExternalUserId is canonicalized to handle phone-
+ * channel formatting variance (e.g. stored binding vs E.164).
  */
 export function toGuardianRuntimeContextFromTrust(
   ctx: ActorTrustContext,
   conversationExternalId: string,
 ): GuardianRuntimeContext {
+  const canonicalGuardianExternalUserId = ctx.guardianBindingMatch?.guardianExternalUserId
+    ? canonicalizeInboundIdentity(ctx.actorMetadata.channel, ctx.guardianBindingMatch.guardianExternalUserId) ?? undefined
+    : undefined;
   return {
     sourceChannel: ctx.actorMetadata.channel,
     trustClass: ctx.trustClass,
     guardianChatId: ctx.guardianBindingMatch?.guardianDeliveryChatId ??
       (ctx.trustClass === 'guardian' ? conversationExternalId : undefined),
-    guardianExternalUserId: ctx.guardianBindingMatch?.guardianExternalUserId,
+    guardianExternalUserId: canonicalGuardianExternalUserId,
     guardianPrincipalId: ctx.guardianPrincipalId,
     requesterIdentifier: ctx.actorMetadata.identifier,
     requesterDisplayName: ctx.actorMetadata.displayName,

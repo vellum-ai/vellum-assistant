@@ -12,6 +12,7 @@ const log = getLogger('outreach-classifier');
 const MODEL_INTENT = 'latency-optimized' as const;
 const TIMEOUT_MS = 30_000;
 const BATCH_SIZE = 100;
+const CLASSIFY_CONCURRENCY = 3;
 
 export type OutreachType = 'sales' | 'recruiting' | 'marketing' | 'other';
 
@@ -128,12 +129,18 @@ async function classifyBatch(emails: EmailMetadata[]): Promise<OutreachClassific
 export async function classifyOutreach(emails: EmailMetadata[]): Promise<OutreachClassification[]> {
   if (emails.length === 0) return [];
 
-  const results: OutreachClassification[] = [];
-
+  // Split into batches
+  const batches: EmailMetadata[][] = [];
   for (let i = 0; i < emails.length; i += BATCH_SIZE) {
-    const batch = emails.slice(i, i + BATCH_SIZE);
-    const batchResults = await classifyBatch(batch);
-    results.push(...batchResults);
+    batches.push(emails.slice(i, i + BATCH_SIZE));
+  }
+
+  // Process batches with bounded concurrency
+  const results: OutreachClassification[] = [];
+  for (let i = 0; i < batches.length; i += CLASSIFY_CONCURRENCY) {
+    const concurrentBatches = batches.slice(i, i + CLASSIFY_CONCURRENCY);
+    const batchResults = await Promise.all(concurrentBatches.map((batch) => classifyBatch(batch)));
+    for (const r of batchResults) results.push(...r);
   }
 
   return results;

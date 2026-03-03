@@ -25,6 +25,12 @@ public final class MainWindowState: ObservableObject {
             if case .thread(let id) = selection {
                 persistentThreadId = id
             }
+            // Chat dock is only relevant inside app views. Clear it when
+            // navigating away so other pages never show a stale split layout.
+            switch selection {
+            case .app, .appEditing: break
+            default: isAppChatOpen = false
+            }
         }
     }
 
@@ -93,11 +99,10 @@ public final class MainWindowState: ObservableObject {
         switch selection {
         case .thread, .none, .appEditing: return true
         case .panel(let panelType):
-            // Voice mode and document editor have dedicated layouts that
-            // always include chat; other panels show chat only when the
-            // chat bubble toggle is active.
+            // Document editor has a dedicated layout that always includes chat;
+            // other panels show chat only when the chat bubble toggle is active.
             switch panelType {
-            case .voiceMode, .documentEditor: return true
+            case .documentEditor: return true
             default: return isAppChatOpen
             }
         default: return false
@@ -193,6 +198,12 @@ public final class MainWindowState: ObservableObject {
         } else {
             lastActivePanelString = nil
         }
+    }
+
+    /// Navigate directly to the Apps panel (always full-width, no toggle).
+    func showAppsPanel() {
+        selection = .panel(.apps)
+        lastActivePanelString = String(describing: SidePanelType.apps)
     }
 
     func refreshAPIKeyStatus(isConnected: Bool) {

@@ -60,6 +60,7 @@ function mapConversation(conv: SlackConversation): Conversation {
     memberCount: conv.num_members,
     topic: conv.topic?.value || undefined,
     isArchived: conv.is_archived,
+    isPrivate: conv.is_private ?? conv.is_group ?? false,
     metadata: conv.is_im ? { dmUserId: conv.user } : undefined,
   };
 }

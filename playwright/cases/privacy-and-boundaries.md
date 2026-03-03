@@ -1,5 +1,6 @@
 ---
 fixture: desktop-app-hatched
+status: stable
 ---
 
 # Privacy & Boundaries

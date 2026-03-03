@@ -2,7 +2,7 @@ import { execFileSync, spawn } from "child_process";
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "fs";
 import { createRequire } from "module";
 import { createConnection } from "net";
-import { homedir } from "os";
+import { homedir, hostname, networkInterfaces, platform } from "os";
 import { dirname, join } from "path";
 
 import { loadLatestAssistant } from "./assistant-config.js";
@@ -251,41 +251,115 @@ function isSocketResponsive(socketPath: string, timeoutMs = 1500): Promise<boole
 
 async function discoverPublicUrl(): Promise<string | undefined> {
   const cloud = process.env.VELLUM_CLOUD;
-  if (!cloud || cloud === "local") {
-    return `http://localhost:${GATEWAY_PORT}`;
-  }
 
   let externalIp: string | undefined;
-  try {
-    if (cloud === "gcp") {
-      const resp = await fetch(
-        "http://169.254.169.254/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip",
-        { headers: { "Metadata-Flavor": "Google" } },
-      );
-      if (resp.ok) externalIp = (await resp.text()).trim();
-    } else if (cloud === "aws") {
-      // Use IMDSv2 (token-based) for compatibility with HttpTokens=required
-      const tokenResp = await fetch(
-        "http://169.254.169.254/latest/api/token",
-        { method: "PUT", headers: { "X-aws-ec2-metadata-token-ttl-seconds": "30" } },
-      );
-      if (tokenResp.ok) {
-        const token = await tokenResp.text();
-        const ipResp = await fetch(
-          "http://169.254.169.254/latest/meta-data/public-ipv4",
-          { headers: { "X-aws-ec2-metadata-token": token } },
+
+  // Try cloud-specific metadata services for GCP and AWS.
+  if (cloud === "gcp" || cloud === "aws") {
+    try {
+      if (cloud === "gcp") {
+        const resp = await fetch(
+          "http://169.254.169.254/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip",
+          { headers: { "Metadata-Flavor": "Google" } },
         );
-        if (ipResp.ok) externalIp = (await ipResp.text()).trim();
+        if (resp.ok) externalIp = (await resp.text()).trim();
+      } else if (cloud === "aws") {
+        // Use IMDSv2 (token-based) for compatibility with HttpTokens=required
+        const tokenResp = await fetch(
+          "http://169.254.169.254/latest/api/token",
+          { method: "PUT", headers: { "X-aws-ec2-metadata-token-ttl-seconds": "30" } },
+        );
+        if (tokenResp.ok) {
+          const token = await tokenResp.text();
+          const ipResp = await fetch(
+            "http://169.254.169.254/latest/meta-data/public-ipv4",
+            { headers: { "X-aws-ec2-metadata-token": token } },
+          );
+          if (ipResp.ok) externalIp = (await ipResp.text()).trim();
+        }
       }
+    } catch {
+      // metadata service not reachable
     }
-  } catch {
-    // metadata service not reachable
+
+    if (externalIp) {
+      console.log(`   Discovered external IP: ${externalIp}`);
+      return `http://${externalIp}:${GATEWAY_PORT}`;
+    }
   }
 
-  if (externalIp) {
-    console.log(`   Discovered external IP: ${externalIp}`);
-    return `http://${externalIp}:${GATEWAY_PORT}`;
+  // For local and custom environments, use the local LAN address.
+  // On macOS, prefer the .local hostname (Bonjour/mDNS) so other devices on
+  // the same network can reach the gateway by name.
+  if (platform() === "darwin") {
+    const localHostname = getMacLocalHostname();
+    if (localHostname) {
+      console.log(`   Discovered macOS local hostname: ${localHostname}`);
+      return `http://${localHostname}:${GATEWAY_PORT}`;
+    }
   }
+
+  const lanIp = getLocalLanIPv4();
+  if (lanIp) {
+    console.log(`   Discovered LAN IP: ${lanIp}`);
+    return `http://${lanIp}:${GATEWAY_PORT}`;
+  }
+
+  // Final fallback to localhost when no LAN address could be discovered.
+  return `http://localhost:${GATEWAY_PORT}`;
+}
+
+/**
+ * Returns the macOS Bonjour/mDNS `.local` hostname (e.g. "Vargass-Mac-Mini.local"),
+ * or undefined if not running on macOS or the hostname cannot be determined.
+ */
+function getMacLocalHostname(): string | undefined {
+  const host = hostname();
+  if (!host) return undefined;
+  // macOS hostnames already end with .local when Bonjour is active
+  if (host.endsWith(".local")) return host;
+  // Otherwise, append .local — macOS resolves <ComputerName>.local via mDNS
+  return `${host}.local`;
+}
+
+/**
+ * Returns the local IPv4 address most likely to be reachable from other
+ * devices on the same LAN.
+ *
+ * Priority order:
+ *   1. en0 (Wi-Fi on macOS)
+ *   2. en1 (secondary network on macOS)
+ *   3. First non-loopback IPv4 on any interface
+ *
+ * Skips link-local addresses (169.254.x.x) and IPv6.
+ * Returns undefined if no suitable address is found.
+ */
+function getLocalLanIPv4(): string | undefined {
+  const ifaces = networkInterfaces();
+
+  // Priority interfaces in order
+  const priorityInterfaces = ["en0", "en1"];
+
+  for (const ifName of priorityInterfaces) {
+    const addrs = ifaces[ifName];
+    if (!addrs) continue;
+    for (const addr of addrs) {
+      if (addr.family === "IPv4" && !addr.internal && !addr.address.startsWith("169.254.")) {
+        return addr.address;
+      }
+    }
+  }
+
+  // Fallback: first non-loopback, non-link-local IPv4 on any interface
+  for (const [, addrs] of Object.entries(ifaces)) {
+    if (!addrs) continue;
+    for (const addr of addrs) {
+      if (addr.family === "IPv4" && !addr.internal && !addr.address.startsWith("169.254.")) {
+        return addr.address;
+      }
+    }
+  }
+
   return undefined;
 }
 

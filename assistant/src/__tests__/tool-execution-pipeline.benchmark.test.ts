@@ -403,6 +403,7 @@ describe('Tool execution pipeline benchmark', () => {
       workingDir: '/tmp',
       sessionId: 'bench-session',
       conversationId: 'bench-conv',
+      guardianTrustClass: 'guardian',
     };
 
     function makeTool(name: string, sleepMs: number): Tool {

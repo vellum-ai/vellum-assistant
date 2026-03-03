@@ -316,6 +316,7 @@ describe('(a) target flow: trusted-contact inline guardian approval end-to-end',
   test('complete flow: routing state allows interactive + bridge notifies guardian + tool resumes', async () => {
     // Step 1: Verify routing state allows interactive turns for trusted contacts
     const guardianCtx: GuardianContext = {
+      sourceChannel: 'telegram',
       trustClass: 'trusted_contact',
       guardianExternalUserId: 'guardian-1',
       guardianChatId: 'guardian-chat-1',
@@ -463,6 +464,7 @@ describe('(c) no-binding flow: trusted contact fails fast without guardian bindi
 
   test('routing state blocks prompt waiting when no guardian binding exists', () => {
     const ctx: GuardianContext = {
+      sourceChannel: 'telegram',
       trustClass: 'trusted_contact',
       // No guardianExternalUserId — mirrors no binding
     };
@@ -592,10 +594,12 @@ describe('(d) unknown actor flow: fail-closed with no interactive approval', () 
 
   test('unknown actors have promptWaitingAllowed=false regardless of guardian route', () => {
     const withRoute: GuardianContext = {
+      sourceChannel: 'telegram',
       trustClass: 'unknown',
       guardianExternalUserId: 'guardian-1',
     };
     const withoutRoute: GuardianContext = {
+      sourceChannel: 'telegram',
       trustClass: 'unknown',
     };
 
@@ -961,6 +965,7 @@ describe('cross-milestone integration checks', () => {
   test('M1+M4: routing state interactivity drives inline wait eligibility', async () => {
     // With guardian binding: interactive + inline wait allowed
     const withBinding: GuardianContext = {
+      sourceChannel: 'telegram',
       trustClass: 'trusted_contact',
       guardianExternalUserId: 'guardian-1',
     };
@@ -968,6 +973,7 @@ describe('cross-milestone integration checks', () => {
 
     // Without guardian binding: not interactive + inline wait should not enter dead-end
     const withoutBinding: GuardianContext = {
+      sourceChannel: 'telegram',
       trustClass: 'trusted_contact',
     };
     expect(resolveRoutingState(withoutBinding).promptWaitingAllowed).toBe(false);

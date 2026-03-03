@@ -8,6 +8,7 @@ enum AssistantHome {
     case gcp(project: String, zone: String, instance: String)
     case aws(project: String, region: String, instance: String)
     case custom(ip: String, port: String)
+    case vellum(runtimeUrl: String)
 
     var displayLabel: String {
         switch self {
@@ -15,6 +16,7 @@ enum AssistantHome {
         case .gcp: return "GCP"
         case .aws: return "AWS"
         case .custom: return "Custom"
+        case .vellum: return "Vellum"
         }
     }
 
@@ -28,6 +30,8 @@ enum AssistantHome {
             return [("Project", project), ("Region", region), ("Instance", instance)]
         case .custom(let ip, let port):
             return [("IP", ip), ("Port", port)]
+        case .vellum(let runtimeUrl):
+            return [("URL", runtimeUrl)]
         }
     }
 
@@ -219,6 +223,11 @@ struct LockfileAssistant {
         cloud.lowercased() != "local"
     }
 
+    /// Whether this is a platform-managed assistant.
+    var isManaged: Bool {
+        cloud.lowercased() == "vellum"
+    }
+
     var home: AssistantHome {
         switch cloud.lowercased() {
         case "gcp":
@@ -241,6 +250,8 @@ struct LockfileAssistant {
                 return .custom(ip: host, port: port)
             }
             return .custom(ip: "", port: "")
+        case "vellum":
+            return .vellum(runtimeUrl: runtimeUrl ?? "")
         default:
             return .local(workspacePath: NSHomeDirectory() + "/.vellum/workspace")
         }
@@ -301,6 +312,76 @@ struct LockfileAssistant {
         assistantConfig["id"] = assistantId
         assistantConfig["home"] = homeConfig
         try? WorkspaceConfigIO.merge(["assistant": assistantConfig])
+    }
+
+    /// Inserts or updates a managed (cloud = "vellum") entry in the lockfile.
+    ///
+    /// If an entry with the same `assistantId` already exists, it is updated
+    /// in place. Otherwise a new entry is appended. All other entries are
+    /// preserved unchanged.
+    ///
+    /// - Parameters:
+    ///   - assistantId: The platform-assigned assistant UUID string.
+    ///   - runtimeUrl: The platform base URL used for managed transport.
+    ///   - hatchedAt: ISO-8601 timestamp of when the assistant was created.
+    ///   - lockfilePath: Override for tests; defaults to `LockfilePaths.primaryPath`.
+    @discardableResult
+    static func upsertManagedEntry(
+        assistantId: String,
+        runtimeUrl: String,
+        hatchedAt: String,
+        lockfilePath: String? = nil
+    ) -> Bool {
+        let path = lockfilePath ?? LockfilePaths.primaryPath
+        let fileURL = URL(fileURLWithPath: path)
+
+        // Read existing lockfile: try primary first, then fall back to
+        // LockfilePaths.read() which includes legacy path migration.
+        var lockfile: [String: Any]
+        if let data = try? Data(contentsOf: fileURL),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            lockfile = json
+        } else if lockfilePath == nil, let legacy = LockfilePaths.read() {
+            // Primary doesn't exist but legacy does — migrate entries forward.
+            lockfile = legacy
+        } else {
+            lockfile = [:]
+        }
+
+        var assistants = lockfile["assistants"] as? [[String: Any]] ?? []
+
+        let newEntry: [String: Any] = [
+            "assistantId": assistantId,
+            "runtimeUrl": runtimeUrl,
+            "cloud": "vellum",
+            "hatchedAt": hatchedAt,
+        ]
+
+        // Find existing entry with the same assistantId and update, or append.
+        if let existingIndex = assistants.firstIndex(where: { ($0["assistantId"] as? String) == assistantId }) {
+            assistants[existingIndex] = newEntry
+        } else {
+            assistants.append(newEntry)
+        }
+
+        lockfile["assistants"] = assistants
+
+        // Write atomically.
+        do {
+            let data = try JSONSerialization.data(
+                withJSONObject: lockfile,
+                options: [.prettyPrinted, .sortedKeys]
+            )
+            let directory = fileURL.deletingLastPathComponent()
+            try FileManager.default.createDirectory(
+                at: directory,
+                withIntermediateDirectories: true
+            )
+            try data.write(to: fileURL, options: .atomic)
+            return true
+        } catch {
+            return false
+        }
     }
 }
 

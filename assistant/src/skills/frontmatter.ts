@@ -2,8 +2,8 @@
  * Shared frontmatter parsing for SKILL.md files.
  *
  * Frontmatter is a YAML-like block delimited by `---` at the top of a file.
- * This module provides a single implementation used by the skill catalog loader,
- * the Vellum catalog installer, and the CC command registry.
+ * This module provides a single implementation used by the skill catalog loader
+ * and the CC command registry.
  */
 
 /** Matches a `---` delimited frontmatter block at the start of a file. */
@@ -25,7 +25,9 @@ export interface FrontmatterParseResult {
  *
  * Returns `null` if no frontmatter block is found.
  */
-export function parseFrontmatterFields(content: string): FrontmatterParseResult | null {
+export function parseFrontmatterFields(
+  content: string,
+): FrontmatterParseResult | null {
   const match = content.match(FRONTMATTER_REGEX);
   if (!match) return null;
 
@@ -34,8 +36,8 @@ export function parseFrontmatterFields(content: string): FrontmatterParseResult 
 
   for (const line of frontmatter.split(/\r?\n/)) {
     const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
-    const separatorIndex = trimmed.indexOf(':');
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const separatorIndex = trimmed.indexOf(":");
     if (separatorIndex === -1) continue;
 
     const key = trimmed.slice(0, separatorIndex).trim();
@@ -50,8 +52,8 @@ export function parseFrontmatterFields(content: string): FrontmatterParseResult 
         // Only for double-quoted values — single-quoted YAML treats backslashes literally.
         // Single-pass to avoid misinterpreting \\n (escaped backslash + n) as a newline.
         value = value.replace(/\\(["\\nr])/g, (_, ch) => {
-          if (ch === 'n') return '\n';
-          if (ch === 'r') return '\r';
+          if (ch === "n") return "\n";
+          if (ch === "r") return "\r";
           return ch; // handles \\ → \ and \" → "
         });
       }

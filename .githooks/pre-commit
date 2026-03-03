@@ -7,6 +7,14 @@ RED='\033[0;31m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
+# Cache staged file lists once (avoids repeated git diff --cached calls).
+# Two variants: ACM-filtered (most checks) and unfiltered (IPC contract check).
+STAGED_ACM_FILE=$(mktemp)
+STAGED_ALL_FILE=$(mktemp)
+trap 'rm -f "$STAGED_ACM_FILE" "$STAGED_ALL_FILE"' EXIT
+git diff --cached --name-only --diff-filter=ACM -z > "$STAGED_ACM_FILE"
+git diff --cached --name-only -z > "$STAGED_ALL_FILE"
+
 echo "🔍 Checking for plain text keys and secrets..."
 
 # Patterns to check for sensitive information
@@ -65,13 +73,13 @@ declare -a SAFE_LINE_PATTERNS=(
     "[Pp]rivate[_-]?[Kk]ey['\"]?:[[:space:]]*(String|string|Data|data)[?]?[[:space:]]*($|[,){;]|=[[:space:]]*nil|=[[:space:]]*['\"]['\"])"
     "(secret|Secret)['\"]?[[:space:]]*[:=][[:space:]]*['\"]<(optional|required|placeholder|none|empty|unset|redacted|your-[a-z-]+-here|[a-zA-Z][a-zA-Z_/ '-]*[A-Z_/][a-zA-Z_/ '.-]*)>['\"]"
     "[a-zA-Z_-]*[[:space:]]*[:=][[:space:]]*\\\$\\{\\{[[:space:]]*secrets\\.[a-zA-Z_][a-zA-Z0-9_]*[[:space:]]*\\}\\}([[:space:]]+#.*)?[[:space:]]*$"
-    # TS/JS: secret/key property assigned from a variable or dotted property (no string literal).
+    # TS/JS/Swift: secret/key property assigned from a variable or dotted property (no string literal).
     # E.g. `body.client_secret = clientSecret;`, `oauth2ClientSecret: clientSecret ?? undefined`,
-    # or `clientSecret: options.clientSecret,`.
+    # `clientSecret: options.clientSecret,`, or Swift `clientSecret: trimmedSecret` (trailing EOL).
     # IMPORTANT: must come BEFORE the dotted-ref pattern below, so it strips
     # the full `key: obj.prop,` expression before the dotted-ref strips only
     # the RHS (which would leave `key: obj` still looking suspicious).
-    "[Cc]lient[_-]?[Ss]ecret[[:space:]]*[:=][[:space:]]*[a-zA-Z_][a-zA-Z0-9_.?]*[[:space:]]*((\?\?|\|\|)[[:space:]]*(undefined))?[[:space:]]*[;,]"
+    "[Cc]lient[_-]?[Ss]ecret[[:space:]]*[:=][[:space:]]*[a-zA-Z_][a-zA-Z0-9_.?]*[[:space:]]*((\?\?|\|\|)[[:space:]]*(undefined))?[[:space:]]*([;,)]|$)"
     # TS/JS: camelCase property names containing clientSecret used as identifiers
     # (typeof checks, null/undefined comparisons, variable/property references).
     # Avoids false positives like `oauth2ClientSecret: typeof record.oauth2ClientSecret`.
@@ -97,6 +105,8 @@ declare -a SAFE_LINE_PATTERNS=(
     # Swift: named argument passing a variable (e.g. `clientSecret: trimmedSecret`)
     # where the line ends with the identifier or has a trailing closing paren.
     "[Cc]lient[Ss]ecret:[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*[[:space:]]*$"
+    # Swift: named argument passing a variable for privateKey (e.g. `sshPrivateKey: state.sshPrivateKey,`)
+    "[Pp]rivate[Kk]ey:[[:space:]]*[a-zA-Z_][a-zA-Z0-9_.]*[[:space:]]*[,)][[:space:]]*$"
     # Swift/Kotlin: constant declaration whose value is a camelCase identifier
     # (e.g. `let archivedSessionsKey = "archivedSessionIds"`).
     # These are AppStorage / UserDefaults keys, not secrets.
@@ -234,6 +244,8 @@ if [ "${1:-}" = "--self-test" ]; then
     SAFE_DOTTED_PROP_SECRET='    clientSecret: options.clientSecret,'
     # Swift named argument passing a variable (false positive to whitelist)
     SAFE_SWIFT_NAMED_ARG='                clientSecret: trimmedSecret'
+    # Swift named argument passing a variable for privateKey (false positive to whitelist)
+    SAFE_SWIFT_PRIVATE_KEY_ARG='            sshPrivateKey: state.sshPrivateKey,'
     # AWS well-known example key (false positive to whitelist)
     SAFE_AWS_EXAMPLE_KEY='const EXAMPLE_KEY = "AKIAIOSFODNN7EXAMPLE";'
     # Swift storage key constant (safe — UserDefaults key, not a secret)
@@ -469,6 +481,10 @@ if [ "${1:-}" = "--self-test" ]; then
         echo -e "${RED}Self-test failed:${NC} Swift named argument clientSecret false positive"
         exit 1
     fi
+    if matches_secret_pattern "$SAFE_SWIFT_PRIVATE_KEY_ARG" && ! matches_safe_line_pattern "$SAFE_SWIFT_PRIVATE_KEY_ARG"; then
+        echo -e "${RED}Self-test failed:${NC} Swift named argument sshPrivateKey false positive"
+        exit 1
+    fi
     if matches_secret_pattern "$SAFE_AWS_EXAMPLE_KEY" && ! matches_safe_line_pattern "$SAFE_AWS_EXAMPLE_KEY"; then
         echo -e "${RED}Self-test failed:${NC} AWS well-known example key false positive"
         exit 1
@@ -499,12 +515,23 @@ if [ "${1:-}" = "--self-test" ]; then
 fi
 
 # Check if there are any staged files
-if ! git diff --cached --name-only --diff-filter=ACM | grep -q .; then
+if [ ! -s "$STAGED_ACM_FILE" ]; then
     exit 0
 fi
 
 FOUND_SECRETS=0
 CHECKED_FILES=0
+
+# Build a single combined regex from all patterns (joined with |).
+# This lets us do one grep per file instead of N greps (one per pattern).
+COMBINED_PATTERN=""
+for P in "${PATTERNS[@]}"; do
+    if [ -n "$COMBINED_PATTERN" ]; then
+        COMBINED_PATTERN="${COMBINED_PATTERN}|${P}"
+    else
+        COMBINED_PATTERN="${P}"
+    fi
+done
 
 # Use NUL-delimited list to safely handle filenames with spaces
 while IFS= read -r -d '' FILE; do
@@ -532,50 +559,49 @@ while IFS= read -r -d '' FILE; do
 
     CHECKED_FILES=$((CHECKED_FILES + 1))
 
-    # Check each pattern
-    for PATTERN in "${PATTERNS[@]}"; do
-        # Use git show to check the staged content, not the working directory
-        # Use -- to indicate end of options for patterns starting with dashes
-        MATCHES=$(git show ":$FILE" 2>/dev/null | grep -niE -- "$PATTERN" 2>/dev/null)
+    # Cache staged file content once (avoids repeated git show calls per pattern)
+    FILE_CONTENT=$(git show ":$FILE" 2>/dev/null) || continue
 
-        if [ ! -z "$MATCHES" ]; then
-            FILTERED_MATCHES=""
-            while IFS= read -r line; do
-                if [ -z "$line" ]; then
+    # Single grep with combined pattern instead of N separate greps
+    MATCHES=$(printf '%s\n' "$FILE_CONTENT" | grep -niE -- "$COMBINED_PATTERN" 2>/dev/null)
+
+    if [ ! -z "$MATCHES" ]; then
+        FILTERED_MATCHES=""
+        while IFS= read -r line; do
+            if [ -z "$line" ]; then
+                continue
+            fi
+            CONTENT="${line#*:}"
+            if matches_safe_line_pattern "$CONTENT"; then
+                # Strip safe-line portions and re-check: a real secret
+                # on the same line (e.g. minified JSON) must not be masked.
+                STRIPPED="$CONTENT"
+                for sp in "${SAFE_LINE_PATTERNS[@]}"; do
+                    STRIPPED=$(printf '%s\n' "$STRIPPED" | sed -E "s"$'\x01'"$sp"$'\x01\x01'"g" 2>/dev/null || printf '%s\n' "$STRIPPED")
+                done
+                if ! printf '%s\n' "$STRIPPED" | grep -iE -- "$COMBINED_PATTERN" >/dev/null 2>&1; then
                     continue
                 fi
-                CONTENT="${line#*:}"
-                if matches_safe_line_pattern "$CONTENT"; then
-                    # Strip safe-line portions and re-check: a real secret
-                    # on the same line (e.g. minified JSON) must not be masked.
-                    STRIPPED="$CONTENT"
-                    for sp in "${SAFE_LINE_PATTERNS[@]}"; do
-                        STRIPPED=$(printf '%s\n' "$STRIPPED" | sed -E "s"$'\x01'"$sp"$'\x01\x01'"g" 2>/dev/null || printf '%s\n' "$STRIPPED")
-                    done
-                    if ! printf '%s\n' "$STRIPPED" | grep -iE -- "$PATTERN" >/dev/null 2>&1; then
-                        continue
-                    fi
-                fi
-                FILTERED_MATCHES="${FILTERED_MATCHES}${line}"$'\n'
-            done <<< "$MATCHES"
-            MATCHES="$FILTERED_MATCHES"
-        fi
-
-        if [ ! -z "$MATCHES" ]; then
-            if [ $FOUND_SECRETS -eq 0 ]; then
-                echo -e "${RED}❌ Found potential secrets in staged files:${NC}\n"
             fi
+            FILTERED_MATCHES="${FILTERED_MATCHES}${line}"$'\n'
+        done <<< "$MATCHES"
+        MATCHES="$FILTERED_MATCHES"
+    fi
 
-            echo -e "${YELLOW}File: $FILE${NC}"
-            echo "$MATCHES" | while read -r line; do
-                echo "  Line: $line"
-            done
-            echo ""
-
-            FOUND_SECRETS=1
+    if [ ! -z "$MATCHES" ]; then
+        if [ $FOUND_SECRETS -eq 0 ]; then
+            echo -e "${RED}❌ Found potential secrets in staged files:${NC}\n"
         fi
-    done
-done < <(git diff --cached --name-only --diff-filter=ACM -z)
+
+        echo -e "${YELLOW}File: $FILE${NC}"
+        echo "$MATCHES" | while read -r line; do
+            echo "  Line: $line"
+        done
+        echo ""
+
+        FOUND_SECRETS=1
+    fi
+done < "$STAGED_ACM_FILE"
 
 if [ $FOUND_SECRETS -eq 1 ]; then
     echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -609,7 +635,7 @@ for DIR in "${DIRS_TO_CHECK[@]}"; do
         if [[ "$FILE" == "$DIR/"* ]]; then
             STAGED_FILES+=("$FILE")
         fi
-    done < <(git diff --cached --name-only --diff-filter=ACM -z)
+    done < "$STAGED_ACM_FILE"
 
     if [ ${#STAGED_FILES[@]} -eq 0 ]; then
         continue
@@ -636,12 +662,12 @@ for DIR in "${DIRS_TO_CHECK[@]}"; do
         for F in "${PRETTIER_FILES[@]}"; do
             REL_FILES+=("${F#$DIR/}")
         done
-        if ! (cd "$DIR" && "$BUN" run format:check "${REL_FILES[@]}") 2>&1; then
+        if ! (cd "$DIR" && "$BUN" x prettier --check "${REL_FILES[@]}") 2>&1; then
             echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
             echo -e "${RED}Prettier formatting issues found in ${DIR}/!${NC}"
             echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
             echo ""
-            echo "Run: cd ${DIR} && bun run format"
+            echo "Run: cd ${DIR} && bunx prettier --write ${REL_FILES[*]}"
             echo "Then stage the fixed files and commit again."
             exit 1
         fi
@@ -696,7 +722,7 @@ while IFS= read -r -d '' FILE; do
             break 2
         fi
     done
-done < <(git diff --cached --name-only -z)
+done < "$STAGED_ALL_FILE"
 
 if [ $IPC_CHANGED -eq 1 ]; then
     echo "🔍 IPC contract files changed — checking generated code is up to date..."
@@ -705,7 +731,9 @@ if [ $IPC_CHANGED -eq 1 ]; then
         echo -e "${YELLOW}⚠️  bun not found — skipping IPC generation check${NC}"
         echo "  Install bun or run 'cd assistant && bun run generate:ipc' manually."
     else
-        if ! (cd assistant && "$BUN" run check:ipc-generated) 2>/dev/null; then
+        # Invoke script files directly instead of `bun run <script-name>` to
+        # skip package.json resolution and shell indirection (3 processes vs 9).
+        if ! (cd assistant && "$BUN" scripts/ipc/generate-swift.ts --check) 2>/dev/null; then
             echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
             echo -e "${RED}Generated IPC Swift models are out of date!${NC}"
             echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -716,7 +744,7 @@ if [ $IPC_CHANGED -eq 1 ]; then
         fi
         echo "✅ Generated IPC Swift models are up to date"
 
-        if ! (cd assistant && "$BUN" run ipc:inventory) 2>/dev/null; then
+        if ! (cd assistant && "$BUN" scripts/ipc/check-contract-inventory.ts) 2>/dev/null; then
             echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
             echo -e "${RED}IPC contract inventory snapshot is out of date!${NC}"
             echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -727,7 +755,7 @@ if [ $IPC_CHANGED -eq 1 ]; then
         fi
         echo "✅ IPC contract inventory is up to date"
 
-        if ! (cd assistant && "$BUN" run ipc:check-swift-drift) 2>/dev/null; then
+        if ! (cd assistant && "$BUN" scripts/ipc/check-swift-decoder-drift.ts) 2>/dev/null; then
             echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
             echo -e "${RED}Swift decoder is out of sync with the IPC contract!${NC}"
             echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -771,7 +799,7 @@ fi
 # Non-blocking reminder to consider whether changes belong in a skill or
 # one of the compiled source files (IDENTITY.md, SOUL.md, etc.) instead.
 
-if git diff --cached --name-only | grep -q 'assistant/src/config/system-prompt.ts'; then
+if grep -zq 'assistant/src/config/system-prompt.ts' "$STAGED_ALL_FILE"; then
     echo ""
     echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo -e "${YELLOW}⚠️  You are modifying system-prompt.ts — the core system prompt.${NC}"
@@ -798,9 +826,46 @@ if git diff --cached --name-only | grep -q 'assistant/src/config/system-prompt.t
     echo "conversation."
     echo ""
     echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+fi
+
+# --- .claude/commands/ skill migration nudge ---
+# Non-blocking reminder when someone adds a new non-symlink .md file to
+# .claude/commands/. These should be created as skills instead.
+
+COMMAND_VIOLATIONS=0
+while IFS= read -r -d '' FILE; do
+    case "$FILE" in
+        .claude/commands/*.md)
+            # Skip symlinks — those are managed by claude-skills/setup
+            if [ -L "$FILE" ]; then
+                continue
+            fi
+            if [ $COMMAND_VIOLATIONS -eq 0 ]; then
+                echo ""
+                echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+                echo -e "${YELLOW}⚠️  New command file detected in .claude/commands/${NC}"
+                echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+                echo ""
+                echo "Repo-local commands should be created as skills, not command files."
+                echo "The .claude/commands/ directory is for symlinks managed by claude-skills/setup."
+                echo ""
+                echo "Instead of:  .claude/commands/<name>.md"
+                echo "Create:      .claude/skills/<name>/SKILL.md"
+                echo ""
+                echo "See the Agent Skills spec: https://agentskills.io/specification"
+                echo ""
+                echo "Files:"
+            fi
+            echo "  - $FILE"
+            COMMAND_VIOLATIONS=$((COMMAND_VIOLATIONS + 1))
+            ;;
+    esac
+done < "$STAGED_ACM_FILE"
+
+if [ $COMMAND_VIOLATIONS -gt 0 ]; then
     echo ""
-    echo "Pausing for 3 seconds so you read the above..."
-    sleep 3
+    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
 fi
 
 exit 0

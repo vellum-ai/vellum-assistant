@@ -42,7 +42,9 @@ interface TestCaseResult {
 
 // ── Markdown Parsing ────────────────────────────────────────────────
 
-function parseFrontmatter(content: string): { fixture?: string; body: string } {
+type TestStatus = "critical" | "stable" | "experimental";
+
+function parseFrontmatter(content: string): { fixture?: string; status?: TestStatus; body: string } {
   const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
   if (!frontmatterMatch) {
     return { body: content };
@@ -51,15 +53,21 @@ function parseFrontmatter(content: string): { fixture?: string; body: string } {
   const frontmatterBlock = frontmatterMatch[1];
   const body = frontmatterMatch[2];
   let fixture: string | undefined;
+  let status: TestStatus | undefined;
 
   for (const line of frontmatterBlock.split("\n")) {
     const [key, ...valueParts] = line.split(":");
     if (key.trim() === "fixture") {
       fixture = valueParts.join(":").trim();
+    } else if (key.trim() === "status") {
+      const raw = valueParts.join(":").trim().toLowerCase();
+      if (raw === "critical" || raw === "stable" || raw === "experimental") {
+        status = raw;
+      }
     }
   }
 
-  return { fixture, body };
+  return { fixture, status, body };
 }
 
 // ── Test Discovery ──────────────────────────────────────────────────

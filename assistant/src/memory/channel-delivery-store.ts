@@ -33,6 +33,7 @@ export {
   getDeadLetterEvents,
   getRetryableEvents,
   markProcessed,
+  markRetryableFailure,
   recordProcessingFailure,
   replayDeadLetters,
 } from './delivery-status.js';

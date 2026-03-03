@@ -15,6 +15,7 @@ final class VoiceModeManager: ObservableObject {
         didSet { handleStateTransition(from: oldValue, to: state) }
     }
     @Published var partialTranscription: String = ""
+    @Published var liveTranscription: String = ""
     @Published var errorMessage: String = ""
     /// Set to true when deactivation was triggered by the conversation timeout
     /// (as opposed to manual deactivation). WakeWordCoordinator uses this to
@@ -24,9 +25,14 @@ final class VoiceModeManager: ObservableObject {
     /// How long to wait in `.idle` before auto-deactivating voice mode.
     var conversationTimeoutInterval: TimeInterval = 30
 
-    let voiceService: OpenAIVoiceService
+    let voiceService: any VoiceServiceProtocol
 
-    private weak var chatViewModel: ChatViewModel?
+    /// Typed accessor for UI views that need @Published properties (amplitude, speakingAmplitude).
+    var openAIVoiceService: OpenAIVoiceService? {
+        voiceService as? OpenAIVoiceService
+    }
+
+    weak var chatViewModel: ChatViewModel?
     private weak var settingsStore: SettingsStore?
     private var previousOnVoiceResponseComplete: ((String) -> Void)?
     private var previousOnVoiceTextDelta: ((String) -> Void)?
@@ -42,14 +48,16 @@ final class VoiceModeManager: ObservableObject {
     /// prematurely restart the 30s timer while the CU session is still running.
     private var conversationTimeoutPaused = false
     /// Permission request IDs currently being handled via voice.
-    private var pendingPermissionIds: [String] = []
+    var pendingPermissionIds: [String] = []
     /// Combine subscription to detect new confirmations in chat messages.
     private var messageCancellable: AnyCancellable?
     /// Combine subscription to pause/resume conversation timeout during tool execution.
     private var isThinkingCancellable: AnyCancellable?
+    /// Combine subscription forwarding live partial transcription from the voice service.
+    private var liveTranscriptionCancellable: AnyCancellable?
 
-    nonisolated init() {
-        self.voiceService = OpenAIVoiceService()
+    init(voiceService: any VoiceServiceProtocol = OpenAIVoiceService()) {
+        self.voiceService = voiceService
     }
 
     var stateLabel: String {
@@ -132,6 +140,16 @@ final class VoiceModeManager: ObservableObject {
                 }
             }
 
+        // Forward live partial transcription when listening
+        if let openAI = voiceService as? OpenAIVoiceService {
+            liveTranscriptionCancellable = openAI.$livePartialText
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] text in
+                    guard let self, self.state == .listening else { return }
+                    self.liveTranscription = text
+                }
+        }
+
         // Pre-warm audio engine so first recording starts instantly
         voiceService.prewarmEngine()
 
@@ -187,12 +205,15 @@ final class VoiceModeManager: ObservableObject {
         messageCancellable = nil
         isThinkingCancellable?.cancel()
         isThinkingCancellable = nil
+        liveTranscriptionCancellable?.cancel()
+        liveTranscriptionCancellable = nil
         pendingPermissionIds = []
 
         chatViewModel = nil
         settingsStore = nil
         state = .off
         partialTranscription = ""
+        liveTranscription = ""
         log.info("Voice mode deactivated")
     }
 
@@ -212,10 +233,12 @@ final class VoiceModeManager: ObservableObject {
     func startListening() {
         guard state == .idle else { return }
         partialTranscription = ""
+        liveTranscription = ""
         errorMessage = ""
         state = .listening
         guard voiceService.startRecording() else {
-            errorMessage = "Speech recognition unavailable"
+            log.error("Voice mode: startRecording() failed — mic may not be available yet")
+            errorMessage = "Microphone not ready. Try again."
             state = .idle
             return
         }
@@ -241,10 +264,6 @@ final class VoiceModeManager: ObservableObject {
         voiceService.resetStreamingTTS()
 
         Task {
-            // Capture context on MainActor before awaiting transcription so it
-            // reflects the app the user was looking at when they spoke, not
-            // whatever app may be frontmost after the async wait completes.
-            let ctx = DictationContextCapture.capture()
             let text = await voiceService.stopRecordingAndGetTranscription()
             let trimmed = (text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -262,52 +281,11 @@ final class VoiceModeManager: ObservableObject {
 
             partialTranscription = trimmed
 
-            // Build the context prefix from captured app context. Sanitize
-            // attacker-controlled values (window titles, selected text) to
-            // prevent prompt injection and excessive length.
-            var contextPrefix = ""
-            if !ctx.appName.isEmpty {
-                var parts: [String] = ["app: \(ctx.appName)"]
-                if !ctx.windowTitle.isEmpty {
-                    let sanitizedTitle = Self.sanitize(ctx.windowTitle, maxLength: 200)
-                    if !sanitizedTitle.isEmpty {
-                        parts.append("window: \"\(sanitizedTitle)\"")
-                    }
-                }
-                if let selected = ctx.selectedText, !selected.isEmpty {
-                    let sanitizedSelected = Self.sanitize(selected, maxLength: 500)
-                    if !sanitizedSelected.isEmpty {
-                        parts.append("selected text: \"\(sanitizedSelected)\"")
-                    }
-                }
-                contextPrefix = "[User's current \(parts.joined(separator: ", "))]\n"
-            }
-
-            // Pass context via pendingVoiceContextPrefix so it's injected into
-            // the daemon-bound text only — not into inputText, which is used for
-            // chat bubble display and thread auto-titling.
             chatViewModel.pendingVoiceMessage = true
-            if !contextPrefix.isEmpty {
-                chatViewModel.pendingVoiceContextPrefix = contextPrefix
-            }
             chatViewModel.inputText = trimmed
             chatViewModel.sendMessage()
             log.info("Voice mode: sent transcription to chat via daemon")
         }
-    }
-
-    /// Sanitize attacker-controlled text (window titles, selected text) by
-    /// truncating to a maximum length and stripping bracket patterns like
-    /// `[...]` that could be confused with instruction markers.
-    private static func sanitize(_ input: String, maxLength: Int) -> String {
-        var result = String(input.prefix(maxLength))
-        // Strip bracket patterns that could look like instruction markers
-        result = result.replacingOccurrences(
-            of: "\\[.*?\\]",
-            with: "",
-            options: .regularExpression
-        )
-        return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // MARK: - Streaming TTS from daemon response
@@ -435,7 +413,7 @@ final class VoiceModeManager: ObservableObject {
     ]
     private var lastPhraseIndex = -1
 
-    private func generatePermissionSummary(_ confirmations: [ToolConfirmationData]) -> String {
+    func generatePermissionSummary(_ confirmations: [ToolConfirmationData]) -> String {
         let descriptions = confirmations.map { describeAction($0) }
         let unique = Array(Set(descriptions))
 
@@ -456,7 +434,7 @@ final class VoiceModeManager: ObservableObject {
     }
 
     /// Produce a short, non-technical voice description for a single tool action.
-    private func describeAction(_ confirmation: ToolConfirmationData) -> String {
+    func describeAction(_ confirmation: ToolConfirmationData) -> String {
         let reason = (confirmation.input["reason"]?.value as? String) ?? ""
 
         // If the model provided a reason, use it directly — it's already high-level.
@@ -496,7 +474,12 @@ final class VoiceModeManager: ObservableObject {
         }
     }
 
-    private func handlePermissionResponse(_ text: String) {
+    /// Classify a voice response as approved, denied, or ambiguous.
+    enum PermissionDecision {
+        case approved, denied, ambiguous
+    }
+
+    static func classifyPermissionResponse(_ text: String) -> PermissionDecision {
         let lower = text.lowercased()
         let affirmative = ["yes", "yeah", "yep", "go ahead", "allow", "approve",
                            "sure", "okay", "ok", "do it", "proceed"]
@@ -507,8 +490,15 @@ final class VoiceModeManager: ObservableObject {
 
         // If both affirmative and negative substrings match (e.g. "no, don't do it"
         // contains "do it" + "no"/"don't"), treat as denial for safety.
-        let isApproved = hasAffirmative && !hasNegative
-        let isDenied = hasNegative
+        if hasAffirmative && !hasNegative { return .approved }
+        if hasNegative { return .denied }
+        return .ambiguous
+    }
+
+    private func handlePermissionResponse(_ text: String) {
+        let decision = Self.classifyPermissionResponse(text)
+        let isApproved = decision == .approved
+        let isDenied = decision == .denied
 
         guard let chatViewModel else {
             pendingPermissionIds = []
@@ -565,7 +555,9 @@ final class VoiceModeManager: ObservableObject {
 
     private func startConversationTimeout() {
         cancelConversationTimeout()
-        let interval = conversationTimeoutInterval
+        // Read the user's preference each time so changes take effect immediately
+        let storedTimeout = UserDefaults.standard.integer(forKey: "wakeWordTimeoutSeconds")
+        let interval = storedTimeout > 0 ? TimeInterval(storedTimeout) : conversationTimeoutInterval
         let clampedInterval = max(1.0, interval.isFinite ? interval : 30.0)
         conversationTimeoutTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(clampedInterval * 1_000_000_000))

@@ -17,7 +17,9 @@ import { setupFixture, type FixtureContext } from "../agent/fixtures";
 
 // ── Markdown Parsing ────────────────────────────────────────────────
 
-function parseFrontmatter(content: string): { fixture?: string; requiredEnv?: string[]; experimental?: boolean; body: string } {
+type TestStatus = "critical" | "stable" | "experimental";
+
+function parseFrontmatter(content: string): { fixture?: string; requiredEnv?: string[]; status?: TestStatus; body: string } {
   const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
   if (!frontmatterMatch) {
     return { body: content };
@@ -27,7 +29,7 @@ function parseFrontmatter(content: string): { fixture?: string; requiredEnv?: st
   const body = frontmatterMatch[2];
   let fixture: string | undefined;
   let requiredEnv: string[] | undefined;
-  let experimental: boolean | undefined;
+  let status: TestStatus | undefined;
 
   for (const line of frontmatterBlock.split("\n")) {
     const [key, ...valueParts] = line.split(":");
@@ -35,12 +37,15 @@ function parseFrontmatter(content: string): { fixture?: string; requiredEnv?: st
       fixture = valueParts.join(":").trim();
     } else if (key.trim() === "required_env") {
       requiredEnv = valueParts.join(":").trim().split(",").map((v) => v.trim()).filter(Boolean);
-    } else if (key.trim() === "experimental") {
-      experimental = valueParts.join(":").trim().toLowerCase() === "true";
+    } else if (key.trim() === "status") {
+      const raw = valueParts.join(":").trim().toLowerCase();
+      if (raw === "critical" || raw === "stable" || raw === "experimental") {
+        status = raw;
+      }
     }
   }
 
-  return { fixture, requiredEnv, experimental, body };
+  return { fixture, requiredEnv, status, body };
 }
 
 function checkRequiredEnv(requiredEnv: string[] | undefined): void {
@@ -85,11 +90,11 @@ const caseFiles = readdirSync(casesDir).filter((f) => f.endsWith(".md"));
 for (const file of caseFiles) {
   const filePath = path.join(casesDir, file);
   const rawContent = readFileSync(filePath, "utf-8");
-  const { fixture, requiredEnv, experimental, body } = parseFrontmatter(rawContent);
+  const { fixture, requiredEnv, status, body } = parseFrontmatter(rawContent);
   const testName = file.replace(/\.md$/, "");
 
   test(testName, async ({ page }, testInfo) => {
-    if (experimental && !process.env.RUN_EXPERIMENTAL) {
+    if (status === "experimental" && !process.env.RUN_EXPERIMENTAL) {
       test.skip();
       return;
     }

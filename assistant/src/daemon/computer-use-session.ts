@@ -499,6 +499,7 @@ export class ComputerUseSession {
         workingDir: getSandboxWorkingDir(),
         sessionId: this.sessionId,
         conversationId: this.sessionId,
+        guardianTrustClass: 'guardian',
         proxyToolResolver: proxyResolver,
         allowedToolNames,
         requestSecret: async (params) => {

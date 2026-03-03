@@ -1,0 +1,167 @@
+{
+  "version": 1,
+  "tools": [
+    {
+      "name": "slack_scan_digest",
+      "description": "Scan multiple Slack channels and return a digest of recent activity including top threads, participants, and privacy status.",
+      "category": "slack",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "channel_ids": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Specific channel IDs to scan. If omitted, scans preferred or top active channels."
+          },
+          "hours_back": {
+            "type": "number",
+            "description": "How many hours of history to scan (default 24)"
+          },
+          "include_threads": {
+            "type": "boolean",
+            "description": "Whether to fetch thread replies for top threads (default true)"
+          },
+          "max_channels": {
+            "type": "number",
+            "description": "Maximum number of channels to scan (default 20)"
+          }
+        }
+      },
+      "executor": "tools/slack-scan-digest.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "slack_channel_details",
+      "description": "Get detailed information about a single Slack channel including name, topic, purpose, privacy status, and member count.",
+      "category": "slack",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "channel_id": {
+            "type": "string",
+            "description": "The Slack channel ID to get details for"
+          }
+        },
+        "required": ["channel_id"]
+      },
+      "executor": "tools/slack-channel-details.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "slack_configure_channels",
+      "description": "Manage preferred Slack channels for scanning. List, add, remove, or set the preferred channel list.",
+      "category": "slack",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["list", "add", "remove", "set"],
+            "description": "Action to perform on the preferred channels list"
+          },
+          "channel_ids": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Channel IDs to add, remove, or set (not needed for 'list')"
+          }
+        },
+        "required": ["action"]
+      },
+      "executor": "tools/slack-configure-channels.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "slack_add_reaction",
+      "description": "Add an emoji reaction to a Slack message. Include a confidence score (0-1).",
+      "category": "slack",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "channel": {
+            "type": "string",
+            "description": "Slack channel ID"
+          },
+          "timestamp": {
+            "type": "string",
+            "description": "Message timestamp (ts)"
+          },
+          "emoji": {
+            "type": "string",
+            "description": "Emoji name without colons (e.g. \"thumbsup\")"
+          },
+          "confidence": {
+            "type": "number",
+            "description": "Confidence score (0-1) for this action"
+          }
+        },
+        "required": [
+          "channel",
+          "timestamp",
+          "emoji",
+          "confidence"
+        ]
+      },
+      "executor": "tools/slack-add-reaction.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "slack_delete_message",
+      "description": "Delete a Slack message posted by the bot. Include a confidence score (0-1).",
+      "category": "slack",
+      "risk": "high",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "channel": {
+            "type": "string",
+            "description": "Slack channel ID"
+          },
+          "timestamp": {
+            "type": "string",
+            "description": "Message timestamp (ts) to delete"
+          },
+          "confidence": {
+            "type": "number",
+            "description": "Confidence score (0-1) for this action"
+          }
+        },
+        "required": [
+          "channel",
+          "timestamp",
+          "confidence"
+        ]
+      },
+      "executor": "tools/slack-delete-message.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "slack_leave_channel",
+      "description": "Leave a Slack channel. Include a confidence score (0-1).",
+      "category": "slack",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "channel": {
+            "type": "string",
+            "description": "Slack channel ID to leave"
+          },
+          "confidence": {
+            "type": "number",
+            "description": "Confidence score (0-1) for this action"
+          }
+        },
+        "required": [
+          "channel",
+          "confidence"
+        ]
+      },
+      "executor": "tools/slack-leave-channel.ts",
+      "execution_target": "host"
+    }
+  ]
+}

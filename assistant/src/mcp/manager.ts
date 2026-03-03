@@ -27,8 +27,17 @@ export class McpServerManager {
 
       try {
         console.log(`[MCP] Starting server "${serverId}" (transport: ${serverConfig.transport.type})`);
+        if (serverConfig.transport.type === 'sse' || serverConfig.transport.type === 'streamable-http') {
+          log.debug({ serverId }, 'HTTP transport — OAuth provider will be available if server requires authentication');
+        }
         const client = new McpClient(serverId);
         await client.connect(serverConfig.transport);
+
+        if (!client.isConnected) {
+          // Server requires authentication — connect() logged guidance
+          continue;
+        }
+
         this.clients.set(serverId, client);
         this.serverConfigs.set(serverId, serverConfig);
 

@@ -62,6 +62,9 @@ struct ComposerView: View {
     let onPaste: () -> Void
     let onFileDrop: ([URL]) -> Void
     let onMicrophoneToggle: () -> Void
+    var voiceModeManager: VoiceModeManager? = nil
+    var voiceService: OpenAIVoiceService? = nil
+    var onEndVoiceMode: (() -> Void)? = nil
     var placeholderText: String = "What would you like to do?"
     var composerCompactHeight: CGFloat = 34
     /// Bound to ChatView's state so it can compute composerReservedHeight for safe area insets.
@@ -91,6 +94,10 @@ struct ComposerView: View {
     /// Returns nil when the composer content exceeds the max height (200pt) because
     /// the ghost text overlay is a sibling in the ZStack and would become misaligned
     /// once the TextEditor scrolls internally.
+    private var isVoiceModeActive: Bool {
+        voiceModeManager.map { $0.state != .off } ?? false
+    }
+
     private var ghostSuffix: String? {
         guard let suggestion else { return nil }
         guard !isEditorOverflowing else { return nil }
@@ -120,31 +127,42 @@ struct ComposerView: View {
                     attachmentStrip
                 }
 
-                // Text field always lives at the same structural position
-                // so that the NSViewRepresentable is never destroyed and
-                // recreated when toggling between compact/expanded layouts.
-                // In compact mode, buttons are overlaid at trailing edge;
-                // in expanded mode, they sit on a separate row below.
-                HStack(alignment: .center, spacing: VSpacing.md) {
-                    composerTextField
-                        .frame(height: clampedComposerHeight)
-                        .frame(maxHeight: isComposerExpanded ? clampedComposerHeight : .infinity, alignment: .center)
-                        .clipped()
-                    if !isComposerExpanded {
-                        composerActionButtons
+                if isVoiceModeActive {
+                    // Voice mode: replace text field with live transcription + voice controls
+                    HStack(alignment: .center, spacing: VSpacing.md) {
+                        voiceModeContent
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        voiceModeActionButtons
                             .frame(maxHeight: .infinity, alignment: .center)
-                            .offset(y: compactActionOpticalYOffset)
                     }
-                }
-                .frame(height: isComposerExpanded ? clampedComposerHeight : compactRowHeight, alignment: .center)
+                    .frame(height: compactRowHeight, alignment: .center)
+                } else {
+                    // Text field always lives at the same structural position
+                    // so that the NSViewRepresentable is never destroyed and
+                    // recreated when toggling between compact/expanded layouts.
+                    // In compact mode, buttons are overlaid at trailing edge;
+                    // in expanded mode, they sit on a separate row below.
+                    HStack(alignment: .center, spacing: VSpacing.md) {
+                        composerTextField
+                            .frame(height: clampedComposerHeight)
+                            .frame(maxHeight: isComposerExpanded ? clampedComposerHeight : .infinity, alignment: .center)
+                            .clipped()
+                        if !isComposerExpanded {
+                            composerActionButtons
+                                .frame(maxHeight: .infinity, alignment: .center)
+                                .offset(y: compactActionOpticalYOffset)
+                        }
+                    }
+                    .frame(height: isComposerExpanded ? clampedComposerHeight : compactRowHeight, alignment: .center)
 
-                if isComposerExpanded {
-                    // Expanded: buttons on a separate row below the text area
-                    HStack(spacing: VSpacing.md) {
-                        Spacer()
-                        composerActionButtons
+                    if isComposerExpanded {
+                        // Expanded: buttons on a separate row below the text area
+                        HStack(spacing: VSpacing.md) {
+                            Spacer()
+                            composerActionButtons
+                        }
+                        .padding(.top, VSpacing.xs)
                     }
-                    .padding(.top, VSpacing.xs)
                 }
             }
             .padding(.top, isComposerExpanded ? VSpacing.md : VSpacing.sm)
@@ -382,6 +400,113 @@ struct ComposerView: View {
         }
         .padding(.trailing, -(VSpacing.lg - VSpacing.sm))
         .animation(VAnimation.spring, value: canSend)
+    }
+
+    // MARK: - Voice Mode Content
+
+    @ViewBuilder
+    private var voiceModeContent: some View {
+        if let manager = voiceModeManager {
+            HStack(spacing: VSpacing.sm) {
+                // Waveform icon
+                Image(systemName: "waveform")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(voiceModeIconColor(manager))
+
+                if manager.state == .listening, !manager.liveTranscription.isEmpty {
+                    Text(manager.liveTranscription)
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                } else {
+                    Text(manager.stateLabel)
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textSecondary)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var voiceModeActionButtons: some View {
+        if let manager = voiceModeManager, let voiceService {
+            HStack(spacing: 2) {
+                // Waveform amplitude dots
+                voiceModeWaveform(manager: manager, voiceService: voiceService)
+                    .frame(width: 28, height: composerActionButtonSize)
+
+                // Mute / unmute
+                Button(action: { manager.toggleListening() }) {
+                    Image(systemName: manager.state == .listening ? "mic.fill" : "mic.slash.fill")
+                        .font(.system(size: composerActionIconSize, weight: .medium))
+                        .foregroundColor(manager.state == .listening
+                            ? adaptiveColor(light: Forest._500, dark: Moss._400)
+                            : VColor.textSecondary)
+                }
+                .buttonStyle(VIconButtonStyle(
+                    isHovered: false,
+                    isFocused: false,
+                    size: composerActionButtonSize
+                ))
+                .disabled(manager.state == .processing)
+                .accessibilityLabel(manager.state == .listening ? "Mute" : "Unmute")
+
+                // End voice mode (red X)
+                Button(action: { onEndVoiceMode?() }) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(VColor.error)
+                            .frame(width: 30, height: 30)
+                        Image(systemName: "xmark")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundColor(.white)
+                    }
+                }
+                .buttonStyle(VIconButtonStyle(
+                    isHovered: false,
+                    isFocused: false,
+                    size: composerActionButtonSize
+                ))
+                .accessibilityLabel("End voice mode")
+            }
+            .padding(.trailing, -(VSpacing.lg - VSpacing.sm))
+        }
+    }
+
+    private func voiceModeWaveform(manager: VoiceModeManager, voiceService: OpenAIVoiceService) -> some View {
+        HStack(spacing: 2) {
+            ForEach(0..<4, id: \.self) { i in
+                RoundedRectangle(cornerRadius: 1)
+                    .fill(voiceModeIconColor(manager))
+                    .frame(width: 3, height: voiceModeBarHeight(index: i, manager: manager, voiceService: voiceService))
+                    .animation(.easeInOut(duration: 0.12), value: voiceService.amplitude)
+                    .animation(.easeInOut(duration: 0.3), value: voiceService.speakingAmplitude)
+            }
+        }
+    }
+
+    private func voiceModeBarHeight(index: Int, manager: VoiceModeManager, voiceService: OpenAIVoiceService) -> CGFloat {
+        let amp: Float
+        switch manager.state {
+        case .listening: amp = voiceService.amplitude
+        case .speaking: amp = voiceService.speakingAmplitude
+        default: return 4
+        }
+        let base: CGFloat = 4
+        let maxExtra: CGFloat = 14
+        let offset = Float(index) * 0.2
+        let value = min(max(amp + offset * amp, 0), 1)
+        return base + CGFloat(value) * maxExtra
+    }
+
+    private func voiceModeIconColor(_ manager: VoiceModeManager) -> Color {
+        switch manager.state {
+        case .listening: return VColor.accent
+        case .speaking: return VColor.success
+        case .processing: return VColor.textSecondary
+        default: return Moss._500
+        }
     }
 
     private func handleComposerButtonHover(
@@ -964,8 +1089,12 @@ private final class ComposerNativeTextView: NSTextView {
         // keyDown where the send/accept/slash-menu logic lives.
         // Match exact .command only — Cmd+Opt+Enter, Cmd+Ctrl+Enter, etc.
         // must propagate normally, matching the keyDown equality check.
+        // Use an explicit modifier set instead of .deviceIndependentFlagsMask
+        // because the latter includes .numericPad and .capsLock, which would
+        // cause this check to fail when CapsLock is on or numpad Enter
+        // (keyCode 76) is pressed.
         if cmdEnterToSend,
-           event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+           event.modifierFlags.intersection([.shift, .command, .control, .option]) == [.command],
            (event.keyCode == 36 || event.keyCode == 76) {
             self.keyDown(with: event)
             return true

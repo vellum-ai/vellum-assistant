@@ -187,6 +187,25 @@ public final class SettingsStore: ObservableObject {
     @Published var slackChannelSaveInProgress: Bool = false
     @Published var slackChannelError: String?
 
+    // MARK: - Channel Guardian State (Slack)
+
+    @Published var slackGuardianIdentity: String?
+    @Published var slackGuardianUsername: String?
+    @Published var slackGuardianDisplayName: String?
+    @Published var slackGuardianVerified: Bool = false
+    @Published var slackGuardianVerificationInProgress: Bool = false
+    @Published var slackGuardianInstruction: String?
+    @Published var slackGuardianError: String?
+    @Published var slackGuardianAlreadyBound: Bool = false
+
+    // MARK: - Outbound Guardian Session State (Slack)
+
+    @Published var slackOutboundSessionId: String?
+    @Published var slackOutboundExpiresAt: Date?
+    @Published var slackOutboundNextResendAt: Date?
+    @Published var slackOutboundSendCount: Int = 0
+    @Published var slackOutboundCode: String?
+
     // MARK: - Email Integration State
 
     @Published var assistantEmail: String?
@@ -350,6 +369,12 @@ public final class SettingsStore: ObservableObject {
         NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.refreshAPIKeyState() }
+            .store(in: &cancellables)
+
+        // Re-sync all API keys to daemon when it reconnects
+        NotificationCenter.default.publisher(for: .daemonDidReconnect)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.syncAllKeysToDaemon() }
             .store(in: &cancellables)
 
         // maxStepsPerSession is read at session startup, so it must be persisted synchronously
@@ -586,6 +611,28 @@ public final class SettingsStore: ObservableObject {
                         ? "A guardian is already bound. Revoke it first or replace it."
                         : response.error
                 }
+            case "slack":
+                self.slackGuardianVerificationInProgress = false
+                if response.success {
+                    self.slackGuardianIdentity = response.guardianExternalUserId
+                    self.slackGuardianUsername = Self.reflectedString(response, key: "guardianUsername")
+                    self.slackGuardianDisplayName = Self.reflectedString(response, key: "guardianDisplayName")
+                    let isVerified = response.bound ?? false
+                    self.slackGuardianVerified = isVerified
+                    if isVerified {
+                        self.slackGuardianInstruction = nil
+                    } else if let instruction = response.instruction {
+                        self.slackGuardianInstruction = instruction
+                    }
+                    self.slackGuardianError = nil
+                    self.slackGuardianAlreadyBound = false
+                } else {
+                    let isAlreadyBound = response.error == "already_bound"
+                    self.slackGuardianAlreadyBound = isAlreadyBound
+                    self.slackGuardianError = isAlreadyBound
+                        ? "A guardian is already bound. Revoke it first or replace it."
+                        : response.error
+                }
             default:
                 break
             }
@@ -648,12 +695,14 @@ public final class SettingsStore: ObservableObject {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         APIKeyManager.setKey(trimmed)
+        syncKeyToDaemon(provider: "anthropic", value: trimmed)
         hasKey = true
         maskedKey = Self.maskKey(trimmed)
     }
 
     func clearAPIKey() {
         APIKeyManager.deleteKey()
+        deleteKeyFromDaemon(provider: "anthropic")
         hasKey = false
         maskedKey = ""
     }
@@ -662,12 +711,14 @@ public final class SettingsStore: ObservableObject {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         APIKeyManager.setKey(trimmed, for: "brave")
+        syncKeyToDaemon(provider: "brave", value: trimmed)
         hasBraveKey = true
         maskedBraveKey = Self.maskKey(trimmed)
     }
 
     func clearBraveKey() {
         APIKeyManager.deleteKey(for: "brave")
+        deleteKeyFromDaemon(provider: "brave")
         hasBraveKey = false
         maskedBraveKey = ""
     }
@@ -676,12 +727,14 @@ public final class SettingsStore: ObservableObject {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         APIKeyManager.setKey(trimmed, for: "perplexity")
+        syncKeyToDaemon(provider: "perplexity", value: trimmed)
         hasPerplexityKey = true
         maskedPerplexityKey = Self.maskKey(trimmed)
     }
 
     func clearPerplexityKey() {
         APIKeyManager.deleteKey(for: "perplexity")
+        deleteKeyFromDaemon(provider: "perplexity")
         hasPerplexityKey = false
         maskedPerplexityKey = ""
     }
@@ -690,12 +743,14 @@ public final class SettingsStore: ObservableObject {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         APIKeyManager.setKey(trimmed, for: "gemini")
+        syncKeyToDaemon(provider: "gemini", value: trimmed)
         hasImageGenKey = true
         maskedImageGenKey = Self.maskKey(trimmed)
     }
 
     func clearImageGenKey() {
         APIKeyManager.deleteKey(for: "gemini")
+        deleteKeyFromDaemon(provider: "gemini")
         hasImageGenKey = false
         maskedImageGenKey = ""
     }
@@ -704,12 +759,14 @@ public final class SettingsStore: ObservableObject {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         APIKeyManager.setKey(trimmed, for: "elevenlabs")
+        syncKeyToDaemon(provider: "elevenlabs", value: trimmed)
         hasElevenLabsKey = true
         maskedElevenLabsKey = Self.maskKey(trimmed)
     }
 
     func clearElevenLabsKey() {
         APIKeyManager.deleteKey(for: "elevenlabs")
+        deleteKeyFromDaemon(provider: "elevenlabs")
         hasElevenLabsKey = false
         maskedElevenLabsKey = ""
     }
@@ -896,6 +953,56 @@ public final class SettingsStore: ObservableObject {
             .flatMap(Int.init) ?? 7821
         guard let token = readHttpToken() else { return nil }
         return ("http://localhost:\(port)", token)
+    }
+
+    // MARK: - Daemon Key Sync (HTTP)
+
+    /// Notify the daemon that an API key was set, so it updates its encrypted store.
+    private func syncKeyToDaemon(provider: String, value: String) {
+        guard let http = resolveRuntimeHTTP() else { return }
+        guard let url = URL(string: "\(http.baseURL)/v1/secrets") else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(http.token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 5
+        let body: [String: String] = ["type": "api_key", "name": provider, "value": value]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        Task.detached {
+            _ = try? await URLSession.shared.data(for: request)
+        }
+    }
+
+    /// Notify the daemon that an API key was deleted.
+    private func deleteKeyFromDaemon(provider: String) {
+        guard let http = resolveRuntimeHTTP() else { return }
+        guard let url = URL(string: "\(http.baseURL)/v1/secrets") else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.setValue("Bearer \(http.token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 5
+        let body: [String: String] = ["type": "api_key", "name": provider]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        Task.detached {
+            _ = try? await URLSession.shared.data(for: request)
+        }
+    }
+
+    /// Re-sync all API keys to daemon on reconnect.
+    private func syncAllKeysToDaemon() {
+        let providers: [(String, String?)] = [
+            ("anthropic", APIKeyManager.getKey()),
+            ("brave", APIKeyManager.getKey(for: "brave")),
+            ("perplexity", APIKeyManager.getKey(for: "perplexity")),
+            ("gemini", APIKeyManager.getKey(for: "gemini")),
+            ("elevenlabs", APIKeyManager.getKey(for: "elevenlabs")),
+        ]
+        for (provider, value) in providers {
+            if let key = value {
+                syncKeyToDaemon(provider: provider, value: key)
+            }
+        }
     }
 
     func fetchSlackChannelConfig() {
@@ -1242,6 +1349,11 @@ public final class SettingsStore: ObservableObject {
             voiceGuardianError = nil
             voiceGuardianAlreadyBound = false
             voiceGuardianInstruction = nil
+        case "slack":
+            slackGuardianVerificationInProgress = true
+            slackGuardianError = nil
+            slackGuardianAlreadyBound = false
+            slackGuardianInstruction = nil
         default:
             return
         }
@@ -1258,6 +1370,9 @@ public final class SettingsStore: ObservableObject {
                 case "voice":
                     voiceGuardianVerificationInProgress = false
                     voiceGuardianError = "Daemon is not connected. Reconnect and try again."
+                case "slack":
+                    slackGuardianVerificationInProgress = false
+                    slackGuardianError = "Daemon is not connected. Reconnect and try again."
                 default:
                     break
                 }
@@ -1283,6 +1398,9 @@ public final class SettingsStore: ObservableObject {
             case "voice":
                 voiceGuardianVerificationInProgress = false
                 voiceGuardianError = "Failed to start verification. Try again."
+            case "slack":
+                slackGuardianVerificationInProgress = false
+                slackGuardianError = "Failed to start verification. Try again."
             default:
                 break
             }
@@ -1302,6 +1420,9 @@ public final class SettingsStore: ObservableObject {
         case "voice":
             voiceGuardianVerificationInProgress = false
             voiceGuardianInstruction = nil
+        case "slack":
+            slackGuardianVerificationInProgress = false
+            slackGuardianInstruction = nil
         default:
             break
         }
@@ -1325,6 +1446,8 @@ public final class SettingsStore: ObservableObject {
             smsGuardianInstruction = nil
         case "voice":
             voiceGuardianInstruction = nil
+        case "slack":
+            slackGuardianInstruction = nil
         default:
             break
         }
@@ -1427,6 +1550,10 @@ public final class SettingsStore: ObservableObject {
             voiceGuardianVerificationInProgress = true
             voiceGuardianError = nil
             voiceGuardianAlreadyBound = false
+        case "slack":
+            slackGuardianVerificationInProgress = true
+            slackGuardianError = nil
+            slackGuardianAlreadyBound = false
         default:
             return
         }
@@ -1442,6 +1569,9 @@ public final class SettingsStore: ObservableObject {
                 case "voice":
                     voiceGuardianVerificationInProgress = false
                     voiceGuardianError = "Daemon is not connected. Reconnect and try again."
+                case "slack":
+                    slackGuardianVerificationInProgress = false
+                    slackGuardianError = "Daemon is not connected. Reconnect and try again."
                 default:
                     break
                 }
@@ -1464,6 +1594,9 @@ public final class SettingsStore: ObservableObject {
             case "voice":
                 voiceGuardianVerificationInProgress = false
                 voiceGuardianError = "Failed to start verification. Try again."
+            case "slack":
+                slackGuardianVerificationInProgress = false
+                slackGuardianError = "Failed to start verification. Try again."
             default:
                 break
             }
@@ -1491,6 +1624,8 @@ public final class SettingsStore: ObservableObject {
             smsGuardianVerificationInProgress = false
         case "voice":
             voiceGuardianVerificationInProgress = false
+        case "slack":
+            slackGuardianVerificationInProgress = false
         default:
             break
         }
@@ -1525,6 +1660,12 @@ public final class SettingsStore: ObservableObject {
             voiceOutboundNextResendAt = nil
             voiceOutboundSendCount = 0
             voiceOutboundCode = nil
+        case "slack":
+            slackOutboundSessionId = nil
+            slackOutboundExpiresAt = nil
+            slackOutboundNextResendAt = nil
+            slackOutboundSendCount = 0
+            slackOutboundCode = nil
         default:
             break
         }
@@ -1590,6 +1731,17 @@ public final class SettingsStore: ObservableObject {
             if let nextResendAt { voiceOutboundNextResendAt = nextResendAt }
             if let sendCount { voiceOutboundSendCount = sendCount }
             if let secret { voiceOutboundCode = secret }
+        case "slack":
+            if sessionId != slackOutboundSessionId {
+                slackOutboundNextResendAt = nil
+                slackOutboundSendCount = 0
+                slackOutboundCode = nil
+            }
+            slackOutboundSessionId = sessionId
+            if let expiresAt { slackOutboundExpiresAt = expiresAt }
+            if let nextResendAt { slackOutboundNextResendAt = nextResendAt }
+            if let sendCount { slackOutboundSendCount = sendCount }
+            if let secret { slackOutboundCode = secret }
         default:
             break
         }
@@ -1607,6 +1759,7 @@ public final class SettingsStore: ObservableObject {
             ("telegram", telegramGuardianVerificationInProgress),
             ("sms", smsGuardianVerificationInProgress),
             ("voice", voiceGuardianVerificationInProgress),
+            ("slack", slackGuardianVerificationInProgress),
         ].filter(\.1)
         if inProgressChannels.count == 1 {
             return inProgressChannels.first?.0
@@ -1629,6 +1782,8 @@ public final class SettingsStore: ObservableObject {
             smsGuardianInstruction = nil
         case "voice":
             voiceGuardianInstruction = nil
+        case "slack":
+            slackGuardianInstruction = nil
         default:
             break
         }
@@ -1659,6 +1814,12 @@ public final class SettingsStore: ObservableObject {
                 if self.voiceGuardianError == nil {
                     self.voiceGuardianError = "Timed out waiting for verification instructions. Try again."
                 }
+            case "slack":
+                self.slackGuardianVerificationInProgress = false
+                self.slackGuardianInstruction = nil
+                if self.slackGuardianError == nil {
+                    self.slackGuardianError = "Timed out waiting for verification instructions. Try again."
+                }
             default:
                 break
             }
@@ -1668,7 +1829,7 @@ public final class SettingsStore: ObservableObject {
     }
 
     private func startGuardianStatusPolling(for channel: String) {
-        guard channel == "telegram" || channel == "sms" || channel == "voice" else { return }
+        guard channel == "telegram" || channel == "sms" || channel == "voice" || channel == "slack" else { return }
         stopGuardianStatusPolling(for: channel)
         guardianStatusPollingDeadlines[channel] = Date().addingTimeInterval(guardianStatusPollWindow)
         scheduleGuardianStatusPoll(for: channel, delay: guardianStatusPollInterval)

@@ -47,7 +47,7 @@ func main() async {
 
     for testCase in testCases {
         // Skip experimental tests unless --experimental or RUN_EXPERIMENTAL is set
-        if testCase.experimental && !runExperimental {
+        if testCase.status == .experimental && !runExperimental {
             skipped.append(testCase.name)
             print("⏭ Skipping (experimental): \(testCase.name)")
             continue

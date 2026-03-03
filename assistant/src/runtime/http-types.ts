@@ -1,15 +1,18 @@
 /**
  * Shared types for the runtime HTTP server and its route handlers.
  */
-import type { ChannelId, InterfaceId } from '../channels/types.js';
-import type { Session } from '../daemon/session.js';
-import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
-import type { ApprovalMessageContext, ComposeApprovalMessageGenerativeOptions } from './approval-message-composer.js';
-import type { AssistantEventHub } from './assistant-event-hub.js';
+import type { ChannelId, InterfaceId } from "../channels/types.js";
+import type { Session } from "../daemon/session.js";
+import type { GuardianRuntimeContext } from "../daemon/session-runtime-assembly.js";
+import type {
+  ApprovalMessageContext,
+  ComposeApprovalMessageGenerativeOptions,
+} from "./approval-message-composer.js";
+import type { AssistantEventHub } from "./assistant-event-hub.js";
 import type {
   ComposeGuardianActionMessageOptions,
   GuardianActionMessageContext,
-} from './guardian-action-message-composer.js';
+} from "./guardian-action-message-composer.js";
 /**
  * Daemon-injected function that generates approval copy using a provider.
  * Returns generated text or `null` on failure (caller falls back to deterministic text).
@@ -25,10 +28,10 @@ export type ApprovalCopyGenerator = (
 
 /** The disposition returned by the approval conversation engine. */
 export type ApprovalConversationDisposition =
-  | 'keep_pending'
-  | 'approve_once'
-  | 'approve_always'
-  | 'reject';
+  | "keep_pending"
+  | "approve_once"
+  | "approve_always"
+  | "reject";
 
 /** Structured result from a single turn of the approval conversation. */
 export interface ApprovalConversationResult {
@@ -42,7 +45,7 @@ export interface ApprovalConversationResult {
 export interface ApprovalConversationContext {
   toolName: string;
   allowedActions: string[];
-  role: 'requester' | 'guardian';
+  role: "requester" | "guardian";
   pendingApprovals: Array<{ requestId: string; toolName: string }>;
   userMessage: string;
 }
@@ -70,10 +73,10 @@ export type GuardianActionCopyGenerator = (
 
 /** The disposition returned by the guardian follow-up conversation engine. */
 export type GuardianFollowUpDisposition =
-  | 'call_back'
-  | 'message_back'
-  | 'decline'
-  | 'keep_pending';
+  | "call_back"
+  | "message_back"
+  | "decline"
+  | "keep_pending";
 
 /** Structured result from a single turn of the guardian follow-up conversation. */
 export interface GuardianFollowUpTurnResult {
@@ -180,6 +183,8 @@ export interface RuntimeHttpServerOptions {
   guardianFollowUpConversationGenerator?: GuardianFollowUpConversationGenerator;
   /** Dependencies for the POST /v1/messages queue-if-busy handler. */
   sendMessageDeps?: SendMessageDeps;
+  /** Lookup an active session by ID (for surface actions). Returns undefined if not found. */
+  findSession?: (sessionId: string) => Session | undefined;
 }
 
 export interface RuntimeAttachmentMetadata {
@@ -196,6 +201,11 @@ export interface RuntimeMessagePayload {
   content: string;
   timestamp: string;
   attachments: RuntimeAttachmentMetadata[];
-  toolCalls?: Array<{ name: string; input: Record<string, unknown>; result?: string; isError?: boolean }>;
+  toolCalls?: Array<{
+    name: string;
+    input: Record<string, unknown>;
+    result?: string;
+    isError?: boolean;
+  }>;
   interfaces?: string[];
 }

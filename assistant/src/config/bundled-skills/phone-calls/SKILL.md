@@ -2,30 +2,12 @@
 name: "Phone Calls"
 description: "Set up Twilio for AI-powered voice calls — both outgoing calls on behalf of the user and incoming calls where the assistant answers as a receptionist"
 user-invocable: true
-metadata: {"vellum": {"emoji": "📞", "requires": {"config": ["calls.enabled"]}}}
+metadata:
+  { "vellum": { "emoji": "📞", "requires": { "config": ["calls.enabled"] } } }
 includes: ["public-ingress"]
 ---
 
-You are helping the user set up and manage phone calls via Twilio. This skill covers the full lifecycle: Twilio account setup, credential storage, public ingress configuration, enabling the calls feature, placing outbound calls, receiving inbound calls, and monitoring live transcripts.
-
-## Prerequisites — Shared Twilio Setup
-
-Twilio credentials and phone number configuration are shared between voice calls and SMS messaging. If Twilio is not yet configured, install and load the **twilio-setup** skill first:
-
-- Call `vellum_skills_catalog` with `action: "install"`, `skill_id: "twilio-setup"`, and `overwrite: true` (so it succeeds even if already installed).
-- Then call `skill_load` with `skill: "twilio-setup"`.
-
-The twilio-setup skill handles credential storage, phone number provisioning/assignment, and public ingress setup. Once complete, return here to enable the calls feature and start making calls.
-
-Check if Twilio is already configured:
-
-```bash
-TOKEN=$(cat ~/.vellum/http-token)
-curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/config" \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-If `hasCredentials` is `true` and `phoneNumber` is set, skip directly to **Step 5: Enable Calls** below.
+You are helping the user set up and manage phone calls via Twilio. This skill covers enabling the calls feature, placing outbound calls, receiving inbound calls, and interacting with live calls. Twilio credential storage, phone number provisioning, and public ingress are handled by the **twilio-setup** skill.
 
 ## Overview
 
@@ -39,7 +21,7 @@ When a call is placed:
 2. Twilio connects to the gateway's voice webhook, which returns TwiML
 3. Twilio opens a ConversationRelay WebSocket for real-time voice streaming
 4. An LLM-driven orchestrator manages the conversation — receiving caller speech (transcribed by Deepgram), generating responses via Claude, and streaming text back for TTS playback
-5. The transcript is relayed live to the user's conversation thread
+5. The full transcript is stored in the database for later retrieval
 
 ### Inbound calls
 
@@ -53,6 +35,7 @@ When someone dials the assistant's Twilio phone number:
 6. The assistant converses naturally, using ASK_GUARDIAN to consult the user when needed, just like outbound calls.
 
 Three voice quality modes are available:
+
 - **`twilio_standard`** (default) — Fully supported. Standard Twilio TTS with Google voices. No extra setup required.
 - **`twilio_elevenlabs_tts`** — Fully supported. Uses ElevenLabs voices through Twilio ConversationRelay for more natural speech.
 - **`elevenlabs_agent`** — **Experimental/restricted.** Full ElevenLabs conversational agent mode. Consultation bridging (`waiting_on_user`) is not yet supported in this mode; the runtime guard blocks it before any ElevenLabs API calls are made. See the "Runtime behavior" section below for fallback and strict-fail details.
@@ -61,9 +44,9 @@ You can keep using Twilio only — no changes needed. Enabling ElevenLabs can im
 
 The user's assistant gets its own personal phone number through Twilio. All implicit calls (without an explicit mode) always use this assistant number. Optionally, users can call from their own phone number if it's authorized with the Twilio account — this must be explicitly requested per call via `caller_identity_mode="user_number"`.
 
-## Step 1: Check Current Configuration
+## Step 1: Verify Twilio Setup
 
-First, check whether Twilio is already configured:
+Check whether Twilio credentials, phone number, and public ingress are already configured:
 
 ```bash
 TOKEN=$(cat ~/.vellum/http-token)
@@ -71,73 +54,19 @@ curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/config" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
-Also check calls feature status:
-
 ```bash
 vellum config get calls.enabled
 ```
 
-If the config response shows `hasCredentials: true` and `phoneNumber` is set, and `calls.enabled` is `true`, skip to the **Making Calls** section. If credentials are partially configured, skip to whichever step is still needed.
+If `hasCredentials` is `true`, `phoneNumber` is set, and `calls.enabled` is `true`, skip to the **Making Outbound Calls** section.
 
-## Step 2: Create a Twilio Account
+If Twilio is not yet configured, load the **twilio-setup** skill — it handles credential storage, phone number provisioning, and public ingress setup:
 
-If the user doesn't have a Twilio account yet, guide them through setup:
+- Call `skill_load` with `skill_id: "twilio-setup"` to load the dependency skill.
 
-1. Tell the user: **"You'll need a Twilio account to make phone calls. Sign up at https://www.twilio.com/try-twilio — it's free to start and includes trial credit."**
-2. Once they have an account, they need two pieces of information:
-   - **Account SID** — found on the Twilio Console dashboard at https://console.twilio.com
-   - **Auth Token** — found on the same dashboard (click "Show" to reveal it)
+Once twilio-setup completes, return here to enable calls.
 
-Tell the user: **"The assistant will get its own personal phone number through Twilio — the number that shows up on caller ID when calls are placed."**
-
-## Step 3: Store Twilio Credentials
-
-**IMPORTANT — Secure credential collection only:** Never use credentials pasted in plaintext chat. Always collect credentials through the secure credential prompt flow:
-
-- Call `credential_store` with `action: "prompt"`, `service: "twilio"`, `field: "account_sid"`, `label: "Twilio Account SID"`, `description: "Enter your Account SID from the Twilio Console dashboard"`, and `placeholder: "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"`.
-- Call `credential_store` with `action: "prompt"`, `service: "twilio"`, `field: "auth_token"`, `label: "Twilio Auth Token"`, `description: "Enter your Auth Token from the Twilio Console dashboard"`, and `placeholder: "your_auth_token"`.
-
-After both credentials are collected, send them to the gateway:
-
-```bash
-TOKEN=$(cat ~/.vellum/http-token)
-curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/credentials" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"accountSid":"<value from credential_store for twilio/account_sid>","authToken":"<value from credential_store for twilio/auth_token>"}'
-```
-
-The endpoint validates the credentials against the Twilio API before storing them. If credentials are invalid, ask the user to re-enter via the secure prompt.
-
-**Important:** Credentials are stored in the OS keychain (macOS Keychain / Linux secret-service) or encrypted at rest. They are never logged or exposed in plaintext.
-
-## Step 4: Set Up Public Ingress
-
-Twilio needs a publicly reachable URL to send voice webhooks and establish the ConversationRelay WebSocket. The **public-ingress** skill handles this via ngrok.
-
-Check if ingress is already configured:
-
-```bash
-vellum config get ingress.publicBaseUrl
-vellum config get ingress.enabled
-```
-
-If not configured, load and run the public-ingress skill:
-
-```
-skill_load skill=public-ingress
-```
-
-Follow the public-ingress skill's instructions to set up the ngrok tunnel. Once complete, the gateway will be reachable at the configured `ingress.publicBaseUrl`.
-
-**Twilio needs these webhook endpoints (handled automatically by the gateway):**
-- Voice webhook: `{publicBaseUrl}/webhooks/twilio/voice`
-- Status callback: `{publicBaseUrl}/webhooks/twilio/status`
-- ConversationRelay WebSocket: `{publicBaseUrl}/webhooks/twilio/relay` (wss://)
-
-No manual Twilio webhook configuration is needed — the assistant registers webhook URLs dynamically when placing each call.
-
-## Step 5: Enable Calls
+## Step 2: Enable Calls
 
 Enable the calls feature:
 
@@ -146,11 +75,12 @@ vellum config set calls.enabled true
 ```
 
 Verify:
+
 ```bash
 vellum config get calls.enabled
 ```
 
-## Step 6: Verify Setup (Test Call)
+## Step 3: Verify Setup (Test Call)
 
 Before making real calls, offer a quick verification:
 
@@ -176,14 +106,14 @@ If the user wants a specific call to appear as coming from their own phone numbe
 credential_store action=store service=twilio field=user_phone_number value=+14155559999
 ```
 
-**To use it for a specific call**, pass `caller_identity_mode: 'user_number'` when calling `call_start` — see the Making Calls section for examples. User-number mode cannot be set as a global default; it must be requested explicitly per call.
+**To use it for a specific call**, pass `caller_identity_mode: 'user_number'` when calling `call_start` — see the Making Outbound Calls section for examples. User-number mode cannot be set as a global default; it must be requested explicitly per call.
 
 ### Configuration reference
 
-| Setting | Description | Default |
-|---|---|---|
-| `calls.callerIdentity.allowPerCallOverride` | Whether per-call mode selection is allowed | `true` |
-| `calls.callerIdentity.userNumber` | Optional E.164 phone number for user-number mode (alternative to storing via `credential_store`) | *(empty)* |
+| Setting                                     | Description                                                                                      | Default   |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------ | --------- |
+| `calls.callerIdentity.allowPerCallOverride` | Whether per-call mode selection is allowed                                                       | `true`    |
+| `calls.callerIdentity.userNumber`           | Optional E.164 phone number for user-number mode (alternative to storing via `credential_store`) | _(empty)_ |
 
 ## DTMF Callee Verification
 
@@ -199,10 +129,10 @@ An optional verification step where the callee must enter a numeric code via the
 
 ### Configuration
 
-| Setting | Description | Default |
-|---|---|---|
-| `calls.verification.enabled` | Enable DTMF callee verification | `false` |
-| `calls.verification.codeLength` | Number of digits in the verification code | `6` |
+| Setting                         | Description                               | Default |
+| ------------------------------- | ----------------------------------------- | ------- |
+| `calls.verification.enabled`    | Enable DTMF callee verification           | `false` |
+| `calls.verification.codeLength` | Number of digits in the verification code | `6`     |
 
 ## Optional: Higher Quality Voice with ElevenLabs
 
@@ -290,6 +220,7 @@ vellum config set calls.voice.mode twilio_standard
 ## Making Outbound Calls
 
 Use the `call_start` tool to place outbound calls. Every call requires:
+
 - **phone_number**: The number to call in E.164 format (e.g. `+14155551234`)
 - **task**: What the call should accomplish — this becomes the AI voice agent's objective
 - **context** (optional): Additional background information for the conversation
@@ -297,16 +228,19 @@ Use the `call_start` tool to place outbound calls. Every call requires:
 ### Example calls:
 
 **Making a reservation:**
+
 ```
 call_start phone_number="+14155551234" task="Make a dinner reservation for 2 people tonight at 7pm" context="The user's name is John Smith. Prefer a table by the window if available."
 ```
 
 **Calling a business:**
+
 ```
 call_start phone_number="+18005551234" task="Check if they have a specific product in stock" context="Looking for a 65-inch Samsung OLED TV, model QN65S95D. Ask about availability and price."
 ```
 
 **Following up on an appointment:**
+
 ```
 call_start phone_number="+12125551234" task="Confirm the dentist appointment scheduled for next Tuesday at 2pm" context="The appointment is under the name Jane Doe, DOB 03/15/1990."
 ```
@@ -316,11 +250,13 @@ call_start phone_number="+12125551234" task="Confirm the dentist appointment sch
 Implicit calls always use the assistant's Twilio number (`assistant_number`). Only specify `caller_identity_mode` when the user explicitly requests a different identity for a specific call.
 
 **Default call (assistant number):**
+
 ```
 call_start phone_number="+14155551234" task="Check store hours for today"
 ```
 
 **Call from the user's own number:**
+
 ```
 call_start phone_number="+14155551234" task="Check store hours for today" caller_identity_mode="user_number"
 ```
@@ -330,6 +266,7 @@ call_start phone_number="+14155551234" task="Check store hours for today" caller
 ### Phone number format
 
 Phone numbers MUST be in E.164 format: `+` followed by country code and number with no spaces, dashes, or parentheses.
+
 - US/Canada: `+1XXXXXXXXXX` (e.g. `+14155551234`)
 - UK: `+44XXXXXXXXXX` (e.g. `+442071234567`)
 - International: `+{country_code}{number}`
@@ -339,6 +276,7 @@ If the user provides a number in a different format, convert it to E.164 before 
 ### Trial account limitations
 
 On Twilio trial accounts, outbound calls can ONLY be made to **verified numbers**. If a call fails with a "not verified" error:
+
 1. Tell the user they need to verify the number at https://console.twilio.com/us1/develop/phone-numbers/manage/verified
 2. Or upgrade to a paid Twilio account to call any number
 
@@ -351,41 +289,19 @@ Once Twilio is configured and the assistant has a phone number, inbound calls wo
 3. The LLM-driven orchestrator answers in receptionist mode — greeting the caller warmly and asking how it can help
 4. The conversation proceeds naturally, with ASK_GUARDIAN dispatches to consult the user when needed
 
-No additional configuration is needed beyond the standard Twilio setup (Steps 1-5 above). As long as `calls.enabled` is `true` and the phone number has been provisioned/assigned, inbound calls are handled automatically.
+No additional configuration is needed beyond Twilio setup and `calls.enabled` being `true`. As long as the phone number has been provisioned/assigned, inbound calls are handled automatically.
 
 ### Guardian voice verification for inbound calls
 
-For guardian verification setup, first install the skill via `vellum_skills_catalog` with `action: "install"` and `skill_id: "guardian-verify-setup"`, then load it with `skill_load` using `skill: "guardian-verify-setup"`. This skill handles the full outbound verification flow; `phone-calls` does not orchestrate it inline. Do not use `call_start` to place guardian verification calls — the guardian outbound verification endpoints already place those calls.
+For guardian verification setup, load the skill by calling `skill_load` with `skill_id: "guardian-verify-setup"`. This skill handles the full outbound verification flow; `phone-calls` does not orchestrate it inline. Do not use `call_start` to place guardian verification calls — the guardian outbound verification endpoints already place those calls.
 
 Once a guardian binding exists for the voice channel, inbound callers may be prompted for verification before calls proceed. The relay server detects pending challenges and prompts callers: "Please enter your six-digit verification code using your keypad, or speak the digits now." If verification fails after 3 attempts, the call ends with "Verification failed. Goodbye."
 
 This feature is separate from the outbound DTMF callee verification. It uses the channel guardian verification system rather than the per-call verification config.
 
-## Live Call Monitoring
+## Interacting with a Live Call
 
-### Showing the live transcript
-
-By default, always show the live transcript of the call as it happens. When a call is in progress:
-
-1. After placing the call with `call_start`, immediately begin polling with `call_status` to track the call state
-2. The system fires transcript notifications as the conversation unfolds — both caller speech and assistant responses appear in real time in the conversation thread
-3. Present each transcript entry clearly as it arrives:
-
-```
-📞 Call in progress...
-
-🗣️ Assistant: "Hi, I'm calling on behalf of John to make a dinner reservation for tonight."
-👤 Caller: "Sure, what time would you like?"
-🗣️ Assistant: "We'd like a table for two at 7pm, please."
-👤 Caller: "Let me check... yes, we have availability at 7pm."
-🗣️ Assistant: "Wonderful! The reservation would be under John Smith."
-```
-
-4. Continue monitoring until the call completes or fails
-
-### Interacting with a live call
-
-During an active call, the user can interact with the AI voice agent via the HTTP API endpoints:
+During an active call, the user can interact with the AI voice agent via the HTTP API endpoints. After placing a call with `call_start`, use `call_status` to poll the call state.
 
 #### Answering questions
 
@@ -424,7 +340,7 @@ When there is **no pending question** but the call is still active, the user can
 
 The instruction is injected into the AI voice agent's conversation context as high-priority input, and the agent adjusts its behavior accordingly.
 
-**Note:** Mid-call steering via the desktop chat thread is no longer supported. The desktop thread only receives pointer/status messages about the call. To steer a call, use the HTTP API endpoints directly.
+**Note:** Steering is done via the HTTP API, not the desktop chat thread. The desktop thread only receives pointer/status messages about the call.
 
 ### Call status values
 
@@ -439,6 +355,7 @@ The instruction is injected into the AI voice agent's conversation context as hi
 ### Ending a call early
 
 Use `call_end` with the call session ID to terminate an active call:
+
 ```
 call_end call_session_id="<session_id>" reason="User requested to end the call"
 ```
@@ -465,6 +382,7 @@ sqlite3 ~/.vellum/workspace/data/db/assistant.db \
 ```
 
 This returns all messages in chronological order with:
+
 - `role: "user"` — caller speech (prefixed with `[SPEAKER]` tags) and system events
 - `role: "assistant"` — assistant responses, including `text` content and any `tool_use`/`tool_result` blocks
 
@@ -479,22 +397,22 @@ sqlite3 ~/.vellum/workspace/data/db/assistant.db \
 
 ### Additional tables for call metadata
 
-| Table | What it contains |
-|---|---|
-| `call_sessions` | Session metadata (start time, duration, phone numbers, status) |
-| `call_events` | Granular event log for the call lifecycle |
-| `notification_decisions` | Whether notifications were evaluated during the call |
-| `notification_deliveries` | Notification delivery attempts |
+| Table                     | What it contains                                               |
+| ------------------------- | -------------------------------------------------------------- |
+| `call_sessions`           | Session metadata (start time, duration, phone numbers, status) |
+| `call_events`             | Granular event log for the call lifecycle                      |
+| `notification_decisions`  | Whether notifications were evaluated during the call           |
+| `notification_deliveries` | Notification delivery attempts                                 |
 
 ### Key paths
 
-| Resource | Path |
-|---|---|
+| Resource                                   | Path                                       |
+| ------------------------------------------ | ------------------------------------------ |
 | Daemon logs (caller-side transcripts only) | `~/.vellum/workspace/data/logs/vellum.log` |
-| Full conversation database | `~/.vellum/workspace/data/db/assistant.db` |
-| Messages table | `messages` (keyed by `conversation_id`) |
-| Call sessions table | `call_sessions` |
-| Call events table | `call_events` |
+| Full conversation database                 | `~/.vellum/workspace/data/db/assistant.db` |
+| Messages table                             | `messages` (keyed by `conversation_id`)    |
+| Call sessions table                        | `call_sessions`                            |
+| Call events table                          | `call_events`                              |
 
 ### Important
 
@@ -523,6 +441,7 @@ The `context` field is powerful — use it to give the agent background that hel
 ### Things the AI voice agent handles well
 
 **Outbound calls:**
+
 - Making reservations and appointments
 - Checking business hours, availability, or pricing
 - Confirming or rescheduling existing appointments
@@ -531,6 +450,7 @@ The `context` field is powerful — use it to give the agent background that hel
 - Leaving voicemails (it will speak the message if voicemail picks up)
 
 **Inbound calls:**
+
 - Answering as a receptionist and routing caller requests to the user via ASK_GUARDIAN
 - Taking messages when the user is unavailable
 - Answering questions the assistant already knows from memory/context
@@ -547,27 +467,27 @@ The `context` field is powerful — use it to give the agent background that hel
 
 All call-related settings can be managed via `vellum config`:
 
-| Setting | Description | Default |
-|---|---|---|
-| `calls.enabled` | Master switch for the calling feature | `false` |
-| `calls.provider` | Voice provider (currently only `twilio`) | `twilio` |
-| `calls.maxDurationSeconds` | Maximum call length in seconds | `3600` (1 hour) |
-| `calls.userConsultTimeoutSeconds` | How long to wait for user answers | `120` (2 min) |
-| `calls.disclosure.enabled` | Whether the AI announces itself at call start | `true` |
-| `calls.disclosure.text` | The disclosure message spoken at call start | `"At the very beginning of the call, introduce yourself as an assistant calling on behalf of my human."` |
-| `calls.model` | Override LLM model for call orchestration | *(uses default model)* |
-| `calls.callerIdentity.allowPerCallOverride` | Allow per-call caller identity selection | `true` |
-| `calls.callerIdentity.userNumber` | E.164 phone number for user-number mode | *(empty)* |
-| `calls.voice.mode` | Voice quality mode (`twilio_standard`, `twilio_elevenlabs_tts`, `elevenlabs_agent`) | `twilio_standard` |
-| `calls.voice.language` | Language code for TTS and transcription | `en-US` |
-| `calls.voice.transcriptionProvider` | Speech-to-text provider (`Deepgram`, `Google`) | `Deepgram` |
-| `calls.voice.fallbackToStandardOnError` | Auto-fallback to standard Twilio TTS on ElevenLabs errors | `true` |
-| `calls.voice.elevenlabs.voiceId` | Advanced/internal ElevenLabs voice identifier. Usually set by the assistant based on requested voice style | *(empty)* |
-| `calls.voice.elevenlabs.voiceModelId` | Optional Twilio ConversationRelay model suffix. Leave empty to send bare `voiceId` | *(empty)* |
-| `calls.voice.elevenlabs.agentId` | ElevenLabs agent ID (for `elevenlabs_agent` mode) | *(empty)* |
-| `calls.voice.elevenlabs.speed` | Playback speed (`0.7` – `1.2`) | `1.0` |
-| `calls.voice.elevenlabs.stability` | Voice stability (`0.0` – `1.0`) | `0.5` |
-| `calls.voice.elevenlabs.similarityBoost` | Voice similarity boost (`0.0` – `1.0`) | `0.75` |
+| Setting                                     | Description                                                                                                | Default                                                                                                  |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `calls.enabled`                             | Master switch for the calling feature                                                                      | `false`                                                                                                  |
+| `calls.provider`                            | Voice provider (currently only `twilio`)                                                                   | `twilio`                                                                                                 |
+| `calls.maxDurationSeconds`                  | Maximum call length in seconds                                                                             | `3600` (1 hour)                                                                                          |
+| `calls.userConsultTimeoutSeconds`           | How long to wait for user answers                                                                          | `120` (2 min)                                                                                            |
+| `calls.disclosure.enabled`                  | Whether the AI announces itself at call start                                                              | `true`                                                                                                   |
+| `calls.disclosure.text`                     | The disclosure message spoken at call start                                                                | `"At the very beginning of the call, introduce yourself as an assistant calling on behalf of my human."` |
+| `calls.model`                               | Override LLM model for call orchestration                                                                  | _(uses default model)_                                                                                   |
+| `calls.callerIdentity.allowPerCallOverride` | Allow per-call caller identity selection                                                                   | `true`                                                                                                   |
+| `calls.callerIdentity.userNumber`           | E.164 phone number for user-number mode                                                                    | _(empty)_                                                                                                |
+| `calls.voice.mode`                          | Voice quality mode (`twilio_standard`, `twilio_elevenlabs_tts`, `elevenlabs_agent`)                        | `twilio_standard`                                                                                        |
+| `calls.voice.language`                      | Language code for TTS and transcription                                                                    | `en-US`                                                                                                  |
+| `calls.voice.transcriptionProvider`         | Speech-to-text provider (`Deepgram`, `Google`)                                                             | `Deepgram`                                                                                               |
+| `calls.voice.fallbackToStandardOnError`     | Auto-fallback to standard Twilio TTS on ElevenLabs errors                                                  | `true`                                                                                                   |
+| `calls.voice.elevenlabs.voiceId`            | Advanced/internal ElevenLabs voice identifier. Usually set by the assistant based on requested voice style | _(empty)_                                                                                                |
+| `calls.voice.elevenlabs.voiceModelId`       | Optional Twilio ConversationRelay model suffix. Leave empty to send bare `voiceId`                         | _(empty)_                                                                                                |
+| `calls.voice.elevenlabs.agentId`            | ElevenLabs agent ID (for `elevenlabs_agent` mode)                                                          | _(empty)_                                                                                                |
+| `calls.voice.elevenlabs.speed`              | Playback speed (`0.7` – `1.2`)                                                                             | `1.0`                                                                                                    |
+| `calls.voice.elevenlabs.stability`          | Voice stability (`0.0` – `1.0`)                                                                            | `0.5`                                                                                                    |
+| `calls.voice.elevenlabs.similarityBoost`    | Voice similarity boost (`0.0` – `1.0`)                                                                     | `0.75`                                                                                                   |
 
 ### Adjusting settings
 
@@ -585,71 +505,80 @@ vellum config set calls.disclosure.text "Just so you know, this is an assistant 
 vellum config set calls.userConsultTimeoutSeconds 300
 ```
 
-## Accepted Regressions
-
-The following behavioral changes were introduced with the cross-channel guardian architecture (voice-cross-guardian):
-
-- **No more mid-call steering via desktop chat.** The call bridge that routed desktop chat messages to the active call has been removed. The desktop chat thread only receives pointer/status messages about the call. To steer a call, use the HTTP API endpoints directly (`POST /v1/calls/:id/instruction`).
-- **No live transcript mirror in the initiating chat.** The initiating desktop conversation no longer receives a real-time mirror of the call transcript. The initiating chat only gets pointer/status messages (call started, call ended, question asked, etc.).
-- **Guardian questions are dispatched cross-channel.** Rather than appearing only in the initiating desktop thread, ASK_GUARDIAN questions are now dispatched to all configured guardian channels (mac desktop, Telegram, SMS) simultaneously. The first channel to respond wins.
-
 ## Troubleshooting
 
 ### "Twilio credentials not configured"
-Run Step 3 to store your Account SID and Auth Token via the secure credential prompt flow, or load the `twilio-setup` skill.
+
+Load the `twilio-setup` skill to store your Account SID and Auth Token.
 
 ### "Calls feature is disabled"
+
 Run `vellum config set calls.enabled true`.
 
 ### "No public base URL configured"
+
 Run the **public-ingress** skill to set up ngrok and configure `ingress.publicBaseUrl`.
 
 ### Call fails immediately after initiating
+
 - Check that the phone number is in E.164 format
 - Verify Twilio credentials are correct (wrong auth token causes API errors)
 - On trial accounts, ensure the destination number is verified
 - Check that the ngrok tunnel is still running (`curl -s http://127.0.0.1:4040/api/tunnels`)
 
 ### Call connects but no audio / one-way audio
+
 - The ConversationRelay WebSocket may not be connecting. Check that `ingress.publicBaseUrl` is correct and the tunnel is active
 - Verify the gateway is running at `$GATEWAY_BASE_URL`
 
 ### "Number not eligible for caller identity"
+
 The user's phone number is not owned by or verified with the Twilio account. The number must be either purchased through Twilio or added as a verified caller ID at https://console.twilio.com/us1/develop/phone-numbers/manage/verified.
 
 ### "Per-call caller identity override is disabled"
+
 The setting `calls.callerIdentity.allowPerCallOverride` is set to `false`, so per-call `caller_identity_mode` selection is not allowed. Re-enable overrides with `vellum config set calls.callerIdentity.allowPerCallOverride true`.
 
 ### Caller identity call fails on trial account
+
 Twilio trial accounts can only place calls to verified numbers, regardless of caller identity mode. The user's phone number must also be verified with Twilio. Upgrade to a paid account or verify both the source and destination numbers.
 
 ### "This phone number is not allowed to be called"
+
 Emergency numbers (911, 112, 999, 000, 110, 119) are permanently blocked for safety.
 
 ### ngrok tunnel URL changed
+
 If you restarted ngrok, the public URL has changed. Update it:
+
 ```bash
 vellum config set ingress.publicBaseUrl "<new-url>"
 ```
+
 Or re-run the public-ingress skill to auto-detect and save the new URL.
 
 ### Call drops after 30 seconds of silence
+
 The system has a 30-second silence timeout. If nobody speaks for 30 seconds, the agent will ask "Are you still there?" This is expected behavior.
 
 ### Call quality didn't improve after enabling ElevenLabs
+
 - Verify `calls.voice.mode` is set to `twilio_elevenlabs_tts` or `elevenlabs_agent` (not still `twilio_standard`)
 - Ask for the desired voice style again and try a different voice selection
 - If configuring manually: check that `calls.voice.elevenlabs.voiceId` contains a valid ElevenLabs voice ID
 - If mode is `elevenlabs_agent`, ensure `calls.voice.elevenlabs.agentId` is also set
 
 ### Twilio says "application error" right after answer
+
 - This often means ConversationRelay rejected voice configuration after TwiML fetch
 - Keep `calls.voice.elevenlabs.voiceModelId` empty first (bare `voiceId` mode)
 - If you set `voiceModelId`, try clearing it and retesting:
   `vellum config set calls.voice.elevenlabs.voiceModelId ""`
 
 ### ElevenLabs mode falls back to standard
+
 When `calls.voice.fallbackToStandardOnError` is `true` (the default), the system silently falls back to standard Twilio TTS if ElevenLabs encounters an error or restriction. Check:
+
 - For `elevenlabs_agent` mode: this mode is currently restricted (consultation bridging not yet supported) and will always fall back to standard when fallback is enabled. If fallback is disabled, the voice webhook returns HTTP 501.
 - For `twilio_elevenlabs_tts` mode: verify `calls.voice.elevenlabs.voiceId` is set to a valid voice ID
 - For invalid configs (missing voiceId/agentId): if fallback is disabled, the voice webhook returns HTTP 500 with the config error

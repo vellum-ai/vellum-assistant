@@ -75,6 +75,7 @@ struct SettingsChannelsTab: View {
             refreshBearerToken()
             store.refreshChannelGuardianStatus(channel: "telegram")
             store.refreshChannelGuardianStatus(channel: "voice")
+            store.refreshChannelGuardianStatus(channel: "slack")
             store.refreshTelegramApprovedMembers()
             store.fetchSlackChannelConfig()
             Task {
@@ -486,7 +487,11 @@ struct SettingsChannelsTab: View {
                     .foregroundColor(VColor.error)
             }
 
-
+            // Guardian row (only when bot token and app token are configured)
+            if store.slackChannelHasBotToken && store.slackChannelHasAppToken {
+                Divider().background(VColor.surfaceBorder)
+                guardianStatusRow(channel: "slack")
+            }
         }
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1041,6 +1046,15 @@ struct SettingsChannelsTab: View {
                !displayName.isEmpty {
                 return displayName
             }
+        } else if channel == "slack" {
+            if let username = store.slackGuardianUsername?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !username.isEmpty {
+                return username.hasPrefix("@") ? username : "@\(username)"
+            }
+            if let displayName = store.slackGuardianDisplayName?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !displayName.isEmpty {
+                return displayName
+            }
         }
         return identity
     }
@@ -1065,6 +1079,7 @@ struct SettingsChannelsTab: View {
             case "telegram": return store.telegramGuardianIdentity
             case "sms": return store.smsGuardianIdentity
             case "voice": return store.voiceGuardianIdentity
+            case "slack": return store.slackGuardianIdentity
             default: return nil
             }
         }()
@@ -1073,6 +1088,7 @@ struct SettingsChannelsTab: View {
             case "telegram": return store.telegramGuardianVerified
             case "sms": return store.smsGuardianVerified
             case "voice": return store.voiceGuardianVerified
+            case "slack": return store.slackGuardianVerified
             default: return false
             }
         }()
@@ -1081,6 +1097,7 @@ struct SettingsChannelsTab: View {
             case "telegram": return store.telegramGuardianVerificationInProgress
             case "sms": return store.smsGuardianVerificationInProgress
             case "voice": return store.voiceGuardianVerificationInProgress
+            case "slack": return store.slackGuardianVerificationInProgress
             default: return false
             }
         }()
@@ -1089,6 +1106,7 @@ struct SettingsChannelsTab: View {
             case "telegram": return store.telegramGuardianInstruction
             case "sms": return store.smsGuardianInstruction
             case "voice": return store.voiceGuardianInstruction
+            case "slack": return store.slackGuardianInstruction
             default: return nil
             }
         }()
@@ -1097,6 +1115,7 @@ struct SettingsChannelsTab: View {
             case "telegram": return store.telegramGuardianError
             case "sms": return store.smsGuardianError
             case "voice": return store.voiceGuardianError
+            case "slack": return store.slackGuardianError
             default: return nil
             }
         }()
@@ -1105,6 +1124,7 @@ struct SettingsChannelsTab: View {
             case "telegram": return store.telegramGuardianAlreadyBound
             case "sms": return store.smsGuardianAlreadyBound
             case "voice": return store.voiceGuardianAlreadyBound
+            case "slack": return store.slackGuardianAlreadyBound
             default: return false
             }
         }()
@@ -1113,6 +1133,7 @@ struct SettingsChannelsTab: View {
             case "telegram": return store.telegramOutboundSessionId
             case "sms": return store.smsOutboundSessionId
             case "voice": return store.voiceOutboundSessionId
+            case "slack": return store.slackOutboundSessionId
             default: return nil
             }
         }()
@@ -1121,6 +1142,7 @@ struct SettingsChannelsTab: View {
             case "telegram": return store.telegramOutboundExpiresAt
             case "sms": return store.smsOutboundExpiresAt
             case "voice": return store.voiceOutboundExpiresAt
+            case "slack": return store.slackOutboundExpiresAt
             default: return nil
             }
         }()
@@ -1129,6 +1151,7 @@ struct SettingsChannelsTab: View {
             case "telegram": return store.telegramOutboundNextResendAt
             case "sms": return store.smsOutboundNextResendAt
             case "voice": return store.voiceOutboundNextResendAt
+            case "slack": return store.slackOutboundNextResendAt
             default: return nil
             }
         }()
@@ -1137,6 +1160,7 @@ struct SettingsChannelsTab: View {
             case "telegram": return store.telegramOutboundSendCount
             case "sms": return store.smsOutboundSendCount
             case "voice": return store.voiceOutboundSendCount
+            case "slack": return store.slackOutboundSendCount
             default: return 0
             }
         }()
@@ -1146,6 +1170,7 @@ struct SettingsChannelsTab: View {
             case "telegram": return store.telegramOutboundCode
             case "sms": return store.smsOutboundCode
             case "voice": return store.voiceOutboundCode
+            case "slack": return store.slackOutboundCode
             default: return nil
             }
         }()
@@ -1338,9 +1363,11 @@ struct SettingsChannelsTab: View {
                             NSPasteboard.general.clearContents()
                             NSPasteboard.general.setString(outboundCode, forType: .string)
                             outboundCodeCopiedChannel = channel
-                            Task {
-                                try? await Task.sleep(nanoseconds: 2_000_000_000)
-                                if outboundCodeCopiedChannel == channel {
+                            // Use GCD instead of Task to avoid Swift concurrency executor
+                            // tracking issues when the countdown timer rebuilds this view.
+                            let copiedChannel = channel
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                                if outboundCodeCopiedChannel == copiedChannel {
                                     outboundCodeCopiedChannel = nil
                                 }
                             }
