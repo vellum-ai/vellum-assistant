@@ -362,7 +362,7 @@ All A2A messages use the `A2AMessageEnvelope` wire format defined in `a2a-messag
 
 ### Deduplication
 
-Messages are deduplicated by `(connectionId, nonce)`. The dedup store (`a2a-message-dedup.ts`) tracks recently seen nonces per connection with bounded retention (1000 entries per connection, entries older than 15 minutes are evicted).
+Messages are deduplicated by `(connectionId, nonce)`. The dedup store (`a2a-message-dedup.ts`) tracks recently seen nonces per connection with bounded retention (10,000 entries across all connections, entries older than 10 minutes are evicted).
 
 ### Lifecycle Events
 

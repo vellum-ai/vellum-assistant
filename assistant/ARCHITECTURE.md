@@ -2153,7 +2153,7 @@ The A2A system enables two Vellum assistants to communicate securely over the in
 
 **Revocation**: `revokeConnection()` tombstones credentials, sends notification to peer, and transitions through `revocation_pending` -> `revoked`. A background sweep retries failed notifications.
 
-**Feature flag**: `feature_flags.a2a-scope-policy.enabled` (default: false) gates scope enforcement on the inbound message path.
+**Feature flag**: `feature_flags.a2a-scope-policy.enabled` (default: false) gates scope enforcement on both inbound and outbound message paths (inbound receives messages only if scopes permit, outbound `sendMessage()` returns `not_enabled` when scope policy is active but not granted).
 
 **Full architecture reference**: [`docs/architecture/a2a-architecture.md`](docs/architecture/a2a-architecture.md)
 
