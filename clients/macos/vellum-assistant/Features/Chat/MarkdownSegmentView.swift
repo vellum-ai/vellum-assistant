@@ -275,7 +275,11 @@ struct MarkdownSegmentView: View {
             }
         }
         Self.lruCounter += 1
-        let cost = textLen * 3
+        // Use 10 bytes per character to match the M3 fix in ChatBubble.swift (PR #11825);
+        // AttributedString carries font, color, and paragraph metadata on top of raw text,
+        // so a 3x multiplier underestimates real cost by ~3.3x and lets the cache silently
+        // exceed its 5 MB budget.
+        let cost = textLen * 10
         Self.attributedStringCache[cacheKey] = (result, Self.lruCounter, cost)
         Self.estimatedCacheBytes += cost
         Self.evictIfOverBudget()

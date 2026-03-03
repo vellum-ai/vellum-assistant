@@ -17,7 +17,13 @@ private struct AttachmentImageGrid<Fallback: View>: View {
     @ViewBuilder let fallback: (ChatAttachment) -> Fallback
 
     @State private var loadedImages: [String: NSImage] = [:]
-    /// Tracks attachments for which every decode path was exhausted without producing an image.
+    /// Tracks attachments for which every decode path (thumbnailImage, thumbnailData, full base64)
+    /// was exhausted without producing an NSImage.  When an id is present here the view body
+    /// renders the file-chip fallback so the user still sees the filename and a download
+    /// affordance for corrupt or unsupported payloads.  The insert is intentionally placed
+    /// AFTER all decode attempts and WITHOUT a Task.isCancelled guard so that a cancellation
+    /// racing with the final decode failure always transitions the attachment out of the
+    /// gray-placeholder state.
     @State private var failedIds: Set<String> = []
 
     var body: some View {
