@@ -444,6 +444,7 @@ export function rotateCredentials(connectionId: string): RotateResult {
 
   const updated = updateConnectionCredentials(connectionId, {
     outboundCredentialHash: newCredentials.outboundCredentialHash,
+    outboundCredential: newCredentials.outboundCredential,
     inboundCredentialHash: newCredentials.inboundCredentialHash,
     inboundCredential: newCredentials.inboundCredential,
   });
@@ -484,6 +485,7 @@ export function revokeCredentials(connectionId: string): RevokeResult {
   // Tombstone the credentials by nullifying them
   updateConnectionCredentials(connectionId, {
     outboundCredentialHash: '',
+    outboundCredential: '',
     inboundCredentialHash: '',
     inboundCredential: '',
   });

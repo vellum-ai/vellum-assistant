@@ -16,9 +16,11 @@ import {
   listConnectionsFiltered,
   redeemInvite,
   revokeConnection,
+  sendMessage,
   submitVerificationCode,
   A2A_PROTOCOL_VERSION,
 } from '../../a2a/a2a-connection-service.js';
+import type { A2AMessageContent } from '../../a2a/a2a-message-schema.js';
 import {
   a2aRateLimitResponse,
   codeVerificationLimiter,
@@ -335,4 +337,97 @@ export function handleA2AConnectionStatus(connectionId: string): Response {
     createdAt: connection.createdAt,
     updatedAt: connection.updatedAt,
   });
+}
+
+// ---------------------------------------------------------------------------
+// POST /v1/a2a/connections/:connectionId/messages — Send a message to a peer
+// ---------------------------------------------------------------------------
+
+export async function handleA2ASendMessage(req: Request, connectionId: string): Promise<Response> {
+  const body = await req.json() as Record<string, unknown>;
+
+  // Validate content
+  if (!body.content || typeof body.content !== 'object') {
+    return httpError('BAD_REQUEST', 'Missing required field: content', 400);
+  }
+
+  const content = body.content as Record<string, unknown>;
+  if (!content.type || typeof content.type !== 'string') {
+    return httpError('BAD_REQUEST', 'Missing required field: content.type', 400);
+  }
+
+  // Build the typed content object
+  let messageContent: A2AMessageContent;
+  switch (content.type) {
+    case 'text': {
+      if (typeof content.text !== 'string') {
+        return httpError('BAD_REQUEST', 'Missing required field: content.text for text content', 400);
+      }
+      messageContent = { type: 'text', text: content.text };
+      break;
+    }
+    case 'structured_request': {
+      if (typeof content.action !== 'string') {
+        return httpError('BAD_REQUEST', 'Missing required field: content.action for structured_request', 400);
+      }
+      const params = (typeof content.params === 'object' && content.params !== null)
+        ? content.params as Record<string, unknown>
+        : {};
+      messageContent = { type: 'structured_request', action: content.action, params };
+      break;
+    }
+    case 'structured_response': {
+      if (typeof content.action !== 'string') {
+        return httpError('BAD_REQUEST', 'Missing required field: content.action for structured_response', 400);
+      }
+      const result = (typeof content.result === 'object' && content.result !== null)
+        ? content.result as Record<string, unknown>
+        : {};
+      messageContent = {
+        type: 'structured_response',
+        action: content.action,
+        result,
+        success: content.success === true,
+        error: typeof content.error === 'string' ? content.error : undefined,
+      };
+      break;
+    }
+    default:
+      return httpError('BAD_REQUEST', `Unsupported content type: ${content.type}`, 400);
+  }
+
+  const correlationId = typeof body.correlationId === 'string' ? body.correlationId : undefined;
+
+  const sendResult = await sendMessage({
+    connectionId,
+    content: messageContent,
+    correlationId,
+  });
+
+  if (!sendResult.ok) {
+    const statusMap: Record<string, number> = {
+      not_found: 404,
+      not_active: 409,
+      not_enabled: 403,
+      no_credential: 500,
+      delivery_failed: 502,
+    };
+    const codeMap: Record<string, 'NOT_FOUND' | 'CONFLICT' | 'FORBIDDEN' | 'INTERNAL_ERROR' | 'SERVICE_UNAVAILABLE'> = {
+      not_found: 'NOT_FOUND',
+      not_active: 'CONFLICT',
+      not_enabled: 'FORBIDDEN',
+      no_credential: 'INTERNAL_ERROR',
+      delivery_failed: 'SERVICE_UNAVAILABLE',
+    };
+    return httpError(
+      codeMap[sendResult.reason] ?? 'INTERNAL_ERROR',
+      sendResult.detail ?? sendResult.reason,
+      statusMap[sendResult.reason] ?? 500,
+    );
+  }
+
+  return Response.json({
+    messageId: sendResult.messageId,
+    conversationId: sendResult.conversationId,
+  }, { status: 202 });
 }
