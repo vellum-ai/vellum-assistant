@@ -49,11 +49,12 @@ struct InlineVideoEmbedCard: View {
         .frame(height: cardHeight)
         .animation(.easeInOut(duration: 0.25), value: cardHeight)
         .onDisappear {
-            // Always reset on disappear so WKWebView instances are torn down
-            // whenever the card scrolls offscreen, regardless of current state.
-            // Gating on .playing/.initializing left WKWebViews alive during rapid
-            // scroll when state transitions raced with disappear events (#11775).
-            stateManager.reset()
+            // Only reset states that own an active WKWebView.
+            // .placeholder and .failed have no WKWebView to tear down;
+            // preserving .failed keeps error context visible when user scrolls back.
+            if stateManager.state != .placeholder && stateManager.state != .failed {
+                stateManager.reset()
+            }
         }
     }
 
