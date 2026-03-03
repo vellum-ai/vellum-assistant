@@ -203,11 +203,10 @@ export async function handleSetTwilioCredentials(req: Request): Promise<Response
     if (!sidStored) {
       return Response.json({
         success: false,
-        hasCredentials: false,
+        hasCredentials: hasTwilioCredentials(),
         error: 'Failed to store Account SID in secure storage',
       });
     }
-    upsertCredentialMetadata('twilio', 'account_sid', {});
   }
 
   if (authTokenFromBody) {
@@ -219,12 +218,15 @@ export async function handleSetTwilioCredentials(req: Request): Promise<Response
       }
       return Response.json({
         success: false,
-        hasCredentials: false,
+        hasCredentials: hasTwilioCredentials(),
         error: 'Failed to store Auth Token in secure storage',
       });
     }
-    upsertCredentialMetadata('twilio', 'auth_token', {});
   }
+
+  // Only upsert metadata after both credential writes have completed successfully.
+  if (accountSidFromBody) upsertCredentialMetadata('twilio', 'account_sid', {});
+  if (authTokenFromBody) upsertCredentialMetadata('twilio', 'auth_token', {});
 
   return Response.json({ success: true, hasCredentials: true });
 }
