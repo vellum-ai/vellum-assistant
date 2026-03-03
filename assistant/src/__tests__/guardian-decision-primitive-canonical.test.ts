@@ -94,6 +94,9 @@ describe('guardian-request-resolvers / registry', () => {
     const kinds = getRegisteredKinds();
     expect(kinds).toContain('tool_approval');
     expect(kinds).toContain('pending_question');
+    expect(kinds).toContain('access_request');
+    expect(kinds).toContain('tool_grant_request');
+    expect(kinds).toContain('a2a_access_request');
   });
 
   test('getResolver returns undefined for unknown kind', () => {
