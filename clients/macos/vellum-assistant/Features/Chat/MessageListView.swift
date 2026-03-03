@@ -586,7 +586,12 @@ struct MessageListView: View {
                 }
                 isThreadContentHovered = false
                 DispatchQueue.main.async {
-                    proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                    // Skip scroll-to-bottom when an anchor message is pending —
+                    // the anchorMessageId onChange handler will scroll to the
+                    // specific message instead.
+                    if anchorMessageId == nil {
+                        proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                    }
                 }
             }
             .onChange(of: anchorMessageId) {
