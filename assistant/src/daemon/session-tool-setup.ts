@@ -55,8 +55,13 @@ const log = getLogger("session-tool-setup");
 
 /**
  * Resolve the effective trust class for tool execution.
- * When HTTP auth is disabled (dev bypass), always treat the actor as
- * guardian so that control-plane gates don't block local development.
+ *
+ * When HTTP auth is disabled (dev bypass), always returns `'guardian'`
+ * so that control-plane gates don't block local development.
+ *
+ * When no trust context is available (e.g. desktop-only sessions that
+ * don't go through channel trust resolution), defaults to `'unknown'`
+ * to fail-closed.
  */
 export function resolveTrustClass(
   trustContext: TrustContext | undefined,
