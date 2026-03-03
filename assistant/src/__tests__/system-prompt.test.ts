@@ -75,9 +75,15 @@ const {
   buildPhoneCallsRoutingSection,
 } = await import("../config/system-prompt.js");
 
-/** Strip the Configuration and Skills sections so base-prompt tests stay focused. */
+/** Strip the Configuration, Skills, and hardcoded preamble sections so base-prompt tests stay focused. */
 function basePrompt(result: string): string {
   let s = result;
+  // Strip the hardcoded em-dash instruction preamble
+  const emDashLine =
+    "IMPORTANT: Never use em dashes (\u2014) in your messages. Use commas, periods, or just start a new sentence instead.";
+  if (s.startsWith(emDashLine)) {
+    s = s.slice(emDashLine.length).replace(/^\n\n/, "");
+  }
   for (const heading of [
     "## Configuration",
     "## Skills Catalog",
@@ -240,13 +246,8 @@ describe("buildSystemPrompt", () => {
     expect(section).toContain("Do NOT improvise Twilio setup instructions");
   });
 
-  test("phone calls routing section excluded from low tier", () => {
-    const result = buildSystemPrompt("low");
-    expect(result).not.toContain("## Routing: Phone Calls");
-  });
-
-  test("includes memory persistence section in high tier", () => {
-    const result = buildSystemPrompt("high");
+  test("includes memory persistence section", () => {
+    const result = buildSystemPrompt();
     expect(result).toContain("## Memory Persistence");
     expect(result).toContain("memory_save");
     expect(result).toContain("Saved > unsaved. Always.");

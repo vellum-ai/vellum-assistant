@@ -10,7 +10,6 @@ public enum SurfaceType: String, Codable, Sendable {
     case confirmation
     case dynamicPage = "dynamic_page"
     case fileUpload = "file_upload"
-    case browserView = "browser_view"
     case documentPreview = "document_preview"
 }
 
@@ -345,37 +344,6 @@ public struct FileUploadSurfaceData: Sendable, Equatable {
     }
 }
 
-public struct BrowserHighlight: Sendable, Identifiable, Equatable {
-    public var id: String { "\(x),\(y),\(w),\(h):\(label)" }
-    public let x: Double
-    public let y: Double
-    public let w: Double
-    public let h: Double
-    public let label: String
-
-    public init(x: Double, y: Double, w: Double, h: Double, label: String) {
-        self.x = x
-        self.y = y
-        self.w = w
-        self.h = h
-        self.label = label
-    }
-}
-
-public struct BrowserPage: Sendable, Identifiable, Equatable {
-    public let id: String
-    public let title: String
-    public let url: String
-    public let active: Bool
-
-    public init(id: String, title: String, url: String, active: Bool) {
-        self.id = id
-        self.title = title
-        self.url = url
-        self.active = active
-    }
-}
-
 public struct DocumentPreviewSurfaceData: Sendable, Equatable {
     public let title: String
     public let surfaceId: String
@@ -385,26 +353,6 @@ public struct DocumentPreviewSurfaceData: Sendable, Equatable {
         self.title = title
         self.surfaceId = surfaceId
         self.subtitle = subtitle
-    }
-}
-
-public struct BrowserViewSurfaceData: Sendable, Equatable {
-    public let sessionId: String
-    public let currentUrl: String
-    public let status: String // "navigating", "idle", "interacting"
-    public let frame: String? // base64 JPEG
-    public let actionText: String?
-    public let highlights: [BrowserHighlight]?
-    public let pages: [BrowserPage]?
-
-    public init(sessionId: String, currentUrl: String, status: String, frame: String? = nil, actionText: String? = nil, highlights: [BrowserHighlight]? = nil, pages: [BrowserPage]? = nil) {
-        self.sessionId = sessionId
-        self.currentUrl = currentUrl
-        self.status = status
-        self.frame = frame
-        self.actionText = actionText
-        self.highlights = highlights
-        self.pages = pages
     }
 }
 
@@ -468,7 +416,6 @@ public enum SurfaceData: Sendable, Equatable {
     case confirmation(ConfirmationSurfaceData)
     case dynamicPage(DynamicPageSurfaceData)
     case fileUpload(FileUploadSurfaceData)
-    case browserView(BrowserViewSurfaceData)
     case documentPreview(DocumentPreviewSurfaceData)
     /// Placeholder for data that was cleared during memory compaction.
     /// The surface can be re-fetched from the daemon if the user scrolls back.
@@ -479,11 +426,17 @@ public struct SurfaceActionButton: Identifiable, Equatable, Sendable {
     public let id: String
     public let label: String
     public let style: SurfaceActionStyle
+    private let index: Int
 
-    public init(id: String, label: String, style: SurfaceActionStyle) {
+    /// Unique identity for SwiftUI ForEach. Multiple actions can share the same
+    /// `id` (e.g. "relay_prompt"), so we combine id + index to disambiguate.
+    public var uniqueId: String { "\(id)-\(index)" }
+
+    public init(id: String, label: String, style: SurfaceActionStyle, index: Int = 0) {
         self.id = id
         self.label = label
         self.style = style
+        self.index = index
     }
 }
 
@@ -521,11 +474,12 @@ public extension Surface {
             return nil
         }
 
-        let actions = (message.actions ?? []).map { action in
+        let actions = (message.actions ?? []).enumerated().map { index, action in
             SurfaceActionButton(
                 id: action.id,
                 label: action.label,
-                style: SurfaceActionStyle(rawValue: action.style ?? "secondary") ?? .secondary
+                style: SurfaceActionStyle(rawValue: action.style ?? "secondary") ?? .secondary,
+                index: index
             )
         }
 
@@ -552,11 +506,12 @@ public extension Surface {
             return nil
         }
 
-        let actions = (historySurface.actions ?? []).map { action in
+        let actions = (historySurface.actions ?? []).enumerated().map { index, action in
             SurfaceActionButton(
                 id: action.id,
                 label: action.label,
-                style: SurfaceActionStyle(rawValue: action.style ?? "secondary") ?? .secondary
+                style: SurfaceActionStyle(rawValue: action.style ?? "secondary") ?? .secondary,
+                index: index
             )
         }
 
@@ -607,8 +562,6 @@ public extension Surface {
             return parseDynamicPageData(dict).map { .dynamicPage($0) }
         case .fileUpload:
             return parseFileUploadData(dict).map { .fileUpload($0) }
-        case .browserView:
-            return parseBrowserViewData(dict).map { .browserView($0) }
         case .documentPreview:
             return parseDocumentPreviewData(dict).map { .documentPreview($0) }
         }
@@ -635,8 +588,6 @@ public extension Surface {
             return .dynamicPage(mergeDynamicPageData(existing: dp, update: update))
         case .fileUpload(let fu):
             return .fileUpload(mergeFileUploadData(existing: fu, update: update))
-        case .browserView(let bv):
-            return .browserView(mergeBrowserViewData(existing: bv, update: update))
         case .documentPreview(let dp):
             return .documentPreview(dp)
         case .stripped:
@@ -1081,100 +1032,10 @@ public extension Surface {
         return nil
     }
 
-    private static func parseBrowserViewData(_ dict: [String: Any?]) -> BrowserViewSurfaceData? {
-        guard let sessionId = dict["sessionId"] as? String,
-              let currentUrl = dict["currentUrl"] as? String,
-              let status = dict["status"] as? String else {
-            return nil
-        }
-
-        let frame = dict["frame"] as? String
-        let actionText = dict["actionText"] as? String
-
-        var highlights: [BrowserHighlight]?
-        if let highlightsArray = dict["highlights"] as? [[String: Any?]] {
-            highlights = highlightsArray.compactMap { item in
-                guard let x = asDouble(item["x"] as Any?),
-                      let y = asDouble(item["y"] as Any?),
-                      let w = asDouble(item["w"] as Any?),
-                      let h = asDouble(item["h"] as Any?),
-                      let label = item["label"] as? String else { return nil }
-                return BrowserHighlight(x: x, y: y, w: w, h: h, label: label)
-            }
-        }
-
-        var pages: [BrowserPage]?
-        if let pagesArray = dict["pages"] as? [[String: Any?]] {
-            pages = pagesArray.compactMap { pageDict in
-                guard let id = pageDict["id"] as? String,
-                      let title = pageDict["title"] as? String,
-                      let url = pageDict["url"] as? String else { return nil }
-                return BrowserPage(id: id, title: title, url: url, active: pageDict["active"] as? Bool ?? false)
-            }
-        }
-
-        return BrowserViewSurfaceData(
-            sessionId: sessionId,
-            currentUrl: currentUrl,
-            status: status,
-            frame: frame,
-            actionText: actionText,
-            highlights: highlights,
-            pages: pages
-        )
-    }
-
     private static func parseDocumentPreviewData(_ dict: [String: Any?]) -> DocumentPreviewSurfaceData? {
         guard let title = dict["title"] as? String,
               let surfaceId = dict["surfaceId"] as? String else { return nil }
         return DocumentPreviewSurfaceData(title: title, surfaceId: surfaceId, subtitle: dict["subtitle"] as? String)
     }
 
-    private static func mergeBrowserViewData(existing: BrowserViewSurfaceData, update: [String: Any?]) -> BrowserViewSurfaceData {
-        let sessionId = (update["sessionId"] as? String) ?? existing.sessionId
-        let currentUrl = (update["currentUrl"] as? String) ?? existing.currentUrl
-        let status = (update["status"] as? String) ?? existing.status
-        let frame: String? = update.keys.contains("frame") ? (update["frame"] as? String) : existing.frame
-        let actionText: String? = update.keys.contains("actionText") ? (update["actionText"] as? String) : existing.actionText
-
-        var highlights = existing.highlights
-        if update.keys.contains("highlights") {
-            if let highlightsArray = update["highlights"] as? [[String: Any?]] {
-                highlights = highlightsArray.compactMap { item in
-                    guard let x = asDouble(item["x"] as Any?),
-                          let y = asDouble(item["y"] as Any?),
-                          let w = asDouble(item["w"] as Any?),
-                          let h = asDouble(item["h"] as Any?),
-                          let label = item["label"] as? String else { return nil }
-                    return BrowserHighlight(x: x, y: y, w: w, h: h, label: label)
-                }
-            } else {
-                highlights = nil
-            }
-        }
-
-        var pages = existing.pages
-        if update.keys.contains("pages") {
-            if let pagesArray = update["pages"] as? [[String: Any?]] {
-                pages = pagesArray.compactMap { pageDict in
-                    guard let id = pageDict["id"] as? String,
-                          let title = pageDict["title"] as? String,
-                          let url = pageDict["url"] as? String else { return nil }
-                    return BrowserPage(id: id, title: title, url: url, active: pageDict["active"] as? Bool ?? false)
-                }
-            } else {
-                pages = nil
-            }
-        }
-
-        return BrowserViewSurfaceData(
-            sessionId: sessionId,
-            currentUrl: currentUrl,
-            status: status,
-            frame: frame,
-            actionText: actionText,
-            highlights: highlights,
-            pages: pages
-        )
-    }
 }

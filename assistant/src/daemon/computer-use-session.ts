@@ -329,11 +329,13 @@ export class ComputerUseSession {
         // selectionMode alone should not gate blocking because selection_changed
         // fires on every click and would immediately resolve multi-select surfaces.
         const hasActions = Array.isArray(actions) && actions.length > 0;
-        const isInteractive = surfaceType === 'list'
+        const isInteractive = surfaceType === 'card'
           ? hasActions
-          : surfaceType === 'table'
+          : surfaceType === 'list'
             ? hasActions
-            : INTERACTIVE_SURFACE_TYPES.includes(surfaceType);
+            : surfaceType === 'table'
+              ? hasActions
+              : INTERACTIVE_SURFACE_TYPES.includes(surfaceType);
         const awaitAction = (input.await_action as boolean) ?? isInteractive;
 
         // Track surface state for ui_update merging

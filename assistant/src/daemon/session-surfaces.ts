@@ -665,11 +665,13 @@ export async function surfaceProxyResolver(
     const actions = input.actions as Array<{ id: string; label: string; style?: string }> | undefined;
     // Interactive surfaces default to awaiting user action.
     const hasActions = Array.isArray(actions) && actions.length > 0;
-    const isInteractive = surfaceType === 'list'
+    const isInteractive = surfaceType === 'card'
       ? hasActions
-      : surfaceType === 'table'
+      : surfaceType === 'list'
         ? hasActions
-        : INTERACTIVE_SURFACE_TYPES.includes(surfaceType);
+        : surfaceType === 'table'
+          ? hasActions
+          : INTERACTIVE_SURFACE_TYPES.includes(surfaceType);
     const awaitAction = (input.await_action as boolean) ?? isInteractive;
 
     // Only one non-persistent interactive surface at a time. If another
@@ -819,6 +821,7 @@ export async function surfaceProxyResolver(
   if (toolName === 'app_open') {
     const appId = input.app_id as string;
     const preview = input.preview as DynamicPageSurfaceData['preview'];
+    const openMode = input.open_mode as string | undefined;
     const app = getApp(appId);
     if (!app) return { content: `App not found: ${appId}`, isError: true };
     const seededHomeBase = findSeededHomeBaseApp();
@@ -837,6 +840,33 @@ export async function surfaceProxyResolver(
       preview: { ...defaultPreview, ...preview, ...(storedPreview ? { previewImage: storedPreview } : {}) },
     };
     const surfaceId = uuid();
+
+    if (openMode === 'preview') {
+      // Inline-only preview card emitted during app_create — do not open a
+      // workspace panel and do not register surface state. The client renders
+      // this as a tappable inline card that opens the app on demand.
+      ctx.sendToClient({
+        type: 'ui_surface_show',
+        sessionId: ctx.conversationId,
+        surfaceId,
+        surfaceType: 'dynamic_page',
+        title: app.name,
+        data: surfaceData,
+        display: 'inline',
+      } as UiSurfaceShow);
+
+      // Track for message persistence so the inline card survives history reload.
+      ctx.currentTurnSurfaces.push({
+        surfaceId,
+        surfaceType: 'dynamic_page',
+        title: app.name,
+        data: surfaceData,
+        display: 'inline',
+      });
+
+      return { content: JSON.stringify({ surfaceId, appId }), isError: false };
+    }
+
     ctx.surfaceState.set(surfaceId, {
       surfaceType: 'dynamic_page',
       data: surfaceData,

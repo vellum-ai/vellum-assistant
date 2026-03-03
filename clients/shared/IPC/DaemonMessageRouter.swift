@@ -210,10 +210,6 @@ extension DaemonClient {
             onIntegrationConnectResult?(msg)
         case .diagnosticsExportResponse(let msg):
             onDiagnosticsExportResponse?(msg)
-        case .browserFrame(let msg):
-            onBrowserFrame?(msg)
-        case .browserInteractiveModeChanged(let msg):
-            onBrowserInteractiveModeChanged?(msg)
         case .browserCDPRequest(let msg):
             onBrowserCDPRequest?(msg)
         case .envVarsResponse(let msg):

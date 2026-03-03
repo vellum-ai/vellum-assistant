@@ -5,19 +5,20 @@ import VellumAssistantShared
 /// Hidden when PTT is disabled (activationKey == "none").
 /// Tapping navigates to the Voice/Wake Word settings tab.
 struct PTTKeyIndicator: View {
+    /// Watches the raw `activationKey` default to trigger SwiftUI refreshes.
     @AppStorage("activationKey") private var activationKey: String = "fn"
     @State private var isHovered = false
 
     let onTap: () -> Void
 
+    private var activator: PTTActivator {
+        PTTActivator.fromStored()
+    }
+
     private var displayName: String? {
-        switch activationKey {
-        case "fn": return "Fn"
-        case "ctrl": return "Ctrl"
-        case "fn_shift": return "Fn+\u{21E7}"
-        case "none": return nil
-        default: return nil
-        }
+        let current = activator
+        guard current.kind != .none else { return nil }
+        return current.displayName
     }
 
     var body: some View {

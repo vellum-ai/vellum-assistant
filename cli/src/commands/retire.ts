@@ -7,7 +7,7 @@ import { findAssistantByName, removeAssistantEntry } from "../lib/assistant-conf
 import type { AssistantEntry } from "../lib/assistant-config";
 import { retireInstance as retireAwsInstance } from "../lib/aws";
 import { retireInstance as retireGcpInstance } from "../lib/gcp";
-import { stopProcessByPidFile } from "../lib/process";
+import { stopOrphanedDaemonProcesses, stopProcessByPidFile } from "../lib/process";
 import { getArchivePath, getMetadataPath } from "../lib/retire-archive";
 import { exec } from "../lib/step-runner";
 import { openLogFile, closeLogFile, writeToLogFile } from "../lib/xdg-log";
@@ -38,29 +38,20 @@ async function retireLocal(name: string, entry: AssistantEntry): Promise<void> {
   console.log("\u{1F5D1}\ufe0f  Stopping local daemon...\n");
 
   const vellumDir = join(homedir(), ".vellum");
-  const isDesktopApp = !!process.env.VELLUM_DESKTOP_APP;
 
   // Stop daemon via PID file
   const daemonPidFile = join(vellumDir, "vellum.pid");
   const socketFile = join(vellumDir, "vellum.sock");
-  await stopProcessByPidFile(daemonPidFile, "daemon", [socketFile]);
+  const daemonStopped = await stopProcessByPidFile(daemonPidFile, "daemon", [socketFile]);
 
   // Stop gateway via PID file
   const gatewayPidFile = join(vellumDir, "gateway.pid");
   await stopProcessByPidFile(gatewayPidFile, "gateway");
 
-  if (!isDesktopApp) {
-    // Non-desktop: also stop daemon via bunx (fallback)
-    try {
-      const child = spawn("bunx", ["vellum", "daemon", "stop"], {
-        stdio: "inherit",
-      });
-
-      await new Promise<void>((resolve) => {
-        child.on("close", () => resolve());
-        child.on("error", () => resolve());
-      });
-    } catch {}
+  // If the PID file didn't track a running daemon, scan for orphaned
+  // daemon processes that may have been started without writing a PID.
+  if (!daemonStopped) {
+    await stopOrphanedDaemonProcesses();
   }
 
   // Move ~/.vellum out of the way so the path is immediately available for the

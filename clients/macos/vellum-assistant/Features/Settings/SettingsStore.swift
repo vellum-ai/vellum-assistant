@@ -1397,6 +1397,12 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
+    func unassignTwilioNumber() {
+        twilioPhoneNumber = nil
+        twilioError = nil
+        twilioWarning = nil
+    }
+
     func provisionTwilioNumber(areaCode: String?, country: String?) {
         let trimmedAreaCode = areaCode?.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedCountry = country?.trimmingCharacters(in: .whitespacesAndNewlines)

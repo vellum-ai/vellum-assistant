@@ -33,7 +33,7 @@ struct SettingsAccountTab: View {
     private static let hatchNewAssistantFlagKey = "feature_flags.hatch-new-assistant.enabled"
 
     var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.xl) {
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
             accountSection
             assistantInfoSection
             switchAssistantSection

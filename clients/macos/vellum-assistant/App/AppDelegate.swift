@@ -146,7 +146,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var daemonClient: DaemonClient { services.daemonClient }
     var ambientAgent: AmbientAgent { services.ambientAgent }
     var surfaceManager: SurfaceManager { services.surfaceManager }
-    var browserPiPManager: BrowserPiPManager { services.browserPiPManager }
     private var secretPromptManager: SecretPromptManager { services.secretPromptManager }
     var zoomManager: ZoomManager { services.zoomManager }
     var conversationZoomManager: ConversationZoomManager { services.conversationZoomManager }
@@ -969,24 +968,24 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     /// restarts with the new assistant.
     ///
     /// The sequence is intentionally ordered to avoid stale references:
-    /// 1. Stop lifecycle monitoring and daemon processes
-    /// 2. Disconnect daemon transport
-    /// 3. Clear assistant-scoped runtime state (threads, sessions, callbacks)
+    /// 1. Stop lifecycle monitoring
+    /// 2. Clear assistant-scoped runtime state (recording, windows, callbacks)
+    /// 3. Stop daemon processes and disconnect transport
     /// 4. Persist the new assistant selection
     /// 5. Reconfigure daemon transport and reconnect
     /// 6. Resume monitoring and credential bootstrap
     func performSwitchAssistant(to assistant: LockfileAssistant) {
-        // 1. Stop lifecycle monitoring and daemon processes
+        // 1. Stop lifecycle monitoring
         assistantCli.stopMonitoring()
-        assistantCli.stop()
 
-        // 2. Disconnect daemon transport (handled by reconfigure in step 5)
-        daemonClient.disconnect()
-
-        // 3. Clear assistant-scoped runtime state
-        // Force-stop any active recording to avoid stale session references
+        // 2. Clear assistant-scoped runtime state while the daemon is still
+        // running so forceStop can deliver a recording_status IPC message.
         recordingManager.forceStop()
         recordingHUDWindow?.dismiss()
+
+        // 3. Stop daemon processes and disconnect transport
+        assistantCli.stop()
+        daemonClient.disconnect()
         // Close and recreate the main window to reset thread/session state
         mainWindow?.close()
         mainWindow = nil
@@ -1647,38 +1646,18 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     }
 
     private func setupSurfaceManager() {
-        // Wire daemon surface messages to SurfaceManager (or BrowserPiPManager for browser_view)
         daemonClient.onSurfaceShow = { [weak self] msg in
             guard let self else { return }
-            if msg.surfaceType == SurfaceType.browserView.rawValue {
-                self.browserPiPManager.showPanel(for: msg)
-            } else {
-                self.surfaceManager.showSurface(msg)
-            }
+            self.surfaceManager.showSurface(msg)
         }
         daemonClient.onSurfaceUpdate = { [weak self] msg in
             guard let self else { return }
-            self.browserPiPManager.updateSurface(msg)
             self.surfaceManager.updateSurface(msg)
         }
         daemonClient.onSurfaceDismiss = { [weak self] msg in
             guard let self else { return }
-            self.browserPiPManager.dismissIfMatching(surfaceId: msg.surfaceId)
             self.surfaceManager.dismissSurface(msg)
         }
-
-        // Wire browser frame updates to BrowserPiPManager
-        daemonClient.onBrowserFrame = { [weak self] msg in
-            self?.browserPiPManager.updateFrame(msg)
-        }
-
-        // Wire browser interactive mode changes to BrowserPiPManager
-        daemonClient.onBrowserInteractiveModeChanged = { [weak self] msg in
-            self?.browserPiPManager.handleInteractiveModeChanged(msg)
-        }
-
-        // Give BrowserPiPManager a reference to DaemonClient for sending interactive input
-        browserPiPManager.daemonClient = daemonClient
 
         daemonClient.onBrowserCDPRequest = { [weak self] msg in
             Task { @MainActor in
@@ -2463,21 +2442,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
     // MARK: - Wake-Up Greeting
 
-    /// Generates a time-aware greeting for the assistant's first message.
-    /// Intentionally unnamed — the assistant has no identity yet at hatch.
     private func wakeUpGreeting() -> String {
-        let hour = Calendar.current.component(.hour, from: Date())
-        switch hour {
-        case 5..<12:
-            return "Good morning. Time to wake up."
-        case 12..<18:
-            return "Wake up, my friend."
-        case 18..<22:
-            return "Evening. Ready when you are."
-        default:
-            // 22–4 (late night)
-            return "Burning the midnight oil? Let's go."
-        }
+        return "Wake up, my friend."
     }
 
     // MARK: - Main Window
@@ -2696,7 +2662,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         alert.informativeText = "A separate Chrome window will open for the assistant to control. Your existing Chrome and tabs will not be affected."
         alert.alertStyle = .informational
         alert.addButton(withTitle: "Open Browser")
-        alert.addButton(withTitle: "Use Background Browser")
+        alert.addButton(withTitle: "Cancel")
 
         // Add "Always launch" checkbox
         let checkbox = NSButton(checkboxWithTitle: "Always launch Chrome with remote debugging", target: nil, action: nil)
@@ -2719,11 +2685,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                 log.error("Failed to send browser CDP response (open): \(error)")
             }
         } else {
-            // User chose background browser
+            // User cancelled — decline so the daemon knows
             do {
                 try daemonClient.send(BrowserCDPResponseMessage(sessionId: msg.sessionId, success: false, declined: true))
             } catch {
-                log.error("Failed to send browser CDP response (background): \(error)")
+                log.error("Failed to send browser CDP response (declined): \(error)")
             }
         }
     }

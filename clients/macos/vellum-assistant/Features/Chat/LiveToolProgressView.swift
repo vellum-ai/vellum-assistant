@@ -33,6 +33,12 @@ struct LiveToolProgressView: View {
             }
             return "Working"
         }
+        // When all tools are app-building related, show a more meaningful completed label
+        let appToolNames: Set<String> = ["app_create", "app_update", "app_file_edit", "app_file_write"]
+        let appTools = toolCalls.filter { appToolNames.contains($0.toolName) }
+        if appTools.count == toolCalls.count {
+            return "Built your app"
+        }
         return "Completed \(toolCalls.count) step\(toolCalls.count == 1 ? "" : "s")"
     }
 

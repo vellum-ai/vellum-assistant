@@ -18,7 +18,7 @@ struct SettingsAdvancedDevTab: View {
     @State private var testerModel: ToolPermissionTesterModel?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.xl) {
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
             // Permission Simulator
             if let model = testerModel {
                 ToolPermissionTesterView(model: model)

@@ -15,7 +15,7 @@ struct SettingsAppearanceTab: View {
     @State private var showTimezonePicker = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.xl) {
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
             // DISPLAY section
             VStack(alignment: .leading, spacing: VSpacing.md) {
                 Text("Display")
@@ -153,7 +153,7 @@ struct SettingsAppearanceTab: View {
 
                 Divider().background(VColor.surfaceBorder)
 
-                ShortcutRow(label: "Start voice input", shortcut: "Hold Fn")
+                ShortcutRow(label: "Start voice input", shortcut: PTTActivator.fromStored().kind != .none ? "Hold \(PTTActivator.fromStored().displayName)" : "Disabled")
 
                 Divider().background(VColor.surfaceBorder)
 

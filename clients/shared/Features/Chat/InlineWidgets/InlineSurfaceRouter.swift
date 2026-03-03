@@ -43,15 +43,8 @@ public struct InlineSurfaceRouter: View {
     }
 
     /// Whether the surface renders as a lightweight chip without card chrome.
-    /// Surfaces that don't have a dedicated inline widget (e.g. browser_view, file_upload)
-    /// render as compact fallback chips — no need for the full card wrapper.
     private var isChipOnlySurface: Bool {
-        switch surface.data {
-        case .browserView:
-            return true
-        default:
-            return false
-        }
+        return false
     }
 
     public var body: some View {
@@ -293,9 +286,8 @@ public struct InlineSurfaceRouter: View {
                 )
             }
         } else {
-            HStack(spacing: VSpacing.sm) {
-                Spacer()
-                ForEach(surface.actions) { action in
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                ForEach(surface.actions, id: \.uniqueId) { action in
                     Button {
                         clickedActionLabel = action.label
                         onAction(surface.id, action.id, selectionPayload)

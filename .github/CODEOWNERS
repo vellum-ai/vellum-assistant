@@ -34,5 +34,8 @@ assistant/src/memory/inbox-* @NgoHarrison
 assistant/src/memory/guardian-* @NgoHarrison
 assistant/src/memory/channel-guardian-store.ts @NgoHarrison
 
+# CLI
+/cli/ @dvargas92495
+
 # CI/CD workflows
 .github/workflows/ @dvargas92495
