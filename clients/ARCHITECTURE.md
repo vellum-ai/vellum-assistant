@@ -12,7 +12,7 @@ The macOS app uses a centralized service container (`AppServices`) created once 
 
 | Service | Type | Purpose |
 |---------|------|---------|
-| `daemonClient` | `DaemonClient` | Unix socket IPC to daemon |
+| `daemonClient` | `DaemonClient` | Unix socket IPC to daemon (local mode) or HTTP+SSE to platform proxy (managed mode) |
 | `ambientAgent` | `AmbientAgent` | Coordinates Ride Shotgun trigger, session, and floating windows |
 | `surfaceManager` | `SurfaceManager` | Routes `ui_surface_show` messages |
 | `toolConfirmationManager` | `ToolConfirmationManager` | Handles tool permission prompts |
@@ -565,6 +565,72 @@ The avatar uses a simple image-based approach: a custom user-uploaded profile pi
 
 **Fallback:** When no custom avatar exists, `buildInitialLetterAvatar(name:)` renders a Forest._600 circle with the assistant's first initial in white.
 
+## Managed Sign-In (macOS)
+
+Managed sign-in allows macOS users to connect to a platform-hosted assistant during first-run onboarding instead of running a local daemon. When a user clicks "Sign in" on the onboarding screen, the app authenticates via WorkOS through the platform, discovers or creates a managed assistant, and connects to it through platform proxy endpoints.
+
+### Sign-In Flow
+
+```
+User clicks "Sign in"
+  --> WorkOS authentication (via AuthManager)
+  --> ManagedAssistantBootstrapService.ensureManagedAssistant()
+      --> GET /v1/assistants/current/  (discover existing)
+      --> If 404: POST /v1/assistants/hatch/  (create new)
+  --> Upsert lockfile entry (cloud: "vellum")
+  --> Set connectedAssistantId in UserDefaults
+  --> Configure managed HTTP transport
+  --> Proceed to app
+```
+
+If managed bootstrap fails, the user stays on the onboarding screen with an error message and a retry option. The app does not proceed until bootstrap succeeds or the user chooses a different path.
+
+### Transport Modes
+
+`HTTPDaemonClient` supports two route modes, selected based on the lockfile entry's `cloud` field:
+
+| Mode | Route Pattern | Auth Header | When Used |
+|------|--------------|-------------|-----------|
+| `runtimeFlat` | `/healthz`, `/v1/messages`, `/v1/events` | `Authorization: Bearer {token}` | Local daemon, gateway-proxied remote |
+| `platformAssistantProxy` | `/v1/assistants/{id}/healthz/`, `/v1/assistants/{id}/messages/` | `X-Session-Token: {token}` | Platform-managed assistants (`cloud == "vellum"`) |
+
+The route mode and auth mode are carried in `TransportMetadata` (defined in `DaemonConfig.swift`) and threaded through the `DaemonConfig` to the `HTTPDaemonClient`. `AppDelegate.configureDaemonTransport(for:)` selects the mode based on `LockfileAssistant.isManaged`.
+
+### Startup Guardrails
+
+When the current assistant is managed (`isCurrentAssistantManaged == true`), the app skips:
+- **Local daemon hatching** -- the platform hosts the daemon, so `assistantCli.hatch()` is not called.
+- **Actor credential bootstrap** -- identity is derived from the platform session token, not local actor tokens. The `ensureActorCredentials()` flow is skipped entirely.
+- **Socket-missing re-hatch** -- the reconnection loop does not attempt local re-hatch when the socket file is absent.
+
+### Credential and State Storage
+
+| Data | Storage | Location |
+|------|---------|----------|
+| Session token | Keychain | provider: `session-token` (via `SessionTokenManager`) |
+| Platform token file | Filesystem | `~/.vellum/platform-token` (0600 permissions, daemon-readable) |
+| Managed lockfile entry | Filesystem | `~/.vellum.lock.json` (entry with `cloud: "vellum"`) |
+| Connected assistant ID | UserDefaults | `connectedAssistantId` |
+
+### 401 Handling in Managed Mode
+
+When a managed-mode HTTP request receives a 401, the `HTTPDaemonClient` does not attempt the bearer token refresh flow (which is designed for local actor tokens). Instead, it emits a `session_error` event so the app can prompt re-authentication through the platform.
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `clients/shared/App/Auth/ManagedAssistantBootstrapService.swift` | Discover-or-create orchestrator for managed assistants |
+| `clients/shared/App/Auth/AuthService.swift` | Platform API methods (`getCurrentAssistant`, `hatchAssistant`) |
+| `clients/shared/App/Auth/SessionTokenManager.swift` | Session token storage (Keychain + `~/.vellum/platform-token` file bridge) |
+| `clients/shared/IPC/DaemonConfig.swift` | `RouteMode`, `AuthMode`, `TransportMetadata` types |
+| `clients/shared/IPC/HTTPDaemonClient.swift` | Endpoint builder and auth application for both route modes |
+| `clients/macos/vellum-assistant/App/AppDelegate.swift` | Transport selection (`configureDaemonTransport`) and startup guardrails |
+| `clients/macos/vellum-assistant/Features/Onboarding/OnboardingFlowView.swift` | Onboarding sign-in UI and managed bootstrap invocation |
+| `clients/macos/vellum-assistant/Features/MainWindow/Panels/IdentityData.swift` | `LockfileAssistant.isManaged` computed property and managed entry upsert |
+
+---
+
 ## iOS Connection Architecture
 
 The iOS app connects to the macOS assistant exclusively via HTTPS through the gateway. There is no direct TCP or Unix socket connection path.
@@ -591,7 +657,7 @@ iOS pairing uses a v4 QR code protocol with Mac-side approval. There is no manua
   "id": "<mac-hash>",
   "g": "<resolved-gateway-url>",
   "pairingRequestId": "<uuid>",
-  "pairingSecret": "<random-32b-hex>",
+  "pairingSecret": "<Random Hex Value>",
   "localLanUrl": "http://<lan-ip>:7830"
 }
 ```

@@ -46,6 +46,7 @@ function makeContext(): SurfaceSessionContext {
     lastSurfaceAction: new Map<string, { actionId: string; data?: Record<string, unknown> }>(),
     surfaceState: new Map(),
     surfaceUndoStacks: new Map(),
+    surfaceActionRequestIds: new Set<string>(),
     currentTurnSurfaces: [],
     isProcessing: () => false,
     enqueueMessage: () => ({ queued: false, requestId: 'req-1' }),
@@ -74,7 +75,7 @@ describe('starter task surface actions', () => {
     expect(ctx.pendingSurfaceActions.has('surf-1')).toBe(true);
   });
 
-  test('falls back to structured payload when prompt is absent', () => {
+  test('falls back to human-readable summary with action data when prompt is absent', () => {
     const forwarded: string[] = [];
     const ctx = makeContext();
     ctx.processMessage = async (content) => {
@@ -86,16 +87,9 @@ describe('starter task surface actions', () => {
     handleSurfaceAction(ctx, 'surf-2', 'relay_prompt', { topic: 'weather in sf' });
 
     expect(forwarded).toHaveLength(1);
-    const parsed = JSON.parse(forwarded[0]) as {
-      surfaceAction: boolean;
-      surfaceId: string;
-      actionId: string;
-      data: Record<string, unknown>;
-    };
-    expect(parsed.surfaceAction).toBe(true);
-    expect(parsed.surfaceId).toBe('surf-2');
-    expect(parsed.actionId).toBe('relay_prompt');
-    expect(parsed.data.topic).toBe('weather in sf');
+    expect(forwarded[0]).toContain('[User action on dynamic_page surface:');
+    expect(forwarded[0]).toContain('Action data:');
+    expect(forwarded[0]).toContain('"topic":"weather in sf"');
     expect(ctx.pendingSurfaceActions.has('surf-2')).toBe(true);
   });
 
@@ -111,12 +105,8 @@ describe('starter task surface actions', () => {
     handleSurfaceAction(ctx, 'surf-3', 'save_filters', { prompt: 'keep this literal field' });
 
     expect(forwarded).toHaveLength(1);
-    const parsed = JSON.parse(forwarded[0]) as {
-      actionId: string;
-      data: Record<string, unknown>;
-    };
-    expect(parsed.actionId).toBe('save_filters');
-    expect(parsed.data.prompt).toBe('keep this literal field');
+    expect(forwarded[0]).toContain('[User action on dynamic_page surface:');
+    expect(forwarded[0]).toContain('"prompt":"keep this literal field"');
   });
 
   test('consumes non-dynamic pending actions after forwarding', () => {

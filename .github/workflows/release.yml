@@ -725,6 +725,9 @@ jobs:
         run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
 
       - name: Import code-signing certificate
+        env:
+          CERT_P12: ${{ secrets.DEVID_CERTIFICATE_P12 }}
+          CERT_PASSWORD: ${{ secrets.DEVID_CERTIFICATE_PASSWORD }}
         run: |
           KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
 
@@ -732,10 +735,10 @@ jobs:
           security set-keychain-settings -lut 3600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
-          echo "${{ secrets.CERTIFICATE_P12 }}" | base64 -D > /tmp/certificate.p12
+          echo "$CERT_P12" | base64 -D > /tmp/certificate.p12
           security import /tmp/certificate.p12 \
             -k "$KEYCHAIN_PATH" \
-            -P "${{ secrets.CERTIFICATE_PASSWORD }}" \
+            -P "$CERT_PASSWORD" \
             -T /usr/bin/codesign \
             -T /usr/bin/security
           rm /tmp/certificate.p12
@@ -842,12 +845,19 @@ jobs:
           echo "DMG signature verified"
 
       - name: Notarize DMG
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
         run: |
+          mkdir -p ~/.private_keys
+          echo "$ASC_KEY_P8" > ~/.private_keys/AuthKey_${ASC_KEY_ID}.p8
+
           echo "Submitting DMG for notarization..."
           NOTARIZE_OUTPUT=$(xcrun notarytool submit "$DMG_PATH" \
-            --apple-id "${{ secrets.APPLE_ID }}" \
-            --password "${{ secrets.APPLE_APP_PASSWORD }}" \
-            --team-id "${{ secrets.APPLE_TEAM_ID }}" \
+            --key ~/.private_keys/AuthKey_${ASC_KEY_ID}.p8 \
+            --key-id "$ASC_KEY_ID" \
+            --issuer "$ASC_ISSUER_ID" \
             --wait \
             --timeout 30m \
             2>&1) || NOTARIZE_FAILED=true
@@ -861,9 +871,9 @@ jobs:
             if [ -n "$SUBMISSION_ID" ]; then
               echo "Fetching notarization log for submission $SUBMISSION_ID..."
               xcrun notarytool log "$SUBMISSION_ID" \
-                --apple-id "${{ secrets.APPLE_ID }}" \
-                --password "${{ secrets.APPLE_APP_PASSWORD }}" \
-                --team-id "${{ secrets.APPLE_TEAM_ID }}" \
+                --key ~/.private_keys/AuthKey_${ASC_KEY_ID}.p8 \
+                --key-id "$ASC_KEY_ID" \
+                --issuer "$ASC_ISSUER_ID" \
                 || echo "::warning::Could not fetch notarization log"
             fi
             exit 1
@@ -965,11 +975,12 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-      - name: Cleanup keychain
+      - name: Cleanup keychain and keys
         if: always()
         run: |
           KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
           security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
+          rm -rf ~/.private_keys 2>/dev/null || true
 
   # Experimental split-arch build — runs in parallel with the production build-macos
   # job to validate the parallel architecture approach. Produces a separate artifact
@@ -994,6 +1005,9 @@ jobs:
         run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
 
       - name: Import code-signing certificate
+        env:
+          CERT_P12: ${{ secrets.DEVID_CERTIFICATE_P12 }}
+          CERT_PASSWORD: ${{ secrets.DEVID_CERTIFICATE_PASSWORD }}
         run: |
           KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
 
@@ -1001,10 +1015,10 @@ jobs:
           security set-keychain-settings -lut 3600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
-          echo "${{ secrets.CERTIFICATE_P12 }}" | base64 -D > /tmp/certificate.p12
+          echo "$CERT_P12" | base64 -D > /tmp/certificate.p12
           security import /tmp/certificate.p12 \
             -k "$KEYCHAIN_PATH" \
-            -P "${{ secrets.CERTIFICATE_PASSWORD }}" \
+            -P "$CERT_PASSWORD" \
             -T /usr/bin/codesign \
             -T /usr/bin/security
           rm /tmp/certificate.p12
@@ -1358,6 +1372,109 @@ jobs:
         if: always()
         run: echo "status=${{ job.status }}" >> "$GITHUB_OUTPUT"
 
+  release-ios:
+    needs: bump-and-tag
+    runs-on: macos-14
+    timeout-minutes: 30
+    env:
+      KEYCHAIN_NAME: ios-build.keychain
+      KEYCHAIN_PASSWORD: temporary-ci-password
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: "v${{ needs.bump-and-tag.outputs.version }}"
+
+      - name: Select Xcode 16.2
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+
+      - name: Import code-signing certificate
+        env:
+          CERT_P12: ${{ secrets.DIST_CERTIFICATE_P12 }}
+          CERT_PASSWORD: ${{ secrets.DIST_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          echo "$CERT_P12" | base64 -D > /tmp/ios-certificate.p12
+          security import /tmp/ios-certificate.p12 \
+            -k "$KEYCHAIN_PATH" \
+            -P "$CERT_PASSWORD" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security
+          rm /tmp/ios-certificate.p12
+
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
+          security default-keychain -s "$KEYCHAIN_PATH"
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+
+      - name: Install provisioning profile
+        env:
+          PROVISIONING_PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }}
+        run: |
+          PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$PROFILE_DIR"
+          echo "$PROVISIONING_PROFILE" | base64 -D > "$PROFILE_DIR/ios_distribution.mobileprovision"
+          echo "Provisioning profile installed"
+
+      - name: Set version
+        id: version
+        run: |
+          DISPLAY_VERSION="${{ needs.bump-and-tag.outputs.version }}"
+          BUILD_VERSION=$(date -u +%Y%m%d%H%M)
+          echo "display_version=$DISPLAY_VERSION" >> "$GITHUB_OUTPUT"
+          echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Display version: $DISPLAY_VERSION / Build version: $BUILD_VERSION"
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Clear stale SPM artifact cache
+        run: rm -rf ~/Library/Caches/org.swift.swiftpm/artifacts
+
+      - name: Build release .ipa
+        working-directory: clients/ios
+        run: |
+          DEVELOPMENT_TEAM="${{ secrets.APPLE_TEAM_ID }}" \
+          DISPLAY_VERSION="${{ steps.version.outputs.display_version }}" \
+          BUILD_VERSION="${{ steps.version.outputs.build_version }}" \
+          ./build.sh release
+
+      - name: Upload to TestFlight
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          mkdir -p ~/.private_keys
+          echo "$ASC_KEY_P8" > ~/.private_keys/AuthKey_${ASC_KEY_ID}.p8
+
+          IPA_FILE=$(find clients/ios/dist/export -name "*.ipa" -maxdepth 1 | head -1)
+          echo "Uploading $IPA_FILE to TestFlight..."
+          xcrun altool --upload-app \
+            -f "$IPA_FILE" \
+            --type ios \
+            --apiKey "$ASC_KEY_ID" \
+            --apiIssuer "$ASC_ISSUER_ID"
+
+      - name: Upload .ipa artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa
+          path: clients/ios/dist/export/*.ipa
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Cleanup keychain and keys
+        if: always()
+        run: |
+          KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
+          security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
+          rm -rf ~/.private_keys 2>/dev/null || true
+
   ci-playwright:
     needs: [bump-and-tag, build-macos]
     runs-on: macos-14
@@ -1467,7 +1584,7 @@ jobs:
 
   notify:
     if: always() && !cancelled()
-    needs: [bump-and-tag, publish-npm, publish-meta, build-macos, build-ios, push-assistant-manifest, push-gateway-manifest, register-release, release, update-platform, ci-assistant, ci-cli, ci-gateway, ci-playwright]
+    needs: [bump-and-tag, publish-npm, publish-meta, build-macos, build-ios, release-ios, push-assistant-manifest, push-gateway-manifest, register-release, release, update-platform, ci-assistant, ci-cli, ci-gateway, ci-playwright]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     continue-on-error: true
@@ -1498,7 +1615,8 @@ jobs:
             "${{ needs.release.result }}" \
             "${{ needs.update-platform.result }}" \
             "${{ needs.ci-cli.result }}" \
-            "${{ needs.ci-gateway.result }}"; do
+            "${{ needs.ci-gateway.result }}" \
+            "${{ needs.release-ios.result }}"; do
             if [ "$result" = "failure" ] || [ "$result" = "skipped" ]; then
               RELEASE_FAILED="true"
               break
@@ -1522,6 +1640,7 @@ jobs:
           P=$(ci_icon "${{ needs.ci-playwright.result }}")
           D=$(ci_icon "${{ needs.build-macos.result }}")
           I=$(ci_icon "${{ needs.build-ios.outputs.actual_result }}")
+          RI=$(ci_icon "${{ needs.release-ios.result }}")
           AI=$(ci_icon "${{ needs.push-assistant-manifest.result }}")
           GI=$(ci_icon "${{ needs.push-gateway-manifest.result }}")
           RR=$(ci_icon "${{ needs.register-release.result }}")
@@ -1532,7 +1651,7 @@ jobs:
             PLAYWRIGHT_LINE=" (<${RUN_URL}#artifacts|view report>)"
           fi
 
-          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s gateway\n• %s playwright%s\n• %s desktop\n• %s ios\n• %s assistant-docker\n• %s gateway-docker\n• %s register-release' "$A" "$C" "$G" "$P" "$PLAYWRIGHT_LINE" "$D" "$I" "$AI" "$GI" "$RR")
+          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s gateway\n• %s playwright%s\n• %s desktop\n• %s ios\n• %s ios-release\n• %s assistant-docker\n• %s gateway-docker\n• %s register-release' "$A" "$C" "$G" "$P" "$PLAYWRIGHT_LINE" "$D" "$I" "$RI" "$AI" "$GI" "$RR")
           META_LINE=$(printf '*Version:* `%s`\n*Triggered by:* %s' "$VERSION" "${{ github.actor }}")
 
           # Fetch release notes from GitHub release

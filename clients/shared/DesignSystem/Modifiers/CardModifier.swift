@@ -11,11 +11,14 @@ public struct CardModifier: ViewModifier {
 
     public func body(content: Content) -> some View {
         content
-            .background(background)
-            .clipShape(RoundedRectangle(cornerRadius: radius))
+            .background(
+                RoundedRectangle(cornerRadius: radius)
+                    .fill(background)
+            )
             .overlay(
                 RoundedRectangle(cornerRadius: radius)
                     .stroke(VColor.surfaceBorder, lineWidth: 1)
+                    .allowsHitTesting(false)
             )
     }
 }

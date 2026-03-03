@@ -102,7 +102,7 @@ vellum ps      # check process status
 vellum sleep   # stop daemon + gateway
 ```
 
-> **Note:** `vellum wake` requires a hatched assistant. Run `vellum hatch` first, or launch the macOS app which handles hatching automatically.
+> **Note:** `vellum wake` requires a hatched assistant. Run `vellum hatch` first, or launch the macOS app which handles hatching automatically. Alternatively, the macOS app supports **managed sign-in** during onboarding — authenticating via the platform and connecting to a platform-hosted assistant without running a local daemon.
 
 <details>
 <summary>Development: raw bun commands</summary>

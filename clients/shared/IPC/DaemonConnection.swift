@@ -247,7 +247,8 @@ extension DaemonClient {
         let transport = HTTPTransport(
             baseURL: baseURL,
             bearerToken: bearerToken,
-            conversationKey: conversationKey
+            conversationKey: conversationKey,
+            transportMetadata: config.transportMetadata
         )
 
         // Wire incoming SSE messages through the existing handleServerMessage infrastructure.

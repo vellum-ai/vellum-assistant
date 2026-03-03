@@ -126,6 +126,10 @@ public final class ChatViewModel: ObservableObject {
         get { messageManager.assistantActivityReason }
         set { messageManager.assistantActivityReason = newValue }
     }
+    public var assistantStatusText: String? {
+        get { messageManager.assistantStatusText }
+        set { messageManager.assistantStatusText = newValue }
+    }
     public var hasPendingConfirmation: Bool {
         messages.contains(where: { $0.confirmation?.state == .pending })
     }
@@ -809,6 +813,7 @@ public final class ChatViewModel: ObservableObject {
                 self?.assistantActivityPhase = "idle"
                 self?.assistantActivityAnchor = "global"
                 self?.assistantActivityReason = nil
+                self?.assistantStatusText = nil
                 // If a run was in progress when the connection dropped, the
                 // client may have missed the messageComplete (or the full
                 // assistant response). Reset the spinner and re-fetch history

@@ -13,6 +13,7 @@ struct MessageListView: View {
     let assistantActivityPhase: String
     let assistantActivityAnchor: String
     let assistantActivityReason: String?
+    let assistantStatusText: String?
     let selectedModel: String
     let configuredProviders: Set<String>
     let activeSubagents: [SubagentInfo]
@@ -199,7 +200,7 @@ struct MessageListView: View {
             RunningIndicator(
                 label: !hasEverSentMessage && displayMessages.contains(where: { $0.role == .user })
                     ? "Waking up..."
-                    : "Thinking",
+                    : assistantStatusText ?? "Thinking",
                 showIcon: false
             )
         }

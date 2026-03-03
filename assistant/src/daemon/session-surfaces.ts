@@ -4,7 +4,7 @@ import {
   findSeededHomeBaseApp,
   getPrebuiltHomeBasePreview,
 } from '../home-base/prebuilt/seed.js';
-import { getApp, updateApp } from '../memory/app-store.js';
+import { getApp, getAppPreview, updateApp } from '../memory/app-store.js';
 import type { ToolExecutionResult } from '../tools/types.js';
 import { getLogger } from '../util/logger.js';
 import { isPlainObject } from '../util/object.js';
@@ -133,6 +133,8 @@ export interface SurfaceSessionContext {
   lastSurfaceAction: Map<string, { actionId: string; data?: Record<string, unknown> }>;
   surfaceState: Map<string, { surfaceType: SurfaceType; data: SurfaceData; title?: string }>;
   surfaceUndoStacks: Map<string, string[]>;
+  /** Request IDs that originated from surface action button clicks (not regular user messages). */
+  surfaceActionRequestIds: Set<string>;
   currentTurnSurfaces: Array<{
     surfaceId: string;
     surfaceType: SurfaceType;
@@ -393,24 +395,19 @@ export function handleSurfaceAction(ctx: SurfaceSessionContext, surfaceId: strin
       ? data.prompt.trim()
       : '';
 
-  // Build a human-readable summary for confirmation surfaces so the LLM
-  // clearly understands the user's decision instead of parsing raw JSON.
-  let fallbackContent: string;
-  if (pending.surfaceType === 'confirmation') {
-    const summary = buildCompletionSummary('confirmation', actionId, data);
-    fallbackContent = `[User action on confirmation surface: ${summary}]`;
-  } else {
-    fallbackContent = JSON.stringify({
-      surfaceAction: true,
-      surfaceId,
-      surfaceType: pending.surfaceType,
-      actionId,
-      data: data ?? {},
-    });
+  // Build a human-readable summary so the LLM clearly understands the
+  // user's decision instead of parsing raw JSON.
+  const summary = buildCompletionSummary(pending.surfaceType, actionId, data);
+  let fallbackContent = `[User action on ${pending.surfaceType} surface: ${summary}]`;
+  // Append structured data so the LLM has access to IDs/values it needs
+  // to act on (e.g. selectedIds for archiving).
+  if (data && Object.keys(data).length > 0) {
+    fallbackContent += `\n\nAction data: ${JSON.stringify(data)}`;
   }
   const content = prompt || fallbackContent;
 
   const requestId = uuid();
+  ctx.surfaceActionRequestIds.add(requestId);
   const onEvent = (msg: ServerMessage) => ctx.sendToClient(msg);
 
   // Echo the user's prompt to the client so it appears in the chat UI
@@ -534,13 +531,15 @@ export function buildCompletionSummary(surfaceType: string | undefined, actionId
   }
   if (surfaceType === 'list' && data) {
     const selectedIds = data.selectedIds as string[] | undefined;
-    if (selectedIds?.length === 1) return `Selected: ${selectedIds[0]}`;
-    if (selectedIds?.length) return `Selected ${selectedIds.length} items`;
+    const actionSuffix = actionId ? ` (action: ${actionId})` : '';
+    if (selectedIds?.length === 1) return `Selected: ${selectedIds[0]}${actionSuffix}`;
+    if (selectedIds?.length) return `Selected ${selectedIds.length} items${actionSuffix}`;
   }
   if (surfaceType === 'table' && data) {
     const selectedIds = data.selectedIds as string[] | undefined;
-    if (selectedIds?.length === 1) return `Selected 1 row`;
-    if (selectedIds?.length) return `Selected ${selectedIds.length} rows`;
+    const actionSuffix = actionId ? ` (action: ${actionId})` : '';
+    if (selectedIds?.length === 1) return `Selected 1 row${actionSuffix}`;
+    if (selectedIds?.length) return `Selected ${selectedIds.length} rows${actionSuffix}`;
   }
   return actionId.charAt(0).toUpperCase() + actionId.slice(1);
 }
@@ -608,6 +607,7 @@ export async function surfaceProxyResolver(
         message: 'File upload dialog displayed and the user can see it. The uploaded file data will arrive as a follow-up message. Do not output any waiting message — just stop here.',
       }),
       isError: false,
+      yieldToUser: true,
     };
   }
 
@@ -668,6 +668,7 @@ export async function surfaceProxyResolver(
           message: 'Surface displayed and the user can see it. Their response will arrive as a follow-up message. Do not output any waiting message — just stop here.',
         }),
         isError: false,
+        yieldToUser: true,
       };
     }
     return { content: JSON.stringify({ surfaceId }), isError: false };
@@ -772,11 +773,12 @@ export async function surfaceProxyResolver(
       // un-clickable fallback chip) after session restart.
       : { title: app.name, subtitle: app.description };
 
+    const storedPreview = getAppPreview(app.id);
     const surfaceData: DynamicPageSurfaceData = {
       html: app.htmlDefinition,
       appId: app.id,
       appType: app.appType,
-      preview: preview ?? defaultPreview,
+      preview: { ...defaultPreview, ...preview, ...(storedPreview ? { previewImage: storedPreview } : {}) },
     };
     const surfaceId = uuid();
     ctx.surfaceState.set(surfaceId, {

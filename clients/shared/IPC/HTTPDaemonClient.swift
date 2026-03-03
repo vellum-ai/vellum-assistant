@@ -56,6 +56,7 @@ public final class HTTPTransport {
     public private(set) var bearerToken: String?
     private let conversationKey: String
     private let sourceChannel: String
+    let transportMetadata: TransportMetadata
 
     private static var defaultSourceChannel: String {
         return "vellum"
@@ -126,12 +127,140 @@ public final class HTTPTransport {
 
     // MARK: - Init
 
-    init(baseURL: String, bearerToken: String?, conversationKey: String) {
+    init(baseURL: String, bearerToken: String?, conversationKey: String, transportMetadata: TransportMetadata = .defaultLocal) {
         // Strip trailing slash for clean URL construction
         self.baseURL = baseURL.hasSuffix("/") ? String(baseURL.dropLast()) : baseURL
         self.bearerToken = bearerToken
         self.conversationKey = conversationKey
         self.sourceChannel = Self.defaultSourceChannel
+        self.transportMetadata = transportMetadata
+    }
+
+    // MARK: - Endpoint Builder
+
+    /// All HTTP endpoints used by the transport, centralized for consistent
+    /// URL construction. Query parameters that are integral to the endpoint
+    /// identity are modelled as associated values.
+    enum Endpoint {
+        case healthz
+        case events(conversationKey: String)
+        case sendMessage
+        case getMessages(conversationId: String?)
+        case conversations(limit: Int, offset: Int)
+        case confirm
+        case secret
+        case guardianActionsPending(conversationId: String)
+        case guardianActionsDecision
+        case conversationsSeen
+        case identity
+        case featureFlags
+        case featureFlagUpdate(key: String)
+    }
+
+    /// Build a URL for the given endpoint using the current route mode.
+    /// Returns nil if the URL string is malformed.
+    private func buildURL(for endpoint: Endpoint) -> URL? {
+        let path: String
+        let query: String?
+
+        switch transportMetadata.routeMode {
+        case .runtimeFlat:
+            (path, query) = buildRuntimeFlatPath(for: endpoint)
+        case .platformAssistantProxy:
+            guard let assistantId = transportMetadata.platformAssistantId else {
+                log.error("platformAssistantProxy route mode requires platformAssistantId")
+                return nil
+            }
+            (path, query) = buildPlatformProxyPath(for: endpoint, assistantId: assistantId)
+        }
+
+        var urlString = "\(baseURL)\(path)"
+        if let query {
+            urlString += "?\(query)"
+        }
+        return URL(string: urlString)
+    }
+
+    /// Builds paths for the existing runtime-flat layout (e.g. /healthz, /v1/messages).
+    private func buildRuntimeFlatPath(for endpoint: Endpoint) -> (path: String, query: String?) {
+        switch endpoint {
+        case .healthz:
+            return ("/healthz", nil)
+        case .events(let conversationKey):
+            let encoded = conversationKey.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? conversationKey
+            return ("/v1/events", "conversationKey=\(encoded)")
+        case .sendMessage:
+            return ("/v1/messages", nil)
+        case .getMessages(let conversationId):
+            if let id = conversationId {
+                let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? id
+                return ("/v1/messages", "conversationId=\(encoded)")
+            }
+            return ("/v1/messages", nil)
+        case .conversations(let limit, let offset):
+            return ("/v1/conversations", "limit=\(limit)&offset=\(offset)")
+        case .confirm:
+            return ("/v1/confirm", nil)
+        case .secret:
+            return ("/v1/secret", nil)
+        case .guardianActionsPending(let conversationId):
+            let encoded = conversationId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? conversationId
+            return ("/v1/guardian-actions/pending", "conversationId=\(encoded)")
+        case .guardianActionsDecision:
+            return ("/v1/guardian-actions/decision", nil)
+        case .conversationsSeen:
+            return ("/v1/conversations/seen", nil)
+        case .identity:
+            return ("/v1/identity", nil)
+        case .featureFlags:
+            return ("/v1/feature-flags", nil)
+        case .featureFlagUpdate(let key):
+            let encoded = key.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? key
+            return ("/v1/feature-flags/\(encoded)", nil)
+        }
+    }
+
+    /// Builds paths for the platform assistant proxy layout
+    /// (e.g. /v1/assistants/{id}/healthz/, /v1/assistants/{id}/messages/).
+    /// Trailing slashes match the Django URL convention.
+    private func buildPlatformProxyPath(for endpoint: Endpoint, assistantId: String) -> (path: String, query: String?) {
+        let prefix = "/v1/assistants/\(assistantId)"
+
+        switch endpoint {
+        case .healthz:
+            return ("\(prefix)/healthz/", nil)
+        case .events(let conversationKey):
+            let encoded = conversationKey.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? conversationKey
+            return ("\(prefix)/events/", "conversationKey=\(encoded)")
+        case .sendMessage:
+            return ("\(prefix)/messages/", nil)
+        case .getMessages(let conversationId):
+            if let id = conversationId {
+                let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? id
+                return ("\(prefix)/messages/", "conversationId=\(encoded)")
+            }
+            return ("\(prefix)/messages/", nil)
+        case .conversations(let limit, let offset):
+            return ("\(prefix)/conversations/", "limit=\(limit)&offset=\(offset)")
+        case .confirm:
+            return ("\(prefix)/confirm/", nil)
+        case .secret:
+            return ("\(prefix)/secret/", nil)
+        case .guardianActionsPending(let conversationId):
+            let encoded = conversationId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? conversationId
+            return ("\(prefix)/guardian-actions/pending/", "conversationId=\(encoded)")
+        case .guardianActionsDecision:
+            return ("\(prefix)/guardian-actions/decision/", nil)
+        case .conversationsSeen:
+            return ("\(prefix)/conversations/seen/", nil)
+        case .identity:
+            return ("\(prefix)/identity/", nil)
+        case .featureFlags:
+            return ("\(prefix)/feature-flags/", nil)
+        case .featureFlagUpdate(let key):
+            let encoded = key.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? key
+            return ("\(prefix)/feature-flags/\(encoded)/", nil)
+        }
     }
 
     // MARK: - Connect (health check driven)
@@ -158,7 +287,9 @@ public final class HTTPTransport {
 
     /// Run a single health check against the gateway.
     private func performHealthCheck() async throws {
-        let healthURL = URL(string: "\(baseURL)/healthz")!
+        guard let healthURL = buildURL(for: .healthz) else {
+            throw HTTPTransportError.invalidURL
+        }
         var healthReq = URLRequest(url: healthURL)
         healthReq.timeoutInterval = 10
         applyAuth(&healthReq)
@@ -228,9 +359,8 @@ public final class HTTPTransport {
     private func startSSEStream() {
         sseTask?.cancel()
 
-        let urlString = "\(baseURL)/v1/events?conversationKey=\(conversationKey.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? conversationKey)"
-        guard let url = URL(string: urlString) else {
-            log.error("Invalid SSE URL: \(urlString)")
+        guard let url = buildURL(for: .events(conversationKey: self.conversationKey)) else {
+            log.error("Invalid SSE URL for conversationKey: \(self.conversationKey)")
             return
         }
 
@@ -256,7 +386,7 @@ public final class HTTPTransport {
                 }
 
                 self.setSSEConnected(true)
-                log.info("SSE stream connected to \(urlString, privacy: .public)")
+                log.info("SSE stream connected to \(url.absoluteString, privacy: .public)")
 
                 var dataBuffer = ""
 
@@ -357,7 +487,7 @@ public final class HTTPTransport {
     // MARK: - HTTP Endpoints
 
     private func sendMessage(content: String?, sessionId: String, isRetry: Bool = false) async {
-        guard let url = URL(string: "\(baseURL)/v1/messages") else { return }
+        guard let url = buildURL(for: .sendMessage) else { return }
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -419,7 +549,7 @@ public final class HTTPTransport {
     }
 
     private func sendDecision(requestId: String, decision: String, isRetry: Bool = false) async {
-        guard let url = URL(string: "\(baseURL)/v1/confirm") else { return }
+        guard let url = buildURL(for: .confirm) else { return }
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -456,7 +586,7 @@ public final class HTTPTransport {
     }
 
     private func sendSecret(requestId: String, value: String?, isRetry: Bool = false) async {
-        guard let url = URL(string: "\(baseURL)/v1/secret") else { return }
+        guard let url = buildURL(for: .secret) else { return }
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -493,8 +623,7 @@ public final class HTTPTransport {
     }
 
     private func fetchGuardianActionsPending(conversationId: String, isRetry: Bool = false) async {
-        let encoded = conversationId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? conversationId
-        guard let url = URL(string: "\(baseURL)/v1/guardian-actions/pending?conversationId=\(encoded)") else { return }
+        guard let url = buildURL(for: .guardianActionsPending(conversationId: conversationId)) else { return }
 
         var request = URLRequest(url: url)
         applyAuth(&request)
@@ -533,7 +662,7 @@ public final class HTTPTransport {
     }
 
     private func submitGuardianActionDecision(requestId: String, action: String, conversationId: String?, isRetry: Bool = false) async {
-        guard let url = URL(string: "\(baseURL)/v1/guardian-actions/decision") else { return }
+        guard let url = buildURL(for: .guardianActionsDecision) else { return }
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -613,7 +742,7 @@ public final class HTTPTransport {
     }
 
     private func sendConversationSeen(_ signal: IPCConversationSeenSignal, isRetry: Bool = false) async {
-        guard let url = URL(string: "\(baseURL)/v1/conversations/seen") else { return }
+        guard let url = buildURL(for: .conversationsSeen) else { return }
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -657,7 +786,7 @@ public final class HTTPTransport {
     }
 
     private func fetchSessionList(offset: Int = 0, limit: Int = 50, isRetry: Bool = false) async {
-        guard let url = URL(string: "\(baseURL)/v1/conversations?limit=\(limit)&offset=\(offset)") else { return }
+        guard let url = buildURL(for: .conversations(limit: limit, offset: offset)) else { return }
 
         var request = URLRequest(url: url)
         applyAuth(&request)
@@ -696,9 +825,7 @@ public final class HTTPTransport {
     }
 
     private func fetchHistory(sessionId: String, isRetry: Bool = false) async {
-        let encoded = sessionId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? sessionId
-        let urlString = "\(baseURL)/v1/messages?conversationId=\(encoded)"
-        guard let url = URL(string: urlString) else { return }
+        guard let url = buildURL(for: .getMessages(conversationId: sessionId)) else { return }
 
         var request = URLRequest(url: url)
         applyAuth(&request)
@@ -774,7 +901,7 @@ public final class HTTPTransport {
 
     /// Fetch all feature flags from the gateway's GET /v1/feature-flags endpoint.
     func getFeatureFlags(featureFlagToken: String) async throws -> [DaemonClient.AssistantFeatureFlag] {
-        guard let url = URL(string: "\(baseURL)/v1/feature-flags") else {
+        guard let url = buildURL(for: .featureFlags) else {
             throw HTTPTransportError.invalidURL
         }
 
@@ -811,8 +938,7 @@ public final class HTTPTransport {
     /// Toggle a feature flag via the gateway's PATCH endpoint.
     /// Uses the dedicated feature-flag token (not the runtime bearer token) for auth.
     func setFeatureFlag(key: String, enabled: Bool, featureFlagToken: String) async throws {
-        let encoded = key.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? key
-        guard let url = URL(string: "\(baseURL)/v1/feature-flags/\(encoded)") else {
+        guard let url = buildURL(for: .featureFlagUpdate(key: key)) else {
             throw HTTPTransportError.invalidURL
         }
 
@@ -846,7 +972,7 @@ public final class HTTPTransport {
 
     /// Fetch all assistant feature flags from the gateway's `GET /v1/feature-flags` endpoint.
     func fetchAssistantFeatureFlags(featureFlagToken: String) async throws -> [DaemonClient.AssistantFeatureFlagEntry] {
-        guard let url = URL(string: "\(baseURL)/v1/feature-flags") else {
+        guard let url = buildURL(for: .featureFlags) else {
             throw HTTPTransportError.invalidURL
         }
 
@@ -883,7 +1009,7 @@ public final class HTTPTransport {
 
     /// Fetch identity info from the remote daemon's `GET /v1/identity` endpoint.
     func fetchRemoteIdentity() async -> RemoteIdentityInfo? {
-        guard let url = URL(string: "\(baseURL)/v1/identity") else { return nil }
+        guard let url = buildURL(for: .identity) else { return nil }
 
         var request = URLRequest(url: url)
         request.timeoutInterval = 10
@@ -952,6 +1078,19 @@ public final class HTTPTransport {
     /// Async callers that need retry-or-skip semantics should use
     /// handleAuthenticationFailureAsync() directly.
     private func handleAuthenticationFailure(responseData: Data? = nil) {
+        // Managed mode uses session tokens — the bearer refresh flow does not apply.
+        // Signal session expiry so the app can prompt re-authentication.
+        if isManagedMode {
+            log.warning("401 in managed mode — session token may be expired")
+            onMessage?(.sessionError(SessionErrorMessage(
+                sessionId: "",
+                code: .authenticationRequired,
+                userMessage: "Session expired. Please sign in again.",
+                retryable: false
+            )))
+            return
+        }
+
         Task { @MainActor [weak self] in
             guard let self else { return }
             _ = await self.handleAuthenticationFailureAsync(responseData: responseData)
@@ -970,6 +1109,18 @@ public final class HTTPTransport {
     /// `refresh_required`, `UNAUTHORIZED` (expired JWT), and unknown codes —
     /// are treated as refreshable.
     private func handleAuthenticationFailureAsync(responseData: Data? = nil) async -> AuthRefreshResult {
+        // Managed mode: no bearer refresh — emit session-expired and return terminal.
+        if isManagedMode {
+            log.warning("401 in managed mode — session token may be expired")
+            onMessage?(.sessionError(SessionErrorMessage(
+                sessionId: "",
+                code: .authenticationRequired,
+                userMessage: "Session expired. Please sign in again.",
+                retryable: false
+            )))
+            return .terminalFailure
+        }
+
         // Parse the 401 body to check for terminal (non-refreshable) error codes.
         // The server's auth middleware returns errors in a standard envelope:
         //   { "error": { "code": "...", "message": "..." } }
@@ -1088,15 +1239,27 @@ public final class HTTPTransport {
     // MARK: - Helpers
 
     private func applyAuth(_ request: inout URLRequest) {
-        // The JWT access token is the sole auth credential — it serves as
-        // both authentication and identity.
-        if let accessToken = ActorTokenManager.getToken(), !accessToken.isEmpty {
-            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        } else if let token = bearerToken {
-            // Fallback to legacy bearer token for initial bootstrap before
-            // the first JWT is issued.
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        switch transportMetadata.authMode {
+        case .bearerToken:
+            // The JWT access token is the sole auth credential — it serves as
+            // both authentication and identity.
+            if let accessToken = ActorTokenManager.getToken(), !accessToken.isEmpty {
+                request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+            } else if let token = bearerToken {
+                // Fallback to legacy bearer token for initial bootstrap before
+                // the first JWT is issued.
+                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            }
+        case .sessionToken:
+            if let token = SessionTokenManager.getToken() {
+                request.setValue(token, forHTTPHeaderField: "X-Session-Token")
+            }
         }
+    }
+
+    /// Whether this transport is operating in managed mode.
+    var isManagedMode: Bool {
+        transportMetadata.routeMode == .platformAssistantProxy
     }
 
     private func setConnected(_ connected: Bool) {

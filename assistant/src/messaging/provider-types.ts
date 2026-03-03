@@ -99,6 +99,8 @@ export interface SenderDigestResult {
   senders: SenderDigestEntry[];
   totalScanned: number;
   queryUsed: string;
+  /** True when pagination was stopped because the scan cap was reached but more messages exist. */
+  truncated?: boolean;
 }
 
 export interface ArchiveResult {

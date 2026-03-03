@@ -4,8 +4,8 @@ import { withValidToken } from '../../../../security/token-manager.js';
 import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
 import { err,ok } from './shared.js';
 
-const MAX_MESSAGES_CAP = 2000;
-const MAX_IDS_PER_SENDER = 1000;
+const MAX_MESSAGES_CAP = 500;
+const MAX_IDS_PER_SENDER = 500;
 const MAX_SAMPLE_SUBJECTS = 3;
 
 interface SenderAggregation {
@@ -45,6 +45,7 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
       // Paginate through listMessages to collect up to maxMessages IDs
       const allMessageIds: string[] = [];
       let pageToken: string | undefined;
+      let truncated = false;
 
       while (allMessageIds.length < maxMessages) {
         const pageSize = Math.min(100, maxMessages - allMessageIds.length);
@@ -54,6 +55,11 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
         allMessageIds.push(...ids);
         pageToken = listResp.nextPageToken ?? undefined;
         if (!pageToken) break;
+      }
+
+      // If we stopped because we hit the cap but there were still more pages, flag truncation
+      if (allMessageIds.length >= maxMessages && pageToken) {
+        truncated = true;
       }
 
       if (allMessageIds.length === 0) {
@@ -165,7 +171,8 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
         senders: result,
         total_scanned: allMessageIds.length,
         query_used: query,
-        note: `message_count reflects emails found per sender within the ${allMessageIds.length} messages scanned. The archive tool may find additional messages beyond this sample.`,
+        ...(truncated ? { truncated: true } : {}),
+        note: `message_count reflects emails found per sender within the ${allMessageIds.length} messages scanned. Use the message_ids array with gmail_batch_archive to archive exactly these messages.`,
       }));
     });
   } catch (e) {

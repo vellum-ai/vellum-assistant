@@ -243,6 +243,8 @@ export interface AssistantActivityState {
     | 'message_complete'
     | 'generation_cancelled'
     | 'error_terminal';
+  /** Human-readable description of what the assistant is currently doing. */
+  statusText?: string;
 }
 
 export type TraceEventKind =

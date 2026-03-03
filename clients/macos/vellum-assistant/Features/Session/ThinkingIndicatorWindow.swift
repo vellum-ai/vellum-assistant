@@ -7,9 +7,13 @@ import SwiftUI
 }
 
 struct ThinkingIndicatorView: View {
+    var statusText: String?
     @AppStorage("completedConversationCount") private var completedConversationCount: Int = 0
 
     private var thinkingText: String {
+        if let statusText, !statusText.isEmpty {
+            return "\(statusText)..."
+        }
         if completedConversationCount <= 5, let name = IdentityInfo.load()?.name {
             return "\(name) is thinking..."
         }
@@ -35,8 +39,11 @@ struct ThinkingIndicatorView: View {
 final class ThinkingIndicatorWindow {
     private var panel: NSPanel?
 
-    func show() {
-        let hostingView = NSHostingView(rootView: ThinkingIndicatorView())
+    private var currentStatusText: String?
+
+    func show(statusText: String? = nil) {
+        currentStatusText = statusText
+        let hostingView = NSHostingView(rootView: ThinkingIndicatorView(statusText: statusText))
         hostingView.setFrameSize(hostingView.fittingSize)
 
         let panel = NSPanel(
@@ -68,8 +75,18 @@ final class ThinkingIndicatorWindow {
         self.panel = panel
     }
 
+    func update(statusText: String?) {
+        guard let panel else { return }
+        currentStatusText = statusText
+        let hostingView = NSHostingView(rootView: ThinkingIndicatorView(statusText: statusText))
+        hostingView.setFrameSize(hostingView.fittingSize)
+        panel.contentView = hostingView
+        panel.setContentSize(hostingView.fittingSize)
+    }
+
     func close() {
         panel?.close()
         panel = nil
+        currentStatusText = nil
     }
 }
