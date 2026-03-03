@@ -73,55 +73,90 @@ export function registerMcpCommand(program: Command): void {
 
       log.info(`${entries.length} MCP server(s) configured:\n`);
 
-      // First pass: print all server blocks with placeholder status, track line positions
-      let lineCount = 0;
-      const healthChecks: { id: string; cfg: McpServerConfig; statusLine: number }[] = [];
+      const isTTY = process.stdout.isTTY;
 
-      for (const [id, cfg] of entries) {
-        if (!cfg || typeof cfg !== 'object') {
-          log.info(`  ${id} (invalid config — skipped)\n`);
-          lineCount += 2;
-          continue;
-        }
-        const enabled = cfg.enabled !== false;
-        const transport = cfg.transport;
-        const risk = cfg.defaultRiskLevel ?? 'high';
-        const statusText = !enabled ? '✗ disabled' : '⏳ Checking...';
+      if (isTTY) {
+        // TTY path: print placeholders, run health checks in parallel, update in-place with ANSI codes
+        let lineCount = 0;
+        const healthChecks: { id: string; cfg: McpServerConfig; statusLine: number }[] = [];
 
-        log.info(`  ${id}`);
-        lineCount++;
-        const statusLine = lineCount;
-        log.info(`    Status:    ${statusText}`);
-        lineCount++;
-        log.info(`    Transport: ${transport?.type ?? 'unknown'}`);
-        lineCount++;
-        if (transport?.type === 'stdio') {
-          log.info(`    Command:   ${transport.command} ${(transport.args ?? []).join(' ')}`);
+        for (const [id, cfg] of entries) {
+          if (!cfg || typeof cfg !== 'object') {
+            log.info(`  ${id} (invalid config — skipped)\n`);
+            lineCount += 2;
+            continue;
+          }
+          const enabled = cfg.enabled !== false;
+          const transport = cfg.transport;
+          const risk = cfg.defaultRiskLevel ?? 'high';
+          const statusText = !enabled ? '✗ disabled' : '⏳ Checking...';
+
+          log.info(`  ${id}`);
           lineCount++;
-        } else if (transport && 'url' in transport) {
-          log.info(`    URL:       ${transport.url}`);
+          const statusLine = lineCount;
+          log.info(`    Status:    ${statusText}`);
           lineCount++;
-        }
-        log.info(`    Risk:      ${risk}`);
-        lineCount++;
-        if (cfg.allowedTools) { log.info(`    Allowed:   ${cfg.allowedTools.join(', ')}`); lineCount++; }
-        if (cfg.blockedTools) { log.info(`    Blocked:   ${cfg.blockedTools.join(', ')}`); lineCount++; }
-        log.info('');
-        lineCount++;
+          log.info(`    Transport: ${transport?.type ?? 'unknown'}`);
+          lineCount++;
+          if (transport?.type === 'stdio') {
+            log.info(`    Command:   ${transport.command} ${(transport.args ?? []).join(' ')}`);
+            lineCount++;
+          } else if (transport && 'url' in transport) {
+            log.info(`    URL:       ${transport.url}`);
+            lineCount++;
+          }
+          log.info(`    Risk:      ${risk}`);
+          lineCount++;
+          if (cfg.allowedTools) { log.info(`    Allowed:   ${cfg.allowedTools.join(', ')}`); lineCount++; }
+          if (cfg.blockedTools) { log.info(`    Blocked:   ${cfg.blockedTools.join(', ')}`); lineCount++; }
+          log.info('');
+          lineCount++;
 
-        if (enabled) {
-          healthChecks.push({ id, cfg, statusLine });
+          if (enabled) {
+            healthChecks.push({ id, cfg, statusLine });
+          }
+        }
+
+        if (healthChecks.length === 0) return;
+
+        // Run health checks in parallel, update status lines in-place with ANSI codes
+        await Promise.all(healthChecks.map(async ({ id, cfg, statusLine }) => {
+          const health = await checkServerHealth(id, cfg);
+          const up = lineCount - statusLine;
+          process.stdout.write(`\x1b[${up}A\r\x1b[2K    Status:    ${health}\x1b[${up}B\r`);
+        }));
+      } else {
+        // Non-TTY path: run health checks sequentially, print final status directly (no ANSI codes)
+        for (const [id, cfg] of entries) {
+          if (!cfg || typeof cfg !== 'object') {
+            log.info(`  ${id} (invalid config — skipped)\n`);
+            continue;
+          }
+          const enabled = cfg.enabled !== false;
+          const transport = cfg.transport;
+          const risk = cfg.defaultRiskLevel ?? 'high';
+
+          let statusText: string;
+          if (!enabled) {
+            statusText = '✗ disabled';
+          } else {
+            statusText = await checkServerHealth(id, cfg);
+          }
+
+          log.info(`  ${id}`);
+          log.info(`    Status:    ${statusText}`);
+          log.info(`    Transport: ${transport?.type ?? 'unknown'}`);
+          if (transport?.type === 'stdio') {
+            log.info(`    Command:   ${transport.command} ${(transport.args ?? []).join(' ')}`);
+          } else if (transport && 'url' in transport) {
+            log.info(`    URL:       ${transport.url}`);
+          }
+          log.info(`    Risk:      ${risk}`);
+          if (cfg.allowedTools) { log.info(`    Allowed:   ${cfg.allowedTools.join(', ')}`); }
+          if (cfg.blockedTools) { log.info(`    Blocked:   ${cfg.blockedTools.join(', ')}`); }
+          log.info('');
         }
       }
-
-      if (healthChecks.length === 0) return;
-
-      // Second pass: run health checks in parallel, update status lines in-place
-      await Promise.all(healthChecks.map(async ({ id, cfg, statusLine }) => {
-        const health = await checkServerHealth(id, cfg);
-        const up = lineCount - statusLine;
-        process.stdout.write(`\x1b[${up}A\r\x1b[2K    Status:    ${health}\x1b[${up}B\r`);
-      }));
 
       // Health checks may leave MCP transports alive — force exit
       process.exit(0);
