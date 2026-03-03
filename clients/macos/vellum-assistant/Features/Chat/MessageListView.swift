@@ -591,6 +591,11 @@ struct MessageListView: View {
                     // specific message instead.
                     if anchorMessageId == nil {
                         proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                    } else if !messages.contains(where: { $0.id == anchorMessageId }) {
+                        // Anchor is stale (belongs to a different thread) — clear
+                        // it and scroll to bottom normally.
+                        anchorMessageId = nil
+                        proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
                     }
                 }
             }
