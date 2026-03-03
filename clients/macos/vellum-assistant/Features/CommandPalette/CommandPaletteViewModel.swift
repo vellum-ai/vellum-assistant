@@ -7,6 +7,7 @@ final class CommandPaletteViewModel {
     var query = ""
     var selectedIndex = 0
     var isSearching = false
+    var isDeepSearching = false
 
     /// Static actions (set once at palette creation).
     var actions: [CommandPaletteAction] = []
@@ -19,6 +20,9 @@ final class CommandPaletteViewModel {
 
     /// Debounce task for search queries.
     private var searchTask: Task<Void, Never>?
+
+    /// Deep search task that runs after fast results arrive.
+    private var deepSearchTask: Task<Void, Never>?
 
     /// Base URL and token resolver for runtime HTTP calls.
     var runtimeHTTPResolver: (() -> (baseURL: String, token: String)?)?
@@ -67,9 +71,12 @@ final class CommandPaletteViewModel {
         query = ""
         selectedIndex = 0
         isSearching = false
+        isDeepSearching = false
         serverResults = .empty
         searchTask?.cancel()
         searchTask = nil
+        deepSearchTask?.cancel()
+        deepSearchTask = nil
     }
 
     func moveSelectionUp() {
@@ -97,11 +104,13 @@ final class CommandPaletteViewModel {
     /// Triggers a debounced server search. Call this when the query changes.
     func triggerSearch() {
         searchTask?.cancel()
+        deepSearchTask?.cancel()
 
         let trimmed = query.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else {
             serverResults = .empty
             isSearching = false
+            isDeepSearching = false
             return
         }
 
@@ -113,30 +122,66 @@ final class CommandPaletteViewModel {
             guard !Task.isCancelled else { return }
 
             guard let self else { return }
-            let results = await self.performSearch(query: trimmed)
+            let results = await self.performSearch(query: trimmed, deep: false)
 
             guard !Task.isCancelled else { return }
             self.serverResults = results
             self.isSearching = false
             self.clampSelection()
+
+            // Auto-fire deep search after fast results arrive
+            self.triggerDeepSearch(query: trimmed)
         }
     }
 
-    private func performSearch(query: String) async -> GlobalSearchResults {
+    /// Fires a deep semantic search after the fast phase completes.
+    private func triggerDeepSearch(query: String) {
+        deepSearchTask?.cancel()
+        isDeepSearching = true
+
+        deepSearchTask = Task { [weak self] in
+            guard let self else { return }
+            let deepResults = await self.performSearch(query: query, deep: true)
+
+            guard !Task.isCancelled else { return }
+
+            // Merge deep memory results with existing, deduplicating by ID
+            let existingMemoryIds = Set(self.serverResults.memories.map(\.id))
+            let newMemories = deepResults.memories.filter { !existingMemoryIds.contains($0.id) }
+            if !newMemories.isEmpty {
+                var updated = self.serverResults
+                updated = GlobalSearchResults(
+                    conversations: updated.conversations,
+                    memories: updated.memories + newMemories,
+                    schedules: updated.schedules,
+                    contacts: updated.contacts
+                )
+                self.serverResults = updated
+                self.clampSelection()
+            }
+            self.isDeepSearching = false
+        }
+    }
+
+    private func performSearch(query: String, deep: Bool) async -> GlobalSearchResults {
         guard let resolver = runtimeHTTPResolver,
               let http = resolver() else {
             return .empty
         }
 
         let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
-        guard let url = URL(string: "\(http.baseURL)/v1/search/global?q=\(encoded)&limit=10") else {
+        var urlString = "\(http.baseURL)/v1/search/global?q=\(encoded)&limit=10"
+        if deep {
+            urlString += "&deep=true&categories=memories"
+        }
+        guard let url = URL(string: urlString) else {
             return .empty
         }
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue("Bearer \(http.token)", forHTTPHeaderField: "Authorization")
-        request.timeoutInterval = 5
+        request.timeoutInterval = deep ? 10 : 5
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
