@@ -11,7 +11,7 @@ You are helping the user set up and manage phone calls via Twilio. This skill co
 
 ## Overview
 
-The calling system uses Twilio's ConversationRelay for both **outbound** and **inbound** voice calls. Twilio works out of the box as the default voice provider. Optionally, you can enable ElevenLabs integration for higher-quality, more natural-sounding voices — but this is entirely optional.
+The calling system uses Twilio's ConversationRelay for both **outbound** and **inbound** voice calls with **ElevenLabs** providing the text-to-speech voice. After Twilio setup, the assistant configures ElevenLabs as the TTS provider and prompts the user to choose a voice from a curated list of supported options.
 
 ### Outbound calls
 
@@ -36,11 +36,9 @@ When someone dials the assistant's Twilio phone number:
 
 Three voice quality modes are available:
 
-- **`twilio_standard`** (default) — Fully supported. Standard Twilio TTS with Google voices. No extra setup required.
-- **`twilio_elevenlabs_tts`** — Fully supported. Uses ElevenLabs voices through Twilio ConversationRelay for more natural speech.
+- **`twilio_elevenlabs_tts`** (recommended default) — Uses ElevenLabs voices through Twilio ConversationRelay for natural, high-quality speech. This is what gets configured during setup.
+- **`twilio_standard`** — Standard Twilio TTS with Google voices. No ElevenLabs account needed, but lower voice quality. Available as a fallback.
 - **`elevenlabs_agent`** — **Experimental/restricted.** Full ElevenLabs conversational agent mode. Consultation bridging (`waiting_on_user`) is not yet supported in this mode; the runtime guard blocks it before any ElevenLabs API calls are made. See the "Runtime behavior" section below for fallback and strict-fail details.
-
-You can keep using Twilio only — no changes needed. Enabling ElevenLabs can improve naturalness and quality.
 
 The user's assistant gets its own personal phone number through Twilio. All implicit calls (without an explicit mode) always use this assistant number. Optionally, users can call from their own phone number if it's authorized with the Twilio account — this must be explicitly requested per call via `caller_identity_mode="user_number"`.
 
@@ -79,15 +77,71 @@ Verify:
 vellum config get calls.enabled
 ```
 
-## Step 3: Verify Setup (Test Call)
+## Step 3: Choose a Voice
+
+After enabling calls, set up ElevenLabs as the TTS provider and let the user choose a voice. Twilio has a native ElevenLabs integration — no separate ElevenLabs account or API key is needed.
+
+First, switch to ElevenLabs TTS mode:
+
+```bash
+vellum config set calls.voice.mode twilio_elevenlabs_tts
+```
+
+Then present the user with a list of supported ElevenLabs voices. These are pre-made voices with stable IDs that work with Twilio ConversationRelay out of the box.
+
+**Ask the user: "Which voice would you like your assistant to use on phone calls?"**
+
+Present these voices grouped by category:
+
+#### Female voices
+
+| Voice     | Style                          | Voice ID                       |
+| --------- | ------------------------------ | ------------------------------ |
+| Rachel    | Calm, warm, conversational     | `21m00Tcm4TlvDq8ikWAM`        |
+| Sarah     | Soft, young, approachable      | `EXAVITQu4vr4xnSDxMaL`        |
+| Charlotte | Warm, Swedish-accented         | `XB0fDUnXU5powFXDhCwa`        |
+| Alice     | Confident, British             | `Xb7hH8MSUJpSbSDYk0k2`        |
+| Matilda   | Warm, friendly, young          | `XrExE9yKIg1WjnnlVkGX`        |
+| Lily      | Warm, British                  | `pFZP5JQG7iQjIQuC4Bku`        |
+
+#### Male voices
+
+| Voice   | Style                            | Voice ID                       |
+| ------- | -------------------------------- | ------------------------------ |
+| Antoni  | Warm, well-rounded               | `ErXwobaYiN019PkySvjV`        |
+| Josh    | Deep, young, clear               | `TxGEqnHWrfWFTfGW9XjX`       |
+| Arnold  | Crisp, narrative                  | `VR6AewLTigWG4xSOukaG`        |
+| Adam    | Deep, middle-aged, professional  | `pNInz6obpgDQGcFmaJgB`        |
+| Bill    | Trustworthy, American            | `pqHfZKP75CvOlQylNhV4`        |
+| George  | Warm, British, distinguished     | `JBFqnCBsd6RMkjVDRZzb`        |
+| Daniel  | Authoritative, British           | `onwK4e9ZLuTAKqWW03F9`        |
+| Charlie | Casual, Australian               | `IKne3meq5aSn9XLyUdCD`        |
+| Liam    | Young, articulate                | `TX3LPaxmHKxFdv7VOQHJ`        |
+
+After the user picks a voice, configure it:
+
+```bash
+vellum config set calls.voice.elevenlabs.voiceId "<selected-voice-id>"
+```
+
+**If the user wants a voice not on this list**, they can browse more voices at https://elevenlabs.io/voice-library and provide the voice ID manually.
+
+**If the user doesn't want ElevenLabs**, revert to standard Twilio voices:
+
+```bash
+vellum config set calls.voice.mode twilio_standard
+```
+
+## Step 4: Verify Setup (Test Call)
 
 Before making real calls, offer a quick verification:
 
 1. Confirm credentials are stored: check the Twilio config endpoint for `hasCredentials: true` and `phoneNumber`
 2. Confirm ingress is running: `ingress.publicBaseUrl` must be set and the tunnel active
 3. Confirm calls are enabled: `calls.enabled` must be `true`
+4. Confirm voice is configured: `calls.voice.mode` should be `twilio_elevenlabs_tts` and `calls.voice.elevenlabs.voiceId` should be set
 
-Suggest a test call to the user's own phone: **"Want to do a quick test call to your phone to make sure everything works?"**
+Suggest a test call to the user's own phone: **"Want to do a quick test call to your phone to make sure everything works? This is a good way to hear how your chosen voice sounds."**
 
 If they agree, ask for their personal phone number and place a test call with a simple task like "Introduce yourself and confirm the call system is working."
 
@@ -133,28 +187,21 @@ An optional verification step where the callee must enter a numeric code via the
 | `calls.verification.enabled`    | Enable DTMF callee verification           | `false` |
 | `calls.verification.codeLength` | Number of digits in the verification code | `6`     |
 
-## Optional: Higher Quality Voice with ElevenLabs
+## Advanced Voice Configuration
 
-ElevenLabs integration is entirely optional. The standard Twilio-only setup works unchanged — this section is only relevant if you want to improve voice quality.
+ElevenLabs is configured as the default TTS provider during setup (Step 3). This section covers advanced tuning, alternative modes, and fallback behavior.
 
-### Mode: `twilio_elevenlabs_tts`
+### Changing the voice
 
-Uses ElevenLabs voices through Twilio's ConversationRelay. Speech is more natural-sounding than the default Google TTS voices.
-
-**Recommended user-friendly workflow (no technical IDs required):**
-
-1. Ask what kind of voice the user wants (examples: "warm", "professional", "playful", "calm", "deeper", "brighter")
-2. If the user doesn't care, keep `twilio_standard` (simplest path)
-3. If they want higher-quality voice, switch to `twilio_elevenlabs_tts` and choose a matching ElevenLabs voice on their behalf
-
-The user should not need to know what a `voiceId` is unless they explicitly want advanced/manual control.
-
-**Manual/advanced setup (optional):**
+To switch to a different voice after initial setup, set the voice ID directly:
 
 ```bash
-vellum config set calls.voice.mode twilio_elevenlabs_tts
-vellum config set calls.voice.elevenlabs.voiceId "<your-voice-id>"
+vellum config set calls.voice.elevenlabs.voiceId "<new-voice-id>"
 ```
+
+Browse more voices at https://elevenlabs.io/voice-library.
+
+### Voice model tuning
 
 By default, the system sends a **bare** `voiceId` to Twilio ConversationRelay (no model/tuning suffix). This is the safest default across voice IDs.
 
@@ -477,11 +524,11 @@ All call-related settings can be managed via `vellum config`:
 | `calls.model`                               | Override LLM model for call orchestration                                                                  | _(uses default model)_                                                                                   |
 | `calls.callerIdentity.allowPerCallOverride` | Allow per-call caller identity selection                                                                   | `true`                                                                                                   |
 | `calls.callerIdentity.userNumber`           | E.164 phone number for user-number mode                                                                    | _(empty)_                                                                                                |
-| `calls.voice.mode`                          | Voice quality mode (`twilio_standard`, `twilio_elevenlabs_tts`, `elevenlabs_agent`)                        | `twilio_standard`                                                                                        |
+| `calls.voice.mode`                          | Voice quality mode (`twilio_elevenlabs_tts`, `twilio_standard`, `elevenlabs_agent`). Set to `twilio_elevenlabs_tts` during setup. | `twilio_standard`                                                                                        |
 | `calls.voice.language`                      | Language code for TTS and transcription                                                                    | `en-US`                                                                                                  |
 | `calls.voice.transcriptionProvider`         | Speech-to-text provider (`Deepgram`, `Google`)                                                             | `Deepgram`                                                                                               |
 | `calls.voice.fallbackToStandardOnError`     | Auto-fallback to standard Twilio TTS on ElevenLabs errors                                                  | `true`                                                                                                   |
-| `calls.voice.elevenlabs.voiceId`            | Advanced/internal ElevenLabs voice identifier. Usually set by the assistant based on requested voice style | _(empty)_                                                                                                |
+| `calls.voice.elevenlabs.voiceId`            | ElevenLabs voice identifier. Set during setup from the curated voice list (no ElevenLabs account needed — Twilio integrates natively) | _(empty)_                                                                                                |
 | `calls.voice.elevenlabs.voiceModelId`       | Optional Twilio ConversationRelay model suffix. Leave empty to send bare `voiceId`                         | _(empty)_                                                                                                |
 | `calls.voice.elevenlabs.agentId`            | ElevenLabs agent ID (for `elevenlabs_agent` mode)                                                          | _(empty)_                                                                                                |
 | `calls.voice.elevenlabs.speed`              | Playback speed (`0.7` – `1.2`)                                                                             | `1.0`                                                                                                    |
