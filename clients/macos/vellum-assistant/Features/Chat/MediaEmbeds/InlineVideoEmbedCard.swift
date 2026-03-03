@@ -50,9 +50,11 @@ struct InlineVideoEmbedCard: View {
         .animation(.easeInOut(duration: 0.25), value: cardHeight)
         .onDisappear {
             // Only reset states that own an active WKWebView.
-            // .placeholder and .failed have no WKWebView to tear down;
-            // preserving .failed keeps error context visible when user scrolls back.
-            if stateManager.state != .placeholder && stateManager.state != .failed {
+            // .placeholder and .failed have no WKWebView; preserve .failed to keep error context.
+            switch stateManager.state {
+            case .placeholder, .failed:
+                break
+            default:
                 stateManager.reset()
             }
         }
