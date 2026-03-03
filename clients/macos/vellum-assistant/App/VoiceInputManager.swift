@@ -347,7 +347,8 @@ final class VoiceInputManager {
                 self?.handleActivatorKeyDown(event, targetKeyCode: targetKeyCode, requiredModifiers: requiredModifiers)
             }
             // Suppress the key from typing when it matches our activator
-            if event.keyCode == targetKeyCode && !event.isARepeat {
+            if event.keyCode == targetKeyCode {
+                if event.isARepeat { return nil }
                 if let mods = requiredModifiers {
                     if event.modifierFlags.contains(mods) { return nil }
                 } else {

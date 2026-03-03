@@ -76,6 +76,22 @@ function validatePTTActivator(payload: PTTActivatorPayload): string | null {
     return `Invalid kind "${payload.kind}". Valid values: ${VALID_KINDS.join(", ")}`;
   }
 
+  // Enforce numeric types for fields that the Swift client decodes as numbers.
+  // Without this, JS coercion lets string values like "96" pass range checks
+  // but the macOS client fails to decode them as UInt16/Int/UInt.
+  if (payload.keyCode != null && typeof payload.keyCode !== "number") {
+    return `keyCode must be a number, got ${typeof payload.keyCode}`;
+  }
+  if (
+    payload.modifierFlags != null &&
+    typeof payload.modifierFlags !== "number"
+  ) {
+    return `modifierFlags must be a number, got ${typeof payload.modifierFlags}`;
+  }
+  if (payload.mouseButton != null && typeof payload.mouseButton !== "number") {
+    return `mouseButton must be a number, got ${typeof payload.mouseButton}`;
+  }
+
   switch (payload.kind) {
     case "modifierOnly":
       if (payload.modifierFlags == null) {
