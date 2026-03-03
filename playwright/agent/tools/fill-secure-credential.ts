@@ -13,7 +13,7 @@
  */
 
 import { execSync } from "child_process";
-import { writeFileSync } from "fs";
+import { unlinkSync, writeFileSync } from "fs";
 
 import type Anthropic from "@anthropic-ai/sdk";
 import type { Page } from "playwright";
@@ -263,5 +263,7 @@ end tell
         data: `Failed to fill Secure Credential: ${message}`,
       },
     };
+  } finally {
+    try { unlinkSync(scriptPath); } catch {}
   }
 }
