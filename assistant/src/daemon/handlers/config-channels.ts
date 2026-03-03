@@ -150,6 +150,49 @@ export function getGuardianStatus(
 }
 
 // ---------------------------------------------------------------------------
+// Revoke guardian binding
+// ---------------------------------------------------------------------------
+
+export function revokeGuardianForChannel(
+  channel?: ChannelId,
+): GuardianVerificationResult {
+  const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
+  const resolvedChannel = channel ?? 'telegram';
+
+  // Capture binding before revoking so we can revoke the guardian's
+  // ingress member record — without this, the guardian would still pass
+  // the ACL check after unbinding.
+  const bindingBeforeRevoke = getGuardianBinding(assistantId, resolvedChannel);
+  if (!bindingBeforeRevoke) {
+    return {
+      success: false,
+      error: 'not_bound',
+      message: 'No active guardian binding exists for this channel.',
+      channel: resolvedChannel,
+    };
+  }
+
+  revokeGuardianBinding(assistantId, resolvedChannel);
+  revokePendingChallenges(assistantId, resolvedChannel);
+
+  const member = findMember({
+    assistantId,
+    sourceChannel: resolvedChannel,
+    externalUserId: bindingBeforeRevoke.guardianExternalUserId,
+    externalChatId: bindingBeforeRevoke.guardianDeliveryChatId,
+  });
+  if (member) {
+    revokeMember(member.id, 'guardian_binding_revoked');
+  }
+
+  return {
+    success: true,
+    bound: false,
+    channel: resolvedChannel,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Guardian verification handler
 // ---------------------------------------------------------------------------
 
@@ -169,31 +212,8 @@ export function handleGuardianVerification(
       const result = getGuardianStatus(channel);
       ctx.send(socket, { type: 'guardian_verification_response', ...result });
     } else if (msg.action === 'revoke') {
-      // Capture binding before revoking so we can revoke the guardian's
-      // ingress member record — without this, the guardian would still pass
-      // the ACL check after unbinding.
-      const bindingBeforeRevoke = getGuardianBinding(assistantId, channel);
-      revokeGuardianBinding(assistantId, channel);
-      revokePendingChallenges(assistantId, channel);
-
-      if (bindingBeforeRevoke) {
-        const member = findMember({
-          assistantId,
-          sourceChannel: channel,
-          externalUserId: bindingBeforeRevoke.guardianExternalUserId,
-          externalChatId: bindingBeforeRevoke.guardianDeliveryChatId,
-        });
-        if (member) {
-          revokeMember(member.id, 'guardian_binding_revoked');
-        }
-      }
-
-      ctx.send(socket, {
-        type: 'guardian_verification_response',
-        success: true,
-        bound: false,
-        channel,
-      });
+      const result = revokeGuardianForChannel(channel);
+      ctx.send(socket, { type: 'guardian_verification_response', ...result });
     } else if (msg.action === 'start_outbound') {
       const result = startOutbound({ channel, destination: msg.destination, rebind: msg.rebind, originConversationId: msg.originConversationId });
       ctx.send(socket, { type: 'guardian_verification_response', ...result });

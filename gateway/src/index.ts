@@ -462,6 +462,7 @@ function main() {
       if (
         (url.pathname === "/v1/integrations/guardian/challenge" && req.method === "POST")
         || (url.pathname === "/v1/integrations/guardian/status" && req.method === "GET")
+        || (url.pathname === "/v1/integrations/guardian/revoke" && req.method === "POST")
         || (url.pathname === "/v1/integrations/guardian/outbound/start" && req.method === "POST")
         || (url.pathname === "/v1/integrations/guardian/outbound/resend" && req.method === "POST")
         || (url.pathname === "/v1/integrations/guardian/outbound/cancel" && req.method === "POST")
@@ -474,6 +475,9 @@ function main() {
         }
         if (url.pathname === "/v1/integrations/guardian/status") {
           return guardianControlPlaneProxy.handleGetGuardianStatus(tracedReq);
+        }
+        if (url.pathname === "/v1/integrations/guardian/revoke") {
+          return guardianControlPlaneProxy.handleRevokeGuardian(tracedReq);
         }
         if (url.pathname === "/v1/integrations/guardian/outbound/start") {
           return guardianControlPlaneProxy.handleStartGuardianOutbound(tracedReq);

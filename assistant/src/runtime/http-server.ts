@@ -175,6 +175,7 @@ import {
   handleGetSlackChannelConfig,
   handleGetTelegramConfig,
   handleResendOutbound,
+  handleRevokeGuardian,
   handleSetSlackChannelConfig,
   handleSetTelegramCommands,
   handleSetTelegramConfig,
@@ -1217,6 +1218,11 @@ export class RuntimeHttpServer {
         return await handleCreateGuardianChallenge(req);
       if (endpoint === "integrations/guardian/status" && req.method === "GET")
         return handleGetGuardianStatus(url);
+      if (
+        endpoint === "integrations/guardian/revoke" &&
+        req.method === "POST"
+      )
+        return await handleRevokeGuardian(req);
       if (
         endpoint === "integrations/guardian/outbound/start" &&
         req.method === "POST"
