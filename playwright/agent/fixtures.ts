@@ -219,11 +219,12 @@ async function ensureAssistantHatched(): Promise<void> {
     .split("\n")
     .filter((l) => l.trim() && !l.includes("NAME") && !l.startsWith("  -"));
 
+  let hatchOutput = "";
   if (lines.length === 0) {
     // No assistant found — hatch one
     try {
-      execSync("vellum hatch", {
-        stdio: "inherit",
+      hatchOutput = execSync("vellum hatch", {
+        encoding: "utf-8",
         timeout: 300_000,
         shell: "/bin/bash",
       });
@@ -236,7 +237,7 @@ async function ensureAssistantHatched(): Promise<void> {
   logVellumPs();
 
   // Verify the lockfile was updated with an assistant entry
-  const runtimeUrl = readRuntimeUrlFromLockfile();
+  const runtimeUrl = readRuntimeUrlFromLockfile(hatchOutput);
 
   // Poll health endpoint until the assistant is ready
   const maxWaitMs = 60_000;
@@ -274,11 +275,13 @@ async function ensureAssistantHatched(): Promise<void> {
  * Reads the latest assistant's runtimeUrl from ~/.vellum.lock.json.
  * Throws if the lockfile is missing or has no assistant entries.
  */
-function readRuntimeUrlFromLockfile(): string {
+function readRuntimeUrlFromLockfile(hatchOutput: string): string {
+  const diagnostics = buildDiagnostics(hatchOutput);
   const lockfilePath = path.join(getBaseDir(), ".vellum.lock.json");
+
   if (!existsSync(lockfilePath)) {
     throw new Error(
-      `Lockfile not found at ${lockfilePath} after hatching.\n${readHatchLog()}`,
+      `Lockfile not found at ${lockfilePath} after hatching.\n${diagnostics}`,
     );
   }
 
@@ -288,35 +291,44 @@ function readRuntimeUrlFromLockfile(): string {
 
   if (!Array.isArray(assistants) || assistants.length === 0) {
     throw new Error(
-      `No assistant entries in lockfile after hatching.\n${readHatchLog()}`,
+      `No assistant entries in lockfile after hatching.\n${diagnostics}`,
     );
   }
 
   const runtimeUrl = assistants[0].runtimeUrl;
   if (!runtimeUrl) {
     throw new Error(
-      `Assistant entry missing runtimeUrl in lockfile.\n${readHatchLog()}`,
+      `Assistant entry missing runtimeUrl in lockfile.\n${diagnostics}`,
     );
   }
 
   return runtimeUrl;
 }
 
-/** Returns the tail of hatch.log for diagnostic error messages. */
-function readHatchLog(): string {
+/** Collects hatch CLI output and hatch.log into a single diagnostic string. */
+function buildDiagnostics(hatchOutput: string): string {
+  const parts: string[] = [];
+
+  if (hatchOutput.trim()) {
+    parts.push(`--- vellum hatch output ---\n${hatchOutput.trim()}`);
+  }
+
   const configHome = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config");
   const logPath = path.join(configHome, "vellum", "logs", "hatch.log");
-  if (!existsSync(logPath)) {
-    return `hatch.log not found at ${logPath}`;
+  if (existsSync(logPath)) {
+    try {
+      const contents = readFileSync(logPath, "utf-8");
+      const lines = contents.split("\n");
+      const tail = lines.slice(-50).join("\n");
+      parts.push(`--- hatch.log (last 50 lines) ---\n${tail}`);
+    } catch {
+      parts.push(`Failed to read hatch.log at ${logPath}`);
+    }
+  } else {
+    parts.push(`hatch.log not found at ${logPath}`);
   }
-  try {
-    const contents = readFileSync(logPath, "utf-8");
-    const lines = contents.split("\n");
-    const tail = lines.slice(-50).join("\n");
-    return `--- hatch.log (last 50 lines) ---\n${tail}`;
-  } catch {
-    return `Failed to read hatch.log at ${logPath}`;
-  }
+
+  return parts.join("\n\n");
 }
 
 /**
