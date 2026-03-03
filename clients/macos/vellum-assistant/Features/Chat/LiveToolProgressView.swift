@@ -21,17 +21,17 @@ struct LiveToolProgressView: View {
         if let thinkingLabel { return thinkingLabel }
         let completedCount = toolCalls.filter(\.isComplete).count
         if isRunning {
-            if completedCount == 0 {
-                if let current = currentCall {
-                    return ChatBubble.friendlyRunningLabel(
-                        current.toolName,
-                        inputSummary: current.inputSummary,
-                        buildingStatus: current.buildingStatus
-                    )
-                }
-                return "Working"
+            if let current = currentCall {
+                return ChatBubble.friendlyRunningLabel(
+                    current.toolName,
+                    inputSummary: current.inputSummary,
+                    buildingStatus: current.buildingStatus
+                )
             }
-            return "Completed \(completedCount) step\(completedCount == 1 ? "" : "s")"
+            if completedCount > 0 {
+                return "Completed \(completedCount) step\(completedCount == 1 ? "" : "s")"
+            }
+            return "Working"
         }
         return "Completed \(toolCalls.count) step\(toolCalls.count == 1 ? "" : "s")"
     }
