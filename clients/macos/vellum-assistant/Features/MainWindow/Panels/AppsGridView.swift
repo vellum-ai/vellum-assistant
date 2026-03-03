@@ -189,6 +189,7 @@ struct AppsGridView: View {
                     }
                     .menuStyle(.borderlessButton)
                     .menuIndicator(.hidden)
+                    .accessibilityLabel("App actions")
                     .fixedSize()
                     .padding(VSpacing.sm)
                     .opacity(isHovered ? 1 : 0)
