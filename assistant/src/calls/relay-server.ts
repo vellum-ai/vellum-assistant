@@ -23,7 +23,7 @@ import { emitNotificationSignal } from '../notifications/emit-signal.js';
 import { notifyGuardianOfAccessRequest } from '../runtime/access-request-helper.js';
 import {
   resolveActorTrust,
-  toGuardianRuntimeContextFromTrust,
+  toTrustContext,
 } from '../runtime/actor-trust-resolver.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
 import {
@@ -515,7 +515,7 @@ export class RelayConnection {
       conversationExternalId: otherPartyNumber,
       actorExternalId: otherPartyNumber || undefined,
     });
-    const initialTrustContext = toGuardianRuntimeContextFromTrust(initialActorTrust, otherPartyNumber);
+    const initialTrustContext = toTrustContext(initialActorTrust, otherPartyNumber);
 
     const controller = new CallController(this.callSessionId, this, session?.task ?? null, {
       broadcast: globalBroadcast,
@@ -718,7 +718,7 @@ export class RelayConnection {
       // Update the controller's guardian context with the trust-resolved
       // context so downstream policy gates have accurate actor metadata.
       if (this.controller && actorTrust.trustClass !== 'unknown') {
-        const resolvedTrustContext = toGuardianRuntimeContextFromTrust(actorTrust, msg.from);
+        const resolvedTrustContext = toTrustContext(actorTrust, msg.from);
         this.controller.setTrustContext(resolvedTrustContext);
       }
 
@@ -830,7 +830,7 @@ export class RelayConnection {
 
     if (this.controller) {
       this.controller.setTrustContext(
-        toGuardianRuntimeContextFromTrust(updatedTrust, fromNumber),
+        toTrustContext(updatedTrust, fromNumber),
       );
     }
 
@@ -1054,7 +1054,7 @@ export class RelayConnection {
             actorExternalId: this.guardianVerificationFromNumber,
           });
           this.controller.setTrustContext(
-            toGuardianRuntimeContextFromTrust(verifiedActorTrust, this.guardianVerificationFromNumber),
+            toTrustContext(verifiedActorTrust, this.guardianVerificationFromNumber),
           );
           this.startNormalCallFlow(this.controller, true);
         }
