@@ -192,6 +192,7 @@ struct HeartbeatRunsView: View {
             }
         }
         daemonClient.onHeartbeatRunNowResponse = { response in
+            self.previousRunNowCallback?(response)
             Task { @MainActor in
                 self.isRunning = false
                 if !response.success {
