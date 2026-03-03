@@ -27,7 +27,6 @@ struct GatewaySettingsCard: View {
 
             // Gateway running status row
             if store.gatewayReachable == true {
-                VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .medium) {}
                 tunnelConfigEntry
             } else if tunnelSetupExpanded || !gatewayUrlText.isEmpty {
                 tunnelConfigEntry
