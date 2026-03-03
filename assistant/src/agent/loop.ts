@@ -217,7 +217,9 @@ export class AgentLoop {
           providerConfig.thinking = { type: "adaptive" };
         }
 
-        providerConfig.effort = this.config.effort;
+        if (this.config.effort) {
+          providerConfig.effort = this.config.effort;
+        }
 
         if (this.config.toolChoice) {
           providerConfig.tool_choice = this.config.toolChoice;
