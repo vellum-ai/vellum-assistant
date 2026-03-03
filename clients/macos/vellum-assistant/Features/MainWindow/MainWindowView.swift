@@ -1416,15 +1416,18 @@ struct MainWindowView: View {
                                     }
                                 } label: {
                                     HStack(spacing: VSpacing.sm) {
-                                        // Unread indicator: show orange dot when group
-                                        // is collapsed and any child thread has unseen messages.
-                                        if !sidebar.expandedScheduleGroups.contains(group.key),
-                                           group.threads.contains(where: { $0.hasUnseenLatestAssistantMessage }) {
-                                            Circle()
-                                                .fill(Color(hex: 0xE86B40))
-                                                .frame(width: 6, height: 6)
-                                                .transition(.opacity)
+                                        // Unread indicator: always reserve space so text
+                                        // doesn't shift when the dot appears/disappears.
+                                        ZStack {
+                                            if !sidebar.expandedScheduleGroups.contains(group.key),
+                                               group.threads.contains(where: { $0.hasUnseenLatestAssistantMessage }) {
+                                                Circle()
+                                                    .fill(Color(hex: 0xE86B40))
+                                                    .frame(width: 6, height: 6)
+                                                    .transition(.opacity)
+                                            }
                                         }
+                                        .frame(width: 6)
                                         Text(group.label)
                                             .font(.system(size: 13))
                                             .foregroundColor(VColor.textPrimary)
