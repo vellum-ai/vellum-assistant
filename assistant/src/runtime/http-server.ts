@@ -282,6 +282,12 @@ const PARAMETERIZED_ROUTE_PATTERNS: Array<{ re: RegExp; policyBase: string }> = 
   { re: /^trust-rules\/manage\/[^/]+$/, policyBase: 'trust-rules/manage' },
   // interfaces/{path}
   { re: /^interfaces\/.+$/, policyBase: 'interfaces' },
+  // a2a/connections/{id}/status
+  { re: /^a2a\/connections\/[^/]+\/status$/, policyBase: 'a2a/connections/status' },
+  // a2a/connections/{id}/messages
+  { re: /^a2a\/connections\/[^/]+\/messages$/, policyBase: 'a2a/connections/messages' },
+  // a2a/connections/{id}/scopes
+  { re: /^a2a\/connections\/[^/]+\/scopes$/, policyBase: 'a2a/connections/scopes' },
 ];
 
 /**
