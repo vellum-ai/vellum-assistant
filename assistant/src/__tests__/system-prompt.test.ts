@@ -72,6 +72,7 @@ const {
   ensurePromptFiles,
   stripCommentLines,
   buildExternalCommsIdentitySection,
+  buildPhoneCallsRoutingSection,
 } = await import("../config/system-prompt.js");
 
 /** Strip the Configuration and Skills sections so base-prompt tests stay focused. */
@@ -222,6 +223,26 @@ describe("buildSystemPrompt", () => {
       "Do not volunteer that you are an AI unless directly asked",
     );
     expect(section).toContain("Occasional variations are acceptable");
+  });
+
+  test("includes phone calls routing section", () => {
+    const result = buildSystemPrompt();
+    expect(result).toContain("## Routing: Phone Calls");
+    expect(result).toContain('skill: "phone-calls"');
+  });
+
+  test("buildPhoneCallsRoutingSection returns section with expected content", () => {
+    const section = buildPhoneCallsRoutingSection();
+    expect(section).toContain("## Routing: Phone Calls");
+    expect(section).toContain("Trigger phrases");
+    expect(section).toContain("Exclusivity rules");
+    expect(section).toContain("phone-calls");
+    expect(section).toContain("Do NOT improvise Twilio setup instructions");
+  });
+
+  test("phone calls routing section excluded from low tier", () => {
+    const result = buildSystemPrompt("low");
+    expect(result).not.toContain("## Routing: Phone Calls");
   });
 
   test("includes memory persistence section in high tier", () => {
