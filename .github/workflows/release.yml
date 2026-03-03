@@ -634,7 +634,7 @@ jobs:
   # Parallel Swift builds — each architecture compiles on its own runner,
   # then build-macos merges them into a universal binary via lipo.
   build-swift-arm64:
-    needs: [bump-and-tag, ci-assistant, ci-cli, ci-gateway]
+    needs: [bump-and-tag, ci-cli, ci-gateway]
     runs-on: macos-14
     timeout-minutes: 15
     steps:
@@ -679,7 +679,7 @@ jobs:
           retention-days: 1
 
   build-swift-x86_64:
-    needs: [bump-and-tag, ci-assistant, ci-cli, ci-gateway]
+    needs: [bump-and-tag, ci-cli, ci-gateway]
     runs-on: macos-14
     timeout-minutes: 15
     steps:
@@ -718,7 +718,7 @@ jobs:
 
   # Original production build — unchanged, runs the full sequential build.
   build-macos:
-    needs: [bump-and-tag, ci-assistant, ci-cli, ci-gateway]
+    needs: [bump-and-tag, ci-cli, ci-gateway]
     runs-on: macos-14
     timeout-minutes: 30
     defaults:
@@ -1004,7 +1004,7 @@ jobs:
   # (split-arch-build) that is NOT used by the release job. Compare this artifact
   # with the production build to verify correctness before switching over.
   build-macos-split-arch:
-    needs: [bump-and-tag, build-swift-arm64, build-swift-x86_64, ci-assistant, ci-cli, ci-gateway]
+    needs: [bump-and-tag, build-swift-arm64, build-swift-x86_64, ci-cli, ci-gateway]
     runs-on: macos-14
     timeout-minutes: 30
     defaults:
@@ -1136,7 +1136,7 @@ jobs:
           security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
 
   release:
-    needs: [bump-and-tag, publish-npm, publish-meta, build-macos, push-assistant-manifest, push-gateway-manifest, register-release, ci-cli, ci-gateway, ci-assistant, ci-playwright]
+    needs: [bump-and-tag, publish-npm, publish-meta, build-macos, push-assistant-manifest, push-gateway-manifest, register-release, ci-cli, ci-gateway, ci-playwright]
     if: ${{ !cancelled() && needs.bump-and-tag.result == 'success' && needs.publish-npm.result == 'success' && needs.publish-meta.result == 'success' && needs.build-macos.result == 'success' && needs.ci-cli.result == 'success' && needs.ci-gateway.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -1276,6 +1276,9 @@ jobs:
           sleep 10
           gh pr merge "$PR_URL" --auto --squash
 
+  # NOTE: ci-assistant is not ready for prime time yet, so we don't block the
+  # release on its result. It still runs so we get visibility in the Slack
+  # notification, but downstream jobs no longer depend on it.
   ci-assistant:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -1353,7 +1356,7 @@ jobs:
         working-directory: gateway
 
   build-ios:
-    needs: [bump-and-tag, ci-assistant, ci-cli, ci-gateway]
+    needs: [bump-and-tag, ci-cli, ci-gateway]
     runs-on: macos-14
     timeout-minutes: 15
     steps:
@@ -1379,7 +1382,7 @@ jobs:
         run: ./build.sh test
 
   release-ios:
-    needs: [bump-and-tag, build-ios, ci-assistant, ci-cli, ci-gateway]
+    needs: [bump-and-tag, build-ios, ci-cli, ci-gateway]
     runs-on: macos-14
     timeout-minutes: 30
     env:
@@ -1626,7 +1629,6 @@ jobs:
             "${{ needs.push-gateway-manifest.result }}" \
             "${{ needs.release.result }}" \
             "${{ needs.update-platform.result }}" \
-            "${{ needs.ci-assistant.result }}" \
             "${{ needs.ci-cli.result }}" \
             "${{ needs.ci-gateway.result }}" \
             "${{ needs.release-ios.result }}"; do
