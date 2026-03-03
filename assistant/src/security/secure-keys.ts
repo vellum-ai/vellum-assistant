@@ -17,6 +17,8 @@ type Backend = "keychain" | "encrypted" | null;
 let resolvedBackend: Backend | undefined;
 /** True when backend was downgraded from keychain to encrypted at runtime. */
 let downgradedFromKeychain = false;
+/** Keys known to not exist in keychain — avoids repeated subprocess calls on misses. */
+const keychainMissCache = new Set<string>();
 
 function getBackend(): Backend {
   if (resolvedBackend !== undefined) return resolvedBackend;
@@ -121,9 +123,17 @@ export function getSecureKey(account: string): string | undefined {
     const value = encryptedStore.getKey(account);
     // After a runtime downgrade, keys may still exist in the keychain.
     // Try keychain read as fallback so pre-downgrade keys remain accessible.
-    if (value === undefined && downgradedFromKeychain) {
+    if (
+      value === undefined &&
+      downgradedFromKeychain &&
+      !keychainMissCache.has(account)
+    ) {
       try {
-        return keychain.getKey(account) ?? undefined;
+        const keychainValue = keychain.getKey(account) ?? undefined;
+        if (keychainValue === undefined) {
+          keychainMissCache.add(account);
+        }
+        return keychainValue;
       } catch {
         return undefined;
       }
@@ -154,9 +164,11 @@ export function deleteSecureKey(account: string): boolean {
   if (backend === "encrypted") {
     const result = encryptedStore.deleteKey(account);
     // After a runtime downgrade, keys may still exist in the keychain.
-    // Attempt best-effort cleanup so stale credentials don't linger.
+    // Attempt cleanup and return true if either backend had the key.
     if (downgradedFromKeychain) {
-      keychain.deleteKey(account); // best-effort, ignore result
+      keychainMissCache.delete(account);
+      const keychainResult = keychain.deleteKey(account);
+      return result || keychainResult;
     }
     return result;
   }
@@ -237,9 +249,18 @@ export async function getSecureKeyAsync(
   }
   if (backend === "encrypted") {
     const value = encryptedStore.getKey(account);
-    if (value === undefined && downgradedFromKeychain) {
+    if (
+      value === undefined &&
+      downgradedFromKeychain &&
+      !keychainMissCache.has(account)
+    ) {
       try {
-        return (await keychain.getKeyAsync(account)) ?? undefined;
+        const keychainValue =
+          (await keychain.getKeyAsync(account)) ?? undefined;
+        if (keychainValue === undefined) {
+          keychainMissCache.add(account);
+        }
+        return keychainValue;
       } catch {
         return undefined;
       }
@@ -280,7 +301,9 @@ export async function deleteSecureKeyAsync(account: string): Promise<boolean> {
   if (backend === "encrypted") {
     const result = encryptedStore.deleteKey(account);
     if (downgradedFromKeychain) {
-      await keychain.deleteKeyAsync(account); // best-effort
+      keychainMissCache.delete(account);
+      const keychainResult = await keychain.deleteKeyAsync(account);
+      return result || keychainResult;
     }
     return result;
   }
@@ -310,10 +333,12 @@ export async function deleteSecureKeyAsync(account: string): Promise<boolean> {
 export function _resetBackend(): void {
   resolvedBackend = undefined;
   downgradedFromKeychain = false;
+  keychainMissCache.clear();
 }
 
 /** @internal Test-only: force a specific backend. Pass `undefined` to reset. */
 export function _setBackend(backend: Backend | undefined): void {
   resolvedBackend = backend;
   downgradedFromKeychain = false;
+  keychainMissCache.clear();
 }
