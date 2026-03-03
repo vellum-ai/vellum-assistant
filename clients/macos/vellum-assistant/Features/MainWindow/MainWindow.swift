@@ -320,7 +320,7 @@ public final class MainWindow {
             guard let self, let message = wakeUpMessage,
                   let viewModel = self.threadManager.activeViewModel else { return }
             viewModel.inputText = message
-            viewModel.sendMessage()
+            viewModel.sendMessage(hidden: true)
             self.pendingWakeUpMessage = nil
             // Only signal wake-up sent if the daemon is still connected.
             // If disconnected, sendMessage queued the message locally but

@@ -117,6 +117,7 @@ export function buildSystemPrompt(): string {
 
   // ── Core sections ──
   const parts: string[] = [];
+  parts.push('IMPORTANT: Never use em dashes (—) in your messages. Use commas, periods, or just start a new sentence instead.');
   if (identity) parts.push(identity);
   if (soul) parts.push(soul);
   if (user) parts.push(user);

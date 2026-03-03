@@ -1599,6 +1599,9 @@ public struct ChatMessage: Identifiable, Equatable {
     /// reconstructed from history. It should be hidden from the chat UI since the
     /// corresponding subagent chip conveys the same information.
     public var isSubagentNotification: Bool = false
+    /// When true, this message was auto-sent by the client (e.g. bootstrap wake-up)
+    /// and should not be shown to the user.
+    public var isHidden: Bool = false
     /// When true, heavyweight content (tool results, large text, inputFull/inputRawDict)
     /// has been stripped from this message to reduce memory. The UI can use this flag
     /// to show a "load full content" affordance in a future milestone.
