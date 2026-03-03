@@ -8,33 +8,33 @@
  * - summary call count within expected range
  * - severe pressure overriding cooldown
  */
-import { describe, expect, mock, test } from 'bun:test';
+import { describe, expect, mock, test } from "bun:test";
 
-import { DEFAULT_CONFIG } from '../config/defaults.js';
-import { estimatePromptTokens } from '../context/token-estimator.js';
-import { ContextWindowManager } from '../context/window-manager.js';
-import type { Message, Provider } from '../providers/types.js';
+import { DEFAULT_CONFIG } from "../config/defaults.js";
+import { estimatePromptTokens } from "../context/token-estimator.js";
+import { ContextWindowManager } from "../context/window-manager.js";
+import type { Message, Provider } from "../providers/types.js";
 
-mock.module('../util/logger.js', () => ({
+mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
 }));
 
 function makeSummaryProvider(counter: { calls: number }): Provider {
   return {
-    name: 'mock',
+    name: "mock",
     async sendMessage() {
       counter.calls += 1;
       return {
         content: [
           {
-            type: 'text',
+            type: "text",
             text: `## Goals\n- Preserve state\n## Constraints\n- Keep PRs small\n## Decisions\n- Call ${counter.calls}`,
           },
         ],
-        model: 'mock-model',
+        model: "mock-model",
         usage: { inputTokens: 420, outputTokens: 85 },
-        stopReason: 'end_turn',
+        stopReason: "end_turn",
       };
     },
   };
@@ -44,19 +44,19 @@ function makeLongMessages(turns: number): Message[] {
   const rows: Message[] = [];
   for (let i = 0; i < turns; i++) {
     rows.push({
-      role: 'user',
+      role: "user",
       content: [
         {
-          type: 'text',
+          type: "text",
           text: `[U${i}] User message with enough content to estimate tokens. Topic ${i % 9}.`,
         },
       ],
     });
     rows.push({
-      role: 'assistant',
+      role: "assistant",
       content: [
         {
-          type: 'text',
+          type: "text",
           text: `[A${i}] Assistant response with relevant content. Result ${i % 7}.`,
         },
       ],
@@ -76,19 +76,21 @@ function makeConfig() {
   };
 }
 
-describe('Compaction benchmark', () => {
-  test('compaction with mock provider completes under 500ms', async () => {
+describe("Compaction benchmark", () => {
+  test("compaction with mock provider completes under 500ms", async () => {
     const counter = { calls: 0 };
     const provider = makeSummaryProvider(counter);
     const config = makeConfig();
-    const manager = new ContextWindowManager(provider, 'system prompt', config);
+    const manager = new ContextWindowManager(provider, "system prompt", config);
 
     // 90 turns = 180 messages, well above 60% of 6000 = 3600 threshold
     const messages = makeLongMessages(90);
-    const before = estimatePromptTokens(messages, 'system prompt', {
-      providerName: 'mock',
+    const before = estimatePromptTokens(messages, "system prompt", {
+      providerName: "mock",
     });
-    expect(before).toBeGreaterThan(config.maxInputTokens * config.compactThreshold);
+    expect(before).toBeGreaterThan(
+      config.maxInputTokens * config.compactThreshold,
+    );
 
     const start = performance.now();
     const result = await manager.maybeCompact(messages);
@@ -98,11 +100,11 @@ describe('Compaction benchmark', () => {
     expect(elapsed).toBeLessThan(500);
   });
 
-  test('below-threshold check returns in under 50ms (no-op)', async () => {
+  test("below-threshold check returns in under 50ms (no-op)", async () => {
     const counter = { calls: 0 };
     const provider = makeSummaryProvider(counter);
     const config = makeConfig();
-    const manager = new ContextWindowManager(provider, 'system prompt', config);
+    const manager = new ContextWindowManager(provider, "system prompt", config);
 
     // 3 turns = 6 messages, well below threshold
     const messages = makeLongMessages(3);
@@ -112,16 +114,16 @@ describe('Compaction benchmark', () => {
     const elapsed = performance.now() - start;
 
     expect(result.compacted).toBe(false);
-    expect(result.reason).toBe('below compaction threshold');
+    expect(result.reason).toBe("below compaction threshold");
     expect(elapsed).toBeLessThan(50);
     expect(counter.calls).toBe(0);
   });
 
-  test('token reduction ratio exceeds 30% after compaction', async () => {
+  test("token reduction ratio exceeds 30% after compaction", async () => {
     const counter = { calls: 0 };
     const provider = makeSummaryProvider(counter);
     const config = makeConfig();
-    const manager = new ContextWindowManager(provider, 'system prompt', config);
+    const manager = new ContextWindowManager(provider, "system prompt", config);
 
     const messages = makeLongMessages(90);
     const result = await manager.maybeCompact(messages);
@@ -133,11 +135,11 @@ describe('Compaction benchmark', () => {
     expect(reductionRatio).toBeGreaterThan(0.3);
   });
 
-  test('summary calls fall within 2-6 range', async () => {
+  test("summary calls fall within 2-6 range", async () => {
     const counter = { calls: 0 };
     const provider = makeSummaryProvider(counter);
     const config = makeConfig();
-    const manager = new ContextWindowManager(provider, 'system prompt', config);
+    const manager = new ContextWindowManager(provider, "system prompt", config);
 
     const messages = makeLongMessages(90);
     const result = await manager.maybeCompact(messages);
@@ -148,7 +150,7 @@ describe('Compaction benchmark', () => {
     expect(result.summaryCalls).toBe(counter.calls);
   });
 
-  test('severe pressure triggers compaction even during cooldown', async () => {
+  test("severe pressure triggers compaction even during cooldown", async () => {
     const counter = { calls: 0 };
     const provider = makeSummaryProvider(counter);
     // Use a tighter maxInputTokens so 90 turns exceeds the 95% severe threshold
@@ -157,11 +159,11 @@ describe('Compaction benchmark', () => {
       maxInputTokens: 4000,
       targetInputTokens: 2000,
     };
-    const manager = new ContextWindowManager(provider, 'system prompt', config);
+    const manager = new ContextWindowManager(provider, "system prompt", config);
 
     const messages = makeLongMessages(90);
-    const estimated = estimatePromptTokens(messages, 'system prompt', {
-      providerName: 'mock',
+    const estimated = estimatePromptTokens(messages, "system prompt", {
+      providerName: "mock",
     });
     expect(estimated).toBeGreaterThan(config.maxInputTokens * 0.95);
 

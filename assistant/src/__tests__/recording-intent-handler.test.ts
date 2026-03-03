@@ -1,5 +1,4 @@
 import * as net from "node:net";
-
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));

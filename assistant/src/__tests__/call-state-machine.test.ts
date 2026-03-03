@@ -1,37 +1,40 @@
-import { describe, expect,test } from 'bun:test';
+import { describe, expect, test } from "bun:test";
 
-import { isTerminalState,validateTransition } from '../calls/call-state-machine.js';
-import type { CallStatus } from '../calls/types.js';
+import {
+  isTerminalState,
+  validateTransition,
+} from "../calls/call-state-machine.js";
+import type { CallStatus } from "../calls/types.js";
 
-describe('call-state-machine', () => {
+describe("call-state-machine", () => {
   // ── Valid transitions ───────────────────────────────────────────────
 
-  describe('valid transitions', () => {
+  describe("valid transitions", () => {
     const validCases: Array<[CallStatus, CallStatus]> = [
       // From initiated
-      ['initiated', 'ringing'],
-      ['initiated', 'in_progress'],
-      ['initiated', 'completed'],
-      ['initiated', 'failed'],
-      ['initiated', 'cancelled'],
+      ["initiated", "ringing"],
+      ["initiated", "in_progress"],
+      ["initiated", "completed"],
+      ["initiated", "failed"],
+      ["initiated", "cancelled"],
 
       // From ringing
-      ['ringing', 'in_progress'],
-      ['ringing', 'completed'],
-      ['ringing', 'failed'],
-      ['ringing', 'cancelled'],
+      ["ringing", "in_progress"],
+      ["ringing", "completed"],
+      ["ringing", "failed"],
+      ["ringing", "cancelled"],
 
       // From in_progress
-      ['in_progress', 'waiting_on_user'],
-      ['in_progress', 'completed'],
-      ['in_progress', 'failed'],
-      ['in_progress', 'cancelled'],
+      ["in_progress", "waiting_on_user"],
+      ["in_progress", "completed"],
+      ["in_progress", "failed"],
+      ["in_progress", "cancelled"],
 
       // From waiting_on_user
-      ['waiting_on_user', 'in_progress'],
-      ['waiting_on_user', 'completed'],
-      ['waiting_on_user', 'failed'],
-      ['waiting_on_user', 'cancelled'],
+      ["waiting_on_user", "in_progress"],
+      ["waiting_on_user", "completed"],
+      ["waiting_on_user", "failed"],
+      ["waiting_on_user", "cancelled"],
     ];
 
     for (const [from, to] of validCases) {
@@ -45,10 +48,15 @@ describe('call-state-machine', () => {
 
   // ── Same-state transitions (no-op, valid) ──────────────────────────
 
-  describe('same-state transitions', () => {
+  describe("same-state transitions", () => {
     const allStatuses: CallStatus[] = [
-      'initiated', 'ringing', 'in_progress', 'waiting_on_user',
-      'completed', 'failed', 'cancelled',
+      "initiated",
+      "ringing",
+      "in_progress",
+      "waiting_on_user",
+      "completed",
+      "failed",
+      "cancelled",
     ];
 
     for (const status of allStatuses) {
@@ -61,14 +69,14 @@ describe('call-state-machine', () => {
 
   // ── Invalid transitions ─────────────────────────────────────────────
 
-  describe('invalid transitions', () => {
+  describe("invalid transitions", () => {
     const invalidCases: Array<[CallStatus, CallStatus]> = [
       // Cannot skip backwards
-      ['ringing', 'initiated'],
-      ['in_progress', 'initiated'],
-      ['in_progress', 'ringing'],
-      ['waiting_on_user', 'initiated'],
-      ['waiting_on_user', 'ringing'],
+      ["ringing", "initiated"],
+      ["in_progress", "initiated"],
+      ["in_progress", "ringing"],
+      ["waiting_on_user", "initiated"],
+      ["waiting_on_user", "ringing"],
     ];
 
     for (const [from, to] of invalidCases) {
@@ -83,10 +91,13 @@ describe('call-state-machine', () => {
 
   // ── Terminal state immutability ─────────────────────────────────────
 
-  describe('terminal state immutability', () => {
-    const terminalStates: CallStatus[] = ['completed', 'failed', 'cancelled'];
+  describe("terminal state immutability", () => {
+    const terminalStates: CallStatus[] = ["completed", "failed", "cancelled"];
     const nonTerminalTargets: CallStatus[] = [
-      'initiated', 'ringing', 'in_progress', 'waiting_on_user',
+      "initiated",
+      "ringing",
+      "in_progress",
+      "waiting_on_user",
     ];
 
     for (const terminal of terminalStates) {
@@ -94,7 +105,7 @@ describe('call-state-machine', () => {
         test(`${terminal} -> ${target} is rejected (terminal state)`, () => {
           const result = validateTransition(terminal, target);
           expect(result.valid).toBe(false);
-          expect(result.reason).toContain('terminal');
+          expect(result.reason).toContain("terminal");
         });
       }
 
@@ -104,7 +115,7 @@ describe('call-state-machine', () => {
         test(`${terminal} -> ${otherTerminal} is rejected (terminal to terminal)`, () => {
           const result = validateTransition(terminal, otherTerminal);
           expect(result.valid).toBe(false);
-          expect(result.reason).toContain('terminal');
+          expect(result.reason).toContain("terminal");
         });
       }
     }
@@ -112,33 +123,33 @@ describe('call-state-machine', () => {
 
   // ── isTerminalState ─────────────────────────────────────────────────
 
-  describe('isTerminalState', () => {
-    test('completed is terminal', () => {
-      expect(isTerminalState('completed')).toBe(true);
+  describe("isTerminalState", () => {
+    test("completed is terminal", () => {
+      expect(isTerminalState("completed")).toBe(true);
     });
 
-    test('failed is terminal', () => {
-      expect(isTerminalState('failed')).toBe(true);
+    test("failed is terminal", () => {
+      expect(isTerminalState("failed")).toBe(true);
     });
 
-    test('cancelled is terminal', () => {
-      expect(isTerminalState('cancelled')).toBe(true);
+    test("cancelled is terminal", () => {
+      expect(isTerminalState("cancelled")).toBe(true);
     });
 
-    test('initiated is not terminal', () => {
-      expect(isTerminalState('initiated')).toBe(false);
+    test("initiated is not terminal", () => {
+      expect(isTerminalState("initiated")).toBe(false);
     });
 
-    test('ringing is not terminal', () => {
-      expect(isTerminalState('ringing')).toBe(false);
+    test("ringing is not terminal", () => {
+      expect(isTerminalState("ringing")).toBe(false);
     });
 
-    test('in_progress is not terminal', () => {
-      expect(isTerminalState('in_progress')).toBe(false);
+    test("in_progress is not terminal", () => {
+      expect(isTerminalState("in_progress")).toBe(false);
     });
 
-    test('waiting_on_user is not terminal', () => {
-      expect(isTerminalState('waiting_on_user')).toBe(false);
+    test("waiting_on_user is not terminal", () => {
+      expect(isTerminalState("waiting_on_user")).toBe(false);
     });
   });
 });

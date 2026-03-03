@@ -15,7 +15,6 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
@@ -46,8 +45,11 @@ mock.module("../util/logger.js", () => ({
 }));
 
 // SMS client mock — track calls
-const smsSendCalls: Array<{ to: string; text: string; assistantId?: string }> =
-  [];
+const smsSendCalls: Array<{
+  to: string;
+  text: string;
+  assistantId?: string;
+}> = [];
 mock.module("../messaging/providers/sms/client.js", () => ({
   sendMessage: async (
     _gatewayUrl: string,

@@ -1,20 +1,30 @@
-import { describe, expect,test } from 'bun:test';
-import * as fs from 'fs';
-import * as path from 'path';
+import { describe, expect, test } from "bun:test";
 
-import { type ContractInventory,extractInventory } from '../daemon/ipc-contract-inventory.js';
+import * as fs from "fs";
+import * as path from "path";
 
-const CONTRACT_PATH = path.resolve(import.meta.dirname, '../daemon/ipc-contract.ts');
-const SNAPSHOT_PATH = path.resolve(import.meta.dirname, '../daemon/ipc-contract-inventory.json');
+import {
+  type ContractInventory,
+  extractInventory,
+} from "../daemon/ipc-contract-inventory.js";
 
-describe('IPC contract inventory', () => {
-  test('snapshot file exists', () => {
+const CONTRACT_PATH = path.resolve(
+  import.meta.dirname,
+  "../daemon/ipc-contract.ts",
+);
+const SNAPSHOT_PATH = path.resolve(
+  import.meta.dirname,
+  "../daemon/ipc-contract-inventory.json",
+);
+
+describe("IPC contract inventory", () => {
+  test("snapshot file exists", () => {
     expect(fs.existsSync(SNAPSHOT_PATH)).toBe(true);
   });
 
-  test('snapshot matches current contract', () => {
+  test("snapshot matches current contract", () => {
     const snapshot: ContractInventory = JSON.parse(
-      fs.readFileSync(SNAPSHOT_PATH, 'utf-8'),
+      fs.readFileSync(SNAPSHOT_PATH, "utf-8"),
     );
     const current = extractInventory(CONTRACT_PATH);
 
@@ -24,7 +34,7 @@ describe('IPC contract inventory', () => {
     expect(current.serverWireTypes).toEqual(snapshot.serverWireTypes);
   });
 
-  test('extracted types are sorted alphabetically', () => {
+  test("extracted types are sorted alphabetically", () => {
     const inventory = extractInventory(CONTRACT_PATH);
 
     const sortedClient = [...inventory.clientMessageTypes].sort();
@@ -34,15 +44,17 @@ describe('IPC contract inventory', () => {
     expect(inventory.serverMessageTypes).toEqual(sortedServer);
   });
 
-  test('ClientMessage and ServerMessage have no overlap', () => {
+  test("ClientMessage and ServerMessage have no overlap", () => {
     const inventory = extractInventory(CONTRACT_PATH);
     const clientSet = new Set(inventory.clientMessageTypes);
-    const overlap = inventory.serverMessageTypes.filter((t) => clientSet.has(t));
+    const overlap = inventory.serverMessageTypes.filter((t) =>
+      clientSet.has(t),
+    );
 
     expect(overlap).toEqual([]);
   });
 
-  test('all extracted types are non-empty strings', () => {
+  test("all extracted types are non-empty strings", () => {
     const inventory = extractInventory(CONTRACT_PATH);
     const allTypes = [
       ...inventory.clientMessageTypes,
@@ -50,7 +62,7 @@ describe('IPC contract inventory', () => {
     ];
 
     for (const t of allTypes) {
-      expect(typeof t).toBe('string');
+      expect(typeof t).toBe("string");
       expect(t.length).toBeGreaterThan(0);
     }
   });

@@ -20,7 +20,6 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const testDir = mkdtempSync(join(tmpdir(), "tc-inline-approval-integration-"));

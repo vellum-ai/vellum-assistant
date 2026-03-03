@@ -6,7 +6,7 @@
  * is backed by runtime assertions.
  */
 
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, test } from "bun:test";
 
 import {
   type ConversationStrategy,
@@ -14,29 +14,29 @@ import {
   getConversationStrategy,
   getDeliverableChannels,
   isNotificationDeliverable,
-} from '../channels/config.js';
-import { CHANNEL_IDS, type ChannelId } from '../channels/types.js';
+} from "../channels/config.js";
+import { CHANNEL_IDS, type ChannelId } from "../channels/types.js";
 
-describe('channel policy registry', () => {
+describe("channel policy registry", () => {
   // ── Exhaustiveness ────────────────────────────────────────────────────
 
-  test('every ChannelId has a policy entry', () => {
+  test("every ChannelId has a policy entry", () => {
     for (const channelId of CHANNEL_IDS) {
       const policy = getChannelPolicy(channelId);
       expect(policy).toBeDefined();
       expect(policy.notification).toBeDefined();
-      expect(typeof policy.notification.deliveryEnabled).toBe('boolean');
-      expect(typeof policy.notification.conversationStrategy).toBe('string');
+      expect(typeof policy.notification.deliveryEnabled).toBe("boolean");
+      expect(typeof policy.notification.conversationStrategy).toBe("string");
     }
   });
 
-  test('CHANNEL_IDS contains at least one channel', () => {
+  test("CHANNEL_IDS contains at least one channel", () => {
     expect(CHANNEL_IDS.length).toBeGreaterThan(0);
   });
 
   // ── getDeliverableChannels ────────────────────────────────────────────
 
-  test('getDeliverableChannels returns exactly the channels with deliveryEnabled: true', () => {
+  test("getDeliverableChannels returns exactly the channels with deliveryEnabled: true", () => {
     const deliverable = getDeliverableChannels();
     const expected = CHANNEL_IDS.filter(
       (id) => getChannelPolicy(id).notification.deliveryEnabled,
@@ -48,14 +48,14 @@ describe('channel policy registry', () => {
     }
   });
 
-  test('getDeliverableChannels returns a non-empty array', () => {
+  test("getDeliverableChannels returns a non-empty array", () => {
     // At minimum, vellum should always be deliverable.
     const deliverable = getDeliverableChannels();
     expect(deliverable.length).toBeGreaterThan(0);
-    expect(deliverable).toContain('vellum');
+    expect(deliverable).toContain("vellum");
   });
 
-  test('getDeliverableChannels does not include channels with deliveryEnabled: false', () => {
+  test("getDeliverableChannels does not include channels with deliveryEnabled: false", () => {
     const deliverable = getDeliverableChannels();
     for (const id of CHANNEL_IDS) {
       if (!getChannelPolicy(id).notification.deliveryEnabled) {
@@ -66,22 +66,24 @@ describe('channel policy registry', () => {
 
   // ── getChannelPolicy ─────────────────────────────────────────────────
 
-  test('getChannelPolicy returns valid policy for every ChannelId', () => {
+  test("getChannelPolicy returns valid policy for every ChannelId", () => {
     const validStrategies = new Set([
-      'start_new_conversation',
-      'continue_existing_conversation',
-      'not_deliverable',
+      "start_new_conversation",
+      "continue_existing_conversation",
+      "not_deliverable",
     ]);
 
     for (const channelId of CHANNEL_IDS) {
       const policy = getChannelPolicy(channelId);
-      expect(validStrategies.has(policy.notification.conversationStrategy)).toBe(true);
+      expect(
+        validStrategies.has(policy.notification.conversationStrategy),
+      ).toBe(true);
     }
   });
 
   // ── isNotificationDeliverable ─────────────────────────────────────────
 
-  test('isNotificationDeliverable reflects deliveryEnabled for every ChannelId', () => {
+  test("isNotificationDeliverable reflects deliveryEnabled for every ChannelId", () => {
     for (const channelId of CHANNEL_IDS) {
       const policy = getChannelPolicy(channelId);
       expect(isNotificationDeliverable(channelId)).toBe(
@@ -92,13 +94,13 @@ describe('channel policy registry', () => {
 
   // ── getConversationStrategy ───────────────────────────────────────────
 
-  test('getConversationStrategy returns correct strategies per channel', () => {
+  test("getConversationStrategy returns correct strategies per channel", () => {
     // Known assertions for current policy (regression guard)
     const expectedStrategies: [ChannelId, ConversationStrategy][] = [
-      ['vellum', 'start_new_conversation'],
-      ['telegram', 'continue_existing_conversation'],
-      ['sms', 'continue_existing_conversation'],
-      ['voice', 'not_deliverable'],
+      ["vellum", "start_new_conversation"],
+      ["telegram", "continue_existing_conversation"],
+      ["sms", "continue_existing_conversation"],
+      ["voice", "not_deliverable"],
     ];
 
     for (const [channelId, expected] of expectedStrategies) {
@@ -106,11 +108,11 @@ describe('channel policy registry', () => {
     }
   });
 
-  test('getConversationStrategy returns a valid strategy for every ChannelId', () => {
+  test("getConversationStrategy returns a valid strategy for every ChannelId", () => {
     const validStrategies = new Set([
-      'start_new_conversation',
-      'continue_existing_conversation',
-      'not_deliverable',
+      "start_new_conversation",
+      "continue_existing_conversation",
+      "not_deliverable",
     ]);
 
     for (const channelId of CHANNEL_IDS) {
@@ -121,28 +123,30 @@ describe('channel policy registry', () => {
 
   // ── SMS channel policy ───────────────────────────────────────────────
 
-  test('SMS is a deliverable notification channel', () => {
-    expect(isNotificationDeliverable('sms')).toBe(true);
-    expect(getDeliverableChannels()).toContain('sms');
+  test("SMS is a deliverable notification channel", () => {
+    expect(isNotificationDeliverable("sms")).toBe(true);
+    expect(getDeliverableChannels()).toContain("sms");
   });
 
-  test('SMS uses continue_existing_conversation strategy', () => {
-    expect(getConversationStrategy('sms')).toBe('continue_existing_conversation');
+  test("SMS uses continue_existing_conversation strategy", () => {
+    expect(getConversationStrategy("sms")).toBe(
+      "continue_existing_conversation",
+    );
   });
 
-  test('all_channels includes SMS when SMS is deliverable', () => {
+  test("all_channels includes SMS when SMS is deliverable", () => {
     const deliverable = getDeliverableChannels();
-    expect(deliverable).toContain('vellum');
-    expect(deliverable).toContain('telegram');
-    expect(deliverable).toContain('sms');
+    expect(deliverable).toContain("vellum");
+    expect(deliverable).toContain("telegram");
+    expect(deliverable).toContain("sms");
   });
 
   // ── Consistency checks ────────────────────────────────────────────────
 
-  test('channels with not_deliverable strategy have deliveryEnabled: false', () => {
+  test("channels with not_deliverable strategy have deliveryEnabled: false", () => {
     for (const channelId of CHANNEL_IDS) {
       const policy = getChannelPolicy(channelId);
-      if (policy.notification.conversationStrategy === 'not_deliverable') {
+      if (policy.notification.conversationStrategy === "not_deliverable") {
         expect(policy.notification.deliveryEnabled).toBe(false);
       }
     }

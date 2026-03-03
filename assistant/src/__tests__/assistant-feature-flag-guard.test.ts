@@ -1,8 +1,7 @@
-import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-
-import { describe, expect, test } from 'bun:test';
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, test } from "bun:test";
 
 /**
  * Guard tests for assistant feature flags.
@@ -23,11 +22,16 @@ import { describe, expect, test } from 'bun:test';
 
 /** Resolve repo root (tests run from assistant/) */
 function getRepoRoot(): string {
-  return join(process.cwd(), '..');
+  return join(process.cwd(), "..");
 }
 
 function getRegistryPath(): string {
-  return join(getRepoRoot(), 'meta', 'feature-flags', 'feature-flag-registry.json');
+  return join(
+    getRepoRoot(),
+    "meta",
+    "feature-flags",
+    "feature-flag-registry.json",
+  );
 }
 
 interface RegistryFlag {
@@ -45,7 +49,7 @@ interface Registry {
 }
 
 function loadRegistry(): Registry {
-  const raw = readFileSync(getRegistryPath(), 'utf-8');
+  const raw = readFileSync(getRegistryPath(), "utf-8");
   return JSON.parse(raw);
 }
 
@@ -58,18 +62,18 @@ const CANONICAL_KEY_RE = /^feature_flags\.[a-z0-9][a-z0-9._-]*\.enabled$/;
  */
 const LEGACY_KEY_ALLOWLIST = new Set([
   // macOS client: fallback reads from legacy config section
-  'clients/macos/vellum-assistant/Features/Settings/SettingsAccountTab.swift',
+  "clients/macos/vellum-assistant/Features/Settings/SettingsAccountTab.swift",
 ]);
 
 function isTestFile(filePath: string): boolean {
   return (
-    filePath.includes('/__tests__/') ||
-    filePath.includes('/Tests/') ||
-    filePath.endsWith('.test.ts') ||
-    filePath.endsWith('.test.js') ||
-    filePath.endsWith('.spec.ts') ||
-    filePath.endsWith('.spec.js') ||
-    filePath.endsWith('Tests.swift')
+    filePath.includes("/__tests__/") ||
+    filePath.includes("/Tests/") ||
+    filePath.endsWith(".test.ts") ||
+    filePath.endsWith(".test.js") ||
+    filePath.endsWith(".spec.ts") ||
+    filePath.endsWith(".spec.js") ||
+    filePath.endsWith("Tests.swift")
   );
 }
 
@@ -77,22 +81,32 @@ function isTestFile(filePath: string): boolean {
 // Test: key format validation
 // ---------------------------------------------------------------------------
 
-describe('assistant feature flag guard', () => {
-  test('no production files use legacy skills.<id>.enabled key format outside allowlist', () => {
+describe("assistant feature flag guard", () => {
+  test("no production files use legacy skills.<id>.enabled key format outside allowlist", () => {
     // Search for the legacy key pattern in string literals across the codebase.
     // The pattern matches quoted strings like 'skills.browser.enabled',
     // "skills.browser.enabled", or `skills.browser.enabled`.
     const pattern = `['"\`]skills\\.[a-z][a-z0-9._-]*\\.enabled['"\`]`;
 
-    let grepOutput = '';
+    let grepOutput = "";
     try {
       // Use execFileSync to avoid shell interpretation — the pattern contains
       // backtick characters that would trigger command substitution in /bin/sh
       // if passed through execSync's shell.
       grepOutput = execFileSync(
-        'git',
-        ['grep', '-lE', pattern, '--', '*.ts', '*.tsx', '*.js', '*.jsx', '*.swift'],
-        { encoding: 'utf-8', cwd: getRepoRoot() },
+        "git",
+        [
+          "grep",
+          "-lE",
+          pattern,
+          "--",
+          "*.ts",
+          "*.tsx",
+          "*.js",
+          "*.jsx",
+          "*.swift",
+        ],
+        { encoding: "utf-8", cwd: getRepoRoot() },
       ).trim();
     } catch (err) {
       // Exit code 1 means no matches — happy path
@@ -102,7 +116,7 @@ describe('assistant feature flag guard', () => {
       throw err;
     }
 
-    const files = grepOutput.split('\n').filter((f) => f.length > 0);
+    const files = grepOutput.split("\n").filter((f) => f.length > 0);
     const violations = files.filter((f) => {
       if (isTestFile(f)) return false;
       if (LEGACY_KEY_ALLOWLIST.has(f)) return false;
@@ -111,16 +125,16 @@ describe('assistant feature flag guard', () => {
 
     if (violations.length > 0) {
       const message = [
-        'Found production files using the legacy `skills.<id>.enabled` key format.',
-        'New code must use the canonical format: `feature_flags.<id>.enabled`.',
+        "Found production files using the legacy `skills.<id>.enabled` key format.",
+        "New code must use the canonical format: `feature_flags.<id>.enabled`.",
         'See AGENTS.md "Assistant Feature Flags" for the convention.',
-        '',
-        'Violations:',
+        "",
+        "Violations:",
         ...violations.map((f) => `  - ${f}`),
-        '',
-        'To fix: replace `skills.<id>.enabled` with `feature_flags.<id>.enabled`.',
-        'If backward-compat access is genuinely needed, add to LEGACY_KEY_ALLOWLIST in assistant-feature-flag-guard.test.ts.',
-      ].join('\n');
+        "",
+        "To fix: replace `skills.<id>.enabled` with `feature_flags.<id>.enabled`.",
+        "If backward-compat access is genuinely needed, add to LEGACY_KEY_ALLOWLIST in assistant-feature-flag-guard.test.ts.",
+      ].join("\n");
 
       expect(violations, message).toEqual([]);
     }
@@ -130,21 +144,23 @@ describe('assistant feature flag guard', () => {
   // Test: unified registry key format (assistant-scope only)
   // ---------------------------------------------------------------------------
 
-  test('all assistant-scope keys in the unified registry use the canonical feature_flags.<id>.enabled format', () => {
+  test("all assistant-scope keys in the unified registry use the canonical feature_flags.<id>.enabled format", () => {
     const registry = loadRegistry();
-    const assistantFlags = registry.flags.filter((f) => f.scope === 'assistant');
+    const assistantFlags = registry.flags.filter(
+      (f) => f.scope === "assistant",
+    );
     const keys = assistantFlags.map((f) => f.key);
 
     const violations = keys.filter((key) => !CANONICAL_KEY_RE.test(key));
 
     if (violations.length > 0) {
       const message = [
-        'Found assistant-scope keys in the unified registry that do not match the canonical format.',
-        'Expected format: feature_flags.<flagId>.enabled',
-        '',
-        'Violations:',
+        "Found assistant-scope keys in the unified registry that do not match the canonical format.",
+        "Expected format: feature_flags.<flagId>.enabled",
+        "",
+        "Violations:",
         ...violations.map((k) => `  - ${k}`),
-      ].join('\n');
+      ].join("\n");
 
       expect(violations, message).toEqual([]);
     }
@@ -158,12 +174,17 @@ describe('assistant feature flag guard', () => {
   // Test: bundled registry copy stays in sync with canonical meta/ copy
   // ---------------------------------------------------------------------------
 
-  test('bundled assistant/src/config/feature-flag-registry.json matches canonical meta/ copy', () => {
+  test("bundled assistant/src/config/feature-flag-registry.json matches canonical meta/ copy", () => {
     const canonicalPath = getRegistryPath();
-    const bundledPath = join(process.cwd(), 'src', 'config', 'feature-flag-registry.json');
+    const bundledPath = join(
+      process.cwd(),
+      "src",
+      "config",
+      "feature-flag-registry.json",
+    );
 
-    const canonical = JSON.parse(readFileSync(canonicalPath, 'utf-8'));
-    const bundled = JSON.parse(readFileSync(bundledPath, 'utf-8'));
+    const canonical = JSON.parse(readFileSync(canonicalPath, "utf-8"));
+    const bundled = JSON.parse(readFileSync(bundledPath, "utf-8"));
 
     expect(bundled).toEqual(canonical);
   });
@@ -172,33 +193,38 @@ describe('assistant feature flag guard', () => {
   // Test: registry entries have required fields
   // ---------------------------------------------------------------------------
 
-  test('all assistant-scope entries in the unified registry have required fields', () => {
+  test("all assistant-scope entries in the unified registry have required fields", () => {
     const registry = loadRegistry();
-    const assistantFlags = registry.flags.filter((f) => f.scope === 'assistant');
+    const assistantFlags = registry.flags.filter(
+      (f) => f.scope === "assistant",
+    );
     const violations: string[] = [];
 
     for (const flag of assistantFlags) {
-      if (typeof flag.defaultEnabled !== 'boolean') {
+      if (typeof flag.defaultEnabled !== "boolean") {
         violations.push(`${flag.key}: missing or non-boolean 'defaultEnabled'`);
       }
-      if (typeof flag.description !== 'string' || flag.description.length === 0) {
+      if (
+        typeof flag.description !== "string" ||
+        flag.description.length === 0
+      ) {
         violations.push(`${flag.key}: missing or empty 'description'`);
       }
-      if (typeof flag.label !== 'string' || flag.label.length === 0) {
+      if (typeof flag.label !== "string" || flag.label.length === 0) {
         violations.push(`${flag.key}: missing or empty 'label'`);
       }
-      if (typeof flag.id !== 'string' || flag.id.length === 0) {
+      if (typeof flag.id !== "string" || flag.id.length === 0) {
         violations.push(`${flag.key}: missing or empty 'id'`);
       }
     }
 
     if (violations.length > 0) {
       const message = [
-        'Found entries in the unified registry with missing or invalid required fields.',
-        '',
-        'Violations:',
+        "Found entries in the unified registry with missing or invalid required fields.",
+        "",
+        "Violations:",
         ...violations.map((v) => `  - ${v}`),
-      ].join('\n');
+      ].join("\n");
 
       expect(violations, message).toEqual([]);
     }

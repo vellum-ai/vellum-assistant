@@ -9,7 +9,6 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
@@ -175,7 +174,9 @@ function buildInboundRequest(
     sourceChannel: config.channel,
     interface: config.channel,
     conversationExternalId: config.externalChatId,
-    externalMessageId: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    externalMessageId: `msg-${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2, 8)}`,
     content: "Hello, can I use this assistant?",
     actorExternalId: config.senderExternalUserId,
     actorDisplayName: "Test Requester",

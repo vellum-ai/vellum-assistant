@@ -1,8 +1,8 @@
-import { beforeEach, describe, expect, mock, test } from 'bun:test';
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { AgentEvent } from '../agent/loop.js';
-import type { ServerMessage } from '../daemon/ipc-protocol.js';
-import type { Message, ProviderResponse } from '../providers/types.js';
+import type { AgentEvent } from "../agent/loop.js";
+import type { ServerMessage } from "../daemon/ipc-protocol.js";
+import type { Message, ProviderResponse } from "../providers/types.js";
 
 let runCalls: Message[][] = [];
 let profileCompilerCalls = 0;
@@ -10,35 +10,42 @@ let profileCompilerArgs: Array<Record<string, unknown>> = [];
 let recallArgs: Array<Record<string, unknown>> = [];
 let profileEnabled = true;
 let memoryEnabled = true;
-let profileText = '<dynamic-user-profile>\n- timezone: America/Los_Angeles\n</dynamic-user-profile>';
+let profileText =
+  "<dynamic-user-profile>\n- timezone: America/Los_Angeles\n</dynamic-user-profile>";
 
-const persistedMessages: Array<{ id: string; role: string; content: string; createdAt: number }> = [];
+const persistedMessages: Array<{
+  id: string;
+  role: string;
+  content: string;
+  createdAt: number;
+}> = [];
 
-mock.module('../util/logger.js', () => ({
-  getLogger: () => new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
+mock.module("../util/logger.js", () => ({
+  getLogger: () =>
+    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
 }));
 
-mock.module('../util/platform.js', () => ({
-  getSocketPath: () => '/tmp/test.sock',
-  getDataDir: () => '/tmp',
+mock.module("../util/platform.js", () => ({
+  getSocketPath: () => "/tmp/test.sock",
+  getDataDir: () => "/tmp",
 }));
 
-mock.module('../memory/guardian-action-store.js', () => ({
+mock.module("../memory/guardian-action-store.js", () => ({
   getPendingDeliveryByConversation: () => null,
   getGuardianActionRequest: () => null,
   resolveGuardianActionRequest: () => {},
 }));
 
-mock.module('../providers/registry.js', () => ({
-  getProvider: () => ({ name: 'mock-provider' }),
+mock.module("../providers/registry.js", () => ({
+  getProvider: () => ({ name: "mock-provider" }),
   initializeProviders: () => {},
 }));
 
-mock.module('../config/loader.js', () => ({
+mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
-    
-    provider: 'mock-provider',
+
+    provider: "mock-provider",
     maxTokens: 4096,
     thinking: false,
     contextWindow: {
@@ -55,7 +62,7 @@ mock.module('../config/loader.js', () => ({
     memory: {
       enabled: memoryEnabled,
       retrieval: {
-        injectionStrategy: 'prepend_user_block',
+        injectionStrategy: "prepend_user_block",
         dynamicBudget: {
           enabled: false,
           minInjectTokens: 1200,
@@ -65,7 +72,7 @@ mock.module('../config/loader.js', () => ({
       },
       conflicts: {
         enabled: false,
-        gateMode: 'soft',
+        gateMode: "soft",
         reaskCooldownTurns: 3,
         resolverLlmTimeoutMs: 250,
         relevanceThreshold: 0.2,
@@ -81,46 +88,49 @@ mock.module('../config/loader.js', () => ({
   invalidateConfigCache: () => {},
 }));
 
-mock.module('../config/system-prompt.js', () => ({
-  buildSystemPrompt: () => 'system prompt',
+mock.module("../config/system-prompt.js", () => ({
+  buildSystemPrompt: () => "system prompt",
 }));
 
-mock.module('../config/skills.js', () => ({
+mock.module("../config/skills.js", () => ({
   loadSkillCatalog: () => [],
   loadSkillBySelector: () => ({ skill: null }),
   ensureSkillIcon: async () => null,
 }));
 
-mock.module('../config/skill-state.js', () => ({
+mock.module("../config/skill-state.js", () => ({
   resolveSkillStates: () => [],
 }));
 
-mock.module('../skills/slash-commands.js', () => ({
+mock.module("../skills/slash-commands.js", () => ({
   buildInvocableSlashCatalog: () => new Map(),
-  resolveSlashSkillCommand: () => ({ kind: 'not_slash' }),
-  rewriteKnownSlashCommandPrompt: () => '',
-  parseSlashCandidate: () => ({ kind: 'not_slash' }),
+  resolveSlashSkillCommand: () => ({ kind: "not_slash" }),
+  rewriteKnownSlashCommandPrompt: () => "",
+  parseSlashCandidate: () => ({ kind: "not_slash" }),
 }));
 
-mock.module('../permissions/trust-store.js', () => ({
+mock.module("../permissions/trust-store.js", () => ({
   addRule: () => {},
   findHighestPriorityRule: () => null,
   clearCache: () => {},
 }));
 
-mock.module('../security/secret-allowlist.js', () => ({
+mock.module("../security/secret-allowlist.js", () => ({
   resetAllowlist: () => {},
 }));
 
-mock.module('../memory/conversation-store.js', () => ({
-  getConversationThreadType: () => 'default',
+mock.module("../memory/conversation-store.js", () => ({
+  getConversationThreadType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
-  provenanceFromGuardianContext: () => ({ source: 'user', guardianContext: undefined }),
+  provenanceFromGuardianContext: () => ({
+    source: "user",
+    guardianContext: undefined,
+  }),
   getConversationOriginInterface: () => null,
   getConversationOriginChannel: () => null,
   getMessages: () => persistedMessages,
   getConversation: () => ({
-    id: 'conv-1',
+    id: "conv-1",
     contextSummary: null,
     contextCompactedMessageCount: 0,
     contextCompactedAt: null,
@@ -129,7 +139,12 @@ mock.module('../memory/conversation-store.js', () => ({
     totalEstimatedCost: 0,
   }),
   addMessage: (_conversationId: string, role: string, content: string) => {
-    const row = { id: `msg-${persistedMessages.length + 1}`, role, content, createdAt: Date.now() };
+    const row = {
+      id: `msg-${persistedMessages.length + 1}`,
+      role,
+      content,
+      createdAt: Date.now(),
+    };
     persistedMessages.push(row);
     return { id: row.id };
   },
@@ -141,21 +156,26 @@ mock.module('../memory/conversation-store.js', () => ({
   isLastUserMessageToolResult: () => false,
 }));
 
-mock.module('../memory/attachments-store.js', () => ({
-  uploadAttachment: () => ({ id: 'att-1' }),
+mock.module("../memory/attachments-store.js", () => ({
+  uploadAttachment: () => ({ id: "att-1" }),
   linkAttachmentToMessage: () => {},
 }));
 
-mock.module('../memory/retriever.js', () => ({
-  buildMemoryRecall: async (_query: string, _convId: string, _config: unknown, options?: Record<string, unknown>) => {
+mock.module("../memory/retriever.js", () => ({
+  buildMemoryRecall: async (
+    _query: string,
+    _convId: string,
+    _config: unknown,
+    options?: Record<string, unknown>,
+  ) => {
     if (options) recallArgs.push(options);
     return {
       enabled: true,
       degraded: false,
       reason: null,
-      provider: 'mock',
-      model: 'mock',
-      injectedText: '',
+      provider: "mock",
+      model: "mock",
+      injectedText: "",
       lexicalHits: 0,
       semanticHits: 0,
       recencyHits: 0,
@@ -178,38 +198,48 @@ mock.module('../memory/retriever.js', () => ({
   stripMemoryRecallMessages: (msgs: Message[]) => msgs,
 }));
 
-mock.module('../context/window-manager.js', () => ({
+mock.module("../context/window-manager.js", () => ({
   ContextWindowManager: class {
     constructor() {}
-    async maybeCompact() { return { compacted: false }; }
+    async maybeCompact() {
+      return { compacted: false };
+    }
   },
-  createContextSummaryMessage: () => ({ role: 'user', content: [{ type: 'text', text: 'summary' }] }),
+  createContextSummaryMessage: () => ({
+    role: "user",
+    content: [{ type: "text", text: "summary" }],
+  }),
   getSummaryFromContextMessage: () => null,
 }));
 
-mock.module('../memory/conflict-store.js', () => ({
+mock.module("../memory/conflict-store.js", () => ({
   listPendingConflictDetails: () => [],
   markConflictAsked: () => true,
   applyConflictResolution: () => true,
 }));
 
-mock.module('../memory/clarification-resolver.js', () => ({
+mock.module("../memory/clarification-resolver.js", () => ({
   resolveConflictClarification: async () => ({
-    resolution: 'still_unclear',
-    strategy: 'heuristic',
+    resolution: "still_unclear",
+    strategy: "heuristic",
     resolvedStatement: null,
-    explanation: 'Need user clarification.',
+    explanation: "Need user clarification.",
   }),
 }));
 
-mock.module('../memory/admin.js', () => ({
+mock.module("../memory/admin.js", () => ({
   getMemoryConflictAndCleanupStats: () => ({
     conflicts: { pending: 0, resolved: 0, oldestPendingAgeMs: null },
-    cleanup: { resolvedBacklog: 0, supersededBacklog: 0, resolvedCompleted24h: 0, supersededCompleted24h: 0 },
+    cleanup: {
+      resolvedBacklog: 0,
+      supersededBacklog: 0,
+      resolvedCompleted24h: 0,
+      supersededCompleted24h: 0,
+    },
   }),
 }));
 
-mock.module('../memory/profile-compiler.js', () => ({
+mock.module("../memory/profile-compiler.js", () => ({
   compileDynamicProfile: (options?: Record<string, unknown>) => {
     profileCompilerCalls += 1;
     if (options) profileCompilerArgs.push(options);
@@ -223,70 +253,92 @@ mock.module('../memory/profile-compiler.js', () => ({
   },
 }));
 
-mock.module('../memory/llm-usage-store.js', () => ({
-  recordUsageEvent: () => ({ id: 'usage-1', createdAt: Date.now() }),
+mock.module("../memory/llm-usage-store.js", () => ({
+  recordUsageEvent: () => ({ id: "usage-1", createdAt: Date.now() }),
 }));
 
-mock.module('../agent/loop.js', () => ({
+mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
     constructor() {}
-    async run(messages: Message[], onEvent: (event: AgentEvent) => void): Promise<Message[]> {
+    async run(
+      messages: Message[],
+      onEvent: (event: AgentEvent) => void,
+    ): Promise<Message[]> {
       runCalls.push(messages);
       const assistantMessage: Message = {
-        role: 'assistant',
-        content: [{ type: 'text', text: 'normal assistant answer' }],
+        role: "assistant",
+        content: [{ type: "text", text: "normal assistant answer" }],
       };
-      onEvent({ type: 'usage', inputTokens: 10, outputTokens: 5, model: 'mock', providerDurationMs: 10 });
-      onEvent({ type: 'message_complete', message: assistantMessage });
+      onEvent({
+        type: "usage",
+        inputTokens: 10,
+        outputTokens: 5,
+        model: "mock",
+        providerDurationMs: 10,
+      });
+      onEvent({ type: "message_complete", message: assistantMessage });
       return [...messages, assistantMessage];
     }
   },
 }));
-mock.module('../memory/canonical-guardian-store.js', () => ({
+mock.module("../memory/canonical-guardian-store.js", () => ({
   listPendingCanonicalGuardianRequestsByDestinationConversation: () => [],
   listCanonicalGuardianRequests: () => [],
-  createCanonicalGuardianRequest: () => ({ id: 'mock-cg-id', code: 'MOCK', status: 'pending' }),
+  createCanonicalGuardianRequest: () => ({
+    id: "mock-cg-id",
+    code: "MOCK",
+    status: "pending",
+  }),
   getCanonicalGuardianRequest: () => null,
   getCanonicalGuardianRequestByCode: () => null,
   updateCanonicalGuardianRequest: () => {},
   resolveCanonicalGuardianRequest: () => {},
-  createCanonicalGuardianDelivery: () => ({ id: 'mock-cgd-id' }),
+  createCanonicalGuardianDelivery: () => ({ id: "mock-cgd-id" }),
   listCanonicalGuardianDeliveries: () => [],
   listPendingCanonicalGuardianRequestsByDestinationChat: () => [],
   updateCanonicalGuardianDelivery: () => {},
-  generateCanonicalRequestCode: () => 'MOCK-CODE',
+  generateCanonicalRequestCode: () => "MOCK-CODE",
 }));
 
-import type { SessionMemoryPolicy } from '../daemon/session.js';
-import { DEFAULT_MEMORY_POLICY,Session } from '../daemon/session.js';
+import type { SessionMemoryPolicy } from "../daemon/session.js";
+import { DEFAULT_MEMORY_POLICY, Session } from "../daemon/session.js";
 import {
   injectDynamicProfileIntoUserMessage,
   stripDynamicProfileMessages,
-} from '../daemon/session-dynamic-profile.js';
+} from "../daemon/session-dynamic-profile.js";
 
 function makeSession(memoryPolicy?: SessionMemoryPolicy): Session {
   const provider = {
-    name: 'mock',
+    name: "mock",
     async sendMessage(): Promise<ProviderResponse> {
       return {
         content: [],
-        model: 'mock',
+        model: "mock",
         usage: { inputTokens: 0, outputTokens: 0 },
-        stopReason: 'end_turn',
+        stopReason: "end_turn",
       };
     },
   };
-  return new Session('conv-1', provider, 'system prompt', 4096, () => {}, '/tmp', undefined, memoryPolicy);
+  return new Session(
+    "conv-1",
+    provider,
+    "system prompt",
+    4096,
+    () => {},
+    "/tmp",
+    undefined,
+    memoryPolicy,
+  );
 }
 
 function messageText(message: Message): string {
   return message.content
-    .filter((block) => block.type === 'text')
-    .map((block) => (block as { type: 'text'; text: string }).text)
-    .join('\n');
+    .filter((block) => block.type === "text")
+    .map((block) => (block as { type: "text"; text: string }).text)
+    .join("\n");
 }
 
-describe('Session dynamic profile injection', () => {
+describe("Session dynamic profile injection", () => {
   beforeEach(() => {
     runCalls = [];
     persistedMessages.length = 0;
@@ -295,46 +347,53 @@ describe('Session dynamic profile injection', () => {
     recallArgs = [];
     profileEnabled = true;
     memoryEnabled = true;
-    profileText = '<dynamic-user-profile>\n- timezone: America/Los_Angeles\n</dynamic-user-profile>';
+    profileText =
+      "<dynamic-user-profile>\n- timezone: America/Los_Angeles\n</dynamic-user-profile>";
   });
 
-  test('injects profile context for runtime and strips it from persisted history', async () => {
+  test("injects profile context for runtime and strips it from persisted history", async () => {
     const session = makeSession();
     await session.loadFromDb();
 
     const events: ServerMessage[] = [];
-    await session.processMessage('What should I do next?', [], (event) => events.push(event));
+    await session.processMessage("What should I do next?", [], (event) =>
+      events.push(event),
+    );
 
     expect(runCalls).toHaveLength(1);
     const runtimeUser = runCalls[0][runCalls[0].length - 1];
-    expect(runtimeUser.role).toBe('user');
+    expect(runtimeUser.role).toBe("user");
     const runtimeText = messageText(runtimeUser);
-    expect(runtimeText).toContain('<dynamic-profile-context>');
-    expect(runtimeText).toContain('<dynamic-user-profile>');
-    expect(runtimeText).toContain('</dynamic-profile-context>');
+    expect(runtimeText).toContain("<dynamic-profile-context>");
+    expect(runtimeText).toContain("<dynamic-user-profile>");
+    expect(runtimeText).toContain("</dynamic-profile-context>");
 
-    const persistedUser = session.getMessages().find((message) => message.role === 'user');
+    const persistedUser = session
+      .getMessages()
+      .find((message) => message.role === "user");
     expect(persistedUser).toBeDefined();
     if (persistedUser) {
       const persistedText = messageText(persistedUser);
-      expect(persistedText).not.toContain('<dynamic-profile-context>');
-      expect(persistedText).not.toContain('<dynamic-user-profile>');
-      expect(persistedText).not.toContain('</dynamic-profile-context>');
+      expect(persistedText).not.toContain("<dynamic-profile-context>");
+      expect(persistedText).not.toContain("<dynamic-user-profile>");
+      expect(persistedText).not.toContain("</dynamic-profile-context>");
       // No empty text blocks should remain after stripping
       const emptyBlocks = persistedUser.content.filter(
-        (b) => b.type === 'text' && (b as { text: string }).text === '',
+        (b) => b.type === "text" && (b as { text: string }).text === "",
       );
       expect(emptyBlocks).toHaveLength(0);
     }
     expect(profileCompilerCalls).toBe(1);
-    expect(events.some((event) => event.type === 'message_complete')).toBe(true);
+    expect(events.some((event) => event.type === "message_complete")).toBe(
+      true,
+    );
   });
 
-  test('strip removes empty text blocks left by dedicated injection block', () => {
-    const profile = 'timezone: US/Pacific';
+  test("strip removes empty text blocks left by dedicated injection block", () => {
+    const profile = "timezone: US/Pacific";
     const userMsg: Message = {
-      role: 'user',
-      content: [{ type: 'text', text: 'hello' }],
+      role: "user",
+      content: [{ type: "text", text: "hello" }],
     };
     const injected = injectDynamicProfileIntoUserMessage(userMsg, profile);
     // The injected message has 2 content blocks: original + profile
@@ -342,25 +401,32 @@ describe('Session dynamic profile injection', () => {
     const stripped = stripDynamicProfileMessages([injected], profile);
     // After stripping, the dedicated profile block should be removed entirely
     expect(stripped[0].content).toHaveLength(1);
-    expect(stripped[0].content.every((b) => {
-      return b.type !== 'text' || (b as { text: string }).text.length > 0;
-    })).toBe(true);
+    expect(
+      stripped[0].content.every((b) => {
+        return b.type !== "text" || (b as { text: string }).text.length > 0;
+      }),
+    ).toBe(true);
   });
 
-  test('strip only targets the last user message, not earlier ones', () => {
-    const profile = 'timezone: US/Pacific';
-    const profileMarker = '<dynamic-profile-context>';
+  test("strip only targets the last user message, not earlier ones", () => {
+    const profile = "timezone: US/Pacific";
+    const profileMarker = "<dynamic-profile-context>";
     const earlyUser: Message = {
-      role: 'user',
-      content: [{ type: 'text', text: `I pasted: ${profileMarker}\ntimezone: US/Pacific\n</dynamic-profile-context>` }],
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: `I pasted: ${profileMarker}\ntimezone: US/Pacific\n</dynamic-profile-context>`,
+        },
+      ],
     };
     const assistant: Message = {
-      role: 'assistant',
-      content: [{ type: 'text', text: 'ok' }],
+      role: "assistant",
+      content: [{ type: "text", text: "ok" }],
     };
     const latestUser: Message = {
-      role: 'user',
-      content: [{ type: 'text', text: 'follow up' }],
+      role: "user",
+      content: [{ type: "text", text: "follow up" }],
     };
     const injected = injectDynamicProfileIntoUserMessage(latestUser, profile);
     const msgs = [earlyUser, assistant, injected];
@@ -371,21 +437,23 @@ describe('Session dynamic profile injection', () => {
     expect(messageText(stripped[2])).not.toContain(profileMarker);
   });
 
-  test('strip finds injected message even when tool_result user messages follow it', () => {
-    const profile = 'timezone: US/Pacific';
-    const profileMarker = '<dynamic-profile-context>';
+  test("strip finds injected message even when tool_result user messages follow it", () => {
+    const profile = "timezone: US/Pacific";
+    const profileMarker = "<dynamic-profile-context>";
     const injectedUser = injectDynamicProfileIntoUserMessage(
-      { role: 'user', content: [{ type: 'text', text: 'hello' }] },
+      { role: "user", content: [{ type: "text", text: "hello" }] },
       profile,
     );
     const assistantMsg: Message = {
-      role: 'assistant',
-      content: [{ type: 'text', text: 'calling tool' }],
+      role: "assistant",
+      content: [{ type: "text", text: "calling tool" }],
     };
     // Simulate tool_result user message appended by agent loop
     const toolResultUser: Message = {
-      role: 'user',
-      content: [{ type: 'tool_result', tool_use_id: 'tu-1', content: 'result' }],
+      role: "user",
+      content: [
+        { type: "tool_result", tool_use_id: "tu-1", content: "result" },
+      ],
     };
     const msgs = [injectedUser, assistantMsg, toolResultUser];
     const stripped = stripDynamicProfileMessages(msgs, profile);
@@ -395,78 +463,78 @@ describe('Session dynamic profile injection', () => {
     expect(stripped[2]).toBe(toolResultUser);
   });
 
-  test('skips profile compilation/injection when memory.profile.enabled is false', async () => {
+  test("skips profile compilation/injection when memory.profile.enabled is false", async () => {
     profileEnabled = false;
     const session = makeSession();
     await session.loadFromDb();
 
-    await session.processMessage('Explain rebase strategy', [], () => {});
+    await session.processMessage("Explain rebase strategy", [], () => {});
 
     expect(runCalls).toHaveLength(1);
     const runtimeUser = runCalls[0][runCalls[0].length - 1];
     const runtimeText = messageText(runtimeUser);
-    expect(runtimeText).not.toContain('<dynamic-profile-context>');
+    expect(runtimeText).not.toContain("<dynamic-profile-context>");
     expect(profileCompilerCalls).toBe(0);
   });
 
-  test('skips profile injection when top-level memory.enabled is false', async () => {
+  test("skips profile injection when top-level memory.enabled is false", async () => {
     memoryEnabled = false;
     const session = makeSession();
     await session.loadFromDb();
 
-    await session.processMessage('What is my timezone?', [], () => {});
+    await session.processMessage("What is my timezone?", [], () => {});
 
     expect(runCalls).toHaveLength(1);
     const runtimeUser = runCalls[0][runCalls[0].length - 1];
     const runtimeText = messageText(runtimeUser);
-    expect(runtimeText).not.toContain('<dynamic-profile-context>');
+    expect(runtimeText).not.toContain("<dynamic-profile-context>");
     expect(profileCompilerCalls).toBe(0);
   });
 
-  test('private thread session uses private scope + default fallback in profile compile and recall', async () => {
+  test("private thread session uses private scope + default fallback in profile compile and recall", async () => {
     const privatePolicy: SessionMemoryPolicy = {
-      scopeId: 'private-thread-abc',
+      scopeId: "private-thread-abc",
       includeDefaultFallback: true,
       strictSideEffects: false,
     };
     const session = makeSession(privatePolicy);
     await session.loadFromDb();
 
-    await session.processMessage('What do I prefer?', [], () => {});
+    await session.processMessage("What do I prefer?", [], () => {});
 
     // Profile compiler should receive the private scope with fallback enabled
     expect(profileCompilerCalls).toBe(1);
     expect(profileCompilerArgs).toHaveLength(1);
-    expect(profileCompilerArgs[0].scopeId).toBe('private-thread-abc');
+    expect(profileCompilerArgs[0].scopeId).toBe("private-thread-abc");
     expect(profileCompilerArgs[0].includeDefaultFallback).toBe(true);
 
     // Memory recall should receive scopeId and a scopePolicyOverride for the private scope
     expect(recallArgs).toHaveLength(1);
-    expect(recallArgs[0].scopeId).toBe('private-thread-abc');
+    expect(recallArgs[0].scopeId).toBe("private-thread-abc");
     expect(recallArgs[0].scopePolicyOverride).toEqual({
-      scopeId: 'private-thread-abc',
+      scopeId: "private-thread-abc",
       fallbackToDefault: true,
     });
   });
 
-  test('standard thread uses default scope without fallback in profile compile and no scope override in recall', async () => {
+  test("standard thread uses default scope without fallback in profile compile and no scope override in recall", async () => {
     // Default policy: scopeId='default', includeDefaultFallback=false
     const session = makeSession(DEFAULT_MEMORY_POLICY);
     await session.loadFromDb();
 
-    await session.processMessage('Tell me about TypeScript', [], () => {});
+    await session.processMessage("Tell me about TypeScript", [], () => {});
 
     // Profile compiler should receive default scope without fallback
     expect(profileCompilerCalls).toBe(1);
     expect(profileCompilerArgs).toHaveLength(1);
-    expect(profileCompilerArgs[0].scopeId).toBe('default');
+    expect(profileCompilerArgs[0].scopeId).toBe("default");
     expect(profileCompilerArgs[0].includeDefaultFallback).toBe(false);
 
     // Memory recall should forward scopeId='default' so buildScopeFilter
     // properly filters to the default scope, and should NOT have a
     // scopePolicyOverride (default scope relies on the global config policy)
     expect(recallArgs).toHaveLength(1);
-    expect(recallArgs[0].scopeId).toBe('default');
+    expect(recallArgs[0].scopeId).toBe("default");
     expect(recallArgs[0].scopePolicyOverride).toBeUndefined();
   });
 });

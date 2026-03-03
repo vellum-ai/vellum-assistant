@@ -1,31 +1,32 @@
-import { beforeEach, describe, expect, mock, test } from 'bun:test';
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { AgentEvent } from '../agent/loop.js';
-import type { Message, ProviderResponse } from '../providers/types.js';
+import type { AgentEvent } from "../agent/loop.js";
+import type { Message, ProviderResponse } from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
 // Mock dependencies — follows session-profile-injection.test.ts pattern
 // ---------------------------------------------------------------------------
 
-mock.module('../util/logger.js', () => ({
-  getLogger: () => new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
+mock.module("../util/logger.js", () => ({
+  getLogger: () =>
+    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
 }));
 
-mock.module('../util/platform.js', () => ({
-  getSocketPath: () => '/tmp/test.sock',
-  getDataDir: () => '/tmp',
+mock.module("../util/platform.js", () => ({
+  getSocketPath: () => "/tmp/test.sock",
+  getDataDir: () => "/tmp",
 }));
 
-mock.module('../providers/registry.js', () => ({
-  getProvider: () => ({ name: 'mock-provider' }),
+mock.module("../providers/registry.js", () => ({
+  getProvider: () => ({ name: "mock-provider" }),
   initializeProviders: () => {},
 }));
 
-mock.module('../config/loader.js', () => ({
+mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
-    
-    provider: 'mock-provider',
+
+    provider: "mock-provider",
     maxTokens: 4096,
     thinking: false,
     contextWindow: {
@@ -46,46 +47,49 @@ mock.module('../config/loader.js', () => ({
   invalidateConfigCache: () => {},
 }));
 
-mock.module('../config/system-prompt.js', () => ({
-  buildSystemPrompt: () => 'system prompt',
+mock.module("../config/system-prompt.js", () => ({
+  buildSystemPrompt: () => "system prompt",
 }));
 
-mock.module('../config/skills.js', () => ({
+mock.module("../config/skills.js", () => ({
   loadSkillCatalog: () => [],
   loadSkillBySelector: () => ({ skill: null }),
   ensureSkillIcon: async () => null,
 }));
 
-mock.module('../config/skill-state.js', () => ({
+mock.module("../config/skill-state.js", () => ({
   resolveSkillStates: () => [],
 }));
 
-mock.module('../skills/slash-commands.js', () => ({
+mock.module("../skills/slash-commands.js", () => ({
   buildInvocableSlashCatalog: () => new Map(),
-  resolveSlashSkillCommand: () => ({ kind: 'not_slash' }),
-  rewriteKnownSlashCommandPrompt: () => '',
-  parseSlashCandidate: () => ({ kind: 'not_slash' }),
+  resolveSlashSkillCommand: () => ({ kind: "not_slash" }),
+  rewriteKnownSlashCommandPrompt: () => "",
+  parseSlashCandidate: () => ({ kind: "not_slash" }),
 }));
 
-mock.module('../permissions/trust-store.js', () => ({
+mock.module("../permissions/trust-store.js", () => ({
   addRule: () => {},
   findHighestPriorityRule: () => null,
   clearCache: () => {},
 }));
 
-mock.module('../security/secret-allowlist.js', () => ({
+mock.module("../security/secret-allowlist.js", () => ({
   resetAllowlist: () => {},
 }));
 
-mock.module('../memory/conversation-store.js', () => ({
-  getConversationThreadType: () => 'default',
+mock.module("../memory/conversation-store.js", () => ({
+  getConversationThreadType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
-  provenanceFromGuardianContext: () => ({ source: 'user', guardianContext: undefined }),
+  provenanceFromGuardianContext: () => ({
+    source: "user",
+    guardianContext: undefined,
+  }),
   getConversationOriginInterface: () => null,
   getConversationOriginChannel: () => null,
   getMessages: () => [],
   getConversation: () => ({
-    id: 'conv-1',
+    id: "conv-1",
     contextSummary: null,
     contextCompactedMessageCount: 0,
     contextCompactedAt: null,
@@ -93,7 +97,7 @@ mock.module('../memory/conversation-store.js', () => ({
     totalOutputTokens: 0,
     totalEstimatedCost: 0,
   }),
-  addMessage: () => ({ id: 'msg-1' }),
+  addMessage: () => ({ id: "msg-1" }),
   updateConversationUsage: () => {},
   updateConversationTitle: () => {},
   updateConversationContextWindow: () => {},
@@ -102,86 +106,105 @@ mock.module('../memory/conversation-store.js', () => ({
   isLastUserMessageToolResult: () => false,
 }));
 
-mock.module('../memory/attachments-store.js', () => ({
-  uploadAttachment: () => ({ id: 'att-1' }),
+mock.module("../memory/attachments-store.js", () => ({
+  uploadAttachment: () => ({ id: "att-1" }),
   linkAttachmentToMessage: () => {},
 }));
 
-mock.module('../memory/retriever.js', () => ({
+mock.module("../memory/retriever.js", () => ({
   buildMemoryRecall: async () => null,
   injectMemoryRecallIntoUserMessage: (msg: Message) => msg,
   injectMemoryRecallAsSeparateMessage: (msgs: Message[]) => msgs,
   stripMemoryRecallMessages: (msgs: Message[]) => msgs,
 }));
 
-mock.module('../memory/query-builder.js', () => ({
-  buildMemoryQuery: () => '',
+mock.module("../memory/query-builder.js", () => ({
+  buildMemoryQuery: () => "",
 }));
 
-mock.module('../memory/retrieval-budget.js', () => ({
+mock.module("../memory/retrieval-budget.js", () => ({
   computeRecallBudget: () => 0,
 }));
 
-mock.module('../context/window-manager.js', () => ({
+mock.module("../context/window-manager.js", () => ({
   ContextWindowManager: class {
     constructor() {}
-    async maybeCompact() { return { compacted: false }; }
+    async maybeCompact() {
+      return { compacted: false };
+    }
   },
-  createContextSummaryMessage: () => ({ role: 'user', content: [{ type: 'text', text: 'summary' }] }),
+  createContextSummaryMessage: () => ({
+    role: "user",
+    content: [{ type: "text", text: "summary" }],
+  }),
   getSummaryFromContextMessage: () => null,
 }));
 
-mock.module('../memory/conflict-store.js', () => ({
+mock.module("../memory/conflict-store.js", () => ({
   listPendingConflictDetails: () => [],
   markConflictAsked: () => true,
   applyConflictResolution: () => true,
 }));
 
-mock.module('../memory/clarification-resolver.js', () => ({
+mock.module("../memory/clarification-resolver.js", () => ({
   resolveConflictClarification: async () => ({
-    resolution: 'still_unclear',
-    strategy: 'heuristic',
+    resolution: "still_unclear",
+    strategy: "heuristic",
     resolvedStatement: null,
-    explanation: 'Need user clarification.',
+    explanation: "Need user clarification.",
   }),
 }));
 
-mock.module('../memory/admin.js', () => ({
+mock.module("../memory/admin.js", () => ({
   getMemoryConflictAndCleanupStats: () => ({
     conflicts: { pending: 0, resolved: 0, oldestPendingAgeMs: null },
-    cleanup: { resolvedBacklog: 0, supersededBacklog: 0, resolvedCompleted24h: 0, supersededCompleted24h: 0 },
+    cleanup: {
+      resolvedBacklog: 0,
+      supersededBacklog: 0,
+      resolvedCompleted24h: 0,
+      supersededCompleted24h: 0,
+    },
   }),
 }));
 
-mock.module('../memory/profile-compiler.js', () => ({
+mock.module("../memory/profile-compiler.js", () => ({
   compileDynamicProfile: () => null,
 }));
 
-mock.module('../memory/llm-usage-store.js', () => ({
-  recordUsageEvent: () => ({ id: 'usage-1', createdAt: Date.now() }),
+mock.module("../memory/llm-usage-store.js", () => ({
+  recordUsageEvent: () => ({ id: "usage-1", createdAt: Date.now() }),
 }));
 
-mock.module('../memory/app-store.js', () => ({
+mock.module("../memory/app-store.js", () => ({
   getApp: () => null,
   updateApp: () => {},
 }));
 
-mock.module('../agent/loop.js', () => ({
+mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
     constructor() {}
-    async run(messages: Message[], onEvent: (event: AgentEvent) => void): Promise<Message[]> {
+    async run(
+      messages: Message[],
+      onEvent: (event: AgentEvent) => void,
+    ): Promise<Message[]> {
       const assistantMessage: Message = {
-        role: 'assistant',
-        content: [{ type: 'text', text: 'ok' }],
+        role: "assistant",
+        content: [{ type: "text", text: "ok" }],
       };
-      onEvent({ type: 'usage', inputTokens: 10, outputTokens: 5, model: 'mock', providerDurationMs: 10 });
-      onEvent({ type: 'message_complete', message: assistantMessage });
+      onEvent({
+        type: "usage",
+        inputTokens: 10,
+        outputTokens: 5,
+        model: "mock",
+        providerDurationMs: 10,
+      });
+      onEvent({ type: "message_complete", message: assistantMessage });
       return [...messages, assistantMessage];
     }
   },
 }));
 
-import { Session } from '../daemon/session.js';
+import { Session } from "../daemon/session.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -189,40 +212,56 @@ import { Session } from '../daemon/session.js';
 
 function makeSession(): Session {
   const provider = {
-    name: 'mock',
+    name: "mock",
     async sendMessage(): Promise<ProviderResponse> {
-      return { content: [], model: 'mock', usage: { inputTokens: 0, outputTokens: 0 }, stopReason: 'end_turn' };
+      return {
+        content: [],
+        model: "mock",
+        usage: { inputTokens: 0, outputTokens: 0 },
+        stopReason: "end_turn",
+      };
     },
   };
-  return new Session('conv-1', provider, 'system prompt', 4096, () => {}, '/tmp');
+  return new Session(
+    "conv-1",
+    provider,
+    "system prompt",
+    4096,
+    () => {},
+    "/tmp",
+  );
 }
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('Session workspace cache state', () => {
+describe("Session workspace cache state", () => {
   let session: Session;
 
   beforeEach(() => {
     session = makeSession();
   });
 
-  test('starts with dirty=true and null context', () => {
+  test("starts with dirty=true and null context", () => {
     expect(session.isWorkspaceTopLevelDirty()).toBe(true);
     expect(session.getWorkspaceTopLevelContext()).toBeNull();
   });
 
-  test('refreshWorkspaceTopLevelContextIfNeeded populates context and clears dirty', () => {
+  test("refreshWorkspaceTopLevelContextIfNeeded populates context and clears dirty", () => {
     session.refreshWorkspaceTopLevelContextIfNeeded();
 
     expect(session.isWorkspaceTopLevelDirty()).toBe(false);
     expect(session.getWorkspaceTopLevelContext()).not.toBeNull();
-    expect(session.getWorkspaceTopLevelContext()!).toContain('<workspace_top_level>');
-    expect(session.getWorkspaceTopLevelContext()!).toContain('</workspace_top_level>');
+    expect(session.getWorkspaceTopLevelContext()!).toContain(
+      "<workspace_top_level>",
+    );
+    expect(session.getWorkspaceTopLevelContext()!).toContain(
+      "</workspace_top_level>",
+    );
   });
 
-  test('refreshWorkspaceTopLevelContextIfNeeded no-ops when not dirty and cache exists', () => {
+  test("refreshWorkspaceTopLevelContextIfNeeded no-ops when not dirty and cache exists", () => {
     session.refreshWorkspaceTopLevelContextIfNeeded();
     const first = session.getWorkspaceTopLevelContext();
 
@@ -233,7 +272,7 @@ describe('Session workspace cache state', () => {
     expect(first).toBe(second);
   });
 
-  test('markWorkspaceTopLevelDirty sets dirty flag', () => {
+  test("markWorkspaceTopLevelDirty sets dirty flag", () => {
     session.refreshWorkspaceTopLevelContextIfNeeded();
     expect(session.isWorkspaceTopLevelDirty()).toBe(false);
 
@@ -241,14 +280,16 @@ describe('Session workspace cache state', () => {
     expect(session.isWorkspaceTopLevelDirty()).toBe(true);
   });
 
-  test('refresh after marking dirty produces fresh context', () => {
+  test("refresh after marking dirty produces fresh context", () => {
     session.refreshWorkspaceTopLevelContextIfNeeded();
 
     session.markWorkspaceTopLevelDirty();
     session.refreshWorkspaceTopLevelContextIfNeeded();
 
     expect(session.getWorkspaceTopLevelContext()).not.toBeNull();
-    expect(session.getWorkspaceTopLevelContext()!).toContain('<workspace_top_level>');
+    expect(session.getWorkspaceTopLevelContext()!).toContain(
+      "<workspace_top_level>",
+    );
     expect(session.isWorkspaceTopLevelDirty()).toBe(false);
   });
 });

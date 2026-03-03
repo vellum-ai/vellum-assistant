@@ -5,31 +5,32 @@
  * post-processing errors occur after the agent loop completes, and
  * that the shutdown sequence commits changes made during server.stop().
  */
-import { execFileSync } from 'node:child_process';
-import { existsSync,mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-
-import { afterEach,beforeEach, describe, expect, test } from 'bun:test';
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
   _resetGitServiceRegistry,
   getWorkspaceGitService,
   WorkspaceGitService,
-} from '../workspace/git-service.js';
+} from "../workspace/git-service.js";
 import {
   _resetHeartbeatState,
   WorkspaceHeartbeatService,
-} from '../workspace/heartbeat-service.js';
-import { commitTurnChanges } from '../workspace/turn-commit.js';
+} from "../workspace/heartbeat-service.js";
+import { commitTurnChanges } from "../workspace/turn-commit.js";
 
-describe('Commit guarantees', () => {
+describe("Commit guarantees", () => {
   let testDir: string;
 
   beforeEach(() => {
     testDir = join(
       tmpdir(),
-      `vellum-commit-guarantee-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      `vellum-commit-guarantee-${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2)}`,
     );
     mkdirSync(testDir, { recursive: true });
     _resetGitServiceRegistry();
@@ -45,7 +46,7 @@ describe('Commit guarantees', () => {
   function gitEnv(cwd: string): Record<string, string> {
     const env: Record<string, string> = {};
     for (const [key, value] of Object.entries(process.env)) {
-      if (value !== undefined && !key.startsWith('GIT_')) {
+      if (value !== undefined && !key.startsWith("GIT_")) {
         env[key] = value;
       }
     }
@@ -55,9 +56,9 @@ describe('Commit guarantees', () => {
 
   function commitCount(cwd: string): number {
     return parseInt(
-      execFileSync('git', ['rev-list', '--count', 'HEAD'], {
+      execFileSync("git", ["rev-list", "--count", "HEAD"], {
         cwd,
-        encoding: 'utf-8',
+        encoding: "utf-8",
         env: gitEnv(cwd),
       }).trim(),
       10,
@@ -65,30 +66,30 @@ describe('Commit guarantees', () => {
   }
 
   function lastCommitMessage(cwd: string): string {
-    return execFileSync('git', ['log', '-1', '--pretty=%B'], {
+    return execFileSync("git", ["log", "-1", "--pretty=%B"], {
       cwd,
-      encoding: 'utf-8',
+      encoding: "utf-8",
       env: gitEnv(cwd),
     }).trim();
   }
 
   function isWorkspaceClean(cwd: string): boolean {
-    const status = execFileSync('git', ['status', '--porcelain'], {
+    const status = execFileSync("git", ["status", "--porcelain"], {
       cwd,
-      encoding: 'utf-8',
+      encoding: "utf-8",
       env: gitEnv(cwd),
     }).trim();
-    return status === '';
+    return status === "";
   }
 
-  describe('session turn-boundary commit after post-processing error', () => {
-    test('commits workspace changes even when post-processing throws', async () => {
+  describe("session turn-boundary commit after post-processing error", () => {
+    test("commits workspace changes even when post-processing throws", async () => {
       // Simulate the session.ts commit-guarantee pattern:
       //   1. Agent loop runs and modifies workspace files
       //   2. Post-processing (resolveAssistantAttachments) throws
       //   3. Turn-boundary commit must still happen in finally block
 
-      const sessionId = 'sess_post_processing_error';
+      const sessionId = "sess_post_processing_error";
       const service = getWorkspaceGitService(testDir);
       await service.ensureInitialized();
 
@@ -101,12 +102,12 @@ describe('Commit guarantees', () => {
       let turnStarted = false;
       try {
         // Step 1: Agent loop runs — tools modify workspace files
-        writeFileSync(join(testDir, 'tool-output.txt'), 'generated content');
-        writeFileSync(join(testDir, 'modified-file.ts'), 'export const x = 1;');
+        writeFileSync(join(testDir, "tool-output.txt"), "generated content");
+        writeFileSync(join(testDir, "modified-file.ts"), "export const x = 1;");
         turnStarted = true;
 
         // Step 2: Post-processing throws (simulating resolveAssistantAttachments failure)
-        throw new Error('Simulated resolveAssistantAttachments failure');
+        throw new Error("Simulated resolveAssistantAttachments failure");
       } catch {
         // Error handled (session emits error event, etc.)
       } finally {
@@ -122,13 +123,13 @@ describe('Commit guarantees', () => {
       expect(isWorkspaceClean(testDir)).toBe(true);
 
       const msg = lastCommitMessage(testDir);
-      expect(msg).toContain('Turn:');
-      expect(msg).toContain('Session: sess_post_processing_error');
-      expect(msg).toContain('Turn: 1');
-      expect(msg).toContain('Files: 2 changed');
+      expect(msg).toContain("Turn:");
+      expect(msg).toContain("Session: sess_post_processing_error");
+      expect(msg).toContain("Turn: 1");
+      expect(msg).toContain("Files: 2 changed");
     });
 
-    test('does not commit when turn never started (pre-message blocked)', async () => {
+    test("does not commit when turn never started (pre-message blocked)", async () => {
       // When pre-message hooks block the turn, no commit should occur
       const service = getWorkspaceGitService(testDir);
       await service.ensureInitialized();
@@ -148,7 +149,7 @@ describe('Commit guarantees', () => {
       } finally {
         if (turnStarted) {
           turnCount++;
-          await commitTurnChanges(testDir, 'sess_blocked', turnCount);
+          await commitTurnChanges(testDir, "sess_blocked", turnCount);
         }
       }
 
@@ -157,10 +158,10 @@ describe('Commit guarantees', () => {
       expect(turnCount).toBe(0);
     });
 
-    test('commits workspace changes when user cancels mid-turn', async () => {
+    test("commits workspace changes when user cancels mid-turn", async () => {
       // When the user cancels, the agent loop may have already modified files.
       // The finally-block commit must still run.
-      const sessionId = 'sess_cancelled';
+      const sessionId = "sess_cancelled";
       const service = getWorkspaceGitService(testDir);
       await service.ensureInitialized();
 
@@ -169,12 +170,12 @@ describe('Commit guarantees', () => {
 
       try {
         // Agent loop starts and modifies files before cancellation
-        writeFileSync(join(testDir, 'partial-work.ts'), 'partial content');
+        writeFileSync(join(testDir, "partial-work.ts"), "partial content");
         turnStarted = true;
 
         // User cancels — agent loop throws AbortError
-        const abortError = new Error('AbortError');
-        abortError.name = 'AbortError';
+        const abortError = new Error("AbortError");
+        abortError.name = "AbortError";
         throw abortError;
       } catch {
         // Cancellation handled (session emits generation_cancelled)
@@ -188,13 +189,13 @@ describe('Commit guarantees', () => {
       // Assert: partial work was committed
       expect(commitCount(testDir)).toBe(2);
       expect(isWorkspaceClean(testDir)).toBe(true);
-      expect(lastCommitMessage(testDir)).toContain('Files: 1 changed');
+      expect(lastCommitMessage(testDir)).toContain("Files: 1 changed");
     });
 
-    test('commits across multiple turns with intermittent errors', async () => {
+    test("commits across multiple turns with intermittent errors", async () => {
       // Verify commit guarantees hold across multiple turns where some
       // succeed normally and others have post-processing errors.
-      const sessionId = 'sess_mixed';
+      const sessionId = "sess_mixed";
       const service = getWorkspaceGitService(testDir);
       await service.ensureInitialized();
 
@@ -204,7 +205,7 @@ describe('Commit guarantees', () => {
       {
         let turnStarted = false;
         try {
-          writeFileSync(join(testDir, 'turn1.ts'), 'turn 1 content');
+          writeFileSync(join(testDir, "turn1.ts"), "turn 1 content");
           turnStarted = true;
           // Post-processing succeeds
         } finally {
@@ -219,9 +220,9 @@ describe('Commit guarantees', () => {
       {
         let turnStarted = false;
         try {
-          writeFileSync(join(testDir, 'turn2.ts'), 'turn 2 content');
+          writeFileSync(join(testDir, "turn2.ts"), "turn 2 content");
           turnStarted = true;
-          throw new Error('Post-processing failure');
+          throw new Error("Post-processing failure");
         } catch {
           // handled
         } finally {
@@ -236,7 +237,7 @@ describe('Commit guarantees', () => {
       {
         let turnStarted = false;
         try {
-          writeFileSync(join(testDir, 'turn3.ts'), 'turn 3 content');
+          writeFileSync(join(testDir, "turn3.ts"), "turn 3 content");
           turnStarted = true;
         } finally {
           if (turnStarted) {
@@ -253,8 +254,8 @@ describe('Commit guarantees', () => {
     });
   });
 
-  describe('lifecycle shutdown commit sequencing', () => {
-    test('post-stop commit catches writes made during server.stop()', async () => {
+  describe("lifecycle shutdown commit sequencing", () => {
+    test("post-stop commit catches writes made during server.stop()", async () => {
       // Simulate the lifecycle shutdown flow where writes occur during
       // server.stop() (e.g. in-flight tool executions completing during drain).
       const service = new WorkspaceGitService(testDir);
@@ -268,14 +269,17 @@ describe('Commit guarantees', () => {
       });
 
       // Pre-stop commit: captures existing dirty state
-      writeFileSync(join(testDir, 'pre-stop-file.txt'), 'pre-stop content');
+      writeFileSync(join(testDir, "pre-stop-file.txt"), "pre-stop content");
 
       const preStopResult = await heartbeat.commitAllPending();
       expect(preStopResult.committed).toBe(1);
       expect(commitCount(testDir)).toBe(2); // initial + pre-stop
 
       // Simulate writes that occur during server.stop()
-      writeFileSync(join(testDir, 'during-stop-file.txt'), 'written during server drain');
+      writeFileSync(
+        join(testDir, "during-stop-file.txt"),
+        "written during server drain",
+      );
 
       // Post-stop commit: catches the late writes
       const postStopResult = await heartbeat.commitAllPending();
@@ -284,15 +288,18 @@ describe('Commit guarantees', () => {
 
       // Verify the post-stop commit captured the file
       expect(isWorkspaceClean(testDir)).toBe(true);
-      expect(lastCommitMessage(testDir)).toContain('shutdown');
+      expect(lastCommitMessage(testDir)).toContain("shutdown");
     });
 
-    test('shutdown does not deadlock when commit fails', async () => {
+    test("shutdown does not deadlock when commit fails", async () => {
       // Both pre-stop and post-stop commits must be non-fatal to prevent
       // shutdown from hanging.
       const services = new Map<string, WorkspaceGitService>();
       // Use an uninitialized service that will fail when trying to commit
-      const uninitDir = join(tmpdir(), `vellum-uninit-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+      const uninitDir = join(
+        tmpdir(),
+        `vellum-uninit-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      );
       mkdirSync(uninitDir, { recursive: true });
       const uninitService = new WorkspaceGitService(uninitDir);
       services.set(uninitDir, uninitService);
@@ -312,7 +319,7 @@ describe('Commit guarantees', () => {
       rmSync(uninitDir, { recursive: true, force: true });
     });
 
-    test('post-stop commit is idempotent when no new writes occur', async () => {
+    test("post-stop commit is idempotent when no new writes occur", async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
 
@@ -324,7 +331,7 @@ describe('Commit guarantees', () => {
       });
 
       // Pre-stop commit with dirty state
-      writeFileSync(join(testDir, 'file.txt'), 'content');
+      writeFileSync(join(testDir, "file.txt"), "content");
       await heartbeat.commitAllPending();
       expect(commitCount(testDir)).toBe(2);
 

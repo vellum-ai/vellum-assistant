@@ -1,35 +1,45 @@
-import { describe, expect, mock,test } from 'bun:test';
+import { describe, expect, mock, test } from "bun:test";
 
-mock.module('../util/logger.js', () => ({
-  getLogger: () => new Proxy({} as Record<string, unknown>, {
-    get: () => () => {},
-  }),
+mock.module("../util/logger.js", () => ({
+  getLogger: () =>
+    new Proxy({} as Record<string, unknown>, {
+      get: () => () => {},
+    }),
 }));
 
-import type { RateLimitConfig } from '../config/types.js';
-import { RateLimitProvider } from '../providers/ratelimit.js';
-import type { Message,Provider, ProviderResponse } from '../providers/types.js';
-import { RateLimitError } from '../util/errors.js';
+import type { RateLimitConfig } from "../config/types.js";
+import { RateLimitProvider } from "../providers/ratelimit.js";
+import type {
+  Message,
+  Provider,
+  ProviderResponse,
+} from "../providers/types.js";
+import { RateLimitError } from "../util/errors.js";
 
 function makeProvider(response?: Partial<ProviderResponse>): Provider {
   return {
-    name: 'mock',
+    name: "mock",
     sendMessage: async () => ({
-      content: [{ type: 'text' as const, text: 'ok' }],
-      model: 'test-model',
+      content: [{ type: "text" as const, text: "ok" }],
+      model: "test-model",
       usage: { inputTokens: 100, outputTokens: 50 },
-      stopReason: 'end_turn',
+      stopReason: "end_turn",
       ...response,
     }),
   };
 }
 
-const messages: Message[] = [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }];
+const messages: Message[] = [
+  { role: "user", content: [{ type: "text", text: "hi" }] },
+];
 
-describe('RateLimitProvider', () => {
-  describe('request rate limiting', () => {
-    test('allows requests under the limit', async () => {
-      const config: RateLimitConfig = { maxRequestsPerMinute: 5, maxTokensPerSession: 0 };
+describe("RateLimitProvider", () => {
+  describe("request rate limiting", () => {
+    test("allows requests under the limit", async () => {
+      const config: RateLimitConfig = {
+        maxRequestsPerMinute: 5,
+        maxTokensPerSession: 0,
+      };
       const provider = new RateLimitProvider(makeProvider(), config);
 
       for (let i = 0; i < 5; i++) {
@@ -37,8 +47,11 @@ describe('RateLimitProvider', () => {
       }
     });
 
-    test('throws RateLimitError when exceeding request limit', async () => {
-      const config: RateLimitConfig = { maxRequestsPerMinute: 2, maxTokensPerSession: 0 };
+    test("throws RateLimitError when exceeding request limit", async () => {
+      const config: RateLimitConfig = {
+        maxRequestsPerMinute: 2,
+        maxTokensPerSession: 0,
+      };
       const provider = new RateLimitProvider(makeProvider(), config);
 
       await provider.sendMessage(messages);
@@ -47,8 +60,11 @@ describe('RateLimitProvider', () => {
       expect(provider.sendMessage(messages)).rejects.toThrow(RateLimitError);
     });
 
-    test('unlimited when maxRequestsPerMinute is 0', async () => {
-      const config: RateLimitConfig = { maxRequestsPerMinute: 0, maxTokensPerSession: 0 };
+    test("unlimited when maxRequestsPerMinute is 0", async () => {
+      const config: RateLimitConfig = {
+        maxRequestsPerMinute: 0,
+        maxTokensPerSession: 0,
+      };
       const provider = new RateLimitProvider(makeProvider(), config);
 
       for (let i = 0; i < 100; i++) {
@@ -57,9 +73,12 @@ describe('RateLimitProvider', () => {
     });
   });
 
-  describe('session token limiting', () => {
-    test('allows requests under the token budget', async () => {
-      const config: RateLimitConfig = { maxRequestsPerMinute: 0, maxTokensPerSession: 1000 };
+  describe("session token limiting", () => {
+    test("allows requests under the token budget", async () => {
+      const config: RateLimitConfig = {
+        maxRequestsPerMinute: 0,
+        maxTokensPerSession: 1000,
+      };
       const provider = new RateLimitProvider(makeProvider(), config);
 
       // Each call uses 150 tokens (100 input + 50 output)
@@ -69,8 +88,11 @@ describe('RateLimitProvider', () => {
       // 6 * 150 = 900, still under 1000
     });
 
-    test('throws RateLimitError when token budget exhausted', async () => {
-      const config: RateLimitConfig = { maxRequestsPerMinute: 0, maxTokensPerSession: 300 };
+    test("throws RateLimitError when token budget exhausted", async () => {
+      const config: RateLimitConfig = {
+        maxRequestsPerMinute: 0,
+        maxTokensPerSession: 300,
+      };
       const provider = new RateLimitProvider(makeProvider(), config);
 
       // 150 tokens per call
@@ -80,8 +102,11 @@ describe('RateLimitProvider', () => {
       expect(provider.sendMessage(messages)).rejects.toThrow(RateLimitError);
     });
 
-    test('unlimited when maxTokensPerSession is 0', async () => {
-      const config: RateLimitConfig = { maxRequestsPerMinute: 0, maxTokensPerSession: 0 };
+    test("unlimited when maxTokensPerSession is 0", async () => {
+      const config: RateLimitConfig = {
+        maxRequestsPerMinute: 0,
+        maxTokensPerSession: 0,
+      };
       const provider = new RateLimitProvider(
         makeProvider({ usage: { inputTokens: 10000, outputTokens: 10000 } }),
         config,
@@ -93,41 +118,50 @@ describe('RateLimitProvider', () => {
     });
   });
 
-  describe('passthrough behavior', () => {
-    test('delegates to inner provider', async () => {
-      const config: RateLimitConfig = { maxRequestsPerMinute: 0, maxTokensPerSession: 0 };
-      const inner = makeProvider({ model: 'custom-model' });
+  describe("passthrough behavior", () => {
+    test("delegates to inner provider", async () => {
+      const config: RateLimitConfig = {
+        maxRequestsPerMinute: 0,
+        maxTokensPerSession: 0,
+      };
+      const inner = makeProvider({ model: "custom-model" });
       const provider = new RateLimitProvider(inner, config);
 
       const response = await provider.sendMessage(messages);
-      expect(response.model).toBe('custom-model');
+      expect(response.model).toBe("custom-model");
     });
 
-    test('preserves provider name', () => {
-      const config: RateLimitConfig = { maxRequestsPerMinute: 0, maxTokensPerSession: 0 };
+    test("preserves provider name", () => {
+      const config: RateLimitConfig = {
+        maxRequestsPerMinute: 0,
+        maxTokensPerSession: 0,
+      };
       const provider = new RateLimitProvider(makeProvider(), config);
-      expect(provider.name).toBe('mock');
+      expect(provider.name).toBe("mock");
     });
 
-    test('passes through all arguments to inner provider', async () => {
-      const config: RateLimitConfig = { maxRequestsPerMinute: 0, maxTokensPerSession: 0 };
+    test("passes through all arguments to inner provider", async () => {
+      const config: RateLimitConfig = {
+        maxRequestsPerMinute: 0,
+        maxTokensPerSession: 0,
+      };
       let receivedArgs: unknown[] = [];
       const inner: Provider = {
-        name: 'spy',
+        name: "spy",
         sendMessage: async (...args) => {
           receivedArgs = args;
           return {
-            content: [{ type: 'text' as const, text: '' }],
-            model: 'test',
+            content: [{ type: "text" as const, text: "" }],
+            model: "test",
             usage: { inputTokens: 0, outputTokens: 0 },
-            stopReason: 'end_turn',
+            stopReason: "end_turn",
           };
         },
       };
       const provider = new RateLimitProvider(inner, config);
 
-      const tools = [{ name: 'test', description: 'test', input_schema: {} }];
-      const systemPrompt = 'hello';
+      const tools = [{ name: "test", description: "test", input_schema: {} }];
+      const systemPrompt = "hello";
       const options = { config: { max_tokens: 100 } };
 
       await provider.sendMessage(messages, tools, systemPrompt, options);
@@ -139,9 +173,12 @@ describe('RateLimitProvider', () => {
     });
   });
 
-  describe('combined limits', () => {
-    test('enforces both limits simultaneously', async () => {
-      const config: RateLimitConfig = { maxRequestsPerMinute: 10, maxTokensPerSession: 300 };
+  describe("combined limits", () => {
+    test("enforces both limits simultaneously", async () => {
+      const config: RateLimitConfig = {
+        maxRequestsPerMinute: 10,
+        maxTokensPerSession: 300,
+      };
       const provider = new RateLimitProvider(makeProvider(), config);
 
       // Token limit should hit first (2 * 150 = 300)
@@ -152,9 +189,12 @@ describe('RateLimitProvider', () => {
     });
   });
 
-  describe('shared request timestamps', () => {
-    test('multiple providers sharing timestamps enforce a global rate limit', async () => {
-      const config: RateLimitConfig = { maxRequestsPerMinute: 2, maxTokensPerSession: 0 };
+  describe("shared request timestamps", () => {
+    test("multiple providers sharing timestamps enforce a global rate limit", async () => {
+      const config: RateLimitConfig = {
+        maxRequestsPerMinute: 2,
+        maxTokensPerSession: 0,
+      };
       const shared: number[] = [];
       const provider1 = new RateLimitProvider(makeProvider(), config, shared);
       const provider2 = new RateLimitProvider(makeProvider(), config, shared);
@@ -164,20 +204,27 @@ describe('RateLimitProvider', () => {
       await provider2.sendMessage(messages);
 
       // A third request from either provider should be rate-limited
-      await expect(provider1.sendMessage(messages)).rejects.toThrow(RateLimitError);
-      await expect(provider2.sendMessage(messages)).rejects.toThrow(RateLimitError);
+      await expect(provider1.sendMessage(messages)).rejects.toThrow(
+        RateLimitError,
+      );
+      await expect(provider2.sendMessage(messages)).rejects.toThrow(
+        RateLimitError,
+      );
     });
 
-    test('out-of-order timestamps are pruned correctly (clock skew)', async () => {
-      const config: RateLimitConfig = { maxRequestsPerMinute: 3, maxTokensPerSession: 0 };
+    test("out-of-order timestamps are pruned correctly (clock skew)", async () => {
+      const config: RateLimitConfig = {
+        maxRequestsPerMinute: 3,
+        maxTokensPerSession: 0,
+      };
       const shared: number[] = [];
       const provider = new RateLimitProvider(makeProvider(), config, shared);
 
       // Simulate clock skew: insert an old timestamp between newer ones
       const now = Date.now();
-      shared.push(now);                   // current
-      shared.push(now - 120_000);         // 2 minutes ago (expired)
-      shared.push(now);                   // current
+      shared.push(now); // current
+      shared.push(now - 120_000); // 2 minutes ago (expired)
+      shared.push(now); // current
 
       // enforceRequestRate should prune the expired entry regardless of position
       await provider.sendMessage(messages);
@@ -186,15 +233,18 @@ describe('RateLimitProvider', () => {
       expect(shared.length).toBe(3);
     });
 
-    test('waitSec uses actual oldest timestamp under clock skew', async () => {
-      const config: RateLimitConfig = { maxRequestsPerMinute: 2, maxTokensPerSession: 0 };
+    test("waitSec uses actual oldest timestamp under clock skew", async () => {
+      const config: RateLimitConfig = {
+        maxRequestsPerMinute: 2,
+        maxTokensPerSession: 0,
+      };
       const shared: number[] = [];
       const provider = new RateLimitProvider(makeProvider(), config, shared);
 
       // Simulate out-of-order timestamps: newer one first, older one second
       const now = Date.now();
-      shared.push(now);               // newest
-      shared.push(now - 30_000);      // 30s ago (oldest in window)
+      shared.push(now); // newest
+      shared.push(now - 30_000); // 30s ago (oldest in window)
 
       // Next request should be rate-limited with ~30s wait (not 60s)
       try {
@@ -212,9 +262,12 @@ describe('RateLimitProvider', () => {
       }
     });
 
-    test('handles large timestamp arrays without stack overflow', async () => {
+    test("handles large timestamp arrays without stack overflow", async () => {
       const highLimit = 200_000;
-      const config: RateLimitConfig = { maxRequestsPerMinute: highLimit, maxTokensPerSession: 0 };
+      const config: RateLimitConfig = {
+        maxRequestsPerMinute: highLimit,
+        maxTokensPerSession: 0,
+      };
       const shared: number[] = [];
       const provider = new RateLimitProvider(makeProvider(), config, shared);
 
@@ -225,11 +278,16 @@ describe('RateLimitProvider', () => {
       }
 
       // This should throw RateLimitError, not RangeError
-      await expect(provider.sendMessage(messages)).rejects.toThrow(RateLimitError);
+      await expect(provider.sendMessage(messages)).rejects.toThrow(
+        RateLimitError,
+      );
     });
 
-    test('shared array reference survives pruning', async () => {
-      const config: RateLimitConfig = { maxRequestsPerMinute: 100, maxTokensPerSession: 0 };
+    test("shared array reference survives pruning", async () => {
+      const config: RateLimitConfig = {
+        maxRequestsPerMinute: 100,
+        maxTokensPerSession: 0,
+      };
       const shared: number[] = [];
       const provider1 = new RateLimitProvider(makeProvider(), config, shared);
       const provider2 = new RateLimitProvider(makeProvider(), config, shared);
@@ -249,19 +307,22 @@ describe('RateLimitProvider', () => {
     });
   });
 
-  describe('race condition prevention', () => {
-    test('concurrent calls are rate-limited because timestamp is recorded before await', async () => {
-      const config: RateLimitConfig = { maxRequestsPerMinute: 1, maxTokensPerSession: 0 };
+  describe("race condition prevention", () => {
+    test("concurrent calls are rate-limited because timestamp is recorded before await", async () => {
+      const config: RateLimitConfig = {
+        maxRequestsPerMinute: 1,
+        maxTokensPerSession: 0,
+      };
       // Slow provider that yields to the event loop
       const inner: Provider = {
-        name: 'slow',
+        name: "slow",
         sendMessage: async () => {
           await new Promise((r) => setTimeout(r, 10));
           return {
-            content: [{ type: 'text' as const, text: '' }],
-            model: 'test',
+            content: [{ type: "text" as const, text: "" }],
+            model: "test",
             usage: { inputTokens: 0, outputTokens: 0 },
-            stopReason: 'end_turn',
+            stopReason: "end_turn",
           };
         },
       };
@@ -273,25 +334,34 @@ describe('RateLimitProvider', () => {
         provider.sendMessage(messages),
       ]);
 
-      const fulfilled = results.filter((r) => r.status === 'fulfilled');
-      const rejected = results.filter((r) => r.status === 'rejected');
+      const fulfilled = results.filter((r) => r.status === "fulfilled");
+      const rejected = results.filter((r) => r.status === "rejected");
       expect(fulfilled.length).toBe(1);
       expect(rejected.length).toBe(1);
     });
 
-    test('failed inner calls still count toward request rate', async () => {
-      const config: RateLimitConfig = { maxRequestsPerMinute: 1, maxTokensPerSession: 0 };
+    test("failed inner calls still count toward request rate", async () => {
+      const config: RateLimitConfig = {
+        maxRequestsPerMinute: 1,
+        maxTokensPerSession: 0,
+      };
       const inner: Provider = {
-        name: 'failing',
-        sendMessage: async () => { throw new Error('provider error'); },
+        name: "failing",
+        sendMessage: async () => {
+          throw new Error("provider error");
+        },
       };
       const provider = new RateLimitProvider(inner, config);
 
       // First call fails at the provider level
-      await expect(provider.sendMessage(messages)).rejects.toThrow('provider error');
+      await expect(provider.sendMessage(messages)).rejects.toThrow(
+        "provider error",
+      );
 
       // Second call should be rate-limited (timestamp was recorded before the failed await)
-      await expect(provider.sendMessage(messages)).rejects.toThrow(RateLimitError);
+      await expect(provider.sendMessage(messages)).rejects.toThrow(
+        RateLimitError,
+      );
     });
   });
 });

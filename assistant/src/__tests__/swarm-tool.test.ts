@@ -1,22 +1,23 @@
-import { beforeEach,describe, expect, mock, test } from 'bun:test';
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Mocks — declared before imports that depend on them
 // ---------------------------------------------------------------------------
 
-mock.module('../util/logger.js', () => ({
-  getLogger: () => new Proxy({} as Record<string, unknown>, {
-    get: () => () => {},
-  }),
+mock.module("../util/logger.js", () => ({
+  getLogger: () =>
+    new Proxy({} as Record<string, unknown>, {
+      get: () => () => {},
+    }),
 }));
 
-mock.module('../config/loader.js', () => ({
+mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
-    
-    provider: 'anthropic',
-    providerOrder: ['anthropic'],
-    apiKeys: { anthropic: 'test-key' },
+
+    provider: "anthropic",
+    providerOrder: ["anthropic"],
+    apiKeys: { anthropic: "test-key" },
     swarm: {
       enabled: true,
       maxWorkers: 3,
@@ -24,80 +25,99 @@ mock.module('../config/loader.js', () => ({
       maxRetriesPerTask: 1,
       workerTimeoutSec: 900,
       roleTimeoutsSec: {},
-      plannerModelIntent: 'latency-optimized',
-      synthesizerModelIntent: 'quality-optimized',
+      plannerModelIntent: "latency-optimized",
+      synthesizerModelIntent: "quality-optimized",
     },
   }),
   getSwarmDisabledConfig: () => ({
-    provider: 'anthropic',
-    providerOrder: ['anthropic'],
-    apiKeys: { anthropic: 'test-key' },
-    swarm: { enabled: false, maxWorkers: 3, maxTasks: 8, maxRetriesPerTask: 1, workerTimeoutSec: 900, roleTimeoutsSec: {}, plannerModelIntent: 'latency-optimized', synthesizerModelIntent: 'quality-optimized' },
+    provider: "anthropic",
+    providerOrder: ["anthropic"],
+    apiKeys: { anthropic: "test-key" },
+    swarm: {
+      enabled: false,
+      maxWorkers: 3,
+      maxTasks: 8,
+      maxRetriesPerTask: 1,
+      workerTimeoutSec: 900,
+      roleTimeoutsSec: {},
+      plannerModelIntent: "latency-optimized",
+      synthesizerModelIntent: "quality-optimized",
+    },
   }),
 }));
 
 // Mock provider registry — returns a mock provider
 const mockProvider = {
-  name: 'test',
+  name: "test",
   async sendMessage() {
     return {
-      content: [{ type: 'text', text: '{"tasks":[{"id":"t1","role":"coder","objective":"Do it","dependencies":[]}]}' }],
-      model: 'test',
+      content: [
+        {
+          type: "text",
+          text: '{"tasks":[{"id":"t1","role":"coder","objective":"Do it","dependencies":[]}]}',
+        },
+      ],
+      model: "test",
       usage: { inputTokens: 10, outputTokens: 10 },
-      stopReason: 'end_turn',
+      stopReason: "end_turn",
     };
   },
 };
-mock.module('../providers/registry.js', () => ({
+mock.module("../providers/registry.js", () => ({
   getProvider: () => mockProvider,
   getFailoverProvider: () => mockProvider,
 }));
 
 // Mock the Agent SDK to prevent real subprocess spawning
-mock.module('@anthropic-ai/claude-agent-sdk', () => ({
+mock.module("@anthropic-ai/claude-agent-sdk", () => ({
   query: () => ({
     async *[Symbol.asyncIterator]() {
       yield {
-        type: 'result' as const,
-        session_id: 'test-session',
-        subtype: 'success' as const,
-        result: '```json\n{"summary":"Done","artifacts":[],"issues":[],"nextSteps":[]}\n```',
+        type: "result" as const,
+        session_id: "test-session",
+        subtype: "success" as const,
+        result:
+          '```json\n{"summary":"Done","artifacts":[],"issues":[],"nextSteps":[]}\n```',
       };
     },
   }),
 }));
 
-import { _resetSwarmActive,swarmDelegateTool } from '../tools/swarm/delegate.js';
-import type { ToolContext } from '../tools/types.js';
+import {
+  _resetSwarmActive,
+  swarmDelegateTool,
+} from "../tools/swarm/delegate.js";
+import type { ToolContext } from "../tools/types.js";
 
 function makeContext(overrides?: Partial<ToolContext>): ToolContext {
   return {
-    sessionId: 'test-session',
-    workingDir: '/tmp/test',
-    guardianTrustClass: 'guardian',
+    sessionId: "test-session",
+    workingDir: "/tmp/test",
+    guardianTrustClass: "guardian",
     onOutput: () => {},
     ...overrides,
   } as ToolContext;
 }
 
-describe('swarm_delegate tool', () => {
+describe("swarm_delegate tool", () => {
   beforeEach(() => {
     _resetSwarmActive();
   });
 
-  test('getDefinition returns valid schema', () => {
+  test("getDefinition returns valid schema", () => {
     const def = swarmDelegateTool.getDefinition();
-    expect(def.name).toBe('swarm_delegate');
-    const props = (def.input_schema as Record<string, unknown>).properties as Record<string, unknown>;
+    expect(def.name).toBe("swarm_delegate");
+    const props = (def.input_schema as Record<string, unknown>)
+      .properties as Record<string, unknown>;
     expect(props.objective).toBeDefined();
     expect(props.context).toBeDefined();
     expect(props.max_workers).toBeDefined();
   });
 
-  test('executes successfully with a simple objective', async () => {
+  test("executes successfully with a simple objective", async () => {
     const outputs: string[] = [];
     const result = await swarmDelegateTool.execute(
-      { objective: 'Build a simple feature' },
+      { objective: "Build a simple feature" },
       makeContext({ onOutput: (text: string) => outputs.push(text) }),
     );
 
@@ -106,12 +126,12 @@ describe('swarm_delegate tool', () => {
     expect(outputs.length).toBeGreaterThan(0);
   });
 
-  test('blocks nested swarm invocation', async () => {
+  test("blocks nested swarm invocation", async () => {
     // Simulate active swarm by calling _resetSwarmActive then manually setting it
     // We test this by running two sequential calls where the first doesn't finish
     // Actually, we can test by checking the recursion guard directly
     const result1Promise = swarmDelegateTool.execute(
-      { objective: 'First task' },
+      { objective: "First task" },
       makeContext(),
     );
 
@@ -122,28 +142,28 @@ describe('swarm_delegate tool', () => {
 
     // After completion, the flag should be reset
     const result2 = await swarmDelegateTool.execute(
-      { objective: 'Second task' },
+      { objective: "Second task" },
       makeContext(),
     );
     expect(result2.isError).toBeFalsy();
   });
 
-  test('handles objective with context', async () => {
+  test("handles objective with context", async () => {
     const result = await swarmDelegateTool.execute(
-      { objective: 'Build feature', context: 'This is a React project' },
+      { objective: "Build feature", context: "This is a React project" },
       makeContext(),
     );
     expect(result.isError).toBeFalsy();
   });
 
-  test('short-circuits when signal is already aborted', async () => {
+  test("short-circuits when signal is already aborted", async () => {
     const controller = new AbortController();
     controller.abort();
     const result = await swarmDelegateTool.execute(
-      { objective: 'Should not run' },
+      { objective: "Should not run" },
       makeContext({ signal: controller.signal }),
     );
     expect(result.isError).toBe(true);
-    expect(result.content).toBe('Cancelled');
+    expect(result.content).toBe("Cancelled");
   });
 });

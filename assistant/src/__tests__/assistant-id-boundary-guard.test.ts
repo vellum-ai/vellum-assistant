@@ -1,10 +1,9 @@
-import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, test } from "bun:test";
 
-import { describe, expect, test } from 'bun:test';
-
-import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 
 /**
  * Guard tests for the assistant identity boundary.
@@ -27,7 +26,7 @@ import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
 
 /** Resolve repo root (tests run from assistant/). */
 function getRepoRoot(): string {
-  return join(process.cwd(), '..');
+  return join(process.cwd(), "..");
 }
 
 /**
@@ -38,61 +37,64 @@ function getRepoRoot(): string {
  * glob (nested files) so that `git grep` matches at all directory depths.
  */
 const SCANNED_DIRS = [
-  'assistant/src/runtime',
-  'assistant/src/daemon',
-  'assistant/src/memory',
-  'assistant/src/approvals',
-  'assistant/src/calls',
-  'assistant/src/tools',
+  "assistant/src/runtime",
+  "assistant/src/daemon",
+  "assistant/src/memory",
+  "assistant/src/approvals",
+  "assistant/src/calls",
+  "assistant/src/tools",
 ];
 
-const SCANNED_DIR_GLOBS = SCANNED_DIRS.flatMap((dir) => [`${dir}/*.ts`, `${dir}/**/*.ts`]);
+const SCANNED_DIR_GLOBS = SCANNED_DIRS.flatMap((dir) => [
+  `${dir}/*.ts`,
+  `${dir}/**/*.ts`,
+]);
 
 function isTestFile(filePath: string): boolean {
   return (
-    filePath.includes('/__tests__/') ||
-    filePath.endsWith('.test.ts') ||
-    filePath.endsWith('.test.js') ||
-    filePath.endsWith('.spec.ts') ||
-    filePath.endsWith('.spec.js')
+    filePath.includes("/__tests__/") ||
+    filePath.endsWith(".test.ts") ||
+    filePath.endsWith(".test.js") ||
+    filePath.endsWith(".spec.ts") ||
+    filePath.endsWith(".spec.js")
   );
 }
 
 function isMigrationFile(filePath: string): boolean {
-  return filePath.includes('/migrations/');
+  return filePath.includes("/migrations/");
 }
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('assistant ID boundary', () => {
+describe("assistant ID boundary", () => {
   // -------------------------------------------------------------------------
   // Rule (d): The DAEMON_INTERNAL_ASSISTANT_ID constant equals 'self'
   // -------------------------------------------------------------------------
 
   test('DAEMON_INTERNAL_ASSISTANT_ID equals "self"', () => {
-    expect(DAEMON_INTERNAL_ASSISTANT_ID).toBe('self');
+    expect(DAEMON_INTERNAL_ASSISTANT_ID).toBe("self");
   });
 
   // -------------------------------------------------------------------------
   // Rule (a): No normalizeAssistantId in daemon scoping paths — spot check
   // -------------------------------------------------------------------------
 
-  test('no normalizeAssistantId imports in daemon scoping paths', () => {
+  test("no normalizeAssistantId imports in daemon scoping paths", () => {
     // Key daemon/runtime files that previously used normalizeAssistantId
     // should now use DAEMON_INTERNAL_ASSISTANT_ID instead.
     const daemonScopingFiles = [
-      'runtime/actor-trust-resolver.ts',
-      'runtime/guardian-outbound-actions.ts',
-      'daemon/handlers/config-channels.ts',
-      'runtime/routes/channel-route-shared.ts',
-      'calls/relay-server.ts',
+      "runtime/actor-trust-resolver.ts",
+      "runtime/guardian-outbound-actions.ts",
+      "daemon/handlers/config-channels.ts",
+      "runtime/routes/channel-route-shared.ts",
+      "calls/relay-server.ts",
     ];
 
-    const srcDir = join(import.meta.dir, '..');
+    const srcDir = join(import.meta.dir, "..");
     for (const relPath of daemonScopingFiles) {
-      const content = readFileSync(join(srcDir, relPath), 'utf-8');
+      const content = readFileSync(join(srcDir, relPath), "utf-8");
       expect(content).not.toContain("import { normalizeAssistantId }");
       expect(content).not.toContain("import { normalizeAssistantId,");
       expect(content).not.toContain("normalizeAssistantId(");
@@ -103,18 +105,18 @@ describe('assistant ID boundary', () => {
   // Rule (a): No normalizeAssistantId in daemon/runtime directories — broad scan
   // -------------------------------------------------------------------------
 
-  test('no normalizeAssistantId usage across daemon/runtime source directories', () => {
+  test("no normalizeAssistantId usage across daemon/runtime source directories", () => {
     const repoRoot = getRepoRoot();
 
     // Scan all daemon/runtime source directories for any reference to
     // normalizeAssistantId. The function is defined in util/platform.ts for
     // gateway use — it must not appear in daemon scoping modules.
-    let grepOutput = '';
+    let grepOutput = "";
     try {
       grepOutput = execFileSync(
-        'git',
-        ['grep', '-lE', 'normalizeAssistantId', '--', ...SCANNED_DIR_GLOBS],
-        { encoding: 'utf-8', cwd: repoRoot },
+        "git",
+        ["grep", "-lE", "normalizeAssistantId", "--", ...SCANNED_DIR_GLOBS],
+        { encoding: "utf-8", cwd: repoRoot },
       ).trim();
     } catch (err) {
       // Exit code 1 means no matches — happy path
@@ -124,18 +126,18 @@ describe('assistant ID boundary', () => {
       throw err;
     }
 
-    const files = grepOutput.split('\n').filter((f) => f.length > 0);
+    const files = grepOutput.split("\n").filter((f) => f.length > 0);
     const violations = files.filter((f) => !isTestFile(f));
 
     if (violations.length > 0) {
       const message = [
-        'Found daemon/runtime source files that reference `normalizeAssistantId`.',
-        'Daemon code should use the `DAEMON_INTERNAL_ASSISTANT_ID` constant instead.',
-        'The `normalizeAssistantId` function is for gateway/platform use only (defined in util/platform.ts).',
-        '',
-        'Violations:',
+        "Found daemon/runtime source files that reference `normalizeAssistantId`.",
+        "Daemon code should use the `DAEMON_INTERNAL_ASSISTANT_ID` constant instead.",
+        "The `normalizeAssistantId` function is for gateway/platform use only (defined in util/platform.ts).",
+        "",
+        "Violations:",
         ...violations.map((f) => `  - ${f}`),
-      ].join('\n');
+      ].join("\n");
 
       expect(violations, message).toEqual([]);
     }
@@ -145,9 +147,14 @@ describe('assistant ID boundary', () => {
   // Rule (b): No assistant-scoped route registration in daemon HTTP server
   // -------------------------------------------------------------------------
 
-  test('no /v1/assistants/:assistantId/ route handler registration in daemon HTTP server', () => {
-    const httpServerPath = join(import.meta.dir, '..', 'runtime', 'http-server.ts');
-    const content = readFileSync(httpServerPath, 'utf-8');
+  test("no /v1/assistants/:assistantId/ route handler registration in daemon HTTP server", () => {
+    const httpServerPath = join(
+      import.meta.dir,
+      "..",
+      "runtime",
+      "http-server.ts",
+    );
+    const content = readFileSync(httpServerPath, "utf-8");
 
     // The daemon HTTP server must not contain any assistant-scoped route
     // patterns. All routes use flat /v1/<endpoint> paths; the gateway handles
@@ -161,29 +168,32 @@ describe('assistant ID boundary', () => {
     const match = content.match(routeHandlerRegex);
     expect(
       match,
-      'Found a route pattern matching /v1/assistants/([^/]+)/... that extracts an assistantId. ' +
-        'The daemon HTTP server should not have assistant-scoped route handlers — ' +
-        'use flat /v1/<endpoint> paths instead.',
+      "Found a route pattern matching /v1/assistants/([^/]+)/... that extracts an assistantId. " +
+        "The daemon HTTP server should not have assistant-scoped route handlers — " +
+        "use flat /v1/<endpoint> paths instead.",
     ).toBeNull();
 
     // Scan the entire file for assistant-scoped path literals. No references
     // to /v1/assistants/ should exist — the daemon uses flat paths only.
-    const lines = content.split('\n');
+    const lines = content.split("\n");
     const violations: string[] = [];
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       // Match both literal /v1/assistants/ and escaped \/v1\/assistants\/
-      if (line.includes('/v1/assistants/') || line.includes('\\/v1\\/assistants\\/')) {
+      if (
+        line.includes("/v1/assistants/") ||
+        line.includes("\\/v1\\/assistants\\/")
+      ) {
         violations.push(`  line ${i + 1}: ${line.trim()}`);
       }
     }
 
     expect(
       violations,
-      'Found /v1/assistants/ references in the daemon HTTP server — ' +
-        'the daemon should not have assistant-scoped path literals.\n' +
-        violations.join('\n'),
+      "Found /v1/assistants/ references in the daemon HTTP server — " +
+        "the daemon should not have assistant-scoped path literals.\n" +
+        violations.join("\n"),
     ).toEqual([]);
 
     // Guard against prefix-less assistants/ route patterns that extract an
@@ -204,10 +214,10 @@ describe('assistant ID boundary', () => {
 
     expect(
       prefixLessViolations,
-      'Found prefix-less assistants/([^/]+) route pattern that extracts an assistantId. ' +
-        'The daemon should not parse assistant IDs from URL paths — use ' +
-        'DAEMON_INTERNAL_ASSISTANT_ID instead.\n' +
-        prefixLessViolations.join('\n'),
+      "Found prefix-less assistants/([^/]+) route pattern that extracts an assistantId. " +
+        "The daemon should not parse assistant IDs from URL paths — use " +
+        "DAEMON_INTERNAL_ASSISTANT_ID instead.\n" +
+        prefixLessViolations.join("\n"),
     ).toEqual([]);
   });
 
@@ -215,7 +225,7 @@ describe('assistant ID boundary', () => {
   // Rule (c): No hardcoded 'self' for assistant scoping in daemon files
   // -------------------------------------------------------------------------
 
-  test('no hardcoded \'self\' string for assistant scoping in daemon source files', () => {
+  test("no hardcoded 'self' string for assistant scoping in daemon source files", () => {
     const repoRoot = getRepoRoot();
 
     // Search for patterns where 'self' is used as an assistant ID value.
@@ -236,12 +246,12 @@ describe('assistant ID boundary', () => {
     //   - CSP headers ('self' in Content-Security-Policy has nothing to do with assistant IDs)
     const pattern = `(assistantId|assistant_id).*['"]self['"]`;
 
-    let grepOutput = '';
+    let grepOutput = "";
     try {
       grepOutput = execFileSync(
-        'git',
-        ['grep', '-nE', pattern, '--', ...SCANNED_DIR_GLOBS],
-        { encoding: 'utf-8', cwd: repoRoot },
+        "git",
+        ["grep", "-nE", pattern, "--", ...SCANNED_DIR_GLOBS],
+        { encoding: "utf-8", cwd: repoRoot },
       ).trim();
     } catch (err) {
       // Exit code 1 means no matches — happy path
@@ -251,17 +261,21 @@ describe('assistant ID boundary', () => {
       throw err;
     }
 
-    const lines = grepOutput.split('\n').filter((l) => l.length > 0);
+    const lines = grepOutput.split("\n").filter((l) => l.length > 0);
     const violations = lines.filter((line) => {
-      const filePath = line.split(':')[0];
+      const filePath = line.split(":")[0];
       if (isTestFile(filePath)) return false;
       if (isMigrationFile(filePath)) return false;
 
       // Allow comments (lines where the code portion starts with //)
-      const parts = line.split(':');
+      const parts = line.split(":");
       // parts[0] = file, parts[1] = line number, rest = content
-      const content = parts.slice(2).join(':').trim();
-      if (content.startsWith('//') || content.startsWith('*') || content.startsWith('/*')) {
+      const content = parts.slice(2).join(":").trim();
+      if (
+        content.startsWith("//") ||
+        content.startsWith("*") ||
+        content.startsWith("/*")
+      ) {
         return false;
       }
 
@@ -271,11 +285,11 @@ describe('assistant ID boundary', () => {
     if (violations.length > 0) {
       const message = [
         "Found daemon/runtime source files with hardcoded 'self' for assistant scoping.",
-        'Use the `DAEMON_INTERNAL_ASSISTANT_ID` constant from `runtime/assistant-scope.ts` instead.',
-        '',
-        'Violations:',
+        "Use the `DAEMON_INTERNAL_ASSISTANT_ID` constant from `runtime/assistant-scope.ts` instead.",
+        "",
+        "Violations:",
         ...violations.map((v) => `  - ${v}`),
-      ].join('\n');
+      ].join("\n");
 
       expect(violations, message).toEqual([]);
     }
@@ -297,31 +311,38 @@ describe('assistant ID boundary', () => {
   // surfaces invites callers to pass external IDs into daemon scoping.
   // -------------------------------------------------------------------------
 
-  test('IPC contract types do not contain assistantId for guardian requests', () => {
-    const ipcContractPath = join(import.meta.dir, '..', 'daemon', 'ipc-contract', 'integrations.ts');
-    const content = readFileSync(ipcContractPath, 'utf-8');
+  test("IPC contract types do not contain assistantId for guardian requests", () => {
+    const ipcContractPath = join(
+      import.meta.dir,
+      "..",
+      "daemon",
+      "ipc-contract",
+      "integrations.ts",
+    );
+    const content = readFileSync(ipcContractPath, "utf-8");
 
     // Extract the interface blocks for the request types and verify
     // none of them declare an assistantId property.
-    const requestTypeNames = [
-      'GuardianVerificationRequest',
-    ];
+    const requestTypeNames = ["GuardianVerificationRequest"];
 
     for (const typeName of requestTypeNames) {
       // Find the interface/type block — match from the type name to the next
       // closing brace at the same indentation level. We use a simple heuristic:
       // find the line declaring the type, then scan forward to the closing '}'.
       const typeIndex = content.indexOf(typeName);
-      expect(typeIndex, `Expected to find ${typeName} in IPC contract`).toBeGreaterThan(-1);
+      expect(
+        typeIndex,
+        `Expected to find ${typeName} in IPC contract`,
+      ).toBeGreaterThan(-1);
 
       // Extract from the type declaration to the next '}' line
-      const blockStart = content.indexOf('{', typeIndex);
+      const blockStart = content.indexOf("{", typeIndex);
       if (blockStart === -1) continue;
       let braceDepth = 0;
       let blockEnd = blockStart;
       for (let i = blockStart; i < content.length; i++) {
-        if (content[i] === '{') braceDepth++;
-        if (content[i] === '}') braceDepth--;
+        if (content[i] === "{") braceDepth++;
+        if (content[i] === "}") braceDepth--;
         if (braceDepth === 0) {
           blockEnd = i + 1;
           break;
@@ -331,10 +352,15 @@ describe('assistant ID boundary', () => {
 
       // The block should not contain an assistantId property declaration
       // (matches "assistantId?" or "assistantId:" on a non-comment line)
-      const lines = block.split('\n');
+      const lines = block.split("\n");
       for (const line of lines) {
         const trimmed = line.trim();
-        if (trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('/*')) continue;
+        if (
+          trimmed.startsWith("//") ||
+          trimmed.startsWith("*") ||
+          trimmed.startsWith("/*")
+        )
+          continue;
         expect(
           /\bassistantId\s*[?:]/.test(trimmed),
           `${typeName} must not declare an assistantId property. Found: "${trimmed}"`,
@@ -343,27 +369,35 @@ describe('assistant ID boundary', () => {
     }
   });
 
-  test('guardian outbound param interfaces do not contain assistantId', () => {
-    const actionsPath = join(import.meta.dir, '..', 'runtime', 'guardian-outbound-actions.ts');
-    const content = readFileSync(actionsPath, 'utf-8');
+  test("guardian outbound param interfaces do not contain assistantId", () => {
+    const actionsPath = join(
+      import.meta.dir,
+      "..",
+      "runtime",
+      "guardian-outbound-actions.ts",
+    );
+    const content = readFileSync(actionsPath, "utf-8");
 
     const interfaceNames = [
-      'StartOutboundParams',
-      'ResendOutboundParams',
-      'CancelOutboundParams',
+      "StartOutboundParams",
+      "ResendOutboundParams",
+      "CancelOutboundParams",
     ];
 
     for (const name of interfaceNames) {
       const idx = content.indexOf(name);
-      expect(idx, `Expected to find ${name} in guardian-outbound-actions.ts`).toBeGreaterThan(-1);
+      expect(
+        idx,
+        `Expected to find ${name} in guardian-outbound-actions.ts`,
+      ).toBeGreaterThan(-1);
 
-      const blockStart = content.indexOf('{', idx);
+      const blockStart = content.indexOf("{", idx);
       if (blockStart === -1) continue;
       let braceDepth = 0;
       let blockEnd = blockStart;
       for (let i = blockStart; i < content.length; i++) {
-        if (content[i] === '{') braceDepth++;
-        if (content[i] === '}') braceDepth--;
+        if (content[i] === "{") braceDepth++;
+        if (content[i] === "}") braceDepth--;
         if (braceDepth === 0) {
           blockEnd = i + 1;
           break;
@@ -371,10 +405,15 @@ describe('assistant ID boundary', () => {
       }
       const block = content.slice(blockStart, blockEnd);
 
-      const lines = block.split('\n');
+      const lines = block.split("\n");
       for (const line of lines) {
         const trimmed = line.trim();
-        if (trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('/*')) continue;
+        if (
+          trimmed.startsWith("//") ||
+          trimmed.startsWith("*") ||
+          trimmed.startsWith("/*")
+        )
+          continue;
         expect(
           /\bassistantId\s*[?:]/.test(trimmed),
           `${name} must not declare an assistantId property. Found: "${trimmed}"`,
@@ -383,9 +422,14 @@ describe('assistant ID boundary', () => {
     }
   });
 
-  test('channel readiness service does not accept assistantId parameter', () => {
-    const servicePath = join(import.meta.dir, '..', 'runtime', 'channel-readiness-service.ts');
-    const content = readFileSync(servicePath, 'utf-8');
+  test("channel readiness service does not accept assistantId parameter", () => {
+    const servicePath = join(
+      import.meta.dir,
+      "..",
+      "runtime",
+      "channel-readiness-service.ts",
+    );
+    const content = readFileSync(servicePath, "utf-8");
 
     // getReadiness and invalidateChannel signatures must not include assistantId
     const signaturePatterns = [
@@ -401,15 +445,25 @@ describe('assistant ID boundary', () => {
 
     // ChannelProbeContext must not have assistantId.
     // The interface is declared in channel-readiness-types.ts, not the service file.
-    const typesPath = join(import.meta.dir, '..', 'runtime', 'channel-readiness-types.ts');
-    const typesContent = readFileSync(typesPath, 'utf-8');
-    const probeContextMatch = typesContent.match(/interface\s+ChannelProbeContext\s*\{([^}]*)\}/);
-    expect(probeContextMatch, 'Expected to find ChannelProbeContext interface in channel-readiness-types.ts').not.toBeNull();
+    const typesPath = join(
+      import.meta.dir,
+      "..",
+      "runtime",
+      "channel-readiness-types.ts",
+    );
+    const typesContent = readFileSync(typesPath, "utf-8");
+    const probeContextMatch = typesContent.match(
+      /interface\s+ChannelProbeContext\s*\{([^}]*)\}/,
+    );
+    expect(
+      probeContextMatch,
+      "Expected to find ChannelProbeContext interface in channel-readiness-types.ts",
+    ).not.toBeNull();
     if (probeContextMatch) {
       expect(
         probeContextMatch[1],
-        'ChannelProbeContext must not contain assistantId',
-      ).not.toContain('assistantId');
+        "ChannelProbeContext must not contain assistantId",
+      ).not.toContain("assistantId");
     }
   });
 });

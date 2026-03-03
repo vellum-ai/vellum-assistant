@@ -1,7 +1,7 @@
-import { describe, expect,test } from 'bun:test';
+import { describe, expect, test } from "bun:test";
 
-import type { AgentEvent } from '../agent/loop.js';
-import { AgentLoop } from '../agent/loop.js';
+import type { AgentEvent } from "../agent/loop.js";
+import { AgentLoop } from "../agent/loop.js";
 import type {
   ContentBlock,
   Message,
@@ -9,20 +9,29 @@ import type {
   ProviderResponse,
   SendMessageOptions,
   ToolDefinition,
-} from '../providers/types.js';
+} from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers (mirrors agent-loop.test.ts patterns)
 // ---------------------------------------------------------------------------
 
-function createMockProvider(
-  responses: ProviderResponse[],
-): { provider: Provider; calls: { messages: Message[]; tools?: ToolDefinition[]; systemPrompt?: string }[] } {
-  const calls: { messages: Message[]; tools?: ToolDefinition[]; systemPrompt?: string }[] = [];
+function createMockProvider(responses: ProviderResponse[]): {
+  provider: Provider;
+  calls: {
+    messages: Message[];
+    tools?: ToolDefinition[];
+    systemPrompt?: string;
+  }[];
+} {
+  const calls: {
+    messages: Message[];
+    tools?: ToolDefinition[];
+    systemPrompt?: string;
+  }[] = [];
   let callIndex = 0;
 
   const provider: Provider = {
-    name: 'mock',
+    name: "mock",
     async sendMessage(
       messages: Message[],
       tools?: ToolDefinition[],
@@ -35,8 +44,8 @@ function createMockProvider(
 
       if (options?.onEvent) {
         for (const block of response.content) {
-          if (block.type === 'text') {
-            options.onEvent({ type: 'text_delta', text: block.text });
+          if (block.type === "text") {
+            options.onEvent({ type: "text_delta", text: block.text });
           }
         }
       }
@@ -50,10 +59,10 @@ function createMockProvider(
 
 function textResponse(text: string): ProviderResponse {
   return {
-    content: [{ type: 'text', text }],
-    model: 'mock-model',
+    content: [{ type: "text", text }],
+    model: "mock-model",
     usage: { inputTokens: 10, outputTokens: 5 },
-    stopReason: 'end_turn',
+    stopReason: "end_turn",
   };
 }
 
@@ -63,24 +72,28 @@ function parallelToolUseResponse(
 ): ProviderResponse {
   return {
     content: tools.map((t) => ({
-      type: 'tool_use' as const,
+      type: "tool_use" as const,
       id: t.id,
       name: t.name,
       input: t.input,
     })),
-    model: 'mock-model',
+    model: "mock-model",
     usage: { inputTokens: 10, outputTokens: 5 },
-    stopReason: 'tool_use' as const,
+    stopReason: "tool_use" as const,
   };
 }
 
 const dummyTools: ToolDefinition[] = [
-  { name: 'delay_tool', description: 'Delays', input_schema: { type: 'object', properties: {} } },
+  {
+    name: "delay_tool",
+    description: "Delays",
+    input_schema: { type: "object", properties: {} },
+  },
 ];
 
 const userMessage: Message = {
-  role: 'user',
-  content: [{ type: 'text', text: 'Run benchmarks' }],
+  role: "user",
+  content: [{ type: "text", text: "Run benchmarks" }],
 };
 
 function collectEvents(events: AgentEvent[]): (event: AgentEvent) => void {
@@ -91,29 +104,35 @@ function collectEvents(events: AgentEvent[]): (event: AgentEvent) => void {
 // Benchmark Tests
 // ---------------------------------------------------------------------------
 
-describe('Parallel tool execution benchmarks', () => {
+describe("Parallel tool execution benchmarks", () => {
   // 1. 5 tools at 50ms each should complete in ~50ms (parallel), not ~250ms (sequential)
-  test('5 tools at 50ms each complete in parallel (~50ms, not ~250ms)', async () => {
+  test("5 tools at 50ms each complete in parallel (~50ms, not ~250ms)", async () => {
     const toolCount = 5;
     const delayMs = 50;
 
     const toolUseBlocks = Array.from({ length: toolCount }, (_, i) => ({
       id: `t${i}`,
-      name: 'delay_tool',
+      name: "delay_tool",
       input: { index: i },
     }));
 
     const { provider } = createMockProvider([
       parallelToolUseResponse(toolUseBlocks),
-      textResponse('All done.'),
+      textResponse("All done."),
     ]);
 
     const toolExecutor = async () => {
       await new Promise((r) => setTimeout(r, delayMs));
-      return { content: 'ok', isError: false };
+      return { content: "ok", isError: false };
     };
 
-    const loop = new AgentLoop(provider, 'system', {}, dummyTools, toolExecutor);
+    const loop = new AgentLoop(
+      provider,
+      "system",
+      {},
+      dummyTools,
+      toolExecutor,
+    );
     const start = Date.now();
     await loop.run([userMessage], () => {});
     const elapsed = Date.now() - start;
@@ -124,31 +143,40 @@ describe('Parallel tool execution benchmarks', () => {
   });
 
   // 2. 10 tools at 50ms each should still complete quickly in parallel
-  test('10 tools at 50ms each still complete in parallel (< 200ms)', async () => {
+  test("10 tools at 50ms each still complete in parallel (< 200ms)", async () => {
     const toolCount = 10;
     const delayMs = 50;
 
     const toolUseBlocks = Array.from({ length: toolCount }, (_, i) => ({
       id: `t${i}`,
-      name: 'delay_tool',
+      name: "delay_tool",
       input: { index: i },
     }));
 
     const { provider } = createMockProvider([
       parallelToolUseResponse(toolUseBlocks),
-      textResponse('All done.'),
+      textResponse("All done."),
     ]);
 
     const executionLog: { index: number; start: number; end: number }[] = [];
-    const toolExecutor = async (_name: string, input: Record<string, unknown>) => {
+    const toolExecutor = async (
+      _name: string,
+      input: Record<string, unknown>,
+    ) => {
       const start = Date.now();
       await new Promise((r) => setTimeout(r, delayMs));
       const end = Date.now();
       executionLog.push({ index: input.index as number, start, end });
-      return { content: 'ok', isError: false };
+      return { content: "ok", isError: false };
     };
 
-    const loop = new AgentLoop(provider, 'system', {}, dummyTools, toolExecutor);
+    const loop = new AgentLoop(
+      provider,
+      "system",
+      {},
+      dummyTools,
+      toolExecutor,
+    );
     const start = Date.now();
     await loop.run([userMessage], () => {});
     const elapsed = Date.now() - start;
@@ -169,32 +197,42 @@ describe('Parallel tool execution benchmarks', () => {
   });
 
   // 3. Mixed latencies: 1 slow (2s) + 4 fast (100ms) = ~2s parallel, ~2.4s sequential
-  test('mixed latencies: 1 slow + 4 fast tools complete in slow-tool time', async () => {
+  test("mixed latencies: 1 slow + 4 fast tools complete in slow-tool time", async () => {
     const toolUseBlocks = [
-      { id: 'slow', name: 'delay_tool', input: { delayMs: 2000 } },
-      { id: 'fast1', name: 'delay_tool', input: { delayMs: 100 } },
-      { id: 'fast2', name: 'delay_tool', input: { delayMs: 100 } },
-      { id: 'fast3', name: 'delay_tool', input: { delayMs: 100 } },
-      { id: 'fast4', name: 'delay_tool', input: { delayMs: 100 } },
+      { id: "slow", name: "delay_tool", input: { delayMs: 2000 } },
+      { id: "fast1", name: "delay_tool", input: { delayMs: 100 } },
+      { id: "fast2", name: "delay_tool", input: { delayMs: 100 } },
+      { id: "fast3", name: "delay_tool", input: { delayMs: 100 } },
+      { id: "fast4", name: "delay_tool", input: { delayMs: 100 } },
     ];
 
     const { provider } = createMockProvider([
       parallelToolUseResponse(toolUseBlocks),
-      textResponse('Mixed done.'),
+      textResponse("Mixed done."),
     ]);
 
     const completionOrder: string[] = [];
-    const toolExecutor = async (_name: string, input: Record<string, unknown>) => {
+    const toolExecutor = async (
+      _name: string,
+      input: Record<string, unknown>,
+    ) => {
       const delay = input.delayMs as number;
       await new Promise((r) => setTimeout(r, delay));
       completionOrder.push(
-        toolUseBlocks.find((t) => t.input.delayMs === delay && !completionOrder.includes(t.id))?.id
-          ?? `unknown-${delay}`,
+        toolUseBlocks.find(
+          (t) => t.input.delayMs === delay && !completionOrder.includes(t.id),
+        )?.id ?? `unknown-${delay}`,
       );
-      return { content: 'ok', isError: false };
+      return { content: "ok", isError: false };
     };
 
-    const loop = new AgentLoop(provider, 'system', {}, dummyTools, toolExecutor);
+    const loop = new AgentLoop(
+      provider,
+      "system",
+      {},
+      dummyTools,
+      toolExecutor,
+    );
     const events: AgentEvent[] = [];
     const start = Date.now();
     await loop.run([userMessage], collectEvents(events));
@@ -208,34 +246,35 @@ describe('Parallel tool execution benchmarks', () => {
     // tool_result events should be emitted in tool_use order (slow first),
     // even though fast tools finish earlier
     const toolResultEvents = events.filter(
-      (e): e is Extract<AgentEvent, { type: 'tool_result' }> => e.type === 'tool_result',
+      (e): e is Extract<AgentEvent, { type: "tool_result" }> =>
+        e.type === "tool_result",
     );
     expect(toolResultEvents).toHaveLength(5);
-    expect(toolResultEvents[0].toolUseId).toBe('slow');
-    expect(toolResultEvents[1].toolUseId).toBe('fast1');
+    expect(toolResultEvents[0].toolUseId).toBe("slow");
+    expect(toolResultEvents[1].toolUseId).toBe("fast1");
   }, 10000);
 
   // 4. Abort during parallel execution cancels within 200ms
-  test('abort during parallel execution cancels within 200ms', async () => {
+  test("abort during parallel execution cancels within 200ms", async () => {
     const unhandledRejections: Error[] = [];
     const handler = (event: PromiseRejectionEvent) => {
       unhandledRejections.push(event.reason);
       event.preventDefault();
     };
-    globalThis.addEventListener('unhandledrejection', handler);
+    globalThis.addEventListener("unhandledrejection", handler);
 
     try {
       const toolCount = 5;
 
       const toolUseBlocks = Array.from({ length: toolCount }, (_, i) => ({
         id: `t${i}`,
-        name: 'delay_tool',
+        name: "delay_tool",
         input: { index: i },
       }));
 
       const { provider } = createMockProvider([
         parallelToolUseResponse(toolUseBlocks),
-        textResponse('Should not reach.'),
+        textResponse("Should not reach."),
       ]);
 
       const controller = new AbortController();
@@ -254,12 +293,22 @@ describe('Parallel tool execution benchmarks', () => {
 
         setTimeout(() => controller.abort(), 50);
         await p;
-        return { content: 'should not return', isError: false };
+        return { content: "should not return", isError: false };
       };
 
-      const loop = new AgentLoop(provider, 'system', {}, dummyTools, toolExecutor);
+      const loop = new AgentLoop(
+        provider,
+        "system",
+        {},
+        dummyTools,
+        toolExecutor,
+      );
       const start = Date.now();
-      const history = await loop.run([userMessage], () => {}, controller.signal);
+      const history = await loop.run(
+        [userMessage],
+        () => {},
+        controller.signal,
+      );
       const elapsed = Date.now() - start;
 
       // Should exit quickly after the 50ms abort, not wait 500ms
@@ -269,16 +318,17 @@ describe('Parallel tool execution benchmarks', () => {
       expect(history).toHaveLength(3);
 
       const lastMsg = history[history.length - 1];
-      expect(lastMsg.role).toBe('user');
+      expect(lastMsg.role).toBe("user");
 
       const toolResultBlocks = lastMsg.content.filter(
-        (b): b is Extract<ContentBlock, { type: 'tool_result' }> => b.type === 'tool_result',
+        (b): b is Extract<ContentBlock, { type: "tool_result" }> =>
+          b.type === "tool_result",
       );
       expect(toolResultBlocks).toHaveLength(toolCount);
 
       // All results should be cancelled
       for (const block of toolResultBlocks) {
-        expect(block.content).toBe('Cancelled by user');
+        expect(block.content).toBe("Cancelled by user");
         expect(block.is_error).toBe(true);
       }
 
@@ -289,7 +339,7 @@ describe('Parallel tool execution benchmarks', () => {
       // Verify no unhandled rejections occurred
       expect(unhandledRejections).toHaveLength(0);
     } finally {
-      globalThis.removeEventListener('unhandledrejection', handler);
+      globalThis.removeEventListener("unhandledrejection", handler);
     }
   });
 });

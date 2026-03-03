@@ -1,99 +1,123 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
+let TEST_DIR = "";
 
-let TEST_DIR = '';
-
-mock.module('../util/platform.js', () => ({
+mock.module("../util/platform.js", () => ({
   getRootDir: () => TEST_DIR,
-  getWorkspaceSkillsDir: () => join(TEST_DIR, 'skills'),
+  getWorkspaceSkillsDir: () => join(TEST_DIR, "skills"),
 }));
 
-mock.module('../util/logger.js', () => ({
-  getLogger: () => new Proxy({} as Record<string, unknown>, {
-    get: () => () => {},
-  }),
+mock.module("../util/logger.js", () => ({
+  getLogger: () =>
+    new Proxy({} as Record<string, unknown>, {
+      get: () => () => {},
+    }),
 }));
 
-import { DeleteManagedSkillTool } from '../tools/skills/delete-managed.js';
-import type { ToolContext } from '../tools/types.js';
+import { DeleteManagedSkillTool } from "../tools/skills/delete-managed.js";
+import type { ToolContext } from "../tools/types.js";
 
- 
-const tool = new (DeleteManagedSkillTool as any)() as InstanceType<typeof DeleteManagedSkillTool>;
+const tool = new (DeleteManagedSkillTool as any)() as InstanceType<
+  typeof DeleteManagedSkillTool
+>;
 
 function makeContext(): ToolContext {
   return {
-    workingDir: '/tmp',
-    sessionId: 'test-session',
-    conversationId: 'test-conversation',
-    guardianTrustClass: 'guardian',
+    workingDir: "/tmp",
+    sessionId: "test-session",
+    conversationId: "test-conversation",
+    guardianTrustClass: "guardian",
   };
 }
 
 function createSkill(id: string): void {
-  const skillDir = join(TEST_DIR, 'skills', id);
+  const skillDir = join(TEST_DIR, "skills", id);
   mkdirSync(skillDir, { recursive: true });
-  writeFileSync(join(skillDir, 'SKILL.md'), '---\nname: "Test"\ndescription: "Test"\n---\n\nBody.\n');
+  writeFileSync(
+    join(skillDir, "SKILL.md"),
+    '---\nname: "Test"\ndescription: "Test"\n---\n\nBody.\n',
+  );
   // Update SKILLS.md
-  const indexPath = join(TEST_DIR, 'skills', 'SKILLS.md');
-  const existing = existsSync(indexPath) ? readFileSync(indexPath, 'utf-8') : '';
+  const indexPath = join(TEST_DIR, "skills", "SKILLS.md");
+  const existing = existsSync(indexPath)
+    ? readFileSync(indexPath, "utf-8")
+    : "";
   writeFileSync(indexPath, existing + `- ${id}\n`);
 }
 
 beforeEach(() => {
-  TEST_DIR = mkdtempSync(join(tmpdir(), 'delete-tool-test-'));
-  mkdirSync(join(TEST_DIR, 'skills'), { recursive: true });
+  TEST_DIR = mkdtempSync(join(tmpdir(), "delete-tool-test-"));
+  mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
 });
 
 afterEach(() => {
   rmSync(TEST_DIR, { recursive: true, force: true });
 });
 
-describe('delete_managed_skill tool', () => {
-  test('deletes existing skill and updates index', async () => {
-    createSkill('doomed');
-    createSkill('survivor');
+describe("delete_managed_skill tool", () => {
+  test("deletes existing skill and updates index", async () => {
+    createSkill("doomed");
+    createSkill("survivor");
 
-    const result = await tool.execute({
-      skill_id: 'doomed',
-    }, makeContext());
+    const result = await tool.execute(
+      {
+        skill_id: "doomed",
+      },
+      makeContext(),
+    );
 
     expect(result.isError).toBe(false);
     const parsed = JSON.parse(result.content);
     expect(parsed.deleted).toBe(true);
-    expect(parsed.skill_id).toBe('doomed');
+    expect(parsed.skill_id).toBe("doomed");
     expect(parsed.index_updated).toBe(true);
 
-    expect(existsSync(join(TEST_DIR, 'skills', 'doomed'))).toBe(false);
+    expect(existsSync(join(TEST_DIR, "skills", "doomed"))).toBe(false);
 
-    const indexContent = readFileSync(join(TEST_DIR, 'skills', 'SKILLS.md'), 'utf-8');
-    expect(indexContent).not.toContain('doomed');
-    expect(indexContent).toContain('survivor');
+    const indexContent = readFileSync(
+      join(TEST_DIR, "skills", "SKILLS.md"),
+      "utf-8",
+    );
+    expect(indexContent).not.toContain("doomed");
+    expect(indexContent).toContain("survivor");
   });
 
-  test('returns error for non-existent skill', async () => {
-    const result = await tool.execute({
-      skill_id: 'ghost',
-    }, makeContext());
+  test("returns error for non-existent skill", async () => {
+    const result = await tool.execute(
+      {
+        skill_id: "ghost",
+      },
+      makeContext(),
+    );
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain('not found');
+    expect(result.content).toContain("not found");
   });
 
-  test('rejects missing skill_id', async () => {
+  test("rejects missing skill_id", async () => {
     const result = await tool.execute({}, makeContext());
     expect(result.isError).toBe(true);
-    expect(result.content).toContain('skill_id is required');
+    expect(result.content).toContain("skill_id is required");
   });
 
-  test('rejects invalid skill_id', async () => {
-    const result = await tool.execute({
-      skill_id: '../escape',
-    }, makeContext());
+  test("rejects invalid skill_id", async () => {
+    const result = await tool.execute(
+      {
+        skill_id: "../escape",
+      },
+      makeContext(),
+    );
     expect(result.isError).toBe(true);
-    expect(result.content).toContain('traversal');
+    expect(result.content).toContain("traversal");
   });
 });

@@ -1,7 +1,11 @@
-import { describe, expect,test } from 'bun:test';
+import { describe, expect, test } from "bun:test";
 
-import { buildChannelAwarenessSection } from '../config/system-prompt.js';
-import type { ChannelCapabilities, ChannelTurnContextParams, InboundActorContext } from '../daemon/session-runtime-assembly.js';
+import { buildChannelAwarenessSection } from "../config/system-prompt.js";
+import type {
+  ChannelCapabilities,
+  ChannelTurnContextParams,
+  InboundActorContext,
+} from "../daemon/session-runtime-assembly.js";
 import {
   applyRuntimeInjections,
   buildChannelTurnContextBlock,
@@ -15,40 +19,40 @@ import {
   stripChannelTurnContext,
   stripInboundActorContext,
   stripTemporalContext,
-} from '../daemon/session-runtime-assembly.js';
-import type { Message } from '../providers/types.js';
+} from "../daemon/session-runtime-assembly.js";
+import type { Message } from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
 // resolveChannelCapabilities
 // ---------------------------------------------------------------------------
 
-describe('resolveChannelCapabilities', () => {
-  test('defaults to vellum when no source channel is provided', () => {
+describe("resolveChannelCapabilities", () => {
+  test("defaults to vellum when no source channel is provided", () => {
     const caps = resolveChannelCapabilities();
-    expect(caps.channel).toBe('vellum');
+    expect(caps.channel).toBe("vellum");
     // Without a sourceInterface, desktop UI capabilities are false
     expect(caps.dashboardCapable).toBe(false);
     expect(caps.supportsDynamicUi).toBe(false);
     expect(caps.supportsVoiceInput).toBe(false);
   });
 
-  test('vellum channel with macos interface has full desktop capabilities', () => {
-    const caps = resolveChannelCapabilities(undefined, 'macos');
-    expect(caps.channel).toBe('vellum');
+  test("vellum channel with macos interface has full desktop capabilities", () => {
+    const caps = resolveChannelCapabilities(undefined, "macos");
+    expect(caps.channel).toBe("vellum");
     expect(caps.dashboardCapable).toBe(true);
     expect(caps.supportsDynamicUi).toBe(true);
     expect(caps.supportsVoiceInput).toBe(true);
   });
 
-  test('defaults to vellum for null source channel', () => {
+  test("defaults to vellum for null source channel", () => {
     const caps = resolveChannelCapabilities(null);
-    expect(caps.channel).toBe('vellum');
+    expect(caps.channel).toBe("vellum");
     expect(caps.dashboardCapable).toBe(false);
   });
 
   test('normalises "dashboard" to "vellum"', () => {
-    const caps = resolveChannelCapabilities('dashboard');
-    expect(caps.channel).toBe('vellum');
+    const caps = resolveChannelCapabilities("dashboard");
+    expect(caps.channel).toBe("vellum");
     // Without macos interface, capabilities are false
     expect(caps.dashboardCapable).toBe(false);
     expect(caps.supportsDynamicUi).toBe(false);
@@ -56,66 +60,66 @@ describe('resolveChannelCapabilities', () => {
   });
 
   test('normalises "http-api" to "vellum"', () => {
-    const caps = resolveChannelCapabilities('http-api');
-    expect(caps.channel).toBe('vellum');
+    const caps = resolveChannelCapabilities("http-api");
+    expect(caps.channel).toBe("vellum");
     expect(caps.dashboardCapable).toBe(false);
     expect(caps.supportsDynamicUi).toBe(false);
     expect(caps.supportsVoiceInput).toBe(false);
   });
 
   test('normalises "mac" to "vellum"', () => {
-    const caps = resolveChannelCapabilities('mac');
-    expect(caps.channel).toBe('vellum');
+    const caps = resolveChannelCapabilities("mac");
+    expect(caps.channel).toBe("vellum");
     expect(caps.dashboardCapable).toBe(false);
   });
 
   test('normalises "macos" to "vellum"', () => {
-    const caps = resolveChannelCapabilities('macos');
-    expect(caps.channel).toBe('vellum');
+    const caps = resolveChannelCapabilities("macos");
+    expect(caps.channel).toBe("vellum");
     expect(caps.dashboardCapable).toBe(false);
   });
 
   test('normalises "ios" to "vellum"', () => {
-    const caps = resolveChannelCapabilities('ios');
-    expect(caps.channel).toBe('vellum');
+    const caps = resolveChannelCapabilities("ios");
+    expect(caps.channel).toBe("vellum");
     expect(caps.dashboardCapable).toBe(false);
   });
 
   test('resolves "telegram" as non-dashboard-capable', () => {
-    const caps = resolveChannelCapabilities('telegram');
-    expect(caps.channel).toBe('telegram');
+    const caps = resolveChannelCapabilities("telegram");
+    expect(caps.channel).toBe("telegram");
     expect(caps.dashboardCapable).toBe(false);
     expect(caps.supportsDynamicUi).toBe(false);
     expect(caps.supportsVoiceInput).toBe(false);
   });
 
   test('resolves "whatsapp" as all-capabilities-false', () => {
-    const caps = resolveChannelCapabilities('whatsapp');
-    expect(caps.channel).toBe('whatsapp');
+    const caps = resolveChannelCapabilities("whatsapp");
+    expect(caps.channel).toBe("whatsapp");
     expect(caps.dashboardCapable).toBe(false);
     expect(caps.supportsDynamicUi).toBe(false);
     expect(caps.supportsVoiceInput).toBe(false);
   });
 
   test('resolves "slack" as all-capabilities-false', () => {
-    const caps = resolveChannelCapabilities('slack');
-    expect(caps.channel).toBe('slack');
+    const caps = resolveChannelCapabilities("slack");
+    expect(caps.channel).toBe("slack");
     expect(caps.dashboardCapable).toBe(false);
     expect(caps.supportsDynamicUi).toBe(false);
     expect(caps.supportsVoiceInput).toBe(false);
   });
 
   test('resolves "email" as all-capabilities-false', () => {
-    const caps = resolveChannelCapabilities('email');
-    expect(caps.channel).toBe('email');
+    const caps = resolveChannelCapabilities("email");
+    expect(caps.channel).toBe("email");
     expect(caps.dashboardCapable).toBe(false);
     expect(caps.supportsDynamicUi).toBe(false);
     expect(caps.supportsVoiceInput).toBe(false);
   });
 
-  test('unknown channel defaults to all-capabilities-false', () => {
-    const caps = resolveChannelCapabilities('unknown-thing');
-    expect(caps.channel).toBe('unknown-thing');
+  test("unknown channel defaults to all-capabilities-false", () => {
+    const caps = resolveChannelCapabilities("unknown-thing");
+    expect(caps.channel).toBe("unknown-thing");
     expect(caps.dashboardCapable).toBe(false);
     expect(caps.supportsDynamicUi).toBe(false);
     expect(caps.supportsVoiceInput).toBe(false);
@@ -126,15 +130,15 @@ describe('resolveChannelCapabilities', () => {
 // injectChannelCapabilityContext
 // ---------------------------------------------------------------------------
 
-describe('injectChannelCapabilityContext', () => {
+describe("injectChannelCapabilityContext", () => {
   const baseUserMessage: Message = {
-    role: 'user',
-    content: [{ type: 'text', text: 'Hello' }],
+    role: "user",
+    content: [{ type: "text", text: "Hello" }],
   };
 
-  test('injects channel capabilities block for dashboard channel', () => {
+  test("injects channel capabilities block for dashboard channel", () => {
     const caps: ChannelCapabilities = {
-      channel: 'vellum',
+      channel: "vellum",
       dashboardCapable: true,
       supportsDynamicUi: true,
       supportsVoiceInput: true,
@@ -145,18 +149,28 @@ describe('injectChannelCapabilityContext', () => {
     // Should prepend a text block with channel_capabilities
     expect(result.content.length).toBe(2);
     const injected = result.content[0];
-    expect(injected.type).toBe('text');
-    expect((injected as { type: 'text'; text: string }).text).toContain('<channel_capabilities>');
-    expect((injected as { type: 'text'; text: string }).text).toContain('dashboard_capable: true');
-    expect((injected as { type: 'text'; text: string }).text).toContain('supports_dynamic_ui: true');
-    expect((injected as { type: 'text'; text: string }).text).toContain('</channel_capabilities>');
+    expect(injected.type).toBe("text");
+    expect((injected as { type: "text"; text: string }).text).toContain(
+      "<channel_capabilities>",
+    );
+    expect((injected as { type: "text"; text: string }).text).toContain(
+      "dashboard_capable: true",
+    );
+    expect((injected as { type: "text"; text: string }).text).toContain(
+      "supports_dynamic_ui: true",
+    );
+    expect((injected as { type: "text"; text: string }).text).toContain(
+      "</channel_capabilities>",
+    );
     // Should NOT contain constraint rules for dashboard
-    expect((injected as { type: 'text'; text: string }).text).not.toContain('CHANNEL CONSTRAINTS');
+    expect((injected as { type: "text"; text: string }).text).not.toContain(
+      "CHANNEL CONSTRAINTS",
+    );
   });
 
-  test('injects constraint rules for non-dashboard channel', () => {
+  test("injects constraint rules for non-dashboard channel", () => {
     const caps: ChannelCapabilities = {
-      channel: 'telegram',
+      channel: "telegram",
       dashboardCapable: false,
       supportsDynamicUi: false,
       supportsVoiceInput: false,
@@ -165,17 +179,17 @@ describe('injectChannelCapabilityContext', () => {
     const result = injectChannelCapabilityContext(baseUserMessage, caps);
 
     const injected = result.content[0];
-    const text = (injected as { type: 'text'; text: string }).text;
-    expect(text).toContain('CHANNEL CONSTRAINTS');
-    expect(text).toContain('Do NOT reference the dashboard UI');
-    expect(text).toContain('Do NOT use ui_show');
-    expect(text).toContain('Do NOT ask the user to use voice');
-    expect(text).toContain('dashboard_capable: false');
+    const text = (injected as { type: "text"; text: string }).text;
+    expect(text).toContain("CHANNEL CONSTRAINTS");
+    expect(text).toContain("Do NOT reference the dashboard UI");
+    expect(text).toContain("Do NOT use ui_show");
+    expect(text).toContain("Do NOT ask the user to use voice");
+    expect(text).toContain("dashboard_capable: false");
   });
 
-  test('preserves original message content after injection', () => {
+  test("preserves original message content after injection", () => {
     const caps: ChannelCapabilities = {
-      channel: 'telegram',
+      channel: "telegram",
       dashboardCapable: false,
       supportsDynamicUi: false,
       supportsVoiceInput: false,
@@ -185,7 +199,7 @@ describe('injectChannelCapabilityContext', () => {
 
     // Original content should be at the end
     const lastBlock = result.content[result.content.length - 1];
-    expect((lastBlock as { type: 'text'; text: string }).text).toBe('Hello');
+    expect((lastBlock as { type: "text"; text: string }).text).toBe("Hello");
   });
 });
 
@@ -193,19 +207,22 @@ describe('injectChannelCapabilityContext', () => {
 // stripChannelCapabilityContext
 // ---------------------------------------------------------------------------
 
-describe('stripChannelCapabilityContext', () => {
-  test('strips channel_capabilities blocks from user messages', () => {
+describe("stripChannelCapabilityContext", () => {
+  test("strips channel_capabilities blocks from user messages", () => {
     const messages: Message[] = [
       {
-        role: 'user',
+        role: "user",
         content: [
-          { type: 'text', text: '<channel_capabilities>\nchannel: telegram\n</channel_capabilities>' },
-          { type: 'text', text: 'Hello' },
+          {
+            type: "text",
+            text: "<channel_capabilities>\nchannel: telegram\n</channel_capabilities>",
+          },
+          { type: "text", text: "Hello" },
         ],
       },
       {
-        role: 'assistant',
-        content: [{ type: 'text', text: 'Hi there' }],
+        role: "assistant",
+        content: [{ type: "text", text: "Hi there" }],
       },
     ];
 
@@ -213,17 +230,22 @@ describe('stripChannelCapabilityContext', () => {
 
     expect(result.length).toBe(2);
     expect(result[0].content.length).toBe(1);
-    expect((result[0].content[0] as { type: 'text'; text: string }).text).toBe('Hello');
+    expect((result[0].content[0] as { type: "text"; text: string }).text).toBe(
+      "Hello",
+    );
     // Assistant message untouched
     expect(result[1].content.length).toBe(1);
   });
 
-  test('removes user messages that only contain channel_capabilities', () => {
+  test("removes user messages that only contain channel_capabilities", () => {
     const messages: Message[] = [
       {
-        role: 'user',
+        role: "user",
         content: [
-          { type: 'text', text: '<channel_capabilities>\nchannel: telegram\n</channel_capabilities>' },
+          {
+            type: "text",
+            text: "<channel_capabilities>\nchannel: telegram\n</channel_capabilities>",
+          },
         ],
       },
     ];
@@ -232,11 +254,11 @@ describe('stripChannelCapabilityContext', () => {
     expect(result.length).toBe(0);
   });
 
-  test('leaves messages without channel_capabilities untouched', () => {
+  test("leaves messages without channel_capabilities untouched", () => {
     const messages: Message[] = [
       {
-        role: 'user',
-        content: [{ type: 'text', text: 'Normal message' }],
+        role: "user",
+        content: [{ type: "text", text: "Normal message" }],
       },
     ];
 
@@ -250,17 +272,17 @@ describe('stripChannelCapabilityContext', () => {
 // applyRuntimeInjections with channelCapabilities
 // ---------------------------------------------------------------------------
 
-describe('applyRuntimeInjections with channelCapabilities', () => {
+describe("applyRuntimeInjections with channelCapabilities", () => {
   const baseMessages: Message[] = [
     {
-      role: 'user',
-      content: [{ type: 'text', text: 'What can you do?' }],
+      role: "user",
+      content: [{ type: "text", text: "What can you do?" }],
     },
   ];
 
-  test('injects channel capabilities when provided', () => {
+  test("injects channel capabilities when provided", () => {
     const caps: ChannelCapabilities = {
-      channel: 'telegram',
+      channel: "telegram",
       dashboardCapable: false,
       supportsDynamicUi: false,
       supportsVoiceInput: false,
@@ -273,10 +295,12 @@ describe('applyRuntimeInjections with channelCapabilities', () => {
     expect(result.length).toBe(1);
     expect(result[0].content.length).toBe(2);
     const injected = result[0].content[0];
-    expect((injected as { type: 'text'; text: string }).text).toContain('<channel_capabilities>');
+    expect((injected as { type: "text"; text: string }).text).toContain(
+      "<channel_capabilities>",
+    );
   });
 
-  test('does not inject when channelCapabilities is null', () => {
+  test("does not inject when channelCapabilities is null", () => {
     const result = applyRuntimeInjections(baseMessages, {
       channelCapabilities: null,
     });
@@ -285,23 +309,23 @@ describe('applyRuntimeInjections with channelCapabilities', () => {
     expect(result[0].content.length).toBe(1);
   });
 
-  test('does not inject when channelCapabilities is omitted', () => {
+  test("does not inject when channelCapabilities is omitted", () => {
     const result = applyRuntimeInjections(baseMessages, {});
 
     expect(result.length).toBe(1);
     expect(result[0].content.length).toBe(1);
   });
 
-  test('combines with other injections', () => {
+  test("combines with other injections", () => {
     const caps: ChannelCapabilities = {
-      channel: 'telegram',
+      channel: "telegram",
       dashboardCapable: false,
       supportsDynamicUi: false,
       supportsVoiceInput: false,
     };
 
     const result = applyRuntimeInjections(baseMessages, {
-      softConflictInstruction: 'What is your name?',
+      softConflictInstruction: "What is your name?",
       channelCapabilities: caps,
     });
 
@@ -315,72 +339,73 @@ describe('applyRuntimeInjections with channelCapabilities', () => {
 // buildChannelAwarenessSection
 // ---------------------------------------------------------------------------
 
-describe('buildChannelAwarenessSection', () => {
-  test('includes channel awareness heading', () => {
+describe("buildChannelAwarenessSection", () => {
+  test("includes channel awareness heading", () => {
     const section = buildChannelAwarenessSection();
-    expect(section).toContain('## Channel Awareness & Trust Gating');
+    expect(section).toContain("## Channel Awareness & Trust Gating");
   });
 
-  test('includes channel-specific rules', () => {
+  test("includes channel-specific rules", () => {
     const section = buildChannelAwarenessSection();
-    expect(section).toContain('dashboard_capable');
-    expect(section).toContain('supports_dynamic_ui');
-    expect(section).toContain('supports_voice_input');
+    expect(section).toContain("dashboard_capable");
+    expect(section).toContain("supports_dynamic_ui");
+    expect(section).toContain("supports_voice_input");
   });
 
-  test('includes trust gating rules for permission asks', () => {
+  test("includes trust gating rules for permission asks", () => {
     const section = buildChannelAwarenessSection();
-    expect(section).toContain('firstConversationComplete');
-    expect(section).toContain('Permission ask trust gating');
-    expect(section).toContain('Do NOT proactively ask for elevated permissions');
+    expect(section).toContain("firstConversationComplete");
+    expect(section).toContain("Permission ask trust gating");
+    expect(section).toContain(
+      "Do NOT proactively ask for elevated permissions",
+    );
   });
 
-  test('gates microphone permissions on voice capability', () => {
+  test("gates microphone permissions on voice capability", () => {
     const section = buildChannelAwarenessSection();
-    expect(section).toContain('Do not ask for microphone permissions');
+    expect(section).toContain("Do not ask for microphone permissions");
   });
 
-  test('gates computer-control on dashboard channel', () => {
+  test("gates computer-control on dashboard channel", () => {
     const section = buildChannelAwarenessSection();
-    expect(section).toContain('computer-control permissions on non-dashboard');
+    expect(section).toContain("computer-control permissions on non-dashboard");
   });
-
 });
 
 // ---------------------------------------------------------------------------
 // Trust-gating behavior: channel constraints for permission asks
 // ---------------------------------------------------------------------------
 
-describe('trust-gating via channel capabilities', () => {
-  test('vellum channel with macos interface does not add constraint rules', () => {
-    const caps = resolveChannelCapabilities('vellum', 'macos');
+describe("trust-gating via channel capabilities", () => {
+  test("vellum channel with macos interface does not add constraint rules", () => {
+    const caps = resolveChannelCapabilities("vellum", "macos");
     const message: Message = {
-      role: 'user',
-      content: [{ type: 'text', text: 'Enable my microphone' }],
+      role: "user",
+      content: [{ type: "text", text: "Enable my microphone" }],
     };
 
     const result = injectChannelCapabilityContext(message, caps);
-    const injected = (result.content[0] as { type: 'text'; text: string }).text;
+    const injected = (result.content[0] as { type: "text"; text: string }).text;
 
-    expect(injected).not.toContain('CHANNEL CONSTRAINTS');
-    expect(injected).toContain('dashboard_capable: true');
+    expect(injected).not.toContain("CHANNEL CONSTRAINTS");
+    expect(injected).toContain("dashboard_capable: true");
   });
 
-  test('non-dashboard channel adds constraint rules preventing UI references', () => {
-    const caps = resolveChannelCapabilities('slack');
+  test("non-dashboard channel adds constraint rules preventing UI references", () => {
+    const caps = resolveChannelCapabilities("slack");
     const message: Message = {
-      role: 'user',
-      content: [{ type: 'text', text: 'Show me a chart' }],
+      role: "user",
+      content: [{ type: "text", text: "Show me a chart" }],
     };
 
     const result = injectChannelCapabilityContext(message, caps);
-    const injected = (result.content[0] as { type: 'text'; text: string }).text;
+    const injected = (result.content[0] as { type: "text"; text: string }).text;
 
-    expect(injected).toContain('CHANNEL CONSTRAINTS');
-    expect(injected).toContain('Do NOT reference the dashboard UI');
-    expect(injected).toContain('Do NOT use ui_show, ui_update, or app_create');
-    expect(injected).toContain('Present information as well-formatted text');
-    expect(injected).toContain('desktop app');
+    expect(injected).toContain("CHANNEL CONSTRAINTS");
+    expect(injected).toContain("Do NOT reference the dashboard UI");
+    expect(injected).toContain("Do NOT use ui_show, ui_update, or app_create");
+    expect(injected).toContain("Present information as well-formatted text");
+    expect(injected).toContain("desktop app");
   });
 });
 
@@ -388,27 +413,34 @@ describe('trust-gating via channel capabilities', () => {
 // injectTemporalContext
 // ---------------------------------------------------------------------------
 
-describe('injectTemporalContext', () => {
+describe("injectTemporalContext", () => {
   const baseUserMessage: Message = {
-    role: 'user',
-    content: [{ type: 'text', text: 'Plan a trip for next weekend' }],
+    role: "user",
+    content: [{ type: "text", text: "Plan a trip for next weekend" }],
   };
 
-  const sampleContext = '<temporal_context>\nToday: 2026-02-18 (Wednesday)\nTimezone: UTC\n</temporal_context>';
+  const sampleContext =
+    "<temporal_context>\nToday: 2026-02-18 (Wednesday)\nTimezone: UTC\n</temporal_context>";
 
-  test('prepends temporal context block to user message', () => {
+  test("prepends temporal context block to user message", () => {
     const result = injectTemporalContext(baseUserMessage, sampleContext);
     expect(result.content.length).toBe(2);
     const injected = result.content[0];
-    expect(injected.type).toBe('text');
-    expect((injected as { type: 'text'; text: string }).text).toContain('<temporal_context>');
-    expect((injected as { type: 'text'; text: string }).text).toContain('2026-02-18');
+    expect(injected.type).toBe("text");
+    expect((injected as { type: "text"; text: string }).text).toContain(
+      "<temporal_context>",
+    );
+    expect((injected as { type: "text"; text: string }).text).toContain(
+      "2026-02-18",
+    );
   });
 
-  test('preserves original message content', () => {
+  test("preserves original message content", () => {
     const result = injectTemporalContext(baseUserMessage, sampleContext);
     const lastBlock = result.content[result.content.length - 1];
-    expect((lastBlock as { type: 'text'; text: string }).text).toBe('Plan a trip for next weekend');
+    expect((lastBlock as { type: "text"; text: string }).text).toBe(
+      "Plan a trip for next weekend",
+    );
   });
 });
 
@@ -416,19 +448,22 @@ describe('injectTemporalContext', () => {
 // stripTemporalContext
 // ---------------------------------------------------------------------------
 
-describe('stripTemporalContext', () => {
-  test('strips temporal_context blocks from user messages', () => {
+describe("stripTemporalContext", () => {
+  test("strips temporal_context blocks from user messages", () => {
     const messages: Message[] = [
       {
-        role: 'user',
+        role: "user",
         content: [
-          { type: 'text', text: '<temporal_context>\nToday: 2026-02-18\n</temporal_context>' },
-          { type: 'text', text: 'Hello' },
+          {
+            type: "text",
+            text: "<temporal_context>\nToday: 2026-02-18\n</temporal_context>",
+          },
+          { type: "text", text: "Hello" },
         ],
       },
       {
-        role: 'assistant',
-        content: [{ type: 'text', text: 'Hi there' }],
+        role: "assistant",
+        content: [{ type: "text", text: "Hi there" }],
       },
     ];
 
@@ -436,17 +471,22 @@ describe('stripTemporalContext', () => {
 
     expect(result.length).toBe(2);
     expect(result[0].content.length).toBe(1);
-    expect((result[0].content[0] as { type: 'text'; text: string }).text).toBe('Hello');
+    expect((result[0].content[0] as { type: "text"; text: string }).text).toBe(
+      "Hello",
+    );
     // Assistant message untouched
     expect(result[1].content.length).toBe(1);
   });
 
-  test('removes user messages that only contain temporal_context', () => {
+  test("removes user messages that only contain temporal_context", () => {
     const messages: Message[] = [
       {
-        role: 'user',
+        role: "user",
         content: [
-          { type: 'text', text: '<temporal_context>\nToday: 2026-02-18\n</temporal_context>' },
+          {
+            type: "text",
+            text: "<temporal_context>\nToday: 2026-02-18\n</temporal_context>",
+          },
         ],
       },
     ];
@@ -455,13 +495,16 @@ describe('stripTemporalContext', () => {
     expect(result.length).toBe(0);
   });
 
-  test('does not touch unrelated blocks', () => {
+  test("does not touch unrelated blocks", () => {
     const messages: Message[] = [
       {
-        role: 'user',
+        role: "user",
         content: [
-          { type: 'text', text: '<channel_capabilities>\nchannel: dashboard\n</channel_capabilities>' },
-          { type: 'text', text: 'Hello' },
+          {
+            type: "text",
+            text: "<channel_capabilities>\nchannel: dashboard\n</channel_capabilities>",
+          },
+          { type: "text", text: "Hello" },
         ],
       },
     ];
@@ -471,11 +514,11 @@ describe('stripTemporalContext', () => {
     expect(result[0]).toBe(messages[0]); // Same reference — untouched
   });
 
-  test('leaves messages without temporal_context untouched', () => {
+  test("leaves messages without temporal_context untouched", () => {
     const messages: Message[] = [
       {
-        role: 'user',
-        content: [{ type: 'text', text: 'Normal message' }],
+        role: "user",
+        content: [{ type: "text", text: "Normal message" }],
       },
     ];
 
@@ -484,13 +527,16 @@ describe('stripTemporalContext', () => {
     expect(result[0]).toBe(messages[0]);
   });
 
-  test('preserves user-authored text that starts with <temporal_context> but not the injected prefix', () => {
+  test("preserves user-authored text that starts with <temporal_context> but not the injected prefix", () => {
     const messages: Message[] = [
       {
-        role: 'user',
+        role: "user",
         content: [
-          { type: 'text', text: '<temporal_context>some user XML content</temporal_context>' },
-          { type: 'text', text: 'Hello' },
+          {
+            type: "text",
+            text: "<temporal_context>some user XML content</temporal_context>",
+          },
+          { type: "text", text: "Hello" },
         ],
       },
     ];
@@ -505,17 +551,18 @@ describe('stripTemporalContext', () => {
 // applyRuntimeInjections with temporalContext
 // ---------------------------------------------------------------------------
 
-describe('applyRuntimeInjections with temporalContext', () => {
+describe("applyRuntimeInjections with temporalContext", () => {
   const baseMessages: Message[] = [
     {
-      role: 'user',
-      content: [{ type: 'text', text: 'When is next weekend?' }],
+      role: "user",
+      content: [{ type: "text", text: "When is next weekend?" }],
     },
   ];
 
-  const sampleContext = '<temporal_context>\nToday: 2026-02-18 (Wednesday)\n</temporal_context>';
+  const sampleContext =
+    "<temporal_context>\nToday: 2026-02-18 (Wednesday)\n</temporal_context>";
 
-  test('injects temporal context when provided', () => {
+  test("injects temporal context when provided", () => {
     const result = applyRuntimeInjections(baseMessages, {
       temporalContext: sampleContext,
     });
@@ -523,10 +570,12 @@ describe('applyRuntimeInjections with temporalContext', () => {
     expect(result.length).toBe(1);
     expect(result[0].content.length).toBe(2);
     const injected = result[0].content[0];
-    expect((injected as { type: 'text'; text: string }).text).toContain('<temporal_context>');
+    expect((injected as { type: "text"; text: string }).text).toContain(
+      "<temporal_context>",
+    );
   });
 
-  test('does not inject when temporalContext is null', () => {
+  test("does not inject when temporalContext is null", () => {
     const result = applyRuntimeInjections(baseMessages, {
       temporalContext: null,
     });
@@ -535,7 +584,7 @@ describe('applyRuntimeInjections with temporalContext', () => {
     expect(result[0].content.length).toBe(1);
   });
 
-  test('does not inject when temporalContext is omitted', () => {
+  test("does not inject when temporalContext is omitted", () => {
     const result = applyRuntimeInjections(baseMessages, {});
 
     expect(result.length).toBe(1);
@@ -547,168 +596,179 @@ describe('applyRuntimeInjections with temporalContext', () => {
 // inbound_actor_context
 // ---------------------------------------------------------------------------
 
-describe('injectInboundActorContext', () => {
+describe("injectInboundActorContext", () => {
   const baseUserMessage: Message = {
-    role: 'user',
-    content: [{ type: 'text', text: 'Can you text me updates?' }],
+    role: "user",
+    content: [{ type: "text", text: "Can you text me updates?" }],
   };
 
-  test('prepends inbound_actor_context block to user message', () => {
+  test("prepends inbound_actor_context block to user message", () => {
     const ctx: InboundActorContext = {
-      sourceChannel: 'sms',
-      canonicalActorIdentity: 'guardian-user-1',
-      actorIdentifier: '+15550001111',
-      actorDisplayName: 'Guardian Name',
-      actorSenderDisplayName: 'Guardian Name',
-      actorMemberDisplayName: 'Guardian Name',
-      trustClass: 'guardian',
-      guardianIdentity: 'guardian-user-1',
+      sourceChannel: "sms",
+      canonicalActorIdentity: "guardian-user-1",
+      actorIdentifier: "+15550001111",
+      actorDisplayName: "Guardian Name",
+      actorSenderDisplayName: "Guardian Name",
+      actorMemberDisplayName: "Guardian Name",
+      trustClass: "guardian",
+      guardianIdentity: "guardian-user-1",
     };
 
     const result = injectInboundActorContext(baseUserMessage, ctx);
     expect(result.content.length).toBe(2);
     const injected = result.content[0];
-    expect(injected.type).toBe('text');
-    const text = (injected as { type: 'text'; text: string }).text;
-    expect(text).toContain('<inbound_actor_context>');
-    expect(text).toContain('trust_class: guardian');
-    expect(text).toContain('source_channel: sms');
-    expect(text).toContain('canonical_actor_identity: guardian-user-1');
-    expect(text).toContain('actor_display_name: Guardian Name');
-    expect(text).toContain('actor_sender_display_name: Guardian Name');
-    expect(text).toContain('actor_member_display_name: Guardian Name');
-    expect(text).toContain('</inbound_actor_context>');
+    expect(injected.type).toBe("text");
+    const text = (injected as { type: "text"; text: string }).text;
+    expect(text).toContain("<inbound_actor_context>");
+    expect(text).toContain("trust_class: guardian");
+    expect(text).toContain("source_channel: sms");
+    expect(text).toContain("canonical_actor_identity: guardian-user-1");
+    expect(text).toContain("actor_display_name: Guardian Name");
+    expect(text).toContain("actor_sender_display_name: Guardian Name");
+    expect(text).toContain("actor_member_display_name: Guardian Name");
+    expect(text).toContain("</inbound_actor_context>");
   });
 
-  test('adds nickname guidance when member and sender display names differ', () => {
+  test("adds nickname guidance when member and sender display names differ", () => {
     const ctx: InboundActorContext = {
-      sourceChannel: 'telegram',
-      canonicalActorIdentity: 'trusted-user-1',
-      actorIdentifier: '@jeff_handle',
-      actorDisplayName: 'Jeff',
-      actorSenderDisplayName: 'Jeffrey',
-      actorMemberDisplayName: 'Jeff',
-      trustClass: 'trusted_contact',
-      guardianIdentity: 'guardian-user-1',
-      memberStatus: 'active',
-      memberPolicy: 'allow',
+      sourceChannel: "telegram",
+      canonicalActorIdentity: "trusted-user-1",
+      actorIdentifier: "@jeff_handle",
+      actorDisplayName: "Jeff",
+      actorSenderDisplayName: "Jeffrey",
+      actorMemberDisplayName: "Jeff",
+      trustClass: "trusted_contact",
+      guardianIdentity: "guardian-user-1",
+      memberStatus: "active",
+      memberPolicy: "allow",
     };
 
     const result = injectInboundActorContext(baseUserMessage, ctx);
-    const text = (result.content[0] as { type: 'text'; text: string }).text;
-    expect(text).toContain('actor_display_name: Jeff');
-    expect(text).toContain('actor_sender_display_name: Jeffrey');
-    expect(text).toContain('actor_member_display_name: Jeff');
-    expect(text).toContain('name_preference_note: actor_member_display_name is the guardian-preferred nickname');
+    const text = (result.content[0] as { type: "text"; text: string }).text;
+    expect(text).toContain("actor_display_name: Jeff");
+    expect(text).toContain("actor_sender_display_name: Jeffrey");
+    expect(text).toContain("actor_member_display_name: Jeff");
+    expect(text).toContain(
+      "name_preference_note: actor_member_display_name is the guardian-preferred nickname",
+    );
   });
 
-  test('includes behavioral guidance for trusted_contact actors', () => {
+  test("includes behavioral guidance for trusted_contact actors", () => {
     const ctx: InboundActorContext = {
-      sourceChannel: 'telegram',
-      canonicalActorIdentity: 'other-user-1',
-      actorIdentifier: '@someone',
-      trustClass: 'trusted_contact',
-      guardianIdentity: 'guardian-user-1',
-      memberStatus: 'active',
-      memberPolicy: 'default',
+      sourceChannel: "telegram",
+      canonicalActorIdentity: "other-user-1",
+      actorIdentifier: "@someone",
+      trustClass: "trusted_contact",
+      guardianIdentity: "guardian-user-1",
+      memberStatus: "active",
+      memberPolicy: "default",
     };
 
     const result = injectInboundActorContext(baseUserMessage, ctx);
-    const text = (result.content[0] as { type: 'text'; text: string }).text;
-    expect(text).toContain('trusted contact (non-guardian)');
-    expect(text).toContain('attempt to fulfill it normally');
-    expect(text).toContain('tool execution layer will automatically deny it and escalate');
-    expect(text).toContain('Do not self-approve');
-    expect(text).toContain('Do not explain the verification system');
-    expect(text).toContain('member_status: active');
-    expect(text).toContain('member_policy: default');
+    const text = (result.content[0] as { type: "text"; text: string }).text;
+    expect(text).toContain("trusted contact (non-guardian)");
+    expect(text).toContain("attempt to fulfill it normally");
+    expect(text).toContain(
+      "tool execution layer will automatically deny it and escalate",
+    );
+    expect(text).toContain("Do not self-approve");
+    expect(text).toContain("Do not explain the verification system");
+    expect(text).toContain("member_status: active");
+    expect(text).toContain("member_policy: default");
   });
 
-  test('includes behavioral guidance for unknown actors', () => {
+  test("includes behavioral guidance for unknown actors", () => {
     const ctx: InboundActorContext = {
-      sourceChannel: 'telegram',
+      sourceChannel: "telegram",
       canonicalActorIdentity: null,
-      trustClass: 'unknown',
-      denialReason: 'no_identity',
+      trustClass: "unknown",
+      denialReason: "no_identity",
     };
 
     const result = injectInboundActorContext(baseUserMessage, ctx);
-    const text = (result.content[0] as { type: 'text'; text: string }).text;
-    expect(text).toContain('non-guardian account');
-    expect(text).toContain('Do not explain the verification system');
-    expect(text).toContain('denial_reason: no_identity');
+    const text = (result.content[0] as { type: "text"; text: string }).text;
+    expect(text).toContain("non-guardian account");
+    expect(text).toContain("Do not explain the verification system");
+    expect(text).toContain("denial_reason: no_identity");
   });
 
-  test('omits non-guardian behavioral guidance for guardian actors', () => {
+  test("omits non-guardian behavioral guidance for guardian actors", () => {
     const ctx: InboundActorContext = {
-      sourceChannel: 'telegram',
-      canonicalActorIdentity: 'guardian-user-1',
-      actorIdentifier: '@guardian',
-      trustClass: 'guardian',
-      guardianIdentity: 'guardian-user-1',
+      sourceChannel: "telegram",
+      canonicalActorIdentity: "guardian-user-1",
+      actorIdentifier: "@guardian",
+      trustClass: "guardian",
+      guardianIdentity: "guardian-user-1",
     };
 
     const result = injectInboundActorContext(baseUserMessage, ctx);
-    const text = (result.content[0] as { type: 'text'; text: string }).text;
-    expect(text).not.toContain('non-guardian account');
+    const text = (result.content[0] as { type: "text"; text: string }).text;
+    expect(text).not.toContain("non-guardian account");
   });
 
-  test('omits member_status and member_policy when not provided', () => {
+  test("omits member_status and member_policy when not provided", () => {
     const ctx: InboundActorContext = {
-      sourceChannel: 'sms',
-      canonicalActorIdentity: 'user-1',
-      trustClass: 'unknown',
-      denialReason: 'no_binding',
+      sourceChannel: "sms",
+      canonicalActorIdentity: "user-1",
+      trustClass: "unknown",
+      denialReason: "no_binding",
     };
 
     const result = injectInboundActorContext(baseUserMessage, ctx);
-    const text = (result.content[0] as { type: 'text'; text: string }).text;
-    expect(text).not.toContain('member_status');
-    expect(text).not.toContain('member_policy');
+    const text = (result.content[0] as { type: "text"; text: string }).text;
+    expect(text).not.toContain("member_status");
+    expect(text).not.toContain("member_policy");
   });
 });
 
-describe('stripInboundActorContext', () => {
-  test('strips inbound_actor_context blocks from user messages', () => {
+describe("stripInboundActorContext", () => {
+  test("strips inbound_actor_context blocks from user messages", () => {
     const messages: Message[] = [
       {
-        role: 'user',
+        role: "user",
         content: [
-          { type: 'text', text: '<inbound_actor_context>\ntrust_class: guardian\n</inbound_actor_context>' },
-          { type: 'text', text: 'Hello' },
+          {
+            type: "text",
+            text: "<inbound_actor_context>\ntrust_class: guardian\n</inbound_actor_context>",
+          },
+          { type: "text", text: "Hello" },
         ],
       },
     ];
     const result = stripInboundActorContext(messages);
     expect(result).toHaveLength(1);
     expect(result[0].content).toHaveLength(1);
-    expect((result[0].content[0] as { type: 'text'; text: string }).text).toBe('Hello');
+    expect((result[0].content[0] as { type: "text"; text: string }).text).toBe(
+      "Hello",
+    );
   });
 });
 
-describe('applyRuntimeInjections with inboundActorContext', () => {
+describe("applyRuntimeInjections with inboundActorContext", () => {
   const baseMessages: Message[] = [
     {
-      role: 'user',
-      content: [{ type: 'text', text: 'Help me send this over SMS.' }],
+      role: "user",
+      content: [{ type: "text", text: "Help me send this over SMS." }],
     },
   ];
 
-  test('injects inbound actor context when provided', () => {
+  test("injects inbound actor context when provided", () => {
     const result = applyRuntimeInjections(baseMessages, {
       inboundActorContext: {
-        sourceChannel: 'sms',
-        canonicalActorIdentity: 'requester-1',
-        actorIdentifier: '+15550002222',
-        trustClass: 'trusted_contact',
-        guardianIdentity: 'guardian-1',
-        memberStatus: 'active',
-        memberPolicy: 'default',
+        sourceChannel: "sms",
+        canonicalActorIdentity: "requester-1",
+        actorIdentifier: "+15550002222",
+        trustClass: "trusted_contact",
+        guardianIdentity: "guardian-1",
+        memberStatus: "active",
+        memberPolicy: "default",
       },
     });
     expect(result).toHaveLength(1);
     expect(result[0].content).toHaveLength(2);
-    expect((result[0].content[0] as { type: 'text'; text: string }).text).toContain('<inbound_actor_context>');
+    expect(
+      (result[0].content[0] as { type: "text"; text: string }).text,
+    ).toContain("<inbound_actor_context>");
   });
 });
 
@@ -716,37 +776,46 @@ describe('applyRuntimeInjections with inboundActorContext', () => {
 // buildChannelTurnContextBlock
 // ---------------------------------------------------------------------------
 
-describe('buildChannelTurnContextBlock', () => {
-  test('formats block with all three channel fields', () => {
+describe("buildChannelTurnContextBlock", () => {
+  test("formats block with all three channel fields", () => {
     const block = buildChannelTurnContextBlock({
-      turnContext: { userMessageChannel: 'telegram', assistantMessageChannel: 'telegram' },
-      conversationOriginChannel: 'telegram',
+      turnContext: {
+        userMessageChannel: "telegram",
+        assistantMessageChannel: "telegram",
+      },
+      conversationOriginChannel: "telegram",
     });
     expect(block).toBe(
-      '<channel_turn_context>\n' +
-      'user_message_channel: telegram\n' +
-      'assistant_message_channel: telegram\n' +
-      'conversation_origin_channel: telegram\n' +
-      '</channel_turn_context>',
+      "<channel_turn_context>\n" +
+        "user_message_channel: telegram\n" +
+        "assistant_message_channel: telegram\n" +
+        "conversation_origin_channel: telegram\n" +
+        "</channel_turn_context>",
     );
   });
 
   test('uses "unknown" when conversationOriginChannel is null', () => {
     const block = buildChannelTurnContextBlock({
-      turnContext: { userMessageChannel: 'vellum', assistantMessageChannel: 'vellum' },
+      turnContext: {
+        userMessageChannel: "vellum",
+        assistantMessageChannel: "vellum",
+      },
       conversationOriginChannel: null,
     });
-    expect(block).toContain('conversation_origin_channel: unknown');
+    expect(block).toContain("conversation_origin_channel: unknown");
   });
 
-  test('handles mixed channels', () => {
+  test("handles mixed channels", () => {
     const block = buildChannelTurnContextBlock({
-      turnContext: { userMessageChannel: 'telegram', assistantMessageChannel: 'vellum' },
-      conversationOriginChannel: 'vellum',
+      turnContext: {
+        userMessageChannel: "telegram",
+        assistantMessageChannel: "vellum",
+      },
+      conversationOriginChannel: "vellum",
     });
-    expect(block).toContain('user_message_channel: telegram');
-    expect(block).toContain('assistant_message_channel: vellum');
-    expect(block).toContain('conversation_origin_channel: vellum');
+    expect(block).toContain("user_message_channel: telegram");
+    expect(block).toContain("assistant_message_channel: vellum");
+    expect(block).toContain("conversation_origin_channel: vellum");
   });
 });
 
@@ -754,35 +823,43 @@ describe('buildChannelTurnContextBlock', () => {
 // injectChannelTurnContext
 // ---------------------------------------------------------------------------
 
-describe('injectChannelTurnContext', () => {
+describe("injectChannelTurnContext", () => {
   const baseUserMessage: Message = {
-    role: 'user',
-    content: [{ type: 'text', text: 'Hello from telegram' }],
+    role: "user",
+    content: [{ type: "text", text: "Hello from telegram" }],
   };
 
-  test('prepends channel_turn_context block to user message', () => {
+  test("prepends channel_turn_context block to user message", () => {
     const params: ChannelTurnContextParams = {
-      turnContext: { userMessageChannel: 'telegram', assistantMessageChannel: 'telegram' },
-      conversationOriginChannel: 'telegram',
+      turnContext: {
+        userMessageChannel: "telegram",
+        assistantMessageChannel: "telegram",
+      },
+      conversationOriginChannel: "telegram",
     };
     const result = injectChannelTurnContext(baseUserMessage, params);
     expect(result.content.length).toBe(2);
     const injected = result.content[0];
-    expect(injected.type).toBe('text');
-    const text = (injected as { type: 'text'; text: string }).text;
-    expect(text).toContain('<channel_turn_context>');
-    expect(text).toContain('user_message_channel: telegram');
-    expect(text).toContain('</channel_turn_context>');
+    expect(injected.type).toBe("text");
+    const text = (injected as { type: "text"; text: string }).text;
+    expect(text).toContain("<channel_turn_context>");
+    expect(text).toContain("user_message_channel: telegram");
+    expect(text).toContain("</channel_turn_context>");
   });
 
-  test('preserves original message content', () => {
+  test("preserves original message content", () => {
     const params: ChannelTurnContextParams = {
-      turnContext: { userMessageChannel: 'vellum', assistantMessageChannel: 'vellum' },
-      conversationOriginChannel: 'vellum',
+      turnContext: {
+        userMessageChannel: "vellum",
+        assistantMessageChannel: "vellum",
+      },
+      conversationOriginChannel: "vellum",
     };
     const result = injectChannelTurnContext(baseUserMessage, params);
     const lastBlock = result.content[result.content.length - 1];
-    expect((lastBlock as { type: 'text'; text: string }).text).toBe('Hello from telegram');
+    expect((lastBlock as { type: "text"; text: string }).text).toBe(
+      "Hello from telegram",
+    );
   });
 });
 
@@ -790,19 +867,22 @@ describe('injectChannelTurnContext', () => {
 // stripChannelTurnContext
 // ---------------------------------------------------------------------------
 
-describe('stripChannelTurnContext', () => {
-  test('strips channel_turn_context blocks from user messages', () => {
+describe("stripChannelTurnContext", () => {
+  test("strips channel_turn_context blocks from user messages", () => {
     const messages: Message[] = [
       {
-        role: 'user',
+        role: "user",
         content: [
-          { type: 'text', text: '<channel_turn_context>\nuser_message_channel: telegram\n</channel_turn_context>' },
-          { type: 'text', text: 'Hello' },
+          {
+            type: "text",
+            text: "<channel_turn_context>\nuser_message_channel: telegram\n</channel_turn_context>",
+          },
+          { type: "text", text: "Hello" },
         ],
       },
       {
-        role: 'assistant',
-        content: [{ type: 'text', text: 'Hi there' }],
+        role: "assistant",
+        content: [{ type: "text", text: "Hi there" }],
       },
     ];
 
@@ -810,16 +890,21 @@ describe('stripChannelTurnContext', () => {
 
     expect(result.length).toBe(2);
     expect(result[0].content.length).toBe(1);
-    expect((result[0].content[0] as { type: 'text'; text: string }).text).toBe('Hello');
+    expect((result[0].content[0] as { type: "text"; text: string }).text).toBe(
+      "Hello",
+    );
     expect(result[1].content.length).toBe(1);
   });
 
-  test('removes user messages that only contain channel_turn_context', () => {
+  test("removes user messages that only contain channel_turn_context", () => {
     const messages: Message[] = [
       {
-        role: 'user',
+        role: "user",
         content: [
-          { type: 'text', text: '<channel_turn_context>\nuser_message_channel: macos\n</channel_turn_context>' },
+          {
+            type: "text",
+            text: "<channel_turn_context>\nuser_message_channel: macos\n</channel_turn_context>",
+          },
         ],
       },
     ];
@@ -828,11 +913,11 @@ describe('stripChannelTurnContext', () => {
     expect(result.length).toBe(0);
   });
 
-  test('leaves messages without channel_turn_context untouched', () => {
+  test("leaves messages without channel_turn_context untouched", () => {
     const messages: Message[] = [
       {
-        role: 'user',
-        content: [{ type: 'text', text: 'Normal message' }],
+        role: "user",
+        content: [{ type: "text", text: "Normal message" }],
       },
     ];
 
@@ -846,18 +931,21 @@ describe('stripChannelTurnContext', () => {
 // applyRuntimeInjections with channelTurnContext
 // ---------------------------------------------------------------------------
 
-describe('applyRuntimeInjections with channelTurnContext', () => {
+describe("applyRuntimeInjections with channelTurnContext", () => {
   const baseMessages: Message[] = [
     {
-      role: 'user',
-      content: [{ type: 'text', text: 'What channel am I on?' }],
+      role: "user",
+      content: [{ type: "text", text: "What channel am I on?" }],
     },
   ];
 
-  test('injects channel turn context when provided', () => {
+  test("injects channel turn context when provided", () => {
     const params: ChannelTurnContextParams = {
-      turnContext: { userMessageChannel: 'telegram', assistantMessageChannel: 'telegram' },
-      conversationOriginChannel: 'telegram',
+      turnContext: {
+        userMessageChannel: "telegram",
+        assistantMessageChannel: "telegram",
+      },
+      conversationOriginChannel: "telegram",
     };
 
     const result = applyRuntimeInjections(baseMessages, {
@@ -867,10 +955,12 @@ describe('applyRuntimeInjections with channelTurnContext', () => {
     expect(result.length).toBe(1);
     expect(result[0].content.length).toBe(2);
     const injected = result[0].content[0];
-    expect((injected as { type: 'text'; text: string }).text).toContain('<channel_turn_context>');
+    expect((injected as { type: "text"; text: string }).text).toContain(
+      "<channel_turn_context>",
+    );
   });
 
-  test('does not inject when channelTurnContext is null', () => {
+  test("does not inject when channelTurnContext is null", () => {
     const result = applyRuntimeInjections(baseMessages, {
       channelTurnContext: null,
     });
@@ -879,7 +969,7 @@ describe('applyRuntimeInjections with channelTurnContext', () => {
     expect(result[0].content.length).toBe(1);
   });
 
-  test('does not inject when channelTurnContext is omitted', () => {
+  test("does not inject when channelTurnContext is omitted", () => {
     const result = applyRuntimeInjections(baseMessages, {});
 
     expect(result.length).toBe(1);
@@ -891,23 +981,25 @@ describe('applyRuntimeInjections with channelTurnContext', () => {
 // sanitizePttActivationKey
 // ---------------------------------------------------------------------------
 
-describe('sanitizePttActivationKey', () => {
-  test('returns undefined for null/undefined input', () => {
+describe("sanitizePttActivationKey", () => {
+  test("returns undefined for null/undefined input", () => {
     expect(sanitizePttActivationKey(null)).toBeUndefined();
     expect(sanitizePttActivationKey(undefined)).toBeUndefined();
   });
 
-  test('passes through valid keys', () => {
-    expect(sanitizePttActivationKey('fn')).toBe('fn');
-    expect(sanitizePttActivationKey('ctrl')).toBe('ctrl');
-    expect(sanitizePttActivationKey('fn_shift')).toBe('fn_shift');
-    expect(sanitizePttActivationKey('none')).toBe('none');
+  test("passes through valid keys", () => {
+    expect(sanitizePttActivationKey("fn")).toBe("fn");
+    expect(sanitizePttActivationKey("ctrl")).toBe("ctrl");
+    expect(sanitizePttActivationKey("fn_shift")).toBe("fn_shift");
+    expect(sanitizePttActivationKey("none")).toBe("none");
   });
 
   test('returns "unknown" for invalid keys', () => {
-    expect(sanitizePttActivationKey('malicious\nprompt injection')).toBe('unknown');
-    expect(sanitizePttActivationKey('arbitrary_value')).toBe('unknown');
-    expect(sanitizePttActivationKey('')).toBe('unknown');
+    expect(sanitizePttActivationKey("malicious\nprompt injection")).toBe(
+      "unknown",
+    );
+    expect(sanitizePttActivationKey("arbitrary_value")).toBe("unknown");
+    expect(sanitizePttActivationKey("")).toBe("unknown");
   });
 });
 
@@ -915,20 +1007,24 @@ describe('sanitizePttActivationKey', () => {
 // resolveChannelCapabilities sanitizes pttActivationKey
 // ---------------------------------------------------------------------------
 
-describe('resolveChannelCapabilities with PTT metadata', () => {
-  test('sanitizes valid pttActivationKey', () => {
-    const caps = resolveChannelCapabilities('macos', 'macos', { pttActivationKey: 'fn' });
-    expect(caps.pttActivationKey).toBe('fn');
+describe("resolveChannelCapabilities with PTT metadata", () => {
+  test("sanitizes valid pttActivationKey", () => {
+    const caps = resolveChannelCapabilities("macos", "macos", {
+      pttActivationKey: "fn",
+    });
+    expect(caps.pttActivationKey).toBe("fn");
   });
 
-  test('sanitizes invalid pttActivationKey to unknown', () => {
-    const caps = resolveChannelCapabilities('macos', 'macos', { pttActivationKey: 'evil\nprompt' });
-    expect(caps.pttActivationKey).toBe('unknown');
+  test("sanitizes invalid pttActivationKey to unknown", () => {
+    const caps = resolveChannelCapabilities("macos", "macos", {
+      pttActivationKey: "evil\nprompt",
+    });
+    expect(caps.pttActivationKey).toBe("unknown");
   });
 
-  test('passes through microphonePermissionGranted', () => {
-    const caps = resolveChannelCapabilities('macos', 'macos', {
-      pttActivationKey: 'fn',
+  test("passes through microphonePermissionGranted", () => {
+    const caps = resolveChannelCapabilities("macos", "macos", {
+      pttActivationKey: "fn",
       microphonePermissionGranted: true,
     });
     expect(caps.microphonePermissionGranted).toBe(true);

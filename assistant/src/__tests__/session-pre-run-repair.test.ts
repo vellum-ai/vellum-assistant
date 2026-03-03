@@ -1,42 +1,43 @@
-import { describe, expect, mock, test } from 'bun:test';
+import { describe, expect, mock, test } from "bun:test";
 
-import type { Message, ProviderResponse } from '../providers/types.js';
+import type { Message, ProviderResponse } from "../providers/types.js";
 
 // Capture messages passed to agentLoop.run
 let capturedRunMessages: Message[] = [];
 
-mock.module('../util/logger.js', () => ({
-  getLogger: () => new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
+mock.module("../util/logger.js", () => ({
+  getLogger: () =>
+    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
 }));
 
-mock.module('../util/platform.js', () => ({
-  getSocketPath: () => '/tmp/test.sock',
-  getDataDir: () => '/tmp',
+mock.module("../util/platform.js", () => ({
+  getSocketPath: () => "/tmp/test.sock",
+  getDataDir: () => "/tmp",
 }));
 
-mock.module('../memory/guardian-action-store.js', () => ({
+mock.module("../memory/guardian-action-store.js", () => ({
   getPendingDeliveryByConversation: () => null,
   getGuardianActionRequest: () => null,
   resolveGuardianActionRequest: () => {},
 }));
 
-mock.module('../providers/registry.js', () => ({
-  getProvider: () => ({ name: 'mock-provider' }),
+mock.module("../providers/registry.js", () => ({
+  getProvider: () => ({ name: "mock-provider" }),
   initializeProviders: () => {},
 }));
 
-mock.module('../config/loader.js', () => ({
+mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
-    
-    provider: 'mock-provider',
+
+    provider: "mock-provider",
     maxTokens: 4096,
     thinking: false,
     contextWindow: {
       maxInputTokens: 100000,
       thresholdTokens: 80000,
       preserveRecentMessages: 6,
-      summaryModel: 'mock-model',
+      summaryModel: "mock-model",
       maxSummaryTokens: 512,
     },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
@@ -47,22 +48,27 @@ mock.module('../config/loader.js', () => ({
   invalidateConfigCache: () => {},
 }));
 
-mock.module('../config/system-prompt.js', () => ({
-  buildSystemPrompt: () => 'system prompt',
+mock.module("../config/system-prompt.js", () => ({
+  buildSystemPrompt: () => "system prompt",
 }));
 
-mock.module('../permissions/trust-store.js', () => ({
+mock.module("../permissions/trust-store.js", () => ({
   clearCache: () => {},
 }));
 
-mock.module('../security/secret-allowlist.js', () => ({
+mock.module("../security/secret-allowlist.js", () => ({
   resetAllowlist: () => {},
 }));
 
-mock.module('../memory/admin.js', () => ({
+mock.module("../memory/admin.js", () => ({
   getMemoryConflictAndCleanupStats: () => ({
     conflicts: { pending: 0, resolved: 0, oldestPendingAgeMs: null },
-    cleanup: { resolvedBacklog: 0, supersededBacklog: 0, resolvedCompleted24h: 0, supersededCompleted24h: 0 },
+    cleanup: {
+      resolvedBacklog: 0,
+      supersededBacklog: 0,
+      resolvedCompleted24h: 0,
+      supersededCompleted24h: 0,
+    },
   }),
 }));
 
@@ -70,29 +76,32 @@ mock.module('../memory/admin.js', () => ({
 let mockDbMessages: Array<{ id: string; role: string; content: string }> = [];
 let mockConversation: Record<string, unknown> | null = null;
 
-mock.module('../memory/conversation-store.js', () => ({
-  getConversationThreadType: () => 'default',
+mock.module("../memory/conversation-store.js", () => ({
+  getConversationThreadType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},
-  provenanceFromGuardianContext: () => ({ source: 'user', guardianContext: undefined }),
+  provenanceFromGuardianContext: () => ({
+    source: "user",
+    guardianContext: undefined,
+  }),
   getConversationOriginInterface: () => null,
   getConversationOriginChannel: () => null,
   getMessages: () => mockDbMessages,
   getConversation: () => mockConversation,
-  createConversation: () => ({ id: 'conv-1' }),
+  createConversation: () => ({ id: "conv-1" }),
   listConversations: () => [],
-  addMessage: () => ({ id: 'new-msg' }),
+  addMessage: () => ({ id: "new-msg" }),
   updateConversationUsage: () => {},
   updateConversationTitle: () => {},
 }));
 
 // Mock memory retriever to be no-op
-mock.module('../memory/retriever.js', () => ({
+mock.module("../memory/retriever.js", () => ({
   buildMemoryRecall: async () => ({
     enabled: false,
     degraded: false,
-    injectedText: '',
+    injectedText: "",
     lexicalHits: 0,
     semanticHits: 0,
     recencyHits: 0,
@@ -104,62 +113,92 @@ mock.module('../memory/retriever.js', () => ({
 }));
 
 // Mock AgentLoop to capture the messages it receives
-mock.module('../agent/loop.js', () => ({
+mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
     constructor() {}
-    async run(messages: Message[], onEvent: (event: Record<string, unknown>) => void): Promise<Message[]> {
+    async run(
+      messages: Message[],
+      onEvent: (event: Record<string, unknown>) => void,
+    ): Promise<Message[]> {
       capturedRunMessages = messages;
       // Emit usage event so processMessage doesn't error
-      onEvent({ type: 'usage', inputTokens: 0, outputTokens: 0, model: 'mock', providerDurationMs: 0 });
+      onEvent({
+        type: "usage",
+        inputTokens: 0,
+        outputTokens: 0,
+        model: "mock",
+        providerDurationMs: 0,
+      });
       // Return messages with an assistant response appended
       return [
         ...messages,
-        { role: 'assistant', content: [{ type: 'text', text: 'response' }] },
+        { role: "assistant", content: [{ type: "text", text: "response" }] },
       ];
     }
   },
 }));
 
 // Mock context window manager
-mock.module('../context/window-manager.js', () => ({
+mock.module("../context/window-manager.js", () => ({
   ContextWindowManager: class {
     constructor() {}
-    async maybeCompact() { return { compacted: false }; }
+    async maybeCompact() {
+      return { compacted: false };
+    }
   },
-  createContextSummaryMessage: () => ({ role: 'user', content: [{ type: 'text', text: 'summary' }] }),
+  createContextSummaryMessage: () => ({
+    role: "user",
+    content: [{ type: "text", text: "summary" }],
+  }),
   getSummaryFromContextMessage: () => null,
 }));
-mock.module('../memory/canonical-guardian-store.js', () => ({
+mock.module("../memory/canonical-guardian-store.js", () => ({
   listPendingCanonicalGuardianRequestsByDestinationConversation: () => [],
   listCanonicalGuardianRequests: () => [],
-  createCanonicalGuardianRequest: () => ({ id: 'mock-cg-id', code: 'MOCK', status: 'pending' }),
+  createCanonicalGuardianRequest: () => ({
+    id: "mock-cg-id",
+    code: "MOCK",
+    status: "pending",
+  }),
   getCanonicalGuardianRequest: () => null,
   getCanonicalGuardianRequestByCode: () => null,
   updateCanonicalGuardianRequest: () => {},
   resolveCanonicalGuardianRequest: () => {},
-  createCanonicalGuardianDelivery: () => ({ id: 'mock-cgd-id' }),
+  createCanonicalGuardianDelivery: () => ({ id: "mock-cgd-id" }),
   listCanonicalGuardianDeliveries: () => [],
   listPendingCanonicalGuardianRequestsByDestinationChat: () => [],
   updateCanonicalGuardianDelivery: () => {},
-  generateCanonicalRequestCode: () => 'MOCK-CODE',
+  generateCanonicalRequestCode: () => "MOCK-CODE",
 }));
 
-import { Session } from '../daemon/session.js';
+import { Session } from "../daemon/session.js";
 
 function makeSession(): Session {
   const provider = {
-    name: 'mock',
+    name: "mock",
     async sendMessage(): Promise<ProviderResponse> {
-      return { content: [{ type: 'text', text: 'hi' }], model: 'mock', usage: { inputTokens: 0, outputTokens: 0 }, stopReason: 'end_turn' };
+      return {
+        content: [{ type: "text", text: "hi" }],
+        model: "mock",
+        usage: { inputTokens: 0, outputTokens: 0 },
+        stopReason: "end_turn",
+      };
     },
   };
-  return new Session('conv-1', provider, 'system prompt', 4096, () => {}, '/tmp');
+  return new Session(
+    "conv-1",
+    provider,
+    "system prompt",
+    4096,
+    () => {},
+    "/tmp",
+  );
 }
 
-describe('pre-run history repair', () => {
-  test('broken runtime history gets fixed before provider call', async () => {
+describe("pre-run history repair", () => {
+  test("broken runtime history gets fixed before provider call", async () => {
     mockConversation = {
-      id: 'conv-1',
+      id: "conv-1",
       contextSummary: null,
       contextCompactedMessageCount: 0,
       totalInputTokens: 0,
@@ -169,12 +208,16 @@ describe('pre-run history repair', () => {
 
     // Simulate a corrupt in-memory state: assistant with tool_use but no tool_result follows
     mockDbMessages = [
-      { id: 'm1', role: 'user', content: JSON.stringify([{ type: 'text', text: 'First' }]) },
       {
-        id: 'm2',
-        role: 'assistant',
+        id: "m1",
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "First" }]),
+      },
+      {
+        id: "m2",
+        role: "assistant",
         content: JSON.stringify([
-          { type: 'tool_use', id: 'tu_1', name: 'bash', input: { cmd: 'ls' } },
+          { type: "tool_use", id: "tu_1", name: "bash", input: { cmd: "ls" } },
         ]),
       },
       // Missing tool_result user message — repaired during loadFromDb
@@ -193,34 +236,38 @@ describe('pre-run history repair', () => {
 
     capturedRunMessages = [];
     const events: Array<Record<string, unknown>> = [];
-    await session.processMessage('Next question', [], (msg) => events.push(msg as unknown as Record<string, unknown>));
+    await session.processMessage("Next question", [], (msg) =>
+      events.push(msg as unknown as Record<string, unknown>),
+    );
 
     // The messages passed to agentLoop.run should have been repaired
     // Find all tool_use blocks without matching tool_result
-    const assistantMsgs = capturedRunMessages.filter((m) => m.role === 'assistant');
+    const assistantMsgs = capturedRunMessages.filter(
+      (m) => m.role === "assistant",
+    );
     for (const aMsg of assistantMsgs) {
-      const toolUseBlocks = aMsg.content.filter((b) => b.type === 'tool_use');
+      const toolUseBlocks = aMsg.content.filter((b) => b.type === "tool_use");
       if (toolUseBlocks.length === 0) continue;
 
       // Find the next user message
       const aIdx = capturedRunMessages.indexOf(aMsg);
       const nextMsg = capturedRunMessages[aIdx + 1];
       expect(nextMsg).toBeDefined();
-      expect(nextMsg.role).toBe('user');
+      expect(nextMsg.role).toBe("user");
 
       for (const tu of toolUseBlocks) {
-        if (tu.type !== 'tool_use') continue;
+        if (tu.type !== "tool_use") continue;
         const hasResult = nextMsg.content.some(
-          (b) => b.type === 'tool_result' && b.tool_use_id === tu.id,
+          (b) => b.type === "tool_result" && b.tool_use_id === tu.id,
         );
         expect(hasResult).toBe(true);
       }
     }
   });
 
-  test('existing memory-recall injection still works', async () => {
+  test("existing memory-recall injection still works", async () => {
     mockConversation = {
-      id: 'conv-1',
+      id: "conv-1",
       contextSummary: null,
       contextCompactedMessageCount: 0,
       totalInputTokens: 0,
@@ -233,11 +280,11 @@ describe('pre-run history repair', () => {
     await session.loadFromDb();
 
     capturedRunMessages = [];
-    await session.processMessage('Hello', [], () => {});
+    await session.processMessage("Hello", [], () => {});
 
     // Should have a user message in the captured run messages
     expect(capturedRunMessages.length).toBeGreaterThanOrEqual(1);
-    const userMsg = capturedRunMessages.find((m) => m.role === 'user');
+    const userMsg = capturedRunMessages.find((m) => m.role === "user");
     expect(userMsg).toBeDefined();
   });
 });

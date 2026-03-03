@@ -6,57 +6,63 @@
  * that middleware is replaced by the JWT auth middleware in
  * runtime/auth/middleware.ts (tested in auth/middleware.test.ts).
  */
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test';
+const testDir = realpathSync(mkdtempSync(join(tmpdir(), "actor-token-test-")));
 
-const testDir = realpathSync(mkdtempSync(join(tmpdir(), 'actor-token-test-')));
-
-mock.module('../util/platform.js', () => ({
+mock.module("../util/platform.js", () => ({
   getRootDir: () => testDir,
   getDataDir: () => testDir,
-  getDbPath: () => join(testDir, 'test.db'),
-  normalizeAssistantId: (id: string) => id === 'self' ? 'self' : id,
+  getDbPath: () => join(testDir, "test.db"),
+  normalizeAssistantId: (id: string) => (id === "self" ? "self" : id),
   readLockfile: () => null,
-  isMacOS: () => process.platform === 'darwin',
-  isLinux: () => process.platform === 'linux',
-  isWindows: () => process.platform === 'win32',
-  getSocketPath: () => join(testDir, 'test.sock'),
-  getPidPath: () => join(testDir, 'test.pid'),
-  getLogPath: () => join(testDir, 'test.log'),
+  isMacOS: () => process.platform === "darwin",
+  isLinux: () => process.platform === "linux",
+  isWindows: () => process.platform === "win32",
+  getSocketPath: () => join(testDir, "test.sock"),
+  getPidPath: () => join(testDir, "test.pid"),
+  getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
 }));
 
-mock.module('../util/logger.js', () => ({
-  getLogger: () => new Proxy({} as Record<string, unknown>, {
-    get: () => () => {},
-  }),
+mock.module("../util/logger.js", () => ({
+  getLogger: () =>
+    new Proxy({} as Record<string, unknown>, {
+      get: () => () => {},
+    }),
 }));
 
-import { getSqlite, initializeDb, resetDb } from '../memory/db.js';
+import { getSqlite, initializeDb, resetDb } from "../memory/db.js";
 import {
   createBinding,
   getActiveBinding,
-} from '../memory/guardian-bindings.js';
+} from "../memory/guardian-bindings.js";
 import {
   createActorTokenRecord,
   findActiveByDeviceBinding,
   findActiveByTokenHash,
   revokeByDeviceBinding,
   revokeByTokenHash,
-} from '../runtime/actor-token-store.js';
-import { resetExternalAssistantIdCache } from '../runtime/auth/external-assistant-id.js';
-import { hashToken, initAuthSigningKey } from '../runtime/auth/token-service.js';
-import { ensureVellumGuardianBinding } from '../runtime/guardian-vellum-migration.js';
-import { resolveLocalIpcAuthContext, resolveLocalIpcGuardianContext } from '../runtime/local-actor-identity.js';
+} from "../runtime/actor-token-store.js";
+import { resetExternalAssistantIdCache } from "../runtime/auth/external-assistant-id.js";
+import {
+  hashToken,
+  initAuthSigningKey,
+} from "../runtime/auth/token-service.js";
+import { ensureVellumGuardianBinding } from "../runtime/guardian-vellum-migration.js";
+import {
+  resolveLocalIpcAuthContext,
+  resolveLocalIpcGuardianContext,
+} from "../runtime/local-actor-identity.js";
 
 // ---------------------------------------------------------------------------
 // Test signing key
 // ---------------------------------------------------------------------------
 
-const TEST_KEY = Buffer.from('test-signing-key-32-bytes-long!!');
+const TEST_KEY = Buffer.from("test-signing-key-32-bytes-long!!");
 
 // ---------------------------------------------------------------------------
 // Mock server helpers for loopback IP checks (used by bootstrap tests)
@@ -64,21 +70,23 @@ const TEST_KEY = Buffer.from('test-signing-key-32-bytes-long!!');
 
 /** Bun server shape needed for requestIP. */
 type ServerWithRequestIP = {
-  requestIP(req: Request): { address: string; family: string; port: number } | null;
+  requestIP(
+    req: Request,
+  ): { address: string; family: string; port: number } | null;
 };
 
 /** Creates a mock server that returns the given IP for any request. */
 function mockServer(address: string): ServerWithRequestIP {
   return {
-    requestIP: () => ({ address, family: 'IPv4', port: 0 }),
+    requestIP: () => ({ address, family: "IPv4", port: 0 }),
   };
 }
 
 /** Mock loopback server -- returns 127.0.0.1 for all requests. */
-const loopbackServer = mockServer('127.0.0.1');
+const loopbackServer = mockServer("127.0.0.1");
 
 /** Mock non-loopback server -- returns a LAN IP for all requests. */
-const nonLoopbackServer = mockServer('192.168.1.50');
+const nonLoopbackServer = mockServer("192.168.1.50");
 
 initializeDb();
 
@@ -91,83 +99,93 @@ beforeEach(() => {
   resetDb();
   initializeDb();
   const db = getSqlite();
-  db.run('DELETE FROM actor_token_records');
-  db.run('DELETE FROM channel_guardian_bindings');
+  db.run("DELETE FROM actor_token_records");
+  db.run("DELETE FROM channel_guardian_bindings");
 });
 
 afterAll(() => {
-  try { rmSync(testDir, { recursive: true, force: true }); } catch {}
+  try {
+    rmSync(testDir, { recursive: true, force: true });
+  } catch {}
 });
 
 // ---------------------------------------------------------------------------
 // Hash-only storage
 // ---------------------------------------------------------------------------
 
-describe('actor-token store (hash-only)', () => {
-  test('createActorTokenRecord stores hash, never raw token', () => {
-    const tokenHash = hashToken('test-token-for-store');
+describe("actor-token store (hash-only)", () => {
+  test("createActorTokenRecord stores hash, never raw token", () => {
+    const tokenHash = hashToken("test-token-for-store");
 
     const record = createActorTokenRecord({
       tokenHash,
-      assistantId: 'self',
-      guardianPrincipalId: 'principal-store',
-      hashedDeviceId: 'hashed-dev-store',
-      platform: 'macos',
+      assistantId: "self",
+      guardianPrincipalId: "principal-store",
+      hashedDeviceId: "hashed-dev-store",
+      platform: "macos",
       issuedAt: Date.now(),
     });
 
     expect(record.tokenHash).toBe(tokenHash);
-    expect(record.status).toBe('active');
+    expect(record.status).toBe("active");
     const found = findActiveByTokenHash(tokenHash);
     expect(found).not.toBeNull();
     expect(found!.tokenHash).toBe(tokenHash);
   });
 
-  test('findActiveByDeviceBinding returns matching record', () => {
-    const tokenHash = hashToken('test-token-for-binding');
+  test("findActiveByDeviceBinding returns matching record", () => {
+    const tokenHash = hashToken("test-token-for-binding");
 
     createActorTokenRecord({
       tokenHash,
-      assistantId: 'self',
-      guardianPrincipalId: 'principal-bind',
-      hashedDeviceId: 'hashed-dev-bind',
-      platform: 'ios',
+      assistantId: "self",
+      guardianPrincipalId: "principal-bind",
+      hashedDeviceId: "hashed-dev-bind",
+      platform: "ios",
       issuedAt: Date.now(),
     });
 
-    const found = findActiveByDeviceBinding('self', 'principal-bind', 'hashed-dev-bind');
+    const found = findActiveByDeviceBinding(
+      "self",
+      "principal-bind",
+      "hashed-dev-bind",
+    );
     expect(found).not.toBeNull();
-    expect(found!.platform).toBe('ios');
+    expect(found!.platform).toBe("ios");
   });
 
-  test('revokeByDeviceBinding marks tokens as revoked', () => {
-    const tokenHash = hashToken('test-token-for-revoke');
+  test("revokeByDeviceBinding marks tokens as revoked", () => {
+    const tokenHash = hashToken("test-token-for-revoke");
 
     createActorTokenRecord({
       tokenHash,
-      assistantId: 'self',
-      guardianPrincipalId: 'principal-revoke',
-      hashedDeviceId: 'hashed-dev-revoke',
-      platform: 'macos',
+      assistantId: "self",
+      guardianPrincipalId: "principal-revoke",
+      hashedDeviceId: "hashed-dev-revoke",
+      platform: "macos",
       issuedAt: Date.now(),
     });
 
-    const count = revokeByDeviceBinding('self', 'principal-revoke', 'hashed-dev-revoke');
+    const count = revokeByDeviceBinding(
+      "self",
+      "principal-revoke",
+      "hashed-dev-revoke",
+    );
     expect(count).toBe(1);
 
     const found = findActiveByTokenHash(tokenHash);
     expect(found).toBeNull();
   });
 
-  test('revokeByTokenHash revokes a single token', () => {
-    const tokenHash = hashToken('test-token-for-single-revoke');
+  test("revokeByTokenHash revokes a single token", () => {
+    const tokenHash = hashToken("test-token-for-single-revoke");
 
     createActorTokenRecord({
       tokenHash,
-      assistantId: 'self',
-      guardianPrincipalId: 'principal-single',
-      hashedDeviceId: 'hashed-dev-single',
-      platform: 'macos',
+      assistantId: "self",
+      guardianPrincipalId: "principal-single",
+      hashedDeviceId: "hashed-dev-single",
+      platform: "macos",
       issuedAt: Date.now(),
     });
 
@@ -180,40 +198,40 @@ describe('actor-token store (hash-only)', () => {
 // Guardian vellum migration
 // ---------------------------------------------------------------------------
 
-describe('guardian vellum migration', () => {
-  test('ensureVellumGuardianBinding creates binding when missing', () => {
-    const principalId = ensureVellumGuardianBinding('self');
+describe("guardian vellum migration", () => {
+  test("ensureVellumGuardianBinding creates binding when missing", () => {
+    const principalId = ensureVellumGuardianBinding("self");
     expect(principalId).toMatch(/^vellum-principal-/);
 
-    const binding = getActiveBinding('self', 'vellum');
+    const binding = getActiveBinding("self", "vellum");
     expect(binding).not.toBeNull();
     expect(binding!.guardianExternalUserId).toBe(principalId);
-    expect(binding!.verifiedVia).toBe('startup-migration');
+    expect(binding!.verifiedVia).toBe("startup-migration");
   });
 
-  test('ensureVellumGuardianBinding is idempotent', () => {
-    const first = ensureVellumGuardianBinding('self');
-    const second = ensureVellumGuardianBinding('self');
+  test("ensureVellumGuardianBinding is idempotent", () => {
+    const first = ensureVellumGuardianBinding("self");
+    const second = ensureVellumGuardianBinding("self");
     expect(first).toBe(second);
   });
 
-  test('ensureVellumGuardianBinding preserves existing bindings for other channels', () => {
+  test("ensureVellumGuardianBinding preserves existing bindings for other channels", () => {
     createBinding({
-      assistantId: 'self',
-      channel: 'telegram',
-      guardianExternalUserId: 'tg-user-123',
-      guardianDeliveryChatId: 'tg-chat-456',
-      guardianPrincipalId: 'tg-user-123',
-      verifiedVia: 'challenge',
+      assistantId: "self",
+      channel: "telegram",
+      guardianExternalUserId: "tg-user-123",
+      guardianDeliveryChatId: "tg-chat-456",
+      guardianPrincipalId: "tg-user-123",
+      verifiedVia: "challenge",
     });
 
-    ensureVellumGuardianBinding('self');
+    ensureVellumGuardianBinding("self");
 
-    const tgBinding = getActiveBinding('self', 'telegram');
+    const tgBinding = getActiveBinding("self", "telegram");
     expect(tgBinding).not.toBeNull();
-    expect(tgBinding!.guardianExternalUserId).toBe('tg-user-123');
+    expect(tgBinding!.guardianExternalUserId).toBe("tg-user-123");
 
-    const vBinding = getActiveBinding('self', 'vellum');
+    const vBinding = getActiveBinding("self", "vellum");
     expect(vBinding).not.toBeNull();
   });
 });
@@ -222,33 +240,40 @@ describe('guardian vellum migration', () => {
 // Bootstrap idempotency (via route handler)
 // ---------------------------------------------------------------------------
 
-describe('bootstrap endpoint idempotency', () => {
-  test('calling bootstrap twice returns same guardianPrincipalId', async () => {
-    const { handleGuardianBootstrap } = await import('../runtime/routes/guardian-bootstrap-routes.js');
+describe("bootstrap endpoint idempotency", () => {
+  test("calling bootstrap twice returns same guardianPrincipalId", async () => {
+    const { handleGuardianBootstrap } =
+      await import("../runtime/routes/guardian-bootstrap-routes.js");
 
-    const req1 = new Request('http://localhost/v1/integrations/guardian/vellum/bootstrap', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ platform: 'macos', deviceId: 'test-device-1' }),
-    });
+    const req1 = new Request(
+      "http://localhost/v1/integrations/guardian/vellum/bootstrap",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platform: "macos", deviceId: "test-device-1" }),
+      },
+    );
 
     const res1 = await handleGuardianBootstrap(req1, loopbackServer);
     expect(res1.status).toBe(200);
-    const body1 = await res1.json() as Record<string, unknown>;
+    const body1 = (await res1.json()) as Record<string, unknown>;
     expect(body1.guardianPrincipalId).toBeTruthy();
     expect(body1.accessToken).toBeTruthy();
     expect(body1.isNew).toBe(true);
 
     // Second call with same device
-    const req2 = new Request('http://localhost/v1/integrations/guardian/vellum/bootstrap', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ platform: 'macos', deviceId: 'test-device-1' }),
-    });
+    const req2 = new Request(
+      "http://localhost/v1/integrations/guardian/vellum/bootstrap",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platform: "macos", deviceId: "test-device-1" }),
+      },
+    );
 
     const res2 = await handleGuardianBootstrap(req2, loopbackServer);
     expect(res2.status).toBe(200);
-    const body2 = await res2.json() as Record<string, unknown>;
+    const body2 = (await res2.json()) as Record<string, unknown>;
     expect(body2.guardianPrincipalId).toBe(body1.guardianPrincipalId);
     expect(body2.accessToken).toBeTruthy();
     // New token minted (previous revoked), but same principal
@@ -256,74 +281,96 @@ describe('bootstrap endpoint idempotency', () => {
     expect(body2.isNew).toBe(false);
   });
 
-  test('bootstrap rejects missing fields', async () => {
-    const { handleGuardianBootstrap } = await import('../runtime/routes/guardian-bootstrap-routes.js');
+  test("bootstrap rejects missing fields", async () => {
+    const { handleGuardianBootstrap } =
+      await import("../runtime/routes/guardian-bootstrap-routes.js");
 
-    const req = new Request('http://localhost/v1/integrations/guardian/vellum/bootstrap', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ platform: 'macos' }),
-    });
-
-    const res = await handleGuardianBootstrap(req, loopbackServer);
-    expect(res.status).toBe(400);
-  });
-
-  test('bootstrap rejects invalid platform', async () => {
-    const { handleGuardianBootstrap } = await import('../runtime/routes/guardian-bootstrap-routes.js');
-
-    const req = new Request('http://localhost/v1/integrations/guardian/vellum/bootstrap', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ platform: 'android', deviceId: 'test-device' }),
-    });
+    const req = new Request(
+      "http://localhost/v1/integrations/guardian/vellum/bootstrap",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platform: "macos" }),
+      },
+    );
 
     const res = await handleGuardianBootstrap(req, loopbackServer);
     expect(res.status).toBe(400);
   });
 
-  test('bootstrap with different devices returns same principal but different tokens', async () => {
-    const { handleGuardianBootstrap } = await import('../runtime/routes/guardian-bootstrap-routes.js');
+  test("bootstrap rejects invalid platform", async () => {
+    const { handleGuardianBootstrap } =
+      await import("../runtime/routes/guardian-bootstrap-routes.js");
 
-    const req1 = new Request('http://localhost/v1/integrations/guardian/vellum/bootstrap', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ platform: 'macos', deviceId: 'device-A' }),
-    });
+    const req = new Request(
+      "http://localhost/v1/integrations/guardian/vellum/bootstrap",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platform: "android", deviceId: "test-device" }),
+      },
+    );
+
+    const res = await handleGuardianBootstrap(req, loopbackServer);
+    expect(res.status).toBe(400);
+  });
+
+  test("bootstrap with different devices returns same principal but different tokens", async () => {
+    const { handleGuardianBootstrap } =
+      await import("../runtime/routes/guardian-bootstrap-routes.js");
+
+    const req1 = new Request(
+      "http://localhost/v1/integrations/guardian/vellum/bootstrap",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platform: "macos", deviceId: "device-A" }),
+      },
+    );
 
     const res1 = await handleGuardianBootstrap(req1, loopbackServer);
-    const body1 = await res1.json() as Record<string, unknown>;
+    const body1 = (await res1.json()) as Record<string, unknown>;
 
-    const req2 = new Request('http://localhost/v1/integrations/guardian/vellum/bootstrap', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ platform: 'macos', deviceId: 'device-B' }),
-    });
+    const req2 = new Request(
+      "http://localhost/v1/integrations/guardian/vellum/bootstrap",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platform: "macos", deviceId: "device-B" }),
+      },
+    );
 
     const res2 = await handleGuardianBootstrap(req2, loopbackServer);
-    const body2 = await res2.json() as Record<string, unknown>;
+    const body2 = (await res2.json()) as Record<string, unknown>;
 
     // Same principal, different tokens
     expect(body2.guardianPrincipalId).toBe(body1.guardianPrincipalId);
     expect(body2.accessToken).not.toBe(body1.accessToken);
   });
 
-  test('bootstrap access token is a 3-part JWT', async () => {
-    const { handleGuardianBootstrap } = await import('../runtime/routes/guardian-bootstrap-routes.js');
+  test("bootstrap access token is a 3-part JWT", async () => {
+    const { handleGuardianBootstrap } =
+      await import("../runtime/routes/guardian-bootstrap-routes.js");
 
-    const req = new Request('http://localhost/v1/integrations/guardian/vellum/bootstrap', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ platform: 'macos', deviceId: 'test-device-jwt' }),
-    });
+    const req = new Request(
+      "http://localhost/v1/integrations/guardian/vellum/bootstrap",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          platform: "macos",
+          deviceId: "test-device-jwt",
+        }),
+      },
+    );
 
     const res = await handleGuardianBootstrap(req, loopbackServer);
     expect(res.status).toBe(200);
-    const body = await res.json() as Record<string, unknown>;
+    const body = (await res.json()) as Record<string, unknown>;
     const accessToken = body.accessToken as string;
     expect(accessToken).toBeTruthy();
     // JWTs have 3 dot-separated parts
-    expect(accessToken.split('.').length).toBe(3);
+    expect(accessToken.split(".").length).toBe(3);
   });
 });
 
@@ -331,26 +378,26 @@ describe('bootstrap endpoint idempotency', () => {
 // Local IPC identity resolution
 // ---------------------------------------------------------------------------
 
-describe('resolveLocalIpcGuardianContext', () => {
-  test('returns guardian context when vellum binding exists', () => {
-    ensureVellumGuardianBinding('self');
+describe("resolveLocalIpcGuardianContext", () => {
+  test("returns guardian context when vellum binding exists", () => {
+    ensureVellumGuardianBinding("self");
 
     const ctx = resolveLocalIpcGuardianContext();
-    expect(ctx.trustClass).toBe('guardian');
-    expect(ctx.sourceChannel).toBe('vellum');
+    expect(ctx.trustClass).toBe("guardian");
+    expect(ctx.sourceChannel).toBe("vellum");
   });
 
-  test('returns guardian context with principal when no vellum binding exists (pre-bootstrap self-heal)', () => {
+  test("returns guardian context with principal when no vellum binding exists (pre-bootstrap self-heal)", () => {
     const ctx = resolveLocalIpcGuardianContext();
-    expect(ctx.trustClass).toBe('guardian');
-    expect(ctx.sourceChannel).toBe('vellum');
+    expect(ctx.trustClass).toBe("guardian");
+    expect(ctx.sourceChannel).toBe("vellum");
     expect(ctx.guardianPrincipalId).toBeDefined();
   });
 
-  test('respects custom sourceChannel parameter', () => {
-    ensureVellumGuardianBinding('self');
-    const ctx = resolveLocalIpcGuardianContext('vellum');
-    expect(ctx.sourceChannel).toBe('vellum');
+  test("respects custom sourceChannel parameter", () => {
+    ensureVellumGuardianBinding("self");
+    const ctx = resolveLocalIpcGuardianContext("vellum");
+    expect(ctx.sourceChannel).toBe("vellum");
   });
 });
 
@@ -358,50 +405,50 @@ describe('resolveLocalIpcGuardianContext', () => {
 // Local IPC AuthContext resolution
 // ---------------------------------------------------------------------------
 
-describe('resolveLocalIpcAuthContext', () => {
-  test('returns AuthContext with ipc principal type', () => {
-    const ctx = resolveLocalIpcAuthContext('session-123');
-    expect(ctx.principalType).toBe('ipc');
+describe("resolveLocalIpcAuthContext", () => {
+  test("returns AuthContext with ipc principal type", () => {
+    const ctx = resolveLocalIpcAuthContext("session-123");
+    expect(ctx.principalType).toBe("ipc");
   });
 
-  test('subject follows ipc:self:<sessionId> pattern', () => {
-    const ctx = resolveLocalIpcAuthContext('session-abc');
-    expect(ctx.subject).toBe('ipc:self:session-abc');
+  test("subject follows ipc:self:<sessionId> pattern", () => {
+    const ctx = resolveLocalIpcAuthContext("session-abc");
+    expect(ctx.subject).toBe("ipc:self:session-abc");
   });
 
-  test('assistantId is always self', () => {
-    const ctx = resolveLocalIpcAuthContext('session-123');
-    expect(ctx.assistantId).toBe('self');
+  test("assistantId is always self", () => {
+    const ctx = resolveLocalIpcAuthContext("session-123");
+    expect(ctx.assistantId).toBe("self");
   });
 
-  test('uses ipc_v1 scope profile with ipc.all scope', () => {
-    const ctx = resolveLocalIpcAuthContext('session-123');
-    expect(ctx.scopeProfile).toBe('ipc_v1');
-    expect(ctx.scopes.has('ipc.all')).toBe(true);
+  test("uses ipc_v1 scope profile with ipc.all scope", () => {
+    const ctx = resolveLocalIpcAuthContext("session-123");
+    expect(ctx.scopeProfile).toBe("ipc_v1");
+    expect(ctx.scopes.has("ipc.all")).toBe(true);
   });
 
-  test('enriches actorPrincipalId from vellum guardian binding when present', () => {
-    ensureVellumGuardianBinding('self');
-    const binding = getActiveBinding('self', 'vellum');
+  test("enriches actorPrincipalId from vellum guardian binding when present", () => {
+    ensureVellumGuardianBinding("self");
+    const binding = getActiveBinding("self", "vellum");
     expect(binding).toBeTruthy();
 
-    const ctx = resolveLocalIpcAuthContext('session-123');
+    const ctx = resolveLocalIpcAuthContext("session-123");
     expect(ctx.actorPrincipalId).toBe(binding!.guardianExternalUserId);
   });
 
-  test('actorPrincipalId is undefined when no vellum binding exists', () => {
+  test("actorPrincipalId is undefined when no vellum binding exists", () => {
     // Reset DB to ensure no binding
     resetDb();
     initializeDb();
 
-    const ctx = resolveLocalIpcAuthContext('session-123');
+    const ctx = resolveLocalIpcAuthContext("session-123");
     // When no binding exists, actorPrincipalId is not set
     expect(ctx.actorPrincipalId).toBeUndefined();
   });
 
-  test('sessionId matches the provided argument', () => {
-    const ctx = resolveLocalIpcAuthContext('my-session');
-    expect(ctx.sessionId).toBe('my-session');
+  test("sessionId matches the provided argument", () => {
+    const ctx = resolveLocalIpcAuthContext("my-session");
+    expect(ctx.sessionId).toBe("my-session");
   });
 });
 
@@ -409,24 +456,25 @@ describe('resolveLocalIpcAuthContext', () => {
 // Pairing actor-token flow
 // ---------------------------------------------------------------------------
 
-describe('pairing credential flow', () => {
-  test('mintPairingCredentials returns access token in approved pairing status poll', async () => {
-    ensureVellumGuardianBinding('self');
+describe("pairing credential flow", () => {
+  test("mintPairingCredentials returns access token in approved pairing status poll", async () => {
+    ensureVellumGuardianBinding("self");
 
-    const { PairingStore } = await import('../daemon/pairing-store.js');
-    const { handlePairingRequest, handlePairingStatus } = await import('../runtime/routes/pairing-routes.js');
+    const { PairingStore } = await import("../daemon/pairing-store.js");
+    const { handlePairingRequest, handlePairingStatus } =
+      await import("../runtime/routes/pairing-routes.js");
 
     const store = new PairingStore();
     store.start();
 
-    const pairingRequestId = 'test-pair-' + Date.now();
-    const pairingSecret = 'test-secret-123';
-    const bearerToken = 'test-bearer';
+    const pairingRequestId = "test-pair-" + Date.now();
+    const pairingSecret = "test-secret-123";
+    const bearerToken = "test-bearer";
 
     store.register({
       pairingRequestId,
       pairingSecret,
-      gatewayUrl: 'https://gw.test',
+      gatewayUrl: "https://gw.test",
     });
 
     const ctx = {
@@ -436,52 +484,55 @@ describe('pairing credential flow', () => {
       pairingBroadcast: () => {},
     };
 
-    const pairReq = new Request('http://localhost/v1/pairing/request', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    const pairReq = new Request("http://localhost/v1/pairing/request", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         pairingRequestId,
         pairingSecret,
-        deviceId: 'ios-device-1',
-        deviceName: 'Test iPhone',
+        deviceId: "ios-device-1",
+        deviceName: "Test iPhone",
       }),
     });
 
     const pairRes = await handlePairingRequest(pairReq, ctx);
     expect(pairRes.status).toBe(200);
-    const pairBody = await pairRes.json() as Record<string, unknown>;
-    expect(pairBody.status).toBe('pending');
+    const pairBody = (await pairRes.json()) as Record<string, unknown>;
+    expect(pairBody.status).toBe("pending");
 
     store.approve(pairingRequestId, bearerToken);
 
-    const statusUrl = new URL(`http://localhost/v1/pairing/status?id=${pairingRequestId}&secret=${pairingSecret}`);
+    const statusUrl = new URL(
+      `http://localhost/v1/pairing/status?id=${pairingRequestId}&secret=${pairingSecret}`,
+    );
     const statusRes = handlePairingStatus(statusUrl, ctx);
     expect(statusRes.status).toBe(200);
-    const statusBody = await statusRes.json() as Record<string, unknown>;
-    expect(statusBody.status).toBe('approved');
+    const statusBody = (await statusRes.json()) as Record<string, unknown>;
+    expect(statusBody.status).toBe("approved");
     expect(statusBody.accessToken).toBeTruthy();
     expect(statusBody.bearerToken).toBe(bearerToken);
 
     store.stop();
   });
 
-  test('approved access token is available within 5 min TTL window', async () => {
-    ensureVellumGuardianBinding('self');
+  test("approved access token is available within 5 min TTL window", async () => {
+    ensureVellumGuardianBinding("self");
 
-    const { PairingStore } = await import('../daemon/pairing-store.js');
-    const { handlePairingRequest, handlePairingStatus } = await import('../runtime/routes/pairing-routes.js');
+    const { PairingStore } = await import("../daemon/pairing-store.js");
+    const { handlePairingRequest, handlePairingStatus } =
+      await import("../runtime/routes/pairing-routes.js");
 
     const store = new PairingStore();
     store.start();
 
-    const pairingRequestId = 'test-ttl-' + Date.now();
-    const pairingSecret = 'test-secret-ttl';
-    const bearerToken = 'test-bearer-ttl';
+    const pairingRequestId = "test-ttl-" + Date.now();
+    const pairingSecret = "test-secret-ttl";
+    const bearerToken = "test-bearer-ttl";
 
     store.register({
       pairingRequestId,
       pairingSecret,
-      gatewayUrl: 'https://gw.test',
+      gatewayUrl: "https://gw.test",
     });
 
     const ctx = {
@@ -491,55 +542,54 @@ describe('pairing credential flow', () => {
       pairingBroadcast: () => {},
     };
 
-    const pairReq = new Request('http://localhost/v1/pairing/request', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    const pairReq = new Request("http://localhost/v1/pairing/request", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         pairingRequestId,
         pairingSecret,
-        deviceId: 'ios-device-ttl',
-        deviceName: 'TTL iPhone',
+        deviceId: "ios-device-ttl",
+        deviceName: "TTL iPhone",
       }),
     });
 
     await handlePairingRequest(pairReq, ctx);
     store.approve(pairingRequestId, bearerToken);
 
-    const statusUrl = new URL(`http://localhost/v1/pairing/status?id=${pairingRequestId}&secret=${pairingSecret}`);
+    const statusUrl = new URL(
+      `http://localhost/v1/pairing/status?id=${pairingRequestId}&secret=${pairingSecret}`,
+    );
     const firstRes = handlePairingStatus(statusUrl, ctx);
-    const firstBody = await firstRes.json() as Record<string, unknown>;
+    const firstBody = (await firstRes.json()) as Record<string, unknown>;
     const firstToken = firstBody.accessToken as string;
     expect(firstToken).toBeTruthy();
 
     const secondRes = handlePairingStatus(statusUrl, ctx);
-    const secondBody = await secondRes.json() as Record<string, unknown>;
+    const secondBody = (await secondRes.json()) as Record<string, unknown>;
     expect(secondBody.accessToken).toBe(firstToken);
 
     store.stop();
   });
 
-  test('approved status can recover token mint using deviceId query when transient pairing state is missing', async () => {
-    ensureVellumGuardianBinding('self');
+  test("approved status can recover token mint using deviceId query when transient pairing state is missing", async () => {
+    ensureVellumGuardianBinding("self");
 
-    const { PairingStore } = await import('../daemon/pairing-store.js');
-    const {
-      cleanupPairingState,
-      handlePairingRequest,
-      handlePairingStatus,
-    } = await import('../runtime/routes/pairing-routes.js');
+    const { PairingStore } = await import("../daemon/pairing-store.js");
+    const { cleanupPairingState, handlePairingRequest, handlePairingStatus } =
+      await import("../runtime/routes/pairing-routes.js");
 
     const store = new PairingStore();
     store.start();
 
-    const pairingRequestId = 'test-recover-' + Date.now();
-    const pairingSecret = 'test-secret-recover';
-    const bearerToken = 'test-bearer-recover';
-    const deviceId = 'ios-device-recover';
+    const pairingRequestId = "test-recover-" + Date.now();
+    const pairingSecret = "test-secret-recover";
+    const bearerToken = "test-bearer-recover";
+    const deviceId = "ios-device-recover";
 
     store.register({
       pairingRequestId,
       pairingSecret,
-      gatewayUrl: 'https://gw.test',
+      gatewayUrl: "https://gw.test",
     });
 
     const ctx = {
@@ -549,14 +599,14 @@ describe('pairing credential flow', () => {
       pairingBroadcast: () => {},
     };
 
-    const pairReq = new Request('http://localhost/v1/pairing/request', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    const pairReq = new Request("http://localhost/v1/pairing/request", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         pairingRequestId,
         pairingSecret,
         deviceId,
-        deviceName: 'Recovery iPhone',
+        deviceName: "Recovery iPhone",
       }),
     });
 
@@ -567,36 +617,39 @@ describe('pairing credential flow', () => {
     cleanupPairingState(pairingRequestId);
 
     const statusUrl = new URL(
-      `http://localhost/v1/pairing/status?id=${pairingRequestId}&secret=${pairingSecret}&deviceId=${encodeURIComponent(deviceId)}`,
+      `http://localhost/v1/pairing/status?id=${pairingRequestId}&secret=${pairingSecret}&deviceId=${encodeURIComponent(
+        deviceId,
+      )}`,
     );
     const statusRes = handlePairingStatus(statusUrl, ctx);
     expect(statusRes.status).toBe(200);
-    const statusBody = await statusRes.json() as Record<string, unknown>;
+    const statusBody = (await statusRes.json()) as Record<string, unknown>;
 
-    expect(statusBody.status).toBe('approved');
+    expect(statusBody.status).toBe("approved");
     expect(statusBody.accessToken).toBeTruthy();
     expect(statusBody.bearerToken).toBe(bearerToken);
 
     store.stop();
   });
 
-  test('mintingInFlight guard prevents concurrent mints (synchronous check)', async () => {
-    ensureVellumGuardianBinding('self');
+  test("mintingInFlight guard prevents concurrent mints (synchronous check)", async () => {
+    ensureVellumGuardianBinding("self");
 
-    const { PairingStore } = await import('../daemon/pairing-store.js');
-    const { handlePairingRequest, handlePairingStatus } = await import('../runtime/routes/pairing-routes.js');
+    const { PairingStore } = await import("../daemon/pairing-store.js");
+    const { handlePairingRequest, handlePairingStatus } =
+      await import("../runtime/routes/pairing-routes.js");
 
     const store = new PairingStore();
     store.start();
 
-    const pairingRequestId = 'test-concurrent-' + Date.now();
-    const pairingSecret = 'test-secret-conc';
-    const bearerToken = 'test-bearer-conc';
+    const pairingRequestId = "test-concurrent-" + Date.now();
+    const pairingSecret = "test-secret-conc";
+    const bearerToken = "test-bearer-conc";
 
     store.register({
       pairingRequestId,
       pairingSecret,
-      gatewayUrl: 'https://gw.test',
+      gatewayUrl: "https://gw.test",
     });
 
     const ctx = {
@@ -606,29 +659,31 @@ describe('pairing credential flow', () => {
       pairingBroadcast: () => {},
     };
 
-    const pairReq = new Request('http://localhost/v1/pairing/request', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    const pairReq = new Request("http://localhost/v1/pairing/request", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         pairingRequestId,
         pairingSecret,
-        deviceId: 'ios-device-conc',
-        deviceName: 'Concurrent iPhone',
+        deviceId: "ios-device-conc",
+        deviceName: "Concurrent iPhone",
       }),
     });
 
     await handlePairingRequest(pairReq, ctx);
     store.approve(pairingRequestId, bearerToken);
 
-    const statusUrl = new URL(`http://localhost/v1/pairing/status?id=${pairingRequestId}&secret=${pairingSecret}`);
+    const statusUrl = new URL(
+      `http://localhost/v1/pairing/status?id=${pairingRequestId}&secret=${pairingSecret}`,
+    );
     const res1 = handlePairingStatus(statusUrl, ctx);
     const res2 = handlePairingStatus(statusUrl, ctx);
 
-    const body1 = await res1.json() as Record<string, unknown>;
-    const body2 = await res2.json() as Record<string, unknown>;
+    const body1 = (await res1.json()) as Record<string, unknown>;
+    const body2 = (await res2.json()) as Record<string, unknown>;
 
-    expect(body1.status).toBe('approved');
-    expect(body2.status).toBe('approved');
+    expect(body1.status).toBe("approved");
+    expect(body2.status).toBe("approved");
     expect(body1.accessToken).toBeTruthy();
     expect(body2.accessToken).toBe(body1.accessToken);
 
@@ -640,48 +695,60 @@ describe('pairing credential flow', () => {
 // Bootstrap loopback guard tests
 // ---------------------------------------------------------------------------
 
-describe('bootstrap loopback guard', () => {
-  test('rejects bootstrap request with X-Forwarded-For header', async () => {
-    const { handleGuardianBootstrap } = await import('../runtime/routes/guardian-bootstrap-routes.js');
+describe("bootstrap loopback guard", () => {
+  test("rejects bootstrap request with X-Forwarded-For header", async () => {
+    const { handleGuardianBootstrap } =
+      await import("../runtime/routes/guardian-bootstrap-routes.js");
 
-    const req = new Request('http://localhost/v1/integrations/guardian/vellum/bootstrap', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Forwarded-For': '10.0.0.1',
+    const req = new Request(
+      "http://localhost/v1/integrations/guardian/vellum/bootstrap",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Forwarded-For": "10.0.0.1",
+        },
+        body: JSON.stringify({ platform: "macos", deviceId: "test-device" }),
       },
-      body: JSON.stringify({ platform: 'macos', deviceId: 'test-device' }),
-    });
+    );
 
     const res = await handleGuardianBootstrap(req, loopbackServer);
     expect(res.status).toBe(403);
-    const body = await res.json() as { error: { message: string } };
-    expect(body.error.message).toContain('local-only');
+    const body = (await res.json()) as { error: { message: string } };
+    expect(body.error.message).toContain("local-only");
   });
 
-  test('rejects bootstrap request from non-loopback IP', async () => {
-    const { handleGuardianBootstrap } = await import('../runtime/routes/guardian-bootstrap-routes.js');
+  test("rejects bootstrap request from non-loopback IP", async () => {
+    const { handleGuardianBootstrap } =
+      await import("../runtime/routes/guardian-bootstrap-routes.js");
 
-    const req = new Request('http://localhost/v1/integrations/guardian/vellum/bootstrap', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ platform: 'macos', deviceId: 'test-device' }),
-    });
+    const req = new Request(
+      "http://localhost/v1/integrations/guardian/vellum/bootstrap",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platform: "macos", deviceId: "test-device" }),
+      },
+    );
 
     const res = await handleGuardianBootstrap(req, nonLoopbackServer);
     expect(res.status).toBe(403);
-    const body = await res.json() as { error: { message: string } };
-    expect(body.error.message).toContain('local-only');
+    const body = (await res.json()) as { error: { message: string } };
+    expect(body.error.message).toContain("local-only");
   });
 
-  test('accepts bootstrap request from loopback IP', async () => {
-    const { handleGuardianBootstrap } = await import('../runtime/routes/guardian-bootstrap-routes.js');
+  test("accepts bootstrap request from loopback IP", async () => {
+    const { handleGuardianBootstrap } =
+      await import("../runtime/routes/guardian-bootstrap-routes.js");
 
-    const req = new Request('http://localhost/v1/integrations/guardian/vellum/bootstrap', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ platform: 'macos', deviceId: 'test-device-ok' }),
-    });
+    const req = new Request(
+      "http://localhost/v1/integrations/guardian/vellum/bootstrap",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platform: "macos", deviceId: "test-device-ok" }),
+      },
+    );
 
     const res = await handleGuardianBootstrap(req, loopbackServer);
     expect(res.status).toBe(200);

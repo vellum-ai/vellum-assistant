@@ -1,14 +1,14 @@
-import { describe, expect, mock,test } from 'bun:test';
+import { describe, expect, mock, test } from "bun:test";
 
 // Mock config before importing modules that depend on it.
 // The permissions mode must be 'legacy' so computer-use tools
 // (which have no trust rules in test) don't trigger approval prompts.
-mock.module('../config/loader.js', () => ({
+mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
-    
-    provider: 'mock-provider',
-    permissions: { mode: 'legacy' },
+
+    provider: "mock-provider",
+    permissions: { mode: "legacy" },
     apiKeys: {},
     sandbox: { enabled: false },
     timeouts: { toolExecutionTimeoutSec: 30, permissionTimeoutSec: 5 },
@@ -27,14 +27,17 @@ mock.module('../config/loader.js', () => ({
   invalidateConfigCache: () => {},
 }));
 
-import { ComputerUseSession } from '../daemon/computer-use-session.js';
-import type { CuObservation, ServerMessage } from '../daemon/ipc-protocol.js';
-import type { Provider, ProviderResponse } from '../providers/types.js';
+import { ComputerUseSession } from "../daemon/computer-use-session.js";
+import type { CuObservation, ServerMessage } from "../daemon/ipc-protocol.js";
+import type { Provider, ProviderResponse } from "../providers/types.js";
 
-function createProvider(responses: ProviderResponse[]): { provider: Provider; getCalls: () => number } {
+function createProvider(responses: ProviderResponse[]): {
+  provider: Provider;
+  getCalls: () => number;
+} {
   let calls = 0;
   const provider: Provider = {
-    name: 'mock',
+    name: "mock",
     async sendMessage() {
       const response = responses[calls] ?? responses[responses.length - 1];
       calls++;
@@ -44,25 +47,27 @@ function createProvider(responses: ProviderResponse[]): { provider: Provider; ge
   return { provider, getCalls: () => calls };
 }
 
-describe('ComputerUseSession lifecycle', () => {
-  test('stops provider loop immediately after terminal computer_use_done tool', async () => {
+describe("ComputerUseSession lifecycle", () => {
+  test("stops provider loop immediately after terminal computer_use_done tool", async () => {
     const { provider, getCalls } = createProvider([
       {
-        content: [{
-          type: 'tool_use',
-          id: 'tu-1',
-          name: 'computer_use_done',
-          input: { summary: 'Task finished' },
-        }],
-        model: 'mock-model',
+        content: [
+          {
+            type: "tool_use",
+            id: "tu-1",
+            name: "computer_use_done",
+            input: { summary: "Task finished" },
+          },
+        ],
+        model: "mock-model",
         usage: { inputTokens: 10, outputTokens: 5 },
-        stopReason: 'tool_use',
+        stopReason: "tool_use",
       },
       {
-        content: [{ type: 'text', text: 'This should never be requested' }],
-        model: 'mock-model',
+        content: [{ type: "text", text: "This should never be requested" }],
+        model: "mock-model",
         usage: { inputTokens: 10, outputTokens: 5 },
-        stopReason: 'end_turn',
+        stopReason: "end_turn",
       },
     ]);
 
@@ -70,19 +75,23 @@ describe('ComputerUseSession lifecycle', () => {
     let terminalCalls = 0;
 
     const session = new ComputerUseSession(
-      'cu-test-1',
-      'test task',
+      "cu-test-1",
+      "test task",
       1440,
       900,
       provider,
-      (msg) => { sentMessages.push(msg); },
-      'computer_use',
-      () => { terminalCalls++; },
+      (msg) => {
+        sentMessages.push(msg);
+      },
+      "computer_use",
+      () => {
+        terminalCalls++;
+      },
     );
 
     const observation: CuObservation = {
-      type: 'cu_observation',
-      sessionId: 'cu-test-1',
+      type: "cu_observation",
+      sessionId: "cu-test-1",
       axTree: 'Window "Test" [1]',
     };
 
@@ -90,204 +99,223 @@ describe('ComputerUseSession lifecycle', () => {
 
     // If computer_use_done does not abort the loop, we'd see an extra provider call.
     expect(getCalls()).toBe(1);
-    expect(session.getState()).toBe('complete');
+    expect(session.getState()).toBe("complete");
     expect(terminalCalls).toBe(1);
 
     const completes = sentMessages.filter(
-      (msg): msg is Extract<ServerMessage, { type: 'cu_complete' }> => msg.type === 'cu_complete',
+      (msg): msg is Extract<ServerMessage, { type: "cu_complete" }> =>
+        msg.type === "cu_complete",
     );
     expect(completes).toHaveLength(1);
-    expect(completes[0].summary).toBe('Task finished');
+    expect(completes[0].summary).toBe("Task finished");
   });
 
-  test('notifies terminal callback only once on repeated abort calls', () => {
+  test("notifies terminal callback only once on repeated abort calls", () => {
     const { provider } = createProvider([
       {
-        content: [{ type: 'text', text: 'unused' }],
-        model: 'mock-model',
+        content: [{ type: "text", text: "unused" }],
+        model: "mock-model",
         usage: { inputTokens: 1, outputTokens: 1 },
-        stopReason: 'end_turn',
+        stopReason: "end_turn",
       },
     ]);
 
     let terminalCalls = 0;
     const session = new ComputerUseSession(
-      'cu-test-2',
-      'test task',
+      "cu-test-2",
+      "test task",
       1440,
       900,
       provider,
       () => {},
-      'computer_use',
-      () => { terminalCalls++; },
+      "computer_use",
+      () => {
+        terminalCalls++;
+      },
     );
 
     session.abort();
     session.abort();
 
     expect(terminalCalls).toBe(1);
-    expect(session.getState()).toBe('error');
+    expect(session.getState()).toBe("error");
   });
 
-  test('CU session passes exactly 12 computer_use_* tools to the agent loop', async () => {
+  test("CU session passes exactly 12 computer_use_* tools to the agent loop", async () => {
     let capturedTools: string[] = [];
     const provider: Provider = {
-      name: 'mock',
+      name: "mock",
       async sendMessage(_msgs, tools) {
         capturedTools = (tools ?? []).map((t) => t.name);
         return {
-          content: [{
-            type: 'tool_use',
-            id: 'tu-capture',
-            name: 'computer_use_done',
-            input: { summary: 'Done' },
-          }],
-          model: 'mock-model',
+          content: [
+            {
+              type: "tool_use",
+              id: "tu-capture",
+              name: "computer_use_done",
+              input: { summary: "Done" },
+            },
+          ],
+          model: "mock-model",
           usage: { inputTokens: 10, outputTokens: 5 },
-          stopReason: 'tool_use',
+          stopReason: "tool_use",
         };
       },
     };
 
     const session = new ComputerUseSession(
-      'cu-tool-capture',
-      'capture tools',
+      "cu-tool-capture",
+      "capture tools",
       1440,
       900,
       provider,
       () => {},
-      'computer_use',
+      "computer_use",
     );
 
     await session.handleObservation({
-      type: 'cu_observation',
-      sessionId: 'cu-tool-capture',
+      type: "cu_observation",
+      sessionId: "cu-tool-capture",
       axTree: 'Window "Test" [1]',
     });
 
-    const cuTools = capturedTools.filter((n) => n.startsWith('computer_use_'));
+    const cuTools = capturedTools.filter((n) => n.startsWith("computer_use_"));
     expect(cuTools).toHaveLength(12);
 
     // Assert exact set of expected CU tool names
     const expectedCuTools = [
-      'computer_use_click',
-      'computer_use_double_click',
-      'computer_use_right_click',
-      'computer_use_type_text',
-      'computer_use_key',
-      'computer_use_scroll',
-      'computer_use_drag',
-      'computer_use_wait',
-      'computer_use_open_app',
-      'computer_use_run_applescript',
-      'computer_use_done',
-      'computer_use_respond',
+      "computer_use_click",
+      "computer_use_double_click",
+      "computer_use_right_click",
+      "computer_use_type_text",
+      "computer_use_key",
+      "computer_use_scroll",
+      "computer_use_drag",
+      "computer_use_wait",
+      "computer_use_open_app",
+      "computer_use_run_applescript",
+      "computer_use_done",
+      "computer_use_respond",
     ];
     for (const name of expectedCuTools) {
       expect(cuTools).toContain(name);
     }
   });
 
-  test('computer_use_respond is a terminal tool that completes the session', async () => {
+  test("computer_use_respond is a terminal tool that completes the session", async () => {
     const { provider } = createProvider([
       {
-        content: [{
-          type: 'tool_use',
-          id: 'tu-respond',
-          name: 'computer_use_respond',
-          input: { answer: 'The meeting is at 3pm', reasoning: 'Found in calendar' },
-        }],
-        model: 'mock-model',
+        content: [
+          {
+            type: "tool_use",
+            id: "tu-respond",
+            name: "computer_use_respond",
+            input: {
+              answer: "The meeting is at 3pm",
+              reasoning: "Found in calendar",
+            },
+          },
+        ],
+        model: "mock-model",
         usage: { inputTokens: 10, outputTokens: 5 },
-        stopReason: 'tool_use',
+        stopReason: "tool_use",
       },
     ]);
 
     const sentMessages: ServerMessage[] = [];
     const session = new ComputerUseSession(
-      'cu-respond-test',
-      'check my schedule',
+      "cu-respond-test",
+      "check my schedule",
       1440,
       900,
       provider,
-      (msg) => { sentMessages.push(msg); },
-      'computer_use',
+      (msg) => {
+        sentMessages.push(msg);
+      },
+      "computer_use",
     );
 
     await session.handleObservation({
-      type: 'cu_observation',
-      sessionId: 'cu-respond-test',
+      type: "cu_observation",
+      sessionId: "cu-respond-test",
       axTree: 'Window "Calendar" [1]',
     });
 
-    expect(session.getState()).toBe('complete');
+    expect(session.getState()).toBe("complete");
     const completes = sentMessages.filter(
-      (msg): msg is Extract<ServerMessage, { type: 'cu_complete' }> => msg.type === 'cu_complete',
+      (msg): msg is Extract<ServerMessage, { type: "cu_complete" }> =>
+        msg.type === "cu_complete",
     );
     expect(completes).toHaveLength(1);
-    expect(completes[0].summary).toBe('The meeting is at 3pm');
+    expect(completes[0].summary).toBe("The meeting is at 3pm");
     expect(completes[0].isResponse).toBe(true);
   });
 
-  test('default construction preactivates computer-use skill and provides 12 CU tools', async () => {
+  test("default construction preactivates computer-use skill and provides 12 CU tools", async () => {
     let capturedTools: string[] = [];
     const provider: Provider = {
-      name: 'mock',
+      name: "mock",
       async sendMessage(_msgs, tools) {
         capturedTools = (tools ?? []).map((t) => t.name);
         return {
-          content: [{
-            type: 'tool_use',
-            id: 'tu-default',
-            name: 'computer_use_done',
-            input: { summary: 'Done' },
-          }],
-          model: 'mock-model',
+          content: [
+            {
+              type: "tool_use",
+              id: "tu-default",
+              name: "computer_use_done",
+              input: { summary: "Done" },
+            },
+          ],
+          model: "mock-model",
           usage: { inputTokens: 10, outputTokens: 5 },
-          stopReason: 'tool_use',
+          stopReason: "tool_use",
         };
       },
     };
 
     // No preactivatedSkillIds passed — defaults to ['computer-use'] via skill projection
     const session = new ComputerUseSession(
-      'cu-default-projection',
-      'test default projection',
-      1440, 900,
+      "cu-default-projection",
+      "test default projection",
+      1440,
+      900,
       provider,
       () => {},
-      'computer_use',
+      "computer_use",
       undefined,
     );
 
     await session.handleObservation({
-      type: 'cu_observation',
-      sessionId: 'cu-default-projection',
+      type: "cu_observation",
+      sessionId: "cu-default-projection",
       axTree: 'Window "Test" [1]',
     });
 
-    const cuTools = capturedTools.filter((n) => n.startsWith('computer_use_'));
+    const cuTools = capturedTools.filter((n) => n.startsWith("computer_use_"));
     expect(cuTools).toHaveLength(12);
   });
 
-  test('constructor accepts preactivatedSkillIds parameter', () => {
-    const { provider } = createProvider([{
-      content: [{ type: 'text', text: 'unused' }],
-      model: 'mock-model',
-      usage: { inputTokens: 1, outputTokens: 1 },
-      stopReason: 'end_turn',
-    }]);
+  test("constructor accepts preactivatedSkillIds parameter", () => {
+    const { provider } = createProvider([
+      {
+        content: [{ type: "text", text: "unused" }],
+        model: "mock-model",
+        usage: { inputTokens: 1, outputTokens: 1 },
+        stopReason: "end_turn",
+      },
+    ]);
 
     // Should not throw
     const session = new ComputerUseSession(
-      'cu-preactivated',
-      'test preactivated',
-      1440, 900,
+      "cu-preactivated",
+      "test preactivated",
+      1440,
+      900,
       provider,
       () => {},
-      'computer_use',
+      "computer_use",
       undefined,
-      ['computer-use'],
+      ["computer-use"],
     );
 
     expect(session).toBeDefined();
