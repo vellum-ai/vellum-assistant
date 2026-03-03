@@ -2007,6 +2007,37 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         }
 
         let window = CommandPaletteWindow()
+
+        // Static actions
+        window.actions = [
+            CommandPaletteAction(id: "new-conversation", icon: "square.and.pencil", label: "New Conversation", shortcutHint: nil) { [weak self] in
+                self?.mainWindow?.threadManager.enterDraftMode()
+                self?.mainWindow?.windowState.selection = nil
+            },
+            CommandPaletteAction(id: "settings", icon: "gear", label: "Settings", shortcutHint: nil) { [weak self] in
+                self?.mainWindow?.windowState.togglePanel(.settings)
+            },
+            CommandPaletteAction(id: "app-directory", icon: "square.grid.2x2", label: "App Directory", shortcutHint: nil) { [weak self] in
+                self?.mainWindow?.windowState.showAppsPanel()
+            },
+            CommandPaletteAction(id: "intelligence", icon: "brain.head.profile", label: "Intelligence", shortcutHint: nil) { [weak self] in
+                self?.mainWindow?.windowState.togglePanel(.intelligence)
+            },
+        ]
+
+        // Recent conversations from ThreadManager
+        if let threads = mainWindow?.threadManager.threads {
+            window.recentItems = threads
+                .filter { !$0.isArchived }
+                .sorted { $0.lastInteractedAt > $1.lastInteractedAt }
+                .prefix(5)
+                .map { CommandPaletteRecentItem(id: $0.id, title: $0.title, lastInteracted: $0.lastInteractedAt) }
+        }
+
+        window.onSelectConversation = { [weak self] threadId in
+            self?.mainWindow?.threadManager.selectThread(id: threadId)
+        }
+
         window.show()
         commandPaletteWindow = window
     }

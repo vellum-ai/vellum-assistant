@@ -19,8 +19,14 @@ final class CommandPaletteWindow {
     private var isDismissing = false
     private let viewModel = CommandPaletteViewModel()
 
-    /// Callback invoked when the user selects a result that navigates to a conversation.
-    var onSelectConversation: ((String) -> Void)?
+    /// Callback invoked when the user selects a conversation to navigate to.
+    var onSelectConversation: ((UUID) -> Void)?
+
+    /// Static actions to show in the palette.
+    var actions: [CommandPaletteAction] = []
+
+    /// Recent conversations to show in the palette.
+    var recentItems: [CommandPaletteRecentItem] = []
 
     func show() {
         let panel = makePanel()
@@ -38,11 +44,16 @@ final class CommandPaletteWindow {
         }
 
         viewModel.reset()
+        viewModel.actions = actions
+        viewModel.recentItems = recentItems
 
         let view = CommandPaletteView(
             viewModel: viewModel,
             onDismiss: { [weak self] in
                 self?.dismiss()
+            },
+            onSelectRecent: { [weak self] threadId in
+                self?.onSelectConversation?(threadId)
             }
         )
 

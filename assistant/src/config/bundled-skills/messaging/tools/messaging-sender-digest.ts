@@ -24,7 +24,7 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
           senders: [],
           total_scanned: result.totalScanned,
           query_used: result.queryUsed,
-          ...(result.truncated ? { truncated: true, next_page_token: result.nextPageToken } : {}),
+          ...(result.truncated ? { truncated: true } : {}),
           message: 'No emails found matching the query. Try broadening the search (e.g. remove category filter or extend date range).',
         }));
       }
@@ -53,7 +53,7 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
         senders,
         total_scanned: result.totalScanned,
         query_used: result.queryUsed,
-        ...(result.truncated ? { truncated: true, next_page_token: result.nextPageToken } : {}),
+        ...(result.truncated ? { truncated: true } : {}),
         note: `message_count reflects emails found per sender within the ${result.totalScanned} messages scanned. Use scan_id with the archive tool to archive messages (pass scan_id + sender_ids instead of message_ids).`,
       }));
     });

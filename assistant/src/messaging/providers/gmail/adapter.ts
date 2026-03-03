@@ -196,9 +196,9 @@ export const gmailMessagingProvider: MessagingProvider = {
   },
 
   async senderDigest(token: string, query: string, options?: { maxMessages?: number; maxSenders?: number; pageToken?: string }): Promise<SenderDigestResult> {
-    const maxMessages = Math.min(options?.maxMessages ?? 2000, 2000);
+    const maxMessages = Math.min(options?.maxMessages ?? 5000, 5000);
     const maxSenders = options?.maxSenders ?? 30;
-    const maxIdsPerSender = 2000;
+    const maxIdsPerSender = 5000;
 
     const allMessageIds: string[] = [];
     const fetchPromises: Promise<GmailMessage[]>[] = [];
@@ -296,7 +296,7 @@ export const gmailMessagingProvider: MessagingProvider = {
       hasMore: s.hasMore,
     }));
 
-    return { senders, totalScanned: allMessageIds.length, queryUsed: query, ...(truncated ? { truncated, nextPageToken: pageToken } : {}) };
+    return { senders, totalScanned: allMessageIds.length, queryUsed: query, ...(truncated ? { truncated } : {}) };
   },
 
   async archiveByQuery(token: string, query: string): Promise<ArchiveResult> {
