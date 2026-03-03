@@ -15,7 +15,7 @@ Concretely:
 
 ### Zero-scope default
 
-All connections start with zero scopes. The `peer_assistant` trust class is fail-closed: until the guardian explicitly grants at least one scope, the peer can do nothing. This is enforced by the existing gate in `tool-approval-handler.ts` which blocks all tool execution for `peer_assistant` actors.
+All connections start with zero scopes. The `peer_assistant` trust class is fail-closed at the tool execution layer: `tool-approval-handler.ts` blocks all tool invocations for `peer_assistant` actors. However, inbound A2A messages are currently accepted and routed to `processMessage` without a scope check in `handleA2AMessageInbound` — the `message` scope gate on the inbound message path is added by M16 (scoped autonomy policy engine). Until M16 is active, the `a2a-scope-policy` feature flag (defaultEnabled: false) prevents `sendMessage()` from delivering outbound messages, but inbound messages from an already-connected peer will still reach the session (where the tool execution gate prevents any privileged action).
 
 ### Scope as a filter, not a gate
 
