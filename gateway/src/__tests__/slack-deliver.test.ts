@@ -57,8 +57,6 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   return merged;
 }
 
-const TOKEN = "test-deliver-token";
-
 function makeRequest(
   body: unknown,
   headers?: Record<string, string>,
