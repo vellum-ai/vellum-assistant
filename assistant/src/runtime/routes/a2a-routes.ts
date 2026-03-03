@@ -22,6 +22,7 @@ import {
 import {
   a2aRateLimitResponse,
   codeVerificationLimiter,
+  connectRequestLimiter,
   inviteRedemptionLimiter,
   statusPollingLimiter,
 } from '../../a2a/a2a-rate-limiter.js';
@@ -127,6 +128,14 @@ export async function handleA2AConnect(req: Request): Promise<Response> {
   }
   if (!inviteToken) {
     return httpError('BAD_REQUEST', 'Missing required field: inviteToken', 400);
+  }
+
+  // Rate limit by source IP (set by gateway proxy via X-Forwarded-For)
+  const clientIp = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown';
+  const rlResult = connectRequestLimiter.check(clientIp);
+  if (!rlResult.allowed) {
+    log.warn({ clientIp }, 'Connect request rate limit hit');
+    return a2aRateLimitResponse(rlResult);
   }
 
   const result = initiateConnection({
