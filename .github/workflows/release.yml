@@ -709,6 +709,13 @@ jobs:
           BIN_PATH=$(swift build -c release --arch x86_64 --product vellum-assistant --show-bin-path)
           mkdir -p /tmp/swift-x86_64
           cp "$BIN_PATH/vellum-assistant" /tmp/swift-x86_64/
+          # Copy Sparkle framework and resource bundles (needed for app assembly)
+          if [ -d "$BIN_PATH/Sparkle.framework" ]; then
+            cp -R "$BIN_PATH/Sparkle.framework" /tmp/swift-x86_64/
+          fi
+          for bundle in "$BIN_PATH"/*.bundle; do
+            [ -d "$bundle" ] && cp -R "$bundle" /tmp/swift-x86_64/
+          done
 
       - uses: actions/upload-artifact@v4
         with:
@@ -716,9 +723,11 @@ jobs:
           path: /tmp/swift-x86_64
           retention-days: 1
 
-  # Original production build — unchanged, runs the full sequential build.
-  build-macos:
-    needs: [bump-and-tag, ci-cli, ci-gateway]
+  # arm64 macOS build — uses prebuilt Swift binary from build-swift-arm64,
+  # builds arm64-only Bun binaries, creates DMG, notarizes, staples, and
+  # generates the Sparkle appcast. This is the primary/default build.
+  build-macos-arm64:
+    needs: [bump-and-tag, build-swift-arm64, ci-cli, ci-gateway]
     runs-on: macos-14
     timeout-minutes: 30
     defaults:
@@ -774,6 +783,26 @@ jobs:
           echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
           echo "Display version: $DISPLAY_VERSION / Build version: $BUILD_VERSION"
 
+      - name: Download Swift build (arm64)
+        uses: actions/download-artifact@v4
+        with:
+          name: swift-build-arm64
+          path: clients/macos/swift-arm64
+
+      - name: Prepare prebuilt binaries
+        run: |
+          mkdir -p prebuilt-bin
+          cp swift-arm64/vellum-assistant prebuilt-bin/vellum-assistant
+          # Copy Sparkle framework and resource bundles from arm64 build
+          if [ -d swift-arm64/Sparkle.framework ]; then
+            cp -R swift-arm64/Sparkle.framework prebuilt-bin/
+          fi
+          for bundle in swift-arm64/*.bundle; do
+            [ -d "$bundle" ] && cp -R "$bundle" prebuilt-bin/
+          done
+          echo "arm64 binary prepared:"
+          file prebuilt-bin/vellum-assistant
+
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
         with:
@@ -782,7 +811,7 @@ jobs:
       - name: Build binaries
         run: |
           DISPLAY_VERSION="${{ steps.version.outputs.display_version }}" \
-          ./build.sh binaries --universal
+          ./build.sh binaries
 
       - name: Build release .app
         run: |
@@ -790,6 +819,8 @@ jobs:
           BUILD_VERSION="${{ steps.version.outputs.build_version }}" \
           SU_PUBLIC_ED_KEY="${{ secrets.SPARKLE_ED_PUBLIC_KEY }}" \
           SIGN_IDENTITY="Developer ID Application" \
+          PREBUILT_BIN_PATH="$(pwd)/prebuilt-bin" \
+          RELEASE_ARCH_FLAGS="--arch arm64" \
           ./build.sh release
 
           APP_PATH="dist/Vellum.app"
@@ -797,9 +828,12 @@ jobs:
           codesign --verify --deep --strict "$APP_PATH"
           echo "Code signature verified"
 
+          echo "Main executable architecture:"
+          file "$APP_PATH/Contents/MacOS/Vellum"
+
       - name: Free disk space
         run: |
-          rm -rf .build daemon-bin cli-bin gateway-bin
+          rm -rf .build daemon-bin cli-bin gateway-bin swift-arm64 prebuilt-bin
           rm -rf ../../assistant/node_modules ../../cli/node_modules ../../gateway/node_modules
           rm -rf ~/Library/Developer/Xcode/DerivedData 2>/dev/null || true
           rm -rf ~/Library/Caches/org.swift.swiftpm 2>/dev/null || true
@@ -999,19 +1033,19 @@ jobs:
           security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
           rm -rf ~/.private_keys 2>/dev/null || true
 
-  # Experimental split-arch build — runs in parallel with the production build-macos
-  # job to validate the parallel architecture approach. Produces a separate artifact
-  # (split-arch-build) that is NOT used by the release job. Compare this artifact
-  # with the production build to verify correctness before switching over.
-  build-macos-split-arch:
-    needs: [bump-and-tag, build-swift-arm64, build-swift-x86_64, ci-cli, ci-gateway]
+  # x86_64 macOS build — produces a separate DMG for Intel Macs.
+  # Runs in parallel with build-macos-arm64 and does NOT block the release job.
+  build-macos-x64:
+    needs: [bump-and-tag, build-swift-x86_64, ci-cli, ci-gateway]
     runs-on: macos-14
     timeout-minutes: 30
+    continue-on-error: true
     defaults:
       run:
         working-directory: clients/macos
     env:
-      KEYCHAIN_NAME: build-split.keychain
+      DMG_PATH: build/vellum-assistant-x64.dmg
+      KEYCHAIN_NAME: build-x64.keychain
       KEYCHAIN_PASSWORD: temporary-ci-password
     steps:
       - uses: actions/checkout@v4
@@ -1058,59 +1092,87 @@ jobs:
           echo "display_version=$DISPLAY_VERSION" >> "$GITHUB_OUTPUT"
           echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Download Swift build (arm64)
-        uses: actions/download-artifact@v4
-        with:
-          name: swift-build-arm64
-          path: clients/macos/swift-arm64
-
       - name: Download Swift build (x86_64)
         uses: actions/download-artifact@v4
         with:
           name: swift-build-x86_64
           path: clients/macos/swift-x86_64
 
-      - name: Create universal binary
+      - name: Prepare prebuilt binaries
         run: |
           mkdir -p prebuilt-bin
-          lipo -create swift-arm64/vellum-assistant swift-x86_64/vellum-assistant \
-            -output prebuilt-bin/vellum-assistant
-          # Copy Sparkle framework and resource bundles from arm64 build
-          if [ -d swift-arm64/Sparkle.framework ]; then
-            cp -R swift-arm64/Sparkle.framework prebuilt-bin/
+          cp swift-x86_64/vellum-assistant prebuilt-bin/vellum-assistant
+          # Copy Sparkle framework and resource bundles from x86_64 build
+          if [ -d swift-x86_64/Sparkle.framework ]; then
+            cp -R swift-x86_64/Sparkle.framework prebuilt-bin/
           fi
-          for bundle in swift-arm64/*.bundle; do
+          for bundle in swift-x86_64/*.bundle; do
             [ -d "$bundle" ] && cp -R "$bundle" prebuilt-bin/
           done
-          echo "Universal binary created:"
+          echo "x86_64 binary prepared:"
           file prebuilt-bin/vellum-assistant
-          lipo -info prebuilt-bin/vellum-assistant
-          # Also verify Sparkle framework architectures
-          if [ -d prebuilt-bin/Sparkle.framework ]; then
-            SPARKLE_BIN=$(find prebuilt-bin/Sparkle.framework -name Sparkle -type f | head -1)
-            if [ -n "$SPARKLE_BIN" ]; then
-              echo "Sparkle framework architectures:"
-              lipo -info "$SPARKLE_BIN"
-            fi
-          fi
 
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
-      - name: Build binaries
+      - name: Build Bun binaries (x64)
         run: |
-          DISPLAY_VERSION="${{ steps.version.outputs.display_version }}" \
-          ./build.sh binaries --universal
+          # Build x64 Bun binaries by targeting x64 explicitly
+          command -v bun &>/dev/null || { echo "ERROR: bun is required but not found"; exit 1; }
+
+          ASSISTANT_SRC_DIR="../../assistant"
+          CLI_SRC_DIR="../../cli"
+          GATEWAY_SRC_DIR="../../gateway"
+
+          DAEMON_EXTERNAL_FLAGS=(--external electron --external "chromium-bidi/*")
+          DAEMON_FLAGS=("${DAEMON_EXTERNAL_FLAGS[@]}")
+          DISPLAY_VERSION="${{ steps.version.outputs.display_version }}"
+          if [ -n "$DISPLAY_VERSION" ] && [ "$DISPLAY_VERSION" != "0.1.0" ]; then
+            DAEMON_FLAGS+=(--define "process.env.APP_VERSION='$DISPLAY_VERSION'")
+          fi
+
+          # Daemon
+          (cd "$ASSISTANT_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
+          mkdir -p daemon-bin
+          bun build --compile "${DAEMON_FLAGS[@]}" --target=bun-darwin-x64 \
+            "$ASSISTANT_SRC_DIR/src/daemon/main.ts" --outfile daemon-bin/vellum-daemon
+          chmod +x daemon-bin/vellum-daemon
+          cp "$ASSISTANT_SRC_DIR/node_modules/web-tree-sitter/web-tree-sitter.wasm" daemon-bin/
+          cp "$ASSISTANT_SRC_DIR/node_modules/tree-sitter-bash/tree-sitter-bash.wasm" daemon-bin/
+          rm -rf daemon-bin/node_modules
+          rm -rf daemon-bin/bundled-skills
+          cp -R "$ASSISTANT_SRC_DIR/src/config/bundled-skills" daemon-bin/bundled-skills
+          rm -rf daemon-bin/templates
+          cp -R "$ASSISTANT_SRC_DIR/src/config/templates" daemon-bin/templates
+          rm -rf daemon-bin/hook-templates
+          cp -R "$ASSISTANT_SRC_DIR/hook-templates" daemon-bin/hook-templates
+          rm -rf daemon-bin/prebuilt
+          mkdir -p daemon-bin/prebuilt
+          cp "$ASSISTANT_SRC_DIR/src/home-base/prebuilt/index.html" daemon-bin/prebuilt/
+
+          # CLI
+          (cd "$CLI_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
+          mkdir -p cli-bin
+          bun build --compile --target=bun-darwin-x64 \
+            "$CLI_SRC_DIR/src/index.ts" --outfile cli-bin/vellum-cli
+          chmod +x cli-bin/vellum-cli
+
+          # Gateway
+          (cd "$GATEWAY_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
+          mkdir -p gateway-bin
+          bun build --compile --target=bun-darwin-x64 \
+            "$GATEWAY_SRC_DIR/src/index.ts" --outfile gateway-bin/vellum-gateway
+          chmod +x gateway-bin/vellum-gateway
 
       - name: Build release .app
         run: |
           DISPLAY_VERSION="${{ steps.version.outputs.display_version }}" \
           BUILD_VERSION="${{ steps.version.outputs.build_version }}" \
-          SU_PUBLIC_ED_KEY="${{ secrets.SPARKLE_ED_PUBLIC_KEY }}" \
           SIGN_IDENTITY="Developer ID Application" \
           PREBUILT_BIN_PATH="$(pwd)/prebuilt-bin" \
+          RELEASE_ARCH_FLAGS="--arch x86_64" \
           ./build.sh release
 
           APP_PATH="dist/Vellum.app"
@@ -1118,26 +1180,152 @@ jobs:
           codesign --verify --deep --strict "$APP_PATH"
           echo "Code signature verified"
 
-          # Verify the main executable is truly universal
-          echo "Main executable architectures:"
-          lipo -info "$APP_PATH/Contents/MacOS/Vellum"
+          echo "Main executable architecture:"
+          file "$APP_PATH/Contents/MacOS/Vellum"
 
-      - name: Upload split-arch build
+      - name: Free disk space
+        run: |
+          rm -rf .build daemon-bin cli-bin gateway-bin swift-x86_64 prebuilt-bin
+          rm -rf ../../assistant/node_modules ../../cli/node_modules ../../gateway/node_modules
+          rm -rf ~/Library/Developer/Xcode/DerivedData 2>/dev/null || true
+          df -h .
+
+      - name: Generate DMG background
+        run: |
+          mkdir -p build
+          swift dmg/generate-background.swift build/dmg-background@2x.png
+
+      - name: Install create-dmg
+        run: brew install create-dmg
+
+      - name: Create DMG
+        run: |
+          APP_PATH="dist/Vellum.app"
+
+          DMG_STAGING="build/dmg-staging"
+          mkdir -p "$DMG_STAGING"
+          cp -R "$APP_PATH" "$DMG_STAGING/"
+          ln -s /Applications "$DMG_STAGING/Applications"
+
+          echo "Staging directory size:"
+          du -sh "$DMG_STAGING"
+
+          create-dmg \
+            --volname "Vellum" \
+            --background "build/dmg-background@2x.png" \
+            --window-pos 200 120 \
+            --window-size 660 400 \
+            --icon-size 128 \
+            --text-size 10 \
+            --icon "Vellum.app" 175 190 \
+            --icon "Applications" 530 190 \
+            --hide-extension "Vellum.app" \
+            --no-internet-enable \
+            "$DMG_PATH" \
+            "$DMG_STAGING/" \
+          || {
+            EXIT_CODE=$?
+            if [ $EXIT_CODE -eq 2 ] && [ -f "$DMG_PATH" ]; then
+              echo "create-dmg exited with warning (code 2), but DMG was created successfully"
+            else
+              echo "create-dmg failed with exit code $EXIT_CODE"
+              exit $EXIT_CODE
+            fi
+          }
+
+          echo "DMG created at $DMG_PATH"
+          ls -lh "$DMG_PATH"
+
+      - name: Sign DMG
+        run: |
+          codesign --sign "Developer ID Application" \
+            --timestamp \
+            "$DMG_PATH"
+
+          codesign --verify --verbose "$DMG_PATH"
+          echo "DMG signature verified"
+
+      - name: Notarize DMG
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          mkdir -p ~/.private_keys
+          echo "$ASC_KEY_P8" > ~/.private_keys/AuthKey_${ASC_KEY_ID}.p8
+
+          echo "Submitting x64 DMG for notarization..."
+          NOTARIZE_OUTPUT=$(xcrun notarytool submit "$DMG_PATH" \
+            --key ~/.private_keys/AuthKey_${ASC_KEY_ID}.p8 \
+            --key-id "$ASC_KEY_ID" \
+            --issuer "$ASC_ISSUER_ID" \
+            --wait \
+            --timeout 30m \
+            2>&1) || NOTARIZE_FAILED=true
+
+          echo "$NOTARIZE_OUTPUT"
+
+          SUBMISSION_ID=$(echo "$NOTARIZE_OUTPUT" | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)
+
+          if [ "$NOTARIZE_FAILED" = "true" ] || echo "$NOTARIZE_OUTPUT" | grep -q "status: Invalid"; then
+            echo "::error::x64 notarization failed (status: Invalid or command error)"
+            if [ -n "$SUBMISSION_ID" ]; then
+              echo "Fetching notarization log for submission $SUBMISSION_ID..."
+              xcrun notarytool log "$SUBMISSION_ID" \
+                --key ~/.private_keys/AuthKey_${ASC_KEY_ID}.p8 \
+                --key-id "$ASC_KEY_ID" \
+                --issuer "$ASC_ISSUER_ID" \
+                || echo "::warning::Could not fetch notarization log"
+            fi
+            exit 1
+          fi
+
+          echo "x64 notarization succeeded (status: Accepted)"
+
+      - name: Staple notarization ticket
+        run: |
+          MAX_ATTEMPTS=15
+          WAIT_SECS=60
+          for i in $(seq 1 $MAX_ATTEMPTS); do
+            STAPLE_OUTPUT=$(xcrun stapler staple "$DMG_PATH" 2>&1)
+            STAPLE_EXIT=$?
+            if [ $STAPLE_EXIT -eq 0 ]; then
+              echo "Stapling succeeded on attempt $i"
+              echo "$STAPLE_OUTPUT"
+              break
+            fi
+            echo "::warning::Stapling attempt $i/$MAX_ATTEMPTS failed (exit code $STAPLE_EXIT):"
+            echo "$STAPLE_OUTPUT"
+            if [ "$i" -eq "$MAX_ATTEMPTS" ]; then
+              echo "::error::Stapling failed after $MAX_ATTEMPTS attempts"
+              exit 1
+            fi
+            echo "Waiting ${WAIT_SECS}s for CDN propagation..."
+            sleep $WAIT_SECS
+            WAIT_SECS=$((WAIT_SECS + 15))
+          done
+
+          xcrun stapler validate "$DMG_PATH"
+          echo "x64 notarization ticket stapled and validated"
+
+      - name: Upload x64 DMG artifact
         uses: actions/upload-artifact@v4
         with:
-          name: split-arch-build
-          path: clients/macos/dist/Vellum.app
-          retention-days: 7
+          name: macos-build-x64
+          path: clients/macos/build/vellum-assistant-x64.dmg
+          if-no-files-found: error
+          retention-days: 1
 
-      - name: Cleanup keychain
+      - name: Cleanup keychain and keys
         if: always()
         run: |
           KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
           security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
+          rm -rf ~/.private_keys 2>/dev/null || true
 
   release:
-    needs: [bump-and-tag, publish-npm, publish-meta, build-macos, push-assistant-manifest, push-gateway-manifest, register-release, ci-cli, ci-gateway, ci-playwright]
-    if: ${{ !cancelled() && needs.bump-and-tag.result == 'success' && needs.publish-npm.result == 'success' && needs.publish-meta.result == 'success' && needs.build-macos.result == 'success' && needs.ci-cli.result == 'success' && needs.ci-gateway.result == 'success' }}
+    needs: [bump-and-tag, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, push-assistant-manifest, push-gateway-manifest, register-release, ci-cli, ci-gateway, ci-playwright]
+    if: ${{ !cancelled() && needs.bump-and-tag.result == 'success' && needs.publish-npm.result == 'success' && needs.publish-meta.result == 'success' && needs.build-macos-arm64.result == 'success' && needs.ci-cli.result == 'success' && needs.ci-gateway.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -1159,6 +1347,13 @@ jobs:
         with:
           name: macos-build
           path: macos-artifacts
+
+      - name: Download x64 DMG artifact
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: macos-build-x64
+          path: macos-artifacts-x64
 
       - name: Create GitHub Releases
         env:
@@ -1185,6 +1380,12 @@ jobs:
             [ -n "$DMG" ] && ASSETS+=("$DMG#vellum-assistant.dmg")
             [ -n "$ZIP" ] && ASSETS+=("$ZIP#vellum-assistant.zip")
             [ -n "$APPCAST" ] && ASSETS+=("$APPCAST#appcast.xml")
+          fi
+
+          # Add x64 DMG if available (non-blocking — may not exist if x64 build failed)
+          if [ -d "macos-artifacts-x64" ]; then
+            X64_DMG=$(find macos-artifacts-x64 -name "vellum-assistant-x64.dmg" -type f | head -1)
+            [ -n "$X64_DMG" ] && ASSETS+=("$X64_DMG#vellum-assistant-x64.dmg")
           fi
 
           INSTALL_SH="cli/src/adapters/install.sh"
@@ -1491,7 +1692,7 @@ jobs:
           rm -rf ~/.private_keys 2>/dev/null || true
 
   ci-playwright:
-    needs: [bump-and-tag, build-macos]
+    needs: [bump-and-tag, build-macos-arm64]
     runs-on: macos-14
     timeout-minutes: 60
     permissions:
@@ -1599,7 +1800,7 @@ jobs:
 
   notify:
     if: always() && !cancelled()
-    needs: [bump-and-tag, publish-npm, publish-meta, build-macos, build-ios, release-ios, push-assistant-manifest, push-gateway-manifest, register-release, release, update-platform, ci-assistant, ci-cli, ci-gateway, ci-playwright]
+    needs: [bump-and-tag, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, build-ios, release-ios, push-assistant-manifest, push-gateway-manifest, register-release, release, update-platform, ci-assistant, ci-cli, ci-gateway, ci-playwright]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     continue-on-error: true
@@ -1624,7 +1825,7 @@ jobs:
             "${{ needs.bump-and-tag.result }}" \
             "${{ needs.publish-npm.result }}" \
             "${{ needs.publish-meta.result }}" \
-            "${{ needs.build-macos.result }}" \
+            "${{ needs.build-macos-arm64.result }}" \
             "${{ needs.build-ios.result }}" \
             "${{ needs.push-assistant-manifest.result }}" \
             "${{ needs.push-gateway-manifest.result }}" \
@@ -1648,13 +1849,14 @@ jobs:
           fi
 
           # Build CI status icons
-          ci_icon() { if [ "$1" = "success" ]; then printf '✅'; else printf '❌'; fi; }
+          ci_icon() { if [ "$1" = "success" ]; then printf '✅'; elif [ "$1" = "skipped" ]; then printf '⏭️'; else printf '❌'; fi; }
 
           A=$(ci_icon "${{ needs.ci-assistant.result }}")
           C=$(ci_icon "${{ needs.ci-cli.result }}")
           G=$(ci_icon "${{ needs.ci-gateway.result }}")
           P=$(ci_icon "${{ needs.ci-playwright.result }}")
-          D=$(ci_icon "${{ needs.build-macos.result }}")
+          D=$(ci_icon "${{ needs.build-macos-arm64.result }}")
+          DX=$(ci_icon "${{ needs.build-macos-x64.result }}")
           I=$(ci_icon "${{ needs.build-ios.result }}")
           RI=$(ci_icon "${{ needs.release-ios.result }}")
           AI=$(ci_icon "${{ needs.push-assistant-manifest.result }}")
@@ -1667,7 +1869,7 @@ jobs:
             PLAYWRIGHT_LINE=" (<${RUN_URL}#artifacts|view report>)"
           fi
 
-          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s gateway\n• %s playwright%s\n• %s desktop\n• %s ios\n• %s ios-release\n• %s assistant-docker\n• %s gateway-docker\n• %s register-release' "$A" "$C" "$G" "$P" "$PLAYWRIGHT_LINE" "$D" "$I" "$RI" "$AI" "$GI" "$RR")
+          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s gateway\n• %s playwright%s\n• %s desktop (arm64)\n• %s desktop (x64)\n• %s ios\n• %s ios-release\n• %s assistant-docker\n• %s gateway-docker\n• %s register-release' "$A" "$C" "$G" "$P" "$PLAYWRIGHT_LINE" "$D" "$DX" "$I" "$RI" "$AI" "$GI" "$RR")
           META_LINE=$(printf '*Version:* `%s`\n*Triggered by:* %s' "$VERSION" "${{ github.actor }}")
 
           # Fetch release notes from GitHub release

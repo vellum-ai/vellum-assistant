@@ -262,7 +262,7 @@ CONFIG="debug"
 SWIFT_FLAGS=""
 if [ "$CMD" = "release" ]; then
     CONFIG="release"
-    SWIFT_FLAGS="-c release ${RELEASE_ARCH_FLAGS:---arch arm64 --arch x86_64}"
+    SWIFT_FLAGS="-c release ${RELEASE_ARCH_FLAGS:---arch arm64}"
     if [ -n "${PREBUILT_BIN_PATH:-}" ]; then
         # Using prebuilt binaries from parallel CI jobs — only clean dist
         echo "Release build: using prebuilt binaries, cleaning dist only..."
@@ -713,7 +713,9 @@ if [ -d "$FRAMEWORKS_DIR/Sparkle.framework" ]; then
     [ -f "$SPARKLE_VERSIONS/Autoupdate" ] && codesign "${FW_SIGN_FLAGS[@]}" "$SPARKLE_VERSIONS/Autoupdate"
 
     # Sign the outer framework last
-    codesign "${FW_SIGN_FLAGS[@]}" "$FRAMEWORKS_DIR/Sparkle.framework"
+    # --bundle-format framework is required because newer codesign versions
+    # consider Sparkle's Versions/B layout ambiguous (could be app or framework).
+    codesign --bundle-format framework "${FW_SIGN_FLAGS[@]}" "$FRAMEWORKS_DIR/Sparkle.framework"
     echo "Sparkle.framework signed (including nested binaries)"
 fi
 

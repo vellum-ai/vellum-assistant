@@ -82,15 +82,16 @@ final class AppListManagerSyncTests: XCTestCase {
         XCTAssertEqual(ids, ["app-a", "app-b", "app-c"])
     }
 
-    func testNewAppTimestampDerivesFromDaemonCreatedAt() {
+    func testNewAppTimestampDerivesFromDaemonCreatedAt() throws {
         // createdAt is milliseconds since epoch; lastOpenedAt should reflect it
         let createdAtMs = 1_700_000_000_000
         let daemonApp = makeDaemonApp(id: "app-ts", name: "Timestamp App", createdAt: createdAtMs)
         manager.syncFromDaemon([daemonApp])
 
+        let app = try XCTUnwrap(manager.apps.first)
         let expectedDate = Date(timeIntervalSince1970: TimeInterval(createdAtMs) / 1000.0)
         XCTAssertEqual(
-            manager.apps.first?.lastOpenedAt.timeIntervalSince1970,
+            app.lastOpenedAt.timeIntervalSince1970,
             expectedDate.timeIntervalSince1970,
             accuracy: 0.001,
             "lastOpenedAt should be derived from daemon's createdAt millisecond timestamp"
