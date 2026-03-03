@@ -75,10 +75,11 @@ final class AlwaysOnAudioMonitor: ObservableObject {
 
         do {
             try engine.start()
-            guard engine.isRunning else {
-                log.warning("Engine start returned without error but is not running")
-                return
-            }
+            // Set isListening optimistically — engine.start() may return
+            // before the engine is fully running (e.g. when speech auth is
+            // .notDetermined and deferred to an async callback). The
+            // persistent-error callback will reset isListening if the engine
+            // hits an unrecoverable failure after starting.
             isListening = true
             persistentErrorMessage = nil
             log.info("Audio monitoring started")
