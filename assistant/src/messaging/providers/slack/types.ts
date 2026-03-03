@@ -126,4 +126,10 @@ export interface SlackChatDeleteResponse extends SlackApiResponse {
   ts: string;
 }
 
+export interface SlackChatUpdateResponse extends SlackApiResponse {
+  channel: string;
+  ts: string;
+  text: string;
+}
+
 export type SlackConversationMarkResponse = SlackApiResponse;

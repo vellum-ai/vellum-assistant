@@ -98,12 +98,7 @@
             "description": "Confidence score (0-1) for this action"
           }
         },
-        "required": [
-          "channel",
-          "timestamp",
-          "emoji",
-          "confidence"
-        ]
+        "required": ["channel", "timestamp", "emoji", "confidence"]
       },
       "executor": "tools/slack-add-reaction.ts",
       "execution_target": "host"
@@ -129,13 +124,39 @@
             "description": "Confidence score (0-1) for this action"
           }
         },
-        "required": [
-          "channel",
-          "timestamp",
-          "confidence"
-        ]
+        "required": ["channel", "timestamp", "confidence"]
       },
       "executor": "tools/slack-delete-message.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "slack_edit_message",
+      "description": "Edit a Slack message previously posted by the bot. Include a confidence score (0-1).",
+      "category": "slack",
+      "risk": "high",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "channel": {
+            "type": "string",
+            "description": "Slack channel ID"
+          },
+          "timestamp": {
+            "type": "string",
+            "description": "Message timestamp (ts) to edit"
+          },
+          "text": {
+            "type": "string",
+            "description": "New message text"
+          },
+          "confidence": {
+            "type": "number",
+            "description": "Confidence score (0-1) for this action"
+          }
+        },
+        "required": ["channel", "timestamp", "text", "confidence"]
+      },
+      "executor": "tools/slack-edit-message.ts",
       "execution_target": "host"
     },
     {
@@ -155,10 +176,7 @@
             "description": "Confidence score (0-1) for this action"
           }
         },
-        "required": [
-          "channel",
-          "confidence"
-        ]
+        "required": ["channel", "confidence"]
       },
       "executor": "tools/slack-leave-channel.ts",
       "execution_target": "host"
