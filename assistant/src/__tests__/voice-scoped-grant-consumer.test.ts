@@ -111,7 +111,7 @@ import {
   startVoiceTurn,
 } from "../calls/voice-session-bridge.js";
 import type { ServerMessage } from "../daemon/ipc-protocol.js";
-import type { GuardianRuntimeContext } from "../daemon/session-runtime-assembly.js";
+import type { TrustContext } from "../daemon/session-runtime-assembly.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { scopedApprovalGrants } from "../memory/schema.js";
 import {
@@ -286,7 +286,7 @@ describe("voice bridge confirmation handling (grant consumption via primitive)",
     const mockData = createMockSession();
     setupBridgeDeps(() => mockData.session);
 
-    const guardianContext: GuardianRuntimeContext = {
+    const guardianContext: TrustContext = {
       sourceChannel: "voice",
       trustClass: "trusted_contact",
       requesterExternalUserId: "caller-123",
@@ -330,7 +330,7 @@ describe("voice bridge confirmation handling (grant consumption via primitive)",
     const mockData = createMockSession();
     setupBridgeDeps(() => mockData.session);
 
-    const guardianContext: GuardianRuntimeContext = {
+    const guardianContext: TrustContext = {
       sourceChannel: "voice",
       trustClass: "trusted_contact",
       requesterExternalUserId: "caller-123",
@@ -368,7 +368,7 @@ describe("voice bridge confirmation handling (grant consumption via primitive)",
     const mockData = createMockSession();
     setupBridgeDeps(() => mockData.session);
 
-    const guardianContext: GuardianRuntimeContext = {
+    const guardianContext: TrustContext = {
       sourceChannel: "voice",
       trustClass: "trusted_contact",
     };
@@ -398,7 +398,7 @@ describe("voice bridge confirmation handling (grant consumption via primitive)",
     const mockData = createMockSession();
     setupBridgeDeps(() => mockData.session);
 
-    const guardianContext: GuardianRuntimeContext = {
+    const guardianContext: TrustContext = {
       sourceChannel: "voice",
       trustClass: "guardian",
     };
@@ -434,7 +434,7 @@ describe("voice bridge confirmation handling (grant consumption via primitive)",
     const mockData = createMockSession();
     setupBridgeDeps(() => mockData.session);
 
-    const guardianContext: GuardianRuntimeContext = {
+    const guardianContext: TrustContext = {
       sourceChannel: "voice",
       trustClass: "trusted_contact",
       requesterExternalUserId: "caller-123",

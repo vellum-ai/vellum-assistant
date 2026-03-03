@@ -3,7 +3,7 @@
  */
 
 import { isChannelId, parseChannelId, parseInterfaceId } from '../channels/types.js';
-import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
+import type { TrustContext } from '../daemon/session-runtime-assembly.js';
 import * as channelDeliveryStore from '../memory/channel-delivery-store.js';
 import { getLogger } from '../util/logger.js';
 import { deliverReplyViaCallback } from './channel-reply-delivery.js';
@@ -12,7 +12,7 @@ import type { MessageProcessor } from './http-types.js';
 
 const log = getLogger('runtime-http');
 
-function parseGuardianRuntimeContext(value: unknown): GuardianRuntimeContext | undefined {
+function parseGuardianRuntimeContext(value: unknown): TrustContext | undefined {
   if (!value || typeof value !== 'object') return undefined;
   const raw = value as Record<string, unknown>;
   const trustClass = raw.trustClass;
@@ -123,7 +123,7 @@ export async function sweepFailedEvents(
     // This ensures replay never proceeds without an explicit trust classification
     // — downstream defaults like `guardianTrustClass ?? 'guardian'` would
     // otherwise grant guardian-level tool access to unclassified events.
-    const guardianContext: GuardianRuntimeContext = parsedGuardianContext ?? {
+    const guardianContext: TrustContext = parsedGuardianContext ?? {
       sourceChannel,
       trustClass: 'unknown',
     };

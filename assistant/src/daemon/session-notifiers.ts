@@ -32,7 +32,7 @@ import {
   unregisterWatchStartNotifier,
 } from '../tools/watch/watch-state.js';
 import type { ServerMessage } from './ipc-protocol.js';
-import type { GuardianRuntimeContext } from './session-runtime-assembly.js';
+import type { TrustContext } from './session-runtime-assembly.js';
 import { lastCommentaryBySession, lastSummaryBySession } from './watch-handler.js';
 
 /**
@@ -42,7 +42,7 @@ import { lastCommentaryBySession, lastSummaryBySession } from './watch-handler.j
 export interface NotifierSessionContext {
   sendToClient: (msg: ServerMessage) => void;
   messages: Message[];
-  guardianContext?: GuardianRuntimeContext;
+  guardianContext?: TrustContext;
 }
 
 /**

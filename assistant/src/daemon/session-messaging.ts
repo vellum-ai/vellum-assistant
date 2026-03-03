@@ -18,7 +18,7 @@ import type { Message } from '../providers/types.js';
 import { getLogger } from '../util/logger.js';
 import type { ServerMessage, UserMessageAttachment } from './ipc-protocol.js';
 import type { MessageQueue } from './session-queue-manager.js';
-import type { GuardianRuntimeContext } from './session-runtime-assembly.js';
+import type { TrustContext } from './session-runtime-assembly.js';
 
 const log = getLogger('session-messaging');
 
@@ -92,7 +92,7 @@ export interface MessagingSessionContext {
   abortController: AbortController | null;
   currentRequestId?: string;
   readonly queue: MessageQueue;
-  guardianContext?: GuardianRuntimeContext;
+  guardianContext?: TrustContext;
   getTurnChannelContext(): TurnChannelContext | null;
   getTurnInterfaceContext(): TurnInterfaceContext | null;
 }

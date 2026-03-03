@@ -609,7 +609,7 @@ export async function handleSendMessage(
   }
 
   // Resolve guardian context from AuthContext for the legacy path too.
-  let guardianContext: import('../../daemon/session-runtime-assembly.js').GuardianRuntimeContext;
+  let guardianContext: import('../../daemon/session-runtime-assembly.js').TrustContext;
   if (authContext.actorPrincipalId) {
     const legacyGuardianCtx = resolveGuardianContext({
       assistantId: DAEMON_INTERNAL_ASSISTANT_ID,

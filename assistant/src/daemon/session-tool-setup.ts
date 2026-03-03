@@ -42,7 +42,7 @@ import {
   markDoordashStepInProgress,
 } from "./doordash-steps.js";
 import type { ServerMessage, UiSurfaceShow } from "./ipc-protocol.js";
-import type { GuardianRuntimeContext } from "./session-runtime-assembly.js";
+import type { TrustContext } from "./session-runtime-assembly.js";
 import {
   projectSkillTools,
   type SkillProjectionCache,
@@ -59,7 +59,7 @@ const log = getLogger("session-tool-setup");
  * guardian so that control-plane gates don't block local development.
  */
 export function resolveGuardianTrustClass(
-  guardianContext: GuardianRuntimeContext | undefined,
+  guardianContext: TrustContext | undefined,
 ): TrustClass {
   if (isHttpAuthDisabled()) return "guardian";
   return guardianContext?.trustClass ?? "unknown";
@@ -90,7 +90,7 @@ export interface ToolSetupContext extends SurfaceSessionContext {
   /** When set, this session is executing a task run. Used to retrieve ephemeral permission rules. */
   taskRunId?: string;
   /** Guardian runtime context for the session — trustClass is propagated into ToolContext for control-plane policy enforcement. */
-  guardianContext?: GuardianRuntimeContext;
+  guardianContext?: TrustContext;
   /** Voice/call session ID, if the session originates from a call. Propagated into ToolContext for scoped grant consumption. */
   callSessionId?: string;
 }

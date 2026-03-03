@@ -20,7 +20,7 @@ import { canonicalizeInboundIdentity } from '../util/canonicalize-identity.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from './assistant-scope.js';
 import { getGuardianBinding } from './channel-guardian-service.js';
 
-export type { TrustContext, GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
+export type { TrustContext } from '../daemon/session-runtime-assembly.js';
 
 // ---------------------------------------------------------------------------
 // Types

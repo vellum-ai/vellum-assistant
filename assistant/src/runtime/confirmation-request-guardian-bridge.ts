@@ -12,7 +12,7 @@
  * canonical records.
  */
 
-import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
+import type { TrustContext } from '../daemon/session-runtime-assembly.js';
 import {
   type CanonicalGuardianRequest,
   createCanonicalGuardianDelivery,
@@ -33,7 +33,7 @@ export interface BridgeConfirmationRequestParams {
   /** The canonical guardian request already persisted for this confirmation_request. */
   canonicalRequest: CanonicalGuardianRequest;
   /** Guardian runtime context from the session. */
-  guardianContext: GuardianRuntimeContext;
+  guardianContext: TrustContext;
   /** Conversation ID where the confirmation_request was emitted. */
   conversationId: string;
   /** Tool name from the confirmation_request. */

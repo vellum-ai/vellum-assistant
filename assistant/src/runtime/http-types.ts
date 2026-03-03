@@ -3,7 +3,7 @@
  */
 import type { ChannelId, InterfaceId } from "../channels/types.js";
 import type { Session } from "../daemon/session.js";
-import type { GuardianRuntimeContext } from "../daemon/session-runtime-assembly.js";
+import type { TrustContext } from "../daemon/session-runtime-assembly.js";
 import type {
   ApprovalMessageContext,
   ComposeApprovalMessageGenerativeOptions,
@@ -112,7 +112,7 @@ export interface RuntimeMessageSessionOptions {
     uxBrief?: string;
   };
   assistantId?: string;
-  guardianContext?: GuardianRuntimeContext;
+  guardianContext?: TrustContext;
   /**
    * Whether this turn should permit interactive approval prompts.
    * Channel ingress sets this true so confirmations can be resolved

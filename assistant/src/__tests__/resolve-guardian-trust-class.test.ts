@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { GuardianRuntimeContext } from "../daemon/session-runtime-assembly.js";
+import type { TrustContext } from "../daemon/session-runtime-assembly.js";
 
 // ── Module mocks ─────────────────────────────────────────────────────
 
@@ -27,10 +27,10 @@ describe("resolveGuardianTrustClass", () => {
   });
 
   test("returns guardian context trust class when auth is enabled", () => {
-    const ctx: Pick<GuardianRuntimeContext, "trustClass"> = {
+    const ctx: Pick<TrustContext, "trustClass"> = {
       trustClass: "trusted_contact",
     };
-    expect(resolveGuardianTrustClass(ctx as GuardianRuntimeContext)).toBe(
+    expect(resolveGuardianTrustClass(ctx as TrustContext)).toBe(
       "trusted_contact",
     );
   });
@@ -41,20 +41,20 @@ describe("resolveGuardianTrustClass", () => {
 
   test("forces guardian when HTTP auth is disabled, regardless of context trust class", () => {
     fakeHttpAuthDisabled = true;
-    const ctx: Pick<GuardianRuntimeContext, "trustClass"> = {
+    const ctx: Pick<TrustContext, "trustClass"> = {
       trustClass: "trusted_contact",
     };
-    expect(resolveGuardianTrustClass(ctx as GuardianRuntimeContext)).toBe(
+    expect(resolveGuardianTrustClass(ctx as TrustContext)).toBe(
       "guardian",
     );
   });
 
   test("forces guardian for unknown trust class when HTTP auth is disabled", () => {
     fakeHttpAuthDisabled = true;
-    const ctx: Pick<GuardianRuntimeContext, "trustClass"> = {
+    const ctx: Pick<TrustContext, "trustClass"> = {
       trustClass: "unknown",
     };
-    expect(resolveGuardianTrustClass(ctx as GuardianRuntimeContext)).toBe(
+    expect(resolveGuardianTrustClass(ctx as TrustContext)).toBe(
       "guardian",
     );
   });

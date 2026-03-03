@@ -15,7 +15,7 @@ import type { ChannelId } from '../channels/types.js';
 import { getConfig } from '../config/loader.js';
 import type { ServerMessage } from '../daemon/ipc-protocol.js';
 import type { Session } from '../daemon/session.js';
-import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
+import type { TrustContext } from '../daemon/session-runtime-assembly.js';
 import { resolveChannelCapabilities } from '../daemon/session-runtime-assembly.js';
 import { buildAssistantEvent } from '../runtime/assistant-event.js';
 import { assistantEventHub } from '../runtime/assistant-event-hub.js';
@@ -91,7 +91,7 @@ export interface VoiceTurnOptions {
   /** Assistant scope for multi-assistant channels. */
   assistantId?: string;
   /** Guardian trust context for the caller. */
-  guardianContext?: GuardianRuntimeContext;
+  guardianContext?: TrustContext;
   /** Whether this is an inbound call (no outbound task). */
   isInbound: boolean;
   /** The outbound call task, if any. */

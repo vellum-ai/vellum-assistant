@@ -26,7 +26,7 @@ import type { UsageStats } from './ipc-contract.js';
 import type { ServerMessage, UserMessageAttachment } from './ipc-protocol.js';
 import type { MessageQueue } from './session-queue-manager.js';
 import type { QueueDrainReason } from './session-queue-manager.js';
-import type { GuardianRuntimeContext } from './session-runtime-assembly.js';
+import type { TrustContext } from './session-runtime-assembly.js';
 import { resolveSlash, type SlashContext } from './session-slash.js';
 import type { TraceEmitter } from './trace-emitter.js';
 
@@ -74,7 +74,7 @@ export interface ProcessSessionContext {
   preactivatedSkillIds?: string[];
   /** Assistant identity — used for scoping notification preferences. */
   readonly assistantId?: string;
-  guardianContext?: GuardianRuntimeContext;
+  guardianContext?: TrustContext;
   ensureActorScopedHistory(): Promise<void>;
   persistUserMessage(content: string, attachments: UserMessageAttachment[], requestId?: string, metadata?: Record<string, unknown>, displayContent?: string): Promise<string>;
   runAgentLoop(

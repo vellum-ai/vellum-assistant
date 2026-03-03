@@ -57,7 +57,7 @@ import { raceWithTimeout,stripMediaPayloadsForRetry } from './session-media-retr
 import { prepareMemoryContext } from './session-memory.js';
 import type { MessageQueue } from './session-queue-manager.js';
 import type { QueueDrainReason } from './session-queue-manager.js';
-import type { ActiveSurfaceContext, ChannelCapabilities, ChannelTurnContextParams, GuardianRuntimeContext, InboundActorContext, InterfaceTurnContextParams } from './session-runtime-assembly.js';
+import type { ActiveSurfaceContext, ChannelCapabilities, ChannelTurnContextParams, TrustContext, InboundActorContext, InterfaceTurnContextParams } from './session-runtime-assembly.js';
 import {
   applyRuntimeInjections,
   inboundActorContextFromGuardian,
@@ -107,7 +107,7 @@ export interface AgentLoopSessionContext {
   workspaceTopLevelDirty: boolean;
   channelCapabilities?: ChannelCapabilities;
   commandIntent?: { type: string; payload?: string; languageCode?: string };
-  guardianContext?: GuardianRuntimeContext;
+  guardianContext?: TrustContext;
   assistantId?: string;
   voiceCallControlPrompt?: string;
 
