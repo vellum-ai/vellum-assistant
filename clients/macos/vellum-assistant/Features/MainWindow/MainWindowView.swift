@@ -1341,20 +1341,15 @@ struct MainWindowView: View {
                                             .padding(.bottom, VSpacing.xxs)
                                     }
                                 } label: {
-                                    HStack(spacing: VSpacing.xs) {
-                                        // Leading 20×20 slot matching threadItem layout.
-                                        // Shows unread dot when collapsed + has unseen messages,
-                                        // otherwise a clear placeholder to keep text aligned.
+                                    HStack(spacing: VSpacing.sm) {
+                                        // Unread indicator: show orange dot when group
+                                        // is collapsed and any child thread has unseen messages.
                                         if !sidebar.expandedScheduleGroups.contains(group.key),
                                            group.threads.contains(where: { $0.hasUnseenLatestAssistantMessage }) {
                                             Circle()
                                                 .fill(Color(hex: 0xE86B40))
                                                 .frame(width: 6, height: 6)
-                                                .frame(width: 20, height: 20)
                                                 .transition(.opacity)
-                                        } else {
-                                            Color.clear
-                                                .frame(width: 20, height: 20)
                                         }
                                         Text(group.label)
                                             .font(.system(size: 13))
@@ -1371,7 +1366,6 @@ struct MainWindowView: View {
                                                     .fill(VColor.textMuted.opacity(0.12))
                                             )
                                     }
-                                    .padding(.leading, VSpacing.xs)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .contentShape(Rectangle())
                                     .onTapGesture {
@@ -1384,8 +1378,7 @@ struct MainWindowView: View {
                                         }
                                     }
                                 }
-                                .padding(.leading, 0)
-                                .padding(.trailing, VSpacing.sm)
+                                .padding(.horizontal, VSpacing.sm)
                                 .padding(.bottom, VSpacing.xxs)
                             }
                         }
