@@ -12,9 +12,13 @@ import type {
   CardSurfaceData,
   DynamicPageSurfaceData,
   FileUploadSurfaceData,
+  ListSurfaceData,
   ServerMessage,
   SurfaceData,
   SurfaceType,
+  TableColumn,
+  TableRow,
+  TableSurfaceData,
   UiSurfaceShow,
 } from './ipc-protocol.js';
 import { INTERACTIVE_SURFACE_TYPES } from './ipc-protocol.js';
@@ -377,6 +381,69 @@ export function handleSurfaceUndo(ctx: SurfaceSessionContext, surfaceId: string)
   log.info({ conversationId: ctx.conversationId, surfaceId, remaining: stack.length }, 'Surface undo applied');
 }
 
+/** Extract a human-readable label from a table row using the first column value. */
+export function describeTableRow(row: TableRow, columns: TableColumn[]): string {
+  if (columns.length === 0) return row.id;
+  const firstColId = columns[0].id;
+  const cell = row.cells[firstColId];
+  if (cell == null) return row.id;
+  if (typeof cell === 'string') return cell;
+  return cell.text;
+}
+
+const MAX_DESELECTION_ITEMS = 20;
+
+/** Format a list of deselected item labels as a bullet list, capped at MAX_DESELECTION_ITEMS. */
+export function formatDeselectionList(labels: string[]): string {
+  if (labels.length === 0) return '';
+  const shown = labels.slice(0, MAX_DESELECTION_ITEMS);
+  const lines = shown.map(l => `- ${l}`);
+  if (labels.length > MAX_DESELECTION_ITEMS) {
+    lines.push(`(and ${labels.length - MAX_DESELECTION_ITEMS} more)`);
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Compute a deselection description by diffing selectedIds against the stored
+ * surface state rows/items. Returns empty string when nothing was deselected.
+ */
+export function buildDeselectionDescription(
+  surfaceType: SurfaceType,
+  surfaceState: { surfaceType: SurfaceType; data: SurfaceData } | undefined,
+  selectedIds: string[],
+): string {
+  if (!surfaceState) return '';
+  const selectedSet = new Set(selectedIds);
+
+  if (surfaceType === 'table' && surfaceState.surfaceType === 'table') {
+    const tableData = surfaceState.data as TableSurfaceData;
+    const deselectedLabels: string[] = [];
+    for (const row of tableData.rows) {
+      if (row.selectable === false) continue;
+      if (!selectedSet.has(row.id)) {
+        deselectedLabels.push(describeTableRow(row, tableData.columns));
+      }
+    }
+    if (deselectedLabels.length === 0) return '';
+    return `\n\nDeselected items (user chose NOT to include):\n${formatDeselectionList(deselectedLabels)}`;
+  }
+
+  if (surfaceType === 'list' && surfaceState.surfaceType === 'list') {
+    const listData = surfaceState.data as ListSurfaceData;
+    const deselectedLabels: string[] = [];
+    for (const item of listData.items) {
+      if (!selectedSet.has(item.id)) {
+        deselectedLabels.push(item.title);
+      }
+    }
+    if (deselectedLabels.length === 0) return '';
+    return `\n\nDeselected items (user chose NOT to include):\n${formatDeselectionList(deselectedLabels)}`;
+  }
+
+  return '';
+}
+
 export function handleSurfaceAction(ctx: SurfaceSessionContext, surfaceId: string, actionId: string, data?: Record<string, unknown>): void {
   const pending = ctx.pendingSurfaceActions.get(surfaceId);
   if (!pending) {
@@ -406,16 +473,23 @@ export function handleSurfaceAction(ctx: SurfaceSessionContext, surfaceId: strin
 
   // Build a human-readable summary so the LLM clearly understands the
   // user's decision instead of parsing raw JSON.
-  const summary = buildCompletionSummary(pending.surfaceType, actionId, data);
+  const stored = ctx.surfaceState.get(surfaceId);
+  const surfaceData = stored?.data as Record<string, unknown> | undefined;
+  const summary = buildCompletionSummary(pending.surfaceType, actionId, data, surfaceData);
   let fallbackContent = `[User action on ${pending.surfaceType} surface: ${summary}]`;
   // Append structured data so the LLM has access to IDs/values it needs
   // to act on (e.g. selectedIds for archiving).
   if (data && Object.keys(data).length > 0) {
     fallbackContent += `\n\nAction data: ${JSON.stringify(data)}`;
   }
+  // Append deselection context for table/list surfaces so the LLM knows what the user chose to keep.
+  const selectedIds = data?.selectedIds as string[] | undefined;
+  if (selectedIds && (pending.surfaceType === 'table' || pending.surfaceType === 'list')) {
+    fallbackContent += buildDeselectionDescription(pending.surfaceType, stored, selectedIds);
+  }
   const content = prompt || fallbackContent;
   // Show the user plain-text instead of raw JSON action data.
-  const displayContent = prompt ? undefined : buildUserFacingLabel(pending.surfaceType, actionId, data);
+  const displayContent = prompt ? undefined : buildUserFacingLabel(pending.surfaceType, actionId, data, surfaceData);
 
   const requestId = uuid();
   ctx.surfaceActionRequestIds.add(requestId);
@@ -529,9 +603,12 @@ export function refreshSurfacesForApp(ctx: SurfaceSessionContext, appId: string,
   return refreshed;
 }
 
-export function buildCompletionSummary(surfaceType: string | undefined, actionId: string, data?: Record<string, unknown>): string {
+export function buildCompletionSummary(surfaceType: string | undefined, actionId: string, data?: Record<string, unknown>, surfaceData?: Record<string, unknown>): string {
   if (surfaceType === 'confirmation') {
-    if (actionId === 'cancel') return 'Cancelled';
+    if (actionId === 'cancel') {
+      const cancelLabel = typeof surfaceData?.cancelLabel === 'string' ? surfaceData.cancelLabel : undefined;
+      return cancelLabel ? `User chose: "${cancelLabel}"` : 'Cancelled';
+    }
     if (actionId === 'confirm') return 'Confirmed';
     // Preserve the actual action ID so the LLM knows the user's exact choice
     // (e.g. "deny", "no", "reject") rather than misreporting it as confirmed.
@@ -560,11 +637,14 @@ export function buildCompletionSummary(surfaceType: string | undefined, actionId
  * surface action. Unlike `buildCompletionSummary` (which is for the LLM),
  * this produces natural language the user can glance at.
  */
-export function buildUserFacingLabel(surfaceType: string | undefined, actionId: string, data?: Record<string, unknown>): string {
+export function buildUserFacingLabel(surfaceType: string | undefined, actionId: string, data?: Record<string, unknown>, surfaceData?: Record<string, unknown>): string {
   const count = (data?.selectedIds as string[] | undefined)?.length;
 
   if (surfaceType === 'confirmation') {
-    if (actionId === 'cancel') return 'Cancelled';
+    if (actionId === 'cancel') {
+      const cancelLabel = typeof surfaceData?.cancelLabel === 'string' ? surfaceData.cancelLabel : undefined;
+      return cancelLabel ?? 'Cancelled';
+    }
     if (actionId === 'confirm') return 'Confirmed';
     return `Selected: ${actionId}`;
   }
@@ -775,7 +855,7 @@ export async function surfaceProxyResolver(
     const lastAction = ctx.lastSurfaceAction.get(surfaceId);
     const stored = ctx.surfaceState.get(surfaceId);
     if (lastAction) {
-      const summary = buildCompletionSummary(stored?.surfaceType, lastAction.actionId, lastAction.data);
+      const summary = buildCompletionSummary(stored?.surfaceType, lastAction.actionId, lastAction.data, stored?.data as Record<string, unknown> | undefined);
       ctx.sendToClient({
         type: 'ui_surface_complete',
         sessionId: ctx.conversationId,
