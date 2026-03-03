@@ -242,8 +242,6 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: 'a2a/connections', scopes: ['settings.read'] },
   { endpoint: 'a2a/connections/status:GET', scopes: ['settings.read'] },
   { endpoint: 'a2a/connections/messages:POST', scopes: ['settings.write'] },
-  { endpoint: 'a2a/connections/scopes:PUT', scopes: ['settings.write'] },
-  { endpoint: 'a2a/connections/scopes:GET', scopes: ['settings.read'] },
 ];
 
 for (const { endpoint, scopes } of ACTOR_ENDPOINTS) {

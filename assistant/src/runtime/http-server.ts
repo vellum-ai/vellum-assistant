@@ -181,14 +181,12 @@ import {
   handleA2AApprove,
   handleA2AConnect,
   handleA2AConnectionStatus,
-  handleA2AGetScopes,
   handleA2AInvite,
   handleA2AListConnections,
   handleA2ARedeem,
   handleA2ARevoke,
   handleA2ARevokeNotify,
   handleA2ASendMessage,
-  handleA2AUpdateScopes,
   handleA2AVerify,
 } from './routes/a2a-routes.js';
 import { handleA2AMessageInbound } from './routes/a2a-inbound-routes.js';
@@ -288,8 +286,6 @@ const PARAMETERIZED_ROUTE_PATTERNS: Array<{ re: RegExp; policyBase: string }> = 
   { re: /^a2a\/connections\/[^/]+\/status$/, policyBase: 'a2a/connections/status' },
   // a2a/connections/{id}/messages
   { re: /^a2a\/connections\/[^/]+\/messages$/, policyBase: 'a2a/connections/messages' },
-  // a2a/connections/{id}/scopes
-  { re: /^a2a\/connections\/[^/]+\/scopes$/, policyBase: 'a2a/connections/scopes' },
 ];
 
 /**
@@ -1367,15 +1363,6 @@ export class RuntimeHttpServer {
       const a2aSendMessageMatch = endpoint.match(/^a2a\/connections\/([^/]+)\/messages$/);
       if (a2aSendMessageMatch && req.method === 'POST') {
         return await handleA2ASendMessage(req, a2aSendMessageMatch[1]);
-      }
-
-      // A2A scope management endpoints
-      const a2aScopesMatch = endpoint.match(/^a2a\/connections\/([^/]+)\/scopes$/);
-      if (a2aScopesMatch && req.method === 'PUT') {
-        return await handleA2AUpdateScopes(req, a2aScopesMatch[1]);
-      }
-      if (a2aScopesMatch && req.method === 'GET') {
-        return handleA2AGetScopes(a2aScopesMatch[1]);
       }
 
       // A2A revocation notification endpoint (peer gateway -> runtime)

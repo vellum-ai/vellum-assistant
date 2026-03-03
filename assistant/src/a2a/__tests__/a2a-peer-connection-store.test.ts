@@ -34,7 +34,6 @@ import {
   getConnectionByPeerAssistantId,
   listConnections,
   updateConnectionCredentials,
-  updateConnectionScopes,
   updateConnectionStatus,
 } from '../a2a-peer-connection-store.js';
 import { getDb, initializeDb, resetDb } from '../../memory/db.js';
@@ -85,7 +84,6 @@ describe('a2a-peer-connection-store', () => {
       status: 'pending',
       protocolVersion: '1.0.0',
       capabilities: ['scheduling:read', 'messaging:relay'],
-      scopes: ['scheduling:read'],
       outboundCredentialHash: 'hash-outbound-abc',
       inboundCredentialHash: 'hash-inbound-xyz',
       expiresAt: Date.now() + 86_400_000,
@@ -100,7 +98,6 @@ describe('a2a-peer-connection-store', () => {
     expect(conn.status).toBe('pending');
     expect(conn.protocolVersion).toBe('1.0.0');
     expect(conn.capabilities).toEqual(['scheduling:read', 'messaging:relay']);
-    expect(conn.scopes).toEqual(['scheduling:read']);
     expect(conn.outboundCredentialHash).toBe('hash-outbound-abc');
     expect(conn.inboundCredentialHash).toBe('hash-inbound-xyz');
     expect(conn.createdAt).toBeGreaterThan(0);
@@ -122,7 +119,6 @@ describe('a2a-peer-connection-store', () => {
     expect(conn.status).toBe('pending');
     expect(conn.protocolVersion).toBeNull();
     expect(conn.capabilities).toEqual([]);
-    expect(conn.scopes).toEqual([]);
     expect(conn.outboundCredentialHash).toBeNull();
     expect(conn.inboundCredentialHash).toBeNull();
     expect(conn.expiresAt).toBeNull();
@@ -316,61 +312,6 @@ describe('a2a-peer-connection-store', () => {
     expect(revoked!.revokedAt).not.toBeNull();
   });
 
-  // ── updateConnectionScopes ─────────────────────────────────────────
-
-  test('updates scopes for a connection', () => {
-    const conn = createConnection({
-      peerGatewayUrl: 'https://a.example.com',
-      scopes: ['message'],
-    });
-
-    const result = updateConnectionScopes(conn.id, [
-      'message',
-      'read_availability',
-      'read_profile',
-    ]);
-
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.connection.scopes).toEqual(['message', 'read_availability', 'read_profile']);
-      expect(result.connection.updatedAt).toBeGreaterThanOrEqual(conn.updatedAt);
-    }
-  });
-
-  test('can set scopes to empty array', () => {
-    const conn = createConnection({
-      peerGatewayUrl: 'https://a.example.com',
-      scopes: ['message'],
-    });
-
-    const result = updateConnectionScopes(conn.id, []);
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.connection.scopes).toEqual([]);
-    }
-  });
-
-  test('returns not_found for nonexistent connection', () => {
-    const result = updateConnectionScopes('nonexistent', ['message']);
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.reason).toBe('not_found');
-    }
-  });
-
-  test('rejects undeclared scope IDs', () => {
-    const conn = createConnection({
-      peerGatewayUrl: 'https://a.example.com',
-    });
-
-    const result = updateConnectionScopes(conn.id, ['message', 'scheduling:read']);
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.reason).toBe('invalid_scopes');
-      expect(result.detail).toContain('scheduling:read');
-    }
-  });
-
   // ── updateConnectionCredentials ────────────────────────────────────
 
   test('rotates outbound credential', () => {
@@ -457,29 +398,25 @@ describe('a2a-peer-connection-store', () => {
 
   // ── JSON field round-trip ──────────────────────────────────────────
 
-  test('capabilities and scopes round-trip through JSON correctly', () => {
+  test('capabilities round-trip through JSON correctly', () => {
     const conn = createConnection({
       peerGatewayUrl: 'https://a.example.com',
       capabilities: ['scheduling:read', 'messaging:relay', 'preferences:read'],
-      scopes: ['scheduling:read', 'messaging:relay'],
     });
 
     const fetched = getConnection(conn.id);
     expect(fetched).not.toBeNull();
     expect(fetched!.capabilities).toEqual(['scheduling:read', 'messaging:relay', 'preferences:read']);
-    expect(fetched!.scopes).toEqual(['scheduling:read', 'messaging:relay']);
   });
 
   test('empty arrays round-trip correctly', () => {
     const conn = createConnection({
       peerGatewayUrl: 'https://a.example.com',
       capabilities: [],
-      scopes: [],
     });
 
     const fetched = getConnection(conn.id);
     expect(fetched).not.toBeNull();
     expect(fetched!.capabilities).toEqual([]);
-    expect(fetched!.scopes).toEqual([]);
   });
 });

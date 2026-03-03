@@ -3,14 +3,13 @@
  *
  * Each connection represents a bidirectional link between this assistant and a
  * peer assistant. Stores credential hashes (never raw credentials), the peer's
- * gateway URL, protocol version, negotiated capabilities, and granted scopes.
+ * gateway URL, protocol version, and negotiated capabilities.
  */
 
 import { randomUUID } from 'node:crypto';
 
 import { and, desc, eq } from 'drizzle-orm';
 
-import { validateScopeIds } from './a2a-scope-catalog.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
 import { getDb } from '../memory/db.js';
 import { rawChanges } from '../memory/raw-query.js';
@@ -38,7 +37,6 @@ export interface A2APeerConnection {
   status: A2APeerConnectionStatus;
   protocolVersion: string | null;
   capabilities: string[];
-  scopes: string[];
   outboundCredentialHash: string | null;
   outboundCredential: string | null;
   inboundCredentialHash: string | null;
@@ -66,7 +64,6 @@ function rowToConnection(row: typeof a2aPeerConnections.$inferSelect): A2APeerCo
     status: row.status as A2APeerConnectionStatus,
     protocolVersion: row.protocolVersion,
     capabilities: JSON.parse(row.capabilities) as string[],
-    scopes: JSON.parse(row.scopes) as string[],
     outboundCredentialHash: row.outboundCredentialHash,
     outboundCredential: row.outboundCredential ?? null,
     inboundCredentialHash: row.inboundCredentialHash,
@@ -92,7 +89,6 @@ export function createConnection(params: {
   status?: A2APeerConnectionStatus;
   protocolVersion?: string;
   capabilities?: string[];
-  scopes?: string[];
   outboundCredentialHash?: string;
   outboundCredential?: string;
   inboundCredentialHash?: string;
@@ -113,7 +109,7 @@ export function createConnection(params: {
     status: params.status ?? ('pending' as const),
     protocolVersion: params.protocolVersion ?? null,
     capabilities: JSON.stringify(params.capabilities ?? []),
-    scopes: JSON.stringify(params.scopes ?? []),
+    scopes: JSON.stringify([]),
     outboundCredentialHash: params.outboundCredentialHash ?? null,
     outboundCredential: params.outboundCredential ?? null,
     inboundCredentialHash: params.inboundCredentialHash ?? null,
@@ -247,58 +243,6 @@ export function updateConnectionStatus(
     .get();
 
   return updated ? rowToConnection(updated) : null;
-}
-
-// ---------------------------------------------------------------------------
-// updateConnectionScopes
-// ---------------------------------------------------------------------------
-
-export type UpdateScopesResult =
-  | { ok: true; connection: A2APeerConnection }
-  | { ok: false; reason: 'not_found' | 'invalid_scopes'; detail?: string };
-
-/**
- * Atomically replace a connection's granted scopes.
- *
- * Validates all scope IDs against the catalog before writing. Rejects
- * undeclared scope IDs to prevent typos and undefined behavior.
- */
-export function updateConnectionScopes(
-  connectionId: string,
-  scopes: string[],
-): UpdateScopesResult {
-  // Validate all scope IDs against the catalog
-  const validation = validateScopeIds(scopes);
-  if (!validation.valid) {
-    return {
-      ok: false,
-      reason: 'invalid_scopes',
-      detail: `Unrecognized scope IDs: ${validation.unrecognized.join(', ')}`,
-    };
-  }
-
-  const db = getDb();
-  const now = Date.now();
-
-  db.update(a2aPeerConnections)
-    .set({
-      scopes: JSON.stringify(scopes),
-      updatedAt: now,
-    })
-    .where(eq(a2aPeerConnections.id, connectionId))
-    .run();
-
-  const updated = db
-    .select()
-    .from(a2aPeerConnections)
-    .where(eq(a2aPeerConnections.id, connectionId))
-    .get();
-
-  if (!updated) {
-    return { ok: false, reason: 'not_found' };
-  }
-
-  return { ok: true, connection: rowToConnection(updated) };
 }
 
 // ---------------------------------------------------------------------------

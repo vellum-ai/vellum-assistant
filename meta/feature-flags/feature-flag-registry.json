@@ -66,14 +66,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "a2a-scope-policy",
-      "scope": "assistant",
-      "key": "feature_flags.a2a-scope-policy.enabled",
-      "label": "A2A Scope Policy",
-      "description": "Enable scoped autonomy policy for A2A messaging — required for outbound message delivery",
-      "defaultEnabled": false
-    },
-    {
       "id": "user-hosted-enabled",
       "scope": "macos",
       "key": "user_hosted_enabled",

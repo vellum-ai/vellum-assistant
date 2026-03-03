@@ -19,9 +19,6 @@ import {
   defaultNonceStore,
 } from '../../a2a/a2a-peer-auth.js';
 import { getConnection } from '../../a2a/a2a-peer-connection-store.js';
-import { evaluateScope, type A2AScopedAction } from '../../a2a/a2a-scope-policy.js';
-import { isAssistantFeatureFlagEnabled } from '../../config/assistant-feature-flags.js';
-import { getConfig } from '../../config/loader.js';
 import { defaultMessageDedupStore } from '../../a2a/a2a-message-dedup.js';
 import type { A2AMessageEnvelope } from '../../a2a/a2a-message-schema.js';
 import { getLogger } from '../../util/logger.js';
@@ -139,33 +136,6 @@ export async function handleA2AMessageInbound(
       return httpError('UNAUTHORIZED', 'Nonce has already been used', 401);
     }
     return httpError('UNAUTHORIZED', 'Invalid signature', 401);
-  }
-
-  // Scope check: when the a2a-scope-policy feature flag is active, verify the
-  // connection has the required scope for the inbound content type. When the
-  // flag is off, allow all inbound messages (backwards compatible).
-  const config = getConfig();
-  const scopePolicyActive = isAssistantFeatureFlagEnabled('feature_flags.a2a-scope-policy.enabled', config);
-
-  if (scopePolicyActive) {
-    // Map content type to the scoped action for evaluation
-    const scopedAction: A2AScopedAction = envelope.content.type === 'structured_request'
-      ? 'executeRequest'
-      : 'receiveMessage';
-
-    const scopeCheck = evaluateScope(connection.scopes, scopedAction);
-    if (!scopeCheck.allowed) {
-      log.warn(
-        {
-          connectionId: envelope.connectionId,
-          messageId: envelope.messageId,
-          action: scopedAction,
-          reason: scopeCheck.reason,
-        },
-        'A2A inbound message denied by scope policy',
-      );
-      return httpError('FORBIDDEN', `Scope not granted: ${scopeCheck.reason}`, 403);
-    }
   }
 
   // Message deduplication: check-only (don't record yet — record after successful processing

@@ -17,7 +17,6 @@ import {
   listConnections as storeListConnections,
   tombstoneOutboundCredential,
   updateConnectionCredentials,
-  updateConnectionScopes as storeUpdateConnectionScopes,
   updateConnectionStatus,
   type A2APeerConnection,
   type A2APeerConnectionStatus,
@@ -58,10 +57,6 @@ import {
   upsertOutboundBinding,
 } from '../memory/external-conversation-store.js';
 import { getOrCreateConversation } from '../memory/conversation-key-store.js';
-import { evaluateScope, type A2AScopedAction } from './a2a-scope-policy.js';
-import { isAssistantFeatureFlagEnabled } from '../config/assistant-feature-flags.js';
-import { getConfig } from '../config/loader.js';
-
 import { emitNotificationSignal } from '../notifications/emit-signal.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
 import { getLogger } from '../util/logger.js';
@@ -131,15 +126,7 @@ export type ListConnectionsResult = {
 
 export type SendMessageResult =
   | { ok: true; messageId: string; conversationId: string }
-  | { ok: false; reason: 'not_found' | 'not_active' | 'not_enabled' | 'no_credential' | 'delivery_failed' | 'scope_denied'; detail?: string };
-
-export type UpdateScopesResult =
-  | { ok: true; previousScopes: string[]; newScopes: string[]; connection: A2APeerConnection }
-  | { ok: false; reason: 'not_found' | 'not_active' | 'invalid_scopes'; detail?: string };
-
-export type GetScopesResult =
-  | { ok: true; scopes: string[]; connectionId: string }
-  | { ok: false; reason: 'not_found' | 'not_active' };
+  | { ok: false; reason: 'not_found' | 'not_active' | 'no_credential' | 'delivery_failed'; detail?: string };
 
 // ---------------------------------------------------------------------------
 // Invite code encoding/decoding
@@ -1055,31 +1042,18 @@ export function listConnectionsFiltered(params?: {
 // Send message
 // ---------------------------------------------------------------------------
 
-/** Canonical feature flag key for A2A scope policy. */
-const A2A_SCOPE_POLICY_FLAG = 'feature_flags.a2a-scope-policy.enabled';
-
 /**
  * Send a message to a connected peer assistant.
  *
- * Validates the connection is active and the scope policy gate is enabled.
- * Constructs an A2AMessageEnvelope, signs it, and delivers via the outbound
- * adapter. Ensures a dedicated internal conversation binding exists for the
- * peer connection.
- *
- * Returns `{ ok: false, reason: 'not_enabled' }` until M16 activates scope
- * policy — this prevents messaging without policy enforcement.
+ * Validates the connection is active, constructs an A2AMessageEnvelope,
+ * signs it, and delivers via the outbound adapter. Ensures a dedicated
+ * internal conversation binding exists for the peer connection.
  */
 export async function sendMessage(params: {
   connectionId: string;
   content: A2AMessageContent;
   correlationId?: string;
 }): Promise<SendMessageResult> {
-  // Scope gating: deny until scope policy is active
-  const config = getConfig();
-  if (!isAssistantFeatureFlagEnabled(A2A_SCOPE_POLICY_FLAG, config)) {
-    return { ok: false, reason: 'not_enabled', detail: 'A2A scope policy is not active' };
-  }
-
   // Validate connection exists
   const connection = getConnection(params.connectionId);
   if (!connection) {
@@ -1089,12 +1063,6 @@ export async function sendMessage(params: {
   // Validate connection is active
   if (connection.status !== 'active') {
     return { ok: false, reason: 'not_active', detail: `Connection status is ${connection.status}` };
-  }
-
-  // Scope check: the target connection must have the `message` scope granted
-  const scopeCheck = evaluateScope(connection.scopes, 'sendMessage');
-  if (!scopeCheck.allowed) {
-    return { ok: false, reason: 'scope_denied', detail: scopeCheck.reason };
   }
 
   // Validate outbound credential is available for signing
@@ -1177,110 +1145,3 @@ export async function sendMessage(params: {
   return { ok: true, messageId: result.messageId, conversationId };
 }
 
-// ---------------------------------------------------------------------------
-// Scope management
-// ---------------------------------------------------------------------------
-
-/**
- * Update the granted scopes for an A2A connection.
- *
- * Validates the connection exists and is active, validates all scope IDs
- * against the catalog, updates the store, emits an `a2a.scopes_changed`
- * lifecycle event, and logs the change for audit.
- *
- * Scope narrowing (removing a scope) takes effect immediately — the next
- * inbound request from the peer is evaluated against the new scopes because
- * the policy engine reads from the store on each request.
- */
-export function updateScopes(params: {
-  connectionId: string;
-  scopes: string[];
-}): UpdateScopesResult {
-  const connection = getConnection(params.connectionId);
-  if (!connection) {
-    return { ok: false, reason: 'not_found' };
-  }
-
-  if (connection.status !== 'active') {
-    return { ok: false, reason: 'not_active', detail: `Connection status is ${connection.status}` };
-  }
-
-  const previousScopes = [...connection.scopes];
-
-  const storeResult = storeUpdateConnectionScopes(params.connectionId, params.scopes);
-
-  if (!storeResult.ok) {
-    if (storeResult.reason === 'invalid_scopes') {
-      return { ok: false, reason: 'invalid_scopes', detail: storeResult.detail };
-    }
-    return { ok: false, reason: 'not_found' };
-  }
-
-  const now = Date.now();
-
-  // Audit log: record the scope change with before/after state
-  log.info(
-    {
-      connectionId: params.connectionId,
-      peerAssistantId: connection.peerAssistantId,
-      previousScopes,
-      newScopes: params.scopes,
-      timestamp: now,
-    },
-    'A2A scope change applied',
-  );
-
-  // Emit lifecycle event so surfaces (macOS client, Telegram, etc.) can
-  // observe scope changes in real-time
-  void emitNotificationSignal({
-    sourceEventName: 'a2a.scopes_changed',
-    sourceChannel: 'a2a',
-    sourceSessionId: params.connectionId,
-    assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
-    attentionHints: {
-      requiresAction: false,
-      urgency: 'low',
-      isAsyncBackground: false,
-      visibleInSourceNow: false,
-    },
-    contextPayload: {
-      connectionId: params.connectionId,
-      peerAssistantId: connection.peerAssistantId ?? null,
-      previousScopes,
-      newScopes: params.scopes,
-      timestamp: now,
-    },
-    dedupeKey: `a2a:scopes-changed:${params.connectionId}:${now}`,
-  });
-
-  return {
-    ok: true,
-    previousScopes,
-    newScopes: params.scopes,
-    connection: storeResult.connection,
-  };
-}
-
-/**
- * Get the current granted scopes for an A2A connection.
- *
- * Validates the connection exists and is active.
- */
-export function getScopes(params: {
-  connectionId: string;
-}): GetScopesResult {
-  const connection = getConnection(params.connectionId);
-  if (!connection) {
-    return { ok: false, reason: 'not_found' };
-  }
-
-  if (connection.status !== 'active') {
-    return { ok: false, reason: 'not_active' };
-  }
-
-  return {
-    ok: true,
-    scopes: connection.scopes,
-    connectionId: connection.id,
-  };
-}
