@@ -74,7 +74,7 @@ function mockFetch(
       return new Response(body, { status, headers: responseHeaders });
     }
     return new Response(String(body), { status, headers: responseHeaders });
-  }) as typeof fetch;
+  }) as unknown as typeof fetch;
 }
 
 function runtimeConfig(overrides?: Partial<TransportConfig>): TransportConfig {
