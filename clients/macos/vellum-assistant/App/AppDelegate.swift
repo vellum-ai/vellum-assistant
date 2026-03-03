@@ -364,6 +364,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         setupDaemonClient(isFirstLaunch: isFirstLaunch)
         setupMenuBar()
         setupFileMenu()
+        setupViewMenu()
         setupHotKey()
         setupEscapeMonitor()
         setupVoiceInput()
