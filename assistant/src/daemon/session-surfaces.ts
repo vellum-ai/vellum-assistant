@@ -477,7 +477,7 @@ export function handleSurfaceAction(ctx: SurfaceSessionContext, surfaceId: strin
     ctx.pendingSurfaceActions.delete(surfaceId);
   }
   log.info({ surfaceId, actionId, requestId }, 'Processing surface action as follow-up');
-  ctx.processMessage(content, [], onEvent, requestId, undefined, undefined, undefined, displayContent).catch((err) => {
+  ctx.processMessage(content, [], onEvent, requestId, surfaceId, undefined, undefined, displayContent).catch((err) => {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err, surfaceId, actionId }, 'Error processing surface action');
     onEvent({ type: 'error', message: `Failed to process surface action: ${message}` });
