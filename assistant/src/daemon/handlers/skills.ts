@@ -75,9 +75,8 @@ function resolveProvenance(summary: SkillSummary): SkillProvenance {
     return { kind: "first-party", provider: "Vellum" };
   }
 
-  // Managed skills could be either first-party (installed from Vellum catalog)
-  // or third-party (installed from clawhub). The homepage field serves as a
-  // heuristic: Vellum catalog skills don't typically have a clawhub homepage.
+  // Managed skills are third-party (installed from clawhub). The homepage field
+  // confirms provenance.
   if (summary.source === "managed") {
     if (
       summary.homepage?.includes("skills.sh") ||
@@ -92,8 +91,8 @@ function resolveProvenance(summary: SkillSummary): SkillProvenance {
           `${CLAWHUB_BASE_URL}/skills/${encodeURIComponent(summary.id)}`,
       };
     }
-    // No positive evidence of origin -- could be user-authored or from Vellum catalog.
-    // Default to "local" to avoid mislabeling user-created skills as first-party.
+    // No positive evidence of clawhub origin -- likely user-authored.
+    // Default to "local" to avoid mislabeling.
     return { kind: "local" };
   }
 
