@@ -447,7 +447,11 @@ export async function handleA2AUpdateScopes(req: Request, connectionId: string):
     return httpError('BAD_REQUEST', 'Missing required field: scopes (array of scope IDs)', 400);
   }
 
-  const scopes = body.scopes.filter((s): s is string => typeof s === 'string');
+  if (!body.scopes.every((s: unknown) => typeof s === 'string')) {
+    return httpError('BAD_REQUEST', 'All scope IDs must be strings', 400);
+  }
+
+  const scopes = body.scopes as string[];
 
   const result = updateScopes({ connectionId, scopes });
 
