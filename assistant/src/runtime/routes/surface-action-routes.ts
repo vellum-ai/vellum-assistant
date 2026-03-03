@@ -4,13 +4,23 @@
  * POST /v1/surface-actions — dispatch a surface action to an active session.
  * Requires the session to already exist (does not create new sessions).
  */
-import type { Session } from "../../daemon/session.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
 
 const log = getLogger("surface-action-routes");
 
-export type SessionLookup = (sessionId: string) => Session | undefined;
+/** Any object that can handle a surface action (Session or ComputerUseSession). */
+interface SurfaceActionTarget {
+  handleSurfaceAction(
+    surfaceId: string,
+    actionId: string,
+    data?: Record<string, unknown>,
+  ): void;
+}
+
+export type SessionLookup = (
+  sessionId: string,
+) => SurfaceActionTarget | undefined;
 
 /**
  * POST /v1/surface-actions — handle a UI surface action.

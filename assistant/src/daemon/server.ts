@@ -1285,9 +1285,10 @@ export class DaemonServer {
 
   /**
    * Look up an active session by ID without creating one.
-   * Returns undefined if no session with that ID exists.
+   * Checks both normal sessions and computer-use sessions so the HTTP
+   * surface-action path is consistent with IPC dispatch.
    */
-  findSession(sessionId: string): Session | undefined {
-    return this.sessions.get(sessionId);
+  findSession(sessionId: string): Session | ComputerUseSession | undefined {
+    return this.cuSessions.get(sessionId) ?? this.sessions.get(sessionId);
   }
 }
