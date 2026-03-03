@@ -112,11 +112,6 @@ export const ThinkingConfigSchema = z.object({
   enabled: z
     .boolean({ error: "thinking.enabled must be a boolean" })
     .default(false),
-  budgetTokens: z
-    .number({ error: "thinking.budgetTokens must be a number" })
-    .int("thinking.budgetTokens must be an integer")
-    .positive("thinking.budgetTokens must be a positive integer")
-    .default(10000),
   streamThinking: z
     .boolean({ error: "thinking.streamThinking must be a boolean" })
     .default(false),

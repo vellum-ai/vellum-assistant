@@ -21,7 +21,7 @@ const log = getLogger("agent-loop");
 export interface AgentLoopConfig {
   maxTokens: number;
   maxInputTokens?: number; // context window size for tool result truncation
-  thinking?: { enabled: boolean; budgetTokens: number };
+  thinking?: { enabled: boolean };
   effort: "low" | "medium" | "high";
   toolChoice?:
     | { type: "auto" }
@@ -213,17 +213,8 @@ export class AgentLoop {
         if (turnModel) {
           providerConfig.model = turnModel;
         }
-        if (this.config.thinking?.enabled && turnMaxTokens >= 4000) {
-          // Skip thinking when turnMaxTokens is too low to avoid the
-          // thinking budget consuming nearly all output tokens.
-          const budgetTokens = Math.min(
-            this.config.thinking.budgetTokens,
-            Math.floor(turnMaxTokens * 0.75),
-          );
-          providerConfig.thinking = {
-            type: "enabled",
-            budget_tokens: budgetTokens,
-          };
+        if (this.config.thinking?.enabled) {
+          providerConfig.thinking = { type: "adaptive" };
         }
 
         providerConfig.effort = this.config.effort;

@@ -92,7 +92,6 @@ describe("AssistantConfigSchema", () => {
     expect(result.apiKeys).toEqual({});
     expect(result.thinking).toEqual({
       enabled: false,
-      budgetTokens: 10000,
       streamThinking: false,
     });
     expect(result.contextWindow).toEqual({
@@ -134,7 +133,7 @@ describe("AssistantConfigSchema", () => {
       model: "gpt-4",
       maxTokens: 4096,
       apiKeys: { openai: "sk-test" },
-      thinking: { enabled: true, budgetTokens: 5000 },
+      thinking: { enabled: true },
       timeouts: {
         shellDefaultTimeoutSec: 30,
         shellMaxTimeoutSec: 300,
@@ -317,11 +316,11 @@ describe("AssistantConfigSchema", () => {
 
   test("rejects invalid thinking config", () => {
     const result = AssistantConfigSchema.safeParse({
-      thinking: { enabled: "yes", budgetTokens: -100 },
+      thinking: { enabled: "yes" },
     });
     expect(result.success).toBe(false);
     if (!result.success) {
-      expect(result.error.issues.length).toBeGreaterThanOrEqual(2);
+      expect(result.error.issues.length).toBeGreaterThanOrEqual(1);
     }
   });
 
@@ -1051,7 +1050,6 @@ describe("loadConfig with schema validation", () => {
     expect(config.maxTokens).toBe(16000);
     expect(config.thinking).toEqual({
       enabled: false,
-      budgetTokens: 10000,
       streamThinking: false,
     });
     expect(config.contextWindow).toEqual({
@@ -1092,13 +1090,12 @@ describe("loadConfig with schema validation", () => {
       provider: "openai",
       model: "gpt-4",
       maxTokens: -1,
-      thinking: { enabled: true, budgetTokens: 5000 },
+      thinking: { enabled: true },
     });
     const config = loadConfig();
     expect(config.provider).toBe("openai");
     expect(config.model).toBe("gpt-4");
     expect(config.thinking.enabled).toBe(true);
-    expect(config.thinking.budgetTokens).toBe(5000);
     expect(config.maxTokens).toBe(16000);
   });
 

@@ -153,7 +153,7 @@ const mockConfig = {
     preserveRecentUserTurns: 8,
     summaryMaxTokens: 1200,
   },
-  thinking: { enabled: false, budgetTokens: 10000 },
+  thinking: { enabled: false },
 };
 
 mock.module("../config/loader.js", () => ({
