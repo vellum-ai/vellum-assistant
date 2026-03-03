@@ -2138,13 +2138,15 @@ describe("call-controller", () => {
     controller.destroy();
   });
 
-  test('silence timeout suppressed during in-call guardian consultation (pendingGuardianInput)', async () => {
+  test("silence timeout suppressed during in-call guardian consultation (pendingGuardianInput)", async () => {
     mockSilenceTimeoutMs = 50; // Short timeout for testing
     mockConsultationTimeoutMs = 10_000; // Long enough to not interfere
 
     // LLM emits an ASK_GUARDIAN marker so the controller creates a pendingGuardianInput
     mockStartVoiceTurn.mockImplementation(
-      createMockVoiceTurn(["Let me check with your guardian. [ASK_GUARDIAN: Can this caller access the account?]"]),
+      createMockVoiceTurn([
+        "Let me check with your guardian. [ASK_GUARDIAN: Can this caller access the account?]",
+      ]),
     );
     const { relay, controller } = setupController();
 
@@ -2174,7 +2176,7 @@ describe("call-controller", () => {
     controller.destroy();
   });
 
-  test('silence nudge resumes after guardian consultation resolves', async () => {
+  test("silence nudge resumes after guardian consultation resolves", async () => {
     mockSilenceTimeoutMs = 50; // Short timeout for testing
     mockConsultationTimeoutMs = 10_000; // Long enough to not interfere
 
@@ -2197,8 +2199,10 @@ describe("call-controller", () => {
       createMockVoiceTurn(["Great news, your guardian approved the request."]),
     );
     await controller.handleUserAnswer("Yes, approved");
-    // Allow the answer-driven turn to complete
-    await new Promise((r) => setTimeout(r, 100));
+    // Allow the fire-and-forget answer turn to complete (mock is sync,
+    // only needs microtask ticks). Must be shorter than the silence
+    // timeout (50ms) so the nudge timer hasn't fired when we clear tokens.
+    await new Promise((r) => setTimeout(r, 20));
 
     // Guardian input request should now be cleared
     expect(controller.getPendingConsultationQuestionId()).toBeNull();
