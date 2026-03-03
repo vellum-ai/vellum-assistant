@@ -553,11 +553,10 @@ struct SettingsChannelsTab: View {
                         selection: Binding(
                             get: { store.twilioPhoneNumber ?? "" },
                             set: { newValue in
-                                if newValue.isEmpty { store.unassignTwilioNumber() }
-                                else { store.assignTwilioNumber(phoneNumber: newValue) }
+                                store.assignTwilioNumber(phoneNumber: newValue)
                             }
                         ),
-                        options: [(label: "Not Set", value: "")] + store.twilioNumbers.map { (label: $0.friendlyName, value: $0.phoneNumber) },
+                        options: store.twilioNumbers.map { (label: $0.friendlyName, value: $0.phoneNumber) },
                         emptyValue: ""
                     )
                     .frame(maxWidth: 360)
@@ -628,11 +627,10 @@ struct SettingsChannelsTab: View {
                         selection: Binding(
                             get: { store.twilioPhoneNumber ?? "" },
                             set: { newValue in
-                                if newValue.isEmpty { store.unassignTwilioNumber() }
-                                else { store.assignTwilioNumber(phoneNumber: newValue) }
+                                store.assignTwilioNumber(phoneNumber: newValue)
                             }
                         ),
-                        options: [(label: "Not Set", value: "")] + store.twilioNumbers.map { (label: $0.friendlyName, value: $0.phoneNumber) },
+                        options: store.twilioNumbers.map { (label: $0.friendlyName, value: $0.phoneNumber) },
                         emptyValue: ""
                     )
                     .frame(maxWidth: 360)
