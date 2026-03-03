@@ -19,14 +19,13 @@ import { repairHistory } from './history-repair.js';
 import type { SurfaceData,SurfaceType, UsageStats } from './ipc-protocol.js';
 import { unregisterCallNotifiers,unregisterWatchNotifiers } from './session-notifiers.js';
 import type { MessageQueue } from './session-queue-manager.js';
+import type { TrustClass } from '../runtime/actor-trust-resolver.js';
 import type { TrustContext } from './session-runtime-assembly.js';
 import { resetSkillToolProjection } from './session-skill-tools.js';
 
 const log = getLogger('session-lifecycle');
 
-type GuardianTrustClass = TrustContext['trustClass'];
-
-function parseProvenanceTrustClass(metadata: string | null): GuardianTrustClass | undefined {
+function parseProvenanceTrustClass(metadata: string | null): TrustClass | undefined {
   if (!metadata) return undefined;
   try {
     const parsed = JSON.parse(metadata) as { provenanceTrustClass?: unknown };
@@ -40,7 +39,7 @@ function parseProvenanceTrustClass(metadata: string | null): GuardianTrustClass 
   return undefined;
 }
 
-function isUntrustedTrustClass(trustClass: GuardianTrustClass | undefined): boolean {
+function isUntrustedTrustClass(trustClass: TrustClass | undefined): boolean {
   return trustClass === 'trusted_contact' || trustClass === 'unknown';
 }
 
@@ -59,8 +58,8 @@ export interface LoadFromDbContext {
   usageStats: UsageStats;
   contextCompactedMessageCount: number;
   contextCompactedAt: number | null;
-  guardianContext?: { trustClass: GuardianTrustClass };
-  loadedHistoryTrustClass?: GuardianTrustClass;
+  guardianContext?: { trustClass: TrustClass };
+  loadedHistoryTrustClass?: TrustClass;
 }
 
 export interface AbortContext {

@@ -1,6 +1,7 @@
 import { and, asc, eq, gt, ne, or } from 'drizzle-orm';
 
 import type { AssistantConfig } from '../../config/types.js';
+import type { TrustClass } from '../../runtime/actor-trust-resolver.js';
 import { getLogger } from '../../util/logger.js';
 import {
   readMessageCursorCheckpoint,
@@ -24,9 +25,7 @@ const BACKFILL_CHECKPOINT_ID_KEY = 'memory:backfill:last_message_id';
 const RELATION_BACKFILL_CHECKPOINT_KEY = 'memory:relation_backfill:last_created_at';
 const RELATION_BACKFILL_CHECKPOINT_ID_KEY = 'memory:relation_backfill:last_message_id';
 
-type ProvenanceTrustClass = 'guardian' | 'trusted_contact' | 'unknown';
-
-function parseProvenanceTrustClass(rawMetadata: string | null): ProvenanceTrustClass | undefined {
+function parseProvenanceTrustClass(rawMetadata: string | null): TrustClass | undefined {
   if (!rawMetadata) return undefined;
   try {
     const parsed = messageMetadataSchema.safeParse(JSON.parse(rawMetadata));
@@ -37,7 +36,7 @@ function parseProvenanceTrustClass(rawMetadata: string | null): ProvenanceTrustC
   }
 }
 
-function isTrustedTrustClass(trustClass: ProvenanceTrustClass | undefined): boolean {
+function isTrustedTrustClass(trustClass: TrustClass | undefined): boolean {
   return trustClass === 'guardian' || trustClass === undefined;
 }
 

@@ -19,7 +19,7 @@ import {
 } from '../calls/call-state.js';
 import { getCallSession } from '../calls/call-store.js';
 import * as conversationStore from '../memory/conversation-store.js';
-import { provenanceFromGuardianContext } from '../memory/conversation-store.js';
+import { provenanceFromTrustContext } from '../memory/conversation-store.js';
 import type { Message } from '../providers/types.js';
 import type { WatchSession } from '../tools/watch/watch-state.js';
 import {
@@ -105,7 +105,7 @@ export function registerSessionNotifiers(
       conversationId,
       'assistant',
       JSON.stringify([{ type: 'text', text: questionText }]),
-      { ...provenanceFromGuardianContext(ctx.guardianContext), userMessageChannel: 'voice', assistantMessageChannel: 'voice', userMessageInterface: 'voice', assistantMessageInterface: 'voice' },
+      { ...provenanceFromTrustContext(ctx.guardianContext), userMessageChannel: 'voice', assistantMessageChannel: 'voice', userMessageInterface: 'voice', assistantMessageInterface: 'voice' },
     );
 
     ctx.messages.push(createAssistantMessage(questionText));

@@ -12,7 +12,7 @@ import type { TurnChannelContext, TurnInterfaceContext } from '../channels/types
 import { parseChannelId, parseInterfaceId } from '../channels/types.js';
 import { AttachmentUploadError, linkAttachmentToMessage, uploadAttachment, validateAttachmentUpload } from '../memory/attachments-store.js';
 import * as conversationStore from '../memory/conversation-store.js';
-import { provenanceFromGuardianContext } from '../memory/conversation-store.js';
+import { provenanceFromTrustContext } from '../memory/conversation-store.js';
 import type { SecretPrompter } from '../permissions/secret-prompter.js';
 import type { Message } from '../providers/types.js';
 import { getLogger } from '../util/logger.js';
@@ -188,7 +188,7 @@ export async function persistUserMessage(
   try {
     const turnCtx = extractTurnChannelContext(metadata) ?? ctx.getTurnChannelContext();
     const turnIfCtx = extractTurnInterfaceContext(metadata) ?? ctx.getTurnInterfaceContext();
-    const provenance = provenanceFromGuardianContext(ctx.guardianContext);
+    const provenance = provenanceFromTrustContext(ctx.guardianContext);
     const mergedMetadata = {
       ...(metadata ?? {}),
       ...provenance,

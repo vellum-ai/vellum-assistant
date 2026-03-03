@@ -59,7 +59,7 @@ mock.module("../memory/conversation-store.js", () => ({
   updateConversationTitle: () => {},
   updateConversationUsage: () => {},
   getMessages: () => [],
-  provenanceFromGuardianContext: () => ({
+  provenanceFromTrustContext: () => ({
     source: "user",
     guardianContext: undefined,
   }),

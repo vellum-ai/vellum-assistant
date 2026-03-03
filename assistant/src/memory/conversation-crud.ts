@@ -70,7 +70,7 @@ export type MessageMetadata = z.infer<typeof messageMetadataSchema>;
  * absence of trust context means we cannot verify trust —
  * callers with actual guardian trust should always supply a real context.
  */
-export function provenanceFromGuardianContext(
+export function provenanceFromTrustContext(
   ctx: TrustContext | null | undefined,
 ): Record<string, unknown> {
   if (!ctx) return { provenanceTrustClass: "unknown" };

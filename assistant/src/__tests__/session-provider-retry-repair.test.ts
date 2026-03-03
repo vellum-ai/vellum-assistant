@@ -95,7 +95,7 @@ mock.module("../memory/conversation-store.js", () => ({
   updateConversationContextWindow: () => {},
   getConversationOriginChannel: () => null,
   getConversationOriginInterface: () => null,
-  provenanceFromGuardianContext: () => ({}),
+  provenanceFromTrustContext: () => ({}),
 }));
 
 mock.module("../memory/retriever.js", () => ({

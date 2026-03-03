@@ -67,7 +67,7 @@ mock.module("../memory/conversation-store.js", () => ({
   deleteMessageById: () => {},
   updateConversationTitle: () => {},
   updateConversationUsage: () => {},
-  provenanceFromGuardianContext: () => ({
+  provenanceFromTrustContext: () => ({
     source: "user",
     guardianContext: undefined,
   }),

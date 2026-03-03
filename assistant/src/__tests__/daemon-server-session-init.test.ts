@@ -285,7 +285,7 @@ mock.module("../memory/conversation-store.js", () => ({
   updateConversationTitle: () => {},
   updateConversationUsage: () => {},
   addMessage: () => ({ id: "mock-msg-id" }),
-  provenanceFromGuardianContext: () => ({
+  provenanceFromTrustContext: () => ({
     source: "user",
     guardianContext: undefined,
   }),

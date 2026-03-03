@@ -19,7 +19,7 @@ import { getHookManager } from '../hooks/manager.js';
 import { commitAppTurnChanges } from '../memory/app-git-service.js';
 import { getApp, listAppFiles } from '../memory/app-store.js';
 import * as conversationStore from '../memory/conversation-store.js';
-import { getConversationOriginChannel, getConversationOriginInterface, provenanceFromGuardianContext } from '../memory/conversation-store.js';
+import { getConversationOriginChannel, getConversationOriginInterface, provenanceFromTrustContext } from '../memory/conversation-store.js';
 import { isReplaceableTitle, queueGenerateConversationTitle, queueRegenerateConversationTitle, UNTITLED_FALLBACK } from '../memory/conversation-title-service.js';
 import { stripMemoryRecallMessages } from '../memory/retriever.js';
 import type { PermissionPrompter } from '../permissions/prompter.js';
@@ -331,7 +331,7 @@ export async function runAgentLoopImpl(
 
     if (memoryResult.conflictClarification) {
       const loopChannelMeta = {
-        ...provenanceFromGuardianContext(ctx.guardianContext),
+        ...provenanceFromTrustContext(ctx.guardianContext),
         userMessageChannel: capturedTurnChannelContext.userMessageChannel,
         assistantMessageChannel: capturedTurnChannelContext.assistantMessageChannel,
         userMessageInterface: capturedTurnInterfaceContext.userMessageInterface,
@@ -673,7 +673,7 @@ export async function runAgentLoopImpl(
         }),
       );
       const toolResultMetadata = {
-        ...provenanceFromGuardianContext(ctx.guardianContext),
+        ...provenanceFromTrustContext(ctx.guardianContext),
         userMessageChannel: capturedTurnChannelContext.userMessageChannel,
         assistantMessageChannel: capturedTurnChannelContext.assistantMessageChannel,
         userMessageInterface: capturedTurnInterfaceContext.userMessageInterface,
@@ -699,7 +699,7 @@ export async function runAgentLoopImpl(
     const hasAssistantResponse = newMessages.some((msg) => msg.role === 'assistant');
     if (!hasAssistantResponse && state.providerErrorUserMessage && !abortController.signal.aborted && !yieldedForHandoff) {
       const errChannelMeta = {
-        ...provenanceFromGuardianContext(ctx.guardianContext),
+        ...provenanceFromTrustContext(ctx.guardianContext),
         userMessageChannel: capturedTurnChannelContext.userMessageChannel,
         assistantMessageChannel: capturedTurnChannelContext.assistantMessageChannel,
         userMessageInterface: capturedTurnInterfaceContext.userMessageInterface,

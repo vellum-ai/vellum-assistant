@@ -41,6 +41,7 @@ import { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { UserDecision } from "../permissions/types.js";
 import type { Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
+import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import type { AuthContext } from "../runtime/auth/types.js";
 import * as approvalOverrides from "../runtime/session-approval-overrides.js";
 import { ToolExecutor } from "../tools/executor.js";
@@ -165,7 +166,7 @@ export class Session {
   /** @internal */ channelCapabilities?: ChannelCapabilities;
   /** @internal */ guardianContext?: TrustContext;
   /** @internal */ authContext?: AuthContext;
-  /** @internal */ loadedHistoryTrustClass?: TrustContext["trustClass"];
+  /** @internal */ loadedHistoryTrustClass?: TrustClass;
   /** @internal */ voiceCallControlPrompt?: string;
   /** @internal */ assistantId?: string;
   /** @internal */ commandIntent?: {

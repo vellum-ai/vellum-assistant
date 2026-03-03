@@ -11,7 +11,7 @@ import type pino from 'pino';
 import type { AgentEvent } from '../agent/loop.js';
 import type { TurnChannelContext, TurnInterfaceContext } from '../channels/types.js';
 import * as conversationStore from '../memory/conversation-store.js';
-import { provenanceFromGuardianContext } from '../memory/conversation-store.js';
+import { provenanceFromTrustContext } from '../memory/conversation-store.js';
 import { recordRequestLog } from '../memory/llm-request-log-store.js';
 import type { ContentBlock, ImageContent } from '../providers/types.js';
 import type { DirectiveRequest } from './assistant-attachments.js';
@@ -378,7 +378,7 @@ export async function handleMessageComplete(
       }),
     );
     const toolResultMetadata = {
-      ...provenanceFromGuardianContext(deps.ctx.guardianContext),
+      ...provenanceFromTrustContext(deps.ctx.guardianContext),
       userMessageChannel: deps.turnChannelContext.userMessageChannel,
       assistantMessageChannel: deps.turnChannelContext.assistantMessageChannel,
       userMessageInterface: deps.turnInterfaceContext.userMessageInterface,
@@ -424,7 +424,7 @@ export async function handleMessageComplete(
   }
 
   const assistantChannelMetadata = {
-    ...provenanceFromGuardianContext(deps.ctx.guardianContext),
+    ...provenanceFromTrustContext(deps.ctx.guardianContext),
     userMessageChannel: deps.turnChannelContext.userMessageChannel,
     assistantMessageChannel: deps.turnChannelContext.assistantMessageChannel,
     userMessageInterface: deps.turnInterfaceContext.userMessageInterface,

@@ -23,7 +23,7 @@ import {
   generateCanonicalRequestCode,
 } from "../memory/canonical-guardian-store.js";
 import * as conversationStore from "../memory/conversation-store.js";
-import { provenanceFromGuardianContext } from "../memory/conversation-store.js";
+import { provenanceFromTrustContext } from "../memory/conversation-store.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
 import {
   getFailoverProvider,
@@ -1163,7 +1163,7 @@ export class DaemonServer {
     if (slashResult.kind === "unknown") {
       const serverTurnCtx = session.getTurnChannelContext();
       const serverInterfaceCtx = session.getTurnInterfaceContext();
-      const serverProvenance = provenanceFromGuardianContext(
+      const serverProvenance = provenanceFromTrustContext(
         session.guardianContext,
       );
       const serverChannelMeta = {

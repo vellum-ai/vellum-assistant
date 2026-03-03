@@ -15,7 +15,7 @@ import {
   listPendingCanonicalGuardianRequestsByDestinationConversation,
 } from '../memory/canonical-guardian-store.js';
 import * as conversationStore from '../memory/conversation-store.js';
-import { provenanceFromGuardianContext } from '../memory/conversation-store.js';
+import { provenanceFromTrustContext } from '../memory/conversation-store.js';
 import { extractPreferences } from '../notifications/preference-extractor.js';
 import { createPreference } from '../notifications/preferences-store.js';
 import type { Message } from '../providers/types.js';
@@ -189,7 +189,7 @@ export async function drainQueue(session: ProcessSessionContext, reason: QueueDr
   // failed write never leaves an unpersisted message in memory.
   if (slashResult.kind === 'unknown') {
     try {
-      const drainProvenance = provenanceFromGuardianContext(session.guardianContext);
+      const drainProvenance = provenanceFromTrustContext(session.guardianContext);
       const drainChannelMeta = {
         ...drainProvenance,
         ...(queuedTurnCtx
@@ -445,7 +445,7 @@ export async function processMessage(
   if (slashResult.kind === 'unknown') {
     const pmTurnCtx = session.getTurnChannelContext();
     const pmInterfaceCtx = session.getTurnInterfaceContext();
-    const pmProvenance = provenanceFromGuardianContext(session.guardianContext);
+    const pmProvenance = provenanceFromTrustContext(session.guardianContext);
     const pmChannelMeta = {
       ...pmProvenance,
       ...(pmTurnCtx
