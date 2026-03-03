@@ -1458,6 +1458,27 @@ struct MainWindowView: View {
                                 }
                                 .padding(.horizontal, VSpacing.sm)
                                 .padding(.bottom, VSpacing.xxs)
+                                // Drop target on the group header so collapsed groups accept drops.
+                                .dropDestination(for: String.self) { items, _ in
+                                    sidebar.dropTargetThreadId = nil
+                                    sidebar.draggingThreadId = nil
+                                    guard let droppedId = items.first,
+                                          let sourceUUID = UUID(uuidString: droppedId),
+                                          let firstThread = group.threads.first,
+                                          sourceUUID != firstThread.id else { return false }
+                                    return threadManager.moveThread(sourceId: sourceUUID, targetId: firstThread.id)
+                                } isTargeted: { isTargeted in
+                                    if isTargeted, let firstThread = group.threads.first,
+                                       firstThread.id != sidebar.draggingThreadId {
+                                        sidebar.dropTargetThreadId = firstThread.id
+                                        sidebar.dropIndicatorAtBottom = false
+                                    } else if !isTargeted {
+                                        if let firstThread = group.threads.first,
+                                           sidebar.dropTargetThreadId == firstThread.id {
+                                            sidebar.dropTargetThreadId = nil
+                                        }
+                                    }
+                                }
                             }
                         }
 
