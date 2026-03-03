@@ -164,6 +164,36 @@ struct AppsGridView: View {
                     RoundedRectangle(cornerRadius: VRadius.lg)
                         .stroke(VColor.surfaceBorder, lineWidth: 1)
                 )
+                .overlay(alignment: .topTrailing) {
+                    Menu {
+                        Button {
+                            if app.isPinned {
+                                appListManager.unpinApp(id: app.id)
+                            } else {
+                                appListManager.pinApp(id: app.id)
+                            }
+                        } label: {
+                            Label(app.isPinned ? "Unpin" : "Pin", systemImage: app.isPinned ? "pin.slash" : "pin")
+                        }
+                        Button(role: .destructive) {
+                            appListManager.removeApp(id: app.id)
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(.white)
+                            .frame(width: 28, height: 28)
+                            .background(Circle().fill(Color(hex: 0x4B6845)))
+                    }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .padding(VSpacing.sm)
+                    .opacity(isHovered ? 1 : 0)
+                    .animation(VAnimation.fast, value: isHovered)
+                }
                 .shadow(color: .black.opacity(0.06), radius: 4, y: 2)
 
                 // Name + date below the image
