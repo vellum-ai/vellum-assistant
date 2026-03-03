@@ -100,6 +100,13 @@ async function createDesktopAppHatchedFixture(options: FixtureOptions): Promise<
   };
 }
 
+// ── Path Helpers ────────────────────────────────────────────────────
+
+/** Resolves the base data directory, respecting the BASE_DATA_DIR env var. */
+function getBaseDir(): string {
+  return process.env.BASE_DATA_DIR?.trim() || os.homedir();
+}
+
 // ── Shared Helpers ──────────────────────────────────────────────────
 
 function verifyAppExists(appDisplayName: string): void {
@@ -268,7 +275,7 @@ async function ensureAssistantHatched(): Promise<void> {
  * Throws if the lockfile is missing or has no assistant entries.
  */
 function readRuntimeUrlFromLockfile(): string {
-  const lockfilePath = path.join(os.homedir(), ".vellum.lock.json");
+  const lockfilePath = path.join(getBaseDir(), ".vellum.lock.json");
   if (!existsSync(lockfilePath)) {
     throw new Error("Lockfile (~/.vellum.lock.json) not found after hatching");
   }
@@ -294,7 +301,7 @@ function readRuntimeUrlFromLockfile(): string {
  * skips its first-run acclimation flow (name, personality, etc.).
  */
 function skipAssistantOnboarding(): void {
-  const bootstrapPath = path.join(os.homedir(), ".vellum", "workspace", "BOOTSTRAP.md");
+  const bootstrapPath = path.join(getBaseDir(), ".vellum", "workspace", "BOOTSTRAP.md");
   if (existsSync(bootstrapPath)) {
     unlinkSync(bootstrapPath);
   }
