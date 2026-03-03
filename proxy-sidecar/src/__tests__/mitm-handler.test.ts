@@ -1,4 +1,4 @@
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import type { Server } from 'node:http';
 import { createServer as createHttpsServer } from 'node:https';
 import { connect } from 'node:net';
@@ -25,6 +25,10 @@ beforeAll(async () => {
   await ensureLocalCA(dataDir);
   caDir = join(dataDir, 'proxy-ca');
   caCert = await readFile(getCAPath(dataDir), 'utf-8');
+});
+
+afterAll(async () => {
+  await rm(dataDir, { recursive: true, force: true });
 });
 
 /**

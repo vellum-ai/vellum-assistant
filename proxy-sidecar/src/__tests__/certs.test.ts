@@ -15,6 +15,7 @@ let dataDir: string;
 
 beforeAll(async () => {
   dataDir = await mkdtemp(join(tmpdir(), 'proxy-sidecar-certs-test-'));
+  await ensureLocalCA(dataDir);
 });
 
 afterAll(async () => {
