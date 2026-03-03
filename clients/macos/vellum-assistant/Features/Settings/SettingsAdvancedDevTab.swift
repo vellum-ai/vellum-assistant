@@ -190,13 +190,15 @@ struct SettingsAdvancedDevTab: View {
 
     private var macOSFeatureFlagSection: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("macOS Feature Flags")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text("macOS Feature Flags")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
 
-            Text("Local-only flags stored in UserDefaults on this Mac.")
-                .font(VFont.sectionDescription)
-                .foregroundColor(VColor.textMuted)
+                Text("Local-only flags stored in UserDefaults on this Mac.")
+                    .font(VFont.sectionDescription)
+                    .foregroundColor(VColor.textMuted)
+            }
 
             if macOSFlagStates.isEmpty {
                 Text("No macOS feature flags available.")

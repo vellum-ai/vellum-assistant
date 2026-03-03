@@ -7,7 +7,7 @@ struct ToolPermissionTesterView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("Permission Simulator")
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)

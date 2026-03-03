@@ -54,7 +54,7 @@ struct VoiceSettingsView: View {
 
     private var pttCard: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("Push to Talk")
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
@@ -278,7 +278,7 @@ struct VoiceSettingsView: View {
 
     private var wakeWordCard: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("Talk to Vellum, hands free")
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
@@ -408,7 +408,7 @@ struct VoiceSettingsView: View {
 
     private var ttsCard: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("Text-to-Speech")
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)

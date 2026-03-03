@@ -93,7 +93,7 @@ public enum VFont {
     public static let display    = Font.custom("Inter-SemiBold", size: adaptiveSize(18))
     public static let panelTitle   = Font.custom("Inter-Medium", size: adaptiveSize(24))
     public static let sectionTitle   = Font.custom("Inter-SemiBold", size: adaptiveSize(18))
-    public static let sectionDescription = Font.custom("Inter-Medium", size: 14)
+    public static let sectionDescription = Font.custom("Inter", size: 13)
     public static let inputLabel         = Font.custom("Inter-Medium", size: 12)
 
     /// Small label (used for thread tab names)
