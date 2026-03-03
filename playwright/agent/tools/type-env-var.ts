@@ -38,7 +38,7 @@ export const definition: Anthropic.Tool = {
 };
 
 export async function execute(
-  page: Page,
+  _page: Page,
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolHandlerResult> {
@@ -57,18 +57,43 @@ export async function execute(
 
   // Guard: only allow typing env var values into password or secret input
   // fields to prevent accidental exposure of sensitive values.
-  const isSecretInput = await page.evaluate(() => {
-    const el = document.activeElement;
-    if (!el || el.tagName.toLowerCase() !== "input") return false;
-    const type = (el.getAttribute("type") || "text").toLowerCase();
-    return type === "password";
-  });
+  // Uses macOS Accessibility (System Events) to check the focused UI element's
+  // role — "AXSecureTextField" corresponds to password/secret inputs.
+  const checkScript = `
+tell application "System Events"
+  tell process "${processName}"
+    try
+      set focusedEl to focused UI element of window 1
+      set elRole to role of focusedEl
+      return elRole
+    on error
+      return "unknown"
+    end try
+  end tell
+end tell
+`;
+  const checkPath = `/tmp/pw-agent-check-secret-w${context.workerIndex}.scpt`;
+  try {
+    writeFileSync(checkPath, checkScript, "utf-8");
+    const role = execSync(`osascript ${checkPath}`, {
+      encoding: "utf-8",
+      timeout: 10_000,
+    }).trim();
 
-  if (!isSecretInput) {
+    if (role !== "AXSecureTextField") {
+      return {
+        result: {
+          success: false,
+          data: `Cannot type environment variable ${envVar}: the focused element is not a password or secret input field (role: ${role})`,
+        },
+      };
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     return {
       result: {
         success: false,
-        data: `Cannot type environment variable ${envVar}: the focused element is not a password or secret input field`,
+        data: `Cannot verify focused element is a secret input: ${message}`,
       },
     };
   }
