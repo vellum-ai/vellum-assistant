@@ -1,17 +1,27 @@
 /**
  * Route handler for the unified global search endpoint.
  *
- * GET /v1/search/global?q=<query>&limit=20&categories=conversations,memories,schedules,contacts
+ * GET /v1/search/global?q=<query>&limit=20&categories=conversations,memories,schedules,contacts[&deep=true]
  *
  * Federates search across conversations, memories, schedules, and contacts.
- * Runs all category searches in parallel for low latency.
+ * When `deep=true`, additionally runs Qdrant semantic search on memories
+ * and merges results with lexical matches.
  */
 
+import { getConfig } from "../../config/loader.js";
 import { searchContacts } from "../../contacts/contact-store.js";
 import { searchConversations } from "../../memory/conversation-queries.js";
+import {
+  embedWithBackend,
+  getMemoryBackendStatus,
+} from "../../memory/embedding-backend.js";
 import { rawAll } from "../../memory/raw-query.js";
+import { semanticSearch } from "../../memory/search/semantic.js";
 import { listSchedules } from "../../schedule/schedule-store.js";
+import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
+
+const log = getLogger("global-search");
 
 // ---------------------------------------------------------------------------
 // Types
@@ -32,6 +42,7 @@ interface GlobalSearchMemory {
   subject: string | null;
   confidence: number;
   updatedAt: number;
+  source: "lexical" | "semantic";
 }
 
 interface GlobalSearchSchedule {
@@ -117,7 +128,51 @@ function searchMemoryItems(
     subject: r.subject || null,
     confidence: r.confidence,
     updatedAt: r.last_seen_at,
+    source: "lexical" as const,
   }));
+}
+
+async function searchMemoriesSemantic(
+  query: string,
+  limit: number,
+  existingIds: Set<string>,
+): Promise<GlobalSearchMemory[]> {
+  const config = getConfig();
+  const backendStatus = getMemoryBackendStatus(config);
+  if (!backendStatus.provider) return [];
+
+  try {
+    const embedded = await embedWithBackend(config, [query]);
+    const queryVector = embedded.vectors[0];
+    if (!queryVector) return [];
+
+    const candidates = await semanticSearch(
+      queryVector,
+      embedded.provider,
+      embedded.model,
+      limit,
+    );
+
+    // Only include item-type candidates (not segments/summaries) for cleaner results
+    const results: GlobalSearchMemory[] = [];
+    for (const c of candidates) {
+      if (c.type !== "item") continue;
+      if (existingIds.has(c.id)) continue;
+      results.push({
+        id: c.id,
+        kind: c.kind,
+        text: c.text,
+        subject: null,
+        confidence: c.confidence,
+        updatedAt: c.createdAt,
+        source: "semantic",
+      });
+    }
+    return results;
+  } catch (err) {
+    log.warn({ err }, "Deep semantic search failed, returning lexical only");
+    return [];
+  }
 }
 
 function searchScheduleJobs(
@@ -145,7 +200,7 @@ function searchScheduleJobs(
 // Route handler
 // ---------------------------------------------------------------------------
 
-export function handleGlobalSearch(url: URL): Response {
+export async function handleGlobalSearch(url: URL): Promise<Response> {
   const query = url.searchParams.get("q") ?? "";
   if (!query.trim()) {
     return httpError("BAD_REQUEST", "q query parameter is required", 400);
@@ -156,6 +211,7 @@ export function handleGlobalSearch(url: URL): Response {
     Math.min(Number(url.searchParams.get("limit") ?? 20), 100),
   );
   const categories = parseCategories(url.searchParams.get("categories"));
+  const deep = url.searchParams.get("deep") === "true";
 
   const results: GlobalSearchResponse["results"] = {
     conversations: [],
@@ -164,8 +220,6 @@ export function handleGlobalSearch(url: URL): Response {
     contacts: [],
   };
 
-  // All searches are synchronous (SQLite is in-process), so run them
-  // sequentially but keep the code ready for async if needed later.
   if (categories.has("conversations")) {
     const convResults = searchConversations(query, {
       limit,
@@ -182,6 +236,16 @@ export function handleGlobalSearch(url: URL): Response {
 
   if (categories.has("memories")) {
     results.memories = searchMemoryItems(query, limit);
+
+    if (deep) {
+      const existingIds = new Set(results.memories.map((m) => m.id));
+      const semanticResults = await searchMemoriesSemantic(
+        query,
+        limit,
+        existingIds,
+      );
+      results.memories = [...results.memories, ...semanticResults];
+    }
   }
 
   if (categories.has("schedules")) {
