@@ -24,6 +24,7 @@ struct IOSThread: Identifiable {
 
     /// Whether this thread was created by a schedule or reminder trigger.
     var isScheduleThread: Bool {
+        if scheduleJobId != nil { return true }
         return title.hasPrefix("Schedule: ") || title.hasPrefix("Schedule (manual): ") || title.hasPrefix("Reminder: ")
     }
 
