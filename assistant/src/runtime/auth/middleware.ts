@@ -110,6 +110,19 @@ export function authenticateRequest(req: Request): AuthenticateResult {
     verifyResult.reason?.startsWith("audience_mismatch")
   ) {
     verifyResult = verifyToken(rawToken, "vellum-gateway");
+    // Normalize gateway-audience claims to daemon context so that
+    // buildAuthContext applies the same assistantId normalization
+    // (aud=vellum-daemon → assistantId='self') that gateway-exchanged
+    // tokens receive. Without this rewrite, the external assistant ID
+    // from the guardian-issued JWT would leak into daemon-internal
+    // scoping (storage keys, routing), violating the invariant
+    // documented in context.ts:30-33.
+    if (verifyResult.ok) {
+      verifyResult = {
+        ok: true,
+        claims: { ...verifyResult.claims, aud: "vellum-daemon" },
+      };
+    }
   }
   if (!verifyResult.ok) {
     // Stale policy epoch gets a specific error code so clients can refresh
