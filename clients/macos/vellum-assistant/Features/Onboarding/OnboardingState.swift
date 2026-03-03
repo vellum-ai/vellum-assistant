@@ -167,6 +167,7 @@ final class OnboardingState {
     /// Resets cloud provider and credential fields to defaults.
     func resetCloudCredentials() {
         cloudProvider = "local"
+        UserDefaults.standard.set("local", forKey: "onboarding.cloudProvider")
         gcpProjectId = ""
         gcpZone = "us-central1-a"
         gcpServiceAccountKey = ""
