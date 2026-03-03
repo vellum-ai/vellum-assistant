@@ -48,10 +48,10 @@ const SUGGESTION_CACHE_MAX = 100;
 
 function collectCanonicalGuardianRequestHintIds(
   conversationId: string,
-  _sourceChannel: string,
+  sourceChannel: string,
   session: import('../../daemon/session.js').Session,
 ): string[] {
-  const requests = listPendingRequestsByConversationScope(conversationId);
+  const requests = listPendingRequestsByConversationScope(conversationId, sourceChannel);
 
   return requests
     .filter((req) => req.kind !== 'tool_approval' || session.hasPendingConfirmation(req.id))

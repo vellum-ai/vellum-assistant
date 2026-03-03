@@ -542,18 +542,23 @@ export function listPendingCanonicalGuardianRequestsByDestinationChat(
  *   1. Requests whose source `conversationId` matches the queried thread.
  *   2. Requests that have a delivery whose `destinationConversationId` matches.
  *
+ * When `channel` is provided the delivery-scoped lookup is narrowed to that
+ * channel, preventing cross-channel leakage when conversation ID namespaces
+ * overlap across channels.
+ *
  * Deduplicates by request ID so a request that was both sourced from and
  * delivered to the same conversation only appears once.
  */
 export function listPendingRequestsByConversationScope(
   conversationId: string,
+  channel?: string,
 ): CanonicalGuardianRequest[] {
   const bySource = listCanonicalGuardianRequests({
     conversationId,
     status: 'pending',
   });
 
-  const byDestination = listPendingCanonicalGuardianRequestsByDestinationConversation(conversationId);
+  const byDestination = listPendingCanonicalGuardianRequestsByDestinationConversation(conversationId, channel);
 
   const seen = new Set<string>();
   const result: CanonicalGuardianRequest[] = [];
@@ -579,13 +584,16 @@ export function listPendingRequestsByConversationScope(
  * Check whether a guardian decision's `conversationId` is in scope for a
  * canonical request. A decision is in scope when:
  *   - The request's source `conversationId` matches, OR
- *   - Any recorded delivery has `destinationConversationId` matching.
+ *   - Any recorded delivery has `destinationConversationId` matching
+ *     (optionally scoped by `channel` to prevent cross-channel approval
+ *     when conversation ID namespaces overlap across channels).
  *
  * Returns `true` when the decision is allowed from the given conversation.
  */
 export function isRequestInConversationScope(
   requestId: string,
   conversationId: string,
+  channel?: string,
 ): boolean {
   const request = getCanonicalGuardianRequest(requestId);
   if (!request) return false;
@@ -593,9 +601,12 @@ export function isRequestInConversationScope(
   // Source conversation match
   if (request.conversationId === conversationId) return true;
 
-  // Destination delivery match
+  // Destination delivery match, optionally scoped by channel
   const deliveries = listCanonicalGuardianDeliveries(requestId);
-  return deliveries.some((d) => d.destinationConversationId === conversationId);
+  return deliveries.some((d) =>
+    d.destinationConversationId === conversationId &&
+    (!channel || d.destinationChannel === channel),
+  );
 }
 
 export interface UpdateCanonicalGuardianDeliveryParams {

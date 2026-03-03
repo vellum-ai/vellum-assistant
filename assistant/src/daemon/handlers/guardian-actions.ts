@@ -12,7 +12,7 @@ const VALID_ACTIONS = new Set<string>(['approve_once', 'approve_10m', 'approve_t
 
 export const guardianActionsHandlers = defineHandlers({
   guardian_actions_pending_request: (msg: GuardianActionsPendingRequest, socket, ctx) => {
-    const prompts = listGuardianDecisionPrompts({ conversationId: msg.conversationId });
+    const prompts = listGuardianDecisionPrompts({ conversationId: msg.conversationId, channel: 'vellum' });
     ctx.send(socket, { type: 'guardian_actions_pending_response', conversationId: msg.conversationId, prompts });
   },
 
@@ -35,7 +35,7 @@ export const guardianActionsHandlers = defineHandlers({
     // source conversation OR a recorded delivery destination conversation.
     if (msg.conversationId) {
       const canonicalRequest = getCanonicalGuardianRequest(msg.requestId);
-      if (canonicalRequest && canonicalRequest.conversationId && !isRequestInConversationScope(msg.requestId, msg.conversationId)) {
+      if (canonicalRequest && canonicalRequest.conversationId && !isRequestInConversationScope(msg.requestId, msg.conversationId, 'vellum')) {
         log.warn({ requestId: msg.requestId, expected: canonicalRequest.conversationId, got: msg.conversationId }, 'conversationId not in scope');
         ctx.send(socket, {
           type: 'guardian_action_decision_response',
