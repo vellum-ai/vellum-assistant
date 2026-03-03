@@ -136,8 +136,7 @@ const PTT_KEY_LEGACY = new Set(["fn", "ctrl", "fn_shift", "none"]);
 /**
  * Validate a PTT activation key string. Accepts both legacy string values
  * (fn, ctrl, fn_shift, none) and JSON PTTActivator payloads from the
- * custom key feature. Returns the key as-is if valid, "unknown" for
- * non-null invalid values, or undefined for null/undefined input.
+ * custom key feature. Returns the key as-is if valid, undefined otherwise.
  */
 export function sanitizePttActivationKey(
   key: string | undefined | null,
@@ -162,7 +161,7 @@ export function sanitizePttActivationKey(
     }
   }
 
-  return "unknown";
+  return undefined;
 }
 
 // Key code → name mapping for common macOS CGKeyCodes (subset for system prompt labels).

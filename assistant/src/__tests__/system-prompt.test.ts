@@ -75,9 +75,17 @@ const {
   buildPhoneCallsRoutingSection,
 } = await import("../config/system-prompt.js");
 
-/** Strip the Configuration and Skills sections so base-prompt tests stay focused. */
+/** Strip the em-dash preamble, Configuration, and Skills sections so base-prompt tests stay focused. */
 function basePrompt(result: string): string {
   let s = result;
+
+  // Strip the em-dash preamble that buildSystemPrompt always prepends
+  const emDashLine =
+    "IMPORTANT: Never use em dashes (\u2014) in your messages. Use commas, periods, or just start a new sentence instead.";
+  if (s.startsWith(emDashLine)) {
+    s = s.slice(emDashLine.length).replace(/^\n\n/, "");
+  }
+
   for (const heading of [
     "## Configuration",
     "## Skills Catalog",
