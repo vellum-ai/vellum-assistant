@@ -11,7 +11,7 @@ You are helping your user set up guardian verification for a messaging channel (
 
 - Use the injected `INTERNAL_GATEWAY_BASE_URL` for gateway API calls.
 - Never call the daemon runtime port directly; always call the gateway URL.
-- The bearer token is stored at `~/.vellum/http-token`. Read it with: `TOKEN=$(cat ~/.vellum/http-token)`.
+- The bearer token is available as the `$GATEWAY_AUTH_TOKEN` environment variable.
 - Run shell commands for this skill with `host_bash` (not sandbox `bash`) so host auth/token and gateway routing are reliable.
 - Keep narration minimal: execute required calls first, then provide a concise status update. Do not narrate internal install/check/load chatter unless something fails.
 
@@ -39,10 +39,9 @@ Based on the chosen channel, ask for the required destination:
 Execute the outbound start request:
 
 ```bash
-TOKEN=$(cat ~/.vellum/http-token)
 curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/guardian/outbound/start" \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" \
   -d '{"channel": "<channel>", "destination": "<destination>"}'
 ```
 
@@ -77,10 +76,9 @@ Handle each error code:
 If the user says they did not receive the code or asks to resend:
 
 ```bash
-TOKEN=$(cat ~/.vellum/http-token)
 curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/guardian/outbound/resend" \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" \
   -d '{"channel": "<channel>"}'
 ```
 
@@ -107,10 +105,9 @@ Handle each error code from the resend endpoint:
 If the user wants to cancel the verification:
 
 ```bash
-TOKEN=$(cat ~/.vellum/http-token)
 curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/guardian/outbound/cancel" \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" \
   -d '{"channel": "<channel>"}'
 ```
 
@@ -126,9 +123,8 @@ For **voice** verification only: after telling the user their code and instructi
 2. Check the binding status:
 
 ```bash
-TOKEN=$(cat ~/.vellum/http-token)
 curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/guardian/status?channel=voice" \
-  -H "Authorization: Bearer $TOKEN"
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN"
 ```
 
 3. If the response shows `bound: true`: immediately send a proactive success message in the current chat — "Voice verification complete! Your phone number is now the trusted guardian." Stop polling.
@@ -153,9 +149,8 @@ When in a **rebind flow** (i.e., the `start_outbound` request included `"rebind"
 After the user reports entering the code, verify the binding was created:
 
 ```bash
-TOKEN=$(cat ~/.vellum/http-token)
 curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/guardian/status?channel=<channel>" \
-  -H "Authorization: Bearer $TOKEN"
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN"
 ```
 
 If the response shows the guardian is bound, confirm success: "Guardian verified! Your [channel] identity is now the trusted guardian."

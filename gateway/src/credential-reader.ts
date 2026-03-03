@@ -39,16 +39,10 @@ interface StoreFile {
 }
 
 function getPlatformName(): string {
-  switch (process.platform) {
-    case "darwin":
-      return "macOS";
-    case "win32":
-      return "Windows";
-    case "linux":
-      return "Linux";
-    default:
-      return process.platform;
-  }
+  // Must match assistant/src/util/platform.ts#getPlatformName exactly.
+  // Using user-friendly labels like "macOS" here changes PBKDF2 entropy and
+  // makes gateway unable to decrypt credentials written by the daemon.
+  return process.platform;
 }
 
 function getMachineEntropy(): string {

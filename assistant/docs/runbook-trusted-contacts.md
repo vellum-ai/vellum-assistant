@@ -5,11 +5,13 @@ Operational procedures for inspecting, managing, and debugging the trusted conta
 ## Prerequisites
 
 ```bash
-# Read the bearer token
-TOKEN=$(cat ~/.vellum/http-token)
-
 # Base URL (adjust if using a non-default port)
 BASE=http://localhost:7830
+
+# Bearer token: if running via the assistant's shell tools, $GATEWAY_AUTH_TOKEN
+# is injected automatically. For manual operator use, mint a token via the CLI
+# or use one from the daemon (e.g. from a recent shell env export).
+TOKEN=$GATEWAY_AUTH_TOKEN
 ```
 
 ## 1. Inspect Trusted Contacts (Members)
