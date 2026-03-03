@@ -164,6 +164,19 @@ final class OnboardingState {
         UserDefaults.standard.set(Self.currentFlowVersion, forKey: "onboarding.flowVersion")
     }
 
+    /// Resets cloud provider and credential fields to defaults.
+    func resetCloudCredentials() {
+        cloudProvider = "local"
+        gcpProjectId = ""
+        gcpZone = "us-central1-a"
+        gcpServiceAccountKey = ""
+        awsRoleArn = ""
+        sshHost = ""
+        sshUser = ""
+        sshPrivateKey = ""
+        customQRCodeImageData = Data()
+    }
+
     static func clearPersistedState() {
         for key in ["onboarding.step", "onboarding.name", "onboarding.key", "onboarding.hatched", "onboarding.interviewCompleted", "onboarding.variant", "onboarding.firstMeetingCrackProgress", "onboarding.flowVersion", "onboarding.cloudProvider"] {
             UserDefaults.standard.removeObject(forKey: key)

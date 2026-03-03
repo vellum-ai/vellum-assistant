@@ -227,6 +227,9 @@ struct HatchingStepView: View {
         hatchStarted = false
         failureReason = nil
 
+        // Clear provider/credential state so the user gets a clean slate
+        state.resetCloudCredentials()
+
         // Return to the welcome screen (step 0)
         state.currentStep = 0
     }
