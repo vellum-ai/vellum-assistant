@@ -730,7 +730,6 @@ Both macOS and iOS clients use a single JWT access token for all HTTP authentica
 | `clients/ios/Views/Settings/ConnectionSettingsSection.swift` | Connection status and QR scan entry point |
 | `clients/macos/vellum-assistant/Features/Settings/PairingQRCodeSheet.swift` | macOS v4 QR generation, pre-registration with daemon |
 | `clients/macos/vellum-assistant/Features/Settings/PairingApprovalWindow.swift` | Floating approval prompt window |
-| `clients/macos/vellum-assistant/Features/Settings/ApprovedDevicesSection.swift` | Approved devices list UI |
 | `assistant/src/daemon/pairing-store.ts` | In-memory pairing request store with TTL |
 | `assistant/src/daemon/approved-devices-store.ts` | Persistent approved devices allowlist |
 | `assistant/src/daemon/handlers/pairing.ts` | IPC handlers for pairing approval |
