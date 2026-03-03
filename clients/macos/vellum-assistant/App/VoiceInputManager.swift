@@ -50,24 +50,25 @@ final class VoiceInputManager {
 
     /// Whether the microphone is currently recording for PTT/dictation.
     private(set) var isRecording = false
-    private var globalMonitor: Any?
-    private var localMonitor: Any?
-    private var globalKeyDownMonitor: Any?
-    private var localKeyDownMonitor: Any?
+
+    /// Guards against double-start/double-stop from rapid key events.
+    private var isActivatorHeld = false
+
+    /// All active event monitors, consolidated for clean teardown.
+    private var monitors: [Any] = []
+
     private var holdTask: Task<Void, Never>?
     private var otherKeyPressedDuringHold = false  // True if any other key pressed while holding
     private static let holdDelay: UInt64 = 300_000_000 // 300ms in nanoseconds
+    /// Safety timeout for mouse activators: auto-stop if mouseUp is missed.
+    private static let mouseTimeoutSeconds: TimeInterval = 30
+    private var mouseTimeoutTask: Task<Void, Never>?
     private var lastAppSwitchTime: Date = .distantPast
     private var appSwitchObservers: [Any] = []
 
-    private var activationFlags: NSEvent.ModifierFlags? {
-        let stored = UserDefaults.standard.string(forKey: "activationKey") ?? "fn"
-        switch stored {
-        case "ctrl": return .control
-        case "fn_shift": return [.function, .shift]
-        case "none": return nil
-        default: return .function // fn and globe are the same physical key
-        }
+    /// The current PTT activator, read from UserDefaults.
+    var activator: PTTActivator {
+        PTTActivator.fromStored()
     }
 
     private let speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
@@ -79,7 +80,7 @@ final class VoiceInputManager {
     var exposedAudioEngine: AVAudioEngine { audioEngine }
 
     func start() {
-        setupFnKeyMonitors()
+        setupActivationMonitors()
 
         // Cancel any in-flight hold when the user switches apps, to prevent the
         // microphone from activating accidentally during Cmd+Tab / Ctrl+Space etc.
@@ -147,27 +148,18 @@ final class VoiceInputManager {
     }
 
     func stop() {
-        if let monitor = globalMonitor {
+        for monitor in monitors {
             NSEvent.removeMonitor(monitor)
-            globalMonitor = nil
         }
-        if let monitor = localMonitor {
-            NSEvent.removeMonitor(monitor)
-            localMonitor = nil
-        }
-        if let monitor = globalKeyDownMonitor {
-            NSEvent.removeMonitor(monitor)
-            globalKeyDownMonitor = nil
-        }
-        if let monitor = localKeyDownMonitor {
-            NSEvent.removeMonitor(monitor)
-            localKeyDownMonitor = nil
-        }
+        monitors = []
         for observer in appSwitchObservers {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
             NotificationCenter.default.removeObserver(observer)
         }
         appSwitchObservers = []
+        mouseTimeoutTask?.cancel()
+        mouseTimeoutTask = nil
+        isActivatorHeld = false
         stopRecording()
         overlayWindow.dismiss()
         permissionOverlay.dismiss()
@@ -206,15 +198,38 @@ final class VoiceInputManager {
         recognitionRequest?.endAudio()
     }
 
-    // MARK: - Fn Key Detection
+    // MARK: - Activation Monitor Setup
 
-    private func setupFnKeyMonitors() {
-        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+    private func setupActivationMonitors() {
+        let current = activator
+        switch current.kind {
+        case .none:
+            // PTT disabled — no monitors needed
+            break
+
+        case .modifierOnly:
+            setupModifierOnlyMonitors()
+
+        case .key:
+            setupKeyMonitors(activator: current)
+
+        case .modifierKey:
+            setupKeyMonitors(activator: current)
+
+        case .mouseButton:
+            setupMouseButtonMonitors(activator: current)
+        }
+    }
+
+    // MARK: - Modifier-Only Monitors (Fn, Ctrl, Fn+Shift)
+
+    private func setupModifierOnlyMonitors() {
+        let globalFlags = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
             Task { @MainActor in
                 self?.handleFlagsChanged(event)
             }
         }
-        localMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+        let localFlags = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
             Task { @MainActor in
                 self?.handleFlagsChanged(event)
             }
@@ -223,22 +238,26 @@ final class VoiceInputManager {
 
         // Monitor keyDown events to detect when user types while holding activation key
         // (e.g., Control+C, Control+Z) and cancel voice activation in those cases.
-        globalKeyDownMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] _ in
+        let globalKeyDown = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] _ in
             Task { @MainActor in
-                self?.handleKeyDown()
+                self?.handleOtherKeyDown()
             }
         }
-        localKeyDownMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+        let localKeyDown = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             Task { @MainActor in
-                self?.handleKeyDown()
+                self?.handleOtherKeyDown()
             }
             return event
         }
 
+        if let m = globalFlags { monitors.append(m) }
+        if let m = localFlags { monitors.append(m) }
+        if let m = globalKeyDown { monitors.append(m) }
+        if let m = localKeyDown { monitors.append(m) }
     }
 
     private func handleFlagsChanged(_ event: NSEvent) {
-        guard let requiredFlags = activationFlags else { return }
+        guard let requiredFlags = activator.nsModifierFlags else { return }
         let keyPressed = event.modifierFlags.contains(requiredFlags)
         var otherModifiers: NSEvent.ModifierFlags = [.command, .shift, .control, .option, .function]
         for flag in [NSEvent.ModifierFlags.command, .shift, .control, .option, .function] {
@@ -252,6 +271,7 @@ final class VoiceInputManager {
             // Activation key(s) pressed alone - start timer to begin recording while held
             holdTask?.cancel()
             otherKeyPressedDuringHold = false
+            isActivatorHeld = true
             // Skip if an app switch happened recently — this Fn/Ctrl press is likely
             // from a system keyboard shortcut (Cmd+Tab, Ctrl+arrows) used to switch apps.
             guard Date().timeIntervalSince(lastAppSwitchTime) > 0.5 else { return }
@@ -293,12 +313,7 @@ final class VoiceInputManager {
                     timeSinceAppSwitch: Date().timeIntervalSince(self.lastAppSwitchTime),
                     isAlreadyRecording: self.isRecording
                 ) else { return }
-                // Capture frontmost app context before recording starts so the daemon
-                // knows where to insert the cleaned-up text after dictation completes.
-                if self.currentMode == .dictation {
-                    self.currentDictationContext = DictationContextCapture.capture()
-                }
-                self.beginRecording()
+                self.captureContextAndBeginRecording()
             }
         } else if keyPressed && hasOtherModifiers {
             // Another modifier pressed - cancel voice activation
@@ -306,26 +321,225 @@ final class VoiceInputManager {
             holdTask = nil
         } else if !keyPressed {
             // Activation key released
+            isActivatorHeld = false
             holdTask?.cancel()
             holdTask = nil
             if isRecording {
-                if currentMode == .dictation {
-                    // In dictation mode, don't cancel the recognition — let it finish
-                    // processing and deliver the final transcription via the callback.
-                    stopRecordingForDictation()
-                } else {
-                    stopRecording()
-                }
+                stopRecordingByMode()
             }
         }
     }
 
-    private func handleKeyDown() {
+    // MARK: - Key / ModifierKey Monitors (e.g. F5, Ctrl+F5)
+
+    private func setupKeyMonitors(activator: PTTActivator) {
+        guard let targetKeyCode = activator.keyCode else { return }
+        let requiredModifiers = activator.nsModifierFlags
+
+        // keyDown: start hold timer
+        let globalKeyDown = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            Task { @MainActor in
+                self?.handleActivatorKeyDown(event, targetKeyCode: targetKeyCode, requiredModifiers: requiredModifiers)
+            }
+        }
+        let localKeyDown = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            Task { @MainActor in
+                self?.handleActivatorKeyDown(event, targetKeyCode: targetKeyCode, requiredModifiers: requiredModifiers)
+            }
+            // Suppress the key from typing when it matches our activator
+            if event.keyCode == targetKeyCode && !event.isARepeat {
+                if let mods = requiredModifiers {
+                    if event.modifierFlags.contains(mods) { return nil }
+                } else {
+                    return nil
+                }
+            }
+            return event
+        }
+
+        // keyUp: stop recording
+        let globalKeyUp = NSEvent.addGlobalMonitorForEvents(matching: .keyUp) { [weak self] event in
+            Task { @MainActor in
+                self?.handleActivatorKeyUp(event, targetKeyCode: targetKeyCode)
+            }
+        }
+        let localKeyUp = NSEvent.addLocalMonitorForEvents(matching: .keyUp) { [weak self] event in
+            Task { @MainActor in
+                self?.handleActivatorKeyUp(event, targetKeyCode: targetKeyCode)
+            }
+            return event
+        }
+
+        if let m = globalKeyDown { monitors.append(m) }
+        if let m = localKeyDown { monitors.append(m) }
+        if let m = globalKeyUp { monitors.append(m) }
+        if let m = localKeyUp { monitors.append(m) }
+    }
+
+    private func handleActivatorKeyDown(_ event: NSEvent, targetKeyCode: UInt16, requiredModifiers: NSEvent.ModifierFlags?) {
+        guard event.keyCode == targetKeyCode else { return }
+        guard !event.isARepeat else { return }
+        guard !isActivatorHeld else { return }
+
+        // Check modifier requirements
+        if let mods = requiredModifiers {
+            guard event.modifierFlags.contains(mods) else { return }
+        }
+
+        isActivatorHeld = true
+        guard !isRecording else { return }
+
+        holdTask?.cancel()
+        otherKeyPressedDuringHold = false
+        guard Date().timeIntervalSince(lastAppSwitchTime) > 0.5 else { return }
+
+        // For key-based activators, snapshot keys and poll during hold period.
+        // For key codes > 127, skip polling (uncommon keys outside CGEventSource range).
+        var activationSnapshot = Set<CGKeyCode>()
+        let maxPollCode: CGKeyCode = 127
+        for code in CGKeyCode(0)...maxPollCode {
+            if CGEventSource.keyState(.combinedSessionState, key: code) {
+                activationSnapshot.insert(code)
+            }
+        }
+
+        holdTask = Task { [weak self, activationSnapshot] in
+            let pollIntervalNs: UInt64 = 25_000_000
+            let numPolls = Int(Self.holdDelay / pollIntervalNs)
+            for _ in 0..<numPolls {
+                try? await Task.sleep(nanoseconds: pollIntervalNs)
+                guard !Task.isCancelled else { return }
+                guard let self = self else { return }
+                guard !self.otherKeyPressedDuringHold else { return }
+                guard Date().timeIntervalSince(self.lastAppSwitchTime) > 0.5 else { return }
+                // Cancel if any key not present at activation time is now held.
+                for code in CGKeyCode(0)...maxPollCode {
+                    if !activationSnapshot.contains(code) &&
+                        CGEventSource.keyState(.combinedSessionState, key: code) {
+                        return
+                    }
+                }
+            }
+            guard !Task.isCancelled else { return }
+            guard let self = self else { return }
+            guard self.shouldStartRecording(
+                activationKeyPressed: true,
+                otherKeyPressed: self.otherKeyPressedDuringHold,
+                timeSinceAppSwitch: Date().timeIntervalSince(self.lastAppSwitchTime),
+                isAlreadyRecording: self.isRecording
+            ) else { return }
+            self.captureContextAndBeginRecording()
+        }
+    }
+
+    private func handleActivatorKeyUp(_ event: NSEvent, targetKeyCode: UInt16) {
+        guard event.keyCode == targetKeyCode else { return }
+        guard isActivatorHeld else { return }
+
+        isActivatorHeld = false
+        holdTask?.cancel()
+        holdTask = nil
+        if isRecording {
+            stopRecordingByMode()
+        }
+    }
+
+    // MARK: - Mouse Button Monitors
+
+    private func setupMouseButtonMonitors(activator: PTTActivator) {
+        guard let targetButton = activator.mouseButton, targetButton >= 2 else { return }
+
+        let globalMouseDown = NSEvent.addGlobalMonitorForEvents(matching: .otherMouseDown) { [weak self] event in
+            Task { @MainActor in
+                self?.handleMouseActivatorDown(event, targetButton: targetButton)
+            }
+        }
+        let localMouseDown = NSEvent.addLocalMonitorForEvents(matching: .otherMouseDown) { [weak self] event in
+            Task { @MainActor in
+                self?.handleMouseActivatorDown(event, targetButton: targetButton)
+            }
+            return event
+        }
+
+        let globalMouseUp = NSEvent.addGlobalMonitorForEvents(matching: .otherMouseUp) { [weak self] event in
+            Task { @MainActor in
+                self?.handleMouseActivatorUp(event, targetButton: targetButton)
+            }
+        }
+        let localMouseUp = NSEvent.addLocalMonitorForEvents(matching: .otherMouseUp) { [weak self] event in
+            Task { @MainActor in
+                self?.handleMouseActivatorUp(event, targetButton: targetButton)
+            }
+            return event
+        }
+
+        if let m = globalMouseDown { monitors.append(m) }
+        if let m = localMouseDown { monitors.append(m) }
+        if let m = globalMouseUp { monitors.append(m) }
+        if let m = localMouseUp { monitors.append(m) }
+    }
+
+    private func handleMouseActivatorDown(_ event: NSEvent, targetButton: Int) {
+        guard event.buttonNumber == targetButton else { return }
+        guard !isActivatorHeld else { return }
+
+        isActivatorHeld = true
+        guard !isRecording else { return }
+
+        // Mouse activators skip the 300ms hold delay and key polling — start immediately.
+        captureContextAndBeginRecording()
+
+        // Safety timeout: auto-stop if mouseUp is missed (e.g. focus lost).
+        mouseTimeoutTask?.cancel()
+        mouseTimeoutTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(Self.mouseTimeoutSeconds * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            guard let self = self else { return }
+            if self.isRecording && self.isActivatorHeld {
+                log.warning("Mouse activator safety timeout fired after \(Self.mouseTimeoutSeconds)s — stopping recording")
+                self.isActivatorHeld = false
+                self.stopRecordingByMode()
+            }
+        }
+    }
+
+    private func handleMouseActivatorUp(_ event: NSEvent, targetButton: Int) {
+        guard event.buttonNumber == targetButton else { return }
+        guard isActivatorHeld else { return }
+
+        isActivatorHeld = false
+        mouseTimeoutTask?.cancel()
+        mouseTimeoutTask = nil
+        if isRecording {
+            stopRecordingByMode()
+        }
+    }
+
+    // MARK: - Shared Helpers
+
+    private func handleOtherKeyDown() {
         // If user types any key while holding the activation modifier (e.g. Control+C),
         // set flag to prevent recording and cancel timer for immediate feedback
         otherKeyPressedDuringHold = true
         holdTask?.cancel()
         holdTask = nil
+    }
+
+    /// Capture frontmost app context (for dictation) and begin recording.
+    private func captureContextAndBeginRecording() {
+        if currentMode == .dictation {
+            currentDictationContext = DictationContextCapture.capture()
+        }
+        beginRecording()
+    }
+
+    /// Stop recording using the appropriate method for the current mode.
+    private func stopRecordingByMode() {
+        if currentMode == .dictation {
+            stopRecordingForDictation()
+        } else {
+            stopRecording()
+        }
     }
 
     // MARK: - Hold Detection Logic (extracted for testability)
@@ -472,13 +686,9 @@ final class VoiceInputManager {
 
     /// Display name for the currently configured activation key, for use in user-facing copy.
     private var activationKeyDisplayName: String {
-        let stored = UserDefaults.standard.string(forKey: "activationKey") ?? "fn"
-        switch stored {
-        case "ctrl": return "ctrl"
-        case "fn_shift": return "fn + shift"
-        case "none": return "the activation key"
-        default: return "fn"
-        }
+        let current = activator
+        if current.kind == .none { return "the activation key" }
+        return current.displayName
     }
 
     /// Show the permission prompt overlay explaining why access is needed and providing
