@@ -1044,13 +1044,6 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         pendingAnchorThreadId = threadId
     }
 
-    /// Consume the pending anchor message, returning it if present. Resets to nil.
-    func consumePendingAnchorMessage() -> UUID? {
-        let id = pendingAnchorMessageId
-        pendingAnchorMessageId = nil
-        return id
-    }
-
     /// Mark all visible (non-archived, non-private) threads as seen locally.
     /// IPC signals are NOT sent immediately — call `commitPendingSeenSignals()`
     /// after the undo window expires, or `cancelPendingSeenSignals()` if the

@@ -497,7 +497,17 @@ struct MessageListView: View {
             }
             .onAppear {
                 isAppActive = NSApp.isActive
-                proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                if let id = anchorMessageId, messages.contains(where: { $0.id == id }) {
+                    // Anchor is already set and the target message is loaded —
+                    // scroll to it immediately instead of falling through to bottom.
+                    proxy.scrollTo(id, anchor: .center)
+                    anchorMessageId = nil
+                } else if anchorMessageId == nil {
+                    proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                }
+                // When anchorMessageId is set but the target message isn't loaded
+                // yet, skip scrolling entirely — onChange(of: messages.count) will
+                // retry once history finishes loading.
             }
             .onDisappear {
                 hoverExitDebounceTask?.cancel()
