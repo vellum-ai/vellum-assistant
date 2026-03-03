@@ -593,8 +593,9 @@ export class RuntimeHttpServer {
 
     // Guardian bootstrap and refresh endpoints — before JWT auth because
     // bootstrap is the first endpoint called to obtain a JWT, and refresh
-    // needs to work when the access token is expired. Both have their own
-    // loopback/token validation.
+    // needs to work when the access token is expired. Bootstrap has its
+    // own loopback IP validation; refresh is secured by the refresh token
+    // in the request body (32 random bytes, hash-only storage).
     if (path === '/v1/integrations/guardian/vellum/bootstrap' && req.method === 'POST') {
       return await handleGuardianBootstrap(req, server);
     }

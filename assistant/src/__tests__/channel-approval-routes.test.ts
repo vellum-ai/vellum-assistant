@@ -66,6 +66,7 @@ mock.module('../memory/ingress-member-store.js', () => ({
   }),
   updateLastSeen: () => {},
 }));
+import { initAuthSigningKey } from '../runtime/auth/token-service.js';
 import type { Session } from '../daemon/session.js';
 import {
   createCanonicalGuardianDelivery,
@@ -89,6 +90,7 @@ import {
 } from '../runtime/routes/channel-routes.js';
 
 initializeDb();
+initAuthSigningKey(Buffer.from('test-signing-key-at-least-32-bytes-long'));
 
 afterAll(() => {
   resetDb();
