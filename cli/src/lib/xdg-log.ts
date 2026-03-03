@@ -44,7 +44,7 @@ export function writeToLogFile(fd: number | "ignore", msg: string): void {
 export function pipeToLogFile(child: ChildProcess, fd: number | "ignore", tag: string): void {
   if (fd === "ignore") return;
   const numFd: number = fd;
-  const prefix = `[${tag}] `;
+  const tagLabel = `[${tag}]`;
   const streams = [child.stdout, child.stderr].filter(Boolean);
   let ended = 0;
 
@@ -64,6 +64,7 @@ export function pipeToLogFile(child: ChildProcess, fd: number | "ignore", tag: s
       for (let i = 0; i < lines.length; i++) {
         if (i === lines.length - 1 && lines[i] === "") break;
         const nl = i < lines.length - 1 ? "\n" : "";
+        const prefix = `${new Date().toISOString()} ${tagLabel} `;
         try { writeSync(numFd, prefix + lines[i] + nl); } catch { /* best-effort */ }
       }
     });
