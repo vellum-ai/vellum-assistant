@@ -155,6 +155,10 @@ public final class HTTPTransport {
         case identity
         case featureFlags
         case featureFlagUpdate(key: String)
+        case surfaceAction
+        case trustRulesManage
+        case trustRuleManageById(id: String)
+        case pendingInteractions(conversationKey: String?)
     }
 
     /// Build a URL for the given endpoint using the current route mode.
@@ -217,6 +221,19 @@ public final class HTTPTransport {
         case .featureFlagUpdate(let key):
             let encoded = key.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? key
             return ("/v1/feature-flags/\(encoded)", nil)
+        case .surfaceAction:
+            return ("/v1/surface-actions", nil)
+        case .trustRulesManage:
+            return ("/v1/trust-rules/manage", nil)
+        case .trustRuleManageById(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/trust-rules/manage/\(encoded)", nil)
+        case .pendingInteractions(let conversationKey):
+            if let key = conversationKey {
+                let encoded = key.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? key
+                return ("/v1/pending-interactions", "conversationKey=\(encoded)")
+            }
+            return ("/v1/pending-interactions", nil)
         }
     }
 
@@ -260,6 +277,19 @@ public final class HTTPTransport {
         case .featureFlagUpdate(let key):
             let encoded = key.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? key
             return ("\(prefix)/feature-flags/\(encoded)/", nil)
+        case .surfaceAction:
+            return ("\(prefix)/surface-actions/", nil)
+        case .trustRulesManage:
+            return ("\(prefix)/trust-rules/manage/", nil)
+        case .trustRuleManageById(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/trust-rules/manage/\(encoded)/", nil)
+        case .pendingInteractions(let conversationKey):
+            if let key = conversationKey {
+                let encoded = key.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? key
+                return ("\(prefix)/pending-interactions/", "conversationKey=\(encoded)")
+            }
+            return ("\(prefix)/pending-interactions/", nil)
         }
     }
 
@@ -451,9 +481,9 @@ public final class HTTPTransport {
         if let msg = message as? UserMessageMessage {
             Task { await self.sendMessage(content: msg.content, sessionId: msg.sessionId) }
         } else if let msg = message as? ConfirmationResponseMessage {
-            Task { await self.sendDecision(requestId: msg.requestId, decision: msg.decision) }
+            Task { await self.sendDecision(requestId: msg.requestId, decision: msg.decision, selectedPattern: msg.selectedPattern, selectedScope: msg.selectedScope) }
         } else if let msg = message as? SecretResponseMessage {
-            Task { await self.sendSecret(requestId: msg.requestId, value: msg.value) }
+            Task { await self.sendSecret(requestId: msg.requestId, value: msg.value, delivery: msg.delivery) }
         } else if let msg = message as? CancelMessage {
             // Best-effort cancel — no dedicated endpoint yet
             log.info("Cancel requested for session \(msg.sessionId ?? "unknown") (no-op over HTTP)")
@@ -476,6 +506,16 @@ public final class HTTPTransport {
             Task { await self.fetchGuardianActionsPending(conversationId: msg.conversationId) }
         } else if let msg = message as? GuardianActionDecisionMessage {
             Task { await self.submitGuardianActionDecision(requestId: msg.requestId, action: msg.action, conversationId: msg.conversationId) }
+        } else if let msg = message as? UiSurfaceActionMessage {
+            Task { await self.sendSurfaceAction(msg) }
+        } else if let msg = message as? AddTrustRuleMessage {
+            Task { await self.sendAddTrustRule(msg) }
+        } else if message is TrustRulesListMessage {
+            Task { await self.fetchTrustRules() }
+        } else if let msg = message as? RemoveTrustRuleMessage {
+            Task { await self.sendRemoveTrustRule(msg) }
+        } else if let msg = message as? UpdateTrustRuleMessage {
+            Task { await self.sendUpdateTrustRule(msg) }
         } else if message is PingMessage {
             // No-op for HTTP transport — SSE keepalive is handled by the connection
         } else {
@@ -548,7 +588,7 @@ public final class HTTPTransport {
         }
     }
 
-    private func sendDecision(requestId: String, decision: String, isRetry: Bool = false) async {
+    private func sendDecision(requestId: String, decision: String, selectedPattern: String? = nil, selectedScope: String? = nil, isRetry: Bool = false) async {
         guard let url = buildURL(for: .confirm) else { return }
 
         var request = URLRequest(url: url)
@@ -556,10 +596,16 @@ public final class HTTPTransport {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         applyAuth(&request)
 
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "requestId": requestId,
-            "decision": decision
+            "decision": decision,
         ]
+        if let selectedPattern {
+            body["selectedPattern"] = selectedPattern
+        }
+        if let selectedScope {
+            body["selectedScope"] = selectedScope
+        }
 
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -570,7 +616,7 @@ public final class HTTPTransport {
                     let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
                     switch refreshResult {
                     case .success:
-                        await sendDecision(requestId: requestId, decision: decision, isRetry: true)
+                        await sendDecision(requestId: requestId, decision: decision, selectedPattern: selectedPattern, selectedScope: selectedScope, isRetry: true)
                     case .terminalFailure:
                         break
                     case .transientFailure:
@@ -585,7 +631,7 @@ public final class HTTPTransport {
         }
     }
 
-    private func sendSecret(requestId: String, value: String?, isRetry: Bool = false) async {
+    private func sendSecret(requestId: String, value: String?, delivery: String? = nil, isRetry: Bool = false) async {
         guard let url = buildURL(for: .secret) else { return }
 
         var request = URLRequest(url: url)
@@ -593,10 +639,13 @@ public final class HTTPTransport {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         applyAuth(&request)
 
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "requestId": requestId,
-            "value": value ?? ""
+            "value": value ?? "",
         ]
+        if let delivery {
+            body["delivery"] = delivery
+        }
 
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -607,7 +656,7 @@ public final class HTTPTransport {
                     let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
                     switch refreshResult {
                     case .success:
-                        await sendSecret(requestId: requestId, value: value, isRetry: true)
+                        await sendSecret(requestId: requestId, value: value, delivery: delivery, isRetry: true)
                     case .terminalFailure:
                         break
                     case .transientFailure:
@@ -782,6 +831,194 @@ public final class HTTPTransport {
             }
         } catch {
             log.error("Conversation seen signal error: \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - Surface Actions
+
+    private func sendSurfaceAction(_ action: UiSurfaceActionMessage, isRetry: Bool = false) async {
+        guard let url = buildURL(for: .surfaceAction) else { return }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+
+        var body: [String: Any] = [
+            "sessionId": action.sessionId,
+            "surfaceId": action.surfaceId,
+            "actionId": action.actionId,
+        ]
+        if let data = action.data {
+            // Convert [String: AnyCodable] to [String: Any] for JSONSerialization
+            var dataDict: [String: Any] = [:]
+            for (key, value) in data {
+                dataDict[key] = value.value
+            }
+            body["data"] = dataDict
+        }
+
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            let (_, response) = try await URLSession.shared.data(for: request)
+
+            if let http = response as? HTTPURLResponse {
+                if http.statusCode == 401 && !isRetry {
+                    let refreshResult = await handleAuthenticationFailureAsync()
+                    if case .success = refreshResult {
+                        await sendSurfaceAction(action, isRetry: true)
+                    }
+                } else if http.statusCode != 200 {
+                    log.error("HTTPTransport: surface action failed (\(http.statusCode))")
+                }
+            }
+        } catch {
+            log.error("HTTPTransport: surface action error: \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - Trust Rule Management
+
+    private func sendAddTrustRule(_ rule: AddTrustRuleMessage, isRetry: Bool = false) async {
+        guard let url = buildURL(for: .trustRulesManage) else { return }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+
+        var body: [String: Any] = [
+            "toolName": rule.toolName,
+            "pattern": rule.pattern,
+            "scope": rule.scope,
+            "decision": rule.decision,
+        ]
+        if let allowHighRisk = rule.allowHighRisk {
+            body["allowHighRisk"] = allowHighRisk
+        }
+        if let executionTarget = rule.executionTarget {
+            body["executionTarget"] = executionTarget
+        }
+
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            let (_, response) = try await URLSession.shared.data(for: request)
+
+            if let http = response as? HTTPURLResponse {
+                if http.statusCode == 401 && !isRetry {
+                    let refreshResult = await handleAuthenticationFailureAsync()
+                    if case .success = refreshResult {
+                        await sendAddTrustRule(rule, isRetry: true)
+                    }
+                } else if http.statusCode != 200 {
+                    log.error("HTTPTransport: add trust rule failed (\(http.statusCode))")
+                }
+            }
+        } catch {
+            log.error("HTTPTransport: add trust rule error: \(error.localizedDescription)")
+        }
+    }
+
+    private func fetchTrustRules(isRetry: Bool = false) async {
+        guard let url = buildURL(for: .trustRulesManage) else { return }
+
+        var request = URLRequest(url: url)
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            if let http = response as? HTTPURLResponse {
+                if http.statusCode == 401 && !isRetry {
+                    let refreshResult = await handleAuthenticationFailureAsync()
+                    if case .success = refreshResult {
+                        await fetchTrustRules(isRetry: true)
+                    }
+                    return
+                }
+                guard http.statusCode == 200 else {
+                    log.error("HTTPTransport: fetch trust rules failed (\(http.statusCode))")
+                    return
+                }
+            }
+
+            do {
+                let decoded = try decoder.decode(IPCTrustRulesListResponse.self, from: data)
+                onMessage?(.trustRulesListResponse(decoded))
+            } catch {
+                log.error("HTTPTransport: failed to decode trust rules response: \(error)")
+            }
+        } catch {
+            log.error("HTTPTransport: fetch trust rules error: \(error.localizedDescription)")
+        }
+    }
+
+    private func sendRemoveTrustRule(_ rule: RemoveTrustRuleMessage, isRetry: Bool = false) async {
+        guard let url = buildURL(for: .trustRuleManageById(id: rule.id)) else { return }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        applyAuth(&request)
+
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+
+            if let http = response as? HTTPURLResponse {
+                if http.statusCode == 401 && !isRetry {
+                    let refreshResult = await handleAuthenticationFailureAsync()
+                    if case .success = refreshResult {
+                        await sendRemoveTrustRule(rule, isRetry: true)
+                    }
+                } else if http.statusCode != 200 {
+                    log.error("HTTPTransport: remove trust rule failed (\(http.statusCode))")
+                }
+            }
+        } catch {
+            log.error("HTTPTransport: remove trust rule error: \(error.localizedDescription)")
+        }
+    }
+
+    private func sendUpdateTrustRule(_ rule: UpdateTrustRuleMessage, isRetry: Bool = false) async {
+        guard let url = buildURL(for: .trustRuleManageById(id: rule.id)) else { return }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "PATCH"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+
+        var body: [String: Any] = [:]
+        if let tool = rule.tool {
+            body["tool"] = tool
+        }
+        if let pattern = rule.pattern {
+            body["pattern"] = pattern
+        }
+        if let scope = rule.scope {
+            body["scope"] = scope
+        }
+        if let decision = rule.decision {
+            body["decision"] = decision
+        }
+        if let priority = rule.priority {
+            body["priority"] = priority
+        }
+
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            let (_, response) = try await URLSession.shared.data(for: request)
+
+            if let http = response as? HTTPURLResponse {
+                if http.statusCode == 401 && !isRetry {
+                    let refreshResult = await handleAuthenticationFailureAsync()
+                    if case .success = refreshResult {
+                        await sendUpdateTrustRule(rule, isRetry: true)
+                    }
+                } else if http.statusCode != 200 {
+                    log.error("HTTPTransport: update trust rule failed (\(http.statusCode))")
+                }
+            }
+        } catch {
+            log.error("HTTPTransport: update trust rule error: \(error.localizedDescription)")
         }
     }
 

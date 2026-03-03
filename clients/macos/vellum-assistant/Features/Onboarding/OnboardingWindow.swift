@@ -27,6 +27,7 @@ final class OnboardingWindow {
             state: state,
             daemonClient: daemonClient,
             authManager: authManager,
+            managedBootstrapEnabled: true,
             onComplete: { [weak self] in
                 guard let self else { return }
                 self.onComplete?(self.state)

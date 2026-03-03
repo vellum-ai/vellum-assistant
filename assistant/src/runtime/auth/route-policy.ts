@@ -217,6 +217,15 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   // Interfaces
   { endpoint: 'interfaces', scopes: ['settings.read'] },
 
+  // Trust rule CRUD management
+  { endpoint: 'trust-rules/manage:GET', scopes: ['settings.read'] },
+  { endpoint: 'trust-rules/manage:POST', scopes: ['settings.write'] },
+  { endpoint: 'trust-rules/manage:DELETE', scopes: ['settings.write'] },
+  { endpoint: 'trust-rules/manage:PATCH', scopes: ['settings.write'] },
+
+  // Surface actions
+  { endpoint: 'surface-actions', scopes: ['chat.write'] },
+
   // Conversation deletion (channel-facing)
   { endpoint: 'channels/conversation:DELETE', scopes: ['chat.write'] },
 

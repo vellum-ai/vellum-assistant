@@ -1571,11 +1571,17 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     }
 
     /// Resolve an auth token for feature-flag requests.
-    /// Prefers the dedicated feature-flag token; falls back to the runtime bearer
-    /// token so that remote setups without `~/.vellum/feature-flag-token` still work.
+    /// The gateway requires JWT edge tokens with `feature_flags.read`/`feature_flags.write`
+    /// scopes (via `requireEdgeAuthWithScope`). The JWT access token from
+    /// `ActorTokenManager` carries these scopes in the `actor_client_v1` profile.
+    /// Legacy opaque tokens (feature-flag hex token, shared-secret bearer) are
+    /// rejected by the gateway, so we prefer the JWT and only fall back to legacy
+    /// tokens for backwards compatibility during the transition period.
     private func resolveFeatureFlagAuthToken() -> String? {
+        // Prefer the JWT access token — it carries the required scopes
+        if let jwt = ActorTokenManager.getToken(), !jwt.isEmpty { return jwt }
+        // Legacy fallback: dedicated feature-flag token or runtime bearer
         if let ff = config.featureFlagToken, !ff.isEmpty { return ff }
-        // Fall back to runtime bearer token
         if let httpTransport { return httpTransport.bearerToken }
         #if os(macOS)
         return readHttpToken()

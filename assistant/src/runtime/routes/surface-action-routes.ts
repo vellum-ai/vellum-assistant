@@ -1,0 +1,66 @@
+/**
+ * Route handler for surface action operations.
+ *
+ * POST /v1/surface-actions — dispatch a surface action to an active session.
+ * Requires the session to already exist (does not create new sessions).
+ */
+import type { Session } from "../../daemon/session.js";
+import { getLogger } from "../../util/logger.js";
+import { httpError } from "../http-errors.js";
+
+const log = getLogger("surface-action-routes");
+
+export type SessionLookup = (sessionId: string) => Session | undefined;
+
+/**
+ * POST /v1/surface-actions — handle a UI surface action.
+ *
+ * Body: { sessionId, surfaceId, actionId, data? }
+ */
+export async function handleSurfaceAction(
+  req: Request,
+  findSession: SessionLookup,
+): Promise<Response> {
+  const body = (await req.json()) as {
+    sessionId?: string;
+    surfaceId?: string;
+    actionId?: string;
+    data?: Record<string, unknown>;
+  };
+
+  const { sessionId, surfaceId, actionId, data } = body;
+
+  if (!sessionId || typeof sessionId !== "string") {
+    return httpError("BAD_REQUEST", "sessionId is required", 400);
+  }
+  if (!surfaceId || typeof surfaceId !== "string") {
+    return httpError("BAD_REQUEST", "surfaceId is required", 400);
+  }
+  if (!actionId || typeof actionId !== "string") {
+    return httpError("BAD_REQUEST", "actionId is required", 400);
+  }
+
+  const session = findSession(sessionId);
+  if (!session) {
+    return httpError(
+      "NOT_FOUND",
+      "No active session found for this sessionId",
+      404,
+    );
+  }
+
+  try {
+    session.handleSurfaceAction(surfaceId, actionId, data);
+    log.info(
+      { sessionId, surfaceId, actionId },
+      "Surface action handled via HTTP",
+    );
+    return Response.json({ ok: true });
+  } catch (err) {
+    log.error(
+      { err, sessionId, surfaceId, actionId },
+      "Failed to handle surface action via HTTP",
+    );
+    return httpError("INTERNAL_ERROR", "Failed to handle surface action", 500);
+  }
+}

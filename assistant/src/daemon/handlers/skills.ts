@@ -26,7 +26,6 @@ import {
   clawhubInspect,
   clawhubInstall,
   clawhubSearch,
-  type ClawhubSearchResultItem,
   clawhubUpdate,
 } from "../../skills/clawhub.js";
 import {
@@ -75,9 +74,8 @@ function resolveProvenance(summary: SkillSummary): SkillProvenance {
     return { kind: "first-party", provider: "Vellum" };
   }
 
-  // Managed skills could be either first-party (installed from Vellum catalog)
-  // or third-party (installed from clawhub). The homepage field serves as a
-  // heuristic: Vellum catalog skills don't typically have a clawhub homepage.
+  // Managed skills are third-party (installed from clawhub). The homepage field
+  // confirms provenance.
   if (summary.source === "managed") {
     if (
       summary.homepage?.includes("skills.sh") ||
@@ -92,8 +90,8 @@ function resolveProvenance(summary: SkillSummary): SkillProvenance {
           `${CLAWHUB_BASE_URL}/skills/${encodeURIComponent(summary.id)}`,
       };
     }
-    // No positive evidence of origin -- could be user-authored or from Vellum catalog.
-    // Default to "local" to avoid mislabeling user-created skills as first-party.
+    // No positive evidence of clawhub origin -- likely user-authored.
+    // Default to "local" to avoid mislabeling.
     return { kind: "local" };
   }
 
@@ -546,43 +544,13 @@ export async function handleSkillsSearch(
   ctx: HandlerContext,
 ): Promise<void> {
   try {
-    // Bundled skills are already in loadSkillCatalog() — surface them as
-    // search results alongside clawhub community results.
-    const catalog = loadSkillCatalog();
-    const query = (msg.query ?? "").toLowerCase();
-    const matchingBundled: ClawhubSearchResultItem[] = catalog
-      .filter((s) => s.source === "bundled")
-      .filter((s) => {
-        if (!query) return true;
-        return (
-          s.name.toLowerCase().includes(query) ||
-          s.description.toLowerCase().includes(query) ||
-          s.id.toLowerCase().includes(query)
-        );
-      })
-      .map((s) => ({
-        name: s.name,
-        slug: s.id,
-        description: s.description,
-        author: "Vellum",
-        stars: 0,
-        installs: 0,
-        version: "",
-        createdAt: 0,
-        source: "vellum" as const,
-      }));
-
-    // Search clawhub (community)
-    const clawhubResult = await clawhubSearch(msg.query);
-
-    // Merge: bundled first, then clawhub
-    const merged = { skills: [...matchingBundled, ...clawhubResult.skills] };
+    const result = await clawhubSearch(msg.query);
 
     ctx.send(socket, {
       type: "skills_operation_response",
       operation: "search",
       success: true,
-      data: merged,
+      data: result,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

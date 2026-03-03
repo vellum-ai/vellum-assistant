@@ -122,8 +122,6 @@ import * as sequenceList from "./bundled-skills/messaging/tools/sequence-list.js
 import * as sequencePause from "./bundled-skills/messaging/tools/sequence-pause.js";
 import * as sequenceResume from "./bundled-skills/messaging/tools/sequence-resume.js";
 import * as sequenceUpdate from "./bundled-skills/messaging/tools/sequence-update.js";
-import * as slackAddReaction from "./bundled-skills/messaging/tools/slack-add-reaction.js";
-import * as slackLeaveChannel from "./bundled-skills/messaging/tools/slack-leave-channel.js";
 // ── notifications ───────────────────────────────────────────────────────────
 import * as sendNotification from "./bundled-skills/notifications/tools/send-notification.js";
 // ── phone-calls ─────────────────────────────────────────────────────────────
@@ -144,6 +142,13 @@ import * as scheduleCreate from "./bundled-skills/schedule/tools/schedule-create
 import * as scheduleDelete from "./bundled-skills/schedule/tools/schedule-delete.js";
 import * as scheduleList from "./bundled-skills/schedule/tools/schedule-list.js";
 import * as scheduleUpdate from "./bundled-skills/schedule/tools/schedule-update.js";
+// ── slack ────────────────────────────────────────────────────────────────────
+import * as slackAddReaction from "./bundled-skills/slack/tools/slack-add-reaction.js";
+import * as slackChannelDetails from "./bundled-skills/slack/tools/slack-channel-details.js";
+import * as slackConfigureChannels from "./bundled-skills/slack/tools/slack-configure-channels.js";
+import * as slackDeleteMessage from "./bundled-skills/slack/tools/slack-delete-message.js";
+import * as slackLeaveChannel from "./bundled-skills/slack/tools/slack-leave-channel.js";
+import * as slackScanDigest from "./bundled-skills/slack/tools/slack-scan-digest.js";
 import * as subagentAbort from "./bundled-skills/subagent/tools/subagent-abort.js";
 import * as subagentMessage from "./bundled-skills/subagent/tools/subagent-message.js";
 import * as subagentRead from "./bundled-skills/subagent/tools/subagent-read.js";
@@ -271,8 +276,6 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["messaging:tools/messaging-send.ts", messagingSend],
   ["messaging:tools/messaging-reply.ts", messagingReply],
   ["messaging:tools/messaging-mark-read.ts", messagingMarkRead],
-  ["messaging:tools/slack-add-reaction.ts", slackAddReaction],
-  ["messaging:tools/slack-leave-channel.ts", slackLeaveChannel],
   ["messaging:tools/messaging-analyze-activity.ts", messagingAnalyzeActivity],
   ["messaging:tools/messaging-analyze-style.ts", messagingAnalyzeStyle],
   ["messaging:tools/messaging-draft.ts", messagingDraft],
@@ -332,6 +335,14 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["schedule:tools/schedule-list.ts", scheduleList],
   ["schedule:tools/schedule-update.ts", scheduleUpdate],
   ["schedule:tools/schedule-delete.ts", scheduleDelete],
+
+  // slack
+  ["slack:tools/slack-scan-digest.ts", slackScanDigest],
+  ["slack:tools/slack-channel-details.ts", slackChannelDetails],
+  ["slack:tools/slack-configure-channels.ts", slackConfigureChannels],
+  ["slack:tools/slack-add-reaction.ts", slackAddReaction],
+  ["slack:tools/slack-delete-message.ts", slackDeleteMessage],
+  ["slack:tools/slack-leave-channel.ts", slackLeaveChannel],
 
   // subagent
   ["subagent:tools/subagent-spawn.ts", subagentSpawn],

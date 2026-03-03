@@ -364,6 +364,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         setupDaemonClient(isFirstLaunch: isFirstLaunch)
         setupMenuBar()
         setupFileMenu()
+        setupViewMenu()
         setupHotKey()
         setupEscapeMonitor()
         setupVoiceInput()
@@ -841,6 +842,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             state: state,
             daemonClient: daemonClient,
             authManager: authManager,
+            managedBootstrapEnabled: false,
             onComplete: { [weak self] in
                 self?.proceedToApp()
             },
@@ -1169,7 +1171,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
         // Managed assistant: use platform proxy URLs with session token auth.
         if let assistant, assistant.isManaged {
-            let platformBaseURL = AuthService.shared.baseURL
+            let platformBaseURL = assistant.runtimeUrl ?? AuthService.shared.baseURL
             let metadata = TransportMetadata(
                 routeMode: .platformAssistantProxy,
                 authMode: .sessionToken,

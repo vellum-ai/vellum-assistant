@@ -20,9 +20,10 @@ Pull the latest changes from main, use `vellum` lifecycle CLI to stop and restar
    vellum ps
    ```
 
-2. Kill the macOS app first (it manages its own daemon/gateway, so it must be stopped before quiescing processes):
+2. Kill the macOS app and any stale file-watcher processes first (old `build.sh run` watchers will detect git-pulled Swift changes and bounce the app repeatedly):
    ```bash
    pkill -x "Vellum" || true
+   pkill -f "build\.sh run" || true
    ```
 
 3. Quiesce with `vellum sleep` — stop daemon and gateway processes. This is directory-agnostic and stops processes globally regardless of CWD:
@@ -61,12 +62,7 @@ Pull the latest changes from main, use `vellum` lifecycle CLI to stop and restar
    vellum wake
    ```
 
-8. Build the macOS app from source synchronously (wait for build to complete before launching to avoid opening a stale build), then launch with file-watching in the background:
-   ```bash
-   REPO_ROOT="$(pwd)"
-   cd clients/macos && VELLUM_GATEWAY_DIR="$REPO_ROOT/gateway" ./build.sh
-   ```
-
+8. Build and launch the macOS app with file-watching (`./build.sh run` builds synchronously before launching, so no stale build risk):
    ```bash
    REPO_ROOT="$(pwd)"
    cd clients/macos && VELLUM_GATEWAY_DIR="$REPO_ROOT/gateway" ./build.sh run &

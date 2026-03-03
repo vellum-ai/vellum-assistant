@@ -185,10 +185,17 @@ export function handleThinkingDelta(
   if (!state.firstThinkingDeltaEmitted) {
     state.firstThinkingDeltaEmitted = true;
     const lastToolName = state.lastCompletedToolName;
-    const statusText = lastToolName
-      ? `Processing ${friendlyToolName(lastToolName)} results`
-      : undefined;
-    deps.ctx.emitActivityState('thinking', 'thinking_delta', 'assistant_turn', deps.reqId, statusText);
+    // Only emit an activity state when a tool just completed, so we can
+    // show "Processing <tool> results". When no tool has completed yet
+    // (e.g. right after confirmation_resolved), skip the emission entirely
+    // so the client preserves its current status text (e.g. "Resuming
+    // after approval"). Even omitting statusText from the message would
+    // cause the client to clear it, since the client overwrites
+    // assistantStatusText for every assistant_activity_state event.
+    if (lastToolName) {
+      const statusText = `Processing ${friendlyToolName(lastToolName)} results`;
+      deps.ctx.emitActivityState('thinking', 'thinking_delta', 'assistant_turn', deps.reqId, statusText);
+    }
   }
   if (!deps.ctx.streamThinking) return;
   emitLlmCallStartedIfNeeded(state, deps);

@@ -435,6 +435,7 @@ export async function runDaemon(): Promise<void> {
             data: a.dataBase64,
           })),
       },
+      findSession: (sessionId) => server.findSession(sessionId),
     });
 
     // Inject voice bridge deps BEFORE attempting to start the HTTP server.

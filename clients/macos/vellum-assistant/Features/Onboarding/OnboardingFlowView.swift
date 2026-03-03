@@ -6,6 +6,7 @@ struct OnboardingFlowView: View {
     @Bindable var state: OnboardingState
     let daemonClient: DaemonClientProtocol
     @Bindable var authManager: AuthManager
+    let managedBootstrapEnabled: Bool
     var onComplete: () -> Void
     var onOpenSettings: () -> Void
 
@@ -124,8 +125,12 @@ struct OnboardingFlowView: View {
         }
         .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
             if isAuthenticated {
-                Task {
-                    await performManagedBootstrap()
+                if managedBootstrapEnabled {
+                    Task {
+                        await performManagedBootstrap()
+                    }
+                } else {
+                    onComplete()
                 }
             }
         }
@@ -221,6 +226,7 @@ struct OnboardingFlowView: View {
         state: OnboardingState(),
         daemonClient: DaemonClient(),
         authManager: AuthManager(),
+        managedBootstrapEnabled: true,
         onComplete: {},
         onOpenSettings: {}
     )
