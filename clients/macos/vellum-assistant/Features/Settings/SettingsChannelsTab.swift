@@ -1146,22 +1146,35 @@ struct SettingsChannelsTab: View {
         outboundCode: String?
     ) -> some View {
         let isCodeCopied = outboundCodeCopiedChannel == channel
+        let canResend: Bool = {
+            // Bootstrap sessions (Telegram handle-based) don't support resend
+            if bootstrapUrl != nil { return false }
+            guard let nextResendAt else { return true }
+            return countdownNow >= nextResendAt
+        }()
+        let resendCooldownText: String? = {
+            guard let nextResendAt, countdownNow < nextResendAt else { return nil }
+            let remaining = Int(nextResendAt.timeIntervalSince(countdownNow))
+            return "Resend in \(remaining)s"
+        }()
 
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             HStack(spacing: VSpacing.sm) {
                 guardianLabel
-                Text("Verification sent")
-                    .font(VFont.body)
-                    .foregroundColor(VColor.warning)
                 Spacer()
             }
 
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                // Verification code display
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                // Verification Code label + code box
                 if let outboundCode {
-                    Text("Your verification code:")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                    HStack(spacing: VSpacing.xs) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(VColor.success)
+                            .font(.system(size: 12))
+                        Text("Verification Code")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.success)
+                    }
 
                     HStack(spacing: VSpacing.sm) {
                         Text(outboundCode)
@@ -1200,6 +1213,7 @@ struct SettingsChannelsTab: View {
                         .help("Copy code")
                     }
                     .padding(VSpacing.md)
+                    .frame(width: 360)
                     .background(VColor.surface)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
                     .overlay(
@@ -1208,48 +1222,42 @@ struct SettingsChannelsTab: View {
                     )
                 }
 
-                // Countdown to expiry
-                if let expiresAt {
-                    let remaining = expiresAt.timeIntervalSince(countdownNow)
-                    if remaining > 0 {
-                        let minutes = Int(remaining) / 60
-                        let seconds = Int(remaining) % 60
-                        Text("Expires in \(minutes):\(String(format: "%02d", seconds))")
+                // Send count + countdown in one line
+                HStack(spacing: VSpacing.md) {
+                    if sendCount > 0 {
+                        Text("Sent \(sendCount) time\(sendCount == 1 ? "" : "s")")
                             .font(VFont.caption)
                             .foregroundColor(VColor.textMuted)
-                    } else {
-                        Text("Verification expired")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.error)
+                    }
+                    if let expiresAt {
+                        let remaining = expiresAt.timeIntervalSince(countdownNow)
+                        if remaining > 0 {
+                            let minutes = Int(remaining) / 60
+                            let seconds = Int(remaining) % 60
+                            Text("Expires in \(minutes):\(String(format: "%02d", seconds))")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                        } else {
+                            Text("Verification expired")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.error)
+                        }
                     }
                 }
 
-                if sendCount > 0 {
-                    Text("Sent \(sendCount) time\(sendCount == 1 ? "" : "s")")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
-                }
-
-                // Resend button with cooldown
+                // Resend + Cancel in one line
                 // Disable resend during bootstrap: when bootstrapUrl is set the session is
                 // in pending_bootstrap state and the daemon rejects resend attempts.
                 HStack(spacing: VSpacing.sm) {
-                    let canResend: Bool = {
-                        // Bootstrap sessions (Telegram handle-based) don't support resend
-                        if bootstrapUrl != nil { return false }
-                        guard let nextResendAt else { return true }
-                        return countdownNow >= nextResendAt
-                    }()
-                    let resendCooldownText: String? = {
-                        guard let nextResendAt, countdownNow < nextResendAt else { return nil }
-                        let remaining = Int(nextResendAt.timeIntervalSince(countdownNow))
-                        return "Resend in \(remaining)s"
-                    }()
-
-                    VButton(label: resendCooldownText ?? "Resend", style: .secondary, size: .large) {
+                    VButton(label: resendCooldownText ?? "Resend", style: .secondary, size: .large, isFullWidth: true) {
                         store.resendOutboundGuardian(channel: channel)
                     }
                     .disabled(!canResend)
+                    .frame(width: 160)
+
+                    VButton(label: "Cancel", style: .tertiary, size: .large) {
+                        store.cancelOutboundGuardian(channel: channel)
+                    }
                 }
 
                 // Telegram bootstrap URL deep link
@@ -1276,11 +1284,6 @@ struct SettingsChannelsTab: View {
                         }
                     }
                 }
-            }
-            .padding(.leading, labelColumnWidth + VSpacing.sm)
-
-            VButton(label: "Cancel", style: .secondary, size: .large) {
-                store.cancelOutboundGuardian(channel: channel)
             }
         }
         .onAppear { startCountdownTimer() }
@@ -1454,20 +1457,38 @@ struct SettingsChannelsTab: View {
                     .foregroundColor(VColor.textMuted)
             }
 
-            // Connected devices — shown as status rows (mirrors Telegram bot / Twilio phone rows)
+            // Connected devices
             if !store.approvedDevices.isEmpty {
-                ForEach(store.approvedDevices, id: \.hashedDeviceId) { device in
-                    channelStatusRow(
-                        label: "Device",
-                        icon: "iphone",
-                        iconColor: VColor.success,
-                        value: device.deviceName,
-                        action: .init(label: "Remove", style: .secondary) {
-                            store.removeApprovedDevice(hashedDeviceId: device.hashedDeviceId)
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Devices")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+
+                    ForEach(store.approvedDevices, id: \.hashedDeviceId) { device in
+                        HStack(spacing: VSpacing.sm) {
+                            Image(systemName: "iphone")
+                                .foregroundColor(VColor.success)
+                                .font(.system(size: 12))
+                            Text(device.deviceName)
+                                .font(VFont.body)
+                                .foregroundColor(VColor.textSecondary)
+                            Button {
+                                store.removeApprovedDevice(hashedDeviceId: device.hashedDeviceId)
+                            } label: {
+                                Image(systemName: "trash")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(VColor.error)
+                                    .padding(VSpacing.xs)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Remove \(device.deviceName)")
+                            .onHover { hovering in
+                                if hovering { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() }
+                            }
                         }
-                    )
+                    }
                 }
-                Divider().background(VColor.surfaceBorder)
             }
 
             // Device pairing row — mirrors Guardian Verification row layout
