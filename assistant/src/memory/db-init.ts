@@ -2,6 +2,7 @@ import { getDb } from './db-connection.js';
 import {
   addCoreColumns,
   createA2APeerConnectionsTable,
+  migrateA2AOutboundCredential,
   createActorRefreshTokenRecordsTable,
   createActorTokenRecordsTable,
   createAssistantInboxTables,
@@ -192,6 +193,9 @@ export function initializeDb(): void {
 
   // 32. A2A peer connections (bidirectional assistant-to-assistant credentials and state)
   createA2APeerConnectionsTable(database);
+
+  // 33. A2A outbound credential column for HMAC signing of outbound messages
+  migrateA2AOutboundCredential(database);
 
   validateMigrationState(database);
 }

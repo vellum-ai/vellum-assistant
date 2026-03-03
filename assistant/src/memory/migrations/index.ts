@@ -70,6 +70,7 @@ export { migrateGuardianPrincipalIdColumns } from './125-guardian-principal-id-c
 export { migrateBackfillGuardianPrincipalId } from './126-backfill-guardian-principal-id.js';
 export { migrateGuardianPrincipalIdNotNull } from './127-guardian-principal-id-not-null.js';
 export { createA2APeerConnectionsTable } from './128-a2a-peer-connections.js';
+export { migrateA2AOutboundCredential } from './129-a2a-outbound-credential.js';
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

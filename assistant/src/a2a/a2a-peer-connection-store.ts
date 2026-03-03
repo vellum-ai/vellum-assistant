@@ -39,6 +39,7 @@ export interface A2APeerConnection {
   capabilities: string[];
   scopes: string[];
   outboundCredentialHash: string | null;
+  outboundCredential: string | null;
   inboundCredentialHash: string | null;
   inboundCredential: string | null;
   lastSeenAt: number | null;
@@ -66,6 +67,7 @@ function rowToConnection(row: typeof a2aPeerConnections.$inferSelect): A2APeerCo
     capabilities: JSON.parse(row.capabilities) as string[],
     scopes: JSON.parse(row.scopes) as string[],
     outboundCredentialHash: row.outboundCredentialHash,
+    outboundCredential: row.outboundCredential ?? null,
     inboundCredentialHash: row.inboundCredentialHash,
     inboundCredential: row.inboundCredential ?? null,
     lastSeenAt: row.lastSeenAt,
@@ -91,6 +93,7 @@ export function createConnection(params: {
   capabilities?: string[];
   scopes?: string[];
   outboundCredentialHash?: string;
+  outboundCredential?: string;
   inboundCredentialHash?: string;
   inboundCredential?: string;
   expiresAt?: number;
@@ -111,6 +114,7 @@ export function createConnection(params: {
     capabilities: JSON.stringify(params.capabilities ?? []),
     scopes: JSON.stringify(params.scopes ?? []),
     outboundCredentialHash: params.outboundCredentialHash ?? null,
+    outboundCredential: params.outboundCredential ?? null,
     inboundCredentialHash: params.inboundCredentialHash ?? null,
     inboundCredential: params.inboundCredential ?? null,
     lastSeenAt: null,
@@ -280,6 +284,7 @@ export function updateConnectionCredentials(
   connectionId: string,
   credentials: {
     outboundCredentialHash?: string;
+    outboundCredential?: string;
     inboundCredentialHash?: string;
     inboundCredential?: string;
   },
@@ -291,6 +296,9 @@ export function updateConnectionCredentials(
 
   if (credentials.outboundCredentialHash !== undefined) {
     setFields.outboundCredentialHash = credentials.outboundCredentialHash;
+  }
+  if (credentials.outboundCredential !== undefined) {
+    setFields.outboundCredential = credentials.outboundCredential;
   }
   if (credentials.inboundCredentialHash !== undefined) {
     setFields.inboundCredentialHash = credentials.inboundCredentialHash;

@@ -34,6 +34,13 @@ import {
 } from './a2a-handshake.js';
 
 import { generateCredentialPair } from './a2a-peer-auth.js';
+import {
+  createTextMessage,
+  createStructuredRequest,
+  type A2AMessageContent,
+  type A2ADeliveryMetadata,
+} from './a2a-message-schema.js';
+import { deliverMessage } from './a2a-outbound-delivery.js';
 
 import {
   createInvite as createIngressInvite,
@@ -42,9 +49,19 @@ import {
   markInviteExpired,
   recordInviteUse,
 } from '../memory/ingress-invite-store.js';
+import {
+  getBindingByChannelChat,
+  upsertOutboundBinding,
+} from '../memory/external-conversation-store.js';
+import { getOrCreateConversation } from '../memory/conversation-key-store.js';
+import { isAssistantFeatureFlagEnabled } from '../config/assistant-feature-flags.js';
+import { getConfig } from '../config/loader.js';
 
 import { emitNotificationSignal } from '../notifications/emit-signal.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
+import { getLogger } from '../util/logger.js';
+
+const log = getLogger('a2a-connection-service');
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -106,6 +123,10 @@ export type RevokeConnectionResult =
 export type ListConnectionsResult = {
   connections: A2APeerConnection[];
 };
+
+export type SendMessageResult =
+  | { ok: true; messageId: string; conversationId: string }
+  | { ok: false; reason: 'not_found' | 'not_active' | 'not_enabled' | 'no_credential' | 'delivery_failed'; detail?: string };
 
 // ---------------------------------------------------------------------------
 // Invite code encoding/decoding
@@ -750,6 +771,7 @@ export function submitVerificationCode(params: {
 
   const connectionWithCredentials = updateConnectionCredentials(params.connectionId, {
     outboundCredentialHash: credentials.outboundCredentialHash,
+    outboundCredential: credentials.outboundCredential,
     inboundCredentialHash: credentials.inboundCredentialHash,
     inboundCredential: credentials.inboundCredential,
   });
@@ -809,6 +831,7 @@ export function revokeConnection(params: {
   // Tombstone credentials
   updateConnectionCredentials(params.connectionId, {
     outboundCredentialHash: '',
+    outboundCredential: '',
     inboundCredentialHash: '',
     inboundCredential: '',
   });
@@ -853,4 +876,121 @@ export function listConnectionsFiltered(params?: {
     status: params?.status,
   });
   return { connections };
+}
+
+// ---------------------------------------------------------------------------
+// Send message
+// ---------------------------------------------------------------------------
+
+/** Canonical feature flag key for A2A scope policy. */
+const A2A_SCOPE_POLICY_FLAG = 'feature_flags.a2a-scope-policy.enabled';
+
+/**
+ * Send a message to a connected peer assistant.
+ *
+ * Validates the connection is active and the scope policy gate is enabled.
+ * Constructs an A2AMessageEnvelope, signs it, and delivers via the outbound
+ * adapter. Ensures a dedicated internal conversation binding exists for the
+ * peer connection.
+ *
+ * Returns `{ ok: false, reason: 'not_enabled' }` until M16 activates scope
+ * policy — this prevents messaging without policy enforcement.
+ */
+export async function sendMessage(params: {
+  connectionId: string;
+  content: A2AMessageContent;
+  correlationId?: string;
+}): Promise<SendMessageResult> {
+  // Scope gating: deny until scope policy is active
+  const config = getConfig();
+  if (!isAssistantFeatureFlagEnabled(A2A_SCOPE_POLICY_FLAG, config)) {
+    return { ok: false, reason: 'not_enabled', detail: 'A2A scope policy is not active' };
+  }
+
+  // Validate connection exists
+  const connection = getConnection(params.connectionId);
+  if (!connection) {
+    return { ok: false, reason: 'not_found' };
+  }
+
+  // Validate connection is active
+  if (connection.status !== 'active') {
+    return { ok: false, reason: 'not_active', detail: `Connection status is ${connection.status}` };
+  }
+
+  // Validate outbound credential is available for signing
+  if (!connection.outboundCredential) {
+    log.error(
+      { connectionId: params.connectionId },
+      'Active connection has no outbound credential for signing',
+    );
+    return { ok: false, reason: 'no_credential', detail: 'No outbound credential available for signing' };
+  }
+
+  // Ensure a conversation binding exists for this peer connection.
+  // Uses sourceChannel='a2a' and connectionId as externalChatId.
+  const existingBinding = getBindingByChannelChat(A2A_SOURCE_CHANNEL, params.connectionId);
+  let conversationId: string;
+
+  if (existingBinding) {
+    conversationId = existingBinding.conversationId;
+  } else {
+    // Create a conversation keyed by a2a:<connectionId> so the binding has a
+    // valid FK target in the conversations table.
+    const convKey = `a2a:${params.connectionId}`;
+    const { conversationId: newConvId } = getOrCreateConversation(convKey);
+    conversationId = newConvId;
+  }
+
+  upsertOutboundBinding({
+    conversationId,
+    sourceChannel: A2A_SOURCE_CHANNEL,
+    externalChatId: params.connectionId,
+  });
+
+  // Construct the message envelope
+  const delivery: A2ADeliveryMetadata | undefined = params.correlationId
+    ? { correlationId: params.correlationId }
+    : undefined;
+
+  let envelope;
+  if (params.content.type === 'text') {
+    envelope = createTextMessage({
+      connectionId: params.connectionId,
+      senderAssistantId: DAEMON_INTERNAL_ASSISTANT_ID,
+      text: params.content.text,
+      delivery,
+    });
+  } else if (params.content.type === 'structured_request') {
+    envelope = createStructuredRequest({
+      connectionId: params.connectionId,
+      senderAssistantId: DAEMON_INTERNAL_ASSISTANT_ID,
+      action: params.content.action,
+      requestParams: params.content.params,
+      delivery,
+    });
+  } else {
+    // For structured_response, build the envelope manually since the helper
+    // requires a correlationId that may come from params.correlationId
+    envelope = createTextMessage({
+      connectionId: params.connectionId,
+      senderAssistantId: DAEMON_INTERNAL_ASSISTANT_ID,
+      text: JSON.stringify(params.content),
+      delivery,
+    });
+  }
+
+  // Deliver via outbound adapter with retry logic
+  const result = await deliverMessage({
+    envelope,
+    peerGatewayUrl: connection.peerGatewayUrl,
+    outboundCredential: connection.outboundCredential,
+    connectionId: params.connectionId,
+  });
+
+  if (!result.ok) {
+    return { ok: false, reason: 'delivery_failed', detail: result.error };
+  }
+
+  return { ok: true, messageId: result.messageId, conversationId };
 }

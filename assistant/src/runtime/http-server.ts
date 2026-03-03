@@ -184,6 +184,7 @@ import {
   handleA2AListConnections,
   handleA2ARedeem,
   handleA2ARevoke,
+  handleA2ASendMessage,
   handleA2AVerify,
 } from './routes/a2a-routes.js';
 import { handleA2AMessageInbound } from './routes/a2a-inbound-routes.js';
@@ -1346,6 +1347,12 @@ export class RuntimeHttpServer {
       const a2aConnectionStatusMatch = endpoint.match(/^a2a\/connections\/([^/]+)\/status$/);
       if (a2aConnectionStatusMatch && req.method === 'GET') {
         return handleA2AConnectionStatus(a2aConnectionStatusMatch[1]);
+      }
+
+      // A2A outbound message endpoint (assistant/skill -> runtime -> peer gateway)
+      const a2aSendMessageMatch = endpoint.match(/^a2a\/connections\/([^/]+)\/messages$/);
+      if (a2aSendMessageMatch && req.method === 'POST') {
+        return await handleA2ASendMessage(req, a2aSendMessageMatch[1]);
       }
 
       // A2A inbound message endpoint (gateway -> runtime)
