@@ -986,6 +986,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         // 3. Clear assistant-scoped runtime state
         // Force-stop any active recording to avoid stale session references
         recordingManager.forceStop()
+        recordingHUDWindow?.dismiss()
         // Close and recreate the main window to reset thread/session state
         mainWindow?.close()
         mainWindow = nil
@@ -1252,9 +1253,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             conversationKey: assistant.assistantId
         ))
 
-        // Replace the daemon client's config. Since DaemonClient.config is let,
-        // we need to create a new DaemonClient with the HTTP config.
-        // The services property is mutable for this purpose.
+        // Reconfigure the daemon client's transport in place. This preserves
+        // object identity so all long-lived holders keep a valid reference.
         services.reconfigureDaemonClient(config: config)
 
         log.info("Configured HTTP transport for remote assistant \(assistant.assistantId) at \(runtimeUrl, privacy: .public)")
@@ -1276,8 +1276,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
         configureDaemonTransport(for: assistant)
 
-        // Rebind the menu bar icon observer to the (potentially new) daemon client
-        // so status changes on the replacement client trigger icon updates.
+        // Rebind the menu bar icon observer after transport reconfiguration
+        // so connection status changes continue to update the icon.
         rebindConnectionStatusObserver()
 
         daemonClient.onNotificationIntent = { [weak self] msg in
