@@ -37,6 +37,7 @@ import { generateCredentialPair } from './a2a-peer-auth.js';
 import {
   createTextMessage,
   createStructuredRequest,
+  createStructuredResponse,
   type A2AMessageContent,
   type A2ADeliveryMetadata,
 } from './a2a-message-schema.js';
@@ -970,12 +971,15 @@ export async function sendMessage(params: {
       delivery,
     });
   } else {
-    // For structured_response, build the envelope manually since the helper
-    // requires a correlationId that may come from params.correlationId
-    envelope = createTextMessage({
+    const responseContent = params.content as { action: string; result: Record<string, unknown>; success: boolean; error?: string };
+    envelope = createStructuredResponse({
       connectionId: params.connectionId,
       senderAssistantId: DAEMON_INTERNAL_ASSISTANT_ID,
-      text: JSON.stringify(params.content),
+      action: responseContent.action,
+      result: responseContent.result,
+      success: responseContent.success,
+      error: responseContent.error,
+      correlationId: params.correlationId ?? '',
       delivery,
     });
   }
