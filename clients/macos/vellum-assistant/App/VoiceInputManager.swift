@@ -450,25 +450,30 @@ final class VoiceInputManager {
     private func setupMouseButtonMonitors(activator: PTTActivator) {
         guard let targetButton = activator.mouseButton, targetButton >= 2 else { return }
 
+        // Mouse monitors use MainActor.assumeIsolated instead of Task { @MainActor in }
+        // because Task { } provides no FIFO ordering guarantee — the mouseUp task can
+        // run before or simultaneously with the mouseDown task, causing recording to
+        // flash briefly on release instead of starting on press.
+        // NSEvent monitor callbacks already run on the main thread.
         let globalMouseDown = NSEvent.addGlobalMonitorForEvents(matching: .otherMouseDown) { [weak self] event in
-            Task { @MainActor in
+            MainActor.assumeIsolated {
                 self?.handleMouseActivatorDown(event, targetButton: targetButton)
             }
         }
         let localMouseDown = NSEvent.addLocalMonitorForEvents(matching: .otherMouseDown) { [weak self] event in
-            Task { @MainActor in
+            MainActor.assumeIsolated {
                 self?.handleMouseActivatorDown(event, targetButton: targetButton)
             }
             return event
         }
 
         let globalMouseUp = NSEvent.addGlobalMonitorForEvents(matching: .otherMouseUp) { [weak self] event in
-            Task { @MainActor in
+            MainActor.assumeIsolated {
                 self?.handleMouseActivatorUp(event, targetButton: targetButton)
             }
         }
         let localMouseUp = NSEvent.addLocalMonitorForEvents(matching: .otherMouseUp) { [weak self] event in
-            Task { @MainActor in
+            MainActor.assumeIsolated {
                 self?.handleMouseActivatorUp(event, targetButton: targetButton)
             }
             return event
