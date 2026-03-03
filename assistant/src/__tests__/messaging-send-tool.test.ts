@@ -55,7 +55,7 @@ describe("messaging-send tool", () => {
         sessionId: "sess-1",
         conversationId: "conv-1",
         assistantId: "ast-alpha",
-        guardianTrustClass: "guardian" as const,
+        trustClass: "guardian" as const,
       },
     );
 

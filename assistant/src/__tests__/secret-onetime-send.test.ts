@@ -69,7 +69,7 @@ describe("one-time send override", () => {
       workingDir: "/tmp",
       sessionId: "s1",
       conversationId: "c1",
-      guardianTrustClass: "guardian" as const,
+      trustClass: "guardian" as const,
       requestSecret: async () => ({
         value: "v1",
         delivery: "transient_send" as const,
@@ -92,7 +92,7 @@ describe("one-time send override", () => {
       workingDir: "/tmp",
       sessionId: "s1",
       conversationId: "c1",
-      guardianTrustClass: "guardian" as const,
+      trustClass: "guardian" as const,
       requestSecret: async () => ({
         value: "v1",
         delivery: "transient_send" as const,
@@ -115,7 +115,7 @@ describe("one-time send override", () => {
       workingDir: "/tmp",
       sessionId: "s1",
       conversationId: "c1",
-      guardianTrustClass: "guardian" as const,
+      trustClass: "guardian" as const,
       requestSecret: async () => ({ value: "v1", delivery: "store" as const }),
     };
 
@@ -135,7 +135,7 @@ describe("one-time send override", () => {
       workingDir: "/tmp",
       sessionId: "s1",
       conversationId: "c1",
-      guardianTrustClass: "guardian" as const,
+      trustClass: "guardian" as const,
       requestSecret: async () => ({
         value: secretVal,
         delivery: "transient_send" as const,

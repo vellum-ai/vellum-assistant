@@ -192,10 +192,7 @@ import {
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { scopedApprovalGrants } from "../memory/schema.js";
 import { bridgeConfirmationRequestToGuardian } from "../runtime/confirmation-request-guardian-bridge.js";
-import type { TrustContext } from "../daemon/session-runtime-assembly.js";
-import {
-  resolveRoutingState,
-} from "../runtime/trust-context-resolver.js";
+import { resolveRoutingState } from "../runtime/trust-context-resolver.js";
 import {
   TC_GRANT_WAIT_MAX_MS,
   ToolApprovalHandler,
@@ -231,7 +228,7 @@ function makeToolContext(overrides: Partial<ToolContext> = {}): ToolContext {
     conversationId: "conv-1",
     assistantId: "self",
     requestId: "req-1",
-    guardianTrustClass: "trusted_contact",
+    trustClass: "trusted_contact",
     executionChannel: "telegram",
     requesterExternalUserId: "requester-1",
     ...overrides,
@@ -292,7 +289,7 @@ describe("(a) target flow: trusted-contact inline guardian approval end-to-end",
   test("trusted contact requests tool, guardian approves mid-wait, tool executes inline", async () => {
     const toolName = "bash";
     const input = { command: "echo hello" };
-    const context = makeToolContext({ guardianTrustClass: "trusted_contact" });
+    const context = makeToolContext({ trustClass: "trusted_contact" });
 
     // Schedule guardian approval after 100ms during the inline wait
     const approvalPromise = (async () => {
@@ -362,7 +359,7 @@ describe("(a) target flow: trusted-contact inline guardian approval end-to-end",
     // Step 2: Tool invocation creates escalation + waits inline + guardian approves
     const toolName = "bash";
     const input = { command: "deploy" };
-    const context = makeToolContext({ guardianTrustClass: "trusted_contact" });
+    const context = makeToolContext({ trustClass: "trusted_contact" });
 
     const approvalPromise = (async () => {
       await new Promise((r) => setTimeout(r, 80));
@@ -521,7 +518,7 @@ describe("(c) no-binding flow: trusted contact fails fast without guardian bindi
     const toolName = "bash";
     const input = { command: "ls" };
     const context = makeToolContext({
-      guardianTrustClass: "trusted_contact",
+      trustClass: "trusted_contact",
       executionChannel: "telegram",
     });
 
@@ -614,7 +611,7 @@ describe("(d) unknown actor flow: fail-closed with no interactive approval", () 
     const toolName = "bash";
     const input = { command: "ls" };
     const context = makeToolContext({
-      guardianTrustClass: "unknown",
+      trustClass: "unknown",
       executionChannel: "telegram",
       requesterExternalUserId: "unknown-user",
     });
@@ -710,12 +707,12 @@ describe("(d) unknown actor flow: fail-closed with no interactive approval", () 
  * flags as always-false under strict literal narrowing — TS2367/TS2872).
  */
 function checkIsBoundGuardianActor(params: {
-  guardianTrustClass: string;
+  trustClass: string;
   guardianExternalUserId: string | undefined;
   requesterExternalUserId: string;
 }): boolean {
   return (
-    params.guardianTrustClass === "guardian" &&
+    params.trustClass === "guardian" &&
     !!params.guardianExternalUserId &&
     params.requesterExternalUserId === params.guardianExternalUserId
   );
@@ -741,7 +738,7 @@ describe("(e) guardian-only prompt delivery invariant", () => {
     // actors matching the binding receive the prompt.
 
     const result = checkIsBoundGuardianActor({
-      guardianTrustClass: "trusted_contact",
+      trustClass: "trusted_contact",
       guardianExternalUserId: "guardian-1",
       requesterExternalUserId: "requester-1",
     });
@@ -752,7 +749,7 @@ describe("(e) guardian-only prompt delivery invariant", () => {
 
   test("unknown actors do NOT receive approval prompt UI", () => {
     const result = checkIsBoundGuardianActor({
-      guardianTrustClass: "unknown",
+      trustClass: "unknown",
       guardianExternalUserId: "guardian-1",
       requesterExternalUserId: "unknown-user",
     });
@@ -762,7 +759,7 @@ describe("(e) guardian-only prompt delivery invariant", () => {
 
   test("guardian actor that matches binding DOES receive approval prompt UI", () => {
     const result = checkIsBoundGuardianActor({
-      guardianTrustClass: "guardian",
+      trustClass: "guardian",
       guardianExternalUserId: "guardian-1",
       requesterExternalUserId: "guardian-1",
     });
@@ -773,7 +770,7 @@ describe("(e) guardian-only prompt delivery invariant", () => {
   test("guardian actor with identity mismatch does NOT receive approval prompt UI", () => {
     // After guardian rotation, old guardian identity should not receive prompts
     const result = checkIsBoundGuardianActor({
-      guardianTrustClass: "guardian",
+      trustClass: "guardian",
       guardianExternalUserId: "new-guardian-2",
       requesterExternalUserId: "old-guardian-1",
     });
@@ -810,7 +807,7 @@ describe("(f) timeout/stale flow: stale guardian decision after inline wait time
   test("inline wait timeout clears followupState so later approval sends retry notification", async () => {
     const toolName = "bash";
     const input = { command: "echo stale" };
-    const context = makeToolContext({ guardianTrustClass: "trusted_contact" });
+    const context = makeToolContext({ trustClass: "trusted_contact" });
 
     // Let the tool invocation time out (no guardian approval within 100ms)
     const result = await handler.checkPreExecutionGates(
@@ -966,7 +963,7 @@ describe("(f) timeout/stale flow: stale guardian decision after inline wait time
   test("denied inline wait produces explicit denial (no false success)", async () => {
     const toolName = "bash";
     const input = { command: "rm -rf /" };
-    const context = makeToolContext({ guardianTrustClass: "trusted_contact" });
+    const context = makeToolContext({ trustClass: "trusted_contact" });
 
     // Schedule guardian rejection after 80ms
     const rejectionPromise = (async () => {
@@ -1009,7 +1006,7 @@ describe("(f) timeout/stale flow: stale guardian decision after inline wait time
   test("timeout produces explicit timeout message (no false success)", async () => {
     const toolName = "bash";
     const input = { command: "curl example.com" };
-    const context = makeToolContext({ guardianTrustClass: "trusted_contact" });
+    const context = makeToolContext({ trustClass: "trusted_contact" });
 
     const result = await handler.checkPreExecutionGates(
       toolName,
@@ -1125,7 +1122,7 @@ describe("cross-milestone integration checks", () => {
     const toolName = "bash";
     const input = { command: "ls" };
     const context = makeToolContext({
-      guardianTrustClass: "guardian",
+      trustClass: "guardian",
       executionChannel: "telegram",
       requesterExternalUserId: "guardian-1",
     });
@@ -1158,7 +1155,7 @@ describe("cross-milestone integration checks", () => {
     const input = { command: "aborted-command" };
     const controller = new AbortController();
     const context = makeToolContext({
-      guardianTrustClass: "trusted_contact",
+      trustClass: "trusted_contact",
       signal: controller.signal,
     });
 

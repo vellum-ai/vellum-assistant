@@ -92,7 +92,7 @@ async function executeSkillLoad(
     workingDir: "/tmp",
     sessionId: "session-1",
     conversationId: "conversation-1",
-    guardianTrustClass: "guardian",
+    trustClass: "guardian",
   });
   return { content: result.content, isError: result.isError };
 }

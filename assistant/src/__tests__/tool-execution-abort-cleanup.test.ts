@@ -111,7 +111,7 @@ function makeToolContext(workingDir: string, signal?: AbortSignal) {
     workingDir,
     sessionId: "test-session",
     conversationId: "test-conv",
-    guardianTrustClass: "guardian" as const,
+    trustClass: "guardian" as const,
     signal,
   };
 }

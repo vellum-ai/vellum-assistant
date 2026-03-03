@@ -93,7 +93,7 @@ function makeContext(overrides?: Partial<ToolContext>): ToolContext {
   return {
     sessionId: "test-session",
     workingDir: "/tmp/test",
-    guardianTrustClass: "guardian",
+    trustClass: "guardian",
     onOutput: () => {},
     ...overrides,
   } as ToolContext;

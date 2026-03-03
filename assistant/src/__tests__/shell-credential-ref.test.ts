@@ -88,7 +88,7 @@ const ctx: ToolContext = {
   workingDir: "/tmp",
   sessionId: "test-session",
   conversationId: "test-conv",
-  guardianTrustClass: "guardian",
+  trustClass: "guardian",
 };
 
 beforeEach(() => {

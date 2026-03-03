@@ -11,17 +11,17 @@
  * guardian-context behavior for the vellum channel.
  */
 
-import type { ChannelId } from '../channels/types.js';
-import { buildIpcAuthContext } from '../daemon/ipc-handler.js';
-import type { TrustContext } from '../daemon/session-runtime-assembly.js';
-import { getActiveBinding } from '../memory/guardian-bindings.js';
-import { getLogger } from '../util/logger.js';
-import { DAEMON_INTERNAL_ASSISTANT_ID } from './assistant-scope.js';
-import type { AuthContext } from './auth/types.js';
-import { resolveTrustContext } from './trust-context-resolver.js';
-import { ensureVellumGuardianBinding } from './guardian-vellum-migration.js';
+import type { ChannelId } from "../channels/types.js";
+import { buildIpcAuthContext } from "../daemon/ipc-handler.js";
+import type { TrustContext } from "../daemon/session-runtime-assembly.js";
+import { getActiveBinding } from "../memory/guardian-bindings.js";
+import { getLogger } from "../util/logger.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
+import type { AuthContext } from "./auth/types.js";
+import { ensureVellumGuardianBinding } from "./guardian-vellum-migration.js";
+import { resolveTrustContext } from "./trust-context-resolver.js";
 
-const log = getLogger('local-actor-identity');
+const log = getLogger("local-actor-identity");
 
 /**
  * Resolve the guardian runtime context for a local IPC connection.
@@ -36,10 +36,10 @@ const log = getLogger('local-actor-identity');
  * user is not incorrectly denied.
  */
 export function resolveLocalIpcTrustContext(
-  sourceChannel: ChannelId = 'vellum',
+  sourceChannel: ChannelId = "vellum",
 ): TrustContext {
   const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
-  const binding = getActiveBinding(assistantId, 'vellum');
+  const binding = getActiveBinding(assistantId, "vellum");
 
   if (!binding) {
     // No vellum binding yet (pre-bootstrap). Eagerly create one so
@@ -47,14 +47,16 @@ export function resolveLocalIpcTrustContext(
     // (tool_approval, pending_question) always has a guardianPrincipalId
     // available. Without this, createCanonicalGuardianRequest throws
     // IntegrityError and the request is silently dropped.
-    log.debug('No vellum guardian binding found; bootstrapping binding for IPC');
+    log.debug(
+      "No vellum guardian binding found; bootstrapping binding for IPC",
+    );
     const principalId = ensureVellumGuardianBinding(assistantId);
 
     // Re-resolve through the shared pipeline now that the binding exists.
     const trustCtx = resolveTrustContext({
       assistantId,
-      sourceChannel: 'vellum',
-      conversationExternalId: 'local',
+      sourceChannel: "vellum",
+      conversationExternalId: "local",
       actorExternalId: principalId,
     });
     // Overlay the caller's actual sourceChannel onto the resolved context.
@@ -71,8 +73,8 @@ export function resolveLocalIpcTrustContext(
   // causing a 'unknown' trust classification.
   const trustCtx = resolveTrustContext({
     assistantId,
-    sourceChannel: 'vellum',
-    conversationExternalId: 'local',
+    sourceChannel: "vellum",
+    conversationExternalId: "local",
     actorExternalId: guardianPrincipalId,
   });
 
@@ -96,7 +98,7 @@ export function resolveLocalIpcAuthContext(sessionId: string): AuthContext {
   // Enrich with the guardian principal ID when a vellum binding exists,
   // so downstream guardian resolution can use authContext.actorPrincipalId.
   const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
-  const binding = getActiveBinding(assistantId, 'vellum');
+  const binding = getActiveBinding(assistantId, "vellum");
   if (binding) {
     return { ...authContext, actorPrincipalId: binding.guardianExternalUserId };
   }

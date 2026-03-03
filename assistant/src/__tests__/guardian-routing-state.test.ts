@@ -66,17 +66,17 @@ mock.module("../memory/ingress-member-store.js", () => ({
   upsertMember: () => {},
 }));
 
+import type { TrustContext } from "../daemon/session-runtime-assembly.js";
 import * as channelDeliveryStore from "../memory/channel-delivery-store.js";
 import { createBinding } from "../memory/channel-guardian-store.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { channelInboundEvents, messages } from "../memory/schema.js";
 import { sweepFailedEvents } from "../runtime/channel-retry-sweep.js";
-import type { TrustContext } from "../daemon/session-runtime-assembly.js";
+import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
 import {
   resolveRoutingState,
   resolveRoutingStateFromRuntime,
 } from "../runtime/trust-context-resolver.js";
-import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
 
 initializeDb();
 
