@@ -2128,6 +2128,56 @@ Key files: `src/tools/sensitive-output-placeholders.ts`, `src/tools/executor.ts`
 
 For full notification developer guidance and lifecycle details, see [`assistant/src/notifications/README.md`](src/notifications/README.md).
 
+### A2A (Assistant-to-Assistant) Communications
+
+The A2A system enables two Vellum assistants to communicate securely over the internet. The daemon hosts the `A2AConnectionService` -- a stateless, surface-agnostic orchestration layer that ties together the peer connection store, handshake state machine, peer authentication, scope policy, and message delivery.
+
+**Key architectural decisions:**
+
+- **Gateway-only ingress**: All A2A traffic (handshake, messages, revocation) routes through the gateway. The daemon never accepts direct peer connections.
+- **Fail-closed trust**: Peer assistants receive the `peer_assistant` trust classification with zero default capabilities. Guardians explicitly grant scopes per connection.
+- **HMAC-SHA256 authentication**: Post-handshake messages are signed with per-connection credentials via `x-a2a-*` headers.
+- **Scope-gated autonomy**: Scopes are asymmetric and per-connection. Each guardian independently decides what to expose to each peer. The scope engine (`a2a-scope-policy.ts`) checks connection scopes against required actions.
+- **IRL trust anchor**: The handshake requires out-of-band verification code exchange between guardians (same pattern as trusted contact verification).
+
+**Handshake flow**: `generateInvite()` -> out-of-band share -> `initiateConnection()` -> guardian approval -> verification code exchange -> `active`.
+
+**Data flow for inbound messages**:
+1. Peer gateway sends `POST /v1/a2a/messages/inbound` with HMAC headers
+2. Local gateway validates payload size and forwards to runtime
+3. Runtime verifies HMAC signature, checks connection status and scopes
+4. Message deduplicated via `(connectionId, nonce)`
+5. Routed to session with `peer_assistant` trust context
+
+**Memory provenance**: Peer messages are indexed with `peer_assistant` provenance. Extraction is suppressed; recall returns empty for peer actors. History view shows only peer-provenance messages.
+
+**Revocation**: `revokeConnection()` tombstones credentials, sends notification to peer, and transitions through `revocation_pending` -> `revoked`. A background sweep retries failed notifications.
+
+**Feature flag**: `feature_flags.a2a-scope-policy.enabled` (default: false) gates scope enforcement on both inbound and outbound message paths (inbound receives messages only if scopes permit, outbound `sendMessage()` returns `not_enabled` when scope policy is active but not granted).
+
+**Full architecture reference**: [`docs/architecture/a2a-architecture.md`](docs/architecture/a2a-architecture.md)
+
+**Design constraints and threat model**: [`docs/architecture/a2a-communications.md`](docs/architecture/a2a-communications.md)
+
+**Scope model specification**: [`docs/architecture/a2a-scope-model.md`](docs/architecture/a2a-scope-model.md)
+
+**Key source files:**
+
+| File | Purpose |
+|------|---------|
+| `src/a2a/a2a-connection-service.ts` | Service layer: all connection lifecycle methods |
+| `src/a2a/a2a-peer-connection-store.ts` | SQLite CRUD for `a2a_peer_connections` table |
+| `src/a2a/a2a-handshake.ts` | Handshake state machine and crypto helpers |
+| `src/a2a/a2a-peer-auth.ts` | HMAC signing/verification and credential management |
+| `src/a2a/a2a-message-schema.ts` | Wire format types: envelope, content, lifecycle events |
+| `src/a2a/a2a-scope-catalog.ts` | Scope definitions registry (IDs, labels, risk levels) |
+| `src/a2a/a2a-scope-policy.ts` | Scope evaluation engine |
+| `src/a2a/a2a-outbound-delivery.ts` | Outbound message delivery with HMAC signing |
+| `src/a2a/a2a-revocation-delivery.ts` | Revocation notification delivery |
+| `src/a2a/a2a-revocation-sweep.ts` | Background sweep for failed revocation retries |
+| `src/runtime/routes/a2a-routes.ts` | HTTP handlers for management + peer-facing endpoints |
+| `src/runtime/routes/a2a-inbound-routes.ts` | Inbound message processing pipeline |
+
 ### Assistant Identity Boundary
 
 The daemon uses a single fixed internal scope constant — `DAEMON_INTERNAL_ASSISTANT_ID` (`'self'`), exported from `src/runtime/assistant-scope.ts` — for all assistant-scoped storage and routing within the daemon process. Public/external assistant IDs (e.g., those assigned during hatch, invite links, or platform registration) are an **edge concern** owned by the gateway and platform layers.
