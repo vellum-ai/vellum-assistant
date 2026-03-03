@@ -60,7 +60,7 @@ import type { QueueDrainReason } from './session-queue-manager.js';
 import type { ActiveSurfaceContext, ChannelCapabilities, ChannelTurnContextParams, TrustContext, InboundActorContext, InterfaceTurnContextParams } from './session-runtime-assembly.js';
 import {
   applyRuntimeInjections,
-  inboundActorContextFromGuardian,
+  inboundActorContextFromTrustContext,
   inboundActorContextFromTrust,
   stripInjectedContext,
 } from './session-runtime-assembly.js';
@@ -433,7 +433,7 @@ export async function runAgentLoopImpl(
         });
         resolvedInboundActorContext = inboundActorContextFromTrust(actorTrust);
       } else {
-        resolvedInboundActorContext = inboundActorContextFromGuardian(gc);
+        resolvedInboundActorContext = inboundActorContextFromTrustContext(gc);
       }
     }
 
