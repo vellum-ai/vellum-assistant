@@ -184,6 +184,7 @@ import {
 } from "./routes/integration-routes.js";
 import {
   handleMigrationExport,
+  handleMigrationImport,
   handleMigrationImportPreflight,
   handleMigrationValidate,
 } from "./routes/migration-routes.js";
@@ -1219,10 +1220,7 @@ export class RuntimeHttpServer {
         return await handleCreateGuardianChallenge(req);
       if (endpoint === "integrations/guardian/status" && req.method === "GET")
         return handleGetGuardianStatus(url);
-      if (
-        endpoint === "integrations/guardian/revoke" &&
-        req.method === "POST"
-      )
+      if (endpoint === "integrations/guardian/revoke" && req.method === "POST")
         return await handleRevokeGuardian(req);
       if (
         endpoint === "integrations/guardian/outbound/start" &&
@@ -1445,6 +1443,8 @@ export class RuntimeHttpServer {
         return await handleMigrationExport(req);
       if (endpoint === "migrations/import-preflight" && req.method === "POST")
         return await handleMigrationImportPreflight(req);
+      if (endpoint === "migrations/import" && req.method === "POST")
+        return await handleMigrationImport(req);
 
       // Internal OAuth callback endpoint (gateway -> runtime)
       if (endpoint === "internal/oauth/callback" && req.method === "POST") {
