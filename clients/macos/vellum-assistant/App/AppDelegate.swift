@@ -2038,6 +2038,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             self?.mainWindow?.threadManager.selectThread(id: threadId)
         }
 
+        // Wire runtime HTTP resolver for server search
+        window.runtimeHTTPResolver = {
+            let port = ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"]
+                .flatMap(Int.init) ?? 7821
+            if let jwt = ActorTokenManager.getToken(), !jwt.isEmpty {
+                return ("http://localhost:\(port)", jwt)
+            }
+            guard let token = readHttpToken() else { return nil }
+            return ("http://localhost:\(port)", token)
+        }
+
         window.show()
         commandPaletteWindow = window
     }

@@ -6,6 +6,7 @@ struct CommandPaletteView: View {
     @Bindable var viewModel: CommandPaletteViewModel
     var onDismiss: () -> Void
     var onSelectRecent: ((UUID) -> Void)?
+    var onSelectConversation: ((String) -> Void)?
 
     @FocusState private var isSearchFocused: Bool
 
@@ -13,9 +14,15 @@ struct CommandPaletteView: View {
         VStack(spacing: 0) {
             // Search input
             HStack(spacing: VSpacing.md) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundColor(VColor.textMuted)
-                    .font(.system(size: 16, weight: .medium))
+                if viewModel.isSearching {
+                    ProgressView()
+                        .controlSize(.small)
+                        .frame(width: 16, height: 16)
+                } else {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundColor(VColor.textMuted)
+                        .font(.system(size: 16, weight: .medium))
+                }
 
                 TextField("Search conversations, memories, schedules...", text: $viewModel.query)
                     .textFieldStyle(.plain)
@@ -29,6 +36,7 @@ struct CommandPaletteView: View {
                 if !viewModel.query.isEmpty {
                     Button {
                         viewModel.query = ""
+                        viewModel.serverResults = .empty
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundColor(VColor.textMuted)
@@ -55,7 +63,7 @@ struct CommandPaletteView: View {
 
             // Results list
             let items = viewModel.allItems
-            if items.isEmpty {
+            if items.isEmpty && !viewModel.isSearching {
                 emptyState
             } else {
                 ScrollView {
@@ -76,16 +84,20 @@ struct CommandPaletteView: View {
                         // Recent items section
                         let recents = viewModel.filteredRecents
                         if !recents.isEmpty {
+                            let recentsOffset = actions.count
                             sectionHeader("Recent")
-                            let actionsCount = actions.count
                             ForEach(Array(recents.enumerated()), id: \.element.id) { index, recent in
-                                recentRow(recent, isSelected: viewModel.selectedIndex == actionsCount + index)
+                                recentRow(recent, isSelected: viewModel.selectedIndex == recentsOffset + index)
                                     .onTapGesture {
                                         onSelectRecent?(recent.id)
                                         onDismiss()
                                     }
                             }
                         }
+
+                        // Server results sections
+                        let serverOffset = actions.count + recents.count
+                        serverResultsSections(startIndex: serverOffset)
                     }
                     .padding(.vertical, VSpacing.xs)
                 }
@@ -117,6 +129,7 @@ struct CommandPaletteView: View {
         }
         .onChange(of: viewModel.query) {
             viewModel.clampSelection()
+            viewModel.triggerSearch()
         }
     }
 
@@ -130,6 +143,57 @@ struct CommandPaletteView: View {
             .padding(.horizontal, VSpacing.lg)
             .padding(.top, VSpacing.sm)
             .padding(.bottom, VSpacing.xs)
+    }
+
+    // MARK: - Server Results Sections
+
+    @ViewBuilder
+    private func serverResultsSections(startIndex: Int) -> some View {
+        let conversations = viewModel.serverResults.conversations
+        let memories = viewModel.serverResults.memories
+        let schedules = viewModel.serverResults.schedules
+        let contacts = viewModel.serverResults.contacts
+
+        var offset = startIndex
+
+        if !conversations.isEmpty {
+            let convOffset = offset
+            sectionHeader("Conversations")
+            ForEach(Array(conversations.enumerated()), id: \.element.id) { index, conv in
+                conversationRow(conv, isSelected: viewModel.selectedIndex == convOffset + index)
+                    .onTapGesture {
+                        onSelectConversation?(conv.id)
+                        onDismiss()
+                    }
+            }
+            let _ = (offset += conversations.count)
+        }
+
+        if !memories.isEmpty {
+            let memOffset = offset
+            sectionHeader("Memories")
+            ForEach(Array(memories.enumerated()), id: \.element.id) { index, memory in
+                memoryRow(memory, isSelected: viewModel.selectedIndex == memOffset + index)
+            }
+            let _ = (offset += memories.count)
+        }
+
+        if !schedules.isEmpty {
+            let schedOffset = offset
+            sectionHeader("Schedules")
+            ForEach(Array(schedules.enumerated()), id: \.element.id) { index, schedule in
+                scheduleRow(schedule, isSelected: viewModel.selectedIndex == schedOffset + index)
+            }
+            let _ = (offset += schedules.count)
+        }
+
+        if !contacts.isEmpty {
+            let contactOffset = offset
+            sectionHeader("Contacts")
+            ForEach(Array(contacts.enumerated()), id: \.element.id) { index, contact in
+                contactRow(contact, isSelected: viewModel.selectedIndex == contactOffset + index)
+            }
+        }
     }
 
     // MARK: - Row Views
@@ -192,9 +256,140 @@ struct CommandPaletteView: View {
         .contentShape(Rectangle())
     }
 
+    private func conversationRow(_ conv: SearchResultConversation, isSelected: Bool) -> some View {
+        HStack(spacing: VSpacing.md) {
+            Image(systemName: "bubble.left.and.bubble.right")
+                .foregroundColor(VColor.textSecondary)
+                .font(.system(size: 13))
+                .frame(width: 20, alignment: .center)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(conv.title ?? "Untitled")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+                    .lineLimit(1)
+
+                if !conv.excerpt.isEmpty {
+                    Text(conv.excerpt)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                        .lineLimit(1)
+                }
+            }
+
+            Spacer()
+
+            Text(relativeTimestamp(conv.updatedAt))
+                .font(VFont.caption)
+                .foregroundColor(VColor.textMuted)
+        }
+        .padding(.horizontal, VSpacing.lg)
+        .padding(.vertical, VSpacing.sm)
+        .background(isSelected ? VColor.surfaceBorder.opacity(0.5) : .clear)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+        .padding(.horizontal, VSpacing.xs)
+        .contentShape(Rectangle())
+    }
+
+    private func memoryRow(_ memory: SearchResultMemory, isSelected: Bool) -> some View {
+        HStack(spacing: VSpacing.md) {
+            Image(systemName: "brain")
+                .foregroundColor(VColor.textSecondary)
+                .font(.system(size: 13))
+                .frame(width: 20, alignment: .center)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(memory.text)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+                    .lineLimit(2)
+
+                Text(memory.kind)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+                    .padding(.horizontal, VSpacing.xs)
+                    .padding(.vertical, 1)
+                    .background(VColor.surfaceBorder.opacity(0.5))
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.xs))
+            }
+
+            Spacer()
+        }
+        .padding(.horizontal, VSpacing.lg)
+        .padding(.vertical, VSpacing.sm)
+        .background(isSelected ? VColor.surfaceBorder.opacity(0.5) : .clear)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+        .padding(.horizontal, VSpacing.xs)
+        .contentShape(Rectangle())
+    }
+
+    private func scheduleRow(_ schedule: SearchResultSchedule, isSelected: Bool) -> some View {
+        HStack(spacing: VSpacing.md) {
+            Image(systemName: "clock")
+                .foregroundColor(VColor.textSecondary)
+                .font(.system(size: 13))
+                .frame(width: 20, alignment: .center)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(schedule.name)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+                    .lineLimit(1)
+
+                Text(schedule.message)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            Text(schedule.enabled ? "Active" : "Paused")
+                .font(VFont.caption)
+                .foregroundColor(schedule.enabled ? VColor.success : VColor.textMuted)
+        }
+        .padding(.horizontal, VSpacing.lg)
+        .padding(.vertical, VSpacing.sm)
+        .background(isSelected ? VColor.surfaceBorder.opacity(0.5) : .clear)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+        .padding(.horizontal, VSpacing.xs)
+        .contentShape(Rectangle())
+    }
+
+    private func contactRow(_ contact: SearchResultContact, isSelected: Bool) -> some View {
+        HStack(spacing: VSpacing.md) {
+            Image(systemName: "person.2")
+                .foregroundColor(VColor.textSecondary)
+                .font(.system(size: 13))
+                .frame(width: 20, alignment: .center)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(contact.displayName)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+                    .lineLimit(1)
+
+                if let relationship = contact.relationship, !relationship.isEmpty {
+                    Text(relationship)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                        .lineLimit(1)
+                }
+            }
+
+            Spacer()
+        }
+        .padding(.horizontal, VSpacing.lg)
+        .padding(.vertical, VSpacing.sm)
+        .background(isSelected ? VColor.surfaceBorder.opacity(0.5) : .clear)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+        .padding(.horizontal, VSpacing.xs)
+        .contentShape(Rectangle())
+    }
+
     private var emptyState: some View {
         VStack(spacing: VSpacing.sm) {
-            Text("No results found.")
+            Text(viewModel.query.isEmpty ? "Type to search..." : "No results found.")
                 .font(VFont.caption)
                 .foregroundColor(VColor.textMuted)
                 .multilineTextAlignment(.center)
@@ -215,6 +410,12 @@ struct CommandPaletteView: View {
         case .recent(let recent):
             onSelectRecent?(recent.id)
             onDismiss()
+        case .conversation(let conv):
+            onSelectConversation?(conv.id)
+            onDismiss()
+        case .memory, .schedule, .contact:
+            // Non-navigable results — no action on Enter
+            break
         }
     }
 
@@ -224,5 +425,10 @@ struct CommandPaletteView: View {
         if interval < 3600 { return "\(Int(interval / 60))m ago" }
         if interval < 86400 { return "\(Int(interval / 3600))h ago" }
         return "\(Int(interval / 86400))d ago"
+    }
+
+    private func relativeTimestamp(_ epochMs: Double) -> String {
+        let date = Date(timeIntervalSince1970: epochMs / 1000)
+        return relativeTime(date)
     }
 }
