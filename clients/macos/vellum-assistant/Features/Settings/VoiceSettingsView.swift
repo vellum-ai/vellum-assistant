@@ -99,6 +99,7 @@ struct VoiceSettingsView: View {
                             .foregroundColor(isSelected ? .white : VColor.textMuted)
                             .padding(.horizontal, VSpacing.sm)
                             .padding(.vertical, VSpacing.xs)
+                            .contentShape(Capsule())
                             .background(
                                 Capsule()
                                     .fill(isSelected ? Forest._700 : VColor.surface)
@@ -119,6 +120,7 @@ struct VoiceSettingsView: View {
                             .foregroundColor(.white)
                             .padding(.horizontal, VSpacing.sm)
                             .padding(.vertical, VSpacing.xs)
+                            .contentShape(Capsule())
                             .background(
                                 Capsule()
                                     .fill(VColor.accent)
@@ -133,6 +135,7 @@ struct VoiceSettingsView: View {
                             .foregroundColor(isCustom ? .white : VColor.textMuted)
                             .padding(.horizontal, VSpacing.sm)
                             .padding(.vertical, VSpacing.xs)
+                            .contentShape(Capsule())
                             .background(
                                 Capsule()
                                     .fill(isCustom ? Forest._700 : VColor.surface)
