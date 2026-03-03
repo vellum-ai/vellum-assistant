@@ -39,7 +39,9 @@ function int(name: string, fallback?: number): number | undefined {
   const n = parseInt(raw, 10);
   if (isNaN(n)) {
     throw new Error(
-      `Invalid integer for ${name}: "${raw}"${fallback !== undefined ? ` (fallback: ${fallback})` : ""}`,
+      `Invalid integer for ${name}: "${raw}"${
+        fallback !== undefined ? ` (fallback: ${fallback})` : ""
+      }`,
     );
   }
   return n;
@@ -101,9 +103,6 @@ export function getRuntimeGatewayOriginSecret(): string | undefined {
  * True when HTTP API auth is disabled via DISABLE_HTTP_AUTH=true AND the
  * safety gate VELLUM_UNSAFE_AUTH_BYPASS=1 is also set. Without the safety
  * gate, the bypass is ignored.
- *
- * Also returns true in test environments (bun test sets NODE_ENV=test)
- * so that tests don't need to initialize the JWT signing key.
  */
 export function isHttpAuthDisabled(): boolean {
   if (str("DISABLE_HTTP_AUTH")?.toLowerCase() !== "true") return false;
