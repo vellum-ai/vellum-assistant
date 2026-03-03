@@ -22,6 +22,7 @@ export interface AgentLoopConfig {
   maxTokens: number;
   maxInputTokens?: number; // context window size for tool result truncation
   thinking?: { enabled: boolean; budgetTokens: number };
+  effort: "low" | "medium" | "high";
   toolChoice?:
     | { type: "auto" }
     | { type: "any" }
@@ -80,6 +81,7 @@ export type AgentEvent =
 
 const DEFAULT_CONFIG: AgentLoopConfig = {
   maxTokens: 16000,
+  effort: "high",
   maxToolUseTurns: 40,
   minTurnIntervalMs: 150,
 };
@@ -223,6 +225,8 @@ export class AgentLoop {
             budget_tokens: budgetTokens,
           };
         }
+
+        providerConfig.effort = this.config.effort;
 
         if (this.config.toolChoice) {
           providerConfig.tool_choice = this.config.toolChoice;
@@ -647,7 +651,10 @@ export class AgentLoop {
         if (softLimit > 0 && toolUseTurns === softLimit) {
           resultBlocks.push({
             type: "text",
-            text: `<system_notice>${APPROACHING_LIMIT_WARNING.replace("{remaining}", String(APPROACHING_LIMIT_OFFSET))}</system_notice>`,
+            text: `<system_notice>${APPROACHING_LIMIT_WARNING.replace(
+              "{remaining}",
+              String(APPROACHING_LIMIT_OFFSET),
+            )}</system_notice>`,
           });
         } else if (toolUseTurns % PROGRESS_CHECK_INTERVAL === 0) {
           resultBlocks.push({

@@ -34,6 +34,7 @@ export type {
   AuditLogConfig,
   ContextWindowConfig,
   DaemonConfig,
+  Effort,
   IngressConfig,
   IngressRateLimitConfig,
   IngressWebhookConfig,
@@ -52,6 +53,7 @@ export {
   AuditLogConfigSchema,
   ContextWindowConfigSchema,
   DaemonConfigSchema,
+  EffortSchema,
   IngressConfigSchema,
   IngressRateLimitConfigSchema,
   IngressWebhookConfigSchema,
@@ -145,6 +147,7 @@ import {
   AuditLogConfigSchema,
   ContextWindowConfigSchema,
   DaemonConfigSchema,
+  EffortSchema,
   IngressConfigSchema,
   LogFileConfigSchema,
   ModelPricingOverrideSchema,
@@ -199,13 +202,17 @@ export const AssistantConfigSchema = z
       .default({} as any),
     webSearchProvider: z
       .enum(VALID_WEB_SEARCH_PROVIDERS, {
-        error: `webSearchProvider must be one of: ${VALID_WEB_SEARCH_PROVIDERS.join(", ")}`,
+        error: `webSearchProvider must be one of: ${VALID_WEB_SEARCH_PROVIDERS.join(
+          ", ",
+        )}`,
       })
       .default("anthropic-native"),
     providerOrder: z
       .array(
         z.enum(VALID_PROVIDERS, {
-          error: `Each providerOrder entry must be one of: ${VALID_PROVIDERS.join(", ")}`,
+          error: `Each providerOrder entry must be one of: ${VALID_PROVIDERS.join(
+            ", ",
+          )}`,
         }),
       )
       .default([]),
@@ -219,6 +226,7 @@ export const AssistantConfigSchema = z
       .int("maxToolUseTurns must be an integer")
       .nonnegative("maxToolUseTurns must be a non-negative integer")
       .default(40),
+    effort: EffortSchema,
     thinking: ThinkingConfigSchema.default(ThinkingConfigSchema.parse({})),
     contextWindow: ContextWindowConfigSchema.default(
       ContextWindowConfigSchema.parse({}),
