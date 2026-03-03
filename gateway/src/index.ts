@@ -29,6 +29,7 @@ import { createWhatsAppDeliverHandler } from "./http/routes/whatsapp-deliver.js"
 import { createSlackDeliverHandler } from "./http/routes/slack-deliver.js";
 import { createOAuthCallbackHandler } from "./http/routes/oauth-callback.js";
 import { createA2AProxyHandler } from "./http/routes/a2a-proxy.js";
+import { createA2AInboundHandler } from "./http/routes/a2a-inbound.js";
 import { createPairingProxyHandler } from "./http/routes/pairing-proxy.js";
 import { createFeatureFlagsGetHandler, createFeatureFlagsPatchHandler } from "./http/routes/feature-flags.js";
 import { createGuardianControlPlaneProxyHandler } from "./http/routes/guardian-control-plane-proxy.js";
@@ -113,6 +114,7 @@ function main() {
   const handleSlackDeliver = createSlackDeliverHandler(config);
   const handleOAuthCallback = createOAuthCallbackHandler(config);
   const a2aProxy = createA2AProxyHandler(config);
+  const a2aInbound = createA2AInboundHandler(config);
   const pairingProxy = createPairingProxyHandler(config);
   const guardianControlPlaneProxy = createGuardianControlPlaneProxyHandler(config);
   const telegramControlPlaneProxy = createTelegramControlPlaneProxyHandler(config);
@@ -655,6 +657,12 @@ function main() {
       if (a2aStatusMatch && tracedReq.method === "GET") {
         const statusClientIp = getClientIp(req, svr, config.trustProxy);
         return a2aProxy.handleConnectionStatus(tracedReq, decodeURIComponent(a2aStatusMatch[1]), statusClientIp);
+      }
+      // A2A inbound message endpoint (peer assistant -> gateway -> runtime).
+      // Authenticated via HMAC-SHA256 A2A headers (not gateway JWT).
+      if (url.pathname === "/v1/a2a/messages/inbound" && tracedReq.method === "POST") {
+        const inboundClientIp = getClientIp(req, svr, config.trustProxy);
+        return a2aInbound.handleA2AInbound(tracedReq, inboundClientIp);
       }
 
       // ── Feature flags API ──
