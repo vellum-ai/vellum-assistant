@@ -191,8 +191,8 @@ stateDiagram-v2
 |-------|-------------|---------|
 | `idle` | No connection attempt in progress | -- |
 | `invite_generated` | Invite token created, waiting for peer redemption | 24 hours (default) |
-| `awaiting_approval` | Peer sent connection request, guardian must approve/deny | 24 hours |
-| `awaiting_verification` | Guardian approved, verification code generated and delivered | 10 minutes (code TTL) |
+| `awaiting_approval` | Peer sent connection request, guardian must approve/deny | 15 minutes |
+| `awaiting_verification` | Guardian approved, verification code generated and delivered | 5 minutes (code TTL) |
 | `active` | Connection live, bidirectional messaging within granted scopes | Persists until revoked |
 | `revocation_pending` | Local guardian revoked, notification to peer in flight | Sweep retry window |
 | `revoked` | Final state after successful local revocation | Terminal |
@@ -309,7 +309,7 @@ graph TD
     TOOL_SCOPE -->|"No"| TOOL_DENY["Permission denied"]
 ```
 
-The `a2a-scope-policy` feature flag (`feature_flags.a2a-scope-policy.enabled`, default: false) gates scope enforcement on the inbound message path. When off, inbound messages from active connections are accepted without a scope check (the tool execution gate still blocks privileged actions).
+The `a2a-scope-policy` feature flag (`feature_flags.a2a-scope-policy.enabled`, default: false) gates scope enforcement on both inbound and outbound message paths. When off, inbound messages from active connections are accepted without a scope check (the tool execution gate still blocks privileged actions) and outbound sends are rejected with `not_enabled`.
 
 ---
 
@@ -623,4 +623,4 @@ Scope changes take effect immediately. The peer is optionally notified via an `a
 
 | Flag | Key | Default | Controls |
 |------|-----|---------|----------|
-| A2A Scope Policy | `feature_flags.a2a-scope-policy.enabled` | `false` | When enabled, inbound messages are checked against connection scopes. When disabled, all inbound messages from active connections are accepted. |
+| A2A Scope Policy | `feature_flags.a2a-scope-policy.enabled` | `false` | When enabled, inbound messages are checked against connection scopes and outbound sends are allowed. When disabled, all inbound messages from active connections are accepted (tool execution gate still applies) and outbound sends are rejected with `not_enabled`. |
