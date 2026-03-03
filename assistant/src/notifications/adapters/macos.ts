@@ -29,14 +29,16 @@ export type BroadcastFn = (msg: ServerMessage) => void;
 
 /**
  * Event name prefixes that carry guardian-sensitive content (approval
- * requests, escalation alerts, access requests). Notifications for
- * these events are scoped to bound guardian devices via
- * `targetGuardianPrincipalId`.
+ * requests, escalation alerts, access requests, A2A pairing codes).
+ * Notifications for these events are scoped to bound guardian devices
+ * via `targetGuardianPrincipalId`.
  */
 const GUARDIAN_SENSITIVE_EVENT_PREFIXES = [
   'guardian.question',
   'ingress.escalation',
   'ingress.access_request',
+  'a2a.verification_code_ready',
+  'a2a.connection_requested',
 ] as const;
 
 export function isGuardianSensitiveEvent(sourceEventName: string): boolean {
