@@ -69,8 +69,8 @@ struct ChatContentView: View {
             isInputFocused: $isInputFocused,
             isGenerating: (viewModel.isSending && !viewModel.hasPendingConfirmation) || viewModel.isThinking,
             isCancelling: viewModel.isCancelling,
-            onSend: viewModel.sendMessage,
-            onStop: viewModel.stopGenerating,
+            onSend: { viewModel.sendMessage() },
+            onStop: { viewModel.stopGenerating() },
             onVoiceResult: { _ in
                 viewModel.pendingVoiceMessage = true
                 viewModel.sendMessage()
