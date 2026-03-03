@@ -98,6 +98,7 @@ export interface AgentLoopSessionContext {
   currentPage?: string;
   readonly surfaceState: Map<string, { surfaceType: SurfaceType; data: SurfaceData; title?: string }>;
   pendingSurfaceActions: Map<string, { surfaceType: SurfaceType }>;
+  surfaceActionRequestIds: Set<string>;
   currentTurnSurfaces: Array<{ surfaceId: string; surfaceType: SurfaceType; title?: string; data: SurfaceData; actions?: Array<{ id: string; label: string; style?: string }>; display?: string }>;
 
   workingDir: string;
@@ -135,6 +136,7 @@ export interface AgentLoopSessionContext {
     reason: 'message_dequeued' | 'thinking_delta' | 'first_text_delta' | 'tool_use_start' | 'confirmation_requested' | 'confirmation_resolved' | 'message_complete' | 'generation_cancelled' | 'error_terminal',
     anchor?: 'assistant_turn' | 'user_turn' | 'global',
     requestId?: string,
+    statusText?: string,
   ): void;
   emitConfirmationStateChanged(params: import('./ipc-contract/messages.js').ConfirmationStateChanged extends { type: infer _ } ? Omit<import('./ipc-contract/messages.js').ConfirmationStateChanged, 'type'> : never): void;
 
@@ -839,6 +841,7 @@ export async function runAgentLoopImpl(
 
     ctx.abortController = null;
     ctx.processing = false;
+    ctx.surfaceActionRequestIds.delete(ctx.currentRequestId ?? '');
     ctx.currentRequestId = undefined;
     ctx.currentActiveSurfaceId = undefined;
     ctx.allowedToolNames = undefined;

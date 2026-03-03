@@ -6,6 +6,7 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
   const query = (input.query as string) ?? 'category:promotions newer_than:90d';
   const maxMessages = input.max_messages as number | undefined;
   const maxSenders = input.max_senders as number | undefined;
+  const pageToken = input.page_token as string | undefined;
 
   try {
     const provider = resolveProvider(platform);
@@ -15,13 +16,14 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
     }
 
     return withProviderToken(provider, async (token) => {
-      const result = await provider.senderDigest!(token, query, { maxMessages, maxSenders });
+      const result = await provider.senderDigest!(token, query, { maxMessages, maxSenders, pageToken });
 
       if (result.senders.length === 0) {
         return ok(JSON.stringify({
           senders: [],
           total_scanned: result.totalScanned,
           query_used: result.queryUsed,
+          ...(result.truncated ? { truncated: true, next_page_token: result.nextPageToken } : {}),
           message: 'No emails found matching the query. Try broadening the search (e.g. remove category filter or extend date range).',
         }));
       }
@@ -43,7 +45,8 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
         senders,
         total_scanned: result.totalScanned,
         query_used: result.queryUsed,
-        note: `message_count reflects emails found per sender within the ${result.totalScanned} messages scanned. The archive tool may find additional messages beyond this sample.`,
+        ...(result.truncated ? { truncated: true, next_page_token: result.nextPageToken } : {}),
+        note: `message_count reflects emails found per sender within the ${result.totalScanned} messages scanned. Use the message_ids array with the archive tool to archive exactly these messages.`,
       }));
     });
   } catch (e) {

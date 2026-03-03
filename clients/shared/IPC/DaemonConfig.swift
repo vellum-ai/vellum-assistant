@@ -35,6 +35,49 @@ public struct RemoteIdentityInfo: Decodable {
     }
 }
 
+/// How endpoint paths are constructed for HTTP transport.
+public enum RouteMode {
+    /// Current runtime-flat paths: `/healthz`, `/v1/messages`, etc.
+    case runtimeFlat
+    /// Platform assistant proxy paths: `/v1/assistants/{id}/healthz/`, etc.
+    case platformAssistantProxy
+}
+
+/// How authentication headers are applied for HTTP transport.
+public enum AuthMode {
+    /// `Authorization: Bearer {token}` (current default for local/gateway).
+    case bearerToken
+    /// `X-Session-Token: {token}` from SessionTokenManager (managed mode).
+    case sessionToken
+}
+
+/// Optional metadata that governs how HTTP transport constructs URLs and
+/// applies authentication. Defaults preserve existing behavior so this
+/// is a no-op refactor when not explicitly configured.
+public struct TransportMetadata {
+    public let routeMode: RouteMode
+    public let authMode: AuthMode
+    /// Platform-assigned assistant UUID, required for `.platformAssistantProxy` route mode.
+    public let platformAssistantId: String?
+
+    public init(
+        routeMode: RouteMode = .runtimeFlat,
+        authMode: AuthMode = .bearerToken,
+        platformAssistantId: String? = nil
+    ) {
+        self.routeMode = routeMode
+        self.authMode = authMode
+        self.platformAssistantId = platformAssistantId
+    }
+
+    /// Default metadata preserving existing local/gateway behavior.
+    public static let defaultLocal = TransportMetadata(
+        routeMode: .runtimeFlat,
+        authMode: .bearerToken,
+        platformAssistantId: nil
+    )
+}
+
 public struct DaemonConfig {
     /// Transport mode for communicating with the assistant daemon.
     public enum Transport {
@@ -49,6 +92,10 @@ public struct DaemonConfig {
     }
 
     public let transport: Transport
+
+    /// Metadata governing URL construction and auth for HTTP transport.
+    /// Defaults to `.defaultLocal` which preserves existing behavior.
+    public let transportMetadata: TransportMetadata
 
     /// Feature-flag bearer token for authenticating PATCH /v1/feature-flags/:flagKey requests.
     /// On macOS this is read from `~/.vellum/feature-flag-token`.
@@ -70,6 +117,7 @@ public struct DaemonConfig {
     /// Convenience initializer for socket transport (backwards compatible).
     public init(socketPath: String) {
         self.transport = .socket(path: socketPath)
+        self.transportMetadata = .defaultLocal
         self.featureFlagToken = readFeatureFlagToken()
     }
 
@@ -78,8 +126,9 @@ public struct DaemonConfig {
     }
     #endif
 
-    public init(transport: Transport, featureFlagToken: String? = nil) {
+    public init(transport: Transport, transportMetadata: TransportMetadata = .defaultLocal, featureFlagToken: String? = nil) {
         self.transport = transport
+        self.transportMetadata = transportMetadata
         #if os(macOS)
         self.featureFlagToken = featureFlagToken ?? readFeatureFlagToken()
         #else

@@ -279,20 +279,25 @@ public struct DynamicPagePreview: Sendable, Equatable {
     public let description: String?
     public let icon: String?
     public let metrics: [(label: String, value: String)]?
+    public let context: String?
+    public var previewImage: String?
 
-    public init(title: String, subtitle: String? = nil, description: String? = nil, icon: String? = nil, metrics: [(label: String, value: String)]? = nil) {
+    public init(title: String, subtitle: String? = nil, description: String? = nil, icon: String? = nil, metrics: [(label: String, value: String)]? = nil, context: String? = nil, previewImage: String? = nil) {
         self.title = title
         self.subtitle = subtitle
         self.description = description
         self.icon = icon
         self.metrics = metrics
+        self.context = context
+        self.previewImage = previewImage
     }
 
     public static func == (lhs: DynamicPagePreview, rhs: DynamicPagePreview) -> Bool {
         guard lhs.title == rhs.title,
               lhs.subtitle == rhs.subtitle,
               lhs.description == rhs.description,
-              lhs.icon == rhs.icon else { return false }
+              lhs.icon == rhs.icon,
+              lhs.context == rhs.context else { return false }
         switch (lhs.metrics, rhs.metrics) {
         case (.none, .none):
             return true
@@ -937,7 +942,9 @@ public extension Surface {
             subtitle: dict["subtitle"] as? String,
             description: dict["description"] as? String,
             icon: dict["icon"] as? String,
-            metrics: metrics
+            metrics: metrics,
+            context: dict["context"] as? String,
+            previewImage: dict["previewImage"] as? String
         )
     }
 

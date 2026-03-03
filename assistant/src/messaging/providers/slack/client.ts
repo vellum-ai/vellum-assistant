@@ -10,6 +10,7 @@ import type {
   SlackAuthTestResponse,
   SlackChatDeleteResponse,
   SlackConversationHistoryResponse,
+  SlackConversationInfoResponse,
   SlackConversationLeaveResponse,
   SlackConversationMarkResponse,
   SlackConversationRepliesResponse,
@@ -93,6 +94,13 @@ export async function listConversations(
     limit: String(limit),
     cursor,
   });
+}
+
+export async function conversationInfo(
+  token: string,
+  channel: string,
+): Promise<SlackConversationInfoResponse> {
+  return request<SlackConversationInfoResponse>(token, 'conversations.info', { channel });
 }
 
 export async function conversationHistory(

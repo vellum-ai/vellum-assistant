@@ -76,6 +76,8 @@ export interface DynamicPagePreview {
   description?: string;
   icon?: string;
   metrics?: Array<{ label: string; value: string }>;
+  context?: 'app_create' | 'general';
+  previewImage?: string;  // base64 PNG
 }
 
 export interface DynamicPageSurfaceData {

@@ -14,6 +14,29 @@ bun run ./src/index.ts <command> [options]
 
 ## Commands
 
+### Lifecycle: `ps`, `sleep`, `wake`
+
+Day-to-day process management for the daemon and gateway.
+
+| Command | Description |
+|---------|-------------|
+| `vellum ps` | List assistants and per-assistant process status (daemon, gateway PIDs and health). |
+| `vellum sleep` | Stop daemon and gateway processes. Directory-agnostic — works from anywhere. |
+| `vellum wake` | Start the daemon and gateway from the current checkout. |
+
+```bash
+# Start everything
+vellum wake
+
+# Check what's running
+vellum ps
+
+# Stop everything
+vellum sleep
+```
+
+> **Note:** `vellum wake` requires a hatched assistant. Run `vellum hatch` first, or launch the macOS app which handles hatching automatically.
+
 ### `hatch`
 
 Provision a new assistant instance and bootstrap the Vellum runtime on it.

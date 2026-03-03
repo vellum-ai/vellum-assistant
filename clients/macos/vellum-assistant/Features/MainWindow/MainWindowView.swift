@@ -110,7 +110,7 @@ struct MainWindowView: View {
     /// Whether the "coming alive" overlay is currently showing.
     @State private var showComingAlive: Bool
 
-    init(threadManager: ThreadManager, appListManager: AppListManager, zoomManager: ZoomManager, conversationZoomManager: ConversationZoomManager, traceStore: TraceStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager = VoiceModeManager(), onSendWakeUp: (() -> Void)? = nil) {
+    init(threadManager: ThreadManager, appListManager: AppListManager, zoomManager: ZoomManager, conversationZoomManager: ConversationZoomManager, traceStore: TraceStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, onSendWakeUp: (() -> Void)? = nil) {
         self.threadManager = threadManager
         self.appListManager = appListManager
         self.zoomManager = zoomManager
@@ -743,6 +743,15 @@ struct MainWindowView: View {
                 try? daemonClient.sendAppOpen(appId: reopenId)
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .pinAppToHomebase)) { notification in
+            guard let appId = notification.userInfo?["appId"] as? String,
+                  let name = notification.userInfo?["name"] as? String else { return }
+            let icon = notification.userInfo?["icon"] as? String
+            let appType = notification.userInfo?["appType"] as? String
+            let description = notification.userInfo?["description"] as? String
+            appListManager.recordAppOpen(id: appId, name: name, icon: icon, appType: appType, description: description)
+            appListManager.pinApp(id: appId)
+        }
         .onReceive(NotificationCenter.default.publisher(for: .openDocumentEditor)) { notification in
             guard let surfaceId = notification.userInfo?["documentSurfaceId"] as? String else { return }
             if documentManager.hasActiveDocument && documentManager.surfaceId == surfaceId {
@@ -757,6 +766,25 @@ struct MainWindowView: View {
             if let updated = notification.userInfo?["surface"] as? Surface,
                updated.id == windowState.activeDynamicSurface?.surfaceId {
                 windowState.activeDynamicParsedSurface = updated
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .requestAppPreview)) { notification in
+            guard let appId = notification.userInfo?["appId"] as? String else { return }
+            let stream = daemonClient.subscribe()
+            do { try daemonClient.sendAppPreview(appId: appId) } catch { return }
+            Task { @MainActor in
+                for await message in stream {
+                    if case .appPreviewResponse(let response) = message,
+                       response.appId == appId,
+                       let base64 = response.preview, !base64.isEmpty {
+                        NotificationCenter.default.post(
+                            name: .appPreviewImageCaptured,
+                            object: nil,
+                            userInfo: ["appId": appId, "previewImage": base64]
+                        )
+                        return
+                    }
+                }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .dismissDynamicWorkspace)) { notification in

@@ -39,7 +39,7 @@ final class WakeWordCoordinator: ObservableObject {
 
     /// Cooldown after activation to prevent re-triggering from leftover audio.
     private var lastActivationTime: Date?
-    private static let activationCooldown: TimeInterval = 3.0
+    static let activationCooldown: TimeInterval = 3.0
 
     init(
         audioMonitor: AlwaysOnAudioMonitor,

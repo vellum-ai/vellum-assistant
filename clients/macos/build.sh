@@ -579,6 +579,8 @@ cat > "$CONTENTS/Info.plist" <<PLIST
     <true/>
     <key>CFBundleIconName</key>
     <string>AppIcon</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>NSAppTransportSecurity</key>
     <dict>
         <!-- Allow HTTP on the local network only -->

@@ -371,6 +371,12 @@ public final class SettingsStore: ObservableObject {
             .sink { [weak self] _ in self?.refreshAPIKeyState() }
             .store(in: &cancellables)
 
+        // Re-sync all API keys to daemon when it reconnects
+        NotificationCenter.default.publisher(for: .daemonDidReconnect)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.syncAllKeysToDaemon() }
+            .store(in: &cancellables)
+
         // maxStepsPerSession is read at session startup, so it must be persisted synchronously
         // to avoid a race where a new session reads a stale value before the debounced write fires.
         $maxSteps
@@ -689,12 +695,14 @@ public final class SettingsStore: ObservableObject {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         APIKeyManager.setKey(trimmed)
+        syncKeyToDaemon(provider: "anthropic", value: trimmed)
         hasKey = true
         maskedKey = Self.maskKey(trimmed)
     }
 
     func clearAPIKey() {
         APIKeyManager.deleteKey()
+        deleteKeyFromDaemon(provider: "anthropic")
         hasKey = false
         maskedKey = ""
     }
@@ -703,12 +711,14 @@ public final class SettingsStore: ObservableObject {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         APIKeyManager.setKey(trimmed, for: "brave")
+        syncKeyToDaemon(provider: "brave", value: trimmed)
         hasBraveKey = true
         maskedBraveKey = Self.maskKey(trimmed)
     }
 
     func clearBraveKey() {
         APIKeyManager.deleteKey(for: "brave")
+        deleteKeyFromDaemon(provider: "brave")
         hasBraveKey = false
         maskedBraveKey = ""
     }
@@ -717,12 +727,14 @@ public final class SettingsStore: ObservableObject {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         APIKeyManager.setKey(trimmed, for: "perplexity")
+        syncKeyToDaemon(provider: "perplexity", value: trimmed)
         hasPerplexityKey = true
         maskedPerplexityKey = Self.maskKey(trimmed)
     }
 
     func clearPerplexityKey() {
         APIKeyManager.deleteKey(for: "perplexity")
+        deleteKeyFromDaemon(provider: "perplexity")
         hasPerplexityKey = false
         maskedPerplexityKey = ""
     }
@@ -731,12 +743,14 @@ public final class SettingsStore: ObservableObject {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         APIKeyManager.setKey(trimmed, for: "gemini")
+        syncKeyToDaemon(provider: "gemini", value: trimmed)
         hasImageGenKey = true
         maskedImageGenKey = Self.maskKey(trimmed)
     }
 
     func clearImageGenKey() {
         APIKeyManager.deleteKey(for: "gemini")
+        deleteKeyFromDaemon(provider: "gemini")
         hasImageGenKey = false
         maskedImageGenKey = ""
     }
@@ -745,12 +759,14 @@ public final class SettingsStore: ObservableObject {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         APIKeyManager.setKey(trimmed, for: "elevenlabs")
+        syncKeyToDaemon(provider: "elevenlabs", value: trimmed)
         hasElevenLabsKey = true
         maskedElevenLabsKey = Self.maskKey(trimmed)
     }
 
     func clearElevenLabsKey() {
         APIKeyManager.deleteKey(for: "elevenlabs")
+        deleteKeyFromDaemon(provider: "elevenlabs")
         hasElevenLabsKey = false
         maskedElevenLabsKey = ""
     }
@@ -937,6 +953,56 @@ public final class SettingsStore: ObservableObject {
             .flatMap(Int.init) ?? 7821
         guard let token = readHttpToken() else { return nil }
         return ("http://localhost:\(port)", token)
+    }
+
+    // MARK: - Daemon Key Sync (HTTP)
+
+    /// Notify the daemon that an API key was set, so it updates its encrypted store.
+    private func syncKeyToDaemon(provider: String, value: String) {
+        guard let http = resolveRuntimeHTTP() else { return }
+        guard let url = URL(string: "\(http.baseURL)/v1/secrets") else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(http.token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 5
+        let body: [String: String] = ["type": "api_key", "name": provider, "value": value]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        Task.detached {
+            _ = try? await URLSession.shared.data(for: request)
+        }
+    }
+
+    /// Notify the daemon that an API key was deleted.
+    private func deleteKeyFromDaemon(provider: String) {
+        guard let http = resolveRuntimeHTTP() else { return }
+        guard let url = URL(string: "\(http.baseURL)/v1/secrets") else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.setValue("Bearer \(http.token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 5
+        let body: [String: String] = ["type": "api_key", "name": provider]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        Task.detached {
+            _ = try? await URLSession.shared.data(for: request)
+        }
+    }
+
+    /// Re-sync all API keys to daemon on reconnect.
+    private func syncAllKeysToDaemon() {
+        let providers: [(String, String?)] = [
+            ("anthropic", APIKeyManager.getKey()),
+            ("brave", APIKeyManager.getKey(for: "brave")),
+            ("perplexity", APIKeyManager.getKey(for: "perplexity")),
+            ("gemini", APIKeyManager.getKey(for: "gemini")),
+            ("elevenlabs", APIKeyManager.getKey(for: "elevenlabs")),
+        ]
+        for (provider, value) in providers {
+            if let key = value {
+                syncKeyToDaemon(provider: provider, value: key)
+            }
+        }
     }
 
     func fetchSlackChannelConfig() {

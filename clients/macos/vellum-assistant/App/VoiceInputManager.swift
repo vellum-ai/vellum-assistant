@@ -1,11 +1,13 @@
 import Foundation
 import AppKit
+import CoreGraphics
 import Speech
 import AVFoundation
 import os
 import VellumAssistantShared
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "VoiceInput")
+
 
 /// Determines how voice transcriptions are routed after speech recognition completes.
 enum VoiceInputMode {
@@ -110,7 +112,24 @@ final class VoiceInputManager {
                 self.otherKeyPressedDuringHold = false
             }
         }
-        appSwitchObservers = [workspaceObserver, resignObserver]
+        // Cancel hold when the user switches Spaces (ctrl+arrow, ctrl+number, etc.).
+        // didActivateApplicationNotification only fires when the frontmost app changes,
+        // which doesn't happen when switching to an empty space or one with the same app.
+        // activeSpaceDidChangeNotification fires on every Spaces switch.
+        let spaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.activeSpaceDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.lastAppSwitchTime = Date()
+                self.holdTask?.cancel()
+                self.holdTask = nil
+                self.otherKeyPressedDuringHold = false
+            }
+        }
+        appSwitchObservers = [workspaceObserver, resignObserver, spaceObserver]
 
         // Wire the dictation response callback to insert text and manage the overlay
         if onDictationResponse == nil {
@@ -215,6 +234,7 @@ final class VoiceInputManager {
             }
             return event
         }
+
     }
 
     private func handleFlagsChanged(_ event: NSEvent) {
@@ -235,8 +255,36 @@ final class VoiceInputManager {
             // Skip if an app switch happened recently — this Fn/Ctrl press is likely
             // from a system keyboard shortcut (Cmd+Tab, Ctrl+arrows) used to switch apps.
             guard Date().timeIntervalSince(lastAppSwitchTime) > 0.5 else { return }
-            holdTask = Task { [weak self] in
-                try? await Task.sleep(nanoseconds: Self.holdDelay)
+            // Snapshot every key that is physically held right now (includes the
+            // activation key itself). During the hold we only cancel if a NEW key
+            // appears — one that wasn't already down at activation time. This avoids
+            // any hardcoded list of modifier key codes or layout assumptions.
+            var activationSnapshot = Set<CGKeyCode>()
+            for code in CGKeyCode(0)...CGKeyCode(127) {
+                if CGEventSource.keyState(.combinedSessionState, key: code) {
+                    activationSnapshot.insert(code)
+                }
+            }
+            holdTask = Task { [weak self, activationSnapshot] in
+                // Poll every 25ms for 300ms total (12 polls).
+                // CGEventSource.keyState reads hardware state directly, catching
+                // keys consumed by system shortcuts before NSEvent monitors see them.
+                let pollIntervalNs: UInt64 = 25_000_000
+                let numPolls = Int(Self.holdDelay / pollIntervalNs)
+                for _ in 0..<numPolls {
+                    try? await Task.sleep(nanoseconds: pollIntervalNs)
+                    guard !Task.isCancelled else { return }
+                    guard let self = self else { return }
+                    guard !self.otherKeyPressedDuringHold else { return }
+                    guard Date().timeIntervalSince(self.lastAppSwitchTime) > 0.5 else { return }
+                    // Cancel if any key not present at activation time is now held.
+                    for code in CGKeyCode(0)...CGKeyCode(127) {
+                        if !activationSnapshot.contains(code) &&
+                            CGEventSource.keyState(.combinedSessionState, key: code) {
+                            return
+                        }
+                    }
+                }
                 guard !Task.isCancelled else { return }
                 guard let self = self else { return }
                 guard self.shouldStartRecording(

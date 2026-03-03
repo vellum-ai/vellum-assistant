@@ -143,6 +143,8 @@ export interface ToolContext {
   executionChannel?: string;
   /** Voice/call session ID, if the invocation originates from a call. Used for scoped grant consumption. */
   callSessionId?: string;
+  /** True when the tool invocation was triggered by a user clicking a surface action button (not a regular message). */
+  triggeredBySurfaceAction?: boolean;
   /** External user ID of the requester (non-guardian actor). Used for scoped grant consumption. */
   requesterExternalUserId?: string;
   /** Chat ID of the requester (non-guardian actor). Used for tool grant request escalation notifications. */
@@ -172,6 +174,13 @@ export interface ToolExecutionResult {
    * replacement. MUST NOT be emitted in client-facing events or logs.
    */
   sensitiveBindings?: SensitiveOutputBinding[];
+  /**
+   * When true, the agent loop should yield control back to the user after
+   * returning this result. Used by interactive surfaces (tables with action
+   * buttons, file uploads) to force-stop the loop so the LLM cannot bypass
+   * the "wait for user action" instruction.
+   */
+  yieldToUser?: boolean;
 }
 
 export interface Tool {

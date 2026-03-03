@@ -22,7 +22,7 @@ struct OnboardingButton: View {
             Text(title)
                 .font(VFont.bodyMedium)
                 .foregroundColor(foregroundColor)
-                .frame(maxWidth: style == .primary ? .infinity : nil)
+                .frame(maxWidth: .infinity)
                 .padding(.horizontal, VSpacing.xxl)
                 .padding(.vertical, VSpacing.md + VSpacing.xxs)
                 .background(background)

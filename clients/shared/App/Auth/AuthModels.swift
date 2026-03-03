@@ -110,3 +110,61 @@ public enum AuthServiceError: LocalizedError {
 }
 
 public struct EmptyData: Codable, Sendable {}
+
+// MARK: - Platform Assistant API Models
+
+public struct PlatformAssistant: Codable, Sendable {
+    public let id: String
+    public let name: String?
+    public let description: String?
+    public let created_at: String?
+
+    public init(id: String, name: String? = nil, description: String? = nil, created_at: String? = nil) {
+        self.id = id
+        self.name = name
+        self.description = description
+        self.created_at = created_at
+    }
+}
+
+public struct HatchAssistantRequest: Codable, Sendable {
+    public let name: String?
+    public let description: String?
+    public let anthropic_api_key: String?
+
+    public init(name: String? = nil, description: String? = nil, anthropic_api_key: String? = nil) {
+        self.name = name
+        self.description = description
+        self.anthropic_api_key = anthropic_api_key
+    }
+}
+
+/// Result type for platform assistant lookups where 404 is a normal outcome.
+public enum PlatformAssistantResult: Sendable {
+    case found(PlatformAssistant)
+    case notFound
+}
+
+/// Errors specific to platform API calls (non-allauth endpoints).
+public enum PlatformAPIError: LocalizedError, Sendable {
+    case invalidURL
+    case networkError(String)
+    case decodingError(String)
+    case serverError(statusCode: Int, detail: String?)
+    case authenticationRequired
+
+    public var errorDescription: String? {
+        switch self {
+        case .invalidURL:
+            return "Invalid URL"
+        case .networkError(let message):
+            return message
+        case .decodingError(let message):
+            return "Failed to decode response: \(message)"
+        case .serverError(let statusCode, let detail):
+            return detail ?? "Server error (\(statusCode))"
+        case .authenticationRequired:
+            return "Authentication required"
+        }
+    }
+}

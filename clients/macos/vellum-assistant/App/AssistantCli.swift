@@ -295,6 +295,11 @@ final class AssistantCli {
             try proc.run()
             proc.waitUntilExit()
             log.info("CLI stop completed with exit code \(proc.terminationStatus)")
+            if proc.terminationStatus != 0 {
+                log.warning("CLI stop exited non-zero (\(proc.terminationStatus)) — falling back to PID-based kill")
+                killViaPIDFile()
+                killGatewayViaPIDFile()
+            }
         } catch {
             log.error("CLI stop failed: \(error.localizedDescription)")
             // Fallback: kill via PID file directly

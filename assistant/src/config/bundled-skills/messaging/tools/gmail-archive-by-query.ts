@@ -7,7 +7,11 @@ import { err,ok } from './shared.js';
 const BATCH_MODIFY_LIMIT = 1000;
 const MAX_MESSAGES = 5000;
 
-export async function run(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
+export async function run(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
+  if (!context.triggeredBySurfaceAction) {
+    return err('This tool requires user confirmation via a surface action. Present results in a selection table with action buttons and wait for the user to click before proceeding.');
+  }
+
   const query = input.query as string;
 
   if (!query) {

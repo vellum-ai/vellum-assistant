@@ -667,6 +667,7 @@ struct ActiveChatViewWrapper: View {
             assistantActivityPhase: viewModel.assistantActivityPhase,
             assistantActivityAnchor: viewModel.assistantActivityAnchor,
             assistantActivityReason: viewModel.assistantActivityReason,
+            assistantStatusText: viewModel.assistantStatusText,
             onConfirmationAllow: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "allow") },
             onConfirmationDeny: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "deny") },
             onAlwaysAllow: { requestId, selectedPattern, selectedScope, decision in viewModel.respondToAlwaysAllow(requestId: requestId, selectedPattern: selectedPattern, selectedScope: selectedScope, decision: decision) },
@@ -855,6 +856,11 @@ struct DynamicWorkspaceWrapper: View {
                 onSnapshotCaptured: data.appId != nil ? { [weak daemonClient] base64 in
                     guard let appId = data.appId else { return }
                     try? daemonClient?.sendAppUpdatePreview(appId: appId, preview: base64)
+                    NotificationCenter.default.post(
+                        name: .appPreviewImageCaptured,
+                        object: nil,
+                        userInfo: ["appId": appId, "previewImage": base64]
+                    )
                 } : nil,
                 onLinkOpen: { url, metadata in
                     surfaceManager.onLinkOpen?(url, metadata)
@@ -1077,7 +1083,7 @@ private struct AppLoadingView: View {
 struct MainWindowView_Previews: PreviewProvider {
     static var previews: some View {
         let dc = DaemonClient()
-        MainWindowView(threadManager: ThreadManager(daemonClient: dc), appListManager: AppListManager(), zoomManager: ZoomManager(), conversationZoomManager: ConversationZoomManager(), traceStore: TraceStore(), daemonClient: dc, surfaceManager: SurfaceManager(), ambientAgent: AmbientAgent(), settingsStore: SettingsStore(daemonClient: dc), authManager: AuthManager(), windowState: MainWindowState(), documentManager: DocumentManager())
+        MainWindowView(threadManager: ThreadManager(daemonClient: dc), appListManager: AppListManager(), zoomManager: ZoomManager(), conversationZoomManager: ConversationZoomManager(), traceStore: TraceStore(), daemonClient: dc, surfaceManager: SurfaceManager(), ambientAgent: AmbientAgent(), settingsStore: SettingsStore(daemonClient: dc), authManager: AuthManager(), windowState: MainWindowState(), documentManager: DocumentManager(), voiceModeManager: VoiceModeManager())
             .frame(width: 900, height: 600)
             .padding(.top, 36)
     }

@@ -1,52 +1,55 @@
 ---
 name: "Skills Catalog"
-description: "Browse and install skills from the Vellum catalog using the vellum skills CLI"
+description: "Discover bundled skills and search/install community skills from Clawhub"
 user-invocable: true
-metadata: {"vellum": {"emoji": "🧩"}}
+metadata: { "vellum": { "emoji": "🧩" } }
 ---
 
-You can help the user discover and install skills from the Vellum first-party catalog using the `vellum skills` CLI.
+You can help the user discover what skills are available and find community skills to extend the assistant's capabilities.
 
-## Listing available skills
+## Bundled skills (first-party)
 
-```bash
-vellum skills list --json
+First-party skills are **bundled** with the assistant — they are compiled in and always available. They do not need to be installed or downloaded. To activate a bundled skill, use the `skill_load` tool:
+
+```
+skill_load skill=<skill-id>
 ```
 
-Returns a JSON object with `ok: true` and a `skills` array. Each skill has:
-- `id` — the skill identifier (used for install)
-- `name` — human-readable name
-- `description` — what the skill does
-- `emoji` — optional emoji
-- `includes` — optional list of dependency skill IDs
-- `version` — optional version string
+The skill catalog shown in the system prompt lists all bundled skills with their IDs. When a user asks about capabilities, refer to this list to find relevant bundled skills and load them as needed.
 
-## Installing a skill
+## Community skills (Clawhub)
 
-```bash
-vellum skills install <skill-id> --json
-```
+Community skills are published on [Clawhub](https://clawhub.com) and can be searched and installed on demand.
 
-Installs the skill to the managed skills directory. If the skill is already installed, pass `--overwrite` to replace it.
+### Searching for community skills
 
-Returns `{ "ok": true, "skillId": "<id>" }` on success.
+Use the `skill_load` tool to search the catalog, or check the system prompt's available skills list. The IPC `skills_search` message searches community skills on Clawhub. Bundled skills are already listed in the system prompt.
+
+### Installing a community skill
+
+Community skills are installed via the IPC `skills_install` message with a `slug` parameter. Once installed, they appear in `~/.vellum/workspace/skills/<slug>/` and can be loaded with `skill_load` like any other skill.
+
+### Inspecting a community skill
+
+Before installing, you can inspect a community skill via the IPC `skills_inspect` message with a `slug` parameter. This returns metadata (author, stats, version) and optionally the skill's SKILL.md content so the user can review it.
 
 ## Typical flow
 
 1. **User asks about capabilities** — "Can you order food?" or "What can you do?"
-   - Run `vellum skills list --json` to see what's available
+   - Check the bundled skills list in the system prompt
    - Present relevant skills to the user
+   - Load any that match with `skill_load`
 
-2. **User wants a new skill** — "I want to use Slack" or "Set up Telegram"
-   - Run `vellum skills list --json` to find matching skills
-   - Run `vellum skills install <skill-id> --json` to install it
-   - The skill will be available on the next conversation turn
+2. **User wants a capability not covered by bundled skills** — "Can you do X?"
+   - Search for community skills that provide the capability
+   - Present matching results with descriptions and install counts
+   - Install the chosen skill, then load it with `skill_load`
 
-3. **Skill has dependencies** — if `includes` lists other skill IDs, install those first
+3. **Skill has dependencies** — if `includes` lists other skill IDs, load those first with `skill_load`
 
 ## Notes
 
-- Skills are fetched from the Vellum platform API
-- Installed skills are stored in `~/.vellum/workspace/skills/<skill-id>/`
-- After installing, the skill may need to be enabled in settings
-- Use `--json` on all commands for reliable parsing
+- Bundled skills are always available and do not need installation
+- Community skills are installed to `~/.vellum/workspace/skills/<slug>/`
+- After installing a community skill, it may need to be enabled in settings
+- Skills can be enabled or disabled via feature flags without uninstalling them
