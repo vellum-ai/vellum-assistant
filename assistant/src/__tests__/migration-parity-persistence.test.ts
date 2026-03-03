@@ -819,19 +819,62 @@ describe("full end-to-end — managed-to-self-hosted migration", () => {
       expect(valScreen.preflight.summary.totalFiles).toBe(3);
     }
 
-    // Step 4: Transfer (runtime export + import)
+    // Step 4: Transfer (managed export via async polling + runtime import)
     const archiveBytes = new ArrayBuffer(32);
     const importResponse = makeImportSuccess();
 
-    const sourceFetch = (async () => {
-      return new Response(archiveBytes, {
-        status: 200,
-        headers: {
-          "Content-Disposition": 'attachment; filename="export.vbundle"',
-          "X-Vbundle-Schema-Version": "1.0",
-          "X-Vbundle-Manifest-Sha256": "abc",
-        },
-      });
+    let exportCallCount = 0;
+    const sourceFetch = (async (url: string | URL | Request) => {
+      const urlStr = String(url);
+      if (urlStr.endsWith("/export/")) {
+        // Managed export: initiate async job
+        return new Response(
+          JSON.stringify({ job_id: "exp-m2sh", status: "pending" }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
+      }
+      if (urlStr.includes("/export/") && urlStr.includes("/status/")) {
+        exportCallCount++;
+        if (exportCallCount === 1) {
+          // First poll: still in progress
+          return new Response(
+            JSON.stringify({
+              job_id: "exp-m2sh",
+              status: "in_progress",
+              progress: 50,
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          );
+        }
+        // Second poll: complete with download URL
+        return new Response(
+          JSON.stringify({
+            job_id: "exp-m2sh",
+            status: "complete",
+            download_url: "https://platform.vellum.ai/downloads/exp-m2sh",
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
+      }
+      if (urlStr.includes("/downloads/")) {
+        // Download the exported archive
+        return new Response(archiveBytes, {
+          status: 200,
+          headers: {
+            "Content-Disposition": 'attachment; filename="export.vbundle"',
+          },
+        });
+      }
+      return new Response("Not found", { status: 404 });
     }) as unknown as typeof fetch;
 
     const destFetch = (async () => {
@@ -842,7 +885,7 @@ describe("full end-to-end — managed-to-self-hosted migration", () => {
     }) as unknown as typeof fetch;
 
     const transferOptions = makeExecutorOptions({
-      sourceConfig: runtimeConfig({ fetchFn: sourceFetch }),
+      sourceConfig: managedConfig({ fetchFn: sourceFetch }),
       destConfig: runtimeConfig({ fetchFn: destFetch }),
     });
 
