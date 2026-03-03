@@ -158,7 +158,13 @@ export function setSecureKey(account: string, value: string): boolean {
   // keychain first) does not read an outdated value.
   if (result && downgradedFromKeychain && getBackend() === "encrypted") {
     keychainMissCache.delete(account);
-    try { keychain.deleteKey(account); } catch { /* best-effort */ }
+    try {
+      // Only attempt deletion if the key actually exists in keychain to
+      // avoid spawning a subprocess on every write.
+      if (keychain.getKey(account) !== undefined) {
+        keychain.deleteKey(account);
+      }
+    } catch { /* best-effort */ }
   }
   return result;
 }
@@ -291,7 +297,14 @@ export async function setSecureKeyAsync(
     // Clean up stale keychain entry (mirrors setSecureKey logic).
     if (result && downgradedFromKeychain) {
       keychainMissCache.delete(account);
-      try { await keychain.deleteKeyAsync(account); } catch { /* best-effort */ }
+      try {
+        // Only attempt deletion if the key actually exists in keychain to
+        // avoid spawning a subprocess on every write.
+        const exists = await keychain.getKeyAsync(account);
+        if (exists !== undefined) {
+          await keychain.deleteKeyAsync(account);
+        }
+      } catch { /* best-effort */ }
     }
     return result;
   }
@@ -304,7 +317,18 @@ export async function setSecureKeyAsync(
     );
     resolvedBackend = "encrypted";
     downgradedFromKeychain = true;
-    return encryptedStore.setKey(account, value);
+    const fallbackResult = encryptedStore.setKey(account, value);
+    // Clean up stale keychain entry after runtime downgrade
+    if (fallbackResult) {
+      keychainMissCache.delete(account);
+      try {
+        const exists = await keychain.getKeyAsync(account);
+        if (exists !== undefined) {
+          await keychain.deleteKeyAsync(account);
+        }
+      } catch { /* best-effort */ }
+    }
+    return fallbackResult;
   }
   return result;
 }
