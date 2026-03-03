@@ -77,7 +77,7 @@ public struct VButton: View {
         switch size {
         case .small: return VFont.caption
         case .medium: return VFont.bodyMedium
-        case .large: return Font.custom("Inter-Medium", size: 16)
+        case .large: return VFont.buttonLarge
         }
     }
 }

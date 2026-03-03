@@ -33,9 +33,6 @@ struct SettingsChannelsTab: View {
     @State private var voiceAuthTokenText = ""
     @State private var voiceSetupExpanded = false
 
-    // Per-section save-in-progress (so saving one section doesn't affect the other)
-    @State private var twilioSmsSaveInProgress = false
-    @State private var twilioVoiceSaveInProgress = false
 
     // Slack channel credential entry
     @State private var slackChannelSetupExpanded = false
@@ -684,7 +681,7 @@ struct SettingsChannelsTab: View {
                 .font(VFont.body)
                 .foregroundColor(VColor.textPrimary)
 
-            if twilioSmsSaveInProgress {
+            if store.twilioSaveInProgress {
                 HStack(spacing: VSpacing.sm) {
                     ProgressView()
                         .controlSize(.small)
@@ -695,7 +692,6 @@ struct SettingsChannelsTab: View {
             } else {
                 HStack(spacing: VSpacing.sm) {
                     VButton(label: "Connect", style: .secondary, size: .large) {
-                        twilioSmsSaveInProgress = true
                         store.saveTwilioCredentials(
                             accountSid: twilioAccountSidText,
                             authToken: twilioAuthTokenText
@@ -703,7 +699,6 @@ struct SettingsChannelsTab: View {
                         twilioAccountSidText = ""
                         twilioAuthTokenText = ""
                         twilioSetupExpanded = false
-                        twilioSmsSaveInProgress = false
                     }
                     .disabled(
                         twilioAccountSidText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
@@ -737,7 +732,7 @@ struct SettingsChannelsTab: View {
                 .font(VFont.body)
                 .foregroundColor(VColor.textPrimary)
 
-            if twilioVoiceSaveInProgress {
+            if store.twilioSaveInProgress {
                 HStack(spacing: VSpacing.sm) {
                     ProgressView()
                         .controlSize(.small)
@@ -748,7 +743,6 @@ struct SettingsChannelsTab: View {
             } else {
                 HStack(spacing: VSpacing.sm) {
                     VButton(label: "Connect", style: .secondary, size: .large) {
-                        twilioVoiceSaveInProgress = true
                         store.saveTwilioCredentials(
                             accountSid: voiceAccountSidText,
                             authToken: voiceAuthTokenText
@@ -756,7 +750,6 @@ struct SettingsChannelsTab: View {
                         voiceAccountSidText = ""
                         voiceAuthTokenText = ""
                         voiceSetupExpanded = false
-                        twilioVoiceSaveInProgress = false
                     }
                     .disabled(
                         voiceAccountSidText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
@@ -1171,7 +1164,7 @@ struct SettingsChannelsTab: View {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundColor(VColor.success)
                             .font(.system(size: 12))
-                        Text("Verification Code")
+                        Text("Verification Code Sent")
                             .font(VFont.caption)
                             .foregroundColor(VColor.success)
                     }
