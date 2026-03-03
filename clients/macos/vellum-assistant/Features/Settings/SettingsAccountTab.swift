@@ -126,6 +126,7 @@ struct SettingsAccountTab: View {
                         .vInputStyle()
                         .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
+                        .onFocusChange { focused in isPlatformUrlFocused = focused }
                     HStack(spacing: VSpacing.sm) {
                         VButton(label: "Save", style: .primary, size: .medium) {
                             store.savePlatformBaseUrl(platformUrlText)
@@ -143,6 +144,7 @@ struct SettingsAccountTab: View {
                         .vInputStyle()
                         .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
+                        .onFocusChange { focused in isPlatformUrlFocused = focused }
                     HStack(spacing: VSpacing.sm) {
                         VButton(label: "Save", style: .primary, size: .medium) {
                             store.savePlatformBaseUrl(platformUrlText)

@@ -130,6 +130,7 @@ struct GatewaySettingsCard: View {
                 .vInputStyle()
                 .font(VFont.body)
                 .foregroundColor(VColor.textPrimary)
+                .onFocusChange { focused in isGatewayUrlFocused = focused }
 
             HStack(spacing: VSpacing.sm) {
                 VButton(label: "Save", style: .primary, size: .medium) {
