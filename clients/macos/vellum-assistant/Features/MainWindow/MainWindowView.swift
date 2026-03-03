@@ -1098,7 +1098,16 @@ struct MainWindowView: View {
 
     private var displayedScheduleGroups: [(key: String, label: String, threads: [ThreadModel])] {
         let all = scheduleThreadGroups
-        return sidebar.showAllScheduleThreads ? all : Array(all.prefix(3))
+        if sidebar.showAllScheduleThreads { return all }
+        // Auto-expand if any hidden group has unread threads.
+        let visible = Array(all.prefix(3))
+        let hidden = all.dropFirst(3)
+        if hidden.contains(where: { group in
+            group.threads.contains(where: { $0.hasUnseenLatestAssistantMessage })
+        }) {
+            return all
+        }
+        return visible
     }
 
     private var displayedApps: [AppListManager.AppItem] {
@@ -1332,15 +1341,20 @@ struct MainWindowView: View {
                                             .padding(.bottom, VSpacing.xxs)
                                     }
                                 } label: {
-                                    HStack(spacing: VSpacing.sm) {
+                                    HStack(spacing: VSpacing.xs) {
                                         // Unread indicator: show orange dot when group
                                         // is collapsed and any child thread has unseen messages.
+                                        // Sits in a 20×20 slot to match threadItem leading slot.
                                         if !sidebar.expandedScheduleGroups.contains(group.key),
                                            group.threads.contains(where: { $0.hasUnseenLatestAssistantMessage }) {
                                             Circle()
                                                 .fill(Color(hex: 0xE86B40))
                                                 .frame(width: 6, height: 6)
+                                                .frame(width: 20, height: 20)
                                                 .transition(.opacity)
+                                        } else {
+                                            Color.clear
+                                                .frame(width: 20, height: 20)
                                         }
                                         Text(group.label)
                                             .font(.system(size: 13))
@@ -1357,6 +1371,7 @@ struct MainWindowView: View {
                                                     .fill(VColor.textMuted.opacity(0.12))
                                             )
                                     }
+                                    .padding(.leading, VSpacing.xs)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .contentShape(Rectangle())
                                     .onTapGesture {
