@@ -420,13 +420,25 @@ public struct TableColumn: Identifiable, Sendable, Equatable {
     }
 }
 
+public struct TableCellValue: Sendable, Equatable {
+    public let text: String
+    public let icon: String?       // SF Symbol name
+    public let iconColor: String?  // "success" | "warning" | "error" | "muted"
+
+    public init(text: String, icon: String? = nil, iconColor: String? = nil) {
+        self.text = text
+        self.icon = icon
+        self.iconColor = iconColor
+    }
+}
+
 public struct TableRow: Identifiable, Sendable, Equatable {
     public let id: String
-    public let cells: [String: String]
+    public let cells: [String: TableCellValue]
     public let selectable: Bool
     public let selected: Bool
 
-    public init(id: String, cells: [String: String], selectable: Bool, selected: Bool) {
+    public init(id: String, cells: [String: TableCellValue], selectable: Bool, selected: Bool) {
         self.id = id
         self.cells = cells
         self.selectable = selectable
@@ -963,7 +975,13 @@ public extension Surface {
         let rows: [TableRow] = rowsArray.compactMap { rowDict in
             guard let id = rowDict["id"] as? String,
                   let cellsRaw = rowDict["cells"] as? [String: Any?] else { return nil }
-            let cells = cellsRaw.compactMapValues { $0 as? String }
+            let cells: [String: TableCellValue] = cellsRaw.compactMapValues { raw -> TableCellValue? in
+                if let s = raw as? String { return TableCellValue(text: s) }
+                if let d = raw as? [String: Any?], let text = d["text"] as? String {
+                    return TableCellValue(text: text, icon: d["icon"] as? String, iconColor: d["iconColor"] as? String)
+                }
+                return nil
+            }
             return TableRow(
                 id: id,
                 cells: cells,
@@ -994,7 +1012,13 @@ public extension Surface {
             rows = rowsArray.compactMap { rowDict in
                 guard let id = rowDict["id"] as? String,
                       let cellsRaw = rowDict["cells"] as? [String: Any?] else { return nil }
-                let cells = cellsRaw.compactMapValues { $0 as? String }
+                let cells: [String: TableCellValue] = cellsRaw.compactMapValues { raw -> TableCellValue? in
+                    if let s = raw as? String { return TableCellValue(text: s) }
+                    if let d = raw as? [String: Any?], let text = d["text"] as? String {
+                        return TableCellValue(text: text, icon: d["icon"] as? String, iconColor: d["iconColor"] as? String)
+                    }
+                    return nil
+                }
                 return TableRow(
                     id: id,
                     cells: cells,

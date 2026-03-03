@@ -1,4 +1,4 @@
-import { describe, test, expect, mock, afterEach, beforeAll } from "bun:test";
+import { describe, test, expect, mock, afterEach } from "bun:test";
 import type { GatewayConfig } from "../config.js";
 import { initSigningKey, mintToken } from "../auth/token-service.js";
 import { CURRENT_POLICY_EPOCH } from "../auth/policy.js";

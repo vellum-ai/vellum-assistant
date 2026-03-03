@@ -1,40 +1,45 @@
-import { describe, expect, mock, test } from 'bun:test';
+import { describe, expect, mock, test } from "bun:test";
 
-import type { AgentEvent } from '../agent/loop.js';
-import type { ContentBlock,Message, ProviderResponse } from '../providers/types.js';
+import type { AgentEvent } from "../agent/loop.js";
+import type {
+  ContentBlock,
+  Message,
+  ProviderResponse,
+} from "../providers/types.js";
 
-mock.module('../util/logger.js', () => ({
-  getLogger: () => new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
+mock.module("../util/logger.js", () => ({
+  getLogger: () =>
+    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
 }));
 
-mock.module('../util/platform.js', () => ({
-  getSocketPath: () => '/tmp/test.sock',
-  getDataDir: () => '/tmp',
+mock.module("../util/platform.js", () => ({
+  getSocketPath: () => "/tmp/test.sock",
+  getDataDir: () => "/tmp",
 }));
 
-mock.module('../memory/guardian-action-store.js', () => ({
+mock.module("../memory/guardian-action-store.js", () => ({
   getPendingDeliveryByConversation: () => null,
   getGuardianActionRequest: () => null,
   resolveGuardianActionRequest: () => {},
 }));
 
-mock.module('../providers/registry.js', () => ({
-  getProvider: () => ({ name: 'mock-provider' }),
+mock.module("../providers/registry.js", () => ({
+  getProvider: () => ({ name: "mock-provider" }),
   initializeProviders: () => {},
 }));
 
-mock.module('../config/loader.js', () => ({
+mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
-    
-    provider: 'mock-provider',
+
+    provider: "mock-provider",
     maxTokens: 4096,
     thinking: false,
     contextWindow: {
       maxInputTokens: 100000,
       thresholdTokens: 80000,
       preserveRecentMessages: 6,
-      summaryModel: 'mock-model',
+      summaryModel: "mock-model",
       maxSummaryTokens: 512,
     },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
@@ -45,46 +50,54 @@ mock.module('../config/loader.js', () => ({
   invalidateConfigCache: () => {},
 }));
 
-mock.module('../config/system-prompt.js', () => ({
-  buildSystemPrompt: () => 'system prompt',
+mock.module("../config/system-prompt.js", () => ({
+  buildSystemPrompt: () => "system prompt",
 }));
 
-mock.module('../permissions/trust-store.js', () => ({
+mock.module("../permissions/trust-store.js", () => ({
   clearCache: () => {},
 }));
 
-mock.module('../security/secret-allowlist.js', () => ({
+mock.module("../security/secret-allowlist.js", () => ({
   resetAllowlist: () => {},
 }));
 
-mock.module('../memory/admin.js', () => ({
+mock.module("../memory/admin.js", () => ({
   getMemoryConflictAndCleanupStats: () => ({
     conflicts: { pending: 0, resolved: 0, oldestPendingAgeMs: null },
-    cleanup: { resolvedBacklog: 0, supersededBacklog: 0, resolvedCompleted24h: 0, supersededCompleted24h: 0 },
+    cleanup: {
+      resolvedBacklog: 0,
+      supersededBacklog: 0,
+      resolvedCompleted24h: 0,
+      supersededCompleted24h: 0,
+    },
   }),
 }));
 
 // Track all messages persisted to DB
 let persistedMessages: Array<{ role: string; content: string }> = [];
 
-mock.module('../memory/conversation-store.js', () => ({
-  getConversationThreadType: () => 'default',
+mock.module("../memory/conversation-store.js", () => ({
+  getConversationThreadType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},
-  provenanceFromGuardianContext: () => ({ source: 'user', guardianContext: undefined }),
+  provenanceFromGuardianContext: () => ({
+    source: "user",
+    guardianContext: undefined,
+  }),
   getConversationOriginInterface: () => null,
   getConversationOriginChannel: () => null,
   getMessages: () => [],
   getConversation: () => ({
-    id: 'conv-1',
+    id: "conv-1",
     contextSummary: null,
     contextCompactedMessageCount: 0,
     totalInputTokens: 0,
     totalOutputTokens: 0,
     totalEstimatedCost: 0,
   }),
-  createConversation: () => ({ id: 'conv-1' }),
+  createConversation: () => ({ id: "conv-1" }),
   listConversations: () => [],
   addMessage: (_convId: string, role: string, content: string) => {
     persistedMessages.push({ role, content });
@@ -94,11 +107,11 @@ mock.module('../memory/conversation-store.js', () => ({
   updateConversationTitle: () => {},
 }));
 
-mock.module('../memory/retriever.js', () => ({
+mock.module("../memory/retriever.js", () => ({
   buildMemoryRecall: async () => ({
     enabled: false,
     degraded: false,
-    injectedText: '',
+    injectedText: "",
     lexicalHits: 0,
     semanticHits: 0,
     recencyHits: 0,
@@ -109,95 +122,139 @@ mock.module('../memory/retriever.js', () => ({
   stripMemoryRecallMessages: (msgs: Message[]) => msgs,
 }));
 
-mock.module('../context/window-manager.js', () => ({
+mock.module("../context/window-manager.js", () => ({
   ContextWindowManager: class {
     constructor() {}
-    async maybeCompact() { return { compacted: false }; }
+    async maybeCompact() {
+      return { compacted: false };
+    }
   },
-  createContextSummaryMessage: () => ({ role: 'user', content: [{ type: 'text', text: 'summary' }] }),
+  createContextSummaryMessage: () => ({
+    role: "user",
+    content: [{ type: "text", text: "summary" }],
+  }),
   getSummaryFromContextMessage: () => null,
 }));
 
 // Mock AgentLoop that simulates abort after first of multiple tool calls
-mock.module('../agent/loop.js', () => ({
+mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
     constructor() {}
-    async run(messages: Message[], onEvent: (event: AgentEvent) => void, _signal?: AbortSignal): Promise<Message[]> {
+    async run(
+      messages: Message[],
+      onEvent: (event: AgentEvent) => void,
+      _signal?: AbortSignal,
+    ): Promise<Message[]> {
       const history = [...messages];
 
       // Simulate provider response with 2 tool_use blocks
       const assistantMessage: Message = {
-        role: 'assistant',
+        role: "assistant",
         content: [
-          { type: 'tool_use', id: 'tu_1', name: 'bash', input: { cmd: 'ls' } },
-          { type: 'tool_use', id: 'tu_2', name: 'read', input: { path: '/a' } },
+          { type: "tool_use", id: "tu_1", name: "bash", input: { cmd: "ls" } },
+          { type: "tool_use", id: "tu_2", name: "read", input: { path: "/a" } },
         ],
       };
       history.push(assistantMessage);
-      onEvent({ type: 'usage', inputTokens: 10, outputTokens: 20, model: 'mock', providerDurationMs: 50 });
-      onEvent({ type: 'message_complete', message: assistantMessage });
+      onEvent({
+        type: "usage",
+        inputTokens: 10,
+        outputTokens: 20,
+        model: "mock",
+        providerDurationMs: 50,
+      });
+      onEvent({ type: "message_complete", message: assistantMessage });
 
       // First tool completes — fires tool_result event
       onEvent({
-        type: 'tool_result',
-        toolUseId: 'tu_1',
-        content: 'file list',
+        type: "tool_result",
+        toolUseId: "tu_1",
+        content: "file list",
         isError: false,
       });
 
       // Abort happens before second tool
       // Synthesize cancelled result for tu_2 (what the real AgentLoop does)
       const resultBlocks: ContentBlock[] = [
-        { type: 'tool_result', tool_use_id: 'tu_1', content: 'file list', is_error: false },
-        { type: 'tool_result', tool_use_id: 'tu_2', content: 'Cancelled by user', is_error: true },
+        {
+          type: "tool_result",
+          tool_use_id: "tu_1",
+          content: "file list",
+          is_error: false,
+        },
+        {
+          type: "tool_result",
+          tool_use_id: "tu_2",
+          content: "Cancelled by user",
+          is_error: true,
+        },
       ];
-      history.push({ role: 'user', content: resultBlocks });
+      history.push({ role: "user", content: resultBlocks });
 
       return history;
     }
   },
 }));
-mock.module('../memory/canonical-guardian-store.js', () => ({
+mock.module("../memory/canonical-guardian-store.js", () => ({
   listPendingCanonicalGuardianRequestsByDestinationConversation: () => [],
   listCanonicalGuardianRequests: () => [],
-  createCanonicalGuardianRequest: () => ({ id: 'mock-cg-id', code: 'MOCK', status: 'pending' }),
+  createCanonicalGuardianRequest: () => ({
+    id: "mock-cg-id",
+    code: "MOCK",
+    status: "pending",
+  }),
   getCanonicalGuardianRequest: () => null,
   getCanonicalGuardianRequestByCode: () => null,
   updateCanonicalGuardianRequest: () => {},
   resolveCanonicalGuardianRequest: () => {},
-  createCanonicalGuardianDelivery: () => ({ id: 'mock-cgd-id' }),
+  createCanonicalGuardianDelivery: () => ({ id: "mock-cgd-id" }),
   listCanonicalGuardianDeliveries: () => [],
   listPendingCanonicalGuardianRequestsByDestinationChat: () => [],
   updateCanonicalGuardianDelivery: () => {},
-  generateCanonicalRequestCode: () => 'MOCK-CODE',
+  generateCanonicalRequestCode: () => "MOCK-CODE",
 }));
 
-import { Session } from '../daemon/session.js';
+import { Session } from "../daemon/session.js";
 
 function makeSession(): Session {
   const provider = {
-    name: 'mock',
+    name: "mock",
     async sendMessage(): Promise<ProviderResponse> {
-      return { content: [], model: 'mock', usage: { inputTokens: 0, outputTokens: 0 }, stopReason: 'end_turn' };
+      return {
+        content: [],
+        model: "mock",
+        usage: { inputTokens: 0, outputTokens: 0 },
+        stopReason: "end_turn",
+      };
     },
   };
-  return new Session('conv-1', provider, 'system prompt', 4096, () => {}, '/tmp');
+  return new Session(
+    "conv-1",
+    provider,
+    "system prompt",
+    4096,
+    () => {},
+    "/tmp",
+  );
 }
 
-describe('abort tool result persistence', () => {
-  test('abort after first of multiple tool calls still persists all required tool_result blocks', async () => {
+describe("abort tool result persistence", () => {
+  test("abort after first of multiple tool calls still persists all required tool_result blocks", async () => {
     persistedMessages = [];
     const session = makeSession();
     await session.loadFromDb();
 
-    await session.processMessage('Run tools', [], () => {});
+    await session.processMessage("Run tools", [], () => {});
 
     // Find user messages in persisted data that contain tool_result
     const toolResultUserMessages = persistedMessages.filter((m) => {
-      if (m.role !== 'user') return false;
+      if (m.role !== "user") return false;
       try {
         const content = JSON.parse(m.content);
-        return Array.isArray(content) && content.some((b: Record<string, unknown>) => b.type === 'tool_result');
+        return (
+          Array.isArray(content) &&
+          content.some((b: Record<string, unknown>) => b.type === "tool_result")
+        );
       } catch {
         return false;
       }
@@ -211,22 +268,28 @@ describe('abort tool result persistence', () => {
     for (const msg of toolResultUserMessages) {
       const content = JSON.parse(msg.content) as Array<Record<string, unknown>>;
       for (const block of content) {
-        if (block.type === 'tool_result' && typeof block.tool_use_id === 'string') {
+        if (
+          block.type === "tool_result" &&
+          typeof block.tool_use_id === "string"
+        ) {
           persistedToolUseIds.add(block.tool_use_id);
         }
       }
     }
 
     // Both tu_1 and tu_2 must be persisted
-    expect(persistedToolUseIds.has('tu_1')).toBe(true);
-    expect(persistedToolUseIds.has('tu_2')).toBe(true);
+    expect(persistedToolUseIds.has("tu_1")).toBe(true);
+    expect(persistedToolUseIds.has("tu_2")).toBe(true);
 
     // No tool_use_id should appear more than once (no duplicates)
     const allToolUseIds: string[] = [];
     for (const msg of toolResultUserMessages) {
       const content = JSON.parse(msg.content) as Array<Record<string, unknown>>;
       for (const block of content) {
-        if (block.type === 'tool_result' && typeof block.tool_use_id === 'string') {
+        if (
+          block.type === "tool_result" &&
+          typeof block.tool_use_id === "string"
+        ) {
           allToolUseIds.push(block.tool_use_id);
         }
       }
@@ -235,12 +298,12 @@ describe('abort tool result persistence', () => {
     expect(allToolUseIds.length).toBe(uniqueIds.size);
   });
 
-  test('restart/reload after abort does not reproduce provider ordering errors', async () => {
+  test("restart/reload after abort does not reproduce provider ordering errors", async () => {
     persistedMessages = [];
     const session = makeSession();
     await session.loadFromDb();
 
-    await session.processMessage('Run tools', [], () => {});
+    await session.processMessage("Run tools", [], () => {});
 
     // Simulate reload: the in-memory messages should be valid after repair
     const messages = session.getMessages();
@@ -249,19 +312,19 @@ describe('abort tool result persistence', () => {
     // by a user message with matching tool_result
     for (let i = 0; i < messages.length; i++) {
       const msg = messages[i];
-      if (msg.role !== 'assistant') continue;
+      if (msg.role !== "assistant") continue;
 
-      const toolUseBlocks = msg.content.filter((b) => b.type === 'tool_use');
+      const toolUseBlocks = msg.content.filter((b) => b.type === "tool_use");
       if (toolUseBlocks.length === 0) continue;
 
       const nextMsg = messages[i + 1];
       expect(nextMsg).toBeDefined();
-      expect(nextMsg.role).toBe('user');
+      expect(nextMsg.role).toBe("user");
 
       for (const tu of toolUseBlocks) {
-        if (tu.type !== 'tool_use') continue;
+        if (tu.type !== "tool_use") continue;
         const hasResult = nextMsg.content.some(
-          (b) => b.type === 'tool_result' && b.tool_use_id === tu.id,
+          (b) => b.type === "tool_result" && b.tool_use_id === tu.id,
         );
         expect(hasResult).toBe(true);
       }

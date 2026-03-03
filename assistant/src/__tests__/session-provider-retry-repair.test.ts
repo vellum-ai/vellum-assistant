@@ -1,35 +1,36 @@
-import { beforeEach, describe, expect, mock, test } from 'bun:test';
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { AgentEvent } from '../agent/loop.js';
-import type { UserMessageAttachment } from '../daemon/ipc-protocol.js';
-import type { Message, ProviderResponse } from '../providers/types.js';
-import { ProviderError } from '../util/errors.js';
+import type { AgentEvent } from "../agent/loop.js";
+import type { UserMessageAttachment } from "../daemon/ipc-protocol.js";
+import type { Message, ProviderResponse } from "../providers/types.js";
+import { ProviderError } from "../util/errors.js";
 
-mock.module('../util/logger.js', () => ({
-  getLogger: () => new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
+mock.module("../util/logger.js", () => ({
+  getLogger: () =>
+    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
 }));
 
-mock.module('../util/platform.js', () => ({
-  getSocketPath: () => '/tmp/test.sock',
-  getDataDir: () => '/tmp',
+mock.module("../util/platform.js", () => ({
+  getSocketPath: () => "/tmp/test.sock",
+  getDataDir: () => "/tmp",
 }));
 
-mock.module('../memory/guardian-action-store.js', () => ({
+mock.module("../memory/guardian-action-store.js", () => ({
   getPendingDeliveryByConversation: () => null,
   getGuardianActionRequest: () => null,
   resolveGuardianActionRequest: () => {},
 }));
 
-mock.module('../providers/registry.js', () => ({
-  getProvider: () => ({ name: 'mock-provider' }),
+mock.module("../providers/registry.js", () => ({
+  getProvider: () => ({ name: "mock-provider" }),
   initializeProviders: () => {},
 }));
 
-mock.module('../config/loader.js', () => ({
+mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
-    
-    provider: 'mock-provider',
+
+    provider: "mock-provider",
     maxTokens: 4096,
     thinking: false,
     contextWindow: {
@@ -49,41 +50,46 @@ mock.module('../config/loader.js', () => ({
   invalidateConfigCache: () => {},
 }));
 
-mock.module('../config/system-prompt.js', () => ({
-  buildSystemPrompt: () => 'system prompt',
+mock.module("../config/system-prompt.js", () => ({
+  buildSystemPrompt: () => "system prompt",
 }));
 
-mock.module('../permissions/trust-store.js', () => ({
+mock.module("../permissions/trust-store.js", () => ({
   clearCache: () => {},
 }));
 
-mock.module('../security/secret-allowlist.js', () => ({
+mock.module("../security/secret-allowlist.js", () => ({
   resetAllowlist: () => {},
 }));
 
-mock.module('../memory/admin.js', () => ({
+mock.module("../memory/admin.js", () => ({
   getMemoryConflictAndCleanupStats: () => ({
     conflicts: { pending: 0, resolved: 0, oldestPendingAgeMs: null },
-    cleanup: { resolvedBacklog: 0, supersededBacklog: 0, resolvedCompleted24h: 0, supersededCompleted24h: 0 },
+    cleanup: {
+      resolvedBacklog: 0,
+      supersededBacklog: 0,
+      resolvedCompleted24h: 0,
+      supersededCompleted24h: 0,
+    },
   }),
 }));
 
-mock.module('../memory/conversation-store.js', () => ({
-  getConversationThreadType: () => 'default',
+mock.module("../memory/conversation-store.js", () => ({
+  getConversationThreadType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
   deleteMessageById: () => {},
   getMessages: () => [],
   getConversation: () => ({
-    id: 'conv-1',
+    id: "conv-1",
     contextSummary: null,
     contextCompactedMessageCount: 0,
     totalInputTokens: 0,
     totalOutputTokens: 0,
     totalEstimatedCost: 0,
   }),
-  createConversation: () => ({ id: 'conv-1' }),
+  createConversation: () => ({ id: "conv-1" }),
   listConversations: () => [],
-  addMessage: () => ({ id: 'new-msg' }),
+  addMessage: () => ({ id: "new-msg" }),
   updateConversationUsage: () => {},
   updateConversationTitle: () => {},
   updateConversationContextWindow: () => {},
@@ -92,11 +98,11 @@ mock.module('../memory/conversation-store.js', () => ({
   provenanceFromGuardianContext: () => ({}),
 }));
 
-mock.module('../memory/retriever.js', () => ({
+mock.module("../memory/retriever.js", () => ({
   buildMemoryRecall: async () => ({
     enabled: false,
     degraded: false,
-    injectedText: '',
+    injectedText: "",
     lexicalHits: 0,
     semanticHits: 0,
     recencyHits: 0,
@@ -110,10 +116,14 @@ mock.module('../memory/retriever.js', () => ({
 let maybeCompactCalls: Array<{ force: boolean }> = [];
 let forceCompactionEnabled = false;
 
-mock.module('../context/window-manager.js', () => ({
+mock.module("../context/window-manager.js", () => ({
   ContextWindowManager: class {
     constructor() {}
-    async maybeCompact(messages: Message[], _signal?: AbortSignal, options?: { force?: boolean }) {
+    async maybeCompact(
+      messages: Message[],
+      _signal?: AbortSignal,
+      options?: { force?: boolean },
+    ) {
       maybeCompactCalls.push({ force: options?.force === true });
       if (options?.force && forceCompactionEnabled) {
         return {
@@ -128,179 +138,264 @@ mock.module('../context/window-manager.js', () => ({
           summaryCalls: 1,
           summaryInputTokens: 200,
           summaryOutputTokens: 50,
-          summaryModel: 'mock-summary-model',
-          summaryText: '## Goals\n- compacted',
+          summaryModel: "mock-summary-model",
+          summaryText: "## Goals\n- compacted",
         };
       }
       return { compacted: false };
     }
   },
-  createContextSummaryMessage: () => ({ role: 'user', content: [{ type: 'text', text: 'summary' }] }),
+  createContextSummaryMessage: () => ({
+    role: "user",
+    content: [{ type: "text", text: "summary" }],
+  }),
   getSummaryFromContextMessage: () => null,
 }));
 
 // Track how many times agentLoop.run was called
 let agentLoopRunCount = 0;
-let firstRunErrorMode: 'none' | 'ordering' | 'context_too_large' | 'context_too_large_phrase' | 'context_too_large_413' | 'context_too_large_413_with_progress' = 'ordering';
+let firstRunErrorMode:
+  | "none"
+  | "ordering"
+  | "context_too_large"
+  | "context_too_large_phrase"
+  | "context_too_large_413"
+  | "context_too_large_413_with_progress" = "ordering";
 
-mock.module('../agent/loop.js', () => ({
+mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
     constructor() {}
-    async run(messages: Message[], onEvent: (event: AgentEvent) => void, _signal?: AbortSignal): Promise<Message[]> {
+    async run(
+      messages: Message[],
+      onEvent: (event: AgentEvent) => void,
+      _signal?: AbortSignal,
+    ): Promise<Message[]> {
       agentLoopRunCount++;
 
-      if (agentLoopRunCount === 1 && firstRunErrorMode === 'context_too_large_413_with_progress') {
+      if (
+        agentLoopRunCount === 1 &&
+        firstRunErrorMode === "context_too_large_413_with_progress"
+      ) {
         // Simulate a run that made progress (tool-use + tool-result) before
         // hitting a 413 context-too-large error on the second LLM call.
-        onEvent({ type: 'usage', inputTokens: 10, outputTokens: 20, model: 'mock', providerDurationMs: 50 });
-        const assistantMsg: Message = {
-          role: 'assistant',
-          content: [{ type: 'tool_use', id: 'tu-1', name: 'bash', input: { command: 'echo hi' } }],
-        };
-        onEvent({ type: 'message_complete', message: assistantMsg });
         onEvent({
-          type: 'tool_result',
-          toolUseId: 'tu-1',
-          content: 'hi',
+          type: "usage",
+          inputTokens: 10,
+          outputTokens: 20,
+          model: "mock",
+          providerDurationMs: 50,
+        });
+        const assistantMsg: Message = {
+          role: "assistant",
+          content: [
+            {
+              type: "tool_use",
+              id: "tu-1",
+              name: "bash",
+              input: { command: "echo hi" },
+            },
+          ],
+        };
+        onEvent({ type: "message_complete", message: assistantMsg });
+        onEvent({
+          type: "tool_result",
+          toolUseId: "tu-1",
+          content: "hi",
           isError: false,
         });
         // Now the second LLM call fails with 413
-        onEvent({ type: 'error', error: new ProviderError('request entity too large', 'mock-provider', 413) });
+        onEvent({
+          type: "error",
+          error: new ProviderError(
+            "request entity too large",
+            "mock-provider",
+            413,
+          ),
+        });
         const history = [...messages];
         history.push(assistantMsg);
         history.push({
-          role: 'user',
-          content: [{ type: 'tool_result', tool_use_id: 'tu-1', content: 'hi' }],
+          role: "user",
+          content: [
+            { type: "tool_result", tool_use_id: "tu-1", content: "hi" },
+          ],
         } as Message);
         return history; // Progress was made — history grew
       }
 
-      if (agentLoopRunCount === 1 && firstRunErrorMode !== 'none') {
-        onEvent({ type: 'usage', inputTokens: 0, outputTokens: 0, model: 'mock', providerDurationMs: 0 });
+      if (agentLoopRunCount === 1 && firstRunErrorMode !== "none") {
+        onEvent({
+          type: "usage",
+          inputTokens: 0,
+          outputTokens: 0,
+          model: "mock",
+          providerDurationMs: 0,
+        });
         const error = (() => {
-          if (firstRunErrorMode === 'ordering') {
-            return new Error('tool_result blocks that are not immediately after a tool_use block');
+          if (firstRunErrorMode === "ordering") {
+            return new Error(
+              "tool_result blocks that are not immediately after a tool_use block",
+            );
           }
-          if (firstRunErrorMode === 'context_too_large_phrase') {
-            return new Error('The conversation is too long for the model to process.');
+          if (firstRunErrorMode === "context_too_large_phrase") {
+            return new Error(
+              "The conversation is too long for the model to process.",
+            );
           }
-          if (firstRunErrorMode === 'context_too_large_413') {
-            return new ProviderError('request entity too large', 'mock-provider', 413);
+          if (firstRunErrorMode === "context_too_large_413") {
+            return new ProviderError(
+              "request entity too large",
+              "mock-provider",
+              413,
+            );
           }
-          return new Error('context_length_exceeded: request has too many input tokens');
+          return new Error(
+            "context_length_exceeded: request has too many input tokens",
+          );
         })();
-        onEvent({ type: 'error', error });
+        onEvent({ type: "error", error });
         return [...messages]; // Return unchanged — no progress
       }
 
       // Second call (retry) or non-error: succeed normally
-      onEvent({ type: 'usage', inputTokens: 10, outputTokens: 20, model: 'mock', providerDurationMs: 50 });
+      onEvent({
+        type: "usage",
+        inputTokens: 10,
+        outputTokens: 20,
+        model: "mock",
+        providerDurationMs: 50,
+      });
       const history = [...messages];
       const assistantMsg: Message = {
-        role: 'assistant',
-        content: [{ type: 'text', text: 'response' }],
+        role: "assistant",
+        content: [{ type: "text", text: "response" }],
       };
       history.push(assistantMsg);
-      onEvent({ type: 'message_complete', message: assistantMsg });
+      onEvent({ type: "message_complete", message: assistantMsg });
       return history;
     }
   },
 }));
 
-mock.module('../memory/canonical-guardian-store.js', () => ({
+mock.module("../memory/canonical-guardian-store.js", () => ({
   listPendingCanonicalGuardianRequestsByDestinationConversation: () => [],
   listCanonicalGuardianRequests: () => [],
-  createCanonicalGuardianRequest: () => ({ id: 'mock-cg-id', code: 'MOCK', status: 'pending' }),
+  createCanonicalGuardianRequest: () => ({
+    id: "mock-cg-id",
+    code: "MOCK",
+    status: "pending",
+  }),
   getCanonicalGuardianRequest: () => null,
   getCanonicalGuardianRequestByCode: () => null,
   updateCanonicalGuardianRequest: () => {},
   resolveCanonicalGuardianRequest: () => {},
-  createCanonicalGuardianDelivery: () => ({ id: 'mock-cgd-id' }),
+  createCanonicalGuardianDelivery: () => ({ id: "mock-cgd-id" }),
   listCanonicalGuardianDeliveries: () => [],
   listPendingCanonicalGuardianRequestsByDestinationChat: () => [],
   updateCanonicalGuardianDelivery: () => {},
-  generateCanonicalRequestCode: () => 'MOCK-CODE',
+  generateCanonicalRequestCode: () => "MOCK-CODE",
 }));
 
-import { Session } from '../daemon/session.js';
+import { Session } from "../daemon/session.js";
 
 function makeSession(): Session {
   const provider = {
-    name: 'mock',
+    name: "mock",
     async sendMessage(): Promise<ProviderResponse> {
-      return { content: [], model: 'mock', usage: { inputTokens: 0, outputTokens: 0 }, stopReason: 'end_turn' };
+      return {
+        content: [],
+        model: "mock",
+        usage: { inputTokens: 0, outputTokens: 0 },
+        stopReason: "end_turn",
+      };
     },
   };
-  return new Session('conv-1', provider, 'system prompt', 4096, () => {}, '/tmp');
+  return new Session(
+    "conv-1",
+    provider,
+    "system prompt",
+    4096,
+    () => {},
+    "/tmp",
+  );
 }
 
-function makeImageAttachments(count: number, bytesPerImage = 20_000): UserMessageAttachment[] {
+function makeImageAttachments(
+  count: number,
+  bytesPerImage = 20_000,
+): UserMessageAttachment[] {
   return Array.from({ length: count }, (_, i) => ({
     filename: `shot-${i + 1}.png`,
-    mimeType: 'image/png',
-    data: `${i}${'A'.repeat(bytesPerImage)}`,
+    mimeType: "image/png",
+    data: `${i}${"A".repeat(bytesPerImage)}`,
   }));
 }
 
-describe('provider ordering error retry', () => {
+describe("provider ordering error retry", () => {
   beforeEach(() => {
     agentLoopRunCount = 0;
-    firstRunErrorMode = 'ordering';
+    firstRunErrorMode = "ordering";
     maybeCompactCalls = [];
     forceCompactionEnabled = false;
   });
 
-  test('simulated strict provider error triggers exactly one retry', async () => {
-    firstRunErrorMode = 'ordering';
+  test("simulated strict provider error triggers exactly one retry", async () => {
+    firstRunErrorMode = "ordering";
 
     const session = makeSession();
     await session.loadFromDb();
 
     const events: Array<Record<string, unknown>> = [];
-    await session.processMessage('Hello', [], (msg) => events.push(msg as unknown as Record<string, unknown>));
+    await session.processMessage("Hello", [], (msg) =>
+      events.push(msg as unknown as Record<string, unknown>),
+    );
 
     // Should have been called exactly 2 times: original + one retry
     expect(agentLoopRunCount).toBe(2);
   });
 
-  test('[experimental] retry succeeds with repaired history and no spurious error event', async () => {
-    firstRunErrorMode = 'ordering';
+  test("[experimental] retry succeeds with repaired history and no spurious error event", async () => {
+    firstRunErrorMode = "ordering";
 
     const session = makeSession();
     await session.loadFromDb();
 
     const events: Array<Record<string, unknown>> = [];
-    await session.processMessage('Hello', [], (msg) => events.push(msg as unknown as Record<string, unknown>));
+    await session.processMessage("Hello", [], (msg) =>
+      events.push(msg as unknown as Record<string, unknown>),
+    );
 
     // Should have a message_complete event (from successful retry)
-    const messageComplete = events.find((e) => e.type === 'message_complete');
+    const messageComplete = events.find((e) => e.type === "message_complete");
     expect(messageComplete).toBeDefined();
 
     // Ordering error should be suppressed when retry succeeds — no error events
-    const errorEvents = events.filter((e) => e.type === 'error');
+    const errorEvents = events.filter((e) => e.type === "error");
     expect(errorEvents.length).toBe(0);
 
     // Should also have the assistant response in memory
     const messages = session.getMessages();
     const lastMsg = messages[messages.length - 1];
-    expect(lastMsg.role).toBe('assistant');
+    expect(lastMsg.role).toBe("assistant");
   });
 
-  test('non-ordering errors do not trigger retry', async () => {
-    firstRunErrorMode = 'none';
+  test("non-ordering errors do not trigger retry", async () => {
+    firstRunErrorMode = "none";
 
     const session = makeSession();
     await session.loadFromDb();
 
     const events: Array<Record<string, unknown>> = [];
-    await session.processMessage('Hello', [], (msg) => events.push(msg as unknown as Record<string, unknown>));
+    await session.processMessage("Hello", [], (msg) =>
+      events.push(msg as unknown as Record<string, unknown>),
+    );
 
     // Should have been called exactly 1 time (no retry for non-ordering errors)
     expect(agentLoopRunCount).toBe(1);
   });
 
-  test('context-too-large triggers one forced-compaction retry for image-heavy input', async () => {
-    firstRunErrorMode = 'context_too_large';
+  test("context-too-large triggers one forced-compaction retry for image-heavy input", async () => {
+    firstRunErrorMode = "context_too_large";
     forceCompactionEnabled = true;
 
     const session = makeSession();
@@ -308,22 +403,19 @@ describe('provider ordering error retry', () => {
 
     const events: Array<Record<string, unknown>> = [];
     await session.processMessage(
-      'Please compare these images.',
+      "Please compare these images.",
       makeImageAttachments(8),
       (msg) => events.push(msg as unknown as Record<string, unknown>),
     );
 
     expect(agentLoopRunCount).toBe(2);
-    expect(maybeCompactCalls).toEqual([
-      { force: false },
-      { force: true },
-    ]);
-    expect(events.some((e) => e.type === 'message_complete')).toBe(true);
-    expect(events.some((e) => e.type === 'session_error')).toBe(false);
+    expect(maybeCompactCalls).toEqual([{ force: false }, { force: true }]);
+    expect(events.some((e) => e.type === "message_complete")).toBe(true);
+    expect(events.some((e) => e.type === "session_error")).toBe(false);
   });
 
-  test('context-too-large can recover by trimming older media when forced compaction cannot run', async () => {
-    firstRunErrorMode = 'context_too_large';
+  test("context-too-large can recover by trimming older media when forced compaction cannot run", async () => {
+    firstRunErrorMode = "context_too_large";
     forceCompactionEnabled = false;
 
     const session = makeSession();
@@ -331,46 +423,40 @@ describe('provider ordering error retry', () => {
 
     const events: Array<Record<string, unknown>> = [];
     await session.processMessage(
-      'Please compare these images.',
+      "Please compare these images.",
       makeImageAttachments(8),
       (msg) => events.push(msg as unknown as Record<string, unknown>),
     );
 
     expect(agentLoopRunCount).toBe(2);
-    expect(maybeCompactCalls).toEqual([
-      { force: false },
-      { force: true },
-    ]);
+    expect(maybeCompactCalls).toEqual([{ force: false }, { force: true }]);
 
-    expect(events.some((e) => e.type === 'message_complete')).toBe(true);
-    expect(events.some((e) => e.type === 'session_error')).toBe(false);
+    expect(events.some((e) => e.type === "message_complete")).toBe(true);
+    expect(events.some((e) => e.type === "session_error")).toBe(false);
   });
 
-  test('context-too-large still surfaces when no media payloads are available to trim', async () => {
-    firstRunErrorMode = 'context_too_large';
+  test("context-too-large still surfaces when no media payloads are available to trim", async () => {
+    firstRunErrorMode = "context_too_large";
     forceCompactionEnabled = false;
 
     const session = makeSession();
     await session.loadFromDb();
 
     const events: Array<Record<string, unknown>> = [];
-    await session.processMessage(
-      'No attachments here.',
-      [],
-      (msg) => events.push(msg as unknown as Record<string, unknown>),
+    await session.processMessage("No attachments here.", [], (msg) =>
+      events.push(msg as unknown as Record<string, unknown>),
     );
 
     expect(agentLoopRunCount).toBe(1);
-    expect(maybeCompactCalls).toEqual([
-      { force: false },
-      { force: true },
-    ]);
-    const sessionError = events.find((e) => e.type === 'session_error') as { code?: string } | undefined;
-    expect(sessionError?.code).toBe('CONTEXT_TOO_LARGE');
+    expect(maybeCompactCalls).toEqual([{ force: false }, { force: true }]);
+    const sessionError = events.find((e) => e.type === "session_error") as
+      | { code?: string }
+      | undefined;
+    expect(sessionError?.code).toBe("CONTEXT_TOO_LARGE");
   });
 
-  test('context-too-large phrase also triggers one forced-compaction retry', async () => {
-    firstRunErrorMode = 'context_too_large_phrase';
+  test("context-too-large phrase also triggers one forced-compaction retry", async () => {
+    firstRunErrorMode = "context_too_large_phrase";
     forceCompactionEnabled = true;
 
     const session = makeSession();
@@ -378,22 +464,19 @@ describe('provider ordering error retry', () => {
 
     const events: Array<Record<string, unknown>> = [];
     await session.processMessage(
-      'Please compare these images.',
+      "Please compare these images.",
       makeImageAttachments(4),
       (msg) => events.push(msg as unknown as Record<string, unknown>),
     );
 
     expect(agentLoopRunCount).toBe(2);
-    expect(maybeCompactCalls).toEqual([
-      { force: false },
-      { force: true },
-    ]);
-    expect(events.some((e) => e.type === 'message_complete')).toBe(true);
-    expect(events.some((e) => e.type === 'session_error')).toBe(false);
+    expect(maybeCompactCalls).toEqual([{ force: false }, { force: true }]);
+    expect(events.some((e) => e.type === "message_complete")).toBe(true);
+    expect(events.some((e) => e.type === "session_error")).toBe(false);
   });
 
-  test('ProviderError with statusCode 413 triggers forced-compaction retry via classifySessionError', async () => {
-    firstRunErrorMode = 'context_too_large_413';
+  test("ProviderError with statusCode 413 triggers forced-compaction retry via classifySessionError", async () => {
+    firstRunErrorMode = "context_too_large_413";
     forceCompactionEnabled = true;
 
     const session = makeSession();
@@ -401,7 +484,7 @@ describe('provider ordering error retry', () => {
 
     const events: Array<Record<string, unknown>> = [];
     await session.processMessage(
-      'Please compare these images.',
+      "Please compare these images.",
       makeImageAttachments(8),
       (msg) => events.push(msg as unknown as Record<string, unknown>),
     );
@@ -410,16 +493,13 @@ describe('provider ordering error retry', () => {
     // the regex patterns, but classifySessionError recognizes statusCode 413
     // as CONTEXT_TOO_LARGE and sets contextTooLargeDetected = true.
     expect(agentLoopRunCount).toBe(2);
-    expect(maybeCompactCalls).toEqual([
-      { force: false },
-      { force: true },
-    ]);
-    expect(events.some((e) => e.type === 'message_complete')).toBe(true);
-    expect(events.some((e) => e.type === 'session_error')).toBe(false);
+    expect(maybeCompactCalls).toEqual([{ force: false }, { force: true }]);
+    expect(events.some((e) => e.type === "message_complete")).toBe(true);
+    expect(events.some((e) => e.type === "session_error")).toBe(false);
   });
 
-  test('context-too-large after progress surfaces error instead of silent failure', async () => {
-    firstRunErrorMode = 'context_too_large_413_with_progress';
+  test("context-too-large after progress surfaces error instead of silent failure", async () => {
+    firstRunErrorMode = "context_too_large_413_with_progress";
     forceCompactionEnabled = false;
 
     const session = makeSession();
@@ -427,7 +507,7 @@ describe('provider ordering error retry', () => {
 
     const events: Array<Record<string, unknown>> = [];
     await session.processMessage(
-      'Run some tools then hit the limit.',
+      "Run some tools then hit the limit.",
       [],
       (msg) => events.push(msg as unknown as Record<string, unknown>),
     );
@@ -436,8 +516,10 @@ describe('provider ordering error retry', () => {
     expect(agentLoopRunCount).toBe(1);
 
     // The error must be surfaced to clients via session_error, not silently swallowed.
-    const sessionError = events.find((e) => e.type === 'session_error') as { code?: string } | undefined;
+    const sessionError = events.find((e) => e.type === "session_error") as
+      | { code?: string }
+      | undefined;
     expect(sessionError).toBeDefined();
-    expect(sessionError?.code).toBe('CONTEXT_TOO_LARGE');
+    expect(sessionError?.code).toBe("CONTEXT_TOO_LARGE");
   });
 });

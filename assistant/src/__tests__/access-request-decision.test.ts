@@ -8,43 +8,49 @@
  * - Stale: handles already-resolved requests gracefully.
  * - Idempotent: approving same request twice does not create duplicate sessions.
  */
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-
-import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test';
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Test isolation: in-memory SQLite via temp directory
 // ---------------------------------------------------------------------------
 
-const testDir = mkdtempSync(join(tmpdir(), 'access-request-decision-test-'));
+const testDir = mkdtempSync(join(tmpdir(), "access-request-decision-test-"));
 
-mock.module('../util/platform.js', () => ({
+mock.module("../util/platform.js", () => ({
   getRootDir: () => testDir,
   getDataDir: () => testDir,
-  isMacOS: () => process.platform === 'darwin',
-  isLinux: () => process.platform === 'linux',
-  isWindows: () => process.platform === 'win32',
-  getSocketPath: () => join(testDir, 'test.sock'),
-  getPidPath: () => join(testDir, 'test.pid'),
-  getDbPath: () => join(testDir, 'test.db'),
-  getLogPath: () => join(testDir, 'test.log'),
+  isMacOS: () => process.platform === "darwin",
+  isLinux: () => process.platform === "linux",
+  isWindows: () => process.platform === "win32",
+  getSocketPath: () => join(testDir, "test.sock"),
+  getPidPath: () => join(testDir, "test.pid"),
+  getDbPath: () => join(testDir, "test.db"),
+  getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
-  readHttpToken: () => 'test-bearer-token',
+  readHttpToken: () => "test-bearer-token",
 }));
 
-mock.module('../util/logger.js', () => ({
-  getLogger: () => new Proxy({} as Record<string, unknown>, {
-    get: () => () => {},
-  }),
+mock.module("../util/logger.js", () => ({
+  getLogger: () =>
+    new Proxy({} as Record<string, unknown>, {
+      get: () => () => {},
+    }),
 }));
 
 // Track deliverChannelReply calls and allow injecting failures
-const deliverReplyCalls: Array<{ url: string; payload: Record<string, unknown> }> = [];
+const deliverReplyCalls: Array<{
+  url: string;
+  payload: Record<string, unknown>;
+}> = [];
 let deliverReplyError: Error | null = null;
-mock.module('../runtime/gateway-client.js', () => ({
-  deliverChannelReply: async (url: string, payload: Record<string, unknown>) => {
+mock.module("../runtime/gateway-client.js", () => ({
+  deliverChannelReply: async (
+    url: string,
+    payload: Record<string, unknown>,
+  ) => {
     if (deliverReplyError) {
       throw deliverReplyError;
     }
@@ -55,24 +61,26 @@ mock.module('../runtime/gateway-client.js', () => ({
 import {
   createApprovalRequest,
   getApprovalRequestById,
-} from '../memory/channel-guardian-store.js';
-import { getDb, initializeDb, resetDb } from '../memory/db.js';
-import {
-  findActiveSession,
-} from '../runtime/channel-guardian-service.js';
+} from "../memory/channel-guardian-store.js";
+import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { findActiveSession } from "../runtime/channel-guardian-service.js";
 import {
   deliverVerificationCodeToGuardian,
   handleAccessRequestDecision,
   notifyRequesterOfApproval,
   notifyRequesterOfDeliveryFailure,
   notifyRequesterOfDenial,
-} from '../runtime/routes/access-request-decision.js';
+} from "../runtime/routes/access-request-decision.js";
 
 initializeDb();
 
 afterAll(() => {
   resetDb();
-  try { rmSync(testDir, { recursive: true }); } catch { /* best effort */ }
+  try {
+    rmSync(testDir, { recursive: true });
+  } catch {
+    /* best effort */
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -83,9 +91,9 @@ const GUARDIAN_APPROVAL_TTL_MS = 5 * 60 * 1000;
 
 function resetState(): void {
   const db = getDb();
-  db.run('DELETE FROM channel_guardian_approval_requests');
-  db.run('DELETE FROM channel_guardian_bindings');
-  db.run('DELETE FROM channel_guardian_verification_challenges');
+  db.run("DELETE FROM channel_guardian_approval_requests");
+  db.run("DELETE FROM channel_guardian_bindings");
+  db.run("DELETE FROM channel_guardian_verification_challenges");
   deliverReplyCalls.length = 0;
 }
 
@@ -93,15 +101,15 @@ function createTestApproval(overrides: Record<string, unknown> = {}) {
   return createApprovalRequest({
     runId: `ingress-access-request-${Date.now()}`,
     conversationId: `access-req-telegram-user-unknown-456`,
-    assistantId: 'self',
-    channel: 'telegram',
-    requesterExternalUserId: 'user-unknown-456',
-    requesterChatId: 'chat-123',
-    guardianExternalUserId: 'guardian-user-789',
-    guardianChatId: 'guardian-chat-789',
-    toolName: 'ingress_access_request',
-    riskLevel: 'access_request',
-    reason: 'Alice Unknown is requesting access to the assistant',
+    assistantId: "self",
+    channel: "telegram",
+    requesterExternalUserId: "user-unknown-456",
+    requesterChatId: "chat-123",
+    guardianExternalUserId: "guardian-user-789",
+    guardianChatId: "guardian-chat-789",
+    toolName: "ingress_access_request",
+    riskLevel: "access_request",
+    reason: "Alice Unknown is requesting access to the assistant",
     expiresAt: Date.now() + GUARDIAN_APPROVAL_TTL_MS,
     ...overrides,
   });
@@ -111,22 +119,22 @@ function createTestApproval(overrides: Record<string, unknown> = {}) {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('access request decision handler', () => {
+describe("access request decision handler", () => {
   beforeEach(() => {
     resetState();
   });
 
-  test('guardian approve creates a verification session', () => {
+  test("guardian approve creates a verification session", () => {
     const approval = createTestApproval();
 
     const result = handleAccessRequestDecision(
       approval,
-      'approve',
-      'guardian-user-789',
+      "approve",
+      "guardian-user-789",
     );
 
     expect(result.handled).toBe(true);
-    expect(result.type).toBe('approved');
+    expect(result.type).toBe("approved");
     expect(result.verificationSessionId).toBeDefined();
     expect(result.verificationCode).toBeDefined();
     // Verification code should be a 6-digit numeric string
@@ -135,89 +143,89 @@ describe('access request decision handler', () => {
     // Approval record should be updated to 'approved'
     const updated = getApprovalRequestById(approval.id);
     expect(updated).not.toBeNull();
-    expect(updated!.status).toBe('approved');
-    expect(updated!.decidedByExternalUserId).toBe('guardian-user-789');
+    expect(updated!.status).toBe("approved");
+    expect(updated!.decidedByExternalUserId).toBe("guardian-user-789");
   });
 
-  test('verification session is identity-bound to the requester', () => {
+  test("verification session is identity-bound to the requester", () => {
     const approval = createTestApproval();
 
     const result = handleAccessRequestDecision(
       approval,
-      'approve',
-      'guardian-user-789',
+      "approve",
+      "guardian-user-789",
     );
 
-    expect(result.type).toBe('approved');
+    expect(result.type).toBe("approved");
 
     // There should be an active session for this channel
-    const session = findActiveSession('self', 'telegram');
+    const session = findActiveSession("self", "telegram");
     expect(session).not.toBeNull();
-    expect(session!.expectedExternalUserId).toBe('user-unknown-456');
-    expect(session!.expectedChatId).toBe('chat-123');
-    expect(session!.identityBindingStatus).toBe('bound');
-    expect(session!.status).toBe('awaiting_response');
+    expect(session!.expectedExternalUserId).toBe("user-unknown-456");
+    expect(session!.expectedChatId).toBe("chat-123");
+    expect(session!.identityBindingStatus).toBe("bound");
+    expect(session!.status).toBe("awaiting_response");
   });
 
-  test('guardian deny marks approval as denied', () => {
+  test("guardian deny marks approval as denied", () => {
     const approval = createTestApproval();
 
     const result = handleAccessRequestDecision(
       approval,
-      'deny',
-      'guardian-user-789',
+      "deny",
+      "guardian-user-789",
     );
 
     expect(result.handled).toBe(true);
-    expect(result.type).toBe('denied');
+    expect(result.type).toBe("denied");
     expect(result.verificationSessionId).toBeUndefined();
     expect(result.verificationCode).toBeUndefined();
 
     // Approval record should be updated to 'denied'
     const updated = getApprovalRequestById(approval.id);
     expect(updated).not.toBeNull();
-    expect(updated!.status).toBe('denied');
-    expect(updated!.decidedByExternalUserId).toBe('guardian-user-789');
+    expect(updated!.status).toBe("denied");
+    expect(updated!.decidedByExternalUserId).toBe("guardian-user-789");
 
     // No verification session should be created
-    const session = findActiveSession('self', 'telegram');
+    const session = findActiveSession("self", "telegram");
     expect(session).toBeNull();
   });
 
-  test('stale decision (already resolved) returns stale', () => {
+  test("stale decision (already resolved) returns stale", () => {
     const approval = createTestApproval();
 
     // Approve first
-    handleAccessRequestDecision(approval, 'approve', 'guardian-user-789');
+    handleAccessRequestDecision(approval, "approve", "guardian-user-789");
 
     // Try to deny the same approval — should be stale
     const result = handleAccessRequestDecision(
       approval,
-      'deny',
-      'guardian-user-789',
+      "deny",
+      "guardian-user-789",
     );
 
     expect(result.handled).toBe(true);
-    expect(result.type).toBe('stale');
+    expect(result.type).toBe("stale");
   });
 
-  test('idempotent approval does not create duplicate verification sessions', () => {
+  test("idempotent approval does not create duplicate verification sessions", () => {
     const approval = createTestApproval();
 
     // Approve first
     const result1 = handleAccessRequestDecision(
       approval,
-      'approve',
-      'guardian-user-789',
+      "approve",
+      "guardian-user-789",
     );
-    expect(result1.type).toBe('approved');
+    expect(result1.type).toBe("approved");
     const _sessionId1 = result1.verificationSessionId;
 
     // Approve again — should be idempotent (already resolved with same decision)
     const result2 = handleAccessRequestDecision(
       approval,
-      'approve',
-      'guardian-user-789',
+      "approve",
+      "guardian-user-789",
     );
 
     // resolveApprovalRequest returns the existing record for same-decision idempotency,
@@ -231,97 +239,97 @@ describe('access request decision handler', () => {
   });
 });
 
-describe('access request notification delivery', () => {
+describe("access request notification delivery", () => {
   beforeEach(() => {
     deliverReplyCalls.length = 0;
     deliverReplyError = null;
   });
 
-  test('delivers verification code to guardian and returns ok', async () => {
+  test("delivers verification code to guardian and returns ok", async () => {
     const result = await deliverVerificationCodeToGuardian({
-      replyCallbackUrl: 'http://localhost:7830/deliver/telegram',
-      guardianChatId: 'guardian-chat-789',
-      requesterIdentifier: 'user-unknown-456',
-      verificationCode: '123456',
-      assistantId: 'self',
-      bearerToken: 'test-token',
+      replyCallbackUrl: "http://localhost:7830/deliver/telegram",
+      guardianChatId: "guardian-chat-789",
+      requesterIdentifier: "user-unknown-456",
+      verificationCode: "123456",
+      assistantId: "self",
+      bearerToken: "test-token",
     });
 
     expect(result.ok).toBe(true);
     expect(deliverReplyCalls.length).toBe(1);
     const call = deliverReplyCalls[0];
-    expect(call.payload.chatId).toBe('guardian-chat-789');
+    expect(call.payload.chatId).toBe("guardian-chat-789");
     const text = call.payload.text as string;
-    expect(text).toContain('123456');
-    expect(text).toContain('user-unknown-456');
-    expect(text).toContain('10 minutes');
+    expect(text).toContain("123456");
+    expect(text).toContain("user-unknown-456");
+    expect(text).toContain("10 minutes");
   });
 
-  test('returns failure result when guardian code delivery fails', async () => {
-    deliverReplyError = new Error('Gateway timeout');
+  test("returns failure result when guardian code delivery fails", async () => {
+    deliverReplyError = new Error("Gateway timeout");
 
     const result = await deliverVerificationCodeToGuardian({
-      replyCallbackUrl: 'http://localhost:7830/deliver/telegram',
-      guardianChatId: 'guardian-chat-789',
-      requesterIdentifier: 'user-unknown-456',
-      verificationCode: '123456',
-      assistantId: 'self',
-      bearerToken: 'test-token',
+      replyCallbackUrl: "http://localhost:7830/deliver/telegram",
+      guardianChatId: "guardian-chat-789",
+      requesterIdentifier: "user-unknown-456",
+      verificationCode: "123456",
+      assistantId: "self",
+      bearerToken: "test-token",
     });
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.reason).toBe('Gateway timeout');
+      expect(result.reason).toBe("Gateway timeout");
     }
     // No calls should have been recorded (error thrown before push)
     expect(deliverReplyCalls.length).toBe(0);
   });
 
-  test('notifies requester of approval', async () => {
+  test("notifies requester of approval", async () => {
     await notifyRequesterOfApproval({
-      replyCallbackUrl: 'http://localhost:7830/deliver/telegram',
-      requesterChatId: 'chat-123',
-      assistantId: 'self',
-      bearerToken: 'test-token',
+      replyCallbackUrl: "http://localhost:7830/deliver/telegram",
+      requesterChatId: "chat-123",
+      assistantId: "self",
+      bearerToken: "test-token",
     });
 
     expect(deliverReplyCalls.length).toBe(1);
     const call = deliverReplyCalls[0];
-    expect(call.payload.chatId).toBe('chat-123');
+    expect(call.payload.chatId).toBe("chat-123");
     const text = call.payload.text as string;
-    expect(text).toContain('approved');
-    expect(text).toContain('verification code');
+    expect(text).toContain("approved");
+    expect(text).toContain("verification code");
   });
 
-  test('notifies requester of denial', async () => {
+  test("notifies requester of denial", async () => {
     await notifyRequesterOfDenial({
-      replyCallbackUrl: 'http://localhost:7830/deliver/telegram',
-      requesterChatId: 'chat-123',
-      assistantId: 'self',
-      bearerToken: 'test-token',
+      replyCallbackUrl: "http://localhost:7830/deliver/telegram",
+      requesterChatId: "chat-123",
+      assistantId: "self",
+      bearerToken: "test-token",
     });
 
     expect(deliverReplyCalls.length).toBe(1);
     const call = deliverReplyCalls[0];
-    expect(call.payload.chatId).toBe('chat-123');
+    expect(call.payload.chatId).toBe("chat-123");
     const text = call.payload.text as string;
-    expect(text).toContain('denied');
+    expect(text).toContain("denied");
   });
 
-  test('notifies requester of delivery failure', async () => {
+  test("notifies requester of delivery failure", async () => {
     await notifyRequesterOfDeliveryFailure({
-      replyCallbackUrl: 'http://localhost:7830/deliver/telegram',
-      requesterChatId: 'chat-123',
-      assistantId: 'self',
-      bearerToken: 'test-token',
+      replyCallbackUrl: "http://localhost:7830/deliver/telegram",
+      requesterChatId: "chat-123",
+      assistantId: "self",
+      bearerToken: "test-token",
     });
 
     expect(deliverReplyCalls.length).toBe(1);
     const call = deliverReplyCalls[0];
-    expect(call.payload.chatId).toBe('chat-123');
+    expect(call.payload.chatId).toBe("chat-123");
     const text = call.payload.text as string;
-    expect(text).toContain('approved');
-    expect(text).toContain('unable to deliver');
-    expect(text).toContain('try again');
+    expect(text).toContain("approved");
+    expect(text).toContain("unable to deliver");
+    expect(text).toContain("try again");
   });
 });

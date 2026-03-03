@@ -4,11 +4,13 @@ import { inflateRawSync } from "node:zlib";
 import { eq } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
+import { getConfig } from "../../../../config/loader.js";
 import {
   addMessage,
   createConversation,
 } from "../../../../memory/conversation-store.js";
 import { getDb } from "../../../../memory/db.js";
+import { indexMessageNow } from "../../../../memory/indexer.js";
 import {
   conversationKeys,
   conversations,
@@ -18,6 +20,9 @@ import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
+import { getLogger } from "../../../../util/logger.js";
+
+const log = getLogger("chatgpt-import");
 
 // -- ChatGPT export format types --
 
@@ -88,7 +93,9 @@ export async function run(
     imported = parseChatGPTExport(filePath);
   } catch (err) {
     return {
-      content: `Error parsing export file: ${err instanceof Error ? err.message : String(err)}`,
+      content: `Error parsing export file: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
       isError: true,
     };
   }
@@ -121,9 +128,15 @@ export async function run(
 
     const conversation = createConversation(conv.title);
 
+    // Skip indexing during insert so we can backfill original timestamps first
     for (const msg of conv.messages) {
-      // Uses the daemon's addMessage which triggers memory indexing
-      await addMessage(conversation.id, msg.role, JSON.stringify(msg.content));
+      await addMessage(
+        conversation.id,
+        msg.role,
+        JSON.stringify(msg.content),
+        undefined,
+        { skipIndexing: true },
+      );
     }
 
     // Override timestamps to match ChatGPT originals
@@ -140,11 +153,38 @@ export async function run(
       .orderBy(messagesTable.createdAt)
       .all();
 
+    const memoryConfig = getConfig().memory;
     for (let i = 0; i < dbMessages.length && i < conv.messages.length; i++) {
+      const originalTimestamp = conv.messages[i].createdAt;
       db.update(messagesTable)
-        .set({ createdAt: conv.messages[i].createdAt })
+        .set({ createdAt: originalTimestamp })
         .where(eq(messagesTable.id, dbMessages[i].id))
         .run();
+
+      // Index with the original ChatGPT timestamp so memory segments
+      // reflect actual message age, not import time
+      try {
+        indexMessageNow(
+          {
+            messageId: dbMessages[i].id,
+            conversationId: conversation.id,
+            role: conv.messages[i].role,
+            content: JSON.stringify(conv.messages[i].content),
+            createdAt: originalTimestamp,
+          },
+          memoryConfig,
+        );
+      } catch (err) {
+        // Indexing failure is non-fatal — the message is already persisted,
+        // and failing here would abort the loop before conversationKeys is
+        // written, causing duplicate imports on retry.
+        log.warn(
+          "Failed to index imported message %s in conversation %s: %s",
+          dbMessages[i].id,
+          conversation.id,
+          err instanceof Error ? err.message : String(err),
+        );
+      }
     }
 
     db.insert(conversationKeys)

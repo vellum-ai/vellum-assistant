@@ -1,6 +1,10 @@
 import { describe, test, expect, mock, afterEach } from "bun:test";
 import type { RuntimeAttachmentMeta, RuntimeInboundPayload } from "../runtime/client.js";
 import type { GatewayConfig } from "../config.js";
+import { initSigningKey } from "../auth/token-service.js";
+
+const TEST_SIGNING_KEY = Buffer.from('test-signing-key-at-least-32-bytes-long');
+initSigningKey(TEST_SIGNING_KEY);
 
 type FetchFn = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(async () => new Response());
@@ -182,7 +186,7 @@ describe("forwardToRuntime", () => {
     expect(attachments[0].kind).toBe("generated_image");
   });
 
-  test("sends Authorization header when runtimeBearerToken is configured", async () => {
+  test("sends JWT Authorization header to runtime", async () => {
     fetchMock = mock(async () =>
       new Response(JSON.stringify(successBody), { status: 200 }),
     );
@@ -192,20 +196,7 @@ describe("forwardToRuntime", () => {
 
     const calledInit = (fetchMock.mock.calls[0] as unknown[])[1] as RequestInit;
     const headers = calledInit.headers as Record<string, string>;
-    expect(headers["Authorization"]).toBe("Bearer my-secret-token");
-  });
-
-  test("omits Authorization header when runtimeBearerToken is undefined", async () => {
-    fetchMock = mock(async () =>
-      new Response(JSON.stringify(successBody), { status: 200 }),
-    );
-
-    const config = makeConfig();
-    await forwardToRuntime(config, payload);
-
-    const calledInit = (fetchMock.mock.calls[0] as unknown[])[1] as RequestInit;
-    const headers = calledInit.headers as Record<string, string>;
-    expect(headers["Authorization"]).toBeUndefined();
+    expect(headers["Authorization"]).toMatch(/^Bearer ey/);
   });
 });
 
@@ -282,7 +273,7 @@ describe("forwardTwilioVoiceWebhook", () => {
     expect(sentBody.originalUrl).toBe(originalUrl);
 
     const headers = calledInit.headers as Record<string, string>;
-    expect(headers["Authorization"]).toBe("Bearer rt-tok");
+    expect(headers["Authorization"]).toMatch(/^Bearer ey/);
   });
 });
 

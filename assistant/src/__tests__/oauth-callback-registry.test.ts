@@ -1,93 +1,103 @@
-import { afterEach,describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, test } from "bun:test";
 
 import {
   clearAllCallbacks,
   consumeCallback,
   consumeCallbackError,
   registerPendingCallback,
-} from '../security/oauth-callback-registry.js';
+} from "../security/oauth-callback-registry.js";
 
 afterEach(() => {
   clearAllCallbacks();
 });
 
-describe('OAuth callback registry', () => {
-  test('registerPendingCallback + consumeCallback resolves with code', async () => {
+describe("OAuth callback registry", () => {
+  test("registerPendingCallback + consumeCallback resolves with code", async () => {
     const promise = new Promise<string>((resolve, reject) => {
-      registerPendingCallback('state-1', resolve, reject);
+      registerPendingCallback("state-1", resolve, reject);
     });
 
-    const consumed = consumeCallback('state-1', 'auth-code-123');
+    const consumed = consumeCallback("state-1", "auth-code-123");
     expect(consumed).toBe(true);
 
     const code = await promise;
-    expect(code).toBe('auth-code-123');
+    expect(code).toBe("auth-code-123");
   });
 
-  test('consumeCallback with unknown state returns false', () => {
-    const consumed = consumeCallback('nonexistent', 'code');
+  test("consumeCallback with unknown state returns false", () => {
+    const consumed = consumeCallback("nonexistent", "code");
     expect(consumed).toBe(false);
   });
 
-  test('consumeCallbackError rejects the pending callback', async () => {
+  test("consumeCallbackError rejects the pending callback", async () => {
     const promise = new Promise<string>((resolve, reject) => {
-      registerPendingCallback('state-err', resolve, reject);
+      registerPendingCallback("state-err", resolve, reject);
     });
 
-    const consumed = consumeCallbackError('state-err', 'access_denied');
+    const consumed = consumeCallbackError("state-err", "access_denied");
     expect(consumed).toBe(true);
 
-    await expect(promise).rejects.toThrow('access_denied');
+    await expect(promise).rejects.toThrow("access_denied");
   });
 
-  test('consumeCallbackError with unknown state returns false', () => {
-    const consumed = consumeCallbackError('nonexistent', 'some error');
+  test("consumeCallbackError with unknown state returns false", () => {
+    const consumed = consumeCallbackError("nonexistent", "some error");
     expect(consumed).toBe(false);
   });
 
-  test('duplicate consumeCallback returns false on second call', async () => {
+  test("duplicate consumeCallback returns false on second call", async () => {
     const promise = new Promise<string>((resolve, reject) => {
-      registerPendingCallback('state-dup', resolve, reject);
+      registerPendingCallback("state-dup", resolve, reject);
     });
 
-    const first = consumeCallback('state-dup', 'code-1');
+    const first = consumeCallback("state-dup", "code-1");
     expect(first).toBe(true);
 
-    const second = consumeCallback('state-dup', 'code-2');
+    const second = consumeCallback("state-dup", "code-2");
     expect(second).toBe(false);
 
     const code = await promise;
-    expect(code).toBe('code-1');
+    expect(code).toBe("code-1");
   });
 
-  test('TTL expiry rejects callback with timeout error', async () => {
+  test("TTL expiry rejects callback with timeout error", async () => {
     const promise = new Promise<string>((resolve, reject) => {
-      registerPendingCallback('state-ttl', resolve, reject, 100);
+      registerPendingCallback("state-ttl", resolve, reject, 100);
     });
 
     // Attach a catch handler immediately to prevent unhandled rejection
     // during the sleep. We capture the error and verify it afterwards.
     let caughtError: Error | undefined;
-    const guarded = promise.catch((err) => { caughtError = err; });
+    const guarded = promise.catch((err) => {
+      caughtError = err;
+    });
 
     // Wait for the TTL to expire (generous margin)
     await new Promise((r) => setTimeout(r, 300));
     await guarded;
 
     expect(caughtError).toBeDefined();
-    expect(caughtError!.message).toBe('OAuth callback timed out');
+    expect(caughtError!.message).toBe("OAuth callback timed out");
 
     // After expiry, consume should return false
-    const consumed = consumeCallback('state-ttl', 'late-code');
+    const consumed = consumeCallback("state-ttl", "late-code");
     expect(consumed).toBe(false);
   });
 
-  test('clearAllCallbacks cleans up all pending entries', () => {
-    registerPendingCallback('s1', () => {}, () => {});
-    registerPendingCallback('s2', () => {}, () => {});
+  test("clearAllCallbacks cleans up all pending entries", () => {
+    registerPendingCallback(
+      "s1",
+      () => {},
+      () => {},
+    );
+    registerPendingCallback(
+      "s2",
+      () => {},
+      () => {},
+    );
     clearAllCallbacks();
 
-    expect(consumeCallback('s1', 'code')).toBe(false);
-    expect(consumeCallback('s2', 'code')).toBe(false);
+    expect(consumeCallback("s1", "code")).toBe(false);
+    expect(consumeCallback("s2", "code")).toBe(false);
   });
 });

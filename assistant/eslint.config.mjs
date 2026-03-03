@@ -14,8 +14,8 @@ const eslintConfig = defineConfig([
         "error",
         {
           groups: [
-            // Node.js builtins
-            ["^node:"],
+            // Runtime builtins (Node.js and Bun)
+            ["^node:", "^bun:"],
             // External packages
             ["^@?\\w"],
             // Internal/relative imports

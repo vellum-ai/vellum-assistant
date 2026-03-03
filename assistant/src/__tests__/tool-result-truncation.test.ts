@@ -1,4 +1,4 @@
-import { describe, expect,test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 
 import {
   calculateMaxToolResultChars,
@@ -61,9 +61,10 @@ describe("truncateToolResultText", () => {
   test("finds newline boundary for clean cuts", () => {
     // Build text with newlines, large enough to exceed the maxChars budget
     // so truncation actually kicks in and can snap to a newline.
-    const lines = Array.from({ length: 1000 }, (_, i) => `line ${i}: ${"x".repeat(20)}`).join(
-      "\n",
-    );
+    const lines = Array.from(
+      { length: 1000 },
+      (_, i) => `line ${i}: ${"x".repeat(20)}`,
+    ).join("\n");
     const maxChars = 5_000;
     const result = truncateToolResultText(lines, maxChars);
     // The content before the suffix should end right before a newline boundary

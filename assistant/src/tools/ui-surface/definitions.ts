@@ -39,7 +39,9 @@ export const uiShowTool: Tool = {
     'templateData shape: { title: string, status: "in_progress"|"completed"|"failed", ' +
     'steps: Array<{ label: string, status: "pending"|"in_progress"|"completed"|"failed", detail?: string }> }\n' +
     '- table: Data table with columns, selectable rows, and action buttons. ' +
-    'data shape: { columns: Array<{ id: string, label: string }>, rows: Array<{ id: string, cells: Record<string, string>, selectable?: boolean, selected?: boolean }>, selectionMode?: "none"|"single"|"multiple", caption?: string }\n' +
+    'data shape: { columns: Array<{ id: string, label: string, width?: number }>, rows: Array<{ id: string, cells: Record<string, string | { text: string, icon?: string, iconColor?: "success"|"warning"|"error"|"muted" }>, selectable?: boolean, selected?: boolean }>, selectionMode?: "none"|"single"|"multiple", caption?: string }. ' +
+    'Cell values can be plain strings or rich objects with icon (SF Symbol name) and iconColor. ' +
+    'Column width is in points — use it for narrow columns (e.g. counts, short labels) so flexible columns get more space. Omit width for columns that should expand.\n' +
     '- form: Input form with typed fields. ' +
     'data shape: { description?: string, fields: Array<{ id: string, type: "text"|"textarea"|"select"|"toggle"|"number"|"password", label: string, placeholder?: string, required?: boolean, defaultValue?: string|number|boolean, options?: Array<{ label: string, value: string }> }>, submitLabel?: string }. ' +
     'For multi-page forms, use pages array instead of top-level fields: { pages: [{ id: string, title: string, description?: string, fields: [...] }], pageLabels?: { next?: string, back?: string, submit?: string }, submitLabel?: string }\n' +

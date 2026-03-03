@@ -6,55 +6,56 @@
  * These tests confirm no Telegram-specific assumptions leaked into the
  * trusted contact code paths.
  */
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-
-import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test';
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Test isolation: in-memory SQLite via temp directory
 // ---------------------------------------------------------------------------
 
-const testDir = mkdtempSync(join(tmpdir(), 'trusted-contact-multichannel-'));
+const testDir = mkdtempSync(join(tmpdir(), "trusted-contact-multichannel-"));
 
-mock.module('../util/platform.js', () => ({
+mock.module("../util/platform.js", () => ({
   getRootDir: () => testDir,
   getDataDir: () => testDir,
-  isMacOS: () => process.platform === 'darwin',
-  isLinux: () => process.platform === 'linux',
-  isWindows: () => process.platform === 'win32',
-  getSocketPath: () => join(testDir, 'test.sock'),
-  getPidPath: () => join(testDir, 'test.pid'),
-  getDbPath: () => join(testDir, 'test.db'),
-  getLogPath: () => join(testDir, 'test.log'),
+  isMacOS: () => process.platform === "darwin",
+  isLinux: () => process.platform === "linux",
+  isWindows: () => process.platform === "win32",
+  getSocketPath: () => join(testDir, "test.sock"),
+  getPidPath: () => join(testDir, "test.pid"),
+  getDbPath: () => join(testDir, "test.db"),
+  getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
-  readHttpToken: () => 'test-bearer-token',
+  readHttpToken: () => "test-bearer-token",
 }));
 
-mock.module('../util/logger.js', () => ({
-  getLogger: () => new Proxy({} as Record<string, unknown>, {
-    get: () => () => {},
-  }),
+mock.module("../util/logger.js", () => ({
+  getLogger: () =>
+    new Proxy({} as Record<string, unknown>, {
+      get: () => () => {},
+    }),
 }));
 
-mock.module('../security/secret-ingress.js', () => ({
+mock.module("../security/secret-ingress.js", () => ({
   checkIngressForSecrets: () => ({ blocked: false }),
 }));
 
-mock.module('../config/env.js', () => ({
-  getGatewayInternalBaseUrl: () => 'http://127.0.0.1:7830',
+mock.module("../config/env.js", () => ({
+  isHttpAuthDisabled: () => true,
+  getGatewayInternalBaseUrl: () => "http://127.0.0.1:7830",
 }));
 
 const emitSignalCalls: Array<Record<string, unknown>> = [];
-mock.module('../notifications/emit-signal.js', () => ({
+mock.module("../notifications/emit-signal.js", () => ({
   emitNotificationSignal: async (params: Record<string, unknown>) => {
     emitSignalCalls.push(params);
     return {
-      signalId: 'mock-signal-id',
+      signalId: "mock-signal-id",
       deduplicated: false,
       dispatched: true,
-      reason: 'mock',
+      reason: "mock",
       deliveryResults: [],
     };
   },
@@ -66,66 +67,78 @@ mock.module('../notifications/emit-signal.js', () => ({
 // mocking emit-signal.js alone is not sufficient — access-request-helper
 // imports emit-signal before the mock takes effect.
 const notifyGuardianCalls: Array<Record<string, unknown>> = [];
-mock.module('../runtime/access-request-helper.js', () => ({
+mock.module("../runtime/access-request-helper.js", () => ({
   notifyGuardianOfAccessRequest: (params: Record<string, unknown>) => {
     notifyGuardianCalls.push(params);
-    return { notified: true, created: true, requestId: `mock-req-${Date.now()}` };
+    return {
+      notified: true,
+      created: true,
+      requestId: `mock-req-${Date.now()}`,
+    };
   },
 }));
 
-const deliverReplyCalls: Array<{ url: string; payload: Record<string, unknown> }> = [];
-mock.module('../runtime/gateway-client.js', () => ({
-  deliverChannelReply: async (url: string, payload: Record<string, unknown>) => {
+const deliverReplyCalls: Array<{
+  url: string;
+  payload: Record<string, unknown>;
+}> = [];
+mock.module("../runtime/gateway-client.js", () => ({
+  deliverChannelReply: async (
+    url: string,
+    payload: Record<string, unknown>,
+  ) => {
     deliverReplyCalls.push({ url, payload });
   },
 }));
 
-mock.module('../runtime/approval-message-composer.js', () => ({
-  composeApprovalMessage: () => 'mock approval message',
-  composeApprovalMessageGenerative: async () => 'mock generative message',
+mock.module("../runtime/approval-message-composer.js", () => ({
+  composeApprovalMessage: () => "mock approval message",
+  composeApprovalMessageGenerative: async () => "mock generative message",
 }));
 
-import {
-  createBinding,
-} from '../memory/channel-guardian-store.js';
-import { getDb, initializeDb, resetDb } from '../memory/db.js';
-import { findMember, upsertMember } from '../memory/ingress-member-store.js';
+import { createBinding } from "../memory/channel-guardian-store.js";
+import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { findMember, upsertMember } from "../memory/ingress-member-store.js";
 import {
   createOutboundSession,
   validateAndConsumeChallenge,
-} from '../runtime/channel-guardian-service.js';
-import { handleChannelInbound } from '../runtime/routes/channel-routes.js';
+} from "../runtime/channel-guardian-service.js";
+import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
 
 initializeDb();
 
 afterAll(() => {
   resetDb();
-  try { rmSync(testDir, { recursive: true }); } catch { /* best effort */ }
+  try {
+    rmSync(testDir, { recursive: true });
+  } catch {
+    /* best effort */
+  }
 });
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-const TEST_BEARER_TOKEN = 'test-token';
+const TEST_BEARER_TOKEN = "test-token";
 
 function resetState(): void {
   const db = getDb();
-  db.run('DELETE FROM channel_guardian_approval_requests');
-  db.run('DELETE FROM channel_guardian_bindings');
-  db.run('DELETE FROM channel_guardian_verification_challenges');
-  db.run('DELETE FROM channel_guardian_rate_limits');
-  db.run('DELETE FROM channel_inbound_events');
-  db.run('DELETE FROM conversations');
-  db.run('DELETE FROM notification_events');
-  db.run('DELETE FROM assistant_ingress_members');
+  db.run("DELETE FROM channel_guardian_approval_requests");
+  db.run("DELETE FROM channel_guardian_bindings");
+  db.run("DELETE FROM channel_guardian_verification_challenges");
+  db.run("DELETE FROM channel_guardian_rate_limits");
+  db.run("DELETE FROM channel_inbound_events");
+  db.run("DELETE FROM conversations");
+  db.run("DELETE FROM notification_events");
+  db.run("DELETE FROM assistant_ingress_members");
   emitSignalCalls.length = 0;
   notifyGuardianCalls.length = 0;
   deliverReplyCalls.length = 0;
 }
 
 interface ChannelTestConfig {
-  channel: 'telegram' | 'sms' | 'voice';
+  channel: "telegram" | "sms" | "voice";
   deliverEndpoint: string;
   /** SMS/voice use phone E.164 as identifiers */
   senderExternalUserId: string;
@@ -136,20 +149,20 @@ interface ChannelTestConfig {
 
 const CHANNEL_CONFIGS: ChannelTestConfig[] = [
   {
-    channel: 'telegram',
-    deliverEndpoint: '/deliver/telegram',
-    senderExternalUserId: 'tg-user-456',
-    externalChatId: 'tg-chat-456',
-    guardianExternalUserId: 'tg-guardian-789',
-    guardianChatId: 'tg-guardian-chat-789',
+    channel: "telegram",
+    deliverEndpoint: "/deliver/telegram",
+    senderExternalUserId: "tg-user-456",
+    externalChatId: "tg-chat-456",
+    guardianExternalUserId: "tg-guardian-789",
+    guardianChatId: "tg-guardian-chat-789",
   },
   {
-    channel: 'sms',
-    deliverEndpoint: '/deliver/sms',
-    senderExternalUserId: '+15551234567',
-    externalChatId: '+15551234567',
-    guardianExternalUserId: '+15559876543',
-    guardianChatId: '+15559876543',
+    channel: "sms",
+    deliverEndpoint: "/deliver/sms",
+    senderExternalUserId: "+15551234567",
+    externalChatId: "+15551234567",
+    guardianExternalUserId: "+15559876543",
+    guardianChatId: "+15559876543",
   },
 ];
 
@@ -161,20 +174,22 @@ function buildInboundRequest(
     sourceChannel: config.channel,
     interface: config.channel,
     conversationExternalId: config.externalChatId,
-    externalMessageId: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    content: 'Hello, can I use this assistant?',
+    externalMessageId: `msg-${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2, 8)}`,
+    content: "Hello, can I use this assistant?",
     actorExternalId: config.senderExternalUserId,
-    actorDisplayName: 'Test Requester',
-    actorUsername: 'test_requester',
+    actorDisplayName: "Test Requester",
+    actorUsername: "test_requester",
     replyCallbackUrl: `http://localhost:7830${config.deliverEndpoint}`,
     ...overrides,
   };
 
-  return new Request('http://localhost:8080/channels/inbound', {
-    method: 'POST',
+  return new Request("http://localhost:8080/channels/inbound", {
+    method: "POST",
     headers: {
-      'Content-Type': 'application/json',
-      'X-Gateway-Origin': TEST_BEARER_TOKEN,
+      "Content-Type": "application/json",
+      "X-Gateway-Origin": TEST_BEARER_TOKEN,
     },
     body: JSON.stringify(body),
   });
@@ -190,23 +205,30 @@ for (const config of CHANNEL_CONFIGS) {
       resetState();
     });
 
-    test('non-member message is denied with rejection reply', async () => {
+    test("non-member message is denied with rejection reply", async () => {
       const req = buildInboundRequest(config);
-      const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
-      const json = await resp.json() as Record<string, unknown>;
+      const resp = await handleChannelInbound(
+        req,
+        undefined,
+        TEST_BEARER_TOKEN,
+      );
+      const json = (await resp.json()) as Record<string, unknown>;
 
       expect(json.denied).toBe(true);
-      expect(json.reason).toBe('not_a_member');
+      expect(json.reason).toBe("not_a_member");
       expect(deliverReplyCalls.length).toBe(1);
-      const replyText = (deliverReplyCalls[0].payload as Record<string, unknown>).text as string;
+      const replyText = (
+        deliverReplyCalls[0].payload as Record<string, unknown>
+      ).text as string;
       expect(
-        replyText.includes("you haven't been approved") || replyText.includes("you don't have access"),
+        replyText.includes("you haven't been approved") ||
+          replyText.includes("you don't have access"),
       ).toBe(true);
     });
 
-    test('guardian is notified when a non-member messages', async () => {
+    test("guardian is notified when a non-member messages", async () => {
       createBinding({
-        assistantId: 'self',
+        assistantId: "self",
         channel: config.channel,
         guardianExternalUserId: config.guardianExternalUserId,
         guardianDeliveryChatId: config.guardianChatId,
@@ -214,89 +236,95 @@ for (const config of CHANNEL_CONFIGS) {
       });
 
       const req = buildInboundRequest(config);
-      const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
-      const json = await resp.json() as Record<string, unknown>;
+      const resp = await handleChannelInbound(
+        req,
+        undefined,
+        TEST_BEARER_TOKEN,
+      );
+      const json = (await resp.json()) as Record<string, unknown>;
 
       expect(json.denied).toBe(true);
 
       // Guardian notification helper was called for the correct channel
       expect(notifyGuardianCalls.length).toBe(1);
       expect(notifyGuardianCalls[0].sourceChannel).toBe(config.channel);
-      expect(notifyGuardianCalls[0].actorExternalId).toBe(config.senderExternalUserId);
+      expect(notifyGuardianCalls[0].actorExternalId).toBe(
+        config.senderExternalUserId,
+      );
     });
 
-    test('verification creates active member for channel', () => {
+    test("verification creates active member for channel", () => {
       const session = createOutboundSession({
-        assistantId: 'self',
+        assistantId: "self",
         channel: config.channel,
         expectedExternalUserId: config.senderExternalUserId,
         expectedChatId: config.externalChatId,
-        identityBindingStatus: 'bound',
+        identityBindingStatus: "bound",
         destinationAddress: config.externalChatId,
-        verificationPurpose: 'trusted_contact',
+        verificationPurpose: "trusted_contact",
       });
 
       const result = validateAndConsumeChallenge(
-        'self',
+        "self",
         config.channel,
         session.secret,
         config.senderExternalUserId,
         config.externalChatId,
-        'test_requester',
-        'Test Requester',
+        "test_requester",
+        "Test Requester",
       );
 
       expect(result.success).toBe(true);
       if (result.success) {
-        expect(result.verificationType).toBe('trusted_contact');
+        expect(result.verificationType).toBe("trusted_contact");
       }
 
       upsertMember({
-        assistantId: 'self',
+        assistantId: "self",
         sourceChannel: config.channel,
         externalUserId: config.senderExternalUserId,
         externalChatId: config.externalChatId,
-        status: 'active',
-        policy: 'allow',
-        displayName: 'Test Requester',
-        username: 'test_requester',
+        status: "active",
+        policy: "allow",
+        displayName: "Test Requester",
+        username: "test_requester",
       });
 
       const member = findMember({
-        assistantId: 'self',
+        assistantId: "self",
         sourceChannel: config.channel,
         externalUserId: config.senderExternalUserId,
       });
 
       expect(member).not.toBeNull();
-      expect(member!.status).toBe('active');
-      expect(member!.policy).toBe('allow');
+      expect(member!.status).toBe("active");
+      expect(member!.policy).toBe("allow");
       expect(member!.sourceChannel).toBe(config.channel);
     });
 
-    test('no cross-channel leakage between member records', () => {
+    test("no cross-channel leakage between member records", () => {
       // Create a member for this channel
       upsertMember({
-        assistantId: 'self',
+        assistantId: "self",
         sourceChannel: config.channel,
         externalUserId: config.senderExternalUserId,
         externalChatId: config.externalChatId,
-        status: 'active',
-        policy: 'allow',
+        status: "active",
+        policy: "allow",
       });
 
       // Should be found on this channel
       const sameChanMember = findMember({
-        assistantId: 'self',
+        assistantId: "self",
         sourceChannel: config.channel,
         externalUserId: config.senderExternalUserId,
       });
       expect(sameChanMember).not.toBeNull();
 
       // Should NOT be found on a different channel
-      const otherChannel = config.channel === 'telegram' ? 'sms' : 'telegram';
+      const otherChannel = config.channel === "telegram" ? "sms" : "telegram";
       const crossChanMember = findMember({
-        assistantId: 'self',
+        assistantId: "self",
         sourceChannel: otherChannel,
         externalUserId: config.senderExternalUserId,
       });
@@ -309,53 +337,59 @@ for (const config of CHANNEL_CONFIGS) {
 // SMS-specific: phone E.164 identity binding
 // ---------------------------------------------------------------------------
 
-describe('SMS identity binding with E.164 phone numbers', () => {
+describe("SMS identity binding with E.164 phone numbers", () => {
   beforeEach(() => {
     resetState();
   });
 
-  test('SMS verification session binds to phone E.164', () => {
-    const phone = '+15551234567';
+  test("SMS verification session binds to phone E.164", () => {
+    const phone = "+15551234567";
     const session = createOutboundSession({
-      assistantId: 'self',
-      channel: 'sms',
+      assistantId: "self",
+      channel: "sms",
       expectedExternalUserId: phone,
       expectedPhoneE164: phone,
       expectedChatId: phone,
-      identityBindingStatus: 'bound',
+      identityBindingStatus: "bound",
       destinationAddress: phone,
-      verificationPurpose: 'trusted_contact',
+      verificationPurpose: "trusted_contact",
     });
 
     // Verify with matching phone identity
     const result = validateAndConsumeChallenge(
-      'self', 'sms', session.secret,
-      phone, phone,
+      "self",
+      "sms",
+      session.secret,
+      phone,
+      phone,
     );
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.verificationType).toBe('trusted_contact');
+      expect(result.verificationType).toBe("trusted_contact");
     }
   });
 
-  test('SMS verification rejects mismatched phone identity', () => {
-    const expectedPhone = '+15551234567';
-    const wrongPhone = '+15559999999';
+  test("SMS verification rejects mismatched phone identity", () => {
+    const expectedPhone = "+15551234567";
+    const wrongPhone = "+15559999999";
 
     const session = createOutboundSession({
-      assistantId: 'self',
-      channel: 'sms',
+      assistantId: "self",
+      channel: "sms",
       expectedExternalUserId: expectedPhone,
       expectedPhoneE164: expectedPhone,
       expectedChatId: expectedPhone,
-      identityBindingStatus: 'bound',
+      identityBindingStatus: "bound",
       destinationAddress: expectedPhone,
     });
 
     // Try to verify with a different phone (anti-oracle: same error message)
     const result = validateAndConsumeChallenge(
-      'self', 'sms', session.secret,
-      wrongPhone, wrongPhone,
+      "self",
+      "sms",
+      session.secret,
+      wrongPhone,
+      wrongPhone,
     );
     expect(result.success).toBe(false);
   });
@@ -365,43 +399,49 @@ describe('SMS identity binding with E.164 phone numbers', () => {
 // Cross-channel: same user on different channels gets separate sessions
 // ---------------------------------------------------------------------------
 
-describe('cross-channel isolation', () => {
+describe("cross-channel isolation", () => {
   beforeEach(() => {
     resetState();
   });
 
-  test('verification sessions are scoped per channel', () => {
+  test("verification sessions are scoped per channel", () => {
     // Create sessions on both channels
     const telegramSession = createOutboundSession({
-      assistantId: 'self',
-      channel: 'telegram',
-      expectedExternalUserId: 'user-123',
-      expectedChatId: 'chat-123',
-      identityBindingStatus: 'bound',
-      destinationAddress: 'chat-123',
+      assistantId: "self",
+      channel: "telegram",
+      expectedExternalUserId: "user-123",
+      expectedChatId: "chat-123",
+      identityBindingStatus: "bound",
+      destinationAddress: "chat-123",
     });
 
     const smsSession = createOutboundSession({
-      assistantId: 'self',
-      channel: 'sms',
-      expectedExternalUserId: '+15551234567',
-      expectedPhoneE164: '+15551234567',
-      expectedChatId: '+15551234567',
-      identityBindingStatus: 'bound',
-      destinationAddress: '+15551234567',
+      assistantId: "self",
+      channel: "sms",
+      expectedExternalUserId: "+15551234567",
+      expectedPhoneE164: "+15551234567",
+      expectedChatId: "+15551234567",
+      identityBindingStatus: "bound",
+      destinationAddress: "+15551234567",
     });
 
     // Telegram code should not work on SMS channel
     const wrongChannelResult = validateAndConsumeChallenge(
-      'self', 'sms', telegramSession.secret,
-      '+15551234567', '+15551234567',
+      "self",
+      "sms",
+      telegramSession.secret,
+      "+15551234567",
+      "+15551234567",
     );
     expect(wrongChannelResult.success).toBe(false);
 
     // SMS code should work on SMS channel
     const correctChannelResult = validateAndConsumeChallenge(
-      'self', 'sms', smsSession.secret,
-      '+15551234567', '+15551234567',
+      "self",
+      "sms",
+      smsSession.secret,
+      "+15551234567",
+      "+15551234567",
     );
     expect(correctChannelResult.success).toBe(true);
   });

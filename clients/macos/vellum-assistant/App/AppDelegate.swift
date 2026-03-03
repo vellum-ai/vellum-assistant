@@ -965,26 +965,54 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     }
 
     /// Switches the app to a different lockfile assistant: stops the current
-    /// daemon, updates persisted state, and restarts with the new assistant.
+    /// daemon, resets assistant-scoped state, updates persisted state, and
+    /// restarts with the new assistant.
+    ///
+    /// The sequence is intentionally ordered to avoid stale references:
+    /// 1. Stop lifecycle monitoring and daemon processes
+    /// 2. Disconnect daemon transport
+    /// 3. Clear assistant-scoped runtime state (threads, sessions, callbacks)
+    /// 4. Persist the new assistant selection
+    /// 5. Reconfigure daemon transport and reconnect
+    /// 6. Resume monitoring and credential bootstrap
     func performSwitchAssistant(to assistant: LockfileAssistant) {
+        // 1. Stop lifecycle monitoring and daemon processes
+        assistantCli.stopMonitoring()
         assistantCli.stop()
+
+        // 2. Disconnect daemon transport (handled by reconfigure in step 5)
+        daemonClient.disconnect()
+
+        // 3. Clear assistant-scoped runtime state
+        // Force-stop any active recording to avoid stale session references
+        recordingManager.forceStop()
+        recordingHUDWindow?.dismiss()
+        // Close and recreate the main window to reset thread/session state
+        mainWindow?.close()
+        mainWindow = nil
+
+        // Cancel any in-progress bootstrap tasks from the previous assistant
+        bootstrapRetryTask?.cancel()
+        bootstrapRetryTask = nil
+
+        // 4. Persist the new assistant selection
         UserDefaults.standard.set(assistant.assistantId, forKey: "connectedAssistantId")
         assistant.writeToWorkspaceConfig()
 
-        // Clear stale actor token for the previous assistant and re-bootstrap
-        // for the new one once the daemon connects.
+        // Clear stale actor token for the previous assistant
         actorTokenBootstrapTask?.cancel()
         actorTokenBootstrapTask = nil
         ActorTokenManager.deleteToken()
 
+        // 5. Reconfigure daemon transport and reconnect
         hasSetupDaemon = false
         setupDaemonClient()
 
-        // Actor credential bootstrap uses runtime bearer flows that don't
-        // exist in managed mode — identity comes from the platform session.
+        // 6. Resume credential bootstrap and show UI
         if !isCurrentAssistantManaged {
             ensureActorCredentials()
         }
+        showMainWindow()
     }
 
     @objc func performRetire() {
@@ -1017,6 +1045,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                 alert.addButton(withTitle: "Cancel")
                 if alert.runModal() != .alertFirstButtonReturn {
                     // Daemon is still running — user can continue using the app.
+                    // retire() already set isStopping=true and stopped monitoring;
+                    // restart monitoring so the health check remains active.
+                    assistantCli.startMonitoring()
                     return false
                 }
                 // Retire failed but user chose Force Remove — stop the daemon
@@ -1209,6 +1240,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                 ))
                 services.reconfigureDaemonClient(config: config)
                 log.info("Configured local HTTP transport (localHttpEnabled flag) on port \(port)")
+            } else {
+                // Reset to default socket transport in case the previous assistant used HTTP.
+                services.reconfigureDaemonClient(config: .default)
             }
             return
         }
@@ -1219,9 +1253,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             conversationKey: assistant.assistantId
         ))
 
-        // Replace the daemon client's config. Since DaemonClient.config is let,
-        // we need to create a new DaemonClient with the HTTP config.
-        // The services property is mutable for this purpose.
+        // Reconfigure the daemon client's transport in place. This preserves
+        // object identity so all long-lived holders keep a valid reference.
         services.reconfigureDaemonClient(config: config)
 
         log.info("Configured HTTP transport for remote assistant \(assistant.assistantId) at \(runtimeUrl, privacy: .public)")
@@ -1243,8 +1276,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
         configureDaemonTransport(for: assistant)
 
-        // Rebind the menu bar icon observer to the (potentially new) daemon client
-        // so status changes on the replacement client trigger icon updates.
+        // Rebind the menu bar icon observer after transport reconfiguration
+        // so connection status changes continue to update the icon.
         rebindConnectionStatusObserver()
 
         daemonClient.onNotificationIntent = { [weak self] msg in
@@ -1470,13 +1503,16 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                     // prevents duplicates.
                     let needsLockfileEntry = isFirstLaunch && !lockfileExists
                     let daemonOnly = !needsLockfileEntry
+                    // Pass the selected assistant ID so the gateway starts
+                    // with the correct default assistant (not a random name).
+                    let assistantName = assistant?.assistantId
                     do {
-                        try await assistantCli.hatch(daemonOnly: daemonOnly)
+                        try await assistantCli.hatch(name: assistantName, daemonOnly: daemonOnly)
                     } catch {
                         log.error("Failed to hatch assistant during daemon setup: \(error)")
                         if needsLockfileEntry {
                             log.info("Full hatch failed on first launch — retrying daemon-only as fallback")
-                            try? await assistantCli.hatch(daemonOnly: true)
+                            try? await assistantCli.hatch(name: assistantName, daemonOnly: true)
                         }
                     }
                     if needsLockfileEntry {

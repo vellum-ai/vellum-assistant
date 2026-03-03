@@ -1,43 +1,46 @@
-import { beforeEach, describe, expect, mock, test } from 'bun:test';
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { CuObservation } from '../daemon/ipc-protocol.js';
-import type { Provider } from '../providers/types.js';
+import type { CuObservation } from "../daemon/ipc-protocol.js";
+import type { Provider } from "../providers/types.js";
 
 let capturedWorkingDir: string | undefined;
 
-mock.module('../util/logger.js', () => ({
-  getLogger: () => new Proxy({} as Record<string, unknown>, {
-    get: () => () => {},
-  }),
-  getCliLogger: () => new Proxy({} as Record<string, unknown>, {
-    get: () => () => {},
-  }),
+mock.module("../util/logger.js", () => ({
+  getLogger: () =>
+    new Proxy({} as Record<string, unknown>, {
+      get: () => () => {},
+    }),
+  getCliLogger: () =>
+    new Proxy({} as Record<string, unknown>, {
+      get: () => () => {},
+    }),
   isDebug: () => false,
-  truncateForLog: (value: string, maxLen = 500) => value.length > maxLen ? value.slice(0, maxLen) + '...' : value,
+  truncateForLog: (value: string, maxLen = 500) =>
+    value.length > maxLen ? value.slice(0, maxLen) + "..." : value,
   initLogger: () => {},
   pruneOldLogFiles: () => 0,
 }));
 
-mock.module('../util/platform.js', () => ({
-  getRootDir: () => '/tmp',
-  getDataDir: () => '/tmp/data',
-  getIpcBlobDir: () => '/tmp/data/ipc-blobs',
-  getSandboxRootDir: () => '/tmp/sandbox',
-  getSandboxWorkingDir: () => '/tmp/workspace',
-  getInterfacesDir: () => '/tmp/interfaces',
-  getWorkspaceDir: () => '/tmp/workspace',
-  getWorkspaceConfigPath: () => '/tmp/workspace/config.json',
-  getWorkspaceSkillsDir: () => '/tmp/workspace/skills',
-  getWorkspaceHooksDir: () => '/tmp/workspace/hooks',
+mock.module("../util/platform.js", () => ({
+  getRootDir: () => "/tmp",
+  getDataDir: () => "/tmp/data",
+  getIpcBlobDir: () => "/tmp/data/ipc-blobs",
+  getSandboxRootDir: () => "/tmp/sandbox",
+  getSandboxWorkingDir: () => "/tmp/workspace",
+  getInterfacesDir: () => "/tmp/interfaces",
+  getWorkspaceDir: () => "/tmp/workspace",
+  getWorkspaceConfigPath: () => "/tmp/workspace/config.json",
+  getWorkspaceSkillsDir: () => "/tmp/workspace/skills",
+  getWorkspaceHooksDir: () => "/tmp/workspace/hooks",
   getWorkspacePromptPath: (file: string) => `/tmp/workspace/${file}`,
-  getPlatformName: () => 'linux',
+  getPlatformName: () => "linux",
   getClipboardCommand: () => null,
-  getSocketPath: () => '/tmp/test.sock',
-  getPidPath: () => '/tmp/test.pid',
-  getDbPath: () => '/tmp/data/db/assistant.db',
-  getLogPath: () => '/tmp/test.log',
-  getHistoryPath: () => '/tmp/data/history',
-  getHooksDir: () => '/tmp/hooks',
+  getSocketPath: () => "/tmp/test.sock",
+  getPidPath: () => "/tmp/test.pid",
+  getDbPath: () => "/tmp/data/db/assistant.db",
+  getLogPath: () => "/tmp/test.log",
+  getHistoryPath: () => "/tmp/data/history",
+  getHooksDir: () => "/tmp/hooks",
   removeSocketFile: () => {},
   ensureDataDir: () => {},
   migrateToDataLayout: () => {},
@@ -50,7 +53,7 @@ mock.module('../util/platform.js', () => ({
   normalizeAssistantId: (id: string) => id,
 }));
 
-mock.module('../tools/executor.js', () => ({
+mock.module("../tools/executor.js", () => ({
   ToolExecutor: class {
     constructor(..._args: unknown[]) {}
 
@@ -60,54 +63,65 @@ mock.module('../tools/executor.js', () => ({
       context: { workingDir: string },
     ) {
       capturedWorkingDir = context.workingDir;
-      return { content: 'ok', isError: false };
+      return { content: "ok", isError: false };
     }
   },
 }));
 
-mock.module('../agent/loop.js', () => ({
+mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
-    private readonly runTool: (name: string, input: Record<string, unknown>) => Promise<unknown>;
+    private readonly runTool: (
+      name: string,
+      input: Record<string, unknown>,
+    ) => Promise<unknown>;
 
     constructor(
       _provider: unknown,
       _systemPrompt: unknown,
       _options: unknown,
       _toolDefs: unknown,
-      toolExecutor: (name: string, input: Record<string, unknown>) => Promise<unknown>,
+      toolExecutor: (
+        name: string,
+        input: Record<string, unknown>,
+      ) => Promise<unknown>,
     ) {
       this.runTool = toolExecutor;
     }
 
-    async run(_messages: unknown, _onEvent: unknown, _signal?: AbortSignal): Promise<void> {
-      await this.runTool('computer_use_click', { element_id: 1 });
+    async run(
+      _messages: unknown,
+      _onEvent: unknown,
+      _signal?: AbortSignal,
+    ): Promise<void> {
+      await this.runTool("computer_use_click", { element_id: 1 });
     }
   },
 }));
 
-const { ComputerUseSession } = await import('../daemon/computer-use-session.js');
+const { ComputerUseSession } =
+  await import("../daemon/computer-use-session.js");
 
-describe('ComputerUseSession working directory', () => {
+describe("ComputerUseSession working directory", () => {
   beforeEach(() => {
     capturedWorkingDir = undefined;
   });
 
-  test('uses sandbox working directory for tool execution context', async () => {
+  test("uses sandbox working directory for tool execution context", async () => {
     const provider: Provider = {
-      name: 'mock-provider',
+      name: "mock-provider",
       async sendMessage() {
         return {
-          content: [{ type: 'text', text: 'unused' }],
-          model: 'mock-model',
+          content: [{ type: "text", text: "unused" }],
+          model: "mock-model",
           usage: { inputTokens: 1, outputTokens: 1 },
-          stopReason: 'end_turn',
+          stopReason: "end_turn",
         };
       },
     };
 
     const session = new ComputerUseSession(
-      'cu-sandbox-1',
-      'test task',
+      "cu-sandbox-1",
+      "test task",
       1440,
       900,
       provider,
@@ -115,13 +129,13 @@ describe('ComputerUseSession working directory', () => {
     );
 
     const observation: CuObservation = {
-      type: 'cu_observation',
-      sessionId: 'cu-sandbox-1',
+      type: "cu_observation",
+      sessionId: "cu-sandbox-1",
       axTree: 'Window "Test" [1]',
     };
 
     await session.handleObservation(observation);
 
-    expect(capturedWorkingDir).toBe('/tmp/workspace');
+    expect(capturedWorkingDir).toBe("/tmp/workspace");
   });
 });

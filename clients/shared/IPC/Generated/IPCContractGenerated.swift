@@ -4688,6 +4688,18 @@ public struct IPCSurfaceAction: Codable, Sendable {
     }
 }
 
+public struct IPCTableCellValue: Codable, Sendable {
+    public let text: String
+    public let icon: String?
+    public let iconColor: String?
+
+    public init(text: String, icon: String? = nil, iconColor: String? = nil) {
+        self.text = text
+        self.icon = icon
+        self.iconColor = iconColor
+    }
+}
+
 public struct IPCTableColumn: Codable, Sendable {
     public let id: String
     public let label: String
@@ -4702,11 +4714,11 @@ public struct IPCTableColumn: Codable, Sendable {
 
 public struct IPCTableRow: Codable, Sendable {
     public let id: String
-    public let cells: [String: String]
+    public let cells: [String: AnyCodable]
     public let selectable: Bool?
     public let selected: Bool?
 
-    public init(id: String, cells: [String: String], selectable: Bool? = nil, selected: Bool? = nil) {
+    public init(id: String, cells: [String: AnyCodable], selectable: Bool? = nil, selected: Bool? = nil) {
         self.id = id
         self.cells = cells
         self.selectable = selectable

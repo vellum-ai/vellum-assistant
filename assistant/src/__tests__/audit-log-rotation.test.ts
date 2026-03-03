@@ -1,28 +1,31 @@
-import { randomBytes } from 'node:crypto';
-import { existsSync,mkdirSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-
-import { Database } from 'bun:sqlite';
-import { beforeAll, beforeEach, describe, expect, mock,test } from 'bun:test';
+import { randomBytes } from "node:crypto";
+import { existsSync, mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Database } from "bun:sqlite";
+import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Test setup — temp directory and mock modules
 // ---------------------------------------------------------------------------
 
-const TEST_DIR = join(tmpdir(), `vellum-rotation-test-${randomBytes(4).toString('hex')}`);
-const DB_PATH = join(TEST_DIR, 'assistant.db');
+const TEST_DIR = join(
+  tmpdir(),
+  `vellum-rotation-test-${randomBytes(4).toString("hex")}`,
+);
+const DB_PATH = join(TEST_DIR, "assistant.db");
 
-mock.module('../util/logger.js', () => ({
-  getLogger: () => new Proxy({} as Record<string, unknown>, {
-    get: () => () => {},
-  }),
+mock.module("../util/logger.js", () => ({
+  getLogger: () =>
+    new Proxy({} as Record<string, unknown>, {
+      get: () => () => {},
+    }),
 }));
 
-mock.module('../util/platform.js', () => ({
+mock.module("../util/platform.js", () => ({
   getDataDir: () => TEST_DIR,
   getDbPath: () => DB_PATH,
-  getLogPath: () => join(TEST_DIR, 'logs', 'vellum.log'),
+  getLogPath: () => join(TEST_DIR, "logs", "vellum.log"),
   ensureDataDir: () => {
     if (!existsSync(TEST_DIR)) mkdirSync(TEST_DIR, { recursive: true });
   },
@@ -31,11 +34,11 @@ mock.module('../util/platform.js', () => ({
   isWindows: () => false,
 }));
 
-import { initializeDb, resetDb } from '../memory/db.js';
+import { initializeDb, resetDb } from "../memory/db.js";
 import {
   getRecentInvocations,
   rotateToolInvocations,
-} from '../memory/tool-usage-store.js';
+} from "../memory/tool-usage-store.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -44,18 +47,28 @@ import {
 function addInvocation(ageMs: number): void {
   // Insert directly with a specific timestamp in the past
   const db = new Database(DB_PATH);
-  const id = randomBytes(8).toString('hex');
+  const id = randomBytes(8).toString("hex");
   const createdAt = Date.now() - ageMs;
   db.prepare(
     `INSERT INTO tool_invocations (id, conversation_id, tool_name, input, result, decision, risk_level, duration_ms, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(id, 'conv-1', 'bash', '{"command":"echo hi"}', 'hi', 'allow', 'Low', 100, createdAt);
+  ).run(
+    id,
+    "conv-1",
+    "bash",
+    '{"command":"echo hi"}',
+    "hi",
+    "allow",
+    "Low",
+    100,
+    createdAt,
+  );
   db.close();
 }
 
 function clearTable(): void {
   const db = new Database(DB_PATH);
-  db.run('DELETE FROM tool_invocations');
+  db.run("DELETE FROM tool_invocations");
   db.close();
 }
 
@@ -65,14 +78,16 @@ const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('audit log rotation', () => {
+describe("audit log rotation", () => {
   beforeAll(() => {
-    mkdirSync(join(TEST_DIR, 'logs'), { recursive: true });
+    mkdirSync(join(TEST_DIR, "logs"), { recursive: true });
     resetDb();
     initializeDb();
     // Insert a conversations row so FK-enforced ORM inserts succeed
     const db = new Database(DB_PATH);
-    db.run(`INSERT INTO conversations (id, title, created_at, updated_at) VALUES ('conv-1', 'test', ${Date.now()}, ${Date.now()})`);
+    db.run(
+      `INSERT INTO conversations (id, title, created_at, updated_at) VALUES ('conv-1', 'test', ${Date.now()}, ${Date.now()})`,
+    );
     db.close();
   });
 
@@ -84,31 +99,31 @@ describe('audit log rotation', () => {
   // Deleting it here would trigger ENOENT in other test files because
   // the platform.js mock leaks getDataDir() → TEST_DIR globally.
 
-  test('returns 0 when retentionDays is 0 (retain forever)', () => {
+  test("returns 0 when retentionDays is 0 (retain forever)", () => {
     addInvocation(100 * ONE_DAY_MS); // 100 days old
     const deleted = rotateToolInvocations(0);
     expect(deleted).toBe(0);
     expect(getRecentInvocations(100).length).toBe(1);
   });
 
-  test('returns 0 when retentionDays is negative', () => {
+  test("returns 0 when retentionDays is negative", () => {
     addInvocation(100 * ONE_DAY_MS);
     const deleted = rotateToolInvocations(-5);
     expect(deleted).toBe(0);
     expect(getRecentInvocations(100).length).toBe(1);
   });
 
-  test('deletes records older than retentionDays', () => {
+  test("deletes records older than retentionDays", () => {
     addInvocation(10 * ONE_DAY_MS); // 10 days old — should be deleted with 7-day retention
-    addInvocation(3 * ONE_DAY_MS);  // 3 days old — should be kept
-    addInvocation(1 * ONE_DAY_MS);  // 1 day old — should be kept
+    addInvocation(3 * ONE_DAY_MS); // 3 days old — should be kept
+    addInvocation(1 * ONE_DAY_MS); // 1 day old — should be kept
 
     const deleted = rotateToolInvocations(7);
     expect(deleted).toBe(1);
     expect(getRecentInvocations(100).length).toBe(2);
   });
 
-  test('keeps all records when none exceed retention', () => {
+  test("keeps all records when none exceed retention", () => {
     addInvocation(1 * ONE_DAY_MS);
     addInvocation(2 * ONE_DAY_MS);
     addInvocation(3 * ONE_DAY_MS);
@@ -118,7 +133,7 @@ describe('audit log rotation', () => {
     expect(getRecentInvocations(100).length).toBe(3);
   });
 
-  test('deletes all records when all exceed retention', () => {
+  test("deletes all records when all exceed retention", () => {
     addInvocation(60 * ONE_DAY_MS);
     addInvocation(90 * ONE_DAY_MS);
     addInvocation(120 * ONE_DAY_MS);
@@ -128,13 +143,13 @@ describe('audit log rotation', () => {
     expect(getRecentInvocations(100).length).toBe(0);
   });
 
-  test('returns 0 when table is empty', () => {
+  test("returns 0 when table is empty", () => {
     const deleted = rotateToolInvocations(7);
     expect(deleted).toBe(0);
   });
 
-  test('handles 1-day retention (deletes everything older than 24h)', () => {
-    addInvocation(2 * ONE_DAY_MS);  // 2 days old — delete
+  test("handles 1-day retention (deletes everything older than 24h)", () => {
+    addInvocation(2 * ONE_DAY_MS); // 2 days old — delete
     addInvocation(12 * 60 * 60 * 1000); // 12 hours old — keep
 
     const deleted = rotateToolInvocations(1);
@@ -142,7 +157,7 @@ describe('audit log rotation', () => {
     expect(getRecentInvocations(100).length).toBe(1);
   });
 
-  test('works with recordToolInvocation (via ORM)', () => {
+  test("works with recordToolInvocation (via ORM)", () => {
     // Use raw SQL to insert (avoids db singleton issues in parallel test runs)
     // and verify the rotation/query functions work correctly with it
     addInvocation(0); // just-created record

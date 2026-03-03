@@ -326,7 +326,7 @@ Runtime detects needs_confirmation
 
 **Proactive expiry sweep:** The runtime runs a periodic sweep every 60 seconds (`sweepExpiredGuardianApprovals`) that finds guardian approval requests past the 30-minute TTL, auto-denies the underlying runs, and notifies both the requester and guardian via the gateway's per-channel `/deliver/<channel>` endpoint. This ensures expired approvals are closed without waiting for follow-up traffic from either party. The sweep is started automatically whenever a run orchestrator is available.
 
-**Gateway-origin ingress contract:** The `/channels/inbound` endpoint requires a valid `X-Gateway-Origin` header to prove the request originated from the gateway. When `RUNTIME_GATEWAY_ORIGIN_SECRET` is set, it is the expected header value. When not set, the runtime falls back to the bearer token. When neither is configured (local dev), validation is skipped. The gateway sends this header on all runtime-bound requests via its `runtimeHeaders()` helper. Constant-time comparison prevents timing attacks.
+**Gateway-origin ingress contract:** The JWT token exchanged during gateway-to-runtime authentication proves gateway origin (via the `aud=vellum-daemon` claim). No separate header is required.
 
 **Key modules:**
 
@@ -395,8 +395,8 @@ sequenceDiagram
     User->>TG: <replies with code>
     TG->>GW: POST /webhooks/telegram (webhook secret validated)
     GW->>GW: Verify webhook secret, normalize update
-    GW->>Daemon: POST /v1/channels/inbound (X-Gateway-Origin proof)
-    Daemon->>Daemon: Verify gateway-origin proof
+    GW->>Daemon: POST /v1/channels/inbound (JWT auth)
+    Daemon->>Daemon: Verify JWT auth
     Daemon->>Daemon: Hash secret, find pending challenge, validate expiry
     Daemon->>Daemon: Consume challenge (replay prevention)
     Daemon->>Daemon: Revoke existing binding (if any)
@@ -413,8 +413,8 @@ The channel inbound handler (`inbound-message-handler.ts`) evaluates incoming me
 
 ```mermaid
 flowchart TD
-    MSG["Inbound message arrives<br/>POST /channels/inbound"] --> GW_CHECK{"Gateway-origin<br/>proof valid?"}
-    GW_CHECK -- No --> REJECT_403["403 GATEWAY_ORIGIN_REQUIRED"]
+    MSG["Inbound message arrives<br/>POST /channels/inbound"] --> GW_CHECK{"JWT auth<br/>valid?"}
+    GW_CHECK -- No --> REJECT_403["403 Unauthorized"]
     GW_CHECK -- Yes --> HAS_SENDER{"actorExternalId<br/>present?"}
 
     HAS_SENDER -- Yes --> ACL_LOOKUP["Look up ingress member<br/>by (channel, userId/chatId)"]
@@ -465,7 +465,7 @@ sequenceDiagram
 
     NG->>TG: Message triggers tool use
     TG->>GW: POST /webhooks/telegram
-    GW->>Daemon: POST /v1/channels/inbound (X-Gateway-Origin proof)
+    GW->>Daemon: POST /v1/channels/inbound (JWT auth)
     Daemon->>Daemon: Detect non-guardian, set forceStrictSideEffects
     Daemon->>Daemon: Tool needs confirmation → create GuardianApprovalRequest
     Daemon->>GW: POST /deliver/telegram (approval prompt + inline keyboard)
@@ -474,7 +474,7 @@ sequenceDiagram
     GW-->>NG: "Waiting for guardian approval..."
     Guardian->>TG: Approve / Deny (callback_query or text)
     TG->>GW: POST /webhooks/telegram (callback_query)
-    GW->>Daemon: POST /v1/channels/inbound (X-Gateway-Origin proof)
+    GW->>Daemon: POST /v1/channels/inbound (JWT auth)
     Daemon->>Daemon: Validate guardian identity, update approval decision
     Daemon->>Daemon: Apply decision to pending run
     Daemon->>GW: POST /deliver/telegram (outcome notification)

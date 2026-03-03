@@ -240,6 +240,7 @@ export interface AssistantActivityState {
     | 'thinking_delta'
     | 'first_text_delta'
     | 'tool_use_start'
+    | 'tool_result_received'
     | 'confirmation_requested'
     | 'confirmation_resolved'
     | 'message_complete'

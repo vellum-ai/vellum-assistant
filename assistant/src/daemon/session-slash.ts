@@ -411,10 +411,10 @@ function resolvePairCommand(content: string): SlashResolution | null {
   });
 
   if (!result.ok) {
-    return {
-      kind: 'unknown',
-      message: 'Failed to register pairing request (ID conflict). Please try `/pair` again.',
-    };
+    const message = result.reason === 'active_pairing'
+      ? 'A pairing request is already in progress. Wait for it to complete or expire before running `/pair` again.'
+      : 'Failed to register pairing request (ID conflict). Please try `/pair` again.';
+    return { kind: 'unknown', message };
   }
 
   const payload: Record<string, unknown> = {

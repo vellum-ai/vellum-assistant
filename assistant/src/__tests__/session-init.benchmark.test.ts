@@ -18,11 +18,10 @@
  * - Session creation (3 preactivated skills): < 300ms
  * - Session constructor (sync, no loadFromDb): < 10ms
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-
-import { afterAll, describe, expect, mock, test } from 'bun:test';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, describe, expect, mock, test } from "bun:test";
 
 /** Return the median of a sorted-ascending array of numbers. */
 function median(sorted: number[]): number {
@@ -32,74 +31,85 @@ function median(sorted: number[]): number {
     : sorted[mid];
 }
 
-const testDir = mkdtempSync(join(tmpdir(), 'session-init-bench-'));
+const testDir = mkdtempSync(join(tmpdir(), "session-init-bench-"));
 
 // Create subdirectories expected by platform helpers
-mkdirSync(join(testDir, 'data'), { recursive: true });
-mkdirSync(join(testDir, 'logs'), { recursive: true });
-mkdirSync(join(testDir, 'skills'), { recursive: true });
-mkdirSync(join(testDir, 'hooks'), { recursive: true });
+mkdirSync(join(testDir, "data"), { recursive: true });
+mkdirSync(join(testDir, "logs"), { recursive: true });
+mkdirSync(join(testDir, "skills"), { recursive: true });
+mkdirSync(join(testDir, "hooks"), { recursive: true });
 
 // Seed minimal prompt files so buildSystemPrompt doesn't bail on missing files
-writeFileSync(join(testDir, 'IDENTITY.md'), '# Test Identity\nYou are a test assistant.');
-writeFileSync(join(testDir, 'SOUL.md'), '# Test Soul\nBe helpful.');
-writeFileSync(join(testDir, 'USER.md'), '# Test User\nName: Benchmark Runner');
+writeFileSync(
+  join(testDir, "IDENTITY.md"),
+  "# Test Identity\nYou are a test assistant.",
+);
+writeFileSync(join(testDir, "SOUL.md"), "# Test Soul\nBe helpful.");
+writeFileSync(join(testDir, "USER.md"), "# Test User\nName: Benchmark Runner");
 
 // Create real skill directories so projectSkillTools can load them from the catalog
-const testSkillIds = ['bench-skill-a', 'bench-skill-b', 'bench-skill-c'];
+const testSkillIds = ["bench-skill-a", "bench-skill-b", "bench-skill-c"];
 for (const skillId of testSkillIds) {
-  const skillDir = join(testDir, 'skills', skillId);
+  const skillDir = join(testDir, "skills", skillId);
   mkdirSync(skillDir, { recursive: true });
-  writeFileSync(join(skillDir, 'SKILL.md'), [
-    '---',
-    `name: ${skillId}`,
-    `description: Benchmark test skill ${skillId}`,
-    '---',
-    `# ${skillId}`,
-    'A test skill for benchmarking.',
-  ].join('\n'));
-  writeFileSync(join(skillDir, 'TOOLS.json'), JSON.stringify({
-    version: 1,
-    tools: [{
-      name: `${skillId}_tool`,
-      description: `Tool for ${skillId}`,
-      category: 'benchmark',
-      risk: 'low',
-      input_schema: { type: 'object', properties: {} },
-      executor: 'run.sh',
-      execution_target: 'host',
-    }],
-  }));
-  writeFileSync(join(skillDir, 'run.sh'), '#!/bin/sh\necho ok');
+  writeFileSync(
+    join(skillDir, "SKILL.md"),
+    [
+      "---",
+      `name: ${skillId}`,
+      `description: Benchmark test skill ${skillId}`,
+      "---",
+      `# ${skillId}`,
+      "A test skill for benchmarking.",
+    ].join("\n"),
+  );
+  writeFileSync(
+    join(skillDir, "TOOLS.json"),
+    JSON.stringify({
+      version: 1,
+      tools: [
+        {
+          name: `${skillId}_tool`,
+          description: `Tool for ${skillId}`,
+          category: "benchmark",
+          risk: "low",
+          input_schema: { type: "object", properties: {} },
+          executor: "run.sh",
+          execution_target: "host",
+        },
+      ],
+    }),
+  );
+  writeFileSync(join(skillDir, "run.sh"), "#!/bin/sh\necho ok");
 }
 
-mock.module('../util/platform.js', () => ({
+mock.module("../util/platform.js", () => ({
   getDataDir: () => testDir,
   getRootDir: () => testDir,
   getWorkspaceDir: () => testDir,
-  getWorkspaceConfigPath: () => join(testDir, 'config.json'),
-  getWorkspaceSkillsDir: () => join(testDir, 'skills'),
-  getWorkspaceHooksDir: () => join(testDir, 'hooks'),
+  getWorkspaceConfigPath: () => join(testDir, "config.json"),
+  getWorkspaceSkillsDir: () => join(testDir, "skills"),
+  getWorkspaceHooksDir: () => join(testDir, "hooks"),
   getWorkspacePromptPath: (file: string) => join(testDir, file),
-  getSocketPath: () => join(testDir, 'test.sock'),
-  getSessionTokenPath: () => join(testDir, 'session-token'),
-  getPidPath: () => join(testDir, 'test.pid'),
-  getDbPath: () => join(testDir, 'data', 'test.db'),
-  getLogPath: () => join(testDir, 'logs', 'test.log'),
-  getHistoryPath: () => join(testDir, 'history'),
-  getHooksDir: () => join(testDir, 'hooks'),
-  getIpcBlobDir: () => join(testDir, 'ipc-blobs'),
-  getSandboxRootDir: () => join(testDir, 'sandbox'),
+  getSocketPath: () => join(testDir, "test.sock"),
+  getSessionTokenPath: () => join(testDir, "session-token"),
+  getPidPath: () => join(testDir, "test.pid"),
+  getDbPath: () => join(testDir, "data", "test.db"),
+  getLogPath: () => join(testDir, "logs", "test.log"),
+  getHistoryPath: () => join(testDir, "history"),
+  getHooksDir: () => join(testDir, "hooks"),
+  getIpcBlobDir: () => join(testDir, "ipc-blobs"),
+  getSandboxRootDir: () => join(testDir, "sandbox"),
   getSandboxWorkingDir: () => testDir,
-  getInterfacesDir: () => join(testDir, 'interfaces'),
-  isMacOS: () => process.platform === 'darwin',
-  isLinux: () => process.platform === 'linux',
-  isWindows: () => process.platform === 'win32',
+  getInterfacesDir: () => join(testDir, "interfaces"),
+  isMacOS: () => process.platform === "darwin",
+  isLinux: () => process.platform === "linux",
+  isWindows: () => process.platform === "win32",
   getPlatformName: () => process.platform,
   getClipboardCommand: () => null,
-  getHttpTokenPath: () => join(testDir, 'http-token'),
-  getPlatformTokenPath: () => join(testDir, 'platform-token'),
-  getTCPHost: () => '127.0.0.1',
+  getHttpTokenPath: () => join(testDir, "http-token"),
+  getPlatformTokenPath: () => join(testDir, "platform-token"),
+  getTCPHost: () => "127.0.0.1",
   getTCPPort: () => 8765,
   isIOSPairingEnabled: () => false,
   isTCPEnabled: () => false,
@@ -115,7 +125,7 @@ mock.module('../util/platform.js', () => ({
   ensureDataDir: () => {},
 }));
 
-mock.module('../util/logger.js', () => ({
+mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
@@ -126,15 +136,15 @@ mock.module('../util/logger.js', () => ({
     }),
   isDebug: () => false,
   truncateForLog: (value: string, maxLen = 500) =>
-    value.length > maxLen ? value.slice(0, maxLen) + '...' : value,
+    value.length > maxLen ? value.slice(0, maxLen) + "..." : value,
   initLogger: () => {},
   pruneOldLogFiles: () => 0,
 }));
 
 const mockConfig = {
-  model: 'mock-model',
-  provider: 'mock',
-  sandbox: { enabled: false, backend: 'native' },
+  model: "mock-model",
+  provider: "mock",
+  sandbox: { enabled: false, backend: "native" },
   contextWindow: {
     enabled: true,
     maxInputTokens: 180000,
@@ -146,8 +156,16 @@ const mockConfig = {
   thinking: { enabled: false, budgetTokens: 10000 },
 };
 
-mock.module('../config/loader.js', () => ({
-  API_KEY_PROVIDERS: ['anthropic', 'openai', 'gemini', 'ollama', 'fireworks', 'brave', 'perplexity'],
+mock.module("../config/loader.js", () => ({
+  API_KEY_PROVIDERS: [
+    "anthropic",
+    "openai",
+    "gemini",
+    "ollama",
+    "fireworks",
+    "brave",
+    "perplexity",
+  ],
   getConfig: () => mockConfig,
   loadConfig: () => mockConfig,
   saveConfig: () => {},
@@ -160,22 +178,26 @@ mock.module('../config/loader.js', () => ({
 
 // Additional mocks required for Session constructor and end-to-end tests
 
-mock.module('../memory/conversation-store.js', () => ({
-  addMessage: () => ({ id: 'msg-1' }),
+mock.module("../memory/conversation-store.js", () => ({
+  addMessage: () => ({ id: "msg-1" }),
   countConversations: () => 0,
   getMessages: () => [],
   listConversations: () => [],
   getConversation: () => null,
   getLatestConversation: () => null,
-  createConversation: () => ({ id: 'bench-conv', title: 'Bench', threadType: 'standard' }),
+  createConversation: () => ({
+    id: "bench-conv",
+    title: "Bench",
+    threadType: "standard",
+  }),
   clearAll: () => {},
   deleteConversation: () => {},
   deleteLastExchange: () => 0,
   deleteMessageById: () => ({ memoryItemIds: [], memoryEntityIds: [] }),
   getConversationOriginChannel: () => null,
   getConversationOriginInterface: () => null,
-  getConversationThreadType: () => 'standard',
-  getConversationMemoryScopeId: () => 'default',
+  getConversationThreadType: () => "standard",
+  getConversationMemoryScopeId: () => "default",
   isLastUserMessageToolResult: () => false,
   provenanceFromGuardianContext: () => ({}),
   relinkAttachments: () => 0,
@@ -187,14 +209,14 @@ mock.module('../memory/conversation-store.js', () => ({
   updateMessageContent: () => {},
 }));
 
-mock.module('../hooks/manager.js', () => ({
+mock.module("../hooks/manager.js", () => ({
   getHookManager: () => ({
     trigger: () => Promise.resolve(),
     initialize: () => {},
   }),
 }));
 
-mock.module('../tools/watch/watch-state.js', () => ({
+mock.module("../tools/watch/watch-state.js", () => ({
   watchSessions: new Map(),
   registerWatchStartNotifier: () => {},
   unregisterWatchStartNotifier: () => {},
@@ -210,7 +232,7 @@ mock.module('../tools/watch/watch-state.js', () => ({
   pruneWatchSessions: () => {},
 }));
 
-mock.module('../calls/call-state.js', () => ({
+mock.module("../calls/call-state.js", () => ({
   registerCallQuestionNotifier: () => {},
   unregisterCallQuestionNotifier: () => {},
   fireCallQuestionNotifier: () => {},
@@ -225,8 +247,8 @@ mock.module('../calls/call-state.js', () => ({
   getCallController: () => undefined,
 }));
 
-mock.module('../calls/call-store.js', () => ({
-  createCallSession: () => ({ id: 'mock' }),
+mock.module("../calls/call-store.js", () => ({
+  createCallSession: () => ({ id: "mock" }),
   getCallSession: () => null,
   getCallSessionByCallSid: () => null,
   getActiveCallSessionForConversation: () => null,
@@ -234,11 +256,11 @@ mock.module('../calls/call-store.js', () => ({
   listRecoverableCalls: () => [],
   recordCallEvent: () => {},
   getCallEvents: () => [],
-  createPendingQuestion: () => ({ id: 'mock' }),
+  createPendingQuestion: () => ({ id: "mock" }),
   getPendingQuestion: () => null,
   answerPendingQuestion: () => {},
   expirePendingQuestions: () => {},
-  buildCallbackDedupeKey: () => '',
+  buildCallbackDedupeKey: () => "",
   isCallbackProcessed: () => false,
   recordProcessedCallback: () => {},
   tryRecordProcessedCallback: () => true,
@@ -246,12 +268,12 @@ mock.module('../calls/call-store.js', () => ({
   releaseCallbackClaim: () => {},
 }));
 
-mock.module('../daemon/watch-handler.js', () => ({
+mock.module("../daemon/watch-handler.js", () => ({
   lastCommentaryBySession: new Map(),
   lastSummaryBySession: new Map(),
 }));
 
-mock.module('../tools/browser/browser-screencast.js', () => ({
+mock.module("../tools/browser/browser-screencast.js", () => ({
   registerSessionSender: () => {},
   unregisterSessionSender: () => {},
   ensureScreencast: () => Promise.resolve(),
@@ -265,19 +287,17 @@ mock.module('../tools/browser/browser-screencast.js', () => ({
   getSender: () => undefined,
 }));
 
-mock.module('../services/published-app-updater.js', () => ({
+mock.module("../services/published-app-updater.js", () => ({
   updatePublishedAppDeployment: () => Promise.resolve(),
 }));
 
-const { initializeTools, getAllToolDefinitions, __resetRegistryForTesting } = await import(
-  '../tools/registry.js'
-);
-const { buildSystemPrompt } = await import('../config/system-prompt.js');
-const { Session } = await import('../daemon/session.js');
-const { projectSkillTools, resetSkillToolProjection } = await import(
-  '../daemon/session-skill-tools.js'
-);
-import type { Provider } from '../providers/types.js';
+const { initializeTools, getAllToolDefinitions, __resetRegistryForTesting } =
+  await import("../tools/registry.js");
+const { buildSystemPrompt } = await import("../config/system-prompt.js");
+const { Session } = await import("../daemon/session.js");
+const { projectSkillTools, resetSkillToolProjection } =
+  await import("../daemon/session-skill-tools.js");
+import type { Provider } from "../providers/types.js";
 
 afterAll(() => {
   __resetRegistryForTesting();
@@ -288,8 +308,8 @@ afterAll(() => {
   }
 });
 
-describe('Session initialization benchmark', () => {
-  test('initializeTools completes under 100ms (median of 5)', async () => {
+describe("Session initialization benchmark", () => {
+  test("initializeTools completes under 100ms (median of 5)", async () => {
     // Warm-up run to eliminate JIT / lazy-load overhead
     __resetRegistryForTesting();
     await initializeTools();
@@ -306,7 +326,7 @@ describe('Session initialization benchmark', () => {
     expect(median(timings)).toBeLessThan(100);
   });
 
-  test('getAllToolDefinitions retrieves definitions under 10ms (median of 5)', async () => {
+  test("getAllToolDefinitions retrieves definitions under 10ms (median of 5)", async () => {
     await initializeTools();
 
     // Warm-up
@@ -324,7 +344,7 @@ describe('Session initialization benchmark', () => {
     expect(median(timings)).toBeLessThan(10);
   });
 
-  test('buildSystemPrompt assembles prompt under 50ms (median of 5)', () => {
+  test("buildSystemPrompt assembles prompt under 50ms (median of 5)", () => {
     // Warm-up
     buildSystemPrompt();
 
@@ -335,7 +355,7 @@ describe('Session initialization benchmark', () => {
       timings.push(performance.now() - start);
       if (i === 0) {
         expect(prompt.length).toBeGreaterThan(0);
-        expect(prompt).toContain('Test Identity');
+        expect(prompt).toContain("Test Identity");
       }
     }
 
@@ -343,7 +363,7 @@ describe('Session initialization benchmark', () => {
     expect(median(timings)).toBeLessThan(50);
   });
 
-  test('repeated buildSystemPrompt calls are consistently fast (10 iterations)', () => {
+  test("repeated buildSystemPrompt calls are consistently fast (10 iterations)", () => {
     const timings: number[] = [];
     for (let i = 0; i < 10; i++) {
       const start = performance.now();
@@ -359,7 +379,7 @@ describe('Session initialization benchmark', () => {
     expect(avgTime).toBeLessThan(20);
   });
 
-  test('tool definitions count stays within expected range after init', async () => {
+  test("tool definitions count stays within expected range after init", async () => {
     await initializeTools();
     const definitions = getAllToolDefinitions();
 
@@ -370,7 +390,7 @@ describe('Session initialization benchmark', () => {
   });
 });
 
-describe('End-to-end session creation benchmark', () => {
+describe("End-to-end session creation benchmark", () => {
   // Uses the real Session constructor + loadFromDb() path, which wires up
   // the tool executor, event bus, agent loop, context window manager, and
   // notifiers. Note: the daemon's getOrCreateSession() adds provider
@@ -379,24 +399,31 @@ describe('End-to-end session creation benchmark', () => {
   // here.
 
   const mockProvider: Provider = {
-    name: 'mock',
+    name: "mock",
     sendMessage: () =>
       Promise.resolve({
-        content: [{ type: 'text' as const, text: 'ok' }],
-        model: 'mock-model',
+        content: [{ type: "text" as const, text: "ok" }],
+        model: "mock-model",
         usage: { inputTokens: 0, outputTokens: 0 },
-        stopReason: 'end_turn',
+        stopReason: "end_turn",
       }),
   };
   const noop = () => {};
 
-  test('session creation without preactivated skills completes under 200ms (median of 3)', async () => {
+  test("session creation without preactivated skills completes under 200ms (median of 3)", async () => {
     __resetRegistryForTesting();
     await initializeTools();
     const systemPrompt = buildSystemPrompt();
 
     // Warm-up run
-    const warmup = new Session('bench-warmup-0', mockProvider, systemPrompt, 64000, noop, testDir);
+    const warmup = new Session(
+      "bench-warmup-0",
+      mockProvider,
+      systemPrompt,
+      64000,
+      noop,
+      testDir,
+    );
     await warmup.loadFromDb();
     warmup.dispose();
 
@@ -404,7 +431,14 @@ describe('End-to-end session creation benchmark', () => {
     for (let i = 0; i < 3; i++) {
       const id = `bench-no-skills-${i}`;
       const start = performance.now();
-      const session = new Session(id, mockProvider, systemPrompt, 64000, noop, testDir);
+      const session = new Session(
+        id,
+        mockProvider,
+        systemPrompt,
+        64000,
+        noop,
+        testDir,
+      );
       await session.loadFromDb();
       timings.push(performance.now() - start);
 
@@ -419,13 +453,20 @@ describe('End-to-end session creation benchmark', () => {
     expect(median(timings)).toBeLessThan(200);
   });
 
-  test('session creation with 3 preactivated skills completes under 300ms (median of 3)', async () => {
+  test("session creation with 3 preactivated skills completes under 300ms (median of 3)", async () => {
     __resetRegistryForTesting();
     await initializeTools();
     const systemPrompt = buildSystemPrompt();
 
     // Warm-up run — includes skill projection so manifest loading is JIT'd
-    const warmup = new Session('bench-warmup-s', mockProvider, systemPrompt, 64000, noop, testDir);
+    const warmup = new Session(
+      "bench-warmup-s",
+      mockProvider,
+      systemPrompt,
+      64000,
+      noop,
+      testDir,
+    );
     warmup.preactivatedSkillIds = testSkillIds;
     await warmup.loadFromDb();
     projectSkillTools([], {
@@ -440,7 +481,14 @@ describe('End-to-end session creation benchmark', () => {
     for (let i = 0; i < 3; i++) {
       const id = `bench-with-skills-${i}`;
       const start = performance.now();
-      const session = new Session(id, mockProvider, systemPrompt, 64000, noop, testDir);
+      const session = new Session(
+        id,
+        mockProvider,
+        systemPrompt,
+        64000,
+        noop,
+        testDir,
+      );
       session.preactivatedSkillIds = testSkillIds;
       await session.loadFromDb();
       // Skill projection runs at agent turn time, not during loadFromDb.
@@ -465,17 +513,31 @@ describe('End-to-end session creation benchmark', () => {
     expect(median(timings)).toBeLessThan(300);
   });
 
-  test('Session constructor (sync, no loadFromDb) completes under 10ms (median of 5)', () => {
+  test("Session constructor (sync, no loadFromDb) completes under 10ms (median of 5)", () => {
     const systemPrompt = buildSystemPrompt();
 
     // Warm-up
-    const warmup = new Session('bench-events-w', mockProvider, systemPrompt, 64000, noop, testDir);
+    const warmup = new Session(
+      "bench-events-w",
+      mockProvider,
+      systemPrompt,
+      64000,
+      noop,
+      testDir,
+    );
     warmup.dispose();
 
     const timings: number[] = [];
     for (let i = 0; i < 5; i++) {
       const start = performance.now();
-      const session = new Session(`bench-events-${i}`, mockProvider, systemPrompt, 64000, noop, testDir);
+      const session = new Session(
+        `bench-events-${i}`,
+        mockProvider,
+        systemPrompt,
+        64000,
+        noop,
+        testDir,
+      );
       timings.push(performance.now() - start);
 
       if (i === 0) {

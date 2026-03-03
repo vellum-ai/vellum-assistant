@@ -2,12 +2,12 @@ process.title = "vellum-gateway";
 
 import { randomBytes } from "node:crypto";
 import { AuthRateLimiter } from "./auth-rate-limiter.js";
-import { loadOrCreateSigningKey, initSigningKey, verifyToken } from "./auth/token-service.js";
+import { loadOrCreateSigningKey, initSigningKey } from "./auth/token-service.js";
 import { validateEdgeToken } from "./auth/token-exchange.js";
 import { resolveScopeProfile } from "./auth/scopes.js";
 import type { Scope } from "./auth/types.js";
 import { ConfigFileWatcher } from "./config-file-watcher.js";
-import { loadConfig, isSlackChannelConfigured, type GatewayConfig } from "./config.js";
+import { loadConfig, isSlackChannelConfigured } from "./config.js";
 import { CredentialWatcher } from "./credential-watcher.js";
 import { createRuntimeProxyHandler } from "./http/routes/runtime-proxy.js";
 import {

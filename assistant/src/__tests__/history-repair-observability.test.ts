@@ -1,13 +1,13 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, test } from "bun:test";
 
-import { repairHistory } from '../daemon/history-repair.js';
-import type { Message } from '../providers/types.js';
+import { repairHistory } from "../daemon/history-repair.js";
+import type { Message } from "../providers/types.js";
 
-describe('history-repair observability', () => {
-  test('stats are all zero for valid history (no logs should be emitted)', () => {
+describe("history-repair observability", () => {
+  test("stats are all zero for valid history (no logs should be emitted)", () => {
     const messages: Message[] = [
-      { role: 'user', content: [{ type: 'text', text: 'Hello' }] },
-      { role: 'assistant', content: [{ type: 'text', text: 'Hi' }] },
+      { role: "user", content: [{ type: "text", text: "Hello" }] },
+      { role: "assistant", content: [{ type: "text", text: "Hi" }] },
     ];
 
     const { stats } = repairHistory(messages);
@@ -18,20 +18,20 @@ describe('history-repair observability', () => {
     expect(stats.consecutiveSameRoleMerged).toBe(0);
   });
 
-  test('stats are non-zero only when repairs are applied', () => {
+  test("stats are non-zero only when repairs are applied", () => {
     const messages: Message[] = [
-      { role: 'user', content: [{ type: 'text', text: 'Go' }] },
+      { role: "user", content: [{ type: "text", text: "Go" }] },
       {
-        role: 'assistant',
+        role: "assistant",
         content: [
-          { type: 'tool_use', id: 'tu_1', name: 'bash', input: {} },
-          { type: 'tool_result', tool_use_id: 'tu_bad', content: 'stale' },
+          { type: "tool_use", id: "tu_1", name: "bash", input: {} },
+          { type: "tool_result", tool_use_id: "tu_bad", content: "stale" },
         ],
       },
       {
-        role: 'user',
+        role: "user",
         content: [
-          { type: 'tool_result', tool_use_id: 'tu_orphan', content: 'orphan' },
+          { type: "tool_result", tool_use_id: "tu_orphan", content: "orphan" },
         ],
       },
     ];

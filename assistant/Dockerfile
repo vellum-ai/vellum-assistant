@@ -22,9 +22,6 @@ COPY package.json bun.lock ./
 # Install dependencies
 RUN bun install --frozen-lockfile
 
-# Copy source
-COPY . .
-
 # Final stage
 FROM debian:trixie@sha256:3615a749858a1cba49b408fb49c37093db813321355a9ab7c1f9f4836341e9db AS runner
 
@@ -54,9 +51,6 @@ RUN ln -sf /usr/local/bin/bun /usr/local/bin/bunx
 RUN groupadd --system --gid 1001 assistant && \
     useradd --system --uid 1001 --gid assistant --create-home --shell /bin/bash assistant && \
     echo "assistant ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
-
-# Copy from builder
-COPY --from=builder /app /app
 
 # Set up data directory
 RUN mkdir -p /home/assistant/.vellum /data && \
@@ -97,6 +91,12 @@ ENV RUNTIME_HTTP_PORT=3001
 ENV VELLUM_DAEMON_SOCKET=/home/assistant/.vellum/vellum.sock
 ENV BASE_DATA_DIR=/data
 ENV IS_CONTAINERIZED=true
+
+# Copy from builder
+COPY --from=builder /app /app
+
+# Copy source
+COPY . .
 
 # Run the daemon + http server
 CMD ["bun", "run", "src/daemon/main.ts"]

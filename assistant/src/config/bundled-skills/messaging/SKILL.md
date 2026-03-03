@@ -306,6 +306,7 @@ When a user asks to declutter, clean up, or organize their email — start scann
 1. **Scan**: Call `gmail_sender_digest` (or `messaging_sender_digest` for non-Gmail). Default query targets promotions from the last 90 days.
 2. **Present**: Show results as a `ui_show` table with `selectionMode: "multiple"`:
    - **Gmail columns (exactly 3)**: Sender, Emails Found, Unsub?
+     - **Unsub? cell values**: Use rich cell format: `{ "text": "Yes", "icon": "checkmark.circle.fill", "iconColor": "success" }` when `has_unsubscribe` is true, `{ "text": "No", "icon": "minus.circle", "iconColor": "muted" }` when false.
    - **Non-Gmail columns (exactly 2)**: Sender, Emails Found (omit the Unsub? column — unsubscribe is not available)
    - **Pre-select all rows** (`selected: true`) — users deselect what they want to keep
    - **Caption**: "Showing emails from last 90 days in Promotions" (or adjusted to match the query used)
@@ -313,11 +314,11 @@ When a user asks to declutter, clean up, or organize their email — start scann
    - **Non-Gmail action button (exactly 1)**: "Archive Selected" (primary). Do not offer an unsubscribe button — it is Gmail-specific. **NEVER offer Delete, Trash, or any destructive action.**
 3. **Wait for user action**: Stop and wait. Do NOT proceed to archiving or unsubscribing until the user clicks one of the action buttons on the table. When the user clicks an action button:
    - **Dismiss the table immediately** with `ui_dismiss` — it collapses to a completion chip
-   - **Show a `task_progress` card** with one step per selected sender (e.g., "Archiving TechCrunch (247 emails)"). Update each step from `in_progress` → `completed` as each sender finishes.
+   - **Show a `task_progress` card** with steps for each phase (e.g., "Archiving 89 senders (2,400 emails)", "Unsubscribing from 72 senders"). Update each step from `in_progress` → `completed` as each phase finishes.
    - When all senders are processed, set the progress card's `status: "completed"`.
-4. **Act on selection**: For each selected sender:
-   - Use `gmail_batch_archive` (or `messaging_archive_by_sender` for non-Gmail) with `scan_id` + the selected senders' `id` values as `sender_ids` — this resolves message IDs server-side without putting them in context
-   - If Gmail and the action is "Archive & Unsubscribe" and `has_unsubscribe` is true, call `gmail_unsubscribe` with the sender's `newest_message_id`
+4. **Act on selection** — batch, don't loop:
+   - **Archive all at once**: Call `gmail_batch_archive` (or `messaging_archive_by_sender` for non-Gmail) **once** with `scan_id` + **all** selected senders' `id` values in the `sender_ids` array. The tool resolves message IDs server-side and batches the Gmail API calls internally — never loop sender-by-sender.
+   - **Unsubscribe in bulk**: If Gmail and the action is "Archive & Unsubscribe", call `gmail_unsubscribe` for each sender that has `has_unsubscribe: true` — but emit **all** unsubscribe tool calls in a **single assistant response** (parallel tool use) rather than one-at-a-time across separate turns.
 5. **Accurate summary**: The scan counts are exact — the `message_count` shown in the table matches the number of messages archived. Format: "Cleaned up [total_archived] emails from [sender_count] senders." For Gmail, append: "Unsubscribed from [unsub_count]."
 6. **Ongoing protection offer (Gmail only)**: After reporting results, offer auto-archive filters:
    - "Want me to set up auto-archive filters so future emails from these senders skip your inbox?"
@@ -328,9 +329,10 @@ When a user asks to declutter, clean up, or organize their email — start scann
 
 - **Zero results**: Tell the user "No newsletter emails found" and suggest broadening the query (e.g. removing the category filter or extending the date range)
 - **Unsubscribe failures**: Report per-sender success/failure; the existing `gmail_unsubscribe` tool handles edge cases
-- **Truncation handling**: The scan covers up to 5000 messages (default 2000). If `truncated` is true:
-  - **Default**: The top senders are captured — this is usually fine. Mention "partial scan" in the summary.
-  - **Comprehensive** (user said "full inbox", "everything", "all of it"): Silently continue scanning with `page_token`, merge results across passes, and present once when complete. Don't ask — just keep going until done.
+- **Truncation handling**: The scan covers up to 2000 messages per call (cap 5000). The default 2000 captures the vast majority of newsletter senders. If `truncated` is true:
+  - Tell the user: "Scanned [N] messages — here are your top senders." The top senders are almost always captured in the first pass.
+  - If the user explicitly asks to scan more, make ONE additional call with the `page_token`. Never chain more than 2 calls total.
+- **Time budget exceeded**: If the scan returns `time_budget_exceeded: true`, present whatever results were collected. Do not retry or continue — the partial results are useful as-is.
 
 ### Scan ID
 

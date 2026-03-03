@@ -30,15 +30,13 @@ export class McpClient {
   private transport: StdioClientTransport | SSEClientTransport | StreamableHTTPClientTransport | null = null;
   private connected = false;
   private oauthProvider: McpOAuthProvider | null = null;
-  private quiet: boolean;
 
   get isConnected(): boolean {
     return this.connected;
   }
 
-  constructor(serverId: string, opts?: { quiet?: boolean }) {
+  constructor(serverId: string) {
     this.serverId = serverId;
-    this.quiet = opts?.quiet ?? false;
     this.client = new Client({
       name: 'vellum-assistant',
       version: '1.0.0',
@@ -61,7 +59,7 @@ export class McpClient {
       }
     }
 
-    if (!this.quiet) console.log(`[MCP] Connecting to server "${this.serverId}"...`);
+    log.info({ serverId: this.serverId }, 'Connecting to MCP server');
     this.transport = this.createTransport(transportConfig);
 
     try {
@@ -82,13 +80,11 @@ export class McpClient {
         if (isAuthError) {
           // Auth-related — user can run `vellum mcp auth <name>` to authenticate.
           log.info({ serverId: this.serverId, err }, 'MCP server requires authentication');
-          if (!this.quiet) console.log(`[MCP] Server "${this.serverId}" requires authentication. Run "vellum mcp auth ${this.serverId}" to authenticate.`);
           return;
         }
 
         // Non-auth error (DNS, TLS, timeout, etc.) — log and re-throw
         log.error({ serverId: this.serverId, err }, 'MCP server connection failed');
-        if (!this.quiet) console.error(`[MCP] Server "${this.serverId}" connection failed: ${err instanceof Error ? err.message : err}`);
         throw err;
       }
 
@@ -96,7 +92,6 @@ export class McpClient {
     }
 
     this.connected = true;
-    if (!this.quiet) console.log(`[MCP] Server "${this.serverId}" connected successfully`);
     log.info({ serverId: this.serverId }, 'MCP client connected');
   }
 

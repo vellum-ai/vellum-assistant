@@ -1,64 +1,74 @@
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { afterAll, beforeEach, describe, expect, mock,test } from 'bun:test';
+import { RiskLevel } from "../permissions/types.js";
 
-import { RiskLevel } from '../permissions/types.js';
+const testDir = mkdtempSync(join(tmpdir(), "asset-search-test-"));
 
-const testDir = mkdtempSync(join(tmpdir(), 'asset-search-test-'));
-
-mock.module('../util/platform.js', () => ({
+mock.module("../util/platform.js", () => ({
   getDataDir: () => testDir,
-  isMacOS: () => process.platform === 'darwin',
-  isLinux: () => process.platform === 'linux',
-  isWindows: () => process.platform === 'win32',
-  getSocketPath: () => join(testDir, 'test.sock'),
-  getPidPath: () => join(testDir, 'test.pid'),
-  getDbPath: () => join(testDir, 'test.db'),
-  getLogPath: () => join(testDir, 'test.log'),
+  isMacOS: () => process.platform === "darwin",
+  isLinux: () => process.platform === "linux",
+  isWindows: () => process.platform === "win32",
+  getSocketPath: () => join(testDir, "test.sock"),
+  getPidPath: () => join(testDir, "test.pid"),
+  getDbPath: () => join(testDir, "test.db"),
+  getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
   getRootDir: () => testDir,
 }));
 
-mock.module('../util/logger.js', () => ({
-  getLogger: () => new Proxy({} as Record<string, unknown>, {
-    get: () => () => {},
-  }),
+mock.module("../util/logger.js", () => ({
+  getLogger: () =>
+    new Proxy({} as Record<string, unknown>, {
+      get: () => () => {},
+    }),
 }));
 
-mock.module('../config/loader.js', () => ({
+mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
-    
-    model: 'test',
-    provider: 'test',
+
+    model: "test",
+    provider: "test",
     apiKeys: {},
     memory: { enabled: false },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
   }),
 }));
 
-import { linkAttachmentToMessage,uploadAttachment } from '../memory/attachments-store.js';
-import { addMessage,createConversation } from '../memory/conversation-store.js';
-import { getDb, initializeDb, resetDb } from '../memory/db.js';
-import { searchAttachments } from '../tools/assets/search.js';
-import { assetSearchTool } from '../tools/assets/search.js';
-import type { ToolContext } from '../tools/types.js';
+import {
+  linkAttachmentToMessage,
+  uploadAttachment,
+} from "../memory/attachments-store.js";
+import {
+  addMessage,
+  createConversation,
+} from "../memory/conversation-store.js";
+import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { searchAttachments } from "../tools/assets/search.js";
+import { assetSearchTool } from "../tools/assets/search.js";
+import type { ToolContext } from "../tools/types.js";
 
 initializeDb();
 
 afterAll(() => {
   resetDb();
-  try { rmSync(testDir, { recursive: true }); } catch { /* best effort */ }
+  try {
+    rmSync(testDir, { recursive: true });
+  } catch {
+    /* best effort */
+  }
 });
 
 function resetTables() {
   const db = getDb();
-  db.run('DELETE FROM message_attachments');
-  db.run('DELETE FROM attachments');
-  db.run('DELETE FROM messages');
-  db.run('DELETE FROM conversations');
+  db.run("DELETE FROM message_attachments");
+  db.run("DELETE FROM attachments");
+  db.run("DELETE FROM messages");
+  db.run("DELETE FROM conversations");
 }
 
 // Seed data helpers
@@ -71,144 +81,160 @@ function seedAttachments() {
   // Force createdAt by uploading then manipulating the DB
   const db = getDb();
 
-  const png1 = uploadAttachment('selfie.png', 'image/png', 'AAAA');
-  const jpg1 = uploadAttachment('photo.jpg', 'image/jpeg', 'BBBB');
-  const pdf1 = uploadAttachment('report.pdf', 'application/pdf', 'CCCC');
-  const png2 = uploadAttachment('screenshot.png', 'image/png', 'DDDD');
+  const png1 = uploadAttachment("selfie.png", "image/png", "AAAA");
+  const jpg1 = uploadAttachment("photo.jpg", "image/jpeg", "BBBB");
+  const pdf1 = uploadAttachment("report.pdf", "application/pdf", "CCCC");
+  const png2 = uploadAttachment("screenshot.png", "image/png", "DDDD");
 
   // Backdate some attachments for recency testing
-  db.run(`UPDATE attachments SET created_at = ${oneDayAgo} WHERE id = '${jpg1.id}'`);
-  db.run(`UPDATE attachments SET created_at = ${tenDaysAgo} WHERE id = '${pdf1.id}'`);
-  db.run(`UPDATE attachments SET created_at = ${sixtyDaysAgo} WHERE id = '${png2.id}'`);
+  db.run(
+    `UPDATE attachments SET created_at = ${oneDayAgo} WHERE id = '${jpg1.id}'`,
+  );
+  db.run(
+    `UPDATE attachments SET created_at = ${tenDaysAgo} WHERE id = '${pdf1.id}'`,
+  );
+  db.run(
+    `UPDATE attachments SET created_at = ${sixtyDaysAgo} WHERE id = '${png2.id}'`,
+  );
 
   return { png1, jpg1, pdf1, png2, now, oneDayAgo, tenDaysAgo, sixtyDaysAgo };
 }
 
 const dummyContext: ToolContext = {
-  workingDir: '/tmp',
-  sessionId: 'sess-test',
-  conversationId: 'conv-test',
-  guardianTrustClass: 'guardian',
+  workingDir: "/tmp",
+  sessionId: "sess-test",
+  conversationId: "conv-test",
+  guardianTrustClass: "guardian",
 };
 
 // ---------------------------------------------------------------------------
 // searchAttachments (unit tests on the query function)
 // ---------------------------------------------------------------------------
 
-describe('searchAttachments', () => {
+describe("searchAttachments", () => {
   beforeEach(resetTables);
 
-  test('returns all attachments when no filters provided', () => {
+  test("returns all attachments when no filters provided", () => {
     seedAttachments();
     const results = searchAttachments({});
     expect(results.length).toBe(4);
   });
 
-  test('filters by exact MIME type', () => {
+  test("filters by exact MIME type", () => {
     seedAttachments();
-    const results = searchAttachments({ mime_type: 'application/pdf' });
+    const results = searchAttachments({ mime_type: "application/pdf" });
     expect(results.length).toBe(1);
-    expect(results[0].mimeType).toBe('application/pdf');
+    expect(results[0].mimeType).toBe("application/pdf");
   });
 
-  test('filters by MIME type wildcard (image/*)', () => {
+  test("filters by MIME type wildcard (image/*)", () => {
     seedAttachments();
-    const results = searchAttachments({ mime_type: 'image/*' });
+    const results = searchAttachments({ mime_type: "image/*" });
     expect(results.length).toBe(3);
     for (const r of results) {
-      expect(r.mimeType.startsWith('image/')).toBe(true);
+      expect(r.mimeType.startsWith("image/")).toBe(true);
     }
   });
 
-  test('filters by filename substring', () => {
+  test("filters by filename substring", () => {
     seedAttachments();
-    const results = searchAttachments({ filename: 'selfie' });
+    const results = searchAttachments({ filename: "selfie" });
     expect(results.length).toBe(1);
-    expect(results[0].originalFilename).toBe('selfie.png');
+    expect(results[0].originalFilename).toBe("selfie.png");
   });
 
-  test('filename search is case-insensitive via LIKE', () => {
+  test("filename search is case-insensitive via LIKE", () => {
     seedAttachments();
     // SQLite LIKE is case-insensitive for ASCII by default
-    const results = searchAttachments({ filename: 'SELFIE' });
+    const results = searchAttachments({ filename: "SELFIE" });
     expect(results.length).toBe(1);
   });
 
-  test('filters by recency: last_24_hours', () => {
+  test("filters by recency: last_24_hours", () => {
     seedAttachments();
-    const results = searchAttachments({ recency: 'last_24_hours' });
+    const results = searchAttachments({ recency: "last_24_hours" });
     // Only selfie.png was uploaded "now" (not backdated past 24h)
     expect(results.length).toBe(1);
-    expect(results[0].originalFilename).toBe('selfie.png');
+    expect(results[0].originalFilename).toBe("selfie.png");
   });
 
-  test('filters by recency: last_7_days', () => {
+  test("filters by recency: last_7_days", () => {
     seedAttachments();
-    const results = searchAttachments({ recency: 'last_7_days' });
+    const results = searchAttachments({ recency: "last_7_days" });
     // selfie.png (now) and photo.jpg (1 day ago)
     expect(results.length).toBe(2);
   });
 
-  test('filters by recency: last_30_days', () => {
+  test("filters by recency: last_30_days", () => {
     seedAttachments();
-    const results = searchAttachments({ recency: 'last_30_days' });
+    const results = searchAttachments({ recency: "last_30_days" });
     // selfie.png (now), photo.jpg (1 day ago), report.pdf (10 days ago)
     expect(results.length).toBe(3);
   });
 
-  test('filters by recency: last_90_days', () => {
+  test("filters by recency: last_90_days", () => {
     seedAttachments();
-    const results = searchAttachments({ recency: 'last_90_days' });
+    const results = searchAttachments({ recency: "last_90_days" });
     // All 4 attachments are within 90 days
     expect(results.length).toBe(4);
   });
 
-  test('combines mime_type and filename filters', () => {
+  test("combines mime_type and filename filters", () => {
     seedAttachments();
-    const results = searchAttachments({ mime_type: 'image/*', filename: 'selfie' });
+    const results = searchAttachments({
+      mime_type: "image/*",
+      filename: "selfie",
+    });
     expect(results.length).toBe(1);
-    expect(results[0].originalFilename).toBe('selfie.png');
+    expect(results[0].originalFilename).toBe("selfie.png");
   });
 
-  test('combines mime_type and recency filters', () => {
+  test("combines mime_type and recency filters", () => {
     seedAttachments();
-    const results = searchAttachments({ mime_type: 'image/*', recency: 'last_24_hours' });
+    const results = searchAttachments({
+      mime_type: "image/*",
+      recency: "last_24_hours",
+    });
     expect(results.length).toBe(1);
-    expect(results[0].originalFilename).toBe('selfie.png');
+    expect(results[0].originalFilename).toBe("selfie.png");
   });
 
-  test('respects limit parameter', () => {
+  test("respects limit parameter", () => {
     seedAttachments();
     const results = searchAttachments({ limit: 2 });
     expect(results.length).toBe(2);
   });
 
-  test('caps limit at MAX_RESULTS (100)', () => {
+  test("caps limit at MAX_RESULTS (100)", () => {
     seedAttachments();
     const results = searchAttachments({ limit: 500 });
     // We only have 4 attachments so we just verify it doesn't error
     expect(results.length).toBe(4);
   });
 
-  test('returns results ordered by createdAt desc (most recent first)', () => {
+  test("returns results ordered by createdAt desc (most recent first)", () => {
     seedAttachments();
     const results = searchAttachments({});
     // selfie.png is most recent (now), then photo.jpg (1 day ago), etc.
-    expect(results[0].originalFilename).toBe('selfie.png');
+    expect(results[0].originalFilename).toBe("selfie.png");
     for (let i = 1; i < results.length; i++) {
-      expect(results[i - 1].createdAt).toBeGreaterThanOrEqual(results[i].createdAt);
+      expect(results[i - 1].createdAt).toBeGreaterThanOrEqual(
+        results[i].createdAt,
+      );
     }
   });
 
-  test('returns empty array when no matches', () => {
+  test("returns empty array when no matches", () => {
     seedAttachments();
-    const results = searchAttachments({ filename: 'nonexistent' });
+    const results = searchAttachments({ filename: "nonexistent" });
     expect(results.length).toBe(0);
   });
 
-  test('does not return base64 data in results', () => {
+  test("does not return base64 data in results", () => {
     seedAttachments();
-    const results = searchAttachments({}) as unknown as Array<Record<string, unknown>>;
+    const results = searchAttachments({}) as unknown as Array<
+      Record<string, unknown>
+    >;
     for (const r of results) {
       expect(r.dataBase64).toBeUndefined();
     }
@@ -219,17 +245,17 @@ describe('searchAttachments', () => {
 // searchAttachments with conversation_id
 // ---------------------------------------------------------------------------
 
-describe('searchAttachments with conversation_id', () => {
+describe("searchAttachments with conversation_id", () => {
   beforeEach(resetTables);
 
-  test('returns only attachments linked to the specified conversation', async () => {
-    const png1 = uploadAttachment('in-conv.png', 'image/png', 'AAAA');
-    const png2 = uploadAttachment('other-conv.png', 'image/png', 'BBBB');
+  test("returns only attachments linked to the specified conversation", async () => {
+    const png1 = uploadAttachment("in-conv.png", "image/png", "AAAA");
+    const png2 = uploadAttachment("other-conv.png", "image/png", "BBBB");
 
     const conv1 = createConversation();
     const conv2 = createConversation();
-    const msg1 = await addMessage(conv1.id, 'user', 'First conv');
-    const msg2 = await addMessage(conv2.id, 'user', 'Second conv');
+    const msg1 = await addMessage(conv1.id, "user", "First conv");
+    const msg2 = await addMessage(conv2.id, "user", "Second conv");
 
     linkAttachmentToMessage(msg1.id, png1.id, 0);
     linkAttachmentToMessage(msg2.id, png2.id, 0);
@@ -239,49 +265,55 @@ describe('searchAttachments with conversation_id', () => {
     expect(results[0].id).toBe(png1.id);
   });
 
-  test('returns empty when conversation has no attachments', async () => {
-    uploadAttachment('orphan.png', 'image/png', 'AAAA');
+  test("returns empty when conversation has no attachments", async () => {
+    uploadAttachment("orphan.png", "image/png", "AAAA");
     const conv = createConversation();
-    await addMessage(conv.id, 'user', 'No attachments here');
+    await addMessage(conv.id, "user", "No attachments here");
 
     const results = searchAttachments({ conversation_id: conv.id });
     expect(results.length).toBe(0);
   });
 
-  test('returns empty for nonexistent conversation_id', () => {
-    uploadAttachment('file.png', 'image/png', 'AAAA');
-    const results = searchAttachments({ conversation_id: 'conv-nonexistent' });
+  test("returns empty for nonexistent conversation_id", () => {
+    uploadAttachment("file.png", "image/png", "AAAA");
+    const results = searchAttachments({ conversation_id: "conv-nonexistent" });
     expect(results.length).toBe(0);
   });
 
-  test('combines conversation_id with mime_type filter', async () => {
-    const png = uploadAttachment('image.png', 'image/png', 'AAAA');
-    const pdf = uploadAttachment('doc.pdf', 'application/pdf', 'BBBB');
+  test("combines conversation_id with mime_type filter", async () => {
+    const png = uploadAttachment("image.png", "image/png", "AAAA");
+    const pdf = uploadAttachment("doc.pdf", "application/pdf", "BBBB");
 
     const conv = createConversation();
-    const msg = await addMessage(conv.id, 'user', 'Both types');
+    const msg = await addMessage(conv.id, "user", "Both types");
 
     linkAttachmentToMessage(msg.id, png.id, 0);
     linkAttachmentToMessage(msg.id, pdf.id, 1);
 
-    const results = searchAttachments({ conversation_id: conv.id, mime_type: 'image/*' });
+    const results = searchAttachments({
+      conversation_id: conv.id,
+      mime_type: "image/*",
+    });
     expect(results.length).toBe(1);
-    expect(results[0].mimeType).toBe('image/png');
+    expect(results[0].mimeType).toBe("image/png");
   });
 
-  test('combines conversation_id with filename filter', async () => {
-    const a = uploadAttachment('target.png', 'image/png', 'AAAA');
-    const b = uploadAttachment('other.png', 'image/png', 'BBBB');
+  test("combines conversation_id with filename filter", async () => {
+    const a = uploadAttachment("target.png", "image/png", "AAAA");
+    const b = uploadAttachment("other.png", "image/png", "BBBB");
 
     const conv = createConversation();
-    const msg = await addMessage(conv.id, 'user', 'Both');
+    const msg = await addMessage(conv.id, "user", "Both");
 
     linkAttachmentToMessage(msg.id, a.id, 0);
     linkAttachmentToMessage(msg.id, b.id, 1);
 
-    const results = searchAttachments({ conversation_id: conv.id, filename: 'target' });
+    const results = searchAttachments({
+      conversation_id: conv.id,
+      filename: "target",
+    });
     expect(results.length).toBe(1);
-    expect(results[0].originalFilename).toBe('target.png');
+    expect(results[0].originalFilename).toBe("target.png");
   });
 });
 
@@ -289,74 +321,87 @@ describe('searchAttachments with conversation_id', () => {
 // AssetSearchTool.execute (integration test via tool interface)
 // ---------------------------------------------------------------------------
 
-describe('AssetSearchTool.execute', () => {
+describe("AssetSearchTool.execute", () => {
   beforeEach(resetTables);
 
   // Import the tool instance
-  let tool: import('../tools/types.js').Tool;
+  let tool: import("../tools/types.js").Tool;
   beforeEach(async () => {
-    const mod = await import('../tools/assets/search.js');
+    const mod = await import("../tools/assets/search.js");
     tool = mod.assetSearchTool;
   });
 
-  test('returns formatted results for matching assets', async () => {
-    uploadAttachment('selfie.png', 'image/png', 'AAAA');
+  test("returns formatted results for matching assets", async () => {
+    uploadAttachment("selfie.png", "image/png", "AAAA");
     const result = await tool.execute({}, dummyContext);
     expect(result.isError).toBe(false);
-    expect(result.content).toContain('selfie.png');
-    expect(result.content).toContain('Found 1 asset(s)');
+    expect(result.content).toContain("selfie.png");
+    expect(result.content).toContain("Found 1 asset(s)");
   });
 
-  test('returns no-match message when nothing found', async () => {
-    const result = await tool.execute({ filename: 'nonexistent' }, dummyContext);
+  test("returns no-match message when nothing found", async () => {
+    const result = await tool.execute(
+      { filename: "nonexistent" },
+      dummyContext,
+    );
     expect(result.isError).toBe(false);
-    expect(result.content).toContain('No assets found');
+    expect(result.content).toContain("No assets found");
   });
 
-  test('returns error for invalid recency value', async () => {
-    const result = await tool.execute({ recency: 'last_year' }, dummyContext);
+  test("returns error for invalid recency value", async () => {
+    const result = await tool.execute({ recency: "last_year" }, dummyContext);
     expect(result.isError).toBe(true);
-    expect(result.content).toContain('Invalid recency value');
+    expect(result.content).toContain("Invalid recency value");
   });
 
-  test('returns error for invalid limit', async () => {
+  test("returns error for invalid limit", async () => {
     const result = await tool.execute({ limit: -1 }, dummyContext);
     expect(result.isError).toBe(true);
-    expect(result.content).toContain('limit must be a positive number');
+    expect(result.content).toContain("limit must be a positive number");
   });
 
-  test('includes attachment ID in output', async () => {
-    const stored = uploadAttachment('chart.png', 'image/png', 'AAAA');
+  test("includes attachment ID in output", async () => {
+    const stored = uploadAttachment("chart.png", "image/png", "AAAA");
     const result = await tool.execute({}, dummyContext);
     expect(result.isError).toBe(false);
     expect(result.content).toContain(stored.id);
   });
 
-  test('includes MIME type and kind in output', async () => {
-    uploadAttachment('chart.png', 'image/png', 'AAAA');
+  test("includes MIME type and kind in output", async () => {
+    uploadAttachment("chart.png", "image/png", "AAAA");
     const result = await tool.execute({}, dummyContext);
     expect(result.isError).toBe(false);
-    expect(result.content).toContain('image/png');
-    expect(result.content).toContain('image');
+    expect(result.content).toContain("image/png");
+    expect(result.content).toContain("image");
   });
 
-  test('tool definition has correct name and schema', () => {
+  test("tool definition has correct name and schema", () => {
     const def = tool.getDefinition();
-    expect(def.name).toBe('asset_search');
-    expect((def.input_schema as Record<string, unknown>).properties).toHaveProperty('mime_type');
-    expect((def.input_schema as Record<string, unknown>).properties).toHaveProperty('filename');
-    expect((def.input_schema as Record<string, unknown>).properties).toHaveProperty('recency');
-    expect((def.input_schema as Record<string, unknown>).properties).toHaveProperty('conversation_id');
-    expect((def.input_schema as Record<string, unknown>).properties).toHaveProperty('limit');
+    expect(def.name).toBe("asset_search");
+    expect(
+      (def.input_schema as Record<string, unknown>).properties,
+    ).toHaveProperty("mime_type");
+    expect(
+      (def.input_schema as Record<string, unknown>).properties,
+    ).toHaveProperty("filename");
+    expect(
+      (def.input_schema as Record<string, unknown>).properties,
+    ).toHaveProperty("recency");
+    expect(
+      (def.input_schema as Record<string, unknown>).properties,
+    ).toHaveProperty("conversation_id");
+    expect(
+      (def.input_schema as Record<string, unknown>).properties,
+    ).toHaveProperty("limit");
     expect((def.input_schema as Record<string, unknown>).required).toEqual([]);
   });
 
-  test('tool has LOW risk level', () => {
+  test("tool has LOW risk level", () => {
     expect(tool.defaultRiskLevel).toBe(RiskLevel.Low);
   });
 
-  test('tool category is assets', () => {
-    expect(tool.category).toBe('assets');
+  test("tool category is assets", () => {
+    expect(tool.category).toBe("assets");
   });
 });
 
@@ -364,125 +409,140 @@ describe('AssetSearchTool.execute', () => {
 // Visibility policy enforcement
 // ---------------------------------------------------------------------------
 
-describe('AssetSearchTool visibility policy', () => {
+describe("AssetSearchTool visibility policy", () => {
   beforeEach(resetTables);
 
-  test('attachments from standard threads are visible from any context', async () => {
-    const standardConv = createConversation({ title: 'standard-conv' });
-    const attachment = uploadAttachment('public.png', 'image/png', 'AAAA');
-    const msg = await addMessage(standardConv.id, 'user', 'standard message');
+  test("attachments from standard threads are visible from any context", async () => {
+    const standardConv = createConversation({ title: "standard-conv" });
+    const attachment = uploadAttachment("public.png", "image/png", "AAAA");
+    const msg = await addMessage(standardConv.id, "user", "standard message");
     linkAttachmentToMessage(msg.id, attachment.id, 0);
 
     // Search from a different standard conversation
-    const otherConv = createConversation({ title: 'other-conv' });
+    const otherConv = createConversation({ title: "other-conv" });
     const context: ToolContext = {
-      workingDir: '/tmp',
-      sessionId: 'sess-test',
+      workingDir: "/tmp",
+      sessionId: "sess-test",
       conversationId: otherConv.id,
-      guardianTrustClass: 'guardian',
+      guardianTrustClass: "guardian",
     };
 
     const result = await assetSearchTool.execute({}, context);
     expect(result.isError).toBe(false);
-    expect(result.content).toContain('public.png');
+    expect(result.content).toContain("public.png");
   });
 
-  test('attachments from private threads are visible within the same private thread', async () => {
-    const privateConv = createConversation({ title: 'private-conv', threadType: 'private' });
-    const attachment = uploadAttachment('secret.png', 'image/png', 'AAAA');
-    const msg = await addMessage(privateConv.id, 'user', 'private message');
+  test("attachments from private threads are visible within the same private thread", async () => {
+    const privateConv = createConversation({
+      title: "private-conv",
+      threadType: "private",
+    });
+    const attachment = uploadAttachment("secret.png", "image/png", "AAAA");
+    const msg = await addMessage(privateConv.id, "user", "private message");
     linkAttachmentToMessage(msg.id, attachment.id, 0);
 
     // Search from the same private conversation
     const context: ToolContext = {
-      workingDir: '/tmp',
-      sessionId: 'sess-test',
+      workingDir: "/tmp",
+      sessionId: "sess-test",
       conversationId: privateConv.id,
-      guardianTrustClass: 'guardian',
+      guardianTrustClass: "guardian",
     };
 
     const result = await assetSearchTool.execute({}, context);
     expect(result.isError).toBe(false);
-    expect(result.content).toContain('secret.png');
+    expect(result.content).toContain("secret.png");
   });
 
-  test('attachments from private threads are NOT visible from a different conversation', async () => {
-    const privateConv = createConversation({ title: 'private-conv', threadType: 'private' });
-    const attachment = uploadAttachment('secret.png', 'image/png', 'AAAA');
-    const msg = await addMessage(privateConv.id, 'user', 'private message');
+  test("attachments from private threads are NOT visible from a different conversation", async () => {
+    const privateConv = createConversation({
+      title: "private-conv",
+      threadType: "private",
+    });
+    const attachment = uploadAttachment("secret.png", "image/png", "AAAA");
+    const msg = await addMessage(privateConv.id, "user", "private message");
     linkAttachmentToMessage(msg.id, attachment.id, 0);
 
     // Search from a different private conversation
-    const otherPrivateConv = createConversation({ title: 'other-private', threadType: 'private' });
+    const otherPrivateConv = createConversation({
+      title: "other-private",
+      threadType: "private",
+    });
     const context: ToolContext = {
-      workingDir: '/tmp',
-      sessionId: 'sess-test',
+      workingDir: "/tmp",
+      sessionId: "sess-test",
       conversationId: otherPrivateConv.id,
-      guardianTrustClass: 'guardian',
+      guardianTrustClass: "guardian",
     };
 
     const result = await assetSearchTool.execute({}, context);
     expect(result.isError).toBe(false);
-    expect(result.content).toContain('No assets found');
+    expect(result.content).toContain("No assets found");
   });
 
-  test('attachments from private threads are NOT visible from standard threads', async () => {
-    const privateConv = createConversation({ title: 'private-conv', threadType: 'private' });
-    const attachment = uploadAttachment('secret.png', 'image/png', 'AAAA');
-    const msg = await addMessage(privateConv.id, 'user', 'private message');
+  test("attachments from private threads are NOT visible from standard threads", async () => {
+    const privateConv = createConversation({
+      title: "private-conv",
+      threadType: "private",
+    });
+    const attachment = uploadAttachment("secret.png", "image/png", "AAAA");
+    const msg = await addMessage(privateConv.id, "user", "private message");
     linkAttachmentToMessage(msg.id, attachment.id, 0);
 
     // Search from a standard conversation
-    const standardConv = createConversation({ title: 'standard-conv' });
+    const standardConv = createConversation({ title: "standard-conv" });
     const context: ToolContext = {
-      workingDir: '/tmp',
-      sessionId: 'sess-test',
+      workingDir: "/tmp",
+      sessionId: "sess-test",
       conversationId: standardConv.id,
-      guardianTrustClass: 'guardian',
+      guardianTrustClass: "guardian",
     };
 
     const result = await assetSearchTool.execute({}, context);
     expect(result.isError).toBe(false);
-    expect(result.content).toContain('No assets found');
+    expect(result.content).toContain("No assets found");
   });
 
-  test('attachment linked to both private and standard threads is visible everywhere', async () => {
-    const privateConv = createConversation({ title: 'private-conv', threadType: 'private' });
-    const standardConv = createConversation({ title: 'standard-conv' });
-    const attachment = uploadAttachment('shared.png', 'image/png', 'AAAA');
+  test("attachment linked to both private and standard threads is visible everywhere", async () => {
+    const privateConv = createConversation({
+      title: "private-conv",
+      threadType: "private",
+    });
+    const standardConv = createConversation({ title: "standard-conv" });
+    const attachment = uploadAttachment("shared.png", "image/png", "AAAA");
 
-    const msg1 = await addMessage(privateConv.id, 'user', 'private message');
-    const msg2 = await addMessage(standardConv.id, 'user', 'standard message');
+    const msg1 = await addMessage(privateConv.id, "user", "private message");
+    const msg2 = await addMessage(standardConv.id, "user", "standard message");
     linkAttachmentToMessage(msg1.id, attachment.id, 0);
     linkAttachmentToMessage(msg2.id, attachment.id, 0);
 
     // Should be visible from a third, unrelated standard conversation
-    const otherConv = createConversation({ title: 'other-conv' });
+    const otherConv = createConversation({ title: "other-conv" });
     const context: ToolContext = {
-      workingDir: '/tmp',
-      sessionId: 'sess-test',
+      workingDir: "/tmp",
+      sessionId: "sess-test",
       conversationId: otherConv.id,
-      guardianTrustClass: 'guardian',
+      guardianTrustClass: "guardian",
     };
 
     const result = await assetSearchTool.execute({}, context);
     expect(result.isError).toBe(false);
-    expect(result.content).toContain('shared.png');
+    expect(result.content).toContain("shared.png");
   });
 
-  test('orphan attachments (no message linkage) remain visible', async () => {
-    uploadAttachment('orphan.png', 'image/png', 'AAAA');
+  test("orphan attachments (no message linkage) remain visible", async () => {
+    uploadAttachment("orphan.png", "image/png", "AAAA");
 
-    const conv = createConversation({ title: 'any-conv' });
+    const conv = createConversation({ title: "any-conv" });
     const context: ToolContext = {
-      workingDir: '/tmp',
-      sessionId: 'sess-test',
+      workingDir: "/tmp",
+      sessionId: "sess-test",
       conversationId: conv.id,
-      guardianTrustClass: 'guardian',
+      guardianTrustClass: "guardian",
     };
 
     const result = await assetSearchTool.execute({}, context);
     expect(result.isError).toBe(false);
-    expect(result.content).toContain('orphan.png');
+    expect(result.content).toContain("orphan.png");
   });
 });

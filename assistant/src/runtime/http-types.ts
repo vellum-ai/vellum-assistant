@@ -168,7 +168,7 @@ export interface RuntimeHttpServerOptions {
   port?: number;
   /** Hostname / IP to bind to. Defaults to '127.0.0.1' (loopback-only). */
   hostname?: string;
-  /** Bearer token required on every request (except health checks). */
+  /** Legacy shared secret for pairing routes (not used for delivery or auth). */
   bearerToken?: string;
   processMessage?: MessageProcessor;
   /** Non-blocking processor for POST /messages (persists + fires agent loop). */

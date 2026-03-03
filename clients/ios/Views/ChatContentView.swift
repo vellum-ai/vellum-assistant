@@ -198,6 +198,21 @@ struct ChatContentView: View {
                                 .padding(.horizontal, VSpacing.lg)
                                 .id("step-indicator")
                                 .transition(.opacity.combined(with: .move(edge: .bottom)))
+                            } else if viewModel.isThinking {
+                                // LLM is processing tool results but streaming text is
+                                // already visible — show typing dots with status text.
+                                HStack {
+                                    TypingIndicatorView()
+                                    if let statusText = viewModel.assistantStatusText, !statusText.isEmpty {
+                                        Text(statusText)
+                                            .font(VFont.caption)
+                                            .foregroundColor(VColor.textSecondary)
+                                    }
+                                    Spacer()
+                                }
+                                .padding(.horizontal, VSpacing.lg)
+                                .id("step-indicator")
+                                .transition(.opacity.combined(with: .move(edge: .bottom)))
                             }
                             // Otherwise isStreaming with text: the growing message bubble is the indicator
                         }

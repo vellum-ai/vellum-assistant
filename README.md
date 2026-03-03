@@ -502,7 +502,7 @@ The runtime HTTP server exposes a Server-Sent Events (SSE) endpoint that streams
 GET /v1/events?conversationKey=<key>
 ```
 
-**Auth**: Bearer token (same rules as other runtime HTTP endpoints). The token is read from the `RUNTIME_PROXY_BEARER_TOKEN` environment variable; if unset, the daemon generates a random token and writes it to `~/.vellum/http-token` (or `${BASE_DATA_DIR}/.vellum/http-token` when the `BASE_DATA_DIR` env var is configured). Pass it as `Authorization: Bearer <token>` on the client.
+**Auth**: JWT bearer token (same rules as other runtime HTTP endpoints). The SSE endpoint requires a valid JWT with the `chat.read` scope, passed as `Authorization: Bearer <jwt>`. JWTs are issued by the daemon's auth system (see Vellum Guardian Identity for the bootstrap flow). The route policy in `route-policy.ts` enforces scope requirements per endpoint.
 
 **Query params**:
 
@@ -570,7 +570,7 @@ The `message` field is the unchanged IPC `ServerMessage` payload — the same ty
 The standard browser `EventSource` API does not support custom request headers, so authenticated connections require `fetch()` with manual SSE stream parsing:
 
 ```js
-const TOKEN = '<token>'; // read from ~/.vellum/http-token or RUNTIME_PROXY_BEARER_TOKEN
+const TOKEN = '<jwt>'; // JWT obtained via the guardian bootstrap flow or daemon auth system
 const res = await fetch(
   'http://localhost:3001/v1/events?conversationKey=my-conversation',
   { headers: { Authorization: `Bearer ${TOKEN}` } },

@@ -42,6 +42,9 @@ const PROFILE_SCOPES: Record<ScopeProfile, ReadonlySet<Scope>> = {
   ipc_v1: new Set<Scope>([
     'ipc.all',
   ]),
+  ui_page_v1: new Set<Scope>([
+    'settings.read',
+  ]),
 };
 
 // ---------------------------------------------------------------------------

@@ -7,53 +7,54 @@
  * 3. Create a guardian approval request for the access request
  * 4. Deduplicate: don't create duplicate requests for repeated messages
  */
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-
-import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test';
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Test isolation: in-memory SQLite via temp directory
 // ---------------------------------------------------------------------------
 
-const testDir = mkdtempSync(join(tmpdir(), 'non-member-access-request-test-'));
+const testDir = mkdtempSync(join(tmpdir(), "non-member-access-request-test-"));
 
-mock.module('../util/platform.js', () => ({
+mock.module("../util/platform.js", () => ({
   getRootDir: () => testDir,
   getDataDir: () => testDir,
-  isMacOS: () => process.platform === 'darwin',
-  isLinux: () => process.platform === 'linux',
-  isWindows: () => process.platform === 'win32',
-  getSocketPath: () => join(testDir, 'test.sock'),
-  getPidPath: () => join(testDir, 'test.pid'),
-  getDbPath: () => join(testDir, 'test.db'),
-  getLogPath: () => join(testDir, 'test.log'),
+  isMacOS: () => process.platform === "darwin",
+  isLinux: () => process.platform === "linux",
+  isWindows: () => process.platform === "win32",
+  getSocketPath: () => join(testDir, "test.sock"),
+  getPidPath: () => join(testDir, "test.pid"),
+  getDbPath: () => join(testDir, "test.db"),
+  getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
-  readHttpToken: () => 'test-bearer-token',
+  readHttpToken: () => "test-bearer-token",
 }));
 
-mock.module('../util/logger.js', () => ({
-  getLogger: () => new Proxy({} as Record<string, unknown>, {
-    get: () => () => {},
-  }),
+mock.module("../util/logger.js", () => ({
+  getLogger: () =>
+    new Proxy({} as Record<string, unknown>, {
+      get: () => () => {},
+    }),
 }));
 
 // Mock security check to always pass
-mock.module('../security/secret-ingress.js', () => ({
+mock.module("../security/secret-ingress.js", () => ({
   checkIngressForSecrets: () => ({ blocked: false }),
 }));
 
 // Mock ingress member store: findMember always returns null (non-member),
 // updateLastSeen is a no-op.
-mock.module('../memory/ingress-member-store.js', () => ({
+mock.module("../memory/ingress-member-store.js", () => ({
   findMember: () => null,
   updateLastSeen: () => {},
   upsertMember: () => {},
 }));
 
-mock.module('../config/env.js', () => ({
-  getGatewayInternalBaseUrl: () => 'http://127.0.0.1:7830',
+mock.module("../config/env.js", () => ({
+  isHttpAuthDisabled: () => true,
+  getGatewayInternalBaseUrl: () => "http://127.0.0.1:7830",
 }));
 
 // Track emitNotificationSignal calls
@@ -65,13 +66,13 @@ let mockEmitResult: {
   reason: string;
   deliveryResults: Array<Record<string, unknown>>;
 } = {
-  signalId: 'mock-signal-id',
+  signalId: "mock-signal-id",
   deduplicated: false,
   dispatched: true,
-  reason: 'mock',
+  reason: "mock",
   deliveryResults: [],
 };
-mock.module('../notifications/emit-signal.js', () => ({
+mock.module("../notifications/emit-signal.js", () => ({
   emitNotificationSignal: async (params: Record<string, unknown>) => {
     emitSignalCalls.push(params);
     return mockEmitResult;
@@ -79,9 +80,15 @@ mock.module('../notifications/emit-signal.js', () => ({
 }));
 
 // Track deliverChannelReply calls
-const deliverReplyCalls: Array<{ url: string; payload: Record<string, unknown> }> = [];
-mock.module('../runtime/gateway-client.js', () => ({
-  deliverChannelReply: async (url: string, payload: Record<string, unknown>) => {
+const deliverReplyCalls: Array<{
+  url: string;
+  payload: Record<string, unknown>;
+}> = [];
+mock.module("../runtime/gateway-client.js", () => ({
+  deliverChannelReply: async (
+    url: string,
+    payload: Record<string, unknown>,
+  ) => {
     deliverReplyCalls.push({ url, payload });
   },
 }));
@@ -89,43 +96,45 @@ mock.module('../runtime/gateway-client.js', () => ({
 import {
   listCanonicalGuardianDeliveries,
   listCanonicalGuardianRequests,
-} from '../memory/canonical-guardian-store.js';
-import {
-  createBinding,
-} from '../memory/channel-guardian-store.js';
-import { getDb, initializeDb, resetDb } from '../memory/db.js';
-import { notifyGuardianOfAccessRequest } from '../runtime/access-request-helper.js';
-import { handleChannelInbound } from '../runtime/routes/channel-routes.js';
+} from "../memory/canonical-guardian-store.js";
+import { createBinding } from "../memory/channel-guardian-store.js";
+import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { notifyGuardianOfAccessRequest } from "../runtime/access-request-helper.js";
+import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
 
 initializeDb();
 
 afterAll(() => {
   resetDb();
-  try { rmSync(testDir, { recursive: true }); } catch { /* best effort */ }
+  try {
+    rmSync(testDir, { recursive: true });
+  } catch {
+    /* best effort */
+  }
 });
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-const TEST_BEARER_TOKEN = 'test-token';
+const TEST_BEARER_TOKEN = "test-token";
 
 function resetState(): void {
   const db = getDb();
-  db.run('DELETE FROM channel_guardian_approval_requests');
-  db.run('DELETE FROM channel_guardian_bindings');
-  db.run('DELETE FROM channel_inbound_events');
-  db.run('DELETE FROM conversations');
-  db.run('DELETE FROM notification_events');
-  db.run('DELETE FROM canonical_guardian_requests');
-  db.run('DELETE FROM canonical_guardian_deliveries');
+  db.run("DELETE FROM channel_guardian_approval_requests");
+  db.run("DELETE FROM channel_guardian_bindings");
+  db.run("DELETE FROM channel_inbound_events");
+  db.run("DELETE FROM conversations");
+  db.run("DELETE FROM notification_events");
+  db.run("DELETE FROM canonical_guardian_requests");
+  db.run("DELETE FROM canonical_guardian_deliveries");
   emitSignalCalls.length = 0;
   deliverReplyCalls.length = 0;
   mockEmitResult = {
-    signalId: 'mock-signal-id',
+    signalId: "mock-signal-id",
     deduplicated: false,
     dispatched: true,
-    reason: 'mock',
+    reason: "mock",
     deliveryResults: [],
   };
 }
@@ -136,23 +145,25 @@ async function flushAsyncAccessRequestBookkeeping(): Promise<void> {
 
 function buildInboundRequest(overrides: Record<string, unknown> = {}): Request {
   const body: Record<string, unknown> = {
-    sourceChannel: 'telegram',
-    interface: 'telegram',
-    conversationExternalId: 'chat-123',
-    externalMessageId: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    content: 'Hello, can I use this assistant?',
-    actorExternalId: 'user-unknown-456',
-    actorDisplayName: 'Alice Unknown',
-    actorUsername: 'alice_unknown',
-    replyCallbackUrl: 'http://localhost:7830/deliver/telegram',
+    sourceChannel: "telegram",
+    interface: "telegram",
+    conversationExternalId: "chat-123",
+    externalMessageId: `msg-${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2, 8)}`,
+    content: "Hello, can I use this assistant?",
+    actorExternalId: "user-unknown-456",
+    actorDisplayName: "Alice Unknown",
+    actorUsername: "alice_unknown",
+    replyCallbackUrl: "http://localhost:7830/deliver/telegram",
     ...overrides,
   };
 
-  return new Request('http://localhost:8080/channels/inbound', {
-    method: 'POST',
+  return new Request("http://localhost:8080/channels/inbound", {
+    method: "POST",
     headers: {
-      'Content-Type': 'application/json',
-      'X-Gateway-Origin': TEST_BEARER_TOKEN,
+      "Content-Type": "application/json",
+      "X-Gateway-Origin": TEST_BEARER_TOKEN,
     },
     body: JSON.stringify(body),
   });
@@ -162,75 +173,80 @@ function buildInboundRequest(overrides: Record<string, unknown> = {}): Request {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('non-member access request notification', () => {
+describe("non-member access request notification", () => {
   beforeEach(() => {
     resetState();
   });
 
-  test('non-member message is denied with rejection reply', async () => {
+  test("non-member message is denied with rejection reply", async () => {
     const req = buildInboundRequest();
     const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
-    const json = await resp.json() as Record<string, unknown>;
+    const json = (await resp.json()) as Record<string, unknown>;
 
     expect(json.denied).toBe(true);
-    expect(json.reason).toBe('not_a_member');
+    expect(json.reason).toBe("not_a_member");
 
     // Rejection reply was delivered — always-notify behavior means the reply
     // indicates the guardian will be notified, even without a same-channel binding.
     expect(deliverReplyCalls.length).toBe(1);
-    expect((deliverReplyCalls[0].payload as Record<string, unknown>).text).toContain("let them know");
+    expect(
+      (deliverReplyCalls[0].payload as Record<string, unknown>).text,
+    ).toContain("let them know");
   });
 
-  test('guardian is notified when a non-member messages and a guardian binding exists', async () => {
+  test("guardian is notified when a non-member messages and a guardian binding exists", async () => {
     // Set up a guardian binding for this channel
     createBinding({
-      assistantId: 'self',
-      channel: 'telegram',
-      guardianExternalUserId: 'guardian-user-789',
-      guardianDeliveryChatId: 'guardian-chat-789',
-      guardianPrincipalId: 'test-principal-id',
+      assistantId: "self",
+      channel: "telegram",
+      guardianExternalUserId: "guardian-user-789",
+      guardianDeliveryChatId: "guardian-chat-789",
+      guardianPrincipalId: "test-principal-id",
     });
 
     const req = buildInboundRequest();
     const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
-    const json = await resp.json() as Record<string, unknown>;
+    const json = (await resp.json()) as Record<string, unknown>;
 
     // Message is still denied
     expect(json.denied).toBe(true);
-    expect(json.reason).toBe('not_a_member');
+    expect(json.reason).toBe("not_a_member");
 
     // Rejection reply was delivered
     expect(deliverReplyCalls.length).toBe(1);
 
     // A notification signal was emitted
     expect(emitSignalCalls.length).toBe(1);
-    expect(emitSignalCalls[0].sourceEventName).toBe('ingress.access_request');
-    expect(emitSignalCalls[0].sourceChannel).toBe('telegram');
-    const payload = emitSignalCalls[0].contextPayload as Record<string, unknown>;
-    expect(payload.actorExternalId).toBe('user-unknown-456');
-    expect(payload.actorDisplayName).toBe('Alice Unknown');
+    expect(emitSignalCalls[0].sourceEventName).toBe("ingress.access_request");
+    expect(emitSignalCalls[0].sourceChannel).toBe("telegram");
+    const payload = emitSignalCalls[0].contextPayload as Record<
+      string,
+      unknown
+    >;
+    expect(payload.actorExternalId).toBe("user-unknown-456");
+    expect(payload.actorDisplayName).toBe("Alice Unknown");
 
     // A canonical access request was created
     const pending = listCanonicalGuardianRequests({
-      status: 'pending',
-      requesterExternalUserId: 'user-unknown-456',
-      sourceChannel: 'telegram',
-      kind: 'access_request',
+      status: "pending",
+      requesterExternalUserId: "user-unknown-456",
+      sourceChannel: "telegram",
+      kind: "access_request",
     });
     expect(pending.length).toBe(1);
-    expect(pending[0].status).toBe('pending');
-    expect(pending[0].requesterExternalUserId).toBe('user-unknown-456');
-    expect(pending[0].guardianExternalUserId).toBe('guardian-user-789');
-    expect(pending[0].toolName).toBe('ingress_access_request');
+    expect(pending[0].status).toBe("pending");
+    expect(pending[0].requesterExternalUserId).toBe("user-unknown-456");
+    expect(pending[0].guardianExternalUserId).toBe("guardian-user-789");
+    expect(pending[0].toolName).toBe("ingress_access_request");
   });
 
-  test('no duplicate approval requests for repeated messages from same non-member', async () => {
+  test("no duplicate approval requests for repeated messages from same non-member", async () => {
     createBinding({
-      assistantId: 'self',
-      channel: 'telegram',
-      guardianExternalUserId: 'guardian-user-789',
-      guardianDeliveryChatId: 'guardian-chat-789',
-      guardianPrincipalId: 'test-principal-id',
+      assistantId: "self",
+      channel: "telegram",
+      guardianExternalUserId: "guardian-user-789",
+      guardianDeliveryChatId: "guardian-chat-789",
+      guardianPrincipalId: "test-principal-id",
     });
 
     // First message
@@ -240,7 +256,7 @@ describe('non-member access request notification', () => {
     // Second message from the same user
     const req2 = buildInboundRequest({
       externalMessageId: `msg-second-${Date.now()}`,
-      content: 'Please let me in!',
+      content: "Please let me in!",
     });
     await handleChannelInbound(req2, undefined, TEST_BEARER_TOKEN);
 
@@ -252,38 +268,40 @@ describe('non-member access request notification', () => {
 
     // Only one canonical request should exist
     const pending = listCanonicalGuardianRequests({
-      status: 'pending',
-      requesterExternalUserId: 'user-unknown-456',
-      sourceChannel: 'telegram',
-      kind: 'access_request',
+      status: "pending",
+      requesterExternalUserId: "user-unknown-456",
+      sourceChannel: "telegram",
+      kind: "access_request",
     });
     expect(pending.length).toBe(1);
   });
 
-  test('access request is created with self-healed principal even without same-channel guardian binding', async () => {
+  test("access request is created with self-healed principal even without same-channel guardian binding", async () => {
     // No guardian binding on any channel — self-heal creates a vellum binding
     // so the access_request (now decisionable) has a guardianPrincipalId.
     const req = buildInboundRequest();
     const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
-    const json = await resp.json() as Record<string, unknown>;
+    const json = (await resp.json()) as Record<string, unknown>;
 
     expect(json.denied).toBe(true);
-    expect(json.reason).toBe('not_a_member');
+    expect(json.reason).toBe("not_a_member");
 
     // Rejection reply indicates guardian was notified
     expect(deliverReplyCalls.length).toBe(1);
-    expect((deliverReplyCalls[0].payload as Record<string, unknown>).text).toContain("let them know");
+    expect(
+      (deliverReplyCalls[0].payload as Record<string, unknown>).text,
+    ).toContain("let them know");
 
     // Notification signal was emitted
     expect(emitSignalCalls.length).toBe(1);
-    expect(emitSignalCalls[0].sourceEventName).toBe('ingress.access_request');
+    expect(emitSignalCalls[0].sourceEventName).toBe("ingress.access_request");
 
     // Canonical request was created with a self-healed principal
     const pending = listCanonicalGuardianRequests({
-      status: 'pending',
-      requesterExternalUserId: 'user-unknown-456',
-      sourceChannel: 'telegram',
-      kind: 'access_request',
+      status: "pending",
+      requesterExternalUserId: "user-unknown-456",
+      sourceChannel: "telegram",
+      kind: "access_request",
     });
     expect(pending.length).toBe(1);
     // Self-heal bootstraps a vellum binding — guardianExternalUserId is now set
@@ -291,46 +309,49 @@ describe('non-member access request notification', () => {
     expect(pending[0].guardianPrincipalId).toBeDefined();
   });
 
-  test('cross-channel fallback: SMS guardian binding resolves for Telegram access request', async () => {
+  test("cross-channel fallback: SMS guardian binding resolves for Telegram access request", async () => {
     // Only an SMS guardian binding exists — no Telegram binding
     createBinding({
-      assistantId: 'self',
-      channel: 'sms',
-      guardianExternalUserId: 'guardian-sms-user',
-      guardianDeliveryChatId: 'guardian-sms-chat',
-      guardianPrincipalId: 'test-principal-id',
+      assistantId: "self",
+      channel: "sms",
+      guardianExternalUserId: "guardian-sms-user",
+      guardianDeliveryChatId: "guardian-sms-chat",
+      guardianPrincipalId: "test-principal-id",
     });
 
     const req = buildInboundRequest();
     const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
-    const json = await resp.json() as Record<string, unknown>;
+    const json = (await resp.json()) as Record<string, unknown>;
 
     expect(json.denied).toBe(true);
-    expect(json.reason).toBe('not_a_member');
+    expect(json.reason).toBe("not_a_member");
 
     // Notification signal emitted
     expect(emitSignalCalls.length).toBe(1);
-    const payload = emitSignalCalls[0].contextPayload as Record<string, unknown>;
-    expect(payload.guardianBindingChannel).toBe('sms');
+    const payload = emitSignalCalls[0].contextPayload as Record<
+      string,
+      unknown
+    >;
+    expect(payload.guardianBindingChannel).toBe("sms");
 
     // Canonical request has the SMS guardian's external user ID
     const pending = listCanonicalGuardianRequests({
-      status: 'pending',
-      requesterExternalUserId: 'user-unknown-456',
-      sourceChannel: 'telegram',
-      kind: 'access_request',
+      status: "pending",
+      requesterExternalUserId: "user-unknown-456",
+      sourceChannel: "telegram",
+      kind: "access_request",
     });
     expect(pending.length).toBe(1);
-    expect(pending[0].guardianExternalUserId).toBe('guardian-sms-user');
+    expect(pending[0].guardianExternalUserId).toBe("guardian-sms-user");
   });
 
-  test('no notification when actorExternalId is absent', async () => {
+  test("no notification when actorExternalId is absent", async () => {
     createBinding({
-      assistantId: 'self',
-      channel: 'telegram',
-      guardianExternalUserId: 'guardian-user-789',
-      guardianDeliveryChatId: 'guardian-chat-789',
-      guardianPrincipalId: 'test-principal-id',
+      assistantId: "self",
+      channel: "telegram",
+      guardianExternalUserId: "guardian-user-789",
+      guardianDeliveryChatId: "guardian-chat-789",
+      guardianPrincipalId: "test-principal-id",
     });
 
     // Message without actorExternalId — the handler returns BAD_REQUEST.
@@ -345,36 +366,39 @@ describe('non-member access request notification', () => {
   });
 });
 
-describe('access-request-helper unit tests', () => {
+describe("access-request-helper unit tests", () => {
   beforeEach(() => {
     resetState();
   });
 
-  test('notifyGuardianOfAccessRequest returns no_sender_id when actorExternalId is absent', () => {
+  test("notifyGuardianOfAccessRequest returns no_sender_id when actorExternalId is absent", () => {
     const result = notifyGuardianOfAccessRequest({
-      canonicalAssistantId: 'self',
-      sourceChannel: 'telegram',
-      conversationExternalId: 'chat-123',
+      canonicalAssistantId: "self",
+      sourceChannel: "telegram",
+      conversationExternalId: "chat-123",
       actorExternalId: undefined,
     });
 
     expect(result.notified).toBe(false);
     if (!result.notified) {
-      expect(result.reason).toBe('no_sender_id');
+      expect(result.reason).toBe("no_sender_id");
     }
 
     // No canonical request created
-    const pending = listCanonicalGuardianRequests({ status: 'pending', kind: 'access_request' });
+    const pending = listCanonicalGuardianRequests({
+      status: "pending",
+      kind: "access_request",
+    });
     expect(pending.length).toBe(0);
   });
 
-  test('notifyGuardianOfAccessRequest creates request with self-healed principal when no binding exists', () => {
+  test("notifyGuardianOfAccessRequest creates request with self-healed principal when no binding exists", () => {
     const result = notifyGuardianOfAccessRequest({
-      canonicalAssistantId: 'self',
-      sourceChannel: 'telegram',
-      conversationExternalId: 'chat-123',
-      actorExternalId: 'unknown-user',
-      actorDisplayName: 'Bob',
+      canonicalAssistantId: "self",
+      sourceChannel: "telegram",
+      conversationExternalId: "chat-123",
+      actorExternalId: "unknown-user",
+      actorDisplayName: "Bob",
     });
 
     expect(result.notified).toBe(true);
@@ -383,9 +407,9 @@ describe('access-request-helper unit tests', () => {
     }
 
     const pending = listCanonicalGuardianRequests({
-      status: 'pending',
-      requesterExternalUserId: 'unknown-user',
-      kind: 'access_request',
+      status: "pending",
+      requesterExternalUserId: "unknown-user",
+      kind: "access_request",
     });
     expect(pending.length).toBe(1);
     // Self-heal bootstraps a vellum binding
@@ -396,167 +420,182 @@ describe('access-request-helper unit tests', () => {
     expect(emitSignalCalls.length).toBe(1);
   });
 
-  test('notifyGuardianOfAccessRequest uses cross-channel binding when source-channel binding is missing', () => {
+  test("notifyGuardianOfAccessRequest uses cross-channel binding when source-channel binding is missing", () => {
     // Only SMS binding exists
     createBinding({
-      assistantId: 'self',
-      channel: 'sms',
-      guardianExternalUserId: 'guardian-sms',
-      guardianDeliveryChatId: 'sms-chat',
-      guardianPrincipalId: 'test-principal-id',
+      assistantId: "self",
+      channel: "sms",
+      guardianExternalUserId: "guardian-sms",
+      guardianDeliveryChatId: "sms-chat",
+      guardianPrincipalId: "test-principal-id",
     });
 
     const result = notifyGuardianOfAccessRequest({
-      canonicalAssistantId: 'self',
-      sourceChannel: 'telegram',
-      conversationExternalId: 'tg-chat',
-      actorExternalId: 'unknown-tg-user',
+      canonicalAssistantId: "self",
+      sourceChannel: "telegram",
+      conversationExternalId: "tg-chat",
+      actorExternalId: "unknown-tg-user",
     });
 
     expect(result.notified).toBe(true);
 
     const pending = listCanonicalGuardianRequests({
-      status: 'pending',
-      requesterExternalUserId: 'unknown-tg-user',
-      kind: 'access_request',
+      status: "pending",
+      requesterExternalUserId: "unknown-tg-user",
+      kind: "access_request",
     });
     expect(pending.length).toBe(1);
-    expect(pending[0].guardianExternalUserId).toBe('guardian-sms');
+    expect(pending[0].guardianExternalUserId).toBe("guardian-sms");
 
     // Signal payload includes fallback channel
-    const payload = emitSignalCalls[0].contextPayload as Record<string, unknown>;
-    expect(payload.guardianBindingChannel).toBe('sms');
+    const payload = emitSignalCalls[0].contextPayload as Record<
+      string,
+      unknown
+    >;
+    expect(payload.guardianBindingChannel).toBe("sms");
   });
 
-  test('notifyGuardianOfAccessRequest prefers source-channel binding over cross-channel fallback', () => {
+  test("notifyGuardianOfAccessRequest prefers source-channel binding over cross-channel fallback", () => {
     // Both Telegram and SMS bindings exist
     createBinding({
-      assistantId: 'self',
-      channel: 'telegram',
-      guardianExternalUserId: 'guardian-tg',
-      guardianDeliveryChatId: 'tg-chat',
-      guardianPrincipalId: 'test-principal-tg',
+      assistantId: "self",
+      channel: "telegram",
+      guardianExternalUserId: "guardian-tg",
+      guardianDeliveryChatId: "tg-chat",
+      guardianPrincipalId: "test-principal-tg",
     });
     createBinding({
-      assistantId: 'self',
-      channel: 'sms',
-      guardianExternalUserId: 'guardian-sms',
-      guardianDeliveryChatId: 'sms-chat',
-      guardianPrincipalId: 'test-principal-sms',
+      assistantId: "self",
+      channel: "sms",
+      guardianExternalUserId: "guardian-sms",
+      guardianDeliveryChatId: "sms-chat",
+      guardianPrincipalId: "test-principal-sms",
     });
 
     const result = notifyGuardianOfAccessRequest({
-      canonicalAssistantId: 'self',
-      sourceChannel: 'telegram',
-      conversationExternalId: 'chat-123',
-      actorExternalId: 'unknown-user',
+      canonicalAssistantId: "self",
+      sourceChannel: "telegram",
+      conversationExternalId: "chat-123",
+      actorExternalId: "unknown-user",
     });
 
     expect(result.notified).toBe(true);
 
     const pending = listCanonicalGuardianRequests({
-      status: 'pending',
-      requesterExternalUserId: 'unknown-user',
-      kind: 'access_request',
+      status: "pending",
+      requesterExternalUserId: "unknown-user",
+      kind: "access_request",
     });
     expect(pending.length).toBe(1);
     // Should use the Telegram binding, not SMS fallback
-    expect(pending[0].guardianExternalUserId).toBe('guardian-tg');
+    expect(pending[0].guardianExternalUserId).toBe("guardian-tg");
 
-    const payload = emitSignalCalls[0].contextPayload as Record<string, unknown>;
-    expect(payload.guardianBindingChannel).toBe('telegram');
+    const payload = emitSignalCalls[0].contextPayload as Record<
+      string,
+      unknown
+    >;
+    expect(payload.guardianBindingChannel).toBe("telegram");
   });
 
-  test('notifyGuardianOfAccessRequest for voice channel includes actorDisplayName in contextPayload', () => {
+  test("notifyGuardianOfAccessRequest for voice channel includes actorDisplayName in contextPayload", () => {
     const result = notifyGuardianOfAccessRequest({
-      canonicalAssistantId: 'self',
-      sourceChannel: 'voice',
-      conversationExternalId: '+15559998888',
-      actorExternalId: '+15559998888',
-      actorDisplayName: 'Alice Caller',
+      canonicalAssistantId: "self",
+      sourceChannel: "voice",
+      conversationExternalId: "+15559998888",
+      actorExternalId: "+15559998888",
+      actorDisplayName: "Alice Caller",
     });
 
     expect(result.notified).toBe(true);
     expect(emitSignalCalls.length).toBe(1);
 
-    const payload = emitSignalCalls[0].contextPayload as Record<string, unknown>;
-    expect(payload.sourceChannel).toBe('voice');
-    expect(payload.actorDisplayName).toBe('Alice Caller');
-    expect(payload.actorExternalId).toBe('+15559998888');
-    expect(payload.senderIdentifier).toBe('Alice Caller');
+    const payload = emitSignalCalls[0].contextPayload as Record<
+      string,
+      unknown
+    >;
+    expect(payload.sourceChannel).toBe("voice");
+    expect(payload.actorDisplayName).toBe("Alice Caller");
+    expect(payload.actorExternalId).toBe("+15559998888");
+    expect(payload.senderIdentifier).toBe("Alice Caller");
 
     // Canonical request should exist
     const pending = listCanonicalGuardianRequests({
-      status: 'pending',
-      requesterExternalUserId: '+15559998888',
-      sourceChannel: 'voice',
-      kind: 'access_request',
+      status: "pending",
+      requesterExternalUserId: "+15559998888",
+      sourceChannel: "voice",
+      kind: "access_request",
     });
     expect(pending.length).toBe(1);
   });
 
-  test('notifyGuardianOfAccessRequest includes requestCode in contextPayload', () => {
+  test("notifyGuardianOfAccessRequest includes requestCode in contextPayload", () => {
     const result = notifyGuardianOfAccessRequest({
-      canonicalAssistantId: 'self',
-      sourceChannel: 'telegram',
-      conversationExternalId: 'chat-123',
-      actorExternalId: 'unknown-user',
-      actorDisplayName: 'Test User',
+      canonicalAssistantId: "self",
+      sourceChannel: "telegram",
+      conversationExternalId: "chat-123",
+      actorExternalId: "unknown-user",
+      actorDisplayName: "Test User",
     });
 
     expect(result.notified).toBe(true);
     expect(emitSignalCalls.length).toBe(1);
 
-    const payload = emitSignalCalls[0].contextPayload as Record<string, unknown>;
+    const payload = emitSignalCalls[0].contextPayload as Record<
+      string,
+      unknown
+    >;
     expect(payload.requestCode).toBeDefined();
-    expect(typeof payload.requestCode).toBe('string');
+    expect(typeof payload.requestCode).toBe("string");
     expect((payload.requestCode as string).length).toBe(6);
   });
 
-  test('notifyGuardianOfAccessRequest includes previousMemberStatus in contextPayload', () => {
+  test("notifyGuardianOfAccessRequest includes previousMemberStatus in contextPayload", () => {
     const result = notifyGuardianOfAccessRequest({
-      canonicalAssistantId: 'self',
-      sourceChannel: 'telegram',
-      conversationExternalId: 'chat-123',
-      actorExternalId: 'revoked-user',
-      actorDisplayName: 'Revoked User',
-      previousMemberStatus: 'revoked',
+      canonicalAssistantId: "self",
+      sourceChannel: "telegram",
+      conversationExternalId: "chat-123",
+      actorExternalId: "revoked-user",
+      actorDisplayName: "Revoked User",
+      previousMemberStatus: "revoked",
     });
 
     expect(result.notified).toBe(true);
     expect(emitSignalCalls.length).toBe(1);
 
-    const payload = emitSignalCalls[0].contextPayload as Record<string, unknown>;
-    expect(payload.previousMemberStatus).toBe('revoked');
+    const payload = emitSignalCalls[0].contextPayload as Record<
+      string,
+      unknown
+    >;
+    expect(payload.previousMemberStatus).toBe("revoked");
   });
 
-  test('notifyGuardianOfAccessRequest persists canonical delivery rows from notification results', async () => {
+  test("notifyGuardianOfAccessRequest persists canonical delivery rows from notification results", async () => {
     mockEmitResult = {
-      signalId: 'sig-deliveries',
+      signalId: "sig-deliveries",
       deduplicated: false,
       dispatched: true,
-      reason: 'ok',
+      reason: "ok",
       deliveryResults: [
         {
-          channel: 'vellum',
-          destination: 'vellum',
-          status: 'sent',
-          conversationId: 'conv-guardian-access-request',
+          channel: "vellum",
+          destination: "vellum",
+          status: "sent",
+          conversationId: "conv-guardian-access-request",
         },
         {
-          channel: 'telegram',
-          destination: 'guardian-chat-123',
-          status: 'sent',
+          channel: "telegram",
+          destination: "guardian-chat-123",
+          status: "sent",
         },
       ],
     };
 
     const result = notifyGuardianOfAccessRequest({
-      canonicalAssistantId: 'self',
-      sourceChannel: 'voice',
-      conversationExternalId: '+15556667777',
-      actorExternalId: '+15556667777',
-      actorDisplayName: 'Noah',
+      canonicalAssistantId: "self",
+      sourceChannel: "voice",
+      conversationExternalId: "+15556667777",
+      actorExternalId: "+15556667777",
+      actorDisplayName: "Noah",
     });
 
     expect(result.notified).toBe(true);
@@ -565,38 +604,42 @@ describe('access-request-helper unit tests', () => {
     await flushAsyncAccessRequestBookkeeping();
 
     const deliveries = listCanonicalGuardianDeliveries(result.requestId);
-    const vellum = deliveries.find((d) => d.destinationChannel === 'vellum');
-    const telegram = deliveries.find((d) => d.destinationChannel === 'telegram');
+    const vellum = deliveries.find((d) => d.destinationChannel === "vellum");
+    const telegram = deliveries.find(
+      (d) => d.destinationChannel === "telegram",
+    );
 
     expect(vellum).toBeDefined();
-    expect(vellum!.destinationConversationId).toBe('conv-guardian-access-request');
-    expect(vellum!.status).toBe('sent');
+    expect(vellum!.destinationConversationId).toBe(
+      "conv-guardian-access-request",
+    );
+    expect(vellum!.status).toBe("sent");
     expect(telegram).toBeDefined();
-    expect(telegram!.destinationChatId).toBe('guardian-chat-123');
-    expect(telegram!.status).toBe('sent');
+    expect(telegram!.destinationChatId).toBe("guardian-chat-123");
+    expect(telegram!.status).toBe("sent");
   });
 
-  test('notifyGuardianOfAccessRequest records failed vellum fallback when pipeline has no vellum delivery', async () => {
+  test("notifyGuardianOfAccessRequest records failed vellum fallback when pipeline has no vellum delivery", async () => {
     mockEmitResult = {
-      signalId: 'sig-no-vellum',
+      signalId: "sig-no-vellum",
       deduplicated: false,
       dispatched: true,
-      reason: 'telegram-only',
+      reason: "telegram-only",
       deliveryResults: [
         {
-          channel: 'telegram',
-          destination: 'guardian-chat-456',
-          status: 'sent',
+          channel: "telegram",
+          destination: "guardian-chat-456",
+          status: "sent",
         },
       ],
     };
 
     const result = notifyGuardianOfAccessRequest({
-      canonicalAssistantId: 'self',
-      sourceChannel: 'telegram',
-      conversationExternalId: 'chat-123',
-      actorExternalId: 'unknown-user',
-      actorDisplayName: 'Alice',
+      canonicalAssistantId: "self",
+      sourceChannel: "telegram",
+      conversationExternalId: "chat-123",
+      actorExternalId: "unknown-user",
+      actorDisplayName: "Alice",
     });
 
     expect(result.notified).toBe(true);
@@ -605,13 +648,15 @@ describe('access-request-helper unit tests', () => {
     await flushAsyncAccessRequestBookkeeping();
 
     const deliveries = listCanonicalGuardianDeliveries(result.requestId);
-    const vellum = deliveries.find((d) => d.destinationChannel === 'vellum');
-    const telegram = deliveries.find((d) => d.destinationChannel === 'telegram');
+    const vellum = deliveries.find((d) => d.destinationChannel === "vellum");
+    const telegram = deliveries.find(
+      (d) => d.destinationChannel === "telegram",
+    );
 
     expect(vellum).toBeDefined();
-    expect(vellum!.status).toBe('failed');
+    expect(vellum!.status).toBe("failed");
     expect(telegram).toBeDefined();
-    expect(telegram!.destinationChatId).toBe('guardian-chat-456');
-    expect(telegram!.status).toBe('sent');
+    expect(telegram!.destinationChatId).toBe("guardian-chat-456");
+    expect(telegram!.status).toBe("sent");
   });
 });

@@ -9,33 +9,33 @@
  * 5. Delivery failures allow retry on next poll
  */
 
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test';
-
-const testDir = mkdtempSync(join(tmpdir(), 'tc-approval-notifier-test-'));
+const testDir = mkdtempSync(join(tmpdir(), "tc-approval-notifier-test-"));
 
 // ── Platform mock ──
-mock.module('../util/platform.js', () => ({
+mock.module("../util/platform.js", () => ({
   getDataDir: () => testDir,
-  isMacOS: () => process.platform === 'darwin',
-  isLinux: () => process.platform === 'linux',
-  isWindows: () => process.platform === 'win32',
-  getSocketPath: () => join(testDir, 'test.sock'),
-  getPidPath: () => join(testDir, 'test.pid'),
-  getDbPath: () => join(testDir, 'test.db'),
-  getLogPath: () => join(testDir, 'test.log'),
-  readHttpToken: () => 'test-token',
+  isMacOS: () => process.platform === "darwin",
+  isLinux: () => process.platform === "linux",
+  isWindows: () => process.platform === "win32",
+  getSocketPath: () => join(testDir, "test.sock"),
+  getPidPath: () => join(testDir, "test.pid"),
+  getDbPath: () => join(testDir, "test.db"),
+  getLogPath: () => join(testDir, "test.log"),
+  readHttpToken: () => "test-token",
   ensureDataDir: () => {},
   migrateToDataLayout: () => {},
   migrateToWorkspaceLayout: () => {},
-  normalizeAssistantId: (id: string) => id === 'self' || id === '' ? 'self' : id,
+  normalizeAssistantId: (id: string) =>
+    id === "self" || id === "" ? "self" : id,
 }));
 
 // ── Logger mock ──
-mock.module('../util/logger.js', () => ({
+mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
@@ -45,12 +45,12 @@ mock.module('../util/logger.js', () => ({
 }));
 
 // ── Notification signal mock ──
-mock.module('../notifications/emit-signal.js', () => ({
+mock.module("../notifications/emit-signal.js", () => ({
   emitNotificationSignal: async () => ({
-    signalId: 'test-signal',
+    signalId: "test-signal",
     deduplicated: false,
     dispatched: true,
-    reason: 'ok',
+    reason: "ok",
     deliveryResults: [],
   }),
   registerBroadcastFn: () => {},
@@ -65,14 +65,14 @@ const deliveredReplies: Array<{
 }> = [];
 let deliverShouldFail = false;
 
-mock.module('../runtime/gateway-client.js', () => ({
+mock.module("../runtime/gateway-client.js", () => ({
   deliverChannelReply: async (
     url: string,
     payload: Record<string, unknown>,
     bearerToken?: string,
   ) => {
     if (deliverShouldFail) {
-      throw new Error('Delivery failed');
+      throw new Error("Delivery failed");
     }
     deliveredReplies.push({ url, payload, bearerToken });
     return { ok: true };
@@ -82,7 +82,7 @@ mock.module('../runtime/gateway-client.js', () => ({
 // ── Guardian binding mock ──
 let mockGuardianBinding: Record<string, unknown> | null = null;
 
-mock.module('../runtime/channel-guardian-service.js', () => ({
+mock.module("../runtime/channel-guardian-service.js", () => ({
   getGuardianBinding: () => mockGuardianBinding,
   // Re-export stubs for other functions to prevent import errors
   bindSessionIdentity: () => {},
@@ -94,7 +94,10 @@ mock.module('../runtime/channel-guardian-service.js', () => ({
   resolveBootstrapToken: () => null,
   updateSessionDelivery: () => {},
   updateSessionStatus: () => {},
-  validateAndConsumeChallenge: () => ({ success: false, reason: 'no_challenge' }),
+  validateAndConsumeChallenge: () => ({
+    success: false,
+    reason: "no_challenge",
+  }),
 }));
 
 // ── Pending interactions mock ──
@@ -105,20 +108,21 @@ let mockPendingApprovals: Array<{
   riskLevel: string;
 }> = [];
 
-mock.module('../runtime/channel-approvals.js', () => ({
+mock.module("../runtime/channel-approvals.js", () => ({
   getApprovalInfoByConversation: () => mockPendingApprovals,
   getChannelApprovalPrompt: () => null,
   buildApprovalUIMetadata: () => ({}),
 }));
 
 // ── Config env mock ──
-mock.module('../config/env.js', () => ({
-  getGatewayInternalBaseUrl: () => 'http://localhost:3000',
+mock.module("../config/env.js", () => ({
+  isHttpAuthDisabled: () => true,
+  getGatewayInternalBaseUrl: () => "http://localhost:3000",
 }));
 
 // Import module under test AFTER mocks are set up
-import type { ChannelId } from '../channels/types.js';
-import type { GuardianContext } from '../runtime/guardian-context-resolver.js';
+import type { ChannelId } from "../channels/types.js";
+import type { GuardianContext } from "../runtime/guardian-context-resolver.js";
 
 // We need to test the private functions by importing the module.
 // Since startTrustedContactApprovalNotifier is not exported, we test it
@@ -146,7 +150,7 @@ async function simulateNotifierPoll(params: {
   conversationId: string;
   sourceChannel: ChannelId;
   externalChatId: string;
-  guardianTrustClass: GuardianContext['trustClass'];
+  guardianTrustClass: GuardianContext["trustClass"];
   guardianExternalUserId?: string;
   replyCallbackUrl: string;
   bearerToken?: string;
@@ -161,19 +165,21 @@ async function simulateNotifierPoll(params: {
   } = params;
 
   // Gate check: only trusted contacts with guardian route
-  if (guardianTrustClass !== 'trusted_contact' || !guardianExternalUserId) {
+  if (guardianTrustClass !== "trusted_contact" || !guardianExternalUserId) {
     return false;
   }
 
-  const { getApprovalInfoByConversation } = await import('../runtime/channel-approvals.js');
-  const { deliverChannelReply } = await import('../runtime/gateway-client.js');
-  const { getGuardianBinding } = await import('../runtime/channel-guardian-service.js');
+  const { getApprovalInfoByConversation } =
+    await import("../runtime/channel-approvals.js");
+  const { deliverChannelReply } = await import("../runtime/gateway-client.js");
+  const { getGuardianBinding } =
+    await import("../runtime/channel-guardian-service.js");
 
   const pending = getApprovalInfoByConversation(params.conversationId);
   const info = pending[0];
 
   // Clean up resolved requests — only for THIS conversation's entries.
-  const currentPendingIds = new Set(pending.map(p => p.requestId));
+  const currentPendingIds = new Set(pending.map((p) => p.requestId));
   for (const [rid, cid] of notifiedRequestIds) {
     if (cid === conversationId && !currentPendingIds.has(rid)) {
       notifiedRequestIds.delete(rid);
@@ -188,13 +194,25 @@ async function simulateNotifierPoll(params: {
 
   // Resolve guardian name
   let guardianName: string | undefined;
-  const binding = getGuardianBinding(params.assistantId ?? 'self', params.sourceChannel);
+  const binding = getGuardianBinding(
+    params.assistantId ?? "self",
+    params.sourceChannel,
+  );
   if (binding?.metadataJson) {
     try {
-      const parsed = JSON.parse(binding.metadataJson as string) as Record<string, unknown>;
-      if (typeof parsed.displayName === 'string' && parsed.displayName.trim().length > 0) {
+      const parsed = JSON.parse(binding.metadataJson as string) as Record<
+        string,
+        unknown
+      >;
+      if (
+        typeof parsed.displayName === "string" &&
+        parsed.displayName.trim().length > 0
+      ) {
         guardianName = parsed.displayName.trim();
-      } else if (typeof parsed.username === 'string' && parsed.username.trim().length > 0) {
+      } else if (
+        typeof parsed.username === "string" &&
+        parsed.username.trim().length > 0
+      ) {
         guardianName = `@${parsed.username.trim()}`;
       }
     } catch {
@@ -204,14 +222,18 @@ async function simulateNotifierPoll(params: {
 
   const waitingText = guardianName
     ? `Waiting for ${guardianName}'s approval...`
-    : 'Waiting for your guardian\'s approval...';
+    : "Waiting for your guardian's approval...";
 
   try {
-    await deliverChannelReply(params.replyCallbackUrl, {
-      chatId: params.externalChatId,
-      text: waitingText,
-      assistantId: params.assistantId ?? 'self',
-    }, params.bearerToken);
+    await deliverChannelReply(
+      params.replyCallbackUrl,
+      {
+        chatId: params.externalChatId,
+        text: waitingText,
+        assistantId: params.assistantId ?? "self",
+      },
+      params.bearerToken,
+    );
     return true;
   } catch {
     notifiedRequestIds.delete(info.requestId);
@@ -223,7 +245,7 @@ async function simulateNotifierPoll(params: {
 // TESTS
 // ===========================================================================
 
-describe('trusted-contact pending-approval notifier', () => {
+describe("trusted-contact pending-approval notifier", () => {
   beforeEach(() => {
     deliveredReplies.length = 0;
     deliverShouldFail = false;
@@ -239,142 +261,160 @@ describe('trusted-contact pending-approval notifier', () => {
     }
   });
 
-  test('sends waiting message to trusted contact when pending approval exists', async () => {
-    mockPendingApprovals = [{
-      requestId: 'req-1',
-      toolName: 'bash',
-      input: { command: 'ls' },
-      riskLevel: 'medium',
-    }];
+  test("sends waiting message to trusted contact when pending approval exists", async () => {
+    mockPendingApprovals = [
+      {
+        requestId: "req-1",
+        toolName: "bash",
+        input: { command: "ls" },
+        riskLevel: "medium",
+      },
+    ];
 
     mockGuardianBinding = {
-      id: 'binding-1',
-      metadataJson: JSON.stringify({ displayName: 'Mom' }),
+      id: "binding-1",
+      metadataJson: JSON.stringify({ displayName: "Mom" }),
     };
 
     const notified = new Map<string, string>();
     const sent = await simulateNotifierPoll({
-      conversationId: 'conv-1',
-      sourceChannel: 'telegram',
-      externalChatId: 'chat-123',
-      guardianTrustClass: 'trusted_contact',
-      guardianExternalUserId: 'guardian-1',
-      replyCallbackUrl: 'http://localhost:3000/deliver/telegram',
-      bearerToken: 'test-token',
-      assistantId: 'self',
+      conversationId: "conv-1",
+      sourceChannel: "telegram",
+      externalChatId: "chat-123",
+      guardianTrustClass: "trusted_contact",
+      guardianExternalUserId: "guardian-1",
+      replyCallbackUrl: "http://localhost:3000/deliver/telegram",
+      bearerToken: "test-token",
+      assistantId: "self",
       notifiedRequestIds: notified,
     });
 
     expect(sent).toBe(true);
     expect(deliveredReplies).toHaveLength(1);
-    expect(deliveredReplies[0].payload.text).toBe("Waiting for Mom's approval...");
-    expect(deliveredReplies[0].payload.chatId).toBe('chat-123');
-    expect(notified.has('req-1')).toBe(true);
+    expect(deliveredReplies[0].payload.text).toBe(
+      "Waiting for Mom's approval...",
+    );
+    expect(deliveredReplies[0].payload.chatId).toBe("chat-123");
+    expect(notified.has("req-1")).toBe(true);
   });
 
-  test('uses username with @ prefix when display name is not available', async () => {
-    mockPendingApprovals = [{
-      requestId: 'req-2',
-      toolName: 'bash',
-      input: {},
-      riskLevel: 'medium',
-    }];
+  test("uses username with @ prefix when display name is not available", async () => {
+    mockPendingApprovals = [
+      {
+        requestId: "req-2",
+        toolName: "bash",
+        input: {},
+        riskLevel: "medium",
+      },
+    ];
 
     mockGuardianBinding = {
-      id: 'binding-1',
-      metadataJson: JSON.stringify({ username: 'guardian_user' }),
+      id: "binding-1",
+      metadataJson: JSON.stringify({ username: "guardian_user" }),
     };
 
     const notified = new Map<string, string>();
     await simulateNotifierPoll({
-      conversationId: 'conv-1',
-      sourceChannel: 'telegram',
-      externalChatId: 'chat-123',
-      guardianTrustClass: 'trusted_contact',
-      guardianExternalUserId: 'guardian-1',
-      replyCallbackUrl: 'http://localhost:3000/deliver/telegram',
+      conversationId: "conv-1",
+      sourceChannel: "telegram",
+      externalChatId: "chat-123",
+      guardianTrustClass: "trusted_contact",
+      guardianExternalUserId: "guardian-1",
+      replyCallbackUrl: "http://localhost:3000/deliver/telegram",
       notifiedRequestIds: notified,
     });
 
     expect(deliveredReplies).toHaveLength(1);
-    expect(deliveredReplies[0].payload.text).toBe("Waiting for @guardian_user's approval...");
+    expect(deliveredReplies[0].payload.text).toBe(
+      "Waiting for @guardian_user's approval...",
+    );
   });
 
-  test('uses generic phrasing when no guardian name is available', async () => {
-    mockPendingApprovals = [{
-      requestId: 'req-3',
-      toolName: 'bash',
-      input: {},
-      riskLevel: 'medium',
-    }];
+  test("uses generic phrasing when no guardian name is available", async () => {
+    mockPendingApprovals = [
+      {
+        requestId: "req-3",
+        toolName: "bash",
+        input: {},
+        riskLevel: "medium",
+      },
+    ];
 
     // No binding metadata
     mockGuardianBinding = {
-      id: 'binding-1',
+      id: "binding-1",
       metadataJson: null,
     };
 
     const notified = new Map<string, string>();
     await simulateNotifierPoll({
-      conversationId: 'conv-1',
-      sourceChannel: 'telegram',
-      externalChatId: 'chat-123',
-      guardianTrustClass: 'trusted_contact',
-      guardianExternalUserId: 'guardian-1',
-      replyCallbackUrl: 'http://localhost:3000/deliver/telegram',
+      conversationId: "conv-1",
+      sourceChannel: "telegram",
+      externalChatId: "chat-123",
+      guardianTrustClass: "trusted_contact",
+      guardianExternalUserId: "guardian-1",
+      replyCallbackUrl: "http://localhost:3000/deliver/telegram",
       notifiedRequestIds: notified,
     });
 
     expect(deliveredReplies).toHaveLength(1);
-    expect(deliveredReplies[0].payload.text).toBe("Waiting for your guardian's approval...");
+    expect(deliveredReplies[0].payload.text).toBe(
+      "Waiting for your guardian's approval...",
+    );
   });
 
-  test('uses generic phrasing when no guardian binding exists', async () => {
-    mockPendingApprovals = [{
-      requestId: 'req-4',
-      toolName: 'bash',
-      input: {},
-      riskLevel: 'medium',
-    }];
+  test("uses generic phrasing when no guardian binding exists", async () => {
+    mockPendingApprovals = [
+      {
+        requestId: "req-4",
+        toolName: "bash",
+        input: {},
+        riskLevel: "medium",
+      },
+    ];
 
     mockGuardianBinding = null;
 
     const notified = new Map<string, string>();
     await simulateNotifierPoll({
-      conversationId: 'conv-1',
-      sourceChannel: 'telegram',
-      externalChatId: 'chat-123',
-      guardianTrustClass: 'trusted_contact',
-      guardianExternalUserId: 'guardian-1',
-      replyCallbackUrl: 'http://localhost:3000/deliver/telegram',
+      conversationId: "conv-1",
+      sourceChannel: "telegram",
+      externalChatId: "chat-123",
+      guardianTrustClass: "trusted_contact",
+      guardianExternalUserId: "guardian-1",
+      replyCallbackUrl: "http://localhost:3000/deliver/telegram",
       notifiedRequestIds: notified,
     });
 
     expect(deliveredReplies).toHaveLength(1);
-    expect(deliveredReplies[0].payload.text).toBe("Waiting for your guardian's approval...");
+    expect(deliveredReplies[0].payload.text).toBe(
+      "Waiting for your guardian's approval...",
+    );
   });
 
-  test('deduplicates by requestId — does not send twice for same request', async () => {
-    mockPendingApprovals = [{
-      requestId: 'req-5',
-      toolName: 'bash',
-      input: {},
-      riskLevel: 'medium',
-    }];
+  test("deduplicates by requestId — does not send twice for same request", async () => {
+    mockPendingApprovals = [
+      {
+        requestId: "req-5",
+        toolName: "bash",
+        input: {},
+        riskLevel: "medium",
+      },
+    ];
 
     mockGuardianBinding = {
-      id: 'binding-1',
-      metadataJson: JSON.stringify({ displayName: 'Guardian' }),
+      id: "binding-1",
+      metadataJson: JSON.stringify({ displayName: "Guardian" }),
     };
 
     const notified = new Map<string, string>();
     const baseParams = {
-      conversationId: 'conv-1',
-      sourceChannel: 'telegram' as ChannelId,
-      externalChatId: 'chat-123',
-      guardianTrustClass: 'trusted_contact' as const,
-      guardianExternalUserId: 'guardian-1',
-      replyCallbackUrl: 'http://localhost:3000/deliver/telegram',
+      conversationId: "conv-1",
+      sourceChannel: "telegram" as ChannelId,
+      externalChatId: "chat-123",
+      guardianTrustClass: "trusted_contact" as const,
+      guardianExternalUserId: "guardian-1",
+      replyCallbackUrl: "http://localhost:3000/deliver/telegram",
       notifiedRequestIds: notified,
     };
 
@@ -389,67 +429,73 @@ describe('trusted-contact pending-approval notifier', () => {
     expect(deliveredReplies).toHaveLength(1); // Still just 1
   });
 
-  test('sends separate messages for different requestIds', async () => {
+  test("sends separate messages for different requestIds", async () => {
     mockGuardianBinding = {
-      id: 'binding-1',
-      metadataJson: JSON.stringify({ displayName: 'Guardian' }),
+      id: "binding-1",
+      metadataJson: JSON.stringify({ displayName: "Guardian" }),
     };
 
     const notified = new Map<string, string>();
     const baseParams = {
-      conversationId: 'conv-1',
-      sourceChannel: 'telegram' as ChannelId,
-      externalChatId: 'chat-123',
-      guardianTrustClass: 'trusted_contact' as const,
-      guardianExternalUserId: 'guardian-1',
-      replyCallbackUrl: 'http://localhost:3000/deliver/telegram',
+      conversationId: "conv-1",
+      sourceChannel: "telegram" as ChannelId,
+      externalChatId: "chat-123",
+      guardianTrustClass: "trusted_contact" as const,
+      guardianExternalUserId: "guardian-1",
+      replyCallbackUrl: "http://localhost:3000/deliver/telegram",
       notifiedRequestIds: notified,
     };
 
     // First request
-    mockPendingApprovals = [{
-      requestId: 'req-A',
-      toolName: 'bash',
-      input: {},
-      riskLevel: 'medium',
-    }];
+    mockPendingApprovals = [
+      {
+        requestId: "req-A",
+        toolName: "bash",
+        input: {},
+        riskLevel: "medium",
+      },
+    ];
     await simulateNotifierPoll(baseParams);
     expect(deliveredReplies).toHaveLength(1);
 
     // Second request (different requestId)
-    mockPendingApprovals = [{
-      requestId: 'req-B',
-      toolName: 'read_file',
-      input: {},
-      riskLevel: 'low',
-    }];
+    mockPendingApprovals = [
+      {
+        requestId: "req-B",
+        toolName: "read_file",
+        input: {},
+        riskLevel: "low",
+      },
+    ];
     await simulateNotifierPoll(baseParams);
     expect(deliveredReplies).toHaveLength(2);
   });
 
-  test('concurrent pollers for different conversations do not evict each other', async () => {
+  test("concurrent pollers for different conversations do not evict each other", async () => {
     mockGuardianBinding = {
-      id: 'binding-1',
-      metadataJson: JSON.stringify({ displayName: 'Guardian' }),
+      id: "binding-1",
+      metadataJson: JSON.stringify({ displayName: "Guardian" }),
     };
 
     // Shared dedupe map simulating the module-level global
     const notified = new Map<string, string>();
 
     // Conversation A gets a pending approval and notifies
-    mockPendingApprovals = [{
-      requestId: 'req-convA',
-      toolName: 'bash',
-      input: {},
-      riskLevel: 'medium',
-    }];
+    mockPendingApprovals = [
+      {
+        requestId: "req-convA",
+        toolName: "bash",
+        input: {},
+        riskLevel: "medium",
+      },
+    ];
     const sentA = await simulateNotifierPoll({
-      conversationId: 'conv-A',
-      sourceChannel: 'telegram',
-      externalChatId: 'chat-A',
-      guardianTrustClass: 'trusted_contact',
-      guardianExternalUserId: 'guardian-1',
-      replyCallbackUrl: 'http://localhost:3000/deliver/telegram',
+      conversationId: "conv-A",
+      sourceChannel: "telegram",
+      externalChatId: "chat-A",
+      guardianTrustClass: "trusted_contact",
+      guardianExternalUserId: "guardian-1",
+      replyCallbackUrl: "http://localhost:3000/deliver/telegram",
       notifiedRequestIds: notified,
     });
     expect(sentA).toBe(true);
@@ -459,55 +505,59 @@ describe('trusted-contact pending-approval notifier', () => {
     // NOT evict conv-A's entry from the shared map.
     mockPendingApprovals = [];
     await simulateNotifierPoll({
-      conversationId: 'conv-B',
-      sourceChannel: 'telegram',
-      externalChatId: 'chat-B',
-      guardianTrustClass: 'trusted_contact',
-      guardianExternalUserId: 'guardian-1',
-      replyCallbackUrl: 'http://localhost:3000/deliver/telegram',
+      conversationId: "conv-B",
+      sourceChannel: "telegram",
+      externalChatId: "chat-B",
+      guardianTrustClass: "trusted_contact",
+      guardianExternalUserId: "guardian-1",
+      replyCallbackUrl: "http://localhost:3000/deliver/telegram",
       notifiedRequestIds: notified,
     });
 
     // req-convA should still be in the notified map (not evicted by conv-B)
-    expect(notified.has('req-convA')).toBe(true);
+    expect(notified.has("req-convA")).toBe(true);
 
     // Re-poll conversation A with the same pending approval — should NOT
     // re-send because the entry was preserved.
-    mockPendingApprovals = [{
-      requestId: 'req-convA',
-      toolName: 'bash',
-      input: {},
-      riskLevel: 'medium',
-    }];
+    mockPendingApprovals = [
+      {
+        requestId: "req-convA",
+        toolName: "bash",
+        input: {},
+        riskLevel: "medium",
+      },
+    ];
     const sentA2 = await simulateNotifierPoll({
-      conversationId: 'conv-A',
-      sourceChannel: 'telegram',
-      externalChatId: 'chat-A',
-      guardianTrustClass: 'trusted_contact',
-      guardianExternalUserId: 'guardian-1',
-      replyCallbackUrl: 'http://localhost:3000/deliver/telegram',
+      conversationId: "conv-A",
+      sourceChannel: "telegram",
+      externalChatId: "chat-A",
+      guardianTrustClass: "trusted_contact",
+      guardianExternalUserId: "guardian-1",
+      replyCallbackUrl: "http://localhost:3000/deliver/telegram",
       notifiedRequestIds: notified,
     });
     expect(sentA2).toBe(false);
     expect(deliveredReplies).toHaveLength(1); // Still just 1 — no duplicate
   });
 
-  test('does not activate for guardian actors', async () => {
-    mockPendingApprovals = [{
-      requestId: 'req-6',
-      toolName: 'bash',
-      input: {},
-      riskLevel: 'medium',
-    }];
+  test("does not activate for guardian actors", async () => {
+    mockPendingApprovals = [
+      {
+        requestId: "req-6",
+        toolName: "bash",
+        input: {},
+        riskLevel: "medium",
+      },
+    ];
 
     const notified = new Map<string, string>();
     const sent = await simulateNotifierPoll({
-      conversationId: 'conv-1',
-      sourceChannel: 'telegram',
-      externalChatId: 'chat-123',
-      guardianTrustClass: 'guardian',
-      guardianExternalUserId: 'guardian-1',
-      replyCallbackUrl: 'http://localhost:3000/deliver/telegram',
+      conversationId: "conv-1",
+      sourceChannel: "telegram",
+      externalChatId: "chat-123",
+      guardianTrustClass: "guardian",
+      guardianExternalUserId: "guardian-1",
+      replyCallbackUrl: "http://localhost:3000/deliver/telegram",
       notifiedRequestIds: notified,
     });
 
@@ -515,21 +565,23 @@ describe('trusted-contact pending-approval notifier', () => {
     expect(deliveredReplies).toHaveLength(0);
   });
 
-  test('does not activate for unknown actors', async () => {
-    mockPendingApprovals = [{
-      requestId: 'req-7',
-      toolName: 'bash',
-      input: {},
-      riskLevel: 'medium',
-    }];
+  test("does not activate for unknown actors", async () => {
+    mockPendingApprovals = [
+      {
+        requestId: "req-7",
+        toolName: "bash",
+        input: {},
+        riskLevel: "medium",
+      },
+    ];
 
     const notified = new Map<string, string>();
     const sent = await simulateNotifierPoll({
-      conversationId: 'conv-1',
-      sourceChannel: 'telegram',
-      externalChatId: 'chat-123',
-      guardianTrustClass: 'unknown',
-      replyCallbackUrl: 'http://localhost:3000/deliver/telegram',
+      conversationId: "conv-1",
+      sourceChannel: "telegram",
+      externalChatId: "chat-123",
+      guardianTrustClass: "unknown",
+      replyCallbackUrl: "http://localhost:3000/deliver/telegram",
       notifiedRequestIds: notified,
     });
 
@@ -537,22 +589,24 @@ describe('trusted-contact pending-approval notifier', () => {
     expect(deliveredReplies).toHaveLength(0);
   });
 
-  test('does not activate for trusted contact without guardian identity', async () => {
-    mockPendingApprovals = [{
-      requestId: 'req-8',
-      toolName: 'bash',
-      input: {},
-      riskLevel: 'medium',
-    }];
+  test("does not activate for trusted contact without guardian identity", async () => {
+    mockPendingApprovals = [
+      {
+        requestId: "req-8",
+        toolName: "bash",
+        input: {},
+        riskLevel: "medium",
+      },
+    ];
 
     const notified = new Map<string, string>();
     const sent = await simulateNotifierPoll({
-      conversationId: 'conv-1',
-      sourceChannel: 'telegram',
-      externalChatId: 'chat-123',
-      guardianTrustClass: 'trusted_contact',
+      conversationId: "conv-1",
+      sourceChannel: "telegram",
+      externalChatId: "chat-123",
+      guardianTrustClass: "trusted_contact",
       guardianExternalUserId: undefined,
-      replyCallbackUrl: 'http://localhost:3000/deliver/telegram',
+      replyCallbackUrl: "http://localhost:3000/deliver/telegram",
       notifiedRequestIds: notified,
     });
 
@@ -560,27 +614,29 @@ describe('trusted-contact pending-approval notifier', () => {
     expect(deliveredReplies).toHaveLength(0);
   });
 
-  test('retries delivery on failure — removes requestId from notified set', async () => {
-    mockPendingApprovals = [{
-      requestId: 'req-9',
-      toolName: 'bash',
-      input: {},
-      riskLevel: 'medium',
-    }];
+  test("retries delivery on failure — removes requestId from notified set", async () => {
+    mockPendingApprovals = [
+      {
+        requestId: "req-9",
+        toolName: "bash",
+        input: {},
+        riskLevel: "medium",
+      },
+    ];
 
     mockGuardianBinding = {
-      id: 'binding-1',
-      metadataJson: JSON.stringify({ displayName: 'Guardian' }),
+      id: "binding-1",
+      metadataJson: JSON.stringify({ displayName: "Guardian" }),
     };
 
     const notified = new Map<string, string>();
     const baseParams = {
-      conversationId: 'conv-1',
-      sourceChannel: 'telegram' as ChannelId,
-      externalChatId: 'chat-123',
-      guardianTrustClass: 'trusted_contact' as const,
-      guardianExternalUserId: 'guardian-1',
-      replyCallbackUrl: 'http://localhost:3000/deliver/telegram',
+      conversationId: "conv-1",
+      sourceChannel: "telegram" as ChannelId,
+      externalChatId: "chat-123",
+      guardianTrustClass: "trusted_contact" as const,
+      guardianExternalUserId: "guardian-1",
+      replyCallbackUrl: "http://localhost:3000/deliver/telegram",
       notifiedRequestIds: notified,
     };
 
@@ -588,27 +644,27 @@ describe('trusted-contact pending-approval notifier', () => {
     deliverShouldFail = true;
     const sent1 = await simulateNotifierPoll(baseParams);
     expect(sent1).toBe(false);
-    expect(notified.has('req-9')).toBe(false); // Removed for retry
+    expect(notified.has("req-9")).toBe(false); // Removed for retry
 
     // Second attempt: delivery succeeds
     deliverShouldFail = false;
     const sent2 = await simulateNotifierPoll(baseParams);
     expect(sent2).toBe(true);
     expect(deliveredReplies).toHaveLength(1);
-    expect(notified.has('req-9')).toBe(true);
+    expect(notified.has("req-9")).toBe(true);
   });
 
-  test('does not send when no pending approvals exist', async () => {
+  test("does not send when no pending approvals exist", async () => {
     mockPendingApprovals = [];
 
     const notified = new Map<string, string>();
     const sent = await simulateNotifierPoll({
-      conversationId: 'conv-1',
-      sourceChannel: 'telegram',
-      externalChatId: 'chat-123',
-      guardianTrustClass: 'trusted_contact',
-      guardianExternalUserId: 'guardian-1',
-      replyCallbackUrl: 'http://localhost:3000/deliver/telegram',
+      conversationId: "conv-1",
+      sourceChannel: "telegram",
+      externalChatId: "chat-123",
+      guardianTrustClass: "trusted_contact",
+      guardianExternalUserId: "guardian-1",
+      replyCallbackUrl: "http://localhost:3000/deliver/telegram",
       notifiedRequestIds: notified,
     });
 
@@ -616,63 +672,71 @@ describe('trusted-contact pending-approval notifier', () => {
     expect(deliveredReplies).toHaveLength(0);
   });
 
-  test('prefers displayName over username when both are present', async () => {
-    mockPendingApprovals = [{
-      requestId: 'req-10',
-      toolName: 'bash',
-      input: {},
-      riskLevel: 'medium',
-    }];
+  test("prefers displayName over username when both are present", async () => {
+    mockPendingApprovals = [
+      {
+        requestId: "req-10",
+        toolName: "bash",
+        input: {},
+        riskLevel: "medium",
+      },
+    ];
 
     mockGuardianBinding = {
-      id: 'binding-1',
+      id: "binding-1",
       metadataJson: JSON.stringify({
-        displayName: 'Sarah',
-        username: 'sarah_bot',
+        displayName: "Sarah",
+        username: "sarah_bot",
       }),
     };
 
     const notified = new Map<string, string>();
     await simulateNotifierPoll({
-      conversationId: 'conv-1',
-      sourceChannel: 'telegram',
-      externalChatId: 'chat-123',
-      guardianTrustClass: 'trusted_contact',
-      guardianExternalUserId: 'guardian-1',
-      replyCallbackUrl: 'http://localhost:3000/deliver/telegram',
+      conversationId: "conv-1",
+      sourceChannel: "telegram",
+      externalChatId: "chat-123",
+      guardianTrustClass: "trusted_contact",
+      guardianExternalUserId: "guardian-1",
+      replyCallbackUrl: "http://localhost:3000/deliver/telegram",
       notifiedRequestIds: notified,
     });
 
     expect(deliveredReplies).toHaveLength(1);
-    expect(deliveredReplies[0].payload.text).toBe("Waiting for Sarah's approval...");
+    expect(deliveredReplies[0].payload.text).toBe(
+      "Waiting for Sarah's approval...",
+    );
   });
 
-  test('handles malformed metadataJson gracefully', async () => {
-    mockPendingApprovals = [{
-      requestId: 'req-11',
-      toolName: 'bash',
-      input: {},
-      riskLevel: 'medium',
-    }];
+  test("handles malformed metadataJson gracefully", async () => {
+    mockPendingApprovals = [
+      {
+        requestId: "req-11",
+        toolName: "bash",
+        input: {},
+        riskLevel: "medium",
+      },
+    ];
 
     mockGuardianBinding = {
-      id: 'binding-1',
-      metadataJson: 'not-valid-json{{{',
+      id: "binding-1",
+      metadataJson: "not-valid-json{{{",
     };
 
     const notified = new Map<string, string>();
     await simulateNotifierPoll({
-      conversationId: 'conv-1',
-      sourceChannel: 'telegram',
-      externalChatId: 'chat-123',
-      guardianTrustClass: 'trusted_contact',
-      guardianExternalUserId: 'guardian-1',
-      replyCallbackUrl: 'http://localhost:3000/deliver/telegram',
+      conversationId: "conv-1",
+      sourceChannel: "telegram",
+      externalChatId: "chat-123",
+      guardianTrustClass: "trusted_contact",
+      guardianExternalUserId: "guardian-1",
+      replyCallbackUrl: "http://localhost:3000/deliver/telegram",
       notifiedRequestIds: notified,
     });
 
     expect(deliveredReplies).toHaveLength(1);
     // Falls back to generic phrasing
-    expect(deliveredReplies[0].payload.text).toBe("Waiting for your guardian's approval...");
+    expect(deliveredReplies[0].payload.text).toBe(
+      "Waiting for your guardian's approval...",
+    );
   });
 });

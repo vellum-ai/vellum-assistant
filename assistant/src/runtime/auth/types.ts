@@ -13,7 +13,8 @@ export type ScopeProfile =
   | 'actor_client_v1'
   | 'gateway_ingress_v1'
   | 'gateway_service_v1'
-  | 'ipc_v1';
+  | 'ipc_v1'
+  | 'ui_page_v1';
 
 // ---------------------------------------------------------------------------
 // Individual scope strings

@@ -39,7 +39,7 @@ After the token is collected, call the composite setup endpoint which validates 
 
 ```bash
 curl -sf -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/telegram/setup" \
-  -H "Authorization: Bearer $(cat ~/.vellum/http-token)" \
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{}'
 ```
@@ -101,7 +101,7 @@ Before reporting success, confirm the guardian binding was actually created. Che
 
 ```bash
 curl -sf "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/guardian/status?channel=telegram" \
-  -H "Authorization: Bearer $(cat ~/.vellum/http-token)"
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN"
 ```
 
 If the binding is absent and the user said they completed the verification:
@@ -120,7 +120,7 @@ Summarize what was done:
 - Guardian identity: {verified | not configured}
 - Guardian verification status: {verified via outbound flow | skipped}
 - Routing configuration validated
-- To re-check guardian status later, use: `curl -sf "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/guardian/status?channel=telegram" -H "Authorization: Bearer $(cat ~/.vellum/http-token)"`
+- To re-check guardian status later, use: `curl -sf "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/guardian/status?channel=telegram" -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN"`
 
 The gateway automatically detects credentials from the vault, reconciles the Telegram webhook registration, and begins accepting Telegram webhooks shortly. In single-assistant mode, routing is automatically configured — no manual environment variable configuration or webhook registration is needed. If the webhook secret changes later, the gateway's credential watcher will automatically re-register the webhook. If the ingress URL changes (e.g., tunnel restart), the assistant daemon triggers an immediate internal reconcile so the webhook re-registers automatically without a gateway restart.
 

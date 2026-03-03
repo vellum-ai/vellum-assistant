@@ -422,6 +422,8 @@ public final class HTTPTransport {
                         if self.isManagedMode {
                             // In managed mode, 401 means the session token expired.
                             // Don't reconnect — it would loop indefinitely.
+                            self.shouldReconnect = false
+                            self.sseTask = nil
                             self.setSSEConnected(false)
                             return
                         }

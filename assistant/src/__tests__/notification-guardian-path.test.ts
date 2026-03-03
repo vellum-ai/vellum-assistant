@@ -5,31 +5,30 @@
  * pipeline (including thread-created callbacks) without a custom IPC path.
  */
 
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test';
+import type { ThreadCreatedInfo } from "../notifications/broadcaster.js";
+import type { NotificationDeliveryResult } from "../notifications/types.js";
 
-import type { ThreadCreatedInfo } from '../notifications/broadcaster.js';
-import type { NotificationDeliveryResult } from '../notifications/types.js';
+const testDir = mkdtempSync(join(tmpdir(), "notification-guardian-path-"));
 
-const testDir = mkdtempSync(join(tmpdir(), 'notification-guardian-path-'));
-
-mock.module('../util/platform.js', () => ({
+mock.module("../util/platform.js", () => ({
   getDataDir: () => testDir,
-  isMacOS: () => process.platform === 'darwin',
-  isLinux: () => process.platform === 'linux',
-  isWindows: () => process.platform === 'win32',
-  getSocketPath: () => join(testDir, 'test.sock'),
-  getPidPath: () => join(testDir, 'test.pid'),
-  getDbPath: () => join(testDir, 'test.db'),
-  getLogPath: () => join(testDir, 'test.log'),
+  isMacOS: () => process.platform === "darwin",
+  isLinux: () => process.platform === "linux",
+  isWindows: () => process.platform === "win32",
+  getSocketPath: () => join(testDir, "test.sock"),
+  getPidPath: () => join(testDir, "test.pid"),
+  getDbPath: () => join(testDir, "test.db"),
+  getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
   readHttpToken: () => null,
 }));
 
-mock.module('../util/logger.js', () => ({
+mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
@@ -39,26 +38,27 @@ mock.module('../util/logger.js', () => ({
 let mockTelegramBinding: unknown = null;
 let mockVellumBinding: unknown = null;
 
-mock.module('../memory/channel-guardian-store.js', () => ({
+mock.module("../memory/channel-guardian-store.js", () => ({
   getActiveBinding: (_assistantId: string, channel: string) => {
-    if (channel === 'telegram') return mockTelegramBinding;
-    if (channel === 'vellum') return mockVellumBinding;
+    if (channel === "telegram") return mockTelegramBinding;
+    if (channel === "vellum") return mockVellumBinding;
     return null;
   },
   createBinding: (params: Record<string, unknown>) => ({
     id: `binding-${Date.now()}`,
     ...params,
-    status: 'active',
+    status: "active",
     verifiedAt: Date.now(),
-    verifiedVia: 'test',
+    verifiedVia: "test",
     metadataJson: null,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   }),
-  listActiveBindingsByAssistant: () => mockVellumBinding ? [mockVellumBinding] : [],
+  listActiveBindingsByAssistant: () =>
+    mockVellumBinding ? [mockVellumBinding] : [],
 }));
 
-mock.module('../config/loader.js', () => ({
+mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
 
@@ -70,8 +70,8 @@ mock.module('../config/loader.js', () => ({
 
 // Mock guardian-vellum-migration to use a stable principal, avoiding UNIQUE
 // constraint errors when ensureVellumGuardianBinding is called across tests.
-mock.module('../runtime/guardian-vellum-migration.js', () => ({
-  ensureVellumGuardianBinding: () => 'test-principal-id',
+mock.module("../runtime/guardian-vellum-migration.js", () => ({
+  ensureVellumGuardianBinding: () => "test-principal-id",
 }));
 
 const emitCalls: unknown[] = [];
@@ -83,25 +83,25 @@ let mockEmitResult: {
   reason: string;
   deliveryResults: NotificationDeliveryResult[];
 } = {
-  signalId: 'sig-1',
+  signalId: "sig-1",
   deduplicated: false,
   dispatched: true,
-  reason: 'ok',
+  reason: "ok",
   deliveryResults: [
     {
-      channel: 'vellum',
-      destination: 'vellum',
-      status: 'sent',
-      conversationId: 'conv-guardian-1',
+      channel: "vellum",
+      destination: "vellum",
+      status: "sent",
+      conversationId: "conv-guardian-1",
     },
   ],
 };
 
-mock.module('../notifications/emit-signal.js', () => ({
+mock.module("../notifications/emit-signal.js", () => ({
   emitNotificationSignal: async (params: Record<string, unknown>) => {
     emitCalls.push(params);
     const onThreadCreated = params.onThreadCreated;
-    if (typeof onThreadCreated === 'function' && mockThreadCreated) {
+    if (typeof onThreadCreated === "function" && mockThreadCreated) {
       onThreadCreated(mockThreadCreated);
     }
     return mockEmitResult;
@@ -109,215 +109,229 @@ mock.module('../notifications/emit-signal.js', () => ({
   registerBroadcastFn: () => {},
 }));
 
-import { createCallSession, createPendingQuestion } from '../calls/call-store.js';
-import { dispatchGuardianQuestion } from '../calls/guardian-dispatch.js';
-import { getDb, initializeDb, resetDb } from '../memory/db.js';
-import { conversations } from '../memory/schema.js';
+import {
+  createCallSession,
+  createPendingQuestion,
+} from "../calls/call-store.js";
+import { dispatchGuardianQuestion } from "../calls/guardian-dispatch.js";
+import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { conversations } from "../memory/schema.js";
 
 initializeDb();
 
 function ensureConversation(id: string): void {
   const db = getDb();
   const now = Date.now();
-  db.insert(conversations).values({
-    id,
-    title: `Conversation ${id}`,
-    createdAt: now,
-    updatedAt: now,
-  }).run();
+  db.insert(conversations)
+    .values({
+      id,
+      title: `Conversation ${id}`,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
 }
 
 function resetTables(): void {
   const db = getDb();
-  db.run('DELETE FROM canonical_guardian_deliveries');
-  db.run('DELETE FROM canonical_guardian_requests');
-  db.run('DELETE FROM guardian_action_deliveries');
-  db.run('DELETE FROM guardian_action_requests');
-  db.run('DELETE FROM channel_guardian_bindings');
-  db.run('DELETE FROM call_pending_questions');
-  db.run('DELETE FROM call_events');
-  db.run('DELETE FROM call_sessions');
-  db.run('DELETE FROM conversations');
+  db.run("DELETE FROM canonical_guardian_deliveries");
+  db.run("DELETE FROM canonical_guardian_requests");
+  db.run("DELETE FROM guardian_action_deliveries");
+  db.run("DELETE FROM guardian_action_requests");
+  db.run("DELETE FROM channel_guardian_bindings");
+  db.run("DELETE FROM call_pending_questions");
+  db.run("DELETE FROM call_events");
+  db.run("DELETE FROM call_sessions");
+  db.run("DELETE FROM conversations");
 
   emitCalls.length = 0;
   mockTelegramBinding = null;
   // Pre-seed vellum binding so the self-healing path in dispatchGuardianQuestion
   // never triggers (avoids UNIQUE constraint violations on repeated dispatches).
   mockVellumBinding = {
-    id: 'binding-vellum-test',
-    assistantId: 'self',
-    channel: 'vellum',
-    guardianExternalUserId: 'vellum-guardian',
-    guardianDeliveryChatId: 'local',
-    guardianPrincipalId: 'test-principal-id',
-    status: 'active',
+    id: "binding-vellum-test",
+    assistantId: "self",
+    channel: "vellum",
+    guardianExternalUserId: "vellum-guardian",
+    guardianDeliveryChatId: "local",
+    guardianPrincipalId: "test-principal-id",
+    status: "active",
     verifiedAt: Date.now(),
-    verifiedVia: 'test',
+    verifiedVia: "test",
     metadataJson: null,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };
   mockThreadCreated = null;
   mockEmitResult = {
-    signalId: 'sig-1',
+    signalId: "sig-1",
     deduplicated: false,
     dispatched: true,
-    reason: 'ok',
+    reason: "ok",
     deliveryResults: [
       {
-        channel: 'vellum',
-        destination: 'vellum',
-        status: 'sent',
-        conversationId: 'conv-guardian-1',
+        channel: "vellum",
+        destination: "vellum",
+        status: "sent",
+        conversationId: "conv-guardian-1",
       },
     ],
   };
 }
 
-describe('ASK_GUARDIAN canonical notification path', () => {
+describe("ASK_GUARDIAN canonical notification path", () => {
   beforeEach(() => {
     resetTables();
   });
 
   afterAll(() => {
     resetDb();
-    try { rmSync(testDir, { recursive: true }); } catch { /* best effort */ }
+    try {
+      rmSync(testDir, { recursive: true });
+    } catch {
+      /* best effort */
+    }
   });
 
-  test('dispatches through emitNotificationSignal with guardian context metadata', async () => {
-    const convId = 'conv-guardian-notif-1';
+  test("dispatches through emitNotificationSignal with guardian context metadata", async () => {
+    const convId = "conv-guardian-notif-1";
     ensureConversation(convId);
 
     const session = createCallSession({
       conversationId: convId,
-      provider: 'twilio',
-      fromNumber: '+15550001111',
-      toNumber: '+15550002222',
+      provider: "twilio",
+      fromNumber: "+15550001111",
+      toNumber: "+15550002222",
     });
-    const pq = createPendingQuestion(session.id, 'What is the gate code?');
+    const pq = createPendingQuestion(session.id, "What is the gate code?");
 
     await dispatchGuardianQuestion({
       callSessionId: session.id,
       conversationId: convId,
-      assistantId: 'self',
+      assistantId: "self",
       pendingQuestion: pq,
     });
 
     expect(emitCalls.length).toBe(1);
     const signalParams = emitCalls[0] as Record<string, unknown>;
-    expect(signalParams.sourceEventName).toBe('guardian.question');
-    expect(signalParams.sourceChannel).toBe('voice');
+    expect(signalParams.sourceEventName).toBe("guardian.question");
+    expect(signalParams.sourceChannel).toBe("voice");
     expect(signalParams.dedupeKey).toMatch(/^guardian:/);
 
     const hints = signalParams.attentionHints as Record<string, unknown>;
     expect(hints.requiresAction).toBe(true);
-    expect(hints.urgency).toBe('high');
+    expect(hints.urgency).toBe("high");
     expect(hints.isAsyncBackground).toBe(false);
     expect(hints.visibleInSourceNow).toBe(false);
 
     const payload = signalParams.contextPayload as Record<string, unknown>;
-    expect(payload.questionText).toBe('What is the gate code?');
+    expect(payload.questionText).toBe("What is the gate code?");
     expect(payload.callSessionId).toBe(session.id);
-    expect(payload.requestKind).toBe('pending_question');
+    expect(payload.requestKind).toBe("pending_question");
     expect(payload.toolName).toBeUndefined();
     expect(payload.pendingQuestionId).toBeUndefined();
     expect(payload.requestId).toBeDefined();
     expect(payload.requestCode).toBeDefined();
   });
 
-  test('uses notification_thread_created callback instead of a guardian-specific IPC path', async () => {
-    const convId = 'conv-guardian-notif-2';
+  test("uses notification_thread_created callback instead of a guardian-specific IPC path", async () => {
+    const convId = "conv-guardian-notif-2";
     ensureConversation(convId);
     mockThreadCreated = {
-      conversationId: 'conv-from-thread-callback',
-      title: 'Guardian question',
-      sourceEventName: 'guardian.question',
+      conversationId: "conv-from-thread-callback",
+      title: "Guardian question",
+      sourceEventName: "guardian.question",
     };
     mockEmitResult = {
-      signalId: 'sig-2',
+      signalId: "sig-2",
       deduplicated: false,
       dispatched: true,
-      reason: 'ok',
+      reason: "ok",
       deliveryResults: [
         {
-          channel: 'vellum',
-          destination: 'vellum',
-          status: 'sent',
+          channel: "vellum",
+          destination: "vellum",
+          status: "sent",
         },
       ],
     };
 
     const session = createCallSession({
       conversationId: convId,
-      provider: 'twilio',
-      fromNumber: '+15550001111',
-      toNumber: '+15550002222',
+      provider: "twilio",
+      fromNumber: "+15550001111",
+      toNumber: "+15550002222",
     });
-    const pq = createPendingQuestion(session.id, 'Need callback verification');
+    const pq = createPendingQuestion(session.id, "Need callback verification");
 
     await dispatchGuardianQuestion({
       callSessionId: session.id,
       conversationId: convId,
-      assistantId: 'self',
+      assistantId: "self",
       pendingQuestion: pq,
     });
 
     const signalParams = emitCalls[0] as Record<string, unknown>;
-    expect(typeof signalParams.onThreadCreated).toBe('function');
+    expect(typeof signalParams.onThreadCreated).toBe("function");
     expect(signalParams.skipVellumThread).toBeUndefined();
   });
 
-  test('creates guardian action deliveries from notification pipeline delivery results', async () => {
-    const convId = 'conv-guardian-notif-3';
+  test("creates guardian action deliveries from notification pipeline delivery results", async () => {
+    const convId = "conv-guardian-notif-3";
     ensureConversation(convId);
 
     mockTelegramBinding = {
-      guardianDeliveryChatId: 'tg-chat-abc',
-      guardianExternalUserId: 'tg-user-xyz',
+      guardianDeliveryChatId: "tg-chat-abc",
+      guardianExternalUserId: "tg-user-xyz",
     };
     mockEmitResult = {
-      signalId: 'sig-3',
+      signalId: "sig-3",
       deduplicated: false,
       dispatched: true,
-      reason: 'ok',
+      reason: "ok",
       deliveryResults: [
         {
-          channel: 'vellum',
-          destination: 'vellum',
-          status: 'sent',
-          conversationId: 'conv-guardian-vellum',
+          channel: "vellum",
+          destination: "vellum",
+          status: "sent",
+          conversationId: "conv-guardian-vellum",
         },
         {
-          channel: 'telegram',
-          destination: 'tg-chat-abc',
-          status: 'sent',
+          channel: "telegram",
+          destination: "tg-chat-abc",
+          status: "sent",
         },
       ],
     };
 
     const session = createCallSession({
       conversationId: convId,
-      provider: 'twilio',
-      fromNumber: '+15550001111',
-      toNumber: '+15550002222',
+      provider: "twilio",
+      fromNumber: "+15550001111",
+      toNumber: "+15550002222",
     });
-    const pq = createPendingQuestion(session.id, 'Ship it?');
+    const pq = createPendingQuestion(session.id, "Ship it?");
 
     await dispatchGuardianQuestion({
       callSessionId: session.id,
       conversationId: convId,
-      assistantId: 'self',
+      assistantId: "self",
       pendingQuestion: pq,
     });
 
     const db = getDb();
-    const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
-    const request = raw.query('SELECT * FROM canonical_guardian_requests WHERE call_session_id = ?').get(session.id) as
-      | { id: string }
-      | undefined;
-    const deliveries = raw.query(
-      'SELECT destination_channel, destination_conversation_id, destination_chat_id, status FROM canonical_guardian_deliveries WHERE request_id = ? ORDER BY destination_channel ASC',
-    ).all(request!.id) as Array<{
+    const raw = (db as unknown as { $client: import("bun:sqlite").Database })
+      .$client;
+    const request = raw
+      .query(
+        "SELECT * FROM canonical_guardian_requests WHERE call_session_id = ?",
+      )
+      .get(session.id) as { id: string } | undefined;
+    const deliveries = raw
+      .query(
+        "SELECT destination_channel, destination_conversation_id, destination_chat_id, status FROM canonical_guardian_deliveries WHERE request_id = ? ORDER BY destination_channel ASC",
+      )
+      .all(request!.id) as Array<{
       destination_channel: string;
       destination_conversation_id: string | null;
       destination_chat_id: string | null;
@@ -325,72 +339,81 @@ describe('ASK_GUARDIAN canonical notification path', () => {
     }>;
 
     expect(deliveries).toHaveLength(2);
-    const telegram = deliveries.find((d) => d.destination_channel === 'telegram');
-    const vellum = deliveries.find((d) => d.destination_channel === 'vellum');
+    const telegram = deliveries.find(
+      (d) => d.destination_channel === "telegram",
+    );
+    const vellum = deliveries.find((d) => d.destination_channel === "vellum");
     expect(telegram).toBeDefined();
-    expect(telegram!.destination_chat_id).toBe('tg-chat-abc');
-    expect(telegram!.status).toBe('sent');
+    expect(telegram!.destination_chat_id).toBe("tg-chat-abc");
+    expect(telegram!.status).toBe("sent");
     expect(vellum).toBeDefined();
-    expect(vellum!.destination_conversation_id).toBe('conv-guardian-vellum');
-    expect(vellum!.status).toBe('sent');
+    expect(vellum!.destination_conversation_id).toBe("conv-guardian-vellum");
+    expect(vellum!.status).toBe("sent");
   });
 
-  test('creates a failed vellum delivery when pipeline emits no vellum result', async () => {
-    const convId = 'conv-guardian-notif-4';
+  test("creates a failed vellum delivery when pipeline emits no vellum result", async () => {
+    const convId = "conv-guardian-notif-4";
     ensureConversation(convId);
 
     mockEmitResult = {
-      signalId: 'sig-4',
+      signalId: "sig-4",
       deduplicated: false,
       dispatched: false,
-      reason: 'blocked by deterministic checks',
+      reason: "blocked by deterministic checks",
       deliveryResults: [],
     };
 
     const session = createCallSession({
       conversationId: convId,
-      provider: 'twilio',
-      fromNumber: '+15550001111',
-      toNumber: '+15550002222',
+      provider: "twilio",
+      fromNumber: "+15550001111",
+      toNumber: "+15550002222",
     });
-    const pq = createPendingQuestion(session.id, 'Fallback row test');
+    const pq = createPendingQuestion(session.id, "Fallback row test");
 
-    await expect(dispatchGuardianQuestion({
-      callSessionId: session.id,
-      conversationId: convId,
-      assistantId: 'self',
-      pendingQuestion: pq,
-    })).resolves.toBeUndefined();
+    await expect(
+      dispatchGuardianQuestion({
+        callSessionId: session.id,
+        conversationId: convId,
+        assistantId: "self",
+        pendingQuestion: pq,
+      }),
+    ).resolves.toBeUndefined();
 
     const db = getDb();
-    const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
-    const request = raw.query('SELECT * FROM canonical_guardian_requests WHERE call_session_id = ?').get(session.id) as
-      | { id: string }
-      | undefined;
-    const vellumDelivery = raw.query(
-      'SELECT status FROM canonical_guardian_deliveries WHERE request_id = ? AND destination_channel = ?',
-    ).get(request!.id, 'vellum') as { status: string } | undefined;
+    const raw = (db as unknown as { $client: import("bun:sqlite").Database })
+      .$client;
+    const request = raw
+      .query(
+        "SELECT * FROM canonical_guardian_requests WHERE call_session_id = ?",
+      )
+      .get(session.id) as { id: string } | undefined;
+    const vellumDelivery = raw
+      .query(
+        "SELECT status FROM canonical_guardian_deliveries WHERE request_id = ? AND destination_channel = ?",
+      )
+      .get(request!.id, "vellum") as { status: string } | undefined;
 
     expect(vellumDelivery).toBeDefined();
-    expect(vellumDelivery!.status).toBe('failed');
+    expect(vellumDelivery!.status).toBe("failed");
   });
 
-  test('context payload includes callSessionId and activeGuardianRequestCount for candidate-affinity', async () => {
-    const convId = 'conv-guardian-notif-affinity';
+  test("context payload includes callSessionId and activeGuardianRequestCount for candidate-affinity", async () => {
+    const convId = "conv-guardian-notif-affinity";
     ensureConversation(convId);
 
     const session = createCallSession({
       conversationId: convId,
-      provider: 'twilio',
-      fromNumber: '+15550001111',
-      toNumber: '+15550002222',
+      provider: "twilio",
+      fromNumber: "+15550001111",
+      toNumber: "+15550002222",
     });
-    const pq = createPendingQuestion(session.id, 'Affinity test question');
+    const pq = createPendingQuestion(session.id, "Affinity test question");
 
     await dispatchGuardianQuestion({
       callSessionId: session.id,
       conversationId: convId,
-      assistantId: 'self',
+      assistantId: "self",
       pendingQuestion: pq,
     });
 
@@ -401,35 +424,38 @@ describe('ASK_GUARDIAN canonical notification path', () => {
     // callSessionId is present for the decision engine to match candidates to the current call
     expect(payload.callSessionId).toBe(session.id);
     // activeGuardianRequestCount provides a hint about whether to reuse an existing thread
-    expect(typeof payload.activeGuardianRequestCount).toBe('number');
+    expect(typeof payload.activeGuardianRequestCount).toBe("number");
     expect(payload.activeGuardianRequestCount).toBeGreaterThanOrEqual(1);
   });
 
-  test('repeated guardian questions retain per-request delivery records when sharing a conversation', async () => {
-    const convId = 'conv-guardian-notif-reuse';
+  test("repeated guardian questions retain per-request delivery records when sharing a conversation", async () => {
+    const convId = "conv-guardian-notif-reuse";
     ensureConversation(convId);
 
-    const sharedConvId = 'conv-guardian-shared-thread';
+    const sharedConvId = "conv-guardian-shared-thread";
 
     const session = createCallSession({
       conversationId: convId,
-      provider: 'twilio',
-      fromNumber: '+15550001111',
-      toNumber: '+15550002222',
+      provider: "twilio",
+      fromNumber: "+15550001111",
+      toNumber: "+15550002222",
     });
 
     // First guardian question
-    const pq1 = createPendingQuestion(session.id, 'Can they enter through the side gate?');
+    const pq1 = createPendingQuestion(
+      session.id,
+      "Can they enter through the side gate?",
+    );
     mockEmitResult = {
-      signalId: 'sig-reuse-a',
+      signalId: "sig-reuse-a",
       deduplicated: false,
       dispatched: true,
-      reason: 'ok',
+      reason: "ok",
       deliveryResults: [
         {
-          channel: 'vellum',
-          destination: 'vellum',
-          status: 'sent',
+          channel: "vellum",
+          destination: "vellum",
+          status: "sent",
           conversationId: sharedConvId,
         },
       ],
@@ -438,23 +464,23 @@ describe('ASK_GUARDIAN canonical notification path', () => {
     await dispatchGuardianQuestion({
       callSessionId: session.id,
       conversationId: convId,
-      assistantId: 'self',
+      assistantId: "self",
       pendingQuestion: pq1,
     });
 
     // Second guardian question (same call, pipeline reuses the same conversation)
     emitCalls.length = 0;
-    const pq2 = createPendingQuestion(session.id, 'What about the back door?');
+    const pq2 = createPendingQuestion(session.id, "What about the back door?");
     mockEmitResult = {
-      signalId: 'sig-reuse-b',
+      signalId: "sig-reuse-b",
       deduplicated: false,
       dispatched: true,
-      reason: 'ok',
+      reason: "ok",
       deliveryResults: [
         {
-          channel: 'vellum',
-          destination: 'vellum',
-          status: 'sent',
+          channel: "vellum",
+          destination: "vellum",
+          status: "sent",
           conversationId: sharedConvId,
         },
       ],
@@ -463,71 +489,87 @@ describe('ASK_GUARDIAN canonical notification path', () => {
     await dispatchGuardianQuestion({
       callSessionId: session.id,
       conversationId: convId,
-      assistantId: 'self',
+      assistantId: "self",
       pendingQuestion: pq2,
     });
 
     // Verify: two distinct canonical_guardian_requests exist
     const db = getDb();
-    const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
-    const requests = raw.query(
-      'SELECT id, question_text FROM canonical_guardian_requests WHERE call_session_id = ? ORDER BY created_at ASC',
-    ).all(session.id) as Array<{ id: string; question_text: string }>;
+    const raw = (db as unknown as { $client: import("bun:sqlite").Database })
+      .$client;
+    const requests = raw
+      .query(
+        "SELECT id, question_text FROM canonical_guardian_requests WHERE call_session_id = ? ORDER BY created_at ASC",
+      )
+      .all(session.id) as Array<{ id: string; question_text: string }>;
     expect(requests).toHaveLength(2);
-    expect(requests[0].question_text).toBe('Can they enter through the side gate?');
-    expect(requests[1].question_text).toBe('What about the back door?');
+    expect(requests[0].question_text).toBe(
+      "Can they enter through the side gate?",
+    );
+    expect(requests[1].question_text).toBe("What about the back door?");
 
     // Verify: each request has its own delivery row pointing to the shared conversation
-    const deliveries = raw.query(
-      'SELECT request_id, destination_conversation_id, status FROM canonical_guardian_deliveries WHERE destination_conversation_id = ? ORDER BY created_at ASC',
-    ).all(sharedConvId) as Array<{ request_id: string; destination_conversation_id: string; status: string }>;
+    const deliveries = raw
+      .query(
+        "SELECT request_id, destination_conversation_id, status FROM canonical_guardian_deliveries WHERE destination_conversation_id = ? ORDER BY created_at ASC",
+      )
+      .all(sharedConvId) as Array<{
+      request_id: string;
+      destination_conversation_id: string;
+      status: string;
+    }>;
     expect(deliveries).toHaveLength(2);
     expect(deliveries[0].request_id).toBe(requests[0].id);
     expect(deliveries[1].request_id).toBe(requests[1].id);
-    expect(deliveries[0].status).toBe('sent');
-    expect(deliveries[1].status).toBe('sent');
+    expect(deliveries[0].status).toBe("sent");
+    expect(deliveries[1].status).toBe("sent");
   });
 
-  test('follow-up/timeout flow is unchanged — expired request still gets fallback delivery on no pipeline result', async () => {
-    const convId = 'conv-guardian-notif-timeout';
+  test("follow-up/timeout flow is unchanged — expired request still gets fallback delivery on no pipeline result", async () => {
+    const convId = "conv-guardian-notif-timeout";
     ensureConversation(convId);
 
     // Simulate a scenario where the pipeline returns no delivery results (e.g. blocked)
     mockEmitResult = {
-      signalId: 'sig-timeout',
+      signalId: "sig-timeout",
       deduplicated: false,
       dispatched: false,
-      reason: 'blocked by deterministic checks',
+      reason: "blocked by deterministic checks",
       deliveryResults: [],
     };
 
     const session = createCallSession({
       conversationId: convId,
-      provider: 'twilio',
-      fromNumber: '+15550001111',
-      toNumber: '+15550002222',
+      provider: "twilio",
+      fromNumber: "+15550001111",
+      toNumber: "+15550002222",
     });
-    const pq = createPendingQuestion(session.id, 'Timeout scenario');
+    const pq = createPendingQuestion(session.id, "Timeout scenario");
 
     await dispatchGuardianQuestion({
       callSessionId: session.id,
       conversationId: convId,
-      assistantId: 'self',
+      assistantId: "self",
       pendingQuestion: pq,
     });
 
     // The dispatch should still create a failed fallback delivery row
     const db = getDb();
-    const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
-    const request = raw.query('SELECT id FROM canonical_guardian_requests WHERE call_session_id = ?').get(session.id) as
-      | { id: string }
-      | undefined;
+    const raw = (db as unknown as { $client: import("bun:sqlite").Database })
+      .$client;
+    const request = raw
+      .query(
+        "SELECT id FROM canonical_guardian_requests WHERE call_session_id = ?",
+      )
+      .get(session.id) as { id: string } | undefined;
     expect(request).toBeDefined();
 
-    const delivery = raw.query(
-      'SELECT status FROM canonical_guardian_deliveries WHERE request_id = ? AND destination_channel = ?',
-    ).get(request!.id, 'vellum') as { status: string } | undefined;
+    const delivery = raw
+      .query(
+        "SELECT status FROM canonical_guardian_deliveries WHERE request_id = ? AND destination_channel = ?",
+      )
+      .get(request!.id, "vellum") as { status: string } | undefined;
     expect(delivery).toBeDefined();
-    expect(delivery!.status).toBe('failed');
+    expect(delivery!.status).toBe("failed");
   });
 });

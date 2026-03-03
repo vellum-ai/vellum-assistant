@@ -1,32 +1,34 @@
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { afterAll, beforeEach, describe, expect, mock,test } from 'bun:test';
+const testDir = mkdtempSync(join(tmpdir(), "guardian-action-store-test-"));
 
-const testDir = mkdtempSync(join(tmpdir(), 'guardian-action-store-test-'));
-
-mock.module('../util/platform.js', () => ({
+mock.module("../util/platform.js", () => ({
   getDataDir: () => testDir,
-  isMacOS: () => process.platform === 'darwin',
-  isLinux: () => process.platform === 'linux',
-  isWindows: () => process.platform === 'win32',
-  getSocketPath: () => join(testDir, 'test.sock'),
-  getPidPath: () => join(testDir, 'test.pid'),
-  getDbPath: () => join(testDir, 'test.db'),
-  getLogPath: () => join(testDir, 'test.log'),
+  isMacOS: () => process.platform === "darwin",
+  isLinux: () => process.platform === "linux",
+  isWindows: () => process.platform === "win32",
+  getSocketPath: () => join(testDir, "test.sock"),
+  getPidPath: () => join(testDir, "test.pid"),
+  getDbPath: () => join(testDir, "test.db"),
+  getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
 }));
 
-mock.module('../util/logger.js', () => ({
+mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
     }),
 }));
 
-import { createCallSession, createPendingQuestion } from '../calls/call-store.js';
-import { getDb, initializeDb, resetDb } from '../memory/db.js';
+import {
+  createCallSession,
+  createPendingQuestion,
+} from "../calls/call-store.js";
+import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import {
   cancelGuardianActionRequest,
   createGuardianActionDelivery,
@@ -42,33 +44,35 @@ import {
   getPendingDeliveryByConversation,
   startFollowupFromExpiredRequest,
   updateDeliveryStatus,
-} from '../memory/guardian-action-store.js';
-import { conversations } from '../memory/schema.js';
+} from "../memory/guardian-action-store.js";
+import { conversations } from "../memory/schema.js";
 
 initializeDb();
 
 function ensureConversation(id: string): void {
   const db = getDb();
   const now = Date.now();
-  db.insert(conversations).values({
-    id,
-    title: `Conversation ${id}`,
-    createdAt: now,
-    updatedAt: now,
-  }).run();
+  db.insert(conversations)
+    .values({
+      id,
+      title: `Conversation ${id}`,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
 }
 
 function resetTables(): void {
   const db = getDb();
-  db.run('DELETE FROM guardian_action_deliveries');
-  db.run('DELETE FROM guardian_action_requests');
-  db.run('DELETE FROM call_pending_questions');
-  db.run('DELETE FROM call_events');
-  db.run('DELETE FROM call_sessions');
-  db.run('DELETE FROM conversations');
+  db.run("DELETE FROM guardian_action_deliveries");
+  db.run("DELETE FROM guardian_action_requests");
+  db.run("DELETE FROM call_pending_questions");
+  db.run("DELETE FROM call_events");
+  db.run("DELETE FROM call_sessions");
+  db.run("DELETE FROM conversations");
 }
 
-describe('guardian-action-store', () => {
+describe("guardian-action-store", () => {
   beforeEach(() => {
     resetTables();
   });
@@ -83,18 +87,21 @@ describe('guardian-action-store', () => {
   });
 
   // ── Helper to create a pending request+delivery targeting a conversation ──
-  function createPendingRequestWithDelivery(convId: string, deliveryConvId: string) {
+  function createPendingRequestWithDelivery(
+    convId: string,
+    deliveryConvId: string,
+  ) {
     ensureConversation(convId);
     const session = createCallSession({
       conversationId: convId,
-      provider: 'twilio',
-      fromNumber: '+15550001111',
-      toNumber: '+15550002222',
+      provider: "twilio",
+      fromNumber: "+15550001111",
+      toNumber: "+15550002222",
     });
     const pq = createPendingQuestion(session.id, `Question for ${convId}`);
     const request = createGuardianActionRequest({
-      kind: 'ask_guardian',
-      sourceChannel: 'voice',
+      kind: "ask_guardian",
+      sourceChannel: "voice",
       sourceConversationId: convId,
       callSessionId: session.id,
       pendingQuestionId: pq.id,
@@ -103,21 +110,27 @@ describe('guardian-action-store', () => {
     });
     const delivery = createGuardianActionDelivery({
       requestId: request.id,
-      destinationChannel: 'vellum',
+      destinationChannel: "vellum",
       destinationConversationId: deliveryConvId,
     });
-    updateDeliveryStatus(delivery.id, 'sent');
+    updateDeliveryStatus(delivery.id, "sent");
     return { request, delivery };
   }
 
   // ── getPendingDeliveriesByConversation ──────────────────────────────
 
-  test('getPendingDeliveriesByConversation returns all pending deliveries for a conversation', () => {
-    const sharedConvId = 'shared-pending-conv';
+  test("getPendingDeliveriesByConversation returns all pending deliveries for a conversation", () => {
+    const sharedConvId = "shared-pending-conv";
     ensureConversation(sharedConvId);
 
-    const { request: req1 } = createPendingRequestWithDelivery('source-conv-p1', sharedConvId);
-    const { request: req2 } = createPendingRequestWithDelivery('source-conv-p2', sharedConvId);
+    const { request: req1 } = createPendingRequestWithDelivery(
+      "source-conv-p1",
+      sharedConvId,
+    );
+    const { request: req2 } = createPendingRequestWithDelivery(
+      "source-conv-p2",
+      sharedConvId,
+    );
 
     const deliveries = getPendingDeliveriesByConversation(sharedConvId);
     expect(deliveries).toHaveLength(2);
@@ -127,47 +140,56 @@ describe('guardian-action-store', () => {
     expect(requestIds).toContain(req2.id);
   });
 
-  test('getPendingDeliveriesByConversation returns single delivery (fast path preserved)', () => {
-    const convId = 'single-pending-conv';
+  test("getPendingDeliveriesByConversation returns single delivery (fast path preserved)", () => {
+    const convId = "single-pending-conv";
     ensureConversation(convId);
 
-    const { request } = createPendingRequestWithDelivery('source-conv-single-p', convId);
+    const { request } = createPendingRequestWithDelivery(
+      "source-conv-single-p",
+      convId,
+    );
 
     const deliveries = getPendingDeliveriesByConversation(convId);
     expect(deliveries).toHaveLength(1);
     expect(deliveries[0].requestId).toBe(request.id);
   });
 
-  test('getPendingDeliveryByConversation returns first from multiple (backward compat)', () => {
-    const convId = 'compat-pending-conv';
+  test("getPendingDeliveryByConversation returns first from multiple (backward compat)", () => {
+    const convId = "compat-pending-conv";
     ensureConversation(convId);
 
-    createPendingRequestWithDelivery('source-conv-compat-p1', convId);
-    createPendingRequestWithDelivery('source-conv-compat-p2', convId);
+    createPendingRequestWithDelivery("source-conv-compat-p1", convId);
+    createPendingRequestWithDelivery("source-conv-compat-p2", convId);
 
     const single = getPendingDeliveryByConversation(convId);
     expect(single).not.toBeNull();
   });
 
-  test('getPendingDeliveriesByConversation returns empty for non-matching conversation', () => {
-    ensureConversation('other-conv');
-    createPendingRequestWithDelivery('source-conv-no-match', 'other-conv');
+  test("getPendingDeliveriesByConversation returns empty for non-matching conversation", () => {
+    ensureConversation("other-conv");
+    createPendingRequestWithDelivery("source-conv-no-match", "other-conv");
 
-    const deliveries = getPendingDeliveriesByConversation('nonexistent-conv');
+    const deliveries = getPendingDeliveriesByConversation("nonexistent-conv");
     expect(deliveries).toHaveLength(0);
   });
 
   // ── getExpiredDeliveriesByConversation ──────────────────────────────
 
-  test('getExpiredDeliveriesByConversation returns all expired deliveries for a conversation', () => {
-    const sharedConvId = 'shared-expired-conv';
+  test("getExpiredDeliveriesByConversation returns all expired deliveries for a conversation", () => {
+    const sharedConvId = "shared-expired-conv";
     ensureConversation(sharedConvId);
 
-    const { request: req1 } = createPendingRequestWithDelivery('source-conv-e1', sharedConvId);
-    const { request: req2 } = createPendingRequestWithDelivery('source-conv-e2', sharedConvId);
+    const { request: req1 } = createPendingRequestWithDelivery(
+      "source-conv-e1",
+      sharedConvId,
+    );
+    const { request: req2 } = createPendingRequestWithDelivery(
+      "source-conv-e2",
+      sharedConvId,
+    );
 
-    expireGuardianActionRequest(req1.id, 'sweep_timeout');
-    expireGuardianActionRequest(req2.id, 'sweep_timeout');
+    expireGuardianActionRequest(req1.id, "sweep_timeout");
+    expireGuardianActionRequest(req2.id, "sweep_timeout");
 
     const deliveries = getExpiredDeliveriesByConversation(sharedConvId);
     expect(deliveries).toHaveLength(2);
@@ -177,32 +199,44 @@ describe('guardian-action-store', () => {
     expect(requestIds).toContain(req2.id);
   });
 
-  test('getExpiredDeliveryByConversation returns first from multiple (backward compat)', () => {
-    const convId = 'compat-expired-conv';
+  test("getExpiredDeliveryByConversation returns first from multiple (backward compat)", () => {
+    const convId = "compat-expired-conv";
     ensureConversation(convId);
 
-    const { request: req1 } = createPendingRequestWithDelivery('source-conv-compat-e1', convId);
-    const { request: req2 } = createPendingRequestWithDelivery('source-conv-compat-e2', convId);
+    const { request: req1 } = createPendingRequestWithDelivery(
+      "source-conv-compat-e1",
+      convId,
+    );
+    const { request: req2 } = createPendingRequestWithDelivery(
+      "source-conv-compat-e2",
+      convId,
+    );
 
-    expireGuardianActionRequest(req1.id, 'sweep_timeout');
-    expireGuardianActionRequest(req2.id, 'sweep_timeout');
+    expireGuardianActionRequest(req1.id, "sweep_timeout");
+    expireGuardianActionRequest(req2.id, "sweep_timeout");
 
     const single = getExpiredDeliveryByConversation(convId);
     expect(single).not.toBeNull();
   });
 
-  test('getExpiredDeliveriesByConversation excludes deliveries with followup already started', () => {
-    const convId = 'expired-with-followup-conv';
+  test("getExpiredDeliveriesByConversation excludes deliveries with followup already started", () => {
+    const convId = "expired-with-followup-conv";
     ensureConversation(convId);
 
-    const { request: req1 } = createPendingRequestWithDelivery('source-conv-ef1', convId);
-    const { request: req2 } = createPendingRequestWithDelivery('source-conv-ef2', convId);
+    const { request: req1 } = createPendingRequestWithDelivery(
+      "source-conv-ef1",
+      convId,
+    );
+    const { request: req2 } = createPendingRequestWithDelivery(
+      "source-conv-ef2",
+      convId,
+    );
 
-    expireGuardianActionRequest(req1.id, 'sweep_timeout');
-    expireGuardianActionRequest(req2.id, 'sweep_timeout');
+    expireGuardianActionRequest(req1.id, "sweep_timeout");
+    expireGuardianActionRequest(req2.id, "sweep_timeout");
 
     // Start followup on req1 — only req2 should remain in the expired query
-    startFollowupFromExpiredRequest(req1.id, 'late answer');
+    startFollowupFromExpiredRequest(req1.id, "late answer");
 
     const deliveries = getExpiredDeliveriesByConversation(convId);
     expect(deliveries).toHaveLength(1);
@@ -211,18 +245,24 @@ describe('guardian-action-store', () => {
 
   // ── getFollowupDeliveriesByConversation ─────────────────────────────
 
-  test('getFollowupDeliveriesByConversation returns all awaiting_guardian_choice deliveries', () => {
-    const convId = 'shared-followup-conv';
+  test("getFollowupDeliveriesByConversation returns all awaiting_guardian_choice deliveries", () => {
+    const convId = "shared-followup-conv";
     ensureConversation(convId);
 
-    const { request: req1 } = createPendingRequestWithDelivery('source-conv-f1', convId);
-    const { request: req2 } = createPendingRequestWithDelivery('source-conv-f2', convId);
+    const { request: req1 } = createPendingRequestWithDelivery(
+      "source-conv-f1",
+      convId,
+    );
+    const { request: req2 } = createPendingRequestWithDelivery(
+      "source-conv-f2",
+      convId,
+    );
 
-    expireGuardianActionRequest(req1.id, 'sweep_timeout');
-    expireGuardianActionRequest(req2.id, 'sweep_timeout');
+    expireGuardianActionRequest(req1.id, "sweep_timeout");
+    expireGuardianActionRequest(req2.id, "sweep_timeout");
 
-    startFollowupFromExpiredRequest(req1.id, 'late answer 1');
-    startFollowupFromExpiredRequest(req2.id, 'late answer 2');
+    startFollowupFromExpiredRequest(req1.id, "late answer 1");
+    startFollowupFromExpiredRequest(req2.id, "late answer 2");
 
     const deliveries = getFollowupDeliveriesByConversation(convId);
     expect(deliveries).toHaveLength(2);
@@ -232,45 +272,54 @@ describe('guardian-action-store', () => {
     expect(requestIds).toContain(req2.id);
   });
 
-  test('getFollowupDeliveryByConversation returns first from multiple (backward compat)', () => {
-    const convId = 'compat-followup-conv';
+  test("getFollowupDeliveryByConversation returns first from multiple (backward compat)", () => {
+    const convId = "compat-followup-conv";
     ensureConversation(convId);
 
-    const { request: req1 } = createPendingRequestWithDelivery('source-conv-compat-f1', convId);
-    const { request: req2 } = createPendingRequestWithDelivery('source-conv-compat-f2', convId);
+    const { request: req1 } = createPendingRequestWithDelivery(
+      "source-conv-compat-f1",
+      convId,
+    );
+    const { request: req2 } = createPendingRequestWithDelivery(
+      "source-conv-compat-f2",
+      convId,
+    );
 
-    expireGuardianActionRequest(req1.id, 'sweep_timeout');
-    expireGuardianActionRequest(req2.id, 'sweep_timeout');
+    expireGuardianActionRequest(req1.id, "sweep_timeout");
+    expireGuardianActionRequest(req2.id, "sweep_timeout");
 
-    startFollowupFromExpiredRequest(req1.id, 'late 1');
-    startFollowupFromExpiredRequest(req2.id, 'late 2');
+    startFollowupFromExpiredRequest(req1.id, "late 1");
+    startFollowupFromExpiredRequest(req2.id, "late 2");
 
     const single = getFollowupDeliveryByConversation(convId);
     expect(single).not.toBeNull();
   });
 
-  test('getFollowupDeliveriesByConversation returns empty for non-matching conversation', () => {
-    const deliveries = getFollowupDeliveriesByConversation('nonexistent-conv');
+  test("getFollowupDeliveriesByConversation returns empty for non-matching conversation", () => {
+    const deliveries = getFollowupDeliveriesByConversation("nonexistent-conv");
     expect(deliveries).toHaveLength(0);
   });
 
   // ── cancelGuardianActionRequest ─────────────────────────────────────
 
-  test('cancelGuardianActionRequest cancels both pending and sent deliveries', () => {
-    const conversationId = 'conv-guardian-cancel';
+  test("cancelGuardianActionRequest cancels both pending and sent deliveries", () => {
+    const conversationId = "conv-guardian-cancel";
     ensureConversation(conversationId);
 
     const session = createCallSession({
       conversationId,
-      provider: 'twilio',
-      fromNumber: '+15550001111',
-      toNumber: '+15550002222',
+      provider: "twilio",
+      fromNumber: "+15550001111",
+      toNumber: "+15550002222",
     });
-    const pendingQuestion = createPendingQuestion(session.id, 'What is our gate code?');
+    const pendingQuestion = createPendingQuestion(
+      session.id,
+      "What is our gate code?",
+    );
 
     const request = createGuardianActionRequest({
-      kind: 'ask_guardian',
-      sourceChannel: 'voice',
+      kind: "ask_guardian",
+      sourceChannel: "voice",
       sourceConversationId: conversationId,
       callSessionId: session.id,
       pendingQuestionId: pendingQuestion.id,
@@ -280,27 +329,27 @@ describe('guardian-action-store', () => {
 
     const pendingDelivery = createGuardianActionDelivery({
       requestId: request.id,
-      destinationChannel: 'vellum',
-      destinationConversationId: 'conv-mac-guardian',
+      destinationChannel: "vellum",
+      destinationConversationId: "conv-mac-guardian",
     });
     const sentDelivery = createGuardianActionDelivery({
       requestId: request.id,
-      destinationChannel: 'telegram',
-      destinationChatId: 'chat-guardian',
-      destinationExternalUserId: 'guardian-user',
+      destinationChannel: "telegram",
+      destinationChatId: "chat-guardian",
+      destinationExternalUserId: "guardian-user",
     });
-    updateDeliveryStatus(sentDelivery.id, 'sent');
+    updateDeliveryStatus(sentDelivery.id, "sent");
 
     cancelGuardianActionRequest(request.id);
 
     const updatedRequest = getGuardianActionRequest(request.id);
     expect(updatedRequest).not.toBeNull();
-    expect(updatedRequest!.status).toBe('cancelled');
+    expect(updatedRequest!.status).toBe("cancelled");
 
     const deliveries = getDeliveriesByRequestId(request.id);
     const pendingAfter = deliveries.find((d) => d.id === pendingDelivery.id);
     const sentAfter = deliveries.find((d) => d.id === sentDelivery.id);
-    expect(pendingAfter?.status).toBe('cancelled');
-    expect(sentAfter?.status).toBe('cancelled');
+    expect(pendingAfter?.status).toBe("cancelled");
+    expect(sentAfter?.status).toBe("cancelled");
   });
 });

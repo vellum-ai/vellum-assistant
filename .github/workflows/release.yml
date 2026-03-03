@@ -634,7 +634,7 @@ jobs:
   # Parallel Swift builds — each architecture compiles on its own runner,
   # then build-macos merges them into a universal binary via lipo.
   build-swift-arm64:
-    needs: bump-and-tag
+    needs: [bump-and-tag, ci-assistant, ci-cli, ci-gateway]
     runs-on: macos-14
     timeout-minutes: 15
     steps:
@@ -679,7 +679,7 @@ jobs:
           retention-days: 1
 
   build-swift-x86_64:
-    needs: bump-and-tag
+    needs: [bump-and-tag, ci-assistant, ci-cli, ci-gateway]
     runs-on: macos-14
     timeout-minutes: 15
     steps:
@@ -718,7 +718,7 @@ jobs:
 
   # Original production build — unchanged, runs the full sequential build.
   build-macos:
-    needs: bump-and-tag
+    needs: [bump-and-tag, ci-assistant, ci-cli, ci-gateway]
     runs-on: macos-14
     timeout-minutes: 30
     defaults:
@@ -759,6 +759,11 @@ jobs:
           security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
           security default-keychain -s "$KEYCHAIN_PATH"
           security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+
+      - name: Verify signing identity
+        run: |
+          security find-identity -v -p codesigning | grep -q "Developer ID Application" \
+            || { echo "::error::Developer ID Application identity not found in keychain. Check the DEVID_CERTIFICATE_P12 secret."; exit 1; }
 
       - name: Set version
         id: version
@@ -999,7 +1004,7 @@ jobs:
   # (split-arch-build) that is NOT used by the release job. Compare this artifact
   # with the production build to verify correctness before switching over.
   build-macos-split-arch:
-    needs: [bump-and-tag, build-swift-arm64, build-swift-x86_64]
+    needs: [bump-and-tag, build-swift-arm64, build-swift-x86_64, ci-assistant, ci-cli, ci-gateway]
     runs-on: macos-14
     timeout-minutes: 30
     defaults:
@@ -1039,6 +1044,11 @@ jobs:
           security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
           security default-keychain -s "$KEYCHAIN_PATH"
           security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+
+      - name: Verify signing identity
+        run: |
+          security find-identity -v -p codesigning | grep -q "Developer ID Application" \
+            || { echo "::error::Developer ID Application identity not found in keychain. Check the DEVID_CERTIFICATE_P12 secret."; exit 1; }
 
       - name: Set version
         id: version
@@ -1269,9 +1279,6 @@ jobs:
   ci-assistant:
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    continue-on-error: true
-    outputs:
-      actual_result: ${{ steps.report.outputs.status }}
     steps:
       - uses: actions/checkout@v4
 
@@ -1296,11 +1303,6 @@ jobs:
         working-directory: assistant
         env:
           EXCLUDE_EXPERIMENTAL: 'true'
-
-      - name: Report actual result
-        id: report
-        if: always()
-        run: echo "status=${{ job.status }}" >> "$GITHUB_OUTPUT"
 
   ci-cli:
     runs-on: ubuntu-latest
@@ -1351,12 +1353,9 @@ jobs:
         working-directory: gateway
 
   build-ios:
-    needs: bump-and-tag
+    needs: [bump-and-tag, ci-assistant, ci-cli, ci-gateway]
     runs-on: macos-14
     timeout-minutes: 15
-    continue-on-error: true
-    outputs:
-      actual_result: ${{ steps.report.outputs.status }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -1379,13 +1378,8 @@ jobs:
         working-directory: clients/ios
         run: ./build.sh test
 
-      - name: Report actual result
-        id: report
-        if: always()
-        run: echo "status=${{ job.status }}" >> "$GITHUB_OUTPUT"
-
   release-ios:
-    needs: bump-and-tag
+    needs: [bump-and-tag, build-ios, ci-assistant, ci-cli, ci-gateway]
     runs-on: macos-14
     timeout-minutes: 30
     env:
@@ -1422,6 +1416,11 @@ jobs:
           security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
           security default-keychain -s "$KEYCHAIN_PATH"
           security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+
+      - name: Verify signing identity
+        run: |
+          security find-identity -v -p codesigning | grep -q "Apple Distribution" \
+            || { echo "::error::Apple Distribution identity not found in keychain. Check the DIST_CERTIFICATE_P12 secret."; exit 1; }
 
       - name: Install provisioning profile
         env:
@@ -1622,10 +1621,12 @@ jobs:
             "${{ needs.publish-npm.result }}" \
             "${{ needs.publish-meta.result }}" \
             "${{ needs.build-macos.result }}" \
+            "${{ needs.build-ios.result }}" \
             "${{ needs.push-assistant-manifest.result }}" \
             "${{ needs.push-gateway-manifest.result }}" \
             "${{ needs.release.result }}" \
             "${{ needs.update-platform.result }}" \
+            "${{ needs.ci-assistant.result }}" \
             "${{ needs.ci-cli.result }}" \
             "${{ needs.ci-gateway.result }}" \
             "${{ needs.release-ios.result }}"; do
@@ -1646,12 +1647,12 @@ jobs:
           # Build CI status icons
           ci_icon() { if [ "$1" = "success" ]; then printf '✅'; else printf '❌'; fi; }
 
-          A=$(ci_icon "${{ needs.ci-assistant.outputs.actual_result }}")
+          A=$(ci_icon "${{ needs.ci-assistant.result }}")
           C=$(ci_icon "${{ needs.ci-cli.result }}")
           G=$(ci_icon "${{ needs.ci-gateway.result }}")
           P=$(ci_icon "${{ needs.ci-playwright.result }}")
           D=$(ci_icon "${{ needs.build-macos.result }}")
-          I=$(ci_icon "${{ needs.build-ios.outputs.actual_result }}")
+          I=$(ci_icon "${{ needs.build-ios.result }}")
           RI=$(ci_icon "${{ needs.release-ios.result }}")
           AI=$(ci_icon "${{ needs.push-assistant-manifest.result }}")
           GI=$(ci_icon "${{ needs.push-gateway-manifest.result }}")

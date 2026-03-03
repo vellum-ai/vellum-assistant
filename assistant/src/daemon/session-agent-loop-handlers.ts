@@ -319,6 +319,11 @@ export function handleToolResult(
   // call re-emits the activity state transitions.
   state.firstTextDeltaEmitted = false;
   state.firstThinkingDeltaEmitted = false;
+
+  // Emit activity state immediately so clients show a thinking indicator
+  // during the gap between tool_result and the next thinking_delta/text_delta.
+  const statusText = `Processing ${friendlyToolName(state.lastCompletedToolName ?? '')} results`;
+  deps.ctx.emitActivityState('thinking', 'tool_result_received', 'assistant_turn', deps.reqId, statusText);
 }
 
 export function handleError(

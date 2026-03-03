@@ -1,7 +1,6 @@
-import { execSync } from 'node:child_process';
-import { resolve } from 'node:path';
-
-import { describe, expect,test } from 'bun:test';
+import { execSync } from "node:child_process";
+import { resolve } from "node:path";
+import { describe, expect, test } from "bun:test";
 
 /**
  * Guard test: fail if any legacy Twilio ingress symbols reappear in
@@ -26,32 +25,32 @@ import { describe, expect,test } from 'bun:test';
  *                     symbols in grep patterns and assertions
  *   - .private      — local-only developer notes and scratch files
  */
-describe('forbidden legacy symbols', () => {
-  test('no production code references removed Twilio ingress symbols', () => {
-    const legacyEnvVar = ['TWILIO', 'WEBHOOK', 'BASE', 'URL'].join('_');
+describe("forbidden legacy symbols", () => {
+  test("no production code references removed Twilio ingress symbols", () => {
+    const legacyEnvVar = ["TWILIO", "WEBHOOK", "BASE", "URL"].join("_");
     const forbiddenSymbols = [
       legacyEnvVar,
-      'twilioWebhookBaseUrl',
-      'twilio_webhook_config',
-      'calls.webhookBaseUrl',
+      "twilioWebhookBaseUrl",
+      "twilio_webhook_config",
+      "calls.webhookBaseUrl",
     ];
     const escapedPattern = forbiddenSymbols
-      .map((symbol) => symbol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-      .join('|');
+      .map((symbol) => symbol.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+      .join("|");
 
-    const repoRoot = resolve(__dirname, '..', '..', '..');
-    let matches = '';
+    const repoRoot = resolve(__dirname, "..", "..", "..");
+    let matches = "";
     try {
       // Use git grep so only tracked files are searched. This automatically
       // excludes untracked local .env files while still scanning committed
       // environment templates like .env.example.
       matches = execSync(
         `git grep -rn -E "${escapedPattern}" --` +
-        ' "*.ts" "*.tsx" "*.js" "*.mjs" "*.swift"' +
-        ' "*.json" "*.md" "*.yml" "*.yaml"' +
-        ' "*.sh" "*.env" "*.env.*"' +
-        ' ":!node_modules" ":!*/__tests__/*" ":!.private"',
-        { cwd: repoRoot, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] },
+          ' "*.ts" "*.tsx" "*.js" "*.mjs" "*.swift"' +
+          ' "*.json" "*.md" "*.yml" "*.yaml"' +
+          ' "*.sh" "*.env" "*.env.*"' +
+          ' ":!node_modules" ":!*/__tests__/*" ":!.private"',
+        { cwd: repoRoot, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] },
       );
     } catch (err: unknown) {
       // grep exits with code 1 when no matches are found — that is the expected (passing) case
@@ -66,7 +65,7 @@ describe('forbidden legacy symbols', () => {
 
     // If we reach here, grep found matches (exit code 0) — fail the test
     expect(matches.trim()).toBe(
-      '', // should be empty — if not, the matched lines appear in the failure message
+      "", // should be empty — if not, the matched lines appear in the failure message
     );
   });
 });

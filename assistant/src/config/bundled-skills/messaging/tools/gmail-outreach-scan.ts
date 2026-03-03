@@ -1,6 +1,7 @@
 import type { EmailMetadata } from '../../../../messaging/email-classifier.js';
 import { classifyOutreach, type OutreachClassification } from '../../../../messaging/outreach-classifier.js';
 import { batchGetMessages,listMessages } from '../../../../messaging/providers/gmail/client.js';
+import type { GmailMessage } from '../../../../messaging/providers/gmail/types.js';
 import { getMessagingProvider } from '../../../../messaging/registry.js';
 import { withValidToken } from '../../../../security/token-manager.js';
 import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
@@ -78,17 +79,28 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
   try {
     const provider = getMessagingProvider('gmail');
     return withValidToken(provider.credentialService, async (token) => {
-      // Paginate through listMessages to collect up to maxMessages IDs
+      // Pipeline: fire metadata fetches for each page of IDs as they arrive
       const allMessageIds: string[] = [];
+      const fetchPromises: Promise<GmailMessage[]>[] = [];
       let pageToken: string | undefined = inputPageToken;
       let truncated = false;
+      let timeBudgetExceeded = false;
+      const metadataHeaders = ['From', 'Subject', 'Date'];
+      const startTime = Date.now();
+      const TIME_BUDGET_MS = 90_000;
 
       while (allMessageIds.length < maxMessages) {
+        if (Date.now() - startTime > TIME_BUDGET_MS) {
+          timeBudgetExceeded = true;
+          truncated = true;
+          break;
+        }
         const pageSize = Math.min(100, maxMessages - allMessageIds.length);
         const listResp = await listMessages(token, query, pageSize, pageToken);
         const ids = (listResp.messages ?? []).map((m) => m.id);
         if (ids.length === 0) break;
         allMessageIds.push(...ids);
+        fetchPromises.push(batchGetMessages(token, ids, 'metadata', metadataHeaders, 'id,internalDate,payload/headers'));
         pageToken = listResp.nextPageToken ?? undefined;
         if (!pageToken) break;
       }
@@ -101,10 +113,7 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
         return ok(JSON.stringify({ senders: [], total_scanned: 0, outreach_detected: 0, message: 'No emails found matching the query.' }));
       }
 
-      // Batch-fetch metadata headers
-      const messages = await batchGetMessages(token, allMessageIds, 'metadata', [
-        'From', 'Subject', 'Date',
-      ]);
+      const messages = (await Promise.all(fetchPromises)).flat();
 
       // Build EmailMetadata for the classifier
       const emailMetadata: EmailMetadata[] = messages.map((msg) => {
@@ -230,6 +239,7 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
         total_scanned: allMessageIds.length,
         outreach_detected: totalOutreachDetected,
         ...(truncated ? { truncated: true, next_page_token: pageToken } : {}),
+        ...(timeBudgetExceeded ? { time_budget_exceeded: true } : {}),
       }));
     });
   } catch (e) {

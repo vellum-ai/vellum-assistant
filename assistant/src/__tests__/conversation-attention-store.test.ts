@@ -1,26 +1,25 @@
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test';
+const testDir = mkdtempSync(join(tmpdir(), "conv-attn-store-test-"));
 
-const testDir = mkdtempSync(join(tmpdir(), 'conv-attn-store-test-'));
-
-mock.module('../util/platform.js', () => ({
+mock.module("../util/platform.js", () => ({
   getDataDir: () => testDir,
-  isMacOS: () => process.platform === 'darwin',
-  isLinux: () => process.platform === 'linux',
-  isWindows: () => process.platform === 'win32',
-  getSocketPath: () => join(testDir, 'test.sock'),
-  getPidPath: () => join(testDir, 'test.pid'),
-  getDbPath: () => join(testDir, 'test.db'),
-  getLogPath: () => join(testDir, 'test.log'),
+  isMacOS: () => process.platform === "darwin",
+  isLinux: () => process.platform === "linux",
+  isWindows: () => process.platform === "win32",
+  getSocketPath: () => join(testDir, "test.sock"),
+  getPidPath: () => join(testDir, "test.pid"),
+  getDbPath: () => join(testDir, "test.db"),
+  getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
   migrateToDataLayout: () => {},
   migrateToWorkspaceLayout: () => {},
 }));
 
-mock.module('../util/logger.js', () => ({
+mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
@@ -29,20 +28,20 @@ mock.module('../util/logger.js', () => ({
   truncateForLog: (value: string) => value,
 }));
 
-import { eq } from 'drizzle-orm';
+import { eq } from "drizzle-orm";
 
 import {
   getAttentionStateByConversationIds,
   listConversationAttention,
   projectAssistantMessage,
   recordConversationSeenSignal,
-} from '../memory/conversation-attention-store.js';
-import { getDb, initializeDb, resetDb } from '../memory/db.js';
+} from "../memory/conversation-attention-store.js";
+import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import {
   conversationAssistantAttentionState,
   conversationAttentionEvents,
   conversations,
-} from '../memory/schema.js';
+} from "../memory/schema.js";
 
 initializeDb();
 
@@ -75,516 +74,577 @@ afterAll(() => {
   }
 });
 
-describe('conversation-attention-store', () => {
+describe("conversation-attention-store", () => {
   beforeEach(() => {
     clearTables();
   });
 
   // ── projectAssistantMessage ─────────────────────────────────────
 
-  describe('projectAssistantMessage', () => {
-    test('creates a new state row when none exists', () => {
-      ensureConversation('conv-1');
+  describe("projectAssistantMessage", () => {
+    test("creates a new state row when none exists", () => {
+      ensureConversation("conv-1");
       projectAssistantMessage({
-        conversationId: 'conv-1',
-        assistantId: 'self',
-        messageId: 'msg-1',
+        conversationId: "conv-1",
+        assistantId: "self",
+        messageId: "msg-1",
         messageAt: 1000,
       });
 
-      const states = getAttentionStateByConversationIds(['conv-1']);
+      const states = getAttentionStateByConversationIds(["conv-1"]);
       expect(states.size).toBe(1);
-      const state = states.get('conv-1')!;
-      expect(state.latestAssistantMessageId).toBe('msg-1');
+      const state = states.get("conv-1")!;
+      expect(state.latestAssistantMessageId).toBe("msg-1");
       expect(state.latestAssistantMessageAt).toBe(1000);
       expect(state.lastSeenAssistantMessageId).toBeNull();
       expect(state.lastSeenAssistantMessageAt).toBeNull();
     });
 
-    test('advances cursor when new message is later', () => {
-      ensureConversation('conv-1');
+    test("advances cursor when new message is later", () => {
+      ensureConversation("conv-1");
       projectAssistantMessage({
-        conversationId: 'conv-1',
-        assistantId: 'self',
-        messageId: 'msg-1',
+        conversationId: "conv-1",
+        assistantId: "self",
+        messageId: "msg-1",
         messageAt: 1000,
       });
       projectAssistantMessage({
-        conversationId: 'conv-1',
-        assistantId: 'self',
-        messageId: 'msg-2',
+        conversationId: "conv-1",
+        assistantId: "self",
+        messageId: "msg-2",
         messageAt: 2000,
       });
 
-      const states = getAttentionStateByConversationIds(['conv-1']);
-      const state = states.get('conv-1')!;
-      expect(state.latestAssistantMessageId).toBe('msg-2');
+      const states = getAttentionStateByConversationIds(["conv-1"]);
+      const state = states.get("conv-1")!;
+      expect(state.latestAssistantMessageId).toBe("msg-2");
       expect(state.latestAssistantMessageAt).toBe(2000);
     });
 
-    test('does not move cursor backward (monotonic invariant)', () => {
-      ensureConversation('conv-1');
+    test("does not move cursor backward (monotonic invariant)", () => {
+      ensureConversation("conv-1");
       projectAssistantMessage({
-        conversationId: 'conv-1',
-        assistantId: 'self',
-        messageId: 'msg-2',
+        conversationId: "conv-1",
+        assistantId: "self",
+        messageId: "msg-2",
         messageAt: 2000,
       });
       projectAssistantMessage({
-        conversationId: 'conv-1',
-        assistantId: 'self',
-        messageId: 'msg-1',
+        conversationId: "conv-1",
+        assistantId: "self",
+        messageId: "msg-1",
         messageAt: 1000,
       });
 
-      const states = getAttentionStateByConversationIds(['conv-1']);
-      const state = states.get('conv-1')!;
-      expect(state.latestAssistantMessageId).toBe('msg-2');
+      const states = getAttentionStateByConversationIds(["conv-1"]);
+      const state = states.get("conv-1")!;
+      expect(state.latestAssistantMessageId).toBe("msg-2");
       expect(state.latestAssistantMessageAt).toBe(2000);
     });
 
-    test('does not advance cursor when timestamp is equal', () => {
-      ensureConversation('conv-1');
+    test("does not advance cursor when timestamp is equal", () => {
+      ensureConversation("conv-1");
       projectAssistantMessage({
-        conversationId: 'conv-1',
-        assistantId: 'self',
-        messageId: 'msg-1',
+        conversationId: "conv-1",
+        assistantId: "self",
+        messageId: "msg-1",
         messageAt: 1000,
       });
       projectAssistantMessage({
-        conversationId: 'conv-1',
-        assistantId: 'self',
-        messageId: 'msg-1-dup',
+        conversationId: "conv-1",
+        assistantId: "self",
+        messageId: "msg-1-dup",
         messageAt: 1000,
       });
 
-      const states = getAttentionStateByConversationIds(['conv-1']);
-      const state = states.get('conv-1')!;
-      expect(state.latestAssistantMessageId).toBe('msg-1');
+      const states = getAttentionStateByConversationIds(["conv-1"]);
+      const state = states.get("conv-1")!;
+      expect(state.latestAssistantMessageId).toBe("msg-1");
     });
   });
 
   // ── recordConversationSeenSignal ────────────────────────────────
 
-  describe('recordConversationSeenSignal', () => {
-    test('appends an immutable event row', () => {
-      ensureConversation('conv-1');
+  describe("recordConversationSeenSignal", () => {
+    test("appends an immutable event row", () => {
+      ensureConversation("conv-1");
       const event = recordConversationSeenSignal({
-        conversationId: 'conv-1',
-        assistantId: 'self',
-        sourceChannel: 'vellum',
-        signalType: 'macos_conversation_opened',
-        confidence: 'explicit',
-        source: 'desktop-client',
+        conversationId: "conv-1",
+        assistantId: "self",
+        sourceChannel: "vellum",
+        signalType: "macos_conversation_opened",
+        confidence: "explicit",
+        source: "desktop-client",
       });
 
       expect(event.id).toBeTruthy();
-      expect(event.conversationId).toBe('conv-1');
-      expect(event.signalType).toBe('macos_conversation_opened');
-      expect(event.confidence).toBe('explicit');
+      expect(event.conversationId).toBe("conv-1");
+      expect(event.signalType).toBe("macos_conversation_opened");
+      expect(event.confidence).toBe("explicit");
     });
 
-    test('advances seen cursor to current latest assistant message', () => {
-      ensureConversation('conv-1');
+    test("advances seen cursor to current latest assistant message", () => {
+      ensureConversation("conv-1");
 
       // Project an assistant message first
       projectAssistantMessage({
-        conversationId: 'conv-1',
-        assistantId: 'self',
-        messageId: 'msg-1',
+        conversationId: "conv-1",
+        assistantId: "self",
+        messageId: "msg-1",
         messageAt: 1000,
       });
 
       // Now record a seen signal
       recordConversationSeenSignal({
-        conversationId: 'conv-1',
-        assistantId: 'self',
-        sourceChannel: 'vellum',
-        signalType: 'macos_conversation_opened',
-        confidence: 'explicit',
-        source: 'desktop-client',
+        conversationId: "conv-1",
+        assistantId: "self",
+        sourceChannel: "vellum",
+        signalType: "macos_conversation_opened",
+        confidence: "explicit",
+        source: "desktop-client",
       });
 
-      const states = getAttentionStateByConversationIds(['conv-1']);
-      const state = states.get('conv-1')!;
-      expect(state.lastSeenAssistantMessageId).toBe('msg-1');
+      const states = getAttentionStateByConversationIds(["conv-1"]);
+      const state = states.get("conv-1")!;
+      expect(state.lastSeenAssistantMessageId).toBe("msg-1");
       expect(state.lastSeenAssistantMessageAt).toBe(1000);
     });
 
-    test('creates state row if none exists when recording seen signal', () => {
-      ensureConversation('conv-1');
+    test("creates state row if none exists when recording seen signal", () => {
+      ensureConversation("conv-1");
 
       recordConversationSeenSignal({
-        conversationId: 'conv-1',
-        assistantId: 'self',
-        sourceChannel: 'telegram',
-        signalType: 'telegram_inbound_message',
-        confidence: 'inferred',
-        source: 'telegram-gateway',
+        conversationId: "conv-1",
+        assistantId: "self",
+        sourceChannel: "telegram",
+        signalType: "telegram_inbound_message",
+        confidence: "inferred",
+        source: "telegram-gateway",
       });
 
-      const states = getAttentionStateByConversationIds(['conv-1']);
+      const states = getAttentionStateByConversationIds(["conv-1"]);
       expect(states.size).toBe(1);
-      const state = states.get('conv-1')!;
+      const state = states.get("conv-1")!;
       // No latest assistant message to mark as seen
       expect(state.lastSeenAssistantMessageId).toBeNull();
-      expect(state.lastSeenSignalType).toBe('telegram_inbound_message');
+      expect(state.lastSeenSignalType).toBe("telegram_inbound_message");
     });
 
-    test('does not regress seen cursor (monotonic invariant)', () => {
-      ensureConversation('conv-1');
+    test("does not regress seen cursor (monotonic invariant)", () => {
+      ensureConversation("conv-1");
 
       // Project two assistant messages
       projectAssistantMessage({
-        conversationId: 'conv-1',
-        assistantId: 'self',
-        messageId: 'msg-1',
+        conversationId: "conv-1",
+        assistantId: "self",
+        messageId: "msg-1",
         messageAt: 1000,
       });
 
       // Mark as seen at msg-1
       recordConversationSeenSignal({
-        conversationId: 'conv-1',
-        assistantId: 'self',
-        sourceChannel: 'vellum',
-        signalType: 'macos_conversation_opened',
-        confidence: 'explicit',
-        source: 'desktop-client',
+        conversationId: "conv-1",
+        assistantId: "self",
+        sourceChannel: "vellum",
+        signalType: "macos_conversation_opened",
+        confidence: "explicit",
+        source: "desktop-client",
       });
 
       // Project a second message
       projectAssistantMessage({
-        conversationId: 'conv-1',
-        assistantId: 'self',
-        messageId: 'msg-2',
+        conversationId: "conv-1",
+        assistantId: "self",
+        messageId: "msg-2",
         messageAt: 2000,
       });
 
       // Mark as seen at msg-2
       recordConversationSeenSignal({
-        conversationId: 'conv-1',
-        assistantId: 'self',
-        sourceChannel: 'vellum',
-        signalType: 'macos_conversation_opened',
-        confidence: 'explicit',
-        source: 'desktop-client',
+        conversationId: "conv-1",
+        assistantId: "self",
+        sourceChannel: "vellum",
+        signalType: "macos_conversation_opened",
+        confidence: "explicit",
+        source: "desktop-client",
       });
 
-      const states = getAttentionStateByConversationIds(['conv-1']);
-      const state = states.get('conv-1')!;
-      expect(state.lastSeenAssistantMessageId).toBe('msg-2');
+      const states = getAttentionStateByConversationIds(["conv-1"]);
+      const state = states.get("conv-1")!;
+      expect(state.lastSeenAssistantMessageId).toBe("msg-2");
       expect(state.lastSeenAssistantMessageAt).toBe(2000);
     });
 
-    test('records evidence text and metadata in event', () => {
-      ensureConversation('conv-1');
+    test("records evidence text and metadata in event", () => {
+      ensureConversation("conv-1");
 
       const event = recordConversationSeenSignal({
-        conversationId: 'conv-1',
-        assistantId: 'self',
-        sourceChannel: 'telegram',
-        signalType: 'telegram_callback',
-        confidence: 'explicit',
-        source: 'telegram-gateway',
-        evidenceText: 'User pressed inline button',
-        metadata: { callbackData: 'ack:123' },
+        conversationId: "conv-1",
+        assistantId: "self",
+        sourceChannel: "telegram",
+        signalType: "telegram_callback",
+        confidence: "explicit",
+        source: "telegram-gateway",
+        evidenceText: "User pressed inline button",
+        metadata: { callbackData: "ack:123" },
       });
 
-      expect(event.evidenceText).toBe('User pressed inline button');
-      expect(JSON.parse(event.metadataJson)).toEqual({ callbackData: 'ack:123' });
+      expect(event.evidenceText).toBe("User pressed inline button");
+      expect(JSON.parse(event.metadataJson)).toEqual({
+        callbackData: "ack:123",
+      });
     });
 
-    test('seen signal with no latest assistant message does not set seen cursor', () => {
-      ensureConversation('conv-1');
+    test("seen signal with no latest assistant message does not set seen cursor", () => {
+      ensureConversation("conv-1");
 
       // Record seen signal without any assistant message
       recordConversationSeenSignal({
-        conversationId: 'conv-1',
-        assistantId: 'self',
-        sourceChannel: 'vellum',
-        signalType: 'macos_notification_view',
-        confidence: 'inferred',
-        source: 'desktop-client',
+        conversationId: "conv-1",
+        assistantId: "self",
+        sourceChannel: "vellum",
+        signalType: "macos_notification_view",
+        confidence: "inferred",
+        source: "desktop-client",
       });
 
-      const states = getAttentionStateByConversationIds(['conv-1']);
-      const state = states.get('conv-1')!;
+      const states = getAttentionStateByConversationIds(["conv-1"]);
+      const state = states.get("conv-1")!;
       expect(state.lastSeenAssistantMessageId).toBeNull();
       expect(state.lastSeenAssistantMessageAt).toBeNull();
-      expect(state.lastSeenSignalType).toBe('macos_notification_view');
+      expect(state.lastSeenSignalType).toBe("macos_notification_view");
     });
 
-    test('already-seen conversation does not regress on additional seen signal', () => {
-      ensureConversation('conv-1');
+    test("already-seen conversation does not regress on additional seen signal", () => {
+      ensureConversation("conv-1");
 
       projectAssistantMessage({
-        conversationId: 'conv-1',
-        assistantId: 'self',
-        messageId: 'msg-1',
+        conversationId: "conv-1",
+        assistantId: "self",
+        messageId: "msg-1",
         messageAt: 1000,
       });
 
       // Mark as seen
       recordConversationSeenSignal({
-        conversationId: 'conv-1',
-        assistantId: 'self',
-        sourceChannel: 'vellum',
-        signalType: 'macos_conversation_opened',
-        confidence: 'explicit',
-        source: 'desktop-client',
+        conversationId: "conv-1",
+        assistantId: "self",
+        sourceChannel: "vellum",
+        signalType: "macos_conversation_opened",
+        confidence: "explicit",
+        source: "desktop-client",
       });
 
       // Record another seen signal (should not regress)
       recordConversationSeenSignal({
-        conversationId: 'conv-1',
-        assistantId: 'self',
-        sourceChannel: 'telegram',
-        signalType: 'telegram_inbound_message',
-        confidence: 'inferred',
-        source: 'telegram-gateway',
+        conversationId: "conv-1",
+        assistantId: "self",
+        sourceChannel: "telegram",
+        signalType: "telegram_inbound_message",
+        confidence: "inferred",
+        source: "telegram-gateway",
       });
 
-      const states = getAttentionStateByConversationIds(['conv-1']);
-      const state = states.get('conv-1')!;
+      const states = getAttentionStateByConversationIds(["conv-1"]);
+      const state = states.get("conv-1")!;
       // Seen cursor should still point to msg-1
-      expect(state.lastSeenAssistantMessageId).toBe('msg-1');
+      expect(state.lastSeenAssistantMessageId).toBe("msg-1");
       expect(state.lastSeenAssistantMessageAt).toBe(1000);
       // Signal metadata should reflect the latest signal
-      expect(state.lastSeenSignalType).toBe('telegram_inbound_message');
+      expect(state.lastSeenSignalType).toBe("telegram_inbound_message");
     });
   });
 
   // ── getAttentionStateByConversationIds ──────────────────────────
 
-  describe('getAttentionStateByConversationIds', () => {
-    test('returns empty map for empty input', () => {
+  describe("getAttentionStateByConversationIds", () => {
+    test("returns empty map for empty input", () => {
       const result = getAttentionStateByConversationIds([]);
       expect(result.size).toBe(0);
     });
 
-    test('returns states for multiple conversations', () => {
-      ensureConversation('conv-1');
-      ensureConversation('conv-2');
+    test("returns states for multiple conversations", () => {
+      ensureConversation("conv-1");
+      ensureConversation("conv-2");
 
       projectAssistantMessage({
-        conversationId: 'conv-1',
-        assistantId: 'self',
-        messageId: 'msg-1',
+        conversationId: "conv-1",
+        assistantId: "self",
+        messageId: "msg-1",
         messageAt: 1000,
       });
       projectAssistantMessage({
-        conversationId: 'conv-2',
-        assistantId: 'self',
-        messageId: 'msg-2',
+        conversationId: "conv-2",
+        assistantId: "self",
+        messageId: "msg-2",
         messageAt: 2000,
       });
 
-      const result = getAttentionStateByConversationIds(['conv-1', 'conv-2']);
+      const result = getAttentionStateByConversationIds(["conv-1", "conv-2"]);
       expect(result.size).toBe(2);
-      expect(result.get('conv-1')!.latestAssistantMessageId).toBe('msg-1');
-      expect(result.get('conv-2')!.latestAssistantMessageId).toBe('msg-2');
+      expect(result.get("conv-1")!.latestAssistantMessageId).toBe("msg-1");
+      expect(result.get("conv-2")!.latestAssistantMessageId).toBe("msg-2");
     });
 
-    test('omits conversations without state', () => {
-      ensureConversation('conv-1');
-      ensureConversation('conv-2');
+    test("omits conversations without state", () => {
+      ensureConversation("conv-1");
+      ensureConversation("conv-2");
 
       projectAssistantMessage({
-        conversationId: 'conv-1',
-        assistantId: 'self',
-        messageId: 'msg-1',
+        conversationId: "conv-1",
+        assistantId: "self",
+        messageId: "msg-1",
         messageAt: 1000,
       });
 
-      const result = getAttentionStateByConversationIds(['conv-1', 'conv-2']);
+      const result = getAttentionStateByConversationIds(["conv-1", "conv-2"]);
       expect(result.size).toBe(1);
-      expect(result.has('conv-1')).toBe(true);
-      expect(result.has('conv-2')).toBe(false);
+      expect(result.has("conv-1")).toBe(true);
+      expect(result.has("conv-2")).toBe(false);
     });
   });
 
   // ── listConversationAttention ───────────────────────────────────
 
-  describe('listConversationAttention', () => {
-    test('returns all states for an assistant', () => {
-      ensureConversation('conv-1');
-      ensureConversation('conv-2');
+  describe("listConversationAttention", () => {
+    test("returns all states for an assistant", () => {
+      ensureConversation("conv-1");
+      ensureConversation("conv-2");
 
       projectAssistantMessage({
-        conversationId: 'conv-1',
-        assistantId: 'self',
-        messageId: 'msg-1',
+        conversationId: "conv-1",
+        assistantId: "self",
+        messageId: "msg-1",
         messageAt: 1000,
       });
       projectAssistantMessage({
-        conversationId: 'conv-2',
-        assistantId: 'self',
-        messageId: 'msg-2',
+        conversationId: "conv-2",
+        assistantId: "self",
+        messageId: "msg-2",
         messageAt: 2000,
       });
 
-      const result = listConversationAttention({ assistantId: 'self' });
+      const result = listConversationAttention({ assistantId: "self" });
       expect(result).toHaveLength(2);
     });
 
-    test('filters by unseen state', () => {
-      ensureConversation('conv-1');
-      ensureConversation('conv-2');
+    test("filters by unseen state", () => {
+      ensureConversation("conv-1");
+      ensureConversation("conv-2");
 
       // conv-1: has assistant message, not seen
       projectAssistantMessage({
-        conversationId: 'conv-1',
-        assistantId: 'self',
-        messageId: 'msg-1',
+        conversationId: "conv-1",
+        assistantId: "self",
+        messageId: "msg-1",
         messageAt: 1000,
       });
 
       // conv-2: has assistant message, seen
       projectAssistantMessage({
-        conversationId: 'conv-2',
-        assistantId: 'self',
-        messageId: 'msg-2',
+        conversationId: "conv-2",
+        assistantId: "self",
+        messageId: "msg-2",
         messageAt: 2000,
       });
       recordConversationSeenSignal({
-        conversationId: 'conv-2',
-        assistantId: 'self',
-        sourceChannel: 'vellum',
-        signalType: 'macos_conversation_opened',
-        confidence: 'explicit',
-        source: 'desktop-client',
+        conversationId: "conv-2",
+        assistantId: "self",
+        sourceChannel: "vellum",
+        signalType: "macos_conversation_opened",
+        confidence: "explicit",
+        source: "desktop-client",
       });
 
-      const unseen = listConversationAttention({ assistantId: 'self', state: 'unseen' });
+      const unseen = listConversationAttention({
+        assistantId: "self",
+        state: "unseen",
+      });
       expect(unseen).toHaveLength(1);
-      expect(unseen[0].conversationId).toBe('conv-1');
+      expect(unseen[0].conversationId).toBe("conv-1");
     });
 
-    test('filters by seen state', () => {
-      ensureConversation('conv-1');
-      ensureConversation('conv-2');
+    test("filters by seen state", () => {
+      ensureConversation("conv-1");
+      ensureConversation("conv-2");
 
       projectAssistantMessage({
-        conversationId: 'conv-1',
-        assistantId: 'self',
-        messageId: 'msg-1',
+        conversationId: "conv-1",
+        assistantId: "self",
+        messageId: "msg-1",
         messageAt: 1000,
       });
 
       projectAssistantMessage({
-        conversationId: 'conv-2',
-        assistantId: 'self',
-        messageId: 'msg-2',
+        conversationId: "conv-2",
+        assistantId: "self",
+        messageId: "msg-2",
         messageAt: 2000,
       });
       recordConversationSeenSignal({
-        conversationId: 'conv-2',
-        assistantId: 'self',
-        sourceChannel: 'vellum',
-        signalType: 'macos_conversation_opened',
-        confidence: 'explicit',
-        source: 'desktop-client',
+        conversationId: "conv-2",
+        assistantId: "self",
+        sourceChannel: "vellum",
+        signalType: "macos_conversation_opened",
+        confidence: "explicit",
+        source: "desktop-client",
       });
 
-      const seen = listConversationAttention({ assistantId: 'self', state: 'seen' });
+      const seen = listConversationAttention({
+        assistantId: "self",
+        state: "seen",
+      });
       expect(seen).toHaveLength(1);
-      expect(seen[0].conversationId).toBe('conv-2');
+      expect(seen[0].conversationId).toBe("conv-2");
     });
 
-    test('respects limit parameter', () => {
-      ensureConversation('conv-1');
-      ensureConversation('conv-2');
-      ensureConversation('conv-3');
-
-      projectAssistantMessage({ conversationId: 'conv-1', assistantId: 'self', messageId: 'msg-1', messageAt: 1000 });
-      projectAssistantMessage({ conversationId: 'conv-2', assistantId: 'self', messageId: 'msg-2', messageAt: 2000 });
-      projectAssistantMessage({ conversationId: 'conv-3', assistantId: 'self', messageId: 'msg-3', messageAt: 3000 });
-
-      const result = listConversationAttention({ assistantId: 'self', limit: 2 });
-      expect(result).toHaveLength(2);
-    });
-
-    test('orders by latest assistant message descending', () => {
-      ensureConversation('conv-1');
-      ensureConversation('conv-2');
-      ensureConversation('conv-3');
-
-      projectAssistantMessage({ conversationId: 'conv-1', assistantId: 'self', messageId: 'msg-1', messageAt: 1000 });
-      projectAssistantMessage({ conversationId: 'conv-2', assistantId: 'self', messageId: 'msg-2', messageAt: 3000 });
-      projectAssistantMessage({ conversationId: 'conv-3', assistantId: 'self', messageId: 'msg-3', messageAt: 2000 });
-
-      const result = listConversationAttention({ assistantId: 'self' });
-      expect(result[0].conversationId).toBe('conv-2');
-      expect(result[1].conversationId).toBe('conv-3');
-      expect(result[2].conversationId).toBe('conv-1');
-    });
-
-    test('before cursor filters out newer conversations', () => {
-      ensureConversation('conv-1');
-      ensureConversation('conv-2');
-      ensureConversation('conv-3');
-
-      projectAssistantMessage({ conversationId: 'conv-1', assistantId: 'self', messageId: 'msg-1', messageAt: 1000 });
-      projectAssistantMessage({ conversationId: 'conv-2', assistantId: 'self', messageId: 'msg-2', messageAt: 2000 });
-      projectAssistantMessage({ conversationId: 'conv-3', assistantId: 'self', messageId: 'msg-3', messageAt: 3000 });
-
-      const result = listConversationAttention({ assistantId: 'self', before: 2500 });
-      expect(result).toHaveLength(2);
-      expect(result[0].conversationId).toBe('conv-2');
-      expect(result[1].conversationId).toBe('conv-1');
-    });
-
-    test('filters by different assistant ID', () => {
-      ensureConversation('conv-1');
+    test("respects limit parameter", () => {
+      ensureConversation("conv-1");
+      ensureConversation("conv-2");
+      ensureConversation("conv-3");
 
       projectAssistantMessage({
-        conversationId: 'conv-1',
-        assistantId: 'self',
-        messageId: 'msg-1',
+        conversationId: "conv-1",
+        assistantId: "self",
+        messageId: "msg-1",
+        messageAt: 1000,
+      });
+      projectAssistantMessage({
+        conversationId: "conv-2",
+        assistantId: "self",
+        messageId: "msg-2",
+        messageAt: 2000,
+      });
+      projectAssistantMessage({
+        conversationId: "conv-3",
+        assistantId: "self",
+        messageId: "msg-3",
+        messageAt: 3000,
+      });
+
+      const result = listConversationAttention({
+        assistantId: "self",
+        limit: 2,
+      });
+      expect(result).toHaveLength(2);
+    });
+
+    test("orders by latest assistant message descending", () => {
+      ensureConversation("conv-1");
+      ensureConversation("conv-2");
+      ensureConversation("conv-3");
+
+      projectAssistantMessage({
+        conversationId: "conv-1",
+        assistantId: "self",
+        messageId: "msg-1",
+        messageAt: 1000,
+      });
+      projectAssistantMessage({
+        conversationId: "conv-2",
+        assistantId: "self",
+        messageId: "msg-2",
+        messageAt: 3000,
+      });
+      projectAssistantMessage({
+        conversationId: "conv-3",
+        assistantId: "self",
+        messageId: "msg-3",
+        messageAt: 2000,
+      });
+
+      const result = listConversationAttention({ assistantId: "self" });
+      expect(result[0].conversationId).toBe("conv-2");
+      expect(result[1].conversationId).toBe("conv-3");
+      expect(result[2].conversationId).toBe("conv-1");
+    });
+
+    test("before cursor filters out newer conversations", () => {
+      ensureConversation("conv-1");
+      ensureConversation("conv-2");
+      ensureConversation("conv-3");
+
+      projectAssistantMessage({
+        conversationId: "conv-1",
+        assistantId: "self",
+        messageId: "msg-1",
+        messageAt: 1000,
+      });
+      projectAssistantMessage({
+        conversationId: "conv-2",
+        assistantId: "self",
+        messageId: "msg-2",
+        messageAt: 2000,
+      });
+      projectAssistantMessage({
+        conversationId: "conv-3",
+        assistantId: "self",
+        messageId: "msg-3",
+        messageAt: 3000,
+      });
+
+      const result = listConversationAttention({
+        assistantId: "self",
+        before: 2500,
+      });
+      expect(result).toHaveLength(2);
+      expect(result[0].conversationId).toBe("conv-2");
+      expect(result[1].conversationId).toBe("conv-1");
+    });
+
+    test("filters by different assistant ID", () => {
+      ensureConversation("conv-1");
+
+      projectAssistantMessage({
+        conversationId: "conv-1",
+        assistantId: "self",
+        messageId: "msg-1",
         messageAt: 1000,
       });
 
-      const result = listConversationAttention({ assistantId: 'other-assistant' });
+      const result = listConversationAttention({
+        assistantId: "other-assistant",
+      });
       expect(result).toHaveLength(0);
     });
   });
 
   // ── Evidence immutability ───────────────────────────────────────
 
-  describe('evidence immutability', () => {
-    test('multiple seen signals append separate event rows', () => {
-      ensureConversation('conv-1');
+  describe("evidence immutability", () => {
+    test("multiple seen signals append separate event rows", () => {
+      ensureConversation("conv-1");
 
       projectAssistantMessage({
-        conversationId: 'conv-1',
-        assistantId: 'self',
-        messageId: 'msg-1',
+        conversationId: "conv-1",
+        assistantId: "self",
+        messageId: "msg-1",
         messageAt: 1000,
       });
 
       recordConversationSeenSignal({
-        conversationId: 'conv-1',
-        assistantId: 'self',
-        sourceChannel: 'vellum',
-        signalType: 'macos_notification_view',
-        confidence: 'inferred',
-        source: 'desktop-client',
+        conversationId: "conv-1",
+        assistantId: "self",
+        sourceChannel: "vellum",
+        signalType: "macos_notification_view",
+        confidence: "inferred",
+        source: "desktop-client",
       });
 
       recordConversationSeenSignal({
-        conversationId: 'conv-1',
-        assistantId: 'self',
-        sourceChannel: 'vellum',
-        signalType: 'macos_conversation_opened',
-        confidence: 'explicit',
-        source: 'desktop-client',
+        conversationId: "conv-1",
+        assistantId: "self",
+        sourceChannel: "vellum",
+        signalType: "macos_conversation_opened",
+        confidence: "explicit",
+        source: "desktop-client",
       });
 
       const db = getDb();
       const events = db
         .select()
         .from(conversationAttentionEvents)
-        .where(eq(conversationAttentionEvents.conversationId, 'conv-1'))
+        .where(eq(conversationAttentionEvents.conversationId, "conv-1"))
         .all();
 
       expect(events).toHaveLength(2);

@@ -13,8 +13,7 @@ function isVellumProcess(pid: number): boolean {
       timeout: 3000,
       stdio: ["ignore", "pipe", "ignore"],
     }).trim();
-    // Match daemon binary, gateway binary, or bun-run source invocations
-    return /vellum|@vellumai/.test(output);
+    return /vellum|@vellumai|--vellum-gateway/.test(output);
   } catch {
     return false;
   }

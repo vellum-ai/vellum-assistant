@@ -1,20 +1,23 @@
-import { chmodSync,mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-
-import { afterEach,beforeEach, describe, expect, test } from 'bun:test';
+import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 // Set BASE_DATA_DIR before importing modules that use getRootDir()
 const testDir = join(tmpdir(), `hooks-runner-test-${Date.now()}`);
 process.env.BASE_DATA_DIR = testDir;
 
-import { runHookScript } from '../hooks/runner.js';
-import type { DiscoveredHook, HookEventData } from '../hooks/types.js';
+import { runHookScript } from "../hooks/runner.js";
+import type { DiscoveredHook, HookEventData } from "../hooks/types.js";
 
-function createTestHook(hooksDir: string, name: string, scriptContent: string): DiscoveredHook {
+function createTestHook(
+  hooksDir: string,
+  name: string,
+  scriptContent: string,
+): DiscoveredHook {
   const hookDir = join(hooksDir, name);
   mkdirSync(hookDir, { recursive: true });
-  const scriptPath = join(hookDir, 'run.sh');
+  const scriptPath = join(hookDir, "run.sh");
   writeFileSync(scriptPath, scriptContent);
   chmodSync(scriptPath, 0o755);
 
@@ -23,21 +26,21 @@ function createTestHook(hooksDir: string, name: string, scriptContent: string): 
     dir: hookDir,
     manifest: {
       name,
-      description: 'Test hook',
-      version: '1.0.0',
-      events: ['pre-tool-execute'],
-      script: 'run.sh',
+      description: "Test hook",
+      version: "1.0.0",
+      events: ["pre-tool-execute"],
+      script: "run.sh",
     },
     scriptPath,
     enabled: true,
   };
 }
 
-describe('Hook Runner', () => {
+describe("Hook Runner", () => {
   let hooksDir: string;
 
   beforeEach(() => {
-    hooksDir = join(testDir, '.vellum', 'workspace', 'hooks');
+    hooksDir = join(testDir, ".vellum", "workspace", "hooks");
     mkdirSync(hooksDir, { recursive: true });
   });
 
@@ -45,92 +48,112 @@ describe('Hook Runner', () => {
     rmSync(testDir, { recursive: true, force: true });
   });
 
-  test('runs a script and captures stdout', async () => {
-    const hook = createTestHook(hooksDir, 'echo-hook', '#!/bin/bash\necho "hello from hook"');
-    const eventData: HookEventData = { event: 'pre-tool-execute' };
+  test("runs a script and captures stdout", async () => {
+    const hook = createTestHook(
+      hooksDir,
+      "echo-hook",
+      '#!/bin/bash\necho "hello from hook"',
+    );
+    const eventData: HookEventData = { event: "pre-tool-execute" };
 
     const result = await runHookScript(hook, eventData);
     expect(result.exitCode).toBe(0);
-    expect(result.stdout.trim()).toBe('hello from hook');
-    expect(result.stderr).toBe('');
+    expect(result.stdout.trim()).toBe("hello from hook");
+    expect(result.stderr).toBe("");
   });
 
-  test('captures stderr', async () => {
-    const hook = createTestHook(hooksDir, 'stderr-hook', '#!/bin/bash\necho "error output" >&2');
-    const eventData: HookEventData = { event: 'on-error' };
+  test("captures stderr", async () => {
+    const hook = createTestHook(
+      hooksDir,
+      "stderr-hook",
+      '#!/bin/bash\necho "error output" >&2',
+    );
+    const eventData: HookEventData = { event: "on-error" };
 
     const result = await runHookScript(hook, eventData);
     expect(result.exitCode).toBe(0);
-    expect(result.stderr.trim()).toBe('error output');
+    expect(result.stderr.trim()).toBe("error output");
   });
 
-  test('reports non-zero exit code', async () => {
-    const hook = createTestHook(hooksDir, 'fail-hook', '#!/bin/bash\nexit 42');
-    const eventData: HookEventData = { event: 'on-error' };
+  test("reports non-zero exit code", async () => {
+    const hook = createTestHook(hooksDir, "fail-hook", "#!/bin/bash\nexit 42");
+    const eventData: HookEventData = { event: "on-error" };
 
     const result = await runHookScript(hook, eventData);
     expect(result.exitCode).toBe(42);
   });
 
-  test('pipes event data to stdin as JSON', async () => {
-    const hook = createTestHook(hooksDir, 'stdin-hook', '#!/bin/bash\ncat');
-    const eventData: HookEventData = { event: 'pre-tool-execute', tool: 'Bash', command: 'ls' };
+  test("pipes event data to stdin as JSON", async () => {
+    const hook = createTestHook(hooksDir, "stdin-hook", "#!/bin/bash\ncat");
+    const eventData: HookEventData = {
+      event: "pre-tool-execute",
+      tool: "Bash",
+      command: "ls",
+    };
 
     const result = await runHookScript(hook, eventData);
     expect(result.exitCode).toBe(0);
     const parsed = JSON.parse(result.stdout);
-    expect(parsed.event).toBe('pre-tool-execute');
-    expect(parsed.tool).toBe('Bash');
-    expect(parsed.command).toBe('ls');
+    expect(parsed.event).toBe("pre-tool-execute");
+    expect(parsed.tool).toBe("Bash");
+    expect(parsed.command).toBe("ls");
   });
 
-  test('sets environment variables', async () => {
+  test("sets environment variables", async () => {
     const hook = createTestHook(
       hooksDir,
-      'env-hook',
+      "env-hook",
       '#!/bin/bash\necho "$VELLUM_HOOK_EVENT|$VELLUM_HOOK_NAME"',
     );
-    const eventData: HookEventData = { event: 'post-message' };
+    const eventData: HookEventData = { event: "post-message" };
 
     const result = await runHookScript(hook, eventData);
     expect(result.exitCode).toBe(0);
-    expect(result.stdout.trim()).toBe('post-message|env-hook');
+    expect(result.stdout.trim()).toBe("post-message|env-hook");
   });
 
-  test('sets VELLUM_ROOT_DIR environment variable', async () => {
-    const hook = createTestHook(hooksDir, 'rootdir-hook', '#!/bin/bash\necho "$VELLUM_ROOT_DIR"');
-    const eventData: HookEventData = { event: 'daemon-start' };
+  test("sets VELLUM_ROOT_DIR environment variable", async () => {
+    const hook = createTestHook(
+      hooksDir,
+      "rootdir-hook",
+      '#!/bin/bash\necho "$VELLUM_ROOT_DIR"',
+    );
+    const eventData: HookEventData = { event: "daemon-start" };
 
     const result = await runHookScript(hook, eventData);
     expect(result.exitCode).toBe(0);
-    expect(result.stdout.trim()).toContain('.vellum');
+    expect(result.stdout.trim()).toContain(".vellum");
   });
 
-  test('sets VELLUM_WORKSPACE_DIR environment variable', async () => {
-    const hook = createTestHook(hooksDir, 'wsdir-hook', '#!/bin/bash\necho "$VELLUM_WORKSPACE_DIR"');
-    const eventData: HookEventData = { event: 'daemon-start' };
+  test("sets VELLUM_WORKSPACE_DIR environment variable", async () => {
+    const hook = createTestHook(
+      hooksDir,
+      "wsdir-hook",
+      '#!/bin/bash\necho "$VELLUM_WORKSPACE_DIR"',
+    );
+    const eventData: HookEventData = { event: "daemon-start" };
 
     const result = await runHookScript(hook, eventData);
     expect(result.exitCode).toBe(0);
     const wsDir = result.stdout.trim();
-    expect(wsDir).toContain('.vellum');
-    expect(wsDir).toEndWith('workspace');
+    expect(wsDir).toContain(".vellum");
+    expect(wsDir).toEndWith("workspace");
   });
 
-  test('sets both VELLUM_ROOT_DIR and VELLUM_WORKSPACE_DIR', async () => {
+  test("sets both VELLUM_ROOT_DIR and VELLUM_WORKSPACE_DIR", async () => {
     const hook = createTestHook(
       hooksDir,
-      'both-dirs-hook',
+      "both-dirs-hook",
       '#!/bin/bash\necho "$VELLUM_ROOT_DIR|$VELLUM_WORKSPACE_DIR"',
     );
-    const eventData: HookEventData = { event: 'pre-tool-execute' };
+    const eventData: HookEventData = { event: "pre-tool-execute" };
 
     const result = await runHookScript(hook, eventData);
     expect(result.exitCode).toBe(0);
-    const [rootDir, wsDir] = result.stdout.trim().split('|');
-    expect(rootDir).toContain('.vellum');
-    expect(wsDir).toContain('.vellum');
-    expect(wsDir).toEndWith('workspace');
+    const [rootDir, wsDir] = result.stdout.trim().split("|");
+    expect(rootDir).toContain(".vellum");
+    expect(wsDir).toContain(".vellum");
+    expect(wsDir).toEndWith("workspace");
     // workspace dir should be a subdirectory of root dir
     expect(wsDir).toStartWith(rootDir);
   });
@@ -148,45 +171,45 @@ describe('Hook Runner', () => {
   //   group semantics), OR
   // - A test-only flag is added to use a more controllable timeout mechanism
   //   (e.g., AbortController) instead of child.kill().
-  test.skip('[experimental] times out after specified duration', async () => {
-    const hook = createTestHook(hooksDir, 'slow-hook', '#!/bin/bash\nsleep 10');
-    const eventData: HookEventData = { event: 'pre-tool-execute' };
+  test.skip("[experimental] times out after specified duration", async () => {
+    const hook = createTestHook(hooksDir, "slow-hook", "#!/bin/bash\nsleep 10");
+    const eventData: HookEventData = { event: "pre-tool-execute" };
 
     const result = await runHookScript(hook, eventData, { timeoutMs: 200 });
     expect(result.exitCode).toBeNull();
-    expect(result.stderr).toContain('Hook timed out');
+    expect(result.stderr).toContain("Hook timed out");
   }, 10_000);
 
-  test('handles non-existent script gracefully', async () => {
+  test("handles non-existent script gracefully", async () => {
     const hook: DiscoveredHook = {
-      name: 'missing-script',
-      dir: join(hooksDir, 'missing-script'),
+      name: "missing-script",
+      dir: join(hooksDir, "missing-script"),
       manifest: {
-        name: 'missing-script',
-        description: 'Missing',
-        version: '1.0.0',
-        events: ['on-error'],
-        script: 'nonexistent.sh',
+        name: "missing-script",
+        description: "Missing",
+        version: "1.0.0",
+        events: ["on-error"],
+        script: "nonexistent.sh",
       },
-      scriptPath: join(hooksDir, 'missing-script', 'nonexistent.sh'),
+      scriptPath: join(hooksDir, "missing-script", "nonexistent.sh"),
       enabled: true,
     };
     mkdirSync(hook.dir, { recursive: true });
-    const eventData: HookEventData = { event: 'on-error' };
+    const eventData: HookEventData = { event: "on-error" };
 
     const result = await runHookScript(hook, eventData);
     expect(result.exitCode).toBeNull();
     expect(result.stderr).toBeTruthy();
   });
 
-  test('runs script in hook directory as cwd', async () => {
-    const hook = createTestHook(hooksDir, 'cwd-hook', '#!/bin/bash\npwd -P');
-    const eventData: HookEventData = { event: 'pre-tool-execute' };
+  test("runs script in hook directory as cwd", async () => {
+    const hook = createTestHook(hooksDir, "cwd-hook", "#!/bin/bash\npwd -P");
+    const eventData: HookEventData = { event: "pre-tool-execute" };
 
     const result = await runHookScript(hook, eventData);
     expect(result.exitCode).toBe(0);
     // Use realpathSync to resolve macOS /var -> /private/var symlinks
-    const { realpathSync } = await import('node:fs');
+    const { realpathSync } = await import("node:fs");
     expect(result.stdout.trim()).toBe(realpathSync(hook.dir));
   });
 });

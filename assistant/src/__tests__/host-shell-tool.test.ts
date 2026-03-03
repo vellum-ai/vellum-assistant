@@ -1,9 +1,8 @@
-import * as realChildProcess from 'node:child_process';
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-
-import { afterEach, describe, expect, mock, test } from 'bun:test';
+import * as realChildProcess from "node:child_process";
+import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 
 // Capture the real spawn before mock.module replaces it
 const originalSpawn = realChildProcess.spawn;
@@ -15,17 +14,17 @@ const spawnSpy = mock((...args: Parameters<typeof realChildProcess.spawn>) => {
   return (originalSpawn as (...a: unknown[]) => unknown)(...args);
 });
 
-mock.module('node:child_process', () => ({
+mock.module("node:child_process", () => ({
   ...realChildProcess,
   spawn: spawnSpy,
 }));
 
 const mockConfig = {
-  provider: 'anthropic',
-  model: 'test',
+  provider: "anthropic",
+  model: "test",
   apiKeys: {},
   maxTokens: 4096,
-  dataDir: '/tmp',
+  dataDir: "/tmp",
   timeouts: {
     shellDefaultTimeoutSec: 120,
     shellMaxTimeoutSec: 600,
@@ -33,14 +32,18 @@ const mockConfig = {
   },
   sandbox: { enabled: true },
   rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
-  secretDetection: { enabled: true, action: 'warn' as const, entropyThreshold: 4.0 },
+  secretDetection: {
+    enabled: true,
+    action: "warn" as const,
+    entropyThreshold: 4.0,
+  },
   auditLog: { retentionDays: 0 },
 };
 
 // Track whether wrapCommand was ever called — host_bash must never invoke it
 let wrapCommandCallCount = 0;
 
-mock.module('../config/loader.js', () => ({
+mock.module("../config/loader.js", () => ({
   getConfig: () => mockConfig,
   loadConfig: () => mockConfig,
   invalidateConfigCache: () => {},
@@ -51,30 +54,31 @@ mock.module('../config/loader.js', () => ({
   setNestedValue: () => {},
 }));
 
-mock.module('../util/logger.js', () => ({
-  getLogger: () => new Proxy({} as Record<string, unknown>, {
-    get: () => () => {},
-  }),
+mock.module("../util/logger.js", () => ({
+  getLogger: () =>
+    new Proxy({} as Record<string, unknown>, {
+      get: () => () => {},
+    }),
 }));
 
-mock.module('../tools/terminal/sandbox.js', () => ({
+mock.module("../tools/terminal/sandbox.js", () => ({
   wrapCommand: (...args: unknown[]) => {
     wrapCommandCallCount++;
-    return { command: 'bash', args: ['-c', '--', args[0]], sandboxed: false };
+    return { command: "bash", args: ["-c", "--", args[0]], sandboxed: false };
   },
 }));
 
-import { hostShellTool } from '../tools/host-terminal/host-shell.js';
-import type { ToolContext } from '../tools/types.js';
+import { hostShellTool } from "../tools/host-terminal/host-shell.js";
+import type { ToolContext } from "../tools/types.js";
 
 const testDirs: string[] = [];
 
 function makeContext(): ToolContext {
   return {
-    workingDir: '/tmp',
-    sessionId: 'test-session',
-    conversationId: 'test-conversation',
-    guardianTrustClass: 'guardian',
+    workingDir: "/tmp",
+    sessionId: "test-session",
+    conversationId: "test-conversation",
+    guardianTrustClass: "guardian",
   };
 }
 
@@ -84,55 +88,67 @@ afterEach(() => {
   }
 });
 
-describe('host_bash tool', () => {
-  test('rejects relative working_dir', async () => {
-    const result = await hostShellTool.execute({
-      command: 'pwd',
-      working_dir: 'relative/path',
-    }, makeContext());
+describe("host_bash tool", () => {
+  test("rejects relative working_dir", async () => {
+    const result = await hostShellTool.execute(
+      {
+        command: "pwd",
+        working_dir: "relative/path",
+      },
+      makeContext(),
+    );
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain('working_dir must be absolute');
+    expect(result.content).toContain("working_dir must be absolute");
   });
 
-  test('executes command in provided absolute working_dir', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'host-shell-test-'));
+  test("executes command in provided absolute working_dir", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "host-shell-test-"));
     testDirs.push(dir);
 
-    const result = await hostShellTool.execute({
-      command: 'pwd',
-      working_dir: dir,
-    }, makeContext());
+    const result = await hostShellTool.execute(
+      {
+        command: "pwd",
+        working_dir: dir,
+      },
+      makeContext(),
+    );
 
     expect(result.isError).toBe(false);
     expect(result.content.trim()).toBe(realpathSync(dir));
   });
 
-  test('returns error for non-zero exit commands', async () => {
-    const result = await hostShellTool.execute({ command: 'exit 12' }, makeContext());
+  test("returns error for non-zero exit commands", async () => {
+    const result = await hostShellTool.execute(
+      { command: "exit 12" },
+      makeContext(),
+    );
     expect(result.isError).toBe(true);
     expect(result.content).toContain('<command_exit code="12" />');
   });
 
-  test('does not route through sandbox wrapCommand', async () => {
+  test("does not route through sandbox wrapCommand", async () => {
     wrapCommandCallCount = 0;
 
-    const dir = mkdtempSync(join(tmpdir(), 'host-shell-nosandbox-'));
+    const dir = mkdtempSync(join(tmpdir(), "host-shell-nosandbox-"));
     testDirs.push(dir);
 
-    const result = await hostShellTool.execute({
-      command: 'echo isolation-test',
-      working_dir: dir,
-    }, makeContext());
+    const result = await hostShellTool.execute(
+      {
+        command: "echo isolation-test",
+        working_dir: dir,
+      },
+      makeContext(),
+    );
 
     expect(result.isError).toBe(false);
-    expect(result.content.trim()).toBe('isolation-test');
+    expect(result.content.trim()).toBe("isolation-test");
     // The sandbox wrapCommand must never be called for host_bash
     expect(wrapCommandCallCount).toBe(0);
   });
 
-  test('spawns plain bash without sandbox-exec or bwrap', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'host-shell-plain-'));
+  test("spawns plain bash without sandbox-exec or bwrap", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "host-shell-plain-"));
     testDirs.push(dir);
 
     // Verify the tool executes successfully even when sandbox is enabled in config,
@@ -141,16 +157,19 @@ describe('host_bash tool', () => {
 
     spawnCalls.length = 0;
 
-    const result = await hostShellTool.execute({
-      command: 'echo hello',
-      working_dir: dir,
-    }, makeContext());
+    const result = await hostShellTool.execute(
+      {
+        command: "echo hello",
+        working_dir: dir,
+      },
+      makeContext(),
+    );
 
     expect(result.isError).toBe(false);
     // Verify spawn was called with 'bash' directly — not 'bwrap' or 'sandbox-exec'
     expect(spawnCalls.length).toBe(1);
-    expect(spawnCalls[0].command).toBe('bash');
-    expect(spawnCalls[0].args).toEqual(['-c', '--', 'echo hello']);
+    expect(spawnCalls[0].command).toBe("bash");
+    expect(spawnCalls[0].args).toEqual(["-c", "--", "echo hello"]);
   });
 });
 
@@ -158,78 +177,90 @@ describe('host_bash tool', () => {
 // Baseline: host_bash bypasses all sandbox wrappers
 // ---------------------------------------------------------------------------
 
-describe('host_bash — baseline: no sandbox isolation', () => {
+describe("host_bash — baseline: no sandbox isolation", () => {
   test('does not use Docker wrapper (no "docker" as spawn command)', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'host-shell-no-docker-'));
+    const dir = mkdtempSync(join(tmpdir(), "host-shell-no-docker-"));
     testDirs.push(dir);
 
     spawnCalls.length = 0;
 
-    const result = await hostShellTool.execute({
-      command: 'echo baseline',
-      working_dir: dir,
-    }, makeContext());
+    const result = await hostShellTool.execute(
+      {
+        command: "echo baseline",
+        working_dir: dir,
+      },
+      makeContext(),
+    );
 
     expect(result.isError).toBe(false);
     // The spawn command must be 'bash', never 'docker'
     expect(spawnCalls.length).toBe(1);
-    expect(spawnCalls[0].command).toBe('bash');
-    expect(spawnCalls[0].command).not.toBe('docker');
+    expect(spawnCalls[0].command).toBe("bash");
+    expect(spawnCalls[0].command).not.toBe("docker");
   });
 
-  test('does not use sandbox-exec or bwrap wrapper', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'host-shell-no-native-'));
+  test("does not use sandbox-exec or bwrap wrapper", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "host-shell-no-native-"));
     testDirs.push(dir);
 
     spawnCalls.length = 0;
 
-    const result = await hostShellTool.execute({
-      command: 'echo no-native-sandbox',
-      working_dir: dir,
-    }, makeContext());
+    const result = await hostShellTool.execute(
+      {
+        command: "echo no-native-sandbox",
+        working_dir: dir,
+      },
+      makeContext(),
+    );
 
     expect(result.isError).toBe(false);
-    expect(spawnCalls[0].command).not.toBe('sandbox-exec');
-    expect(spawnCalls[0].command).not.toBe('bwrap');
+    expect(spawnCalls[0].command).not.toBe("sandbox-exec");
+    expect(spawnCalls[0].command).not.toBe("bwrap");
   });
 
-  test('runs directly with bash -c -- <command> args format', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'host-shell-args-'));
+  test("runs directly with bash -c -- <command> args format", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "host-shell-args-"));
     testDirs.push(dir);
 
     spawnCalls.length = 0;
 
-    await hostShellTool.execute({
-      command: 'ls -la /tmp',
-      working_dir: dir,
-    }, makeContext());
+    await hostShellTool.execute(
+      {
+        command: "ls -la /tmp",
+        working_dir: dir,
+      },
+      makeContext(),
+    );
 
-    expect(spawnCalls[0].command).toBe('bash');
-    expect(spawnCalls[0].args[0]).toBe('-c');
-    expect(spawnCalls[0].args[1]).toBe('--');
-    expect(spawnCalls[0].args[2]).toBe('ls -la /tmp');
+    expect(spawnCalls[0].command).toBe("bash");
+    expect(spawnCalls[0].args[0]).toBe("-c");
+    expect(spawnCalls[0].args[1]).toBe("--");
+    expect(spawnCalls[0].args[2]).toBe("ls -la /tmp");
   });
 
-  test('sandbox config being enabled does not affect host_bash', async () => {
+  test("sandbox config being enabled does not affect host_bash", async () => {
     // The mock config has sandbox.enabled = true
     expect(mockConfig.sandbox.enabled).toBe(true);
 
-    const dir = mkdtempSync(join(tmpdir(), 'host-shell-sandbox-cfg-'));
+    const dir = mkdtempSync(join(tmpdir(), "host-shell-sandbox-cfg-"));
     testDirs.push(dir);
 
     spawnCalls.length = 0;
     wrapCommandCallCount = 0;
 
-    const result = await hostShellTool.execute({
-      command: 'echo sandbox-enabled-irrelevant',
-      working_dir: dir,
-    }, makeContext());
+    const result = await hostShellTool.execute(
+      {
+        command: "echo sandbox-enabled-irrelevant",
+        working_dir: dir,
+      },
+      makeContext(),
+    );
 
     expect(result.isError).toBe(false);
     // Must never call wrapCommand regardless of config
     expect(wrapCommandCallCount).toBe(0);
     // Must still spawn plain bash
-    expect(spawnCalls[0].command).toBe('bash');
+    expect(spawnCalls[0].command).toBe("bash");
   });
 });
 
@@ -241,25 +272,31 @@ describe('host_bash — baseline: no sandbox isolation', () => {
 // these — it runs unsandboxed on the host and has no proxy infrastructure.
 // These tests lock that boundary so any accidental addition is caught.
 
-describe('host_bash — regression: no proxied-mode additions', () => {
+describe("host_bash — regression: no proxied-mode additions", () => {
   const definition = hostShellTool.getDefinition();
-  const schemaProps = (definition.input_schema as Record<string, unknown>).properties as Record<string, unknown>;
+  const schemaProps = (definition.input_schema as Record<string, unknown>)
+    .properties as Record<string, unknown>;
 
-  test('schema does not include network_mode property', () => {
-    expect(schemaProps).not.toHaveProperty('network_mode');
+  test("schema does not include network_mode property", () => {
+    expect(schemaProps).not.toHaveProperty("network_mode");
   });
 
-  test('schema does not include credential_ids property', () => {
-    expect(schemaProps).not.toHaveProperty('credential_ids');
+  test("schema does not include credential_ids property", () => {
+    expect(schemaProps).not.toHaveProperty("credential_ids");
   });
 
-  test('schema only contains the expected properties (command, working_dir, timeout_seconds, reason)', () => {
+  test("schema only contains the expected properties (command, working_dir, timeout_seconds, reason)", () => {
     const propertyNames = Object.keys(schemaProps).sort();
-    expect(propertyNames).toEqual(['command', 'reason', 'timeout_seconds', 'working_dir']);
+    expect(propertyNames).toEqual([
+      "command",
+      "reason",
+      "timeout_seconds",
+      "working_dir",
+    ]);
   });
 
-  test('execute ignores network_mode even if supplied in input', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'host-shell-ignore-network-'));
+  test("execute ignores network_mode even if supplied in input", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "host-shell-ignore-network-"));
     testDirs.push(dir);
 
     spawnCalls.length = 0;
@@ -267,48 +304,56 @@ describe('host_bash — regression: no proxied-mode additions', () => {
 
     // Pass network_mode as if the model hallucinated the parameter —
     // host_bash must ignore it and run the command normally.
-    const result = await hostShellTool.execute({
-      command: 'echo should-work',
-      working_dir: dir,
-      network_mode: 'proxied',
-    }, makeContext());
+    const result = await hostShellTool.execute(
+      {
+        command: "echo should-work",
+        working_dir: dir,
+        network_mode: "proxied",
+      },
+      makeContext(),
+    );
 
     expect(result.isError).toBe(false);
-    expect(result.content.trim()).toBe('should-work');
+    expect(result.content.trim()).toBe("should-work");
     // Must still spawn plain bash, not anything proxy-related
     expect(spawnCalls.length).toBe(1);
-    expect(spawnCalls[0].command).toBe('bash');
+    expect(spawnCalls[0].command).toBe("bash");
     // Must never route through sandbox wrapCommand, even with proxied-mode input
     expect(wrapCommandCallCount).toBe(0);
   });
 
-  test('execute ignores credential_ids even if supplied in input', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'host-shell-ignore-creds-'));
+  test("execute ignores credential_ids even if supplied in input", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "host-shell-ignore-creds-"));
     testDirs.push(dir);
 
     spawnCalls.length = 0;
     wrapCommandCallCount = 0;
 
-    const result = await hostShellTool.execute({
-      command: 'echo creds-ignored',
-      working_dir: dir,
-      credential_ids: ['gmail-oauth', 'github-token'],
-    }, makeContext());
+    const result = await hostShellTool.execute(
+      {
+        command: "echo creds-ignored",
+        working_dir: dir,
+        credential_ids: ["gmail-oauth", "github-token"],
+      },
+      makeContext(),
+    );
 
     expect(result.isError).toBe(false);
-    expect(result.content.trim()).toBe('creds-ignored');
+    expect(result.content.trim()).toBe("creds-ignored");
     expect(spawnCalls.length).toBe(1);
-    expect(spawnCalls[0].command).toBe('bash');
+    expect(spawnCalls[0].command).toBe("bash");
     // Must never route through sandbox wrapCommand, even with credential inputs
     expect(wrapCommandCallCount).toBe(0);
   });
 
-  test('tool name is host_bash (not bash)', () => {
-    expect(definition.name).toBe('host_bash');
+  test("tool name is host_bash (not bash)", () => {
+    expect(definition.name).toBe("host_bash");
   });
 
-  test('required fields contains command and reason', () => {
-    expect((definition.input_schema as Record<string, unknown>).required).toEqual(['command', 'reason']);
+  test("required fields contains command and reason", () => {
+    expect(
+      (definition.input_schema as Record<string, unknown>).required,
+    ).toEqual(["command", "reason"]);
   });
 });
 
@@ -316,52 +361,69 @@ describe('host_bash — regression: no proxied-mode additions', () => {
 // Input validation
 // ---------------------------------------------------------------------------
 
-describe('host_bash — input validation', () => {
-  test('rejects null bytes in command', async () => {
-    const result = await hostShellTool.execute({
-      command: 'echo \0evil',
-    }, makeContext());
+describe("host_bash — input validation", () => {
+  test("rejects null bytes in command", async () => {
+    const result = await hostShellTool.execute(
+      {
+        command: "echo \0evil",
+      },
+      makeContext(),
+    );
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain('null bytes');
+    expect(result.content).toContain("null bytes");
   });
 
-  test('rejects null bytes in working_dir', async () => {
-    const result = await hostShellTool.execute({
-      command: 'echo test',
-      working_dir: '/tmp/\0evil',
-    }, makeContext());
+  test("rejects null bytes in working_dir", async () => {
+    const result = await hostShellTool.execute(
+      {
+        command: "echo test",
+        working_dir: "/tmp/\0evil",
+      },
+      makeContext(),
+    );
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain('null bytes');
+    expect(result.content).toContain("null bytes");
   });
 
-  test('rejects empty command', async () => {
-    const result = await hostShellTool.execute({
-      command: '',
-    }, makeContext());
+  test("rejects empty command", async () => {
+    const result = await hostShellTool.execute(
+      {
+        command: "",
+      },
+      makeContext(),
+    );
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain('command is required');
+    expect(result.content).toContain("command is required");
   });
 
-  test('rejects non-string command', async () => {
-    const result = await hostShellTool.execute({
-      command: 42,
-    }, makeContext());
+  test("rejects non-string command", async () => {
+    const result = await hostShellTool.execute(
+      {
+        command: 42,
+      },
+      makeContext(),
+    );
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain('command is required and must be a string');
+    expect(result.content).toContain(
+      "command is required and must be a string",
+    );
   });
 
-  test('rejects non-string working_dir', async () => {
-    const result = await hostShellTool.execute({
-      command: 'echo test',
-      working_dir: 123,
-    }, makeContext());
+  test("rejects non-string working_dir", async () => {
+    const result = await hostShellTool.execute(
+      {
+        command: "echo test",
+        working_dir: 123,
+      },
+      makeContext(),
+    );
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain('working_dir must be a string');
+    expect(result.content).toContain("working_dir must be a string");
   });
 });
 
@@ -369,44 +431,53 @@ describe('host_bash — input validation', () => {
 // Environment setup
 // ---------------------------------------------------------------------------
 
-describe('host_bash — environment setup', () => {
-  test('defaults working_dir to user home when not provided', async () => {
-    const { homedir } = await import('node:os');
-    const result = await hostShellTool.execute({
-      command: 'pwd',
-    }, makeContext());
+describe("host_bash — environment setup", () => {
+  test("defaults working_dir to user home when not provided", async () => {
+    const { homedir } = await import("node:os");
+    const result = await hostShellTool.execute(
+      {
+        command: "pwd",
+      },
+      makeContext(),
+    );
 
     expect(result.isError).toBe(false);
     expect(result.content.trim()).toBe(realpathSync(homedir()));
   });
 
-  test('PATH includes ~/.local/bin and ~/.bun/bin', async () => {
-    const { homedir } = await import('node:os');
+  test("PATH includes ~/.local/bin and ~/.bun/bin", async () => {
+    const { homedir } = await import("node:os");
     const home = homedir();
 
-    const result = await hostShellTool.execute({
-      command: 'echo "$PATH"',
-    }, makeContext());
+    const result = await hostShellTool.execute(
+      {
+        command: 'echo "$PATH"',
+      },
+      makeContext(),
+    );
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain(`${home}/.local/bin`);
     expect(result.content).toContain(`${home}/.bun/bin`);
   });
 
-  test('does not leak non-allowlisted env vars', async () => {
+  test("does not leak non-allowlisted env vars", async () => {
     // Set a custom env var that is NOT in the SAFE_ENV_VARS allowlist
-    const varName = 'VELLUM_TEST_UNLISTED_VAR';
+    const varName = "VELLUM_TEST_UNLISTED_VAR";
     const originalVal = process.env[varName];
-    process.env[varName] = 'should-not-appear';
+    process.env[varName] = "should-not-appear";
 
     try {
-      const result = await hostShellTool.execute({
-        command: 'env',
-      }, makeContext());
+      const result = await hostShellTool.execute(
+        {
+          command: "env",
+        },
+        makeContext(),
+      );
 
       expect(result.isError).toBe(false);
       expect(result.content).not.toContain(varName);
-      expect(result.content).not.toContain('should-not-appear');
+      expect(result.content).not.toContain("should-not-appear");
     } finally {
       if (originalVal === undefined) {
         delete process.env[varName];
@@ -416,27 +487,35 @@ describe('host_bash — environment setup', () => {
     }
   });
 
-  test('includes safe env vars like HOME and TERM', async () => {
-    const result = await hostShellTool.execute({
-      command: 'echo "HOME=$HOME"',
-    }, makeContext());
+  test("includes safe env vars like HOME and TERM", async () => {
+    const result = await hostShellTool.execute(
+      {
+        command: 'echo "HOME=$HOME"',
+      },
+      makeContext(),
+    );
 
     expect(result.isError).toBe(false);
-    expect(result.content).toContain('HOME=');
-    expect(result.content.trim()).not.toBe('HOME=');
+    expect(result.content).toContain("HOME=");
+    expect(result.content.trim()).not.toBe("HOME=");
   });
 
-  test('injects INTERNAL_GATEWAY_BASE_URL and GATEWAY_BASE_URL for host_bash commands', async () => {
+  test("injects INTERNAL_GATEWAY_BASE_URL and GATEWAY_BASE_URL for host_bash commands", async () => {
     const originalGatewayBase = process.env.GATEWAY_INTERNAL_BASE_URL;
     const originalIngressBase = process.env.INGRESS_PUBLIC_BASE_URL;
-    process.env.GATEWAY_INTERNAL_BASE_URL = 'http://gateway.internal:9000/';
-    process.env.INGRESS_PUBLIC_BASE_URL = 'https://gw.example.com/';
+    process.env.GATEWAY_INTERNAL_BASE_URL = "http://gateway.internal:9000/";
+    process.env.INGRESS_PUBLIC_BASE_URL = "https://gw.example.com/";
     try {
-      const result = await hostShellTool.execute({
-        command: 'echo "$INTERNAL_GATEWAY_BASE_URL|$GATEWAY_BASE_URL"',
-      }, makeContext());
+      const result = await hostShellTool.execute(
+        {
+          command: 'echo "$INTERNAL_GATEWAY_BASE_URL|$GATEWAY_BASE_URL"',
+        },
+        makeContext(),
+      );
       expect(result.isError).toBe(false);
-      expect(result.content.trim()).toBe('http://gateway.internal:9000|https://gw.example.com');
+      expect(result.content.trim()).toBe(
+        "http://gateway.internal:9000|https://gw.example.com",
+      );
     } finally {
       if (originalGatewayBase === undefined) {
         delete process.env.GATEWAY_INTERNAL_BASE_URL;
@@ -456,38 +535,47 @@ describe('host_bash — environment setup', () => {
 // Timeout handling
 // ---------------------------------------------------------------------------
 
-describe('host_bash — timeout handling', () => {
-  test('respects custom timeout_seconds', async () => {
-    const result = await hostShellTool.execute({
-      command: 'sleep 5',
-      timeout_seconds: 1,
-    }, makeContext());
+describe("host_bash — timeout handling", () => {
+  test("respects custom timeout_seconds", async () => {
+    const result = await hostShellTool.execute(
+      {
+        command: "sleep 5",
+        timeout_seconds: 1,
+      },
+      makeContext(),
+    );
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain('command_timeout');
+    expect(result.content).toContain("command_timeout");
   });
 
-  test('clamps timeout to at least 1 second', async () => {
+  test("clamps timeout to at least 1 second", async () => {
     // A timeout_seconds of 0 should be clamped to 1
-    const result = await hostShellTool.execute({
-      command: 'echo fast',
-      timeout_seconds: 0,
-    }, makeContext());
+    const result = await hostShellTool.execute(
+      {
+        command: "echo fast",
+        timeout_seconds: 0,
+      },
+      makeContext(),
+    );
 
     // Should still complete — 1 second is enough for echo
     expect(result.isError).toBe(false);
-    expect(result.content.trim()).toBe('fast');
+    expect(result.content.trim()).toBe("fast");
   });
 
-  test('clamps timeout to max configured value', async () => {
+  test("clamps timeout to max configured value", async () => {
     // Request a timeout larger than the configured max (600)
-    const result = await hostShellTool.execute({
-      command: 'echo capped',
-      timeout_seconds: 9999,
-    }, makeContext());
+    const result = await hostShellTool.execute(
+      {
+        command: "echo capped",
+        timeout_seconds: 9999,
+      },
+      makeContext(),
+    );
 
     expect(result.isError).toBe(false);
-    expect(result.content.trim()).toBe('capped');
+    expect(result.content.trim()).toBe("capped");
   });
 });
 
@@ -495,46 +583,55 @@ describe('host_bash — timeout handling', () => {
 // Streaming output and abort signal
 // ---------------------------------------------------------------------------
 
-describe('host_bash — streaming and cancellation', () => {
-  test('calls onOutput callback with stdout chunks', async () => {
+describe("host_bash — streaming and cancellation", () => {
+  test("calls onOutput callback with stdout chunks", async () => {
     const chunks: string[] = [];
     const ctx = {
       ...makeContext(),
       onOutput: (chunk: string) => chunks.push(chunk),
     };
 
-    const result = await hostShellTool.execute({
-      command: 'echo streamed-output',
-    }, ctx);
+    const result = await hostShellTool.execute(
+      {
+        command: "echo streamed-output",
+      },
+      ctx,
+    );
 
     expect(result.isError).toBe(false);
-    expect(chunks.join('')).toContain('streamed-output');
+    expect(chunks.join("")).toContain("streamed-output");
   });
 
-  test('calls onOutput callback with stderr chunks', async () => {
+  test("calls onOutput callback with stderr chunks", async () => {
     const chunks: string[] = [];
     const ctx = {
       ...makeContext(),
       onOutput: (chunk: string) => chunks.push(chunk),
     };
 
-    await hostShellTool.execute({
-      command: 'echo stderr-data >&2',
-    }, ctx);
+    await hostShellTool.execute(
+      {
+        command: "echo stderr-data >&2",
+      },
+      ctx,
+    );
 
-    expect(chunks.join('')).toContain('stderr-data');
+    expect(chunks.join("")).toContain("stderr-data");
   });
 
-  test('kills process when abort signal fires', async () => {
+  test("kills process when abort signal fires", async () => {
     const ac = new AbortController();
 
     // Start a long-running command then abort it quickly
-    const promise = hostShellTool.execute({
-      command: 'sleep 30',
-    }, { ...makeContext(), signal: ac.signal });
+    const promise = hostShellTool.execute(
+      {
+        command: "sleep 30",
+      },
+      { ...makeContext(), signal: ac.signal },
+    );
 
     // Give the process a moment to start
-    await new Promise(r => setTimeout(r, 100));
+    await new Promise((r) => setTimeout(r, 100));
     ac.abort();
 
     const result = await promise;
@@ -542,13 +639,16 @@ describe('host_bash — streaming and cancellation', () => {
     expect(result.isError).toBe(true);
   });
 
-  test('immediately kills process if signal already aborted', async () => {
+  test("immediately kills process if signal already aborted", async () => {
     const ac = new AbortController();
     ac.abort();
 
-    const result = await hostShellTool.execute({
-      command: 'sleep 30',
-    }, { ...makeContext(), signal: ac.signal });
+    const result = await hostShellTool.execute(
+      {
+        command: "sleep 30",
+      },
+      { ...makeContext(), signal: ac.signal },
+    );
 
     expect(result.isError).toBe(true);
   });
@@ -558,32 +658,41 @@ describe('host_bash — streaming and cancellation', () => {
 // Error handling for spawn failures
 // ---------------------------------------------------------------------------
 
-describe('host_bash — spawn error handling', () => {
-  test('reports error when working_dir does not exist', async () => {
-    const result = await hostShellTool.execute({
-      command: 'echo test',
-      working_dir: '/nonexistent/path/that/does/not/exist',
-    }, makeContext());
+describe("host_bash — spawn error handling", () => {
+  test("reports error when working_dir does not exist", async () => {
+    const result = await hostShellTool.execute(
+      {
+        command: "echo test",
+        working_dir: "/nonexistent/path/that/does/not/exist",
+      },
+      makeContext(),
+    );
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain('Error spawning command');
+    expect(result.content).toContain("Error spawning command");
   });
 
-  test('captures both stdout and stderr in output', async () => {
-    const result = await hostShellTool.execute({
-      command: 'echo out && echo err >&2',
-    }, makeContext());
+  test("captures both stdout and stderr in output", async () => {
+    const result = await hostShellTool.execute(
+      {
+        command: "echo out && echo err >&2",
+      },
+      makeContext(),
+    );
 
-    expect(result.content).toContain('out');
-    expect(result.content).toContain('err');
+    expect(result.content).toContain("out");
+    expect(result.content).toContain("err");
   });
 
-  test('returns completed marker for successful empty output', async () => {
-    const result = await hostShellTool.execute({
-      command: 'true',
-    }, makeContext());
+  test("returns completed marker for successful empty output", async () => {
+    const result = await hostShellTool.execute(
+      {
+        command: "true",
+      },
+      makeContext(),
+    );
 
     expect(result.isError).toBe(false);
-    expect(result.content).toContain('<command_completed />');
+    expect(result.content).toContain("<command_completed />");
   });
 });

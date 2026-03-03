@@ -1,5 +1,9 @@
 import { describe, test, expect, mock, afterEach, beforeEach } from "bun:test";
 import type { GatewayConfig } from "../config.js";
+import { initSigningKey } from "../auth/token-service.js";
+
+const TEST_SIGNING_KEY = Buffer.from('test-signing-key-at-least-32-bytes-long');
+initSigningKey(TEST_SIGNING_KEY);
 
 type FetchFn = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(async () => new Response());
@@ -557,41 +561,3 @@ describe("telegram webhook handler: callback_query forwarding", () => {
   });
 });
 
-describe("telegram webhook handler: gateway-origin marker", () => {
-  test("forwards X-Gateway-Origin header when runtimeBearerToken is configured", async () => {
-    const bearerToken = "secret-runtime-token";
-    const config = makeConfig({
-      routingEntries: [{ type: "conversation_id", key: "12345", assistantId: "assistant-a" }],
-    });
-    installFetchMock();
-    const { handler } = createTelegramWebhookHandler(config);
-
-    const payload = makeTelegramPayload("hello", 8001);
-    const req = makeWebhookRequest(payload);
-    const res = await handler(req);
-
-    expect(res.status).toBe(200);
-
-    const runtimeCall = fetchCalls.find((c) => c.url.includes("/inbound"));
-    expect(runtimeCall).toBeDefined();
-    expect(runtimeCall!.headers?.["x-gateway-origin"]).toBe(bearerToken);
-  });
-
-  test("does not include X-Gateway-Origin header when no runtimeBearerToken", async () => {
-    const config = makeConfig({
-      routingEntries: [{ type: "conversation_id", key: "12345", assistantId: "assistant-a" }],
-    });
-    installFetchMock();
-    const { handler } = createTelegramWebhookHandler(config);
-
-    const payload = makeTelegramPayload("hello", 8002);
-    const req = makeWebhookRequest(payload);
-    const res = await handler(req);
-
-    expect(res.status).toBe(200);
-
-    const runtimeCall = fetchCalls.find((c) => c.url.includes("/inbound"));
-    expect(runtimeCall).toBeDefined();
-    expect(runtimeCall!.headers?.["x-gateway-origin"]).toBeUndefined();
-  });
-});

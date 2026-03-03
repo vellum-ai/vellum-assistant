@@ -1,30 +1,31 @@
-import { describe, expect,test } from 'bun:test';
+import { describe, expect, test } from "bun:test";
 
 import type {
   FileUploadSurfaceData,
   UiSurfaceShowFileUpload,
-} from '../daemon/ipc-protocol.js';
+} from "../daemon/ipc-protocol.js";
+import { INTERACTIVE_SURFACE_TYPES } from "../daemon/ipc-protocol.js";
 import {
-  INTERACTIVE_SURFACE_TYPES,
-} from '../daemon/ipc-protocol.js';
-import { requestFileTool, uiShowTool } from '../tools/ui-surface/definitions.js';
+  requestFileTool,
+  uiShowTool,
+} from "../tools/ui-surface/definitions.js";
 
 // ---------------------------------------------------------------------------
 // request_file tool definition
 // ---------------------------------------------------------------------------
 
-describe('requestFileTool definition', () => {
-  test('has the correct name and category', () => {
-    expect(requestFileTool.name).toBe('request_file');
-    expect(requestFileTool.category).toBe('ui-surface');
-    expect(requestFileTool.executionMode).toBe('proxy');
+describe("requestFileTool definition", () => {
+  test("has the correct name and category", () => {
+    expect(requestFileTool.name).toBe("request_file");
+    expect(requestFileTool.category).toBe("ui-surface");
+    expect(requestFileTool.executionMode).toBe("proxy");
   });
 
-  test('getDefinition returns correct input_schema', () => {
+  test("getDefinition returns correct input_schema", () => {
     const definition = requestFileTool.getDefinition();
 
-    expect(definition.name).toBe('request_file');
-    expect(definition.description).toContain('file');
+    expect(definition.name).toBe("request_file");
+    expect(definition.description).toContain("file");
 
     const schema = definition.input_schema as {
       type: string;
@@ -32,44 +33,50 @@ describe('requestFileTool definition', () => {
       required: string[];
     };
 
-    expect(schema.type).toBe('object');
-    expect(schema.required).toEqual(['prompt']);
-    expect(schema.properties).toHaveProperty('prompt');
-    expect(schema.properties).toHaveProperty('accepted_types');
-    expect(schema.properties).toHaveProperty('max_files');
+    expect(schema.type).toBe("object");
+    expect(schema.required).toEqual(["prompt"]);
+    expect(schema.properties).toHaveProperty("prompt");
+    expect(schema.properties).toHaveProperty("accepted_types");
+    expect(schema.properties).toHaveProperty("max_files");
   });
 
-  test('prompt property is a string type', () => {
+  test("prompt property is a string type", () => {
     const definition = requestFileTool.getDefinition();
-    const props = (definition.input_schema as {
-      properties: Record<string, { type: string }>;
-    }).properties;
+    const props = (
+      definition.input_schema as {
+        properties: Record<string, { type: string }>;
+      }
+    ).properties;
 
-    expect(props.prompt.type).toBe('string');
+    expect(props.prompt.type).toBe("string");
   });
 
-  test('accepted_types property is an array of strings', () => {
+  test("accepted_types property is an array of strings", () => {
     const definition = requestFileTool.getDefinition();
-    const props = (definition.input_schema as {
-      properties: Record<string, { type: string; items?: { type: string } }>;
-    }).properties;
+    const props = (
+      definition.input_schema as {
+        properties: Record<string, { type: string; items?: { type: string } }>;
+      }
+    ).properties;
 
-    expect(props.accepted_types.type).toBe('array');
-    expect(props.accepted_types.items).toEqual({ type: 'string' });
+    expect(props.accepted_types.type).toBe("array");
+    expect(props.accepted_types.items).toEqual({ type: "string" });
   });
 
-  test('max_files property is a number type', () => {
+  test("max_files property is a number type", () => {
     const definition = requestFileTool.getDefinition();
-    const props = (definition.input_schema as {
-      properties: Record<string, { type: string }>;
-    }).properties;
+    const props = (
+      definition.input_schema as {
+        properties: Record<string, { type: string }>;
+      }
+    ).properties;
 
-    expect(props.max_files.type).toBe('number');
+    expect(props.max_files.type).toBe("number");
   });
 
-  test('execute throws proxy error', () => {
+  test("execute throws proxy error", () => {
     expect(() => requestFileTool.execute({}, {} as never)).toThrow(
-      'Proxy tool: execution must be forwarded to the connected client',
+      "Proxy tool: execution must be forwarded to the connected client",
     );
   });
 });
@@ -78,25 +85,25 @@ describe('requestFileTool definition', () => {
 // FileUploadSurfaceData shape
 // ---------------------------------------------------------------------------
 
-describe('FileUploadSurfaceData shape', () => {
-  test('accepts an object with prompt, acceptedTypes, and maxFiles', () => {
+describe("FileUploadSurfaceData shape", () => {
+  test("accepts an object with prompt, acceptedTypes, and maxFiles", () => {
     const data: FileUploadSurfaceData = {
-      prompt: 'Please share the design file',
-      acceptedTypes: ['image/*', 'application/pdf'],
+      prompt: "Please share the design file",
+      acceptedTypes: ["image/*", "application/pdf"],
       maxFiles: 3,
     };
 
-    expect(data.prompt).toBe('Please share the design file');
-    expect(data.acceptedTypes).toEqual(['image/*', 'application/pdf']);
+    expect(data.prompt).toBe("Please share the design file");
+    expect(data.acceptedTypes).toEqual(["image/*", "application/pdf"]);
     expect(data.maxFiles).toBe(3);
   });
 
-  test('acceptedTypes and maxFiles are optional', () => {
+  test("acceptedTypes and maxFiles are optional", () => {
     const data: FileUploadSurfaceData = {
-      prompt: 'Upload a file',
+      prompt: "Upload a file",
     };
 
-    expect(data.prompt).toBe('Upload a file');
+    expect(data.prompt).toBe("Upload a file");
     expect(data.acceptedTypes).toBeUndefined();
     expect(data.maxFiles).toBeUndefined();
   });
@@ -106,23 +113,23 @@ describe('FileUploadSurfaceData shape', () => {
 // UiSurfaceShowFileUpload structure
 // ---------------------------------------------------------------------------
 
-describe('UiSurfaceShowFileUpload structure', () => {
-  test('can construct a well-typed UiSurfaceShowFileUpload object', () => {
+describe("UiSurfaceShowFileUpload structure", () => {
+  test("can construct a well-typed UiSurfaceShowFileUpload object", () => {
     const msg: UiSurfaceShowFileUpload = {
-      type: 'ui_surface_show',
-      sessionId: 'session-abc',
-      surfaceId: 'surface-123',
-      surfaceType: 'file_upload',
-      title: 'File Request',
-      data: { prompt: 'Share a screenshot' },
+      type: "ui_surface_show",
+      sessionId: "session-abc",
+      surfaceId: "surface-123",
+      surfaceType: "file_upload",
+      title: "File Request",
+      data: { prompt: "Share a screenshot" },
     };
 
-    expect(msg.type).toBe('ui_surface_show');
-    expect(msg.surfaceType).toBe('file_upload');
-    expect(msg.data.prompt).toBe('Share a screenshot');
-    expect(msg.title).toBe('File Request');
-    expect(msg.sessionId).toBe('session-abc');
-    expect(msg.surfaceId).toBe('surface-123');
+    expect(msg.type).toBe("ui_surface_show");
+    expect(msg.surfaceType).toBe("file_upload");
+    expect(msg.data.prompt).toBe("Share a screenshot");
+    expect(msg.title).toBe("File Request");
+    expect(msg.sessionId).toBe("session-abc");
+    expect(msg.surfaceId).toBe("surface-123");
   });
 });
 
@@ -130,9 +137,9 @@ describe('UiSurfaceShowFileUpload structure', () => {
 // Interactivity
 // ---------------------------------------------------------------------------
 
-describe('file_upload interactivity', () => {
-  test('file_upload is in the interactive surface types list', () => {
-    expect(INTERACTIVE_SURFACE_TYPES).toContain('file_upload');
+describe("file_upload interactivity", () => {
+  test("file_upload is in the interactive surface types list", () => {
+    expect(INTERACTIVE_SURFACE_TYPES).toContain("file_upload");
   });
 });
 
@@ -140,8 +147,8 @@ describe('file_upload interactivity', () => {
 // ui_show tool includes file_upload in surface_type enum
 // ---------------------------------------------------------------------------
 
-describe('ui_show tool includes file_upload', () => {
-  test('input_schema surface_type enum includes file_upload', () => {
+describe("ui_show tool includes file_upload", () => {
+  test("input_schema surface_type enum includes file_upload", () => {
     const definition = uiShowTool.getDefinition();
     const surfaceTypeEnum = (
       definition.input_schema as {
@@ -149,11 +156,11 @@ describe('ui_show tool includes file_upload', () => {
       }
     ).properties.surface_type.enum;
 
-    expect(surfaceTypeEnum).toContain('file_upload');
+    expect(surfaceTypeEnum).toContain("file_upload");
   });
 
-  test('description mentions file_upload', () => {
+  test("description mentions file_upload", () => {
     const definition = uiShowTool.getDefinition();
-    expect(definition.description).toContain('file_upload');
+    expect(definition.description).toContain("file_upload");
   });
 });

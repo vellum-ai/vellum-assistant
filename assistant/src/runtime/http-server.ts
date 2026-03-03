@@ -46,7 +46,7 @@ import { DAEMON_INTERNAL_ASSISTANT_ID } from './assistant-scope.js';
 // Auth
 import { authenticateRequest } from './auth/middleware.js';
 import { enforcePolicy, getPolicy } from './auth/route-policy.js';
-import { verifyToken } from './auth/token-service.js';
+import { mintDaemonDeliveryToken, mintUiPageToken, verifyToken } from './auth/token-service.js';
 import type { AuthContext } from './auth/types.js';
 import { sweepFailedEvents } from './channel-retry-sweep.js';
 import { httpError } from './http-errors.js';
@@ -302,6 +302,7 @@ export class RuntimeHttpServer {
   private server: ReturnType<typeof Bun.serve> | null = null;
   private port: number;
   private hostname: string;
+  /** Legacy shared secret for pairing routes (not used for delivery or auth). */
   private bearerToken: string | undefined;
   private processMessage?: MessageProcessor;
   private persistAndProcessMessage?: NonBlockingMessageProcessor;
@@ -463,11 +464,11 @@ export class RuntimeHttpServer {
 
     if (this.processMessage) {
       const pm = this.processMessage;
-      const bt = this.bearerToken;
+      const mintBt = () => mintDaemonDeliveryToken();
       this.retrySweepTimer = setInterval(() => {
         if (this.sweepInProgress) return;
         this.sweepInProgress = true;
-        sweepFailedEvents(pm, bt).finally(() => {
+        sweepFailedEvents(pm, mintBt).finally(() => {
           this.sweepInProgress = false;
         });
       }, 30_000);
@@ -475,14 +476,14 @@ export class RuntimeHttpServer {
 
     startGuardianExpirySweep(
       getGatewayInternalBaseUrl(),
-      this.bearerToken,
+      () => mintDaemonDeliveryToken(),
       this.approvalCopyGenerator,
     );
     log.info("Guardian approval expiry sweep started");
 
     startGuardianActionSweep(
       getGatewayInternalBaseUrl(),
-      this.bearerToken,
+      () => mintDaemonDeliveryToken(),
       this.guardianActionCopyGenerator,
     );
     log.info("Guardian action expiry sweep started");
@@ -616,7 +617,8 @@ export class RuntimeHttpServer {
     // abuse surface. We key on IP rather than bearer token because the gateway
     // uses a single shared token for all proxied requests, which would collapse
     // all users into one bucket.
-    if (path.startsWith("/v1/")) {
+    // Skip rate limiting entirely when HTTP auth is disabled (local Docker dev).
+    if (path.startsWith("/v1/") && !isHttpAuthDisabled()) {
       const clientIp = extractClientIp(req, server);
       const token = extractBearerToken(req);
       const result = token
@@ -1317,8 +1319,8 @@ export class RuntimeHttpServer {
 
       if (endpoint === 'identity' && req.method === 'GET') return handleGetIdentity();
       if (endpoint === 'brain-graph' && req.method === 'GET') return handleGetBrainGraph();
-      if (endpoint === 'brain-graph-ui' && req.method === 'GET') return handleServeBrainGraphUI(this.bearerToken);
-      if (endpoint === 'home-base-ui' && req.method === 'GET') return handleServeHomeBaseUI(this.bearerToken);
+      if (endpoint === 'brain-graph-ui' && req.method === 'GET') return handleServeBrainGraphUI(mintUiPageToken());
+      if (endpoint === 'home-base-ui' && req.method === 'GET') return handleServeHomeBaseUI(mintUiPageToken());
       if (endpoint === 'events' && req.method === 'GET') return handleSubscribeAssistantEvents(req, url, { authContext });
 
       // Internal OAuth callback endpoint (gateway -> runtime)

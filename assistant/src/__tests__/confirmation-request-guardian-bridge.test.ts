@@ -8,29 +8,28 @@
  * 4. Missing guardian binding causes a skip
  */
 
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test';
+const testDir = mkdtempSync(join(tmpdir(), "confirmation-bridge-test-"));
 
-const testDir = mkdtempSync(join(tmpdir(), 'confirmation-bridge-test-'));
-
-mock.module('../util/platform.js', () => ({
+mock.module("../util/platform.js", () => ({
   getDataDir: () => testDir,
-  isMacOS: () => process.platform === 'darwin',
-  isLinux: () => process.platform === 'linux',
-  isWindows: () => process.platform === 'win32',
-  getSocketPath: () => join(testDir, 'test.sock'),
-  getPidPath: () => join(testDir, 'test.pid'),
-  getDbPath: () => join(testDir, 'test.db'),
-  getLogPath: () => join(testDir, 'test.log'),
+  isMacOS: () => process.platform === "darwin",
+  isLinux: () => process.platform === "linux",
+  isWindows: () => process.platform === "win32",
+  getSocketPath: () => join(testDir, "test.sock"),
+  getPidPath: () => join(testDir, "test.pid"),
+  getDbPath: () => join(testDir, "test.db"),
+  getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
   migrateToDataLayout: () => {},
   migrateToWorkspaceLayout: () => {},
 }));
 
-mock.module('../util/logger.js', () => ({
+mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
@@ -41,21 +40,33 @@ mock.module('../util/logger.js', () => ({
 
 // Mock notification emission — capture calls without running the full pipeline
 const emittedSignals: Array<Record<string, unknown>> = [];
-const mockOnThreadCreatedCallbacks: Array<(info: { conversationId: string; title: string; sourceEventName: string }) => void> = [];
-mock.module('../notifications/emit-signal.js', () => ({
+const mockOnThreadCreatedCallbacks: Array<
+  (info: {
+    conversationId: string;
+    title: string;
+    sourceEventName: string;
+  }) => void
+> = [];
+mock.module("../notifications/emit-signal.js", () => ({
   emitNotificationSignal: async (params: Record<string, unknown>) => {
     emittedSignals.push(params);
     // Capture onThreadCreated callback so tests can invoke it
-    if (typeof params.onThreadCreated === 'function') {
-      mockOnThreadCreatedCallbacks.push(params.onThreadCreated as (info: { conversationId: string; title: string; sourceEventName: string }) => void);
+    if (typeof params.onThreadCreated === "function") {
+      mockOnThreadCreatedCallbacks.push(
+        params.onThreadCreated as (info: {
+          conversationId: string;
+          title: string;
+          sourceEventName: string;
+        }) => void,
+      );
     }
     return {
-      signalId: 'test-signal',
+      signalId: "test-signal",
       deduplicated: false,
       dispatched: true,
-      reason: 'ok',
+      reason: "ok",
       deliveryResults: [
-        { channel: 'telegram', destination: 'guardian-chat-1', success: true },
+        { channel: "telegram", destination: "guardian-chat-1", success: true },
       ],
     };
   },
@@ -63,37 +74,37 @@ mock.module('../notifications/emit-signal.js', () => ({
 }));
 
 // Mock channel guardian service — provide a guardian binding for 'self' + 'telegram'
-mock.module('../runtime/channel-guardian-service.js', () => ({
+mock.module("../runtime/channel-guardian-service.js", () => ({
   getGuardianBinding: (assistantId: string, channel: string) => {
-    if (assistantId === 'self' && channel === 'telegram') {
+    if (assistantId === "self" && channel === "telegram") {
       return {
-        id: 'binding-1',
-        assistantId: 'self',
-        channel: 'telegram',
-        guardianExternalUserId: 'guardian-1',
-        guardianDeliveryChatId: 'guardian-chat-1',
-        status: 'active',
+        id: "binding-1",
+        assistantId: "self",
+        channel: "telegram",
+        guardianExternalUserId: "guardian-1",
+        guardianDeliveryChatId: "guardian-chat-1",
+        status: "active",
       };
     }
     return null;
   },
 }));
 
-import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
+import type { GuardianRuntimeContext } from "../daemon/session-runtime-assembly.js";
 import {
   createCanonicalGuardianRequest,
   generateCanonicalRequestCode,
   listCanonicalGuardianDeliveries,
-} from '../memory/canonical-guardian-store.js';
-import { getDb, initializeDb, resetDb } from '../memory/db.js';
-import { bridgeConfirmationRequestToGuardian } from '../runtime/confirmation-request-guardian-bridge.js';
+} from "../memory/canonical-guardian-store.js";
+import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { bridgeConfirmationRequestToGuardian } from "../runtime/confirmation-request-guardian-bridge.js";
 
 initializeDb();
 
 function resetTables(): void {
   const db = getDb();
-  db.run('DELETE FROM canonical_guardian_deliveries');
-  db.run('DELETE FROM canonical_guardian_requests');
+  db.run("DELETE FROM canonical_guardian_deliveries");
+  db.run("DELETE FROM canonical_guardian_requests");
 }
 
 afterAll(() => {
@@ -112,30 +123,32 @@ afterAll(() => {
 function makeCanonicalRequest(overrides: Record<string, unknown> = {}) {
   return createCanonicalGuardianRequest({
     id: `req-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-    kind: 'tool_approval',
-    sourceType: 'channel',
-    sourceChannel: 'telegram',
-    conversationId: 'conv-1',
-    requesterExternalUserId: 'requester-1',
-    guardianExternalUserId: 'guardian-1',
-    guardianPrincipalId: 'test-principal-id',
-    toolName: 'bash',
-    status: 'pending',
+    kind: "tool_approval",
+    sourceType: "channel",
+    sourceChannel: "telegram",
+    conversationId: "conv-1",
+    requesterExternalUserId: "requester-1",
+    guardianExternalUserId: "guardian-1",
+    guardianPrincipalId: "test-principal-id",
+    toolName: "bash",
+    status: "pending",
     requestCode: generateCanonicalRequestCode(),
     expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
     ...overrides,
   });
 }
 
-function makeTrustedContactContext(overrides: Partial<GuardianRuntimeContext> = {}): GuardianRuntimeContext {
+function makeTrustedContactContext(
+  overrides: Partial<GuardianRuntimeContext> = {},
+): GuardianRuntimeContext {
   return {
-    sourceChannel: 'telegram',
-    trustClass: 'trusted_contact',
-    guardianExternalUserId: 'guardian-1',
-    guardianChatId: 'guardian-chat-1',
-    requesterExternalUserId: 'requester-1',
-    requesterChatId: 'requester-chat-1',
-    requesterIdentifier: '@requester',
+    sourceChannel: "telegram",
+    trustClass: "trusted_contact",
+    guardianExternalUserId: "guardian-1",
+    guardianChatId: "guardian-chat-1",
+    requesterExternalUserId: "requester-1",
+    requesterChatId: "requester-chat-1",
+    requesterIdentifier: "@requester",
     ...overrides,
   };
 }
@@ -144,82 +157,82 @@ function makeTrustedContactContext(overrides: Partial<GuardianRuntimeContext> = 
 // TESTS
 // ===========================================================================
 
-describe('bridgeConfirmationRequestToGuardian', () => {
+describe("bridgeConfirmationRequestToGuardian", () => {
   beforeEach(() => {
     resetTables();
     emittedSignals.length = 0;
     mockOnThreadCreatedCallbacks.length = 0;
   });
 
-  test('emits guardian.question for trusted-contact sessions', () => {
+  test("emits guardian.question for trusted-contact sessions", () => {
     const canonicalRequest = makeCanonicalRequest();
     const guardianContext = makeTrustedContactContext();
 
     const result = bridgeConfirmationRequestToGuardian({
       canonicalRequest,
       guardianContext,
-      conversationId: 'conv-1',
-      toolName: 'bash',
+      conversationId: "conv-1",
+      toolName: "bash",
     });
 
-    expect('bridged' in result && result.bridged).toBe(true);
+    expect("bridged" in result && result.bridged).toBe(true);
     expect(emittedSignals).toHaveLength(1);
-    expect(emittedSignals[0].sourceEventName).toBe('guardian.question');
-    expect(emittedSignals[0].sourceChannel).toBe('telegram');
-    expect(emittedSignals[0].sourceSessionId).toBe('conv-1');
+    expect(emittedSignals[0].sourceEventName).toBe("guardian.question");
+    expect(emittedSignals[0].sourceChannel).toBe("telegram");
+    expect(emittedSignals[0].sourceSessionId).toBe("conv-1");
 
     const payload = emittedSignals[0].contextPayload as Record<string, unknown>;
     expect(payload.requestId).toBe(canonicalRequest.id);
     expect(payload.requestCode).toBe(canonicalRequest.requestCode);
-    expect(payload.toolName).toBe('bash');
-    expect(payload.requesterExternalUserId).toBe('requester-1');
-    expect(payload.requesterIdentifier).toBe('@requester');
+    expect(payload.toolName).toBe("bash");
+    expect(payload.requesterExternalUserId).toBe("requester-1");
+    expect(payload.requesterIdentifier).toBe("@requester");
   });
 
-  test('skips guardian actor sessions (self-approve)', () => {
+  test("skips guardian actor sessions (self-approve)", () => {
     const canonicalRequest = makeCanonicalRequest();
     const guardianContext: GuardianRuntimeContext = {
-      sourceChannel: 'telegram',
-      trustClass: 'guardian',
-      guardianExternalUserId: 'guardian-1',
+      sourceChannel: "telegram",
+      trustClass: "guardian",
+      guardianExternalUserId: "guardian-1",
     };
 
     const result = bridgeConfirmationRequestToGuardian({
       canonicalRequest,
       guardianContext,
-      conversationId: 'conv-1',
-      toolName: 'bash',
+      conversationId: "conv-1",
+      toolName: "bash",
     });
 
-    expect('skipped' in result && result.skipped).toBe(true);
-    if ('skipped' in result) {
-      expect(result.reason).toBe('not_trusted_contact');
+    expect("skipped" in result && result.skipped).toBe(true);
+    if ("skipped" in result) {
+      expect(result.reason).toBe("not_trusted_contact");
     }
     expect(emittedSignals).toHaveLength(0);
   });
 
-  test('skips unknown actor sessions', () => {
+  test("skips unknown actor sessions", () => {
     const canonicalRequest = makeCanonicalRequest();
     const guardianContext: GuardianRuntimeContext = {
-      sourceChannel: 'telegram',
-      trustClass: 'unknown',
+      sourceChannel: "telegram",
+      trustClass: "unknown",
     };
 
     const result = bridgeConfirmationRequestToGuardian({
       canonicalRequest,
       guardianContext,
-      conversationId: 'conv-1',
-      toolName: 'bash',
+      conversationId: "conv-1",
+      toolName: "bash",
     });
 
-    expect('skipped' in result && result.skipped).toBe(true);
-    if ('skipped' in result) {
-      expect(result.reason).toBe('not_trusted_contact');
+    expect("skipped" in result && result.skipped).toBe(true);
+    if ("skipped" in result) {
+      expect(result.reason).toBe("not_trusted_contact");
     }
     expect(emittedSignals).toHaveLength(0);
   });
 
-  test('skips when guardian identity is missing', () => {
+  test("skips when guardian identity is missing", () => {
     const canonicalRequest = makeCanonicalRequest();
     const guardianContext = makeTrustedContactContext({
       guardianExternalUserId: undefined,
@@ -228,105 +241,107 @@ describe('bridgeConfirmationRequestToGuardian', () => {
     const result = bridgeConfirmationRequestToGuardian({
       canonicalRequest,
       guardianContext,
-      conversationId: 'conv-1',
-      toolName: 'bash',
+      conversationId: "conv-1",
+      toolName: "bash",
     });
 
-    expect('skipped' in result && result.skipped).toBe(true);
-    if ('skipped' in result) {
-      expect(result.reason).toBe('missing_guardian_identity');
+    expect("skipped" in result && result.skipped).toBe(true);
+    if ("skipped" in result) {
+      expect(result.reason).toBe("missing_guardian_identity");
     }
     expect(emittedSignals).toHaveLength(0);
   });
 
-  test('skips when no guardian binding exists for channel', () => {
-    const canonicalRequest = makeCanonicalRequest({ sourceChannel: 'sms' });
+  test("skips when no guardian binding exists for channel", () => {
+    const canonicalRequest = makeCanonicalRequest({ sourceChannel: "sms" });
     const guardianContext = makeTrustedContactContext({
-      sourceChannel: 'sms',
+      sourceChannel: "sms",
     });
 
     const result = bridgeConfirmationRequestToGuardian({
       canonicalRequest,
       guardianContext,
-      conversationId: 'conv-1',
-      toolName: 'bash',
+      conversationId: "conv-1",
+      toolName: "bash",
     });
 
-    expect('skipped' in result && result.skipped).toBe(true);
-    if ('skipped' in result) {
-      expect(result.reason).toBe('no_guardian_binding');
+    expect("skipped" in result && result.skipped).toBe(true);
+    if ("skipped" in result) {
+      expect(result.reason).toBe("no_guardian_binding");
     }
     expect(emittedSignals).toHaveLength(0);
   });
 
-  test('sets correct attention hints for urgency', () => {
+  test("sets correct attention hints for urgency", () => {
     const canonicalRequest = makeCanonicalRequest();
     const guardianContext = makeTrustedContactContext();
 
     bridgeConfirmationRequestToGuardian({
       canonicalRequest,
       guardianContext,
-      conversationId: 'conv-1',
-      toolName: 'bash',
+      conversationId: "conv-1",
+      toolName: "bash",
     });
 
     const hints = emittedSignals[0].attentionHints as Record<string, unknown>;
     expect(hints.requiresAction).toBe(true);
-    expect(hints.urgency).toBe('high');
+    expect(hints.urgency).toBe("high");
     expect(hints.isAsyncBackground).toBe(false);
     expect(hints.visibleInSourceNow).toBe(false);
   });
 
-  test('uses dedupe key scoped to canonical request ID', () => {
+  test("uses dedupe key scoped to canonical request ID", () => {
     const canonicalRequest = makeCanonicalRequest();
     const guardianContext = makeTrustedContactContext();
 
     bridgeConfirmationRequestToGuardian({
       canonicalRequest,
       guardianContext,
-      conversationId: 'conv-1',
-      toolName: 'bash',
+      conversationId: "conv-1",
+      toolName: "bash",
     });
 
-    expect(emittedSignals[0].dedupeKey).toBe(`tc-confirmation-request:${canonicalRequest.id}`);
+    expect(emittedSignals[0].dedupeKey).toBe(
+      `tc-confirmation-request:${canonicalRequest.id}`,
+    );
   });
 
-  test('creates vellum delivery row via onThreadCreated callback', () => {
+  test("creates vellum delivery row via onThreadCreated callback", () => {
     const canonicalRequest = makeCanonicalRequest();
     const guardianContext = makeTrustedContactContext();
 
     bridgeConfirmationRequestToGuardian({
       canonicalRequest,
       guardianContext,
-      conversationId: 'conv-1',
-      toolName: 'bash',
+      conversationId: "conv-1",
+      toolName: "bash",
     });
 
     expect(mockOnThreadCreatedCallbacks).toHaveLength(1);
 
     // Simulate the broadcaster invoking onThreadCreated
     mockOnThreadCreatedCallbacks[0]({
-      conversationId: 'guardian-thread-1',
-      title: 'Guardian question',
-      sourceEventName: 'guardian.question',
+      conversationId: "guardian-thread-1",
+      title: "Guardian question",
+      sourceEventName: "guardian.question",
     });
 
     const deliveries = listCanonicalGuardianDeliveries(canonicalRequest.id);
     expect(deliveries).toHaveLength(1);
-    expect(deliveries[0].destinationChannel).toBe('vellum');
-    expect(deliveries[0].destinationConversationId).toBe('guardian-thread-1');
+    expect(deliveries[0].destinationChannel).toBe("vellum");
+    expect(deliveries[0].destinationConversationId).toBe("guardian-thread-1");
   });
 
-  test('uses custom assistantId when provided', () => {
+  test("uses custom assistantId when provided", () => {
     const canonicalRequest = makeCanonicalRequest();
     const guardianContext = makeTrustedContactContext();
 
     bridgeConfirmationRequestToGuardian({
       canonicalRequest,
       guardianContext,
-      conversationId: 'conv-1',
-      toolName: 'bash',
-      assistantId: 'custom-assistant',
+      conversationId: "conv-1",
+      toolName: "bash",
+      assistantId: "custom-assistant",
     });
 
     // The mock only returns a binding for 'self', so 'custom-assistant'
@@ -336,7 +351,7 @@ describe('bridgeConfirmationRequestToGuardian', () => {
     expect(emittedSignals).toHaveLength(0);
   });
 
-  test('passes assistantId to notification signal', () => {
+  test("passes assistantId to notification signal", () => {
     const canonicalRequest = makeCanonicalRequest();
     const guardianContext = makeTrustedContactContext();
 
@@ -344,14 +359,14 @@ describe('bridgeConfirmationRequestToGuardian', () => {
     bridgeConfirmationRequestToGuardian({
       canonicalRequest,
       guardianContext,
-      conversationId: 'conv-1',
-      toolName: 'bash',
+      conversationId: "conv-1",
+      toolName: "bash",
     });
 
-    expect(emittedSignals[0].assistantId).toBe('self');
+    expect(emittedSignals[0].assistantId).toBe("self");
   });
 
-  test('includes requesterChatId as null when not provided', () => {
+  test("includes requesterChatId as null when not provided", () => {
     const canonicalRequest = makeCanonicalRequest();
     const guardianContext = makeTrustedContactContext({
       requesterChatId: undefined,
@@ -360,37 +375,37 @@ describe('bridgeConfirmationRequestToGuardian', () => {
     bridgeConfirmationRequestToGuardian({
       canonicalRequest,
       guardianContext,
-      conversationId: 'conv-1',
-      toolName: 'bash',
+      conversationId: "conv-1",
+      toolName: "bash",
     });
 
     const payload = emittedSignals[0].contextPayload as Record<string, unknown>;
     expect(payload.requesterChatId).toBeNull();
   });
 
-  test('skips when binding guardian identity does not match canonical request guardian', () => {
+  test("skips when binding guardian identity does not match canonical request guardian", () => {
     // Create a canonical request where guardianExternalUserId differs from the
     // binding's guardianExternalUserId ('guardian-1' in the mock).
     const canonicalRequest = makeCanonicalRequest({
-      guardianExternalUserId: 'old-guardian-who-was-rebound',
+      guardianExternalUserId: "old-guardian-who-was-rebound",
     });
     const guardianContext = makeTrustedContactContext();
 
     const result = bridgeConfirmationRequestToGuardian({
       canonicalRequest,
       guardianContext,
-      conversationId: 'conv-1',
-      toolName: 'bash',
+      conversationId: "conv-1",
+      toolName: "bash",
     });
 
-    expect('skipped' in result && result.skipped).toBe(true);
-    if ('skipped' in result) {
-      expect(result.reason).toBe('binding_identity_mismatch');
+    expect("skipped" in result && result.skipped).toBe(true);
+    if ("skipped" in result) {
+      expect(result.reason).toBe("binding_identity_mismatch");
     }
     expect(emittedSignals).toHaveLength(0);
   });
 
-  test('does not skip when canonical request guardian identity is null', () => {
+  test("does not skip when canonical request guardian identity is null", () => {
     // When guardianExternalUserId is null on the canonical request (e.g. desktop
     // flow), the identity check should be skipped and the bridge should proceed.
     const canonicalRequest = makeCanonicalRequest({
@@ -401,11 +416,11 @@ describe('bridgeConfirmationRequestToGuardian', () => {
     const result = bridgeConfirmationRequestToGuardian({
       canonicalRequest,
       guardianContext,
-      conversationId: 'conv-1',
-      toolName: 'bash',
+      conversationId: "conv-1",
+      toolName: "bash",
     });
 
-    expect('bridged' in result && result.bridged).toBe(true);
+    expect("bridged" in result && result.bridged).toBe(true);
     expect(emittedSignals).toHaveLength(1);
   });
 });

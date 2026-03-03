@@ -6,6 +6,71 @@ function extractHeader(headers: Array<{ name: string; value: string }> | undefin
   return headers?.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value ?? '';
 }
 
+/**
+ * RFC 5322-aware address list parser. Splits a header value like
+ * `"Doe, Jane" <jane@example.com>, bob@example.com` into individual
+ * addresses without breaking on commas inside quoted display names.
+ */
+function parseAddressList(header: string): string[] {
+  const addresses: string[] = [];
+  let current = '';
+  let inQuotes = false;
+  let inAngle = false;
+
+  for (let i = 0; i < header.length; i++) {
+    const ch = header[i];
+
+    if (ch === '"' && !inAngle) {
+      inQuotes = !inQuotes;
+      current += ch;
+    } else if (ch === '<' && !inQuotes) {
+      inAngle = true;
+      current += ch;
+    } else if (ch === '>' && !inQuotes) {
+      inAngle = false;
+      current += ch;
+    } else if (ch === ',' && !inQuotes && !inAngle) {
+      const trimmed = current.trim();
+      if (trimmed) addresses.push(trimmed);
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+
+  const trimmed = current.trim();
+  if (trimmed) addresses.push(trimmed);
+
+  return addresses;
+}
+
+/**
+ * Extracts the bare email from an address that may be in any of these forms:
+ *   - `user@example.com`
+ *   - `<user@example.com>`
+ *   - `"Display Name" <user@example.com>`
+ *   - `Display Name <user@example.com>`
+ *   - `"Team <Ops>" <user@example.com>`
+ *   - `user@example.com (team <ops>)`
+ *
+ * Extracts all angle-bracketed segments and picks the last one containing `@`,
+ * preferring the actual mailbox over display-name fragments like
+ * `"Acme <support@acme.com>" <owner@example.com>`. If no segment contains `@`,
+ * strips angle-bracketed portions and parenthetical comments, returning the
+ * remaining text. This handles display names with angle brackets and trailing
+ * RFC 5322 comments.
+ */
+function extractEmail(address: string): string {
+  // Strip parenthetical comments first to avoid matching addresses inside them
+  const cleaned = address.replace(/\(.*?\)/g, '');
+  const segments = [...cleaned.matchAll(/<([^>]+)>/g)].map((m) => m[1]);
+  if (segments.length > 0) {
+    const emailSegment = [...segments].reverse().find((s) => s.includes('@'));
+    if (emailSegment) return emailSegment.trim().toLowerCase();
+  }
+  return address.replace(/<[^>]+>/g, '').replace(/\(.*?\)/g, '').trim().toLowerCase();
+}
+
 export async function run(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
   const platform = input.platform as string | undefined;
   const conversationId = input.conversation_id as string;
@@ -61,15 +126,15 @@ export async function run(input: Record<string, unknown>, context: ToolContext):
         const ccAddrs = extractHeader(latestHeaders, 'Cc');
 
         if (fromAddr) allRecipients.add(fromAddr);
-        for (const addr of toAddrs.split(',').map((a) => a.trim()).filter(Boolean)) {
+        for (const addr of parseAddressList(toAddrs)) {
           allRecipients.add(addr);
         }
-        for (const addr of ccAddrs.split(',').map((a) => a.trim()).filter(Boolean)) {
+        for (const addr of parseAddressList(ccAddrs)) {
           allCc.add(addr);
         }
 
-        // Remove user's own email from recipients
-        const filterSelf = (addr: string) => !addr.toLowerCase().includes(userEmail);
+        // Remove user's own email from recipients using exact email comparison
+        const filterSelf = (addr: string) => extractEmail(addr) !== userEmail;
         const toList = [...allRecipients].filter(filterSelf);
         const ccList = [...allCc].filter(filterSelf);
 

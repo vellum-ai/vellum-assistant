@@ -70,47 +70,49 @@ async function scanChannel(
       if (msg.user) participantIds.add(msg.user);
     }
 
-    const keyParticipants: string[] = [];
-    for (const uid of participantIds) {
-      keyParticipants.push(await resolveUserName(token, uid));
-    }
+    const keyParticipants = await Promise.all(
+      [...participantIds].map((uid) => resolveUserName(token, uid)),
+    );
 
     const threadMessages = messages
       .filter((m) => (m.reply_count ?? 0) > 0)
       .sort((a, b) => (b.reply_count ?? 0) - (a.reply_count ?? 0))
       .slice(0, 3);
 
-    const topThreads: ThreadSummary[] = [];
-    for (const msg of threadMessages) {
-      let participants: string[] = [];
+    const topThreads: ThreadSummary[] = await Promise.all(
+      threadMessages.map(async (msg) => {
+        let participants: string[] = [];
 
-      if (includeThreads) {
-        try {
-          const replies = await slack.conversationReplies(
-            token,
-            channelId,
-            msg.ts,
-            10,
-          );
-          const threadParticipantIds = new Set<string>();
-          for (const reply of replies.messages) {
-            if (reply.user) threadParticipantIds.add(reply.user);
+        if (includeThreads) {
+          try {
+            const replies = await slack.conversationReplies(
+              token,
+              channelId,
+              msg.ts,
+              10,
+            );
+            const threadParticipantIds = new Set<string>();
+            for (const reply of replies.messages) {
+              if (reply.user) threadParticipantIds.add(reply.user);
+            }
+            participants = await Promise.all(
+              [...threadParticipantIds].map((uid) =>
+                resolveUserName(token, uid),
+              ),
+            );
+          } catch {
+            participants = [await resolveUserName(token, msg.user ?? "")];
           }
-          for (const uid of threadParticipantIds) {
-            participants.push(await resolveUserName(token, uid));
-          }
-        } catch {
-          participants = [await resolveUserName(token, msg.user ?? "")];
         }
-      }
 
-      topThreads.push({
-        threadTs: msg.ts,
-        previewText: truncate(msg.text, 150),
-        replyCount: msg.reply_count ?? 0,
-        participants,
-      });
-    }
+        return {
+          threadTs: msg.ts,
+          previewText: truncate(msg.text, 150),
+          replyCount: msg.reply_count ?? 0,
+          participants,
+        };
+      }),
+    );
 
     return {
       channelId,

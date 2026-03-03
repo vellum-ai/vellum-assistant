@@ -49,9 +49,8 @@ The user's assistant gets its own personal phone number through Twilio. All impl
 Check whether Twilio credentials, phone number, and public ingress are already configured:
 
 ```bash
-TOKEN=$(cat ~/.vellum/http-token)
 curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/config" \
-  -H "Authorization: Bearer $TOKEN"
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN"
 ```
 
 ```bash

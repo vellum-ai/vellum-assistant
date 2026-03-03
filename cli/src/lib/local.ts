@@ -1,5 +1,11 @@
 import { execFileSync, spawn } from "child_process";
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from "fs";
 import { createRequire } from "module";
 import { createConnection } from "net";
 import { homedir, hostname, networkInterfaces, platform } from "os";
@@ -12,10 +18,10 @@ import { openLogFile, closeLogFile } from "./xdg-log.js";
 
 const _require = createRequire(import.meta.url);
 
-
 function isAssistantSourceDir(dir: string): boolean {
   const pkgPath = join(dir, "package.json");
-  if (!existsSync(pkgPath) || !existsSync(join(dir, "src", "index.ts"))) return false;
+  if (!existsSync(pkgPath) || !existsSync(join(dir, "src", "index.ts")))
+    return false;
   try {
     const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
     return pkg.name === "@vellumai/assistant";
@@ -44,7 +50,8 @@ function findAssistantSourceFrom(startDir: string): string | undefined {
 
 function isGatewaySourceDir(dir: string): boolean {
   const pkgPath = join(dir, "package.json");
-  if (!existsSync(pkgPath) || !existsSync(join(dir, "src", "index.ts"))) return false;
+  if (!existsSync(pkgPath) || !existsSync(join(dir, "src", "index.ts")))
+    return false;
   try {
     const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
     return pkg.name === "@vellumai/vellum-gateway";
@@ -73,13 +80,30 @@ function findGatewaySourceFromCwd(): string | undefined {
 
 function resolveAssistantIndexPath(): string | undefined {
   // Source tree layout: cli/src/lib/ -> ../../.. -> repo root -> assistant/src/index.ts
-  const sourceTreeIndex = join(import.meta.dir, "..", "..", "..", "assistant", "src", "index.ts");
+  const sourceTreeIndex = join(
+    import.meta.dir,
+    "..",
+    "..",
+    "..",
+    "assistant",
+    "src",
+    "index.ts",
+  );
   if (existsSync(sourceTreeIndex)) {
     return sourceTreeIndex;
   }
 
   // bunx layout: @vellumai/cli/src/lib/ -> ../../../.. -> node_modules/vellum/src/index.ts
-  const bunxIndex = join(import.meta.dir, "..", "..", "..", "..", "vellum", "src", "index.ts");
+  const bunxIndex = join(
+    import.meta.dir,
+    "..",
+    "..",
+    "..",
+    "..",
+    "vellum",
+    "src",
+    "index.ts",
+  );
   if (existsSync(bunxIndex)) {
     return bunxIndex;
   }
@@ -107,7 +131,10 @@ function resolveAssistantIndexPath(): string | undefined {
   return undefined;
 }
 
-async function waitForSocketFile(socketPath: string, timeoutMs = 60000): Promise<boolean> {
+async function waitForSocketFile(
+  socketPath: string,
+  timeoutMs = 60000,
+): Promise<boolean> {
   if (existsSync(socketPath)) return true;
 
   const start = Date.now();
@@ -132,7 +159,8 @@ async function startDaemonFromSource(assistantIndex: string): Promise<void> {
   };
   // Preserve TCP listener flag when falling back from bundled desktop daemon
   if (process.env.VELLUM_DESKTOP_APP) {
-    env.VELLUM_DAEMON_TCP_ENABLED = process.env.VELLUM_DAEMON_TCP_ENABLED || "1";
+    env.VELLUM_DAEMON_TCP_ENABLED =
+      process.env.VELLUM_DAEMON_TCP_ENABLED || "1";
   }
 
   const child = spawn("bun", ["run", assistantIndex, "daemon", "start"], {
@@ -236,10 +264,18 @@ function normalizeIngressUrl(value: unknown): string | undefined {
 }
 
 function readWorkspaceIngressPublicBaseUrl(): string | undefined {
-  const baseDataDir = process.env.BASE_DATA_DIR?.trim() || (process.env.HOME ?? homedir());
-  const workspaceConfigPath = join(baseDataDir, ".vellum", "workspace", "config.json");
+  const baseDataDir =
+    process.env.BASE_DATA_DIR?.trim() || (process.env.HOME ?? homedir());
+  const workspaceConfigPath = join(
+    baseDataDir,
+    ".vellum",
+    "workspace",
+    "config.json",
+  );
   try {
-    const raw = JSON.parse(readFileSync(workspaceConfigPath, "utf-8")) as Record<string, unknown>;
+    const raw = JSON.parse(
+      readFileSync(workspaceConfigPath, "utf-8"),
+    ) as Record<string, unknown>;
     const ingress = raw.ingress as Record<string, unknown> | undefined;
     return normalizeIngressUrl(ingress?.publicBaseUrl);
   } catch {
@@ -251,11 +287,15 @@ function readWorkspaceIngressPublicBaseUrl(): string | undefined {
  *  Returns the PID if found, undefined otherwise. */
 function findSocketOwnerPid(socketPath: string): number | undefined {
   try {
-    const output = execFileSync("lsof", ["-U", "-a", "-F", "p", "--", socketPath], {
-      encoding: "utf-8",
-      timeout: 3000,
-      stdio: ["ignore", "pipe", "ignore"],
-    });
+    const output = execFileSync(
+      "lsof",
+      ["-U", "-a", "-F", "p", "--", socketPath],
+      {
+        encoding: "utf-8",
+        timeout: 3000,
+        stdio: ["ignore", "pipe", "ignore"],
+      },
+    );
     // lsof -F p outputs lines like "p1234" — extract the first PID
     const match = output.match(/^p(\d+)/m);
     if (match) {
@@ -271,7 +311,10 @@ function findSocketOwnerPid(socketPath: string): number | undefined {
 /** Try a TCP connect to the Unix socket. Returns true if the handshake
  *  completes within the timeout — false on connection refused, timeout,
  *  or missing socket file. */
-function isSocketResponsive(socketPath: string, timeoutMs = 1500): Promise<boolean> {
+function isSocketResponsive(
+  socketPath: string,
+  timeoutMs = 1500,
+): Promise<boolean> {
   if (!existsSync(socketPath)) return Promise.resolve(false);
   return new Promise((resolve) => {
     const socket = createConnection(socketPath);
@@ -310,7 +353,10 @@ async function discoverPublicUrl(): Promise<string | undefined> {
         // Use IMDSv2 (token-based) for compatibility with HttpTokens=required
         const tokenResp = await fetch(
           "http://169.254.169.254/latest/api/token",
-          { method: "PUT", headers: { "X-aws-ec2-metadata-token-ttl-seconds": "30" } },
+          {
+            method: "PUT",
+            headers: { "X-aws-ec2-metadata-token-ttl-seconds": "30" },
+          },
         );
         if (tokenResp.ok) {
           const token = await tokenResp.text();
@@ -387,7 +433,11 @@ function getLocalLanIPv4(): string | undefined {
     const addrs = ifaces[ifName];
     if (!addrs) continue;
     for (const addr of addrs) {
-      if (addr.family === "IPv4" && !addr.internal && !addr.address.startsWith("169.254.")) {
+      if (
+        addr.family === "IPv4" &&
+        !addr.internal &&
+        !addr.address.startsWith("169.254.")
+      ) {
         return addr.address;
       }
     }
@@ -397,7 +447,11 @@ function getLocalLanIPv4(): string | undefined {
   for (const [, addrs] of Object.entries(ifaces)) {
     if (!addrs) continue;
     for (const addr of addrs) {
-      if (addr.family === "IPv4" && !addr.internal && !addr.address.startsWith("169.254.")) {
+      if (
+        addr.family === "IPv4" &&
+        !addr.internal &&
+        !addr.address.startsWith("169.254.")
+      ) {
         return addr.address;
       }
     }
@@ -438,7 +492,9 @@ export async function startLocalDaemon(watch: boolean = false): Promise<void> {
             console.log(`   Daemon already running (pid ${pid})\n`);
           } catch {
             // Process doesn't exist, clean up stale PID file
-            try { unlinkSync(pidFile); } catch {}
+            try {
+              unlinkSync(pidFile);
+            } catch {}
           }
         }
       } catch {}
@@ -454,7 +510,9 @@ export async function startLocalDaemon(watch: boolean = false): Promise<void> {
         const ownerPid = findSocketOwnerPid(socketFile);
         if (ownerPid) {
           writeFileSync(pidFile, String(ownerPid), "utf-8");
-          console.log(`   Daemon socket is responsive (pid ${ownerPid}) — skipping restart\n`);
+          console.log(
+            `   Daemon socket is responsive (pid ${ownerPid}) — skipping restart\n`,
+          );
         } else {
           console.log("   Daemon socket is responsive — skipping restart\n");
         }
@@ -462,7 +520,9 @@ export async function startLocalDaemon(watch: boolean = false): Promise<void> {
       }
 
       // Socket is unresponsive or missing — safe to clean up and start fresh.
-      try { unlinkSync(socketFile); } catch {}
+      try {
+        unlinkSync(socketFile);
+      } catch {}
 
       console.log("🔨 Starting daemon...");
 
@@ -475,7 +535,8 @@ export async function startLocalDaemon(watch: boolean = false): Promise<void> {
       // the daemon to take 50+ seconds to start instead of ~1s.
       const daemonEnv: Record<string, string> = {
         HOME: process.env.HOME || homedir(),
-        PATH: process.env.PATH || "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        PATH:
+          process.env.PATH || "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
         VELLUM_DAEMON_TCP_ENABLED: "1",
       };
       // Forward optional config env vars the daemon may need
@@ -528,7 +589,9 @@ export async function startLocalDaemon(watch: boolean = false): Promise<void> {
     if (!socketReady) {
       const assistantIndex = resolveAssistantIndexPath();
       if (assistantIndex) {
-        console.log("   Bundled daemon socket not ready after 60s — falling back to source daemon...");
+        console.log(
+          "   Bundled daemon socket not ready after 60s — falling back to source daemon...",
+        );
         // Kill the bundled daemon to avoid two processes competing for the same socket/port
         await stopProcessByPidFile(pidFile, "bundled daemon", [socketFile]);
         if (watch) {
@@ -543,7 +606,9 @@ export async function startLocalDaemon(watch: boolean = false): Promise<void> {
     if (socketReady) {
       console.log("   Daemon socket ready\n");
     } else {
-      console.log("   ⚠️  Daemon socket did not appear within 60s — continuing anyway\n");
+      console.log(
+        "   ⚠️  Daemon socket did not appear within 60s — continuing anyway\n",
+      );
     }
   } else {
     console.log("🔨 Starting local daemon...");
@@ -583,15 +648,20 @@ export async function startGateway(assistantId?: string, watch: boolean = false)
   // Resolve the default assistant ID for the gateway. Prefer the explicitly
   // provided assistantId (from hatch), then env override, then lockfile.
   const resolvedAssistantId =
-    assistantId
-    || process.env.GATEWAY_DEFAULT_ASSISTANT_ID
-    || loadLatestAssistant()?.assistantId;
+    assistantId ||
+    process.env.GATEWAY_DEFAULT_ASSISTANT_ID ||
+    loadLatestAssistant()?.assistantId;
 
   // Read the bearer token so the gateway can authenticate proxied requests
   // (e.g. from paired iOS devices). Respect VELLUM_HTTP_TOKEN_PATH and
   // BASE_DATA_DIR for consistency with gateway/config.ts and the daemon.
-  const httpTokenPath = process.env.VELLUM_HTTP_TOKEN_PATH
-    ?? join(process.env.BASE_DATA_DIR?.trim() || homedir(), ".vellum", "http-token");
+  const httpTokenPath =
+    process.env.VELLUM_HTTP_TOKEN_PATH ??
+    join(
+      process.env.BASE_DATA_DIR?.trim() || homedir(),
+      ".vellum",
+      "http-token",
+    );
   let runtimeProxyBearerToken: string | undefined;
   try {
     const tok = readFileSync(httpTokenPath, "utf-8").trim();
@@ -610,7 +680,11 @@ export async function startGateway(assistantId?: string, watch: boolean = false)
     const maxWait = 60000;
     const pollInterval = 500;
     const start = Date.now();
-    const pidFile = join(process.env.BASE_DATA_DIR?.trim() || homedir(), ".vellum", "vellum.pid");
+    const pidFile = join(
+      process.env.BASE_DATA_DIR?.trim() || homedir(),
+      ".vellum",
+      "vellum.pid",
+    );
     while (Date.now() - start < maxWait) {
       await new Promise((r) => setTimeout(r, pollInterval));
       try {
@@ -641,7 +715,7 @@ export async function startGateway(assistantId?: string, watch: boolean = false)
   }
 
   const gatewayEnv: Record<string, string> = {
-    ...process.env as Record<string, string>,
+    ...(process.env as Record<string, string>),
     GATEWAY_RUNTIME_PROXY_ENABLED: "true",
     GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH: "true",
     RUNTIME_PROXY_BEARER_TOKEN: runtimeProxyBearerToken,
@@ -659,9 +733,9 @@ export async function startGateway(assistantId?: string, watch: boolean = false)
   }
   const workspaceIngressPublicBaseUrl = readWorkspaceIngressPublicBaseUrl();
   const ingressPublicBaseUrl =
-    workspaceIngressPublicBaseUrl
-    ?? normalizeIngressUrl(process.env.INGRESS_PUBLIC_BASE_URL)
-    ?? publicUrl;
+    workspaceIngressPublicBaseUrl ??
+    normalizeIngressUrl(process.env.INGRESS_PUBLIC_BASE_URL) ??
+    publicUrl;
   if (ingressPublicBaseUrl) {
     gatewayEnv.INGRESS_PUBLIC_BASE_URL = ingressPublicBaseUrl;
     console.log(`   Ingress URL: ${ingressPublicBaseUrl}`);
@@ -695,8 +769,8 @@ export async function startGateway(assistantId?: string, watch: boolean = false)
     // Source tree / bunx: resolve the gateway source directory and run via bun.
     const gatewayDir = resolveGatewayDir();
     const bunArgs = watch
-      ? ["--watch", "run", "src/index.ts"]
-      : ["run", "src/index.ts"];
+      ? ["--watch", "run", "src/index.ts", "--vellum-gateway"]
+      : ["run", "src/index.ts", "--vellum-gateway"];
     const gwLogFd = openLogFile("gateway.log");
     try {
       gateway = spawn("bun", bunArgs, {
@@ -744,7 +818,9 @@ export async function startGateway(assistantId?: string, watch: boolean = false)
   }
 
   if (!ready) {
-    console.warn("⚠ Gateway started but health check did not respond within 30s");
+    console.warn(
+      "⚠ Gateway started but health check did not respond within 30s",
+    );
   }
 
   console.log("✅ Gateway started\n");

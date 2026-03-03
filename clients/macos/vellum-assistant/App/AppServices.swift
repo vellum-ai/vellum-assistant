@@ -29,10 +29,11 @@ public final class AppServices {
         self.daemonClient = DaemonClient()
     }
 
-    /// Reconfigure the daemon client with a new config (e.g., for HTTP transport).
-    /// This replaces the daemon client instance. Must be called before any callbacks
-    /// are wired or connections are established.
+    /// Reconfigure the daemon client's transport in place (e.g., for HTTP transport).
+    /// This preserves the DaemonClient object identity so long-lived holders
+    /// (ThreadManager, ChatViewModel, RecordingManager, SettingsStore) continue
+    /// to reference the same instance after an assistant switch.
     func reconfigureDaemonClient(config: DaemonConfig) {
-        daemonClient = DaemonClient(config: config)
+        daemonClient.reconfigure(config: config)
     }
 }

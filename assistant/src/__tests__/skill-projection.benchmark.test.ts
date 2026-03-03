@@ -9,22 +9,22 @@
  * - Cold projection (1000 msgs / 5 skills): < 100ms
  * - Incremental scan (10 new msgs):         < 20ms
  */
-import { describe, expect, mock,test } from 'bun:test';
+import { describe, expect, mock, test } from "bun:test";
 
-import type { Message } from '../providers/types.js';
+import type { Message } from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
 // Mocks — must be registered before importing the module under test
 // ---------------------------------------------------------------------------
 
-mock.module('../util/logger.js', () => ({
+mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
 }));
 
 // Mock config loader and feature flags to avoid filesystem reads on CI.
 // getConfig returns a minimal config; all feature flags default to enabled.
-mock.module('../config/loader.js', () => ({
+mock.module("../config/loader.js", () => ({
   getConfig: () => ({}),
   loadConfig: () => ({}),
   applyNestedDefaults: (c: unknown) => c,
@@ -37,7 +37,7 @@ mock.module('../config/loader.js', () => ({
   API_KEY_PROVIDERS: [],
 }));
 
-mock.module('../config/assistant-feature-flags.js', () => ({
+mock.module("../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: () => true,
   loadDefaultsRegistry: () => ({}),
   getFeatureFlagDefault: () => true,
@@ -45,7 +45,7 @@ mock.module('../config/assistant-feature-flags.js', () => ({
 
 // Skill catalog: returns a configurable list of fake skills
 let catalogSkillIds: string[] = [];
-mock.module('../config/skills.js', () => ({
+mock.module("../config/skills.js", () => ({
   loadSkillCatalog: () =>
     catalogSkillIds.map((id) => ({
       id,
@@ -58,8 +58,8 @@ mock.module('../config/skills.js', () => ({
     })),
   // Needed by transitive deps (skill-state.ts imports this)
   checkSkillRequirements: () => ({ eligible: true, missing: {} }),
-  getSkillsDir: () => '/tmp/fake-skills',
-  getBundledSkillsDir: () => '/tmp/fake-bundled-skills',
+  getSkillsDir: () => "/tmp/fake-skills",
+  getBundledSkillsDir: () => "/tmp/fake-bundled-skills",
   resolveSkillSelector: () => ({ found: false }),
   loadSkillBySelector: () => ({ found: false }),
   readCachedSkillIcon: () => undefined,
@@ -67,16 +67,16 @@ mock.module('../config/skills.js', () => ({
 
 // Mock skill-state.js to break the transitive import chain — the benchmark
 // only needs skillFlagKey and doesn't exercise resolveSkillStates.
-mock.module('../config/skill-state.js', () => ({
+mock.module("../config/skill-state.js", () => ({
   skillFlagKey: (id: string) => `feature_flags.${id}.enabled`,
   isSkillFeatureEnabled: () => true,
   resolveSkillStates: () => [],
 }));
 
-mock.module('../skills/tool-manifest.js', () => ({
+mock.module("../skills/tool-manifest.js", () => ({
   parseToolManifestFile: (path: string) => {
     // Extract skill id from the path /tmp/fake-skills/<id>/TOOLS.json
-    const parts = path.split('/');
+    const parts = path.split("/");
     const skillId = parts[parts.length - 2];
     return {
       version: 1,
@@ -84,24 +84,24 @@ mock.module('../skills/tool-manifest.js', () => ({
         {
           name: `${skillId}_tool_a`,
           description: `Tool A for ${skillId}`,
-          input_schema: { type: 'object', properties: {} },
+          input_schema: { type: "object", properties: {} },
         },
         {
           name: `${skillId}_tool_b`,
           description: `Tool B for ${skillId}`,
-          input_schema: { type: 'object', properties: {} },
+          input_schema: { type: "object", properties: {} },
         },
       ],
     };
   },
 }));
 
-mock.module('../skills/version-hash.js', () => ({
-  computeSkillVersionHash: () => 'v1:deadbeef',
+mock.module("../skills/version-hash.js", () => ({
+  computeSkillVersionHash: () => "v1:deadbeef",
 }));
 
 // Mock createSkillToolsFromManifest to return lightweight Tool-like objects
-mock.module('../tools/skills/skill-tool-factory.js', () => ({
+mock.module("../tools/skills/skill-tool-factory.js", () => ({
   createSkillToolsFromManifest: (
     entries: Array<{ name: string; description: string; input_schema: object }>,
     skillId: string,
@@ -112,9 +112,9 @@ mock.module('../tools/skills/skill-tool-factory.js', () => ({
     entries.map((e) => ({
       name: e.name,
       description: e.description,
-      category: 'skill',
-      defaultRiskLevel: 'low',
-      origin: 'skill' as const,
+      category: "skill",
+      defaultRiskLevel: "low",
+      origin: "skill" as const,
       ownerSkillId: skillId,
       ownerSkillVersionHash: versionHash,
       ownerSkillBundled: bundled,
@@ -123,24 +123,28 @@ mock.module('../tools/skills/skill-tool-factory.js', () => ({
         description: e.description,
         input_schema: e.input_schema,
       }),
-      execute: async () => ({ content: '', isError: false }),
+      execute: async () => ({ content: "", isError: false }),
     })),
 }));
 
 // node:fs mock — TOOLS.json always exists for fake skills.
 // Must include ALL named exports that any transitive dep imports, otherwise
 // Bun's module resolver throws "Export named '…' not found".
-const statStub = () => ({ isSymbolicLink: () => false, isDirectory: () => false, isFile: () => true });
-mock.module('node:fs', () => ({
-  existsSync: (p: string) => typeof p === 'string' && p.endsWith('TOOLS.json'),
-  readFileSync: () => '',
+const statStub = () => ({
+  isSymbolicLink: () => false,
+  isDirectory: () => false,
+  isFile: () => true,
+});
+mock.module("node:fs", () => ({
+  existsSync: (p: string) => typeof p === "string" && p.endsWith("TOOLS.json"),
+  readFileSync: () => "",
   lstatSync: statStub,
   readdirSync: () => [],
   realpathSync: (p: string) => p,
   statSync: statStub,
   statfsSync: statStub,
   mkdirSync: () => undefined,
-  mkdtempSync: () => '/tmp/mock',
+  mkdtempSync: () => "/tmp/mock",
   renameSync: () => undefined,
   rmSync: () => undefined,
   unlinkSync: () => undefined,
@@ -161,14 +165,17 @@ mock.module('node:fs', () => ({
 }));
 
 const benchmarkRegistry = new Map<string, unknown>();
-mock.module('../tools/registry.js', () => ({
-  registerSkillTools: (tools: Array<{ name: string; [k: string]: unknown }>) => {
+mock.module("../tools/registry.js", () => ({
+  registerSkillTools: (
+    tools: Array<{ name: string; [k: string]: unknown }>,
+  ) => {
     for (const t of tools) benchmarkRegistry.set(t.name, t);
     return tools;
   },
   unregisterSkillTools: (skillId: string) => {
     for (const [name, t] of benchmarkRegistry) {
-      if ((t as { ownerSkillId?: string }).ownerSkillId === skillId) benchmarkRegistry.delete(name);
+      if ((t as { ownerSkillId?: string }).ownerSkillId === skillId)
+        benchmarkRegistry.delete(name);
     }
   },
   getTool: (name: string) => benchmarkRegistry.get(name),
@@ -178,8 +185,9 @@ mock.module('../tools/registry.js', () => ({
 // Import module under test (after mocks)
 // ---------------------------------------------------------------------------
 
-const { projectSkillTools } = await import('../daemon/session-skill-tools.js');
-type SkillProjectionCache = import('../daemon/session-skill-tools.js').SkillProjectionCache;
+const { projectSkillTools } = await import("../daemon/session-skill-tools.js");
+type SkillProjectionCache =
+  import("../daemon/session-skill-tools.js").SkillProjectionCache;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -193,20 +201,23 @@ type SkillProjectionCache = import('../daemon/session-skill-tools.js').SkillProj
  */
 function buildHistory(messageCount: number, skillIds: string[]): Message[] {
   const msgs: Message[] = [];
-  const activationInterval = Math.max(1, Math.floor(messageCount / skillIds.length));
+  const activationInterval = Math.max(
+    1,
+    Math.floor(messageCount / skillIds.length),
+  );
 
   for (let i = 0; i < messageCount; i++) {
     // Every other message is user/assistant
     if (i % 2 === 0) {
       msgs.push({
-        role: 'user',
+        role: "user",
         content: [
-          { type: 'text', text: `User message ${i} about project tasks.` },
+          { type: "text", text: `User message ${i} about project tasks.` },
         ],
       });
     } else {
-      const blocks: Message['content'] = [
-        { type: 'text', text: `Assistant response ${i} with analysis.` },
+      const blocks: Message["content"] = [
+        { type: "text", text: `Assistant response ${i} with analysis.` },
       ];
 
       // Inject a skill_load tool_use at the activation point
@@ -215,27 +226,27 @@ function buildHistory(messageCount: number, skillIds: string[]): Message[] {
         const skillId = skillIds[skillIndex];
         const toolUseId = `tu-${skillId}-${i}`;
         blocks.push({
-          type: 'tool_use',
+          type: "tool_use",
           id: toolUseId,
-          name: 'skill_load',
+          name: "skill_load",
           input: { skill_id: skillId },
         });
       }
 
-      msgs.push({ role: 'assistant', content: blocks });
+      msgs.push({ role: "assistant", content: blocks });
     }
   }
 
   // Add matching tool_result messages for each skill_load tool_use
   for (const msg of [...msgs]) {
     for (const block of msg.content) {
-      if (block.type === 'tool_use' && block.name === 'skill_load') {
+      if (block.type === "tool_use" && block.name === "skill_load") {
         const skillId = (block.input as Record<string, string>).skill_id;
         msgs.push({
-          role: 'user',
+          role: "user",
           content: [
             {
-              type: 'tool_result',
+              type: "tool_result",
               tool_use_id: block.id,
               content: `<loaded_skill id="${skillId}" version="v1:deadbeef" />`,
             },
@@ -258,9 +269,9 @@ function timeMs(fn: () => void): number {
 // Benchmarks
 // ---------------------------------------------------------------------------
 
-describe('Skill projection benchmark', () => {
-  test('cold projection: 100 messages / 3 skills < 50ms', () => {
-    const skillIds = ['skill-alpha', 'skill-beta', 'skill-gamma'];
+describe("Skill projection benchmark", () => {
+  test("cold projection: 100 messages / 3 skills < 50ms", () => {
+    const skillIds = ["skill-alpha", "skill-beta", "skill-gamma"];
     catalogSkillIds = skillIds;
     const history = buildHistory(100, skillIds);
 
@@ -270,19 +281,24 @@ describe('Skill projection benchmark', () => {
       expect(result.allowedToolNames.size).toBeGreaterThan(0);
     });
 
-    console.log(`  Cold projection (100 msgs / 3 skills): ${elapsed.toFixed(2)}ms`);
+    console.log(
+      `  Cold projection (100 msgs / 3 skills): ${elapsed.toFixed(2)}ms`,
+    );
     expect(elapsed).toBeLessThan(50);
   });
 
-  test('cached projection (no change) < 10ms', () => {
-    const skillIds = ['skill-alpha', 'skill-beta', 'skill-gamma'];
+  test("cached projection (no change) < 10ms", () => {
+    const skillIds = ["skill-alpha", "skill-beta", "skill-gamma"];
     catalogSkillIds = skillIds;
     const history = buildHistory(100, skillIds);
     const cache: SkillProjectionCache = {};
     const prevActive = new Map<string, string>();
 
     // Warm the cache
-    const warmResult = projectSkillTools(history, { cache, previouslyActiveSkillIds: prevActive });
+    const warmResult = projectSkillTools(history, {
+      cache,
+      previouslyActiveSkillIds: prevActive,
+    });
 
     // Snapshot cache object references and cardinality after warm-up
     const derivedAfterWarm = cache.derived!;
@@ -313,7 +329,9 @@ describe('Skill projection benchmark', () => {
     expect(cache.derived!.seenIds.size).toBe(seenIdsSizeAfterWarm);
 
     // Assert tool definitions are identical between warm and cached calls
-    expect(cachedResult!.toolDefinitions.length).toBe(warmResult.toolDefinitions.length);
+    expect(cachedResult!.toolDefinitions.length).toBe(
+      warmResult.toolDefinitions.length,
+    );
     const warmNames = warmResult.toolDefinitions.map((t) => t.name).sort();
     const cachedNames = cachedResult!.toolDefinitions.map((t) => t.name).sort();
     expect(cachedNames).toEqual(warmNames);
@@ -322,15 +340,18 @@ describe('Skill projection benchmark', () => {
     expect(elapsed).toBeLessThan(10);
   });
 
-  test('cache hit rate is 100% when history unchanged', () => {
-    const skillIds = ['skill-alpha', 'skill-beta', 'skill-gamma'];
+  test("cache hit rate is 100% when history unchanged", () => {
+    const skillIds = ["skill-alpha", "skill-beta", "skill-gamma"];
     catalogSkillIds = skillIds;
     const history = buildHistory(100, skillIds);
     const cache: SkillProjectionCache = {};
     const prevActive = new Map<string, string>();
 
     // First call populates the cache
-    const firstResult = projectSkillTools(history, { cache, previouslyActiveSkillIds: prevActive });
+    const firstResult = projectSkillTools(history, {
+      cache,
+      previouslyActiveSkillIds: prevActive,
+    });
     expect(cache.derived).toBeDefined();
     const snapshotDerived = cache.derived!;
     const snapshotEntries = cache.derived!.entries;
@@ -340,7 +361,10 @@ describe('Skill projection benchmark', () => {
 
     // Run multiple subsequent calls with unchanged history
     for (let i = 0; i < 5; i++) {
-      const result = projectSkillTools(history, { cache, previouslyActiveSkillIds: prevActive });
+      const result = projectSkillTools(history, {
+        cache,
+        previouslyActiveSkillIds: prevActive,
+      });
 
       // Cache objects must be the same references (reused, not rebuilt)
       expect(cache.derived).toBe(snapshotDerived);
@@ -351,20 +375,22 @@ describe('Skill projection benchmark', () => {
       expect(cache.derived!.seenIds.size).toBe(snapshotSeenIdsSize);
 
       // Tool definitions must match the first call exactly
-      expect(result.toolDefinitions.length).toBe(firstResult.toolDefinitions.length);
+      expect(result.toolDefinitions.length).toBe(
+        firstResult.toolDefinitions.length,
+      );
       expect(result.toolDefinitions.map((t) => t.name).sort()).toEqual(
         firstResult.toolDefinitions.map((t) => t.name).sort(),
       );
     }
   });
 
-  test('cold projection: 1000 messages / 5 skills < 100ms', () => {
+  test("cold projection: 1000 messages / 5 skills < 100ms", () => {
     const skillIds = [
-      'skill-alpha',
-      'skill-beta',
-      'skill-gamma',
-      'skill-delta',
-      'skill-epsilon',
+      "skill-alpha",
+      "skill-beta",
+      "skill-gamma",
+      "skill-delta",
+      "skill-epsilon",
     ];
     catalogSkillIds = skillIds;
     const history = buildHistory(1000, skillIds);
@@ -375,12 +401,14 @@ describe('Skill projection benchmark', () => {
       expect(result.allowedToolNames.size).toBeGreaterThan(0);
     });
 
-    console.log(`  Cold projection (1000 msgs / 5 skills): ${elapsed.toFixed(2)}ms`);
+    console.log(
+      `  Cold projection (1000 msgs / 5 skills): ${elapsed.toFixed(2)}ms`,
+    );
     expect(elapsed).toBeLessThan(100);
   });
 
-  test('incremental scan (10 new messages appended) < 20ms', () => {
-    const skillIds = ['skill-alpha', 'skill-beta', 'skill-gamma'];
+  test("incremental scan (10 new messages appended) < 20ms", () => {
+    const skillIds = ["skill-alpha", "skill-beta", "skill-gamma"];
     catalogSkillIds = skillIds;
     const history = buildHistory(100, skillIds);
     const cache: SkillProjectionCache = {};
@@ -392,8 +420,8 @@ describe('Skill projection benchmark', () => {
     // Append 10 new plain messages (no new skill activations)
     for (let i = 0; i < 10; i++) {
       history.push({
-        role: i % 2 === 0 ? 'user' : 'assistant',
-        content: [{ type: 'text', text: `Follow-up message ${i}.` }],
+        role: i % 2 === 0 ? "user" : "assistant",
+        content: [{ type: "text", text: `Follow-up message ${i}.` }],
       });
     }
 

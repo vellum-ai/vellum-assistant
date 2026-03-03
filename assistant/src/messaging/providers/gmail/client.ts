@@ -13,12 +13,15 @@ import type {
   GmailModifyRequest,
   GmailProfile,
   GmailVacationSettings,
-} from './types.js';
+} from "./types.js";
 
-const GMAIL_API_BASE = 'https://gmail.googleapis.com/gmail/v1/users/me';
+const GMAIL_API_BASE = "https://gmail.googleapis.com/gmail/v1/users/me";
+const GMAIL_BATCH_URL = "https://www.googleapis.com/batch/gmail/v1";
 
-/** Max concurrent requests for batch operations */
-const BATCH_CONCURRENCY = 50;
+/** Max sub-requests per batch HTTP call (Gmail API limit) */
+const BATCH_SUB_LIMIT = 100;
+/** Max concurrent batch calls */
+const BATCH_CONCURRENCY = 5;
 
 export class GmailApiError extends Error {
   constructor(
@@ -27,7 +30,7 @@ export class GmailApiError extends Error {
     message: string,
   ) {
     super(message);
-    this.name = 'GmailApiError';
+    this.name = "GmailApiError";
   }
 }
 
@@ -39,10 +42,10 @@ function isRetryable(status: number): boolean {
   return status === 429 || (status >= 500 && status < 600);
 }
 
-const IDEMPOTENT_METHODS = new Set(['GET', 'HEAD', 'PUT', 'DELETE', 'OPTIONS']);
+const IDEMPOTENT_METHODS = new Set(["GET", "HEAD", "PUT", "DELETE", "OPTIONS"]);
 
 function isIdempotent(options?: RequestInit): boolean {
-  const method = (options?.method ?? 'GET').toUpperCase();
+  const method = (options?.method ?? "GET").toUpperCase();
   return IDEMPOTENT_METHODS.has(method);
 }
 
@@ -51,7 +54,11 @@ interface GmailRequestOptions extends RequestInit {
   retryable?: boolean;
 }
 
-async function request<T>(token: string, path: string, options?: GmailRequestOptions): Promise<T> {
+async function request<T>(
+  token: string,
+  path: string,
+  options?: GmailRequestOptions,
+): Promise<T> {
   const url = `${GMAIL_API_BASE}${path}`;
   const canRetry = options?.retryable ?? isIdempotent(options);
 
@@ -61,27 +68,31 @@ async function request<T>(token: string, path: string, options?: GmailRequestOpt
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       headers: {
         Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
         ...options?.headers,
       },
     });
 
     if (!resp.ok) {
       if (canRetry && isRetryable(resp.status) && attempt < MAX_RETRIES) {
-        const retryAfter = resp.headers.get('retry-after');
+        const retryAfter = resp.headers.get("retry-after");
         const delayMs = retryAfter
           ? parseInt(retryAfter, 10) * 1000
           : INITIAL_BACKOFF_MS * Math.pow(2, attempt);
         await new Promise((resolve) => setTimeout(resolve, delayMs));
         continue;
       }
-      const body = await resp.text().catch(() => '');
-      throw new GmailApiError(resp.status, resp.statusText, `Gmail API ${resp.status}: ${body}`);
+      const body = await resp.text().catch(() => "");
+      throw new GmailApiError(
+        resp.status,
+        resp.statusText,
+        `Gmail API ${resp.status}: ${body}`,
+      );
     }
 
     // Some endpoints (e.g. batchModify) return empty success responses
-    const contentLength = resp.headers.get('content-length');
-    if (resp.status === 204 || contentLength === '0') {
+    const contentLength = resp.headers.get("content-length");
+    if (resp.status === 204 || contentLength === "0") {
       return undefined as T;
     }
     const text = await resp.text();
@@ -90,7 +101,9 @@ async function request<T>(token: string, path: string, options?: GmailRequestOpt
   }
 
   // Unreachable — the loop always returns or throws — but TypeScript needs this
-  throw new Error('Unreachable: retry loop exited without returning or throwing');
+  throw new Error(
+    "Unreachable: retry loop exited without returning or throwing",
+  );
 }
 
 /** List messages matching a query. */
@@ -102,11 +115,11 @@ export async function listMessages(
   labelIds?: string[],
 ): Promise<GmailMessageListResponse> {
   const params = new URLSearchParams();
-  if (query) params.set('q', query);
-  params.set('maxResults', String(maxResults));
-  if (pageToken) params.set('pageToken', pageToken);
+  if (query) params.set("q", query);
+  params.set("maxResults", String(maxResults));
+  if (pageToken) params.set("pageToken", pageToken);
   if (labelIds) {
-    for (const id of labelIds) params.append('labelIds', id);
+    for (const id of labelIds) params.append("labelIds", id);
   }
   return request<GmailMessageListResponse>(token, `/messages?${params}`);
 }
@@ -115,32 +128,211 @@ export async function listMessages(
 export async function getMessage(
   token: string,
   messageId: string,
-  format: GmailMessageFormat = 'full',
+  format: GmailMessageFormat = "full",
   metadataHeaders?: string[],
+  fields?: string,
 ): Promise<GmailMessage> {
   const params = new URLSearchParams({ format });
-  if (format === 'metadata' && metadataHeaders) {
-    for (const h of metadataHeaders) params.append('metadataHeaders', h);
+  if (format === "metadata" && metadataHeaders) {
+    for (const h of metadataHeaders) params.append("metadataHeaders", h);
   }
+  if (fields) params.set("fields", fields);
   return request<GmailMessage>(token, `/messages/${messageId}?${params}`);
 }
 
-/** Get multiple messages in parallel with capped concurrency. */
+/**
+ * Parse a single part from a multipart batch response into its HTTP status and JSON body.
+ * Each part contains MIME headers, then an embedded HTTP response (status line, headers, body).
+ */
+function parseSubResponse(
+  part: string,
+): { index: number; status: number; json: string | null } | null {
+  const idMatch = part.match(/Content-ID:\s*<response-(\d+)>/i);
+  if (!idMatch) return null;
+  const index = parseInt(idMatch[1], 10);
+
+  // Split MIME headers from the embedded HTTP response (separated by blank line)
+  const mimeEnd = part.search(/\r?\n\r?\n/);
+  if (mimeEnd === -1) return null;
+  const httpResponse = part.slice(mimeEnd).replace(/^(\r?\n){2}/, "");
+
+  const statusMatch = httpResponse.match(/^HTTP\/[\d.]+ (\d+)/);
+  const status = statusMatch ? parseInt(statusMatch[1], 10) : 0;
+
+  // Split HTTP headers from body (separated by blank line)
+  const bodyStart = httpResponse.search(/\r?\n\r?\n/);
+  if (bodyStart === -1) return { index, status, json: null };
+  const json = httpResponse
+    .slice(bodyStart)
+    .replace(/^(\r?\n){2}/, "")
+    .trim();
+
+  return { index, status, json: json || null };
+}
+
+/**
+ * Execute a single batch HTTP call packing up to 100 getMessage sub-requests.
+ * Returns successfully parsed messages and a list of IDs that failed (for individual retry).
+ */
+async function executeBatchCall(
+  token: string,
+  messageIds: string[],
+  format: GmailMessageFormat,
+  metadataHeaders: string[] | undefined,
+  fields?: string,
+): Promise<{
+  messages: Array<{ index: number; msg: GmailMessage }>;
+  failedIds: Array<{ index: number; id: string }>;
+}> {
+  const boundary = `batch_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+
+  // Build query string once (shared by all sub-requests)
+  const params = new URLSearchParams({ format });
+  if (format === "metadata" && metadataHeaders) {
+    for (const h of metadataHeaders) params.append("metadataHeaders", h);
+  }
+  if (fields) params.set("fields", fields);
+  const qs = params.toString();
+
+  // Build multipart request body
+  const parts = messageIds.map(
+    (id, i) =>
+      `--${boundary}\r\nContent-Type: application/http\r\nContent-ID: <${i}>\r\n\r\nGET /gmail/v1/users/me/messages/${id}?${qs}\r\n`,
+  );
+  const body = parts.join("") + `--${boundary}--\r\n`;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const resp = await fetch(GMAIL_BATCH_URL, {
+      method: "POST",
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS * 2),
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": `multipart/mixed; boundary=${boundary}`,
+      },
+      body,
+    });
+
+    if (!resp.ok) {
+      if (isRetryable(resp.status) && attempt < MAX_RETRIES) {
+        const retryAfter = resp.headers.get("retry-after");
+        const delayMs = retryAfter
+          ? parseInt(retryAfter, 10) * 1000
+          : INITIAL_BACKOFF_MS * Math.pow(2, attempt);
+        await new Promise((r) => setTimeout(r, delayMs));
+        continue;
+      }
+      const errBody = await resp.text().catch(() => "");
+      throw new GmailApiError(
+        resp.status,
+        resp.statusText,
+        `Gmail batch API ${resp.status}: ${errBody}`,
+      );
+    }
+
+    const contentType = resp.headers.get("content-type") ?? "";
+    const responseText = await resp.text();
+
+    const boundaryMatch = contentType.match(/boundary=(?:"([^"]+)"|([^\s;]+))/);
+    const respBoundary = boundaryMatch?.[1] ?? boundaryMatch?.[2];
+    if (!respBoundary)
+      throw new Error("Missing boundary in Gmail batch response");
+
+    const respParts = responseText.split(`--${respBoundary}`);
+    const messages: Array<{ index: number; msg: GmailMessage }> = [];
+    const failedIds: Array<{ index: number; id: string }> = [];
+
+    for (const rp of respParts) {
+      const parsed = parseSubResponse(rp);
+      if (!parsed) continue;
+
+      if (parsed.status >= 200 && parsed.status < 300 && parsed.json) {
+        try {
+          messages.push({
+            index: parsed.index,
+            msg: JSON.parse(parsed.json) as GmailMessage,
+          });
+        } catch {
+          failedIds.push({ index: parsed.index, id: messageIds[parsed.index] });
+        }
+      } else {
+        failedIds.push({ index: parsed.index, id: messageIds[parsed.index] });
+      }
+    }
+
+    return { messages, failedIds };
+  }
+
+  throw new Error(
+    "Unreachable: batch retry loop exited without returning or throwing",
+  );
+}
+
+/**
+ * Get multiple messages using Gmail's batch HTTP endpoint.
+ * Packs up to 100 sub-requests per HTTP call and runs up to BATCH_CONCURRENCY calls in parallel.
+ * Falls back to individual getMessage for any sub-requests that fail within a batch.
+ */
 export async function batchGetMessages(
   token: string,
   messageIds: string[],
-  format: GmailMessageFormat = 'full',
+  format: GmailMessageFormat = "full",
   metadataHeaders?: string[],
+  fields?: string,
 ): Promise<GmailMessage[]> {
-  const results: GmailMessage[] = [];
-  for (let i = 0; i < messageIds.length; i += BATCH_CONCURRENCY) {
-    const batch = messageIds.slice(i, i + BATCH_CONCURRENCY);
-    const batchResults = await Promise.all(
-      batch.map((id) => getMessage(token, id, format, metadataHeaders)),
-    );
-    results.push(...batchResults);
+  if (messageIds.length === 0) return [];
+
+  // Single message — just use getMessage directly
+  if (messageIds.length === 1) {
+    return [
+      await getMessage(token, messageIds[0], format, metadataHeaders, fields),
+    ];
   }
-  return results;
+
+  const results = new Array<GmailMessage | undefined>(messageIds.length).fill(
+    undefined,
+  );
+
+  // Chunk into groups of BATCH_SUB_LIMIT, then run BATCH_CONCURRENCY in parallel
+  const chunks: Array<{ startIndex: number; ids: string[] }> = [];
+  for (let i = 0; i < messageIds.length; i += BATCH_SUB_LIMIT) {
+    chunks.push({
+      startIndex: i,
+      ids: messageIds.slice(i, i + BATCH_SUB_LIMIT),
+    });
+  }
+
+  for (let i = 0; i < chunks.length; i += BATCH_CONCURRENCY) {
+    const wave = chunks.slice(i, i + BATCH_CONCURRENCY);
+    const waveResults = await Promise.all(
+      wave.map((chunk) =>
+        executeBatchCall(token, chunk.ids, format, metadataHeaders, fields),
+      ),
+    );
+
+    // Place successful messages into the result array
+    for (let w = 0; w < wave.length; w++) {
+      const { messages, failedIds } = waveResults[w];
+      const baseIndex = wave[w].startIndex;
+
+      for (const { index, msg } of messages) {
+        results[baseIndex + index] = msg;
+      }
+
+      // Retry failed sub-requests individually
+      if (failedIds.length > 0) {
+        const retried = await Promise.all(
+          failedIds.map(({ id }) =>
+            getMessage(token, id, format, metadataHeaders, fields),
+          ),
+        );
+        for (let r = 0; r < failedIds.length; r++) {
+          results[baseIndex + failedIds[r].index] = retried[r];
+        }
+      }
+    }
+  }
+
+  return results.filter((m): m is GmailMessage => m !== undefined);
 }
 
 /** Modify labels on a single message. */
@@ -150,7 +342,7 @@ export async function modifyMessage(
   modifications: GmailModifyRequest,
 ): Promise<GmailMessage> {
   return request<GmailMessage>(token, `/messages/${messageId}/modify`, {
-    method: 'POST',
+    method: "POST",
     body: JSON.stringify(modifications),
     retryable: true,
   });
@@ -162,8 +354,8 @@ export async function batchModifyMessages(
   messageIds: string[],
   modifications: GmailModifyRequest,
 ): Promise<void> {
-  await request<void>(token, '/messages/batchModify', {
-    method: 'POST',
+  await request<void>(token, "/messages/batchModify", {
+    method: "POST",
     body: JSON.stringify({ ids: messageIds, ...modifications }),
     retryable: true,
   });
@@ -175,14 +367,14 @@ export async function trashMessage(
   messageId: string,
 ): Promise<GmailMessage> {
   return request<GmailMessage>(token, `/messages/${messageId}/trash`, {
-    method: 'POST',
+    method: "POST",
     retryable: true,
   });
 }
 
 /** List all labels. */
 export async function listLabels(token: string): Promise<GmailLabel[]> {
-  const resp = await request<GmailLabelsListResponse>(token, '/labels');
+  const resp = await request<GmailLabelsListResponse>(token, "/labels");
   return resp.labels ?? [];
 }
 
@@ -200,7 +392,7 @@ export async function createDraft(
   const headers = [
     `To: ${to}`,
     `Subject: ${subject}`,
-    'Content-Type: text/plain; charset=utf-8',
+    "Content-Type: text/plain; charset=utf-8",
   ];
   if (cc) headers.push(`Cc: ${cc}`);
   if (bcc) headers.push(`Bcc: ${bcc}`);
@@ -208,15 +400,15 @@ export async function createDraft(
     headers.push(`In-Reply-To: ${inReplyTo}`);
     headers.push(`References: ${inReplyTo}`);
   }
-  const raw = Buffer.from(`${headers.join('\r\n')}\r\n\r\n${body}`, 'utf-8')
-    .toString('base64')
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '');
+  const raw = Buffer.from(`${headers.join("\r\n")}\r\n\r\n${body}`, "utf-8")
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
   const message: Record<string, unknown> = { raw };
   if (threadId) message.threadId = threadId;
-  return request<GmailDraft>(token, '/drafts', {
-    method: 'POST',
+  return request<GmailDraft>(token, "/drafts", {
+    method: "POST",
     body: JSON.stringify({ message }),
   });
 }
@@ -229,8 +421,8 @@ export async function createDraftRaw(
 ): Promise<GmailDraft> {
   const message: Record<string, unknown> = { raw };
   if (threadId) message.threadId = threadId;
-  return request<GmailDraft>(token, '/drafts', {
-    method: 'POST',
+  return request<GmailDraft>(token, "/drafts", {
+    method: "POST",
     body: JSON.stringify({ message }),
   });
 }
@@ -240,8 +432,8 @@ export async function sendDraft(
   token: string,
   draftId: string,
 ): Promise<GmailMessage> {
-  return request<GmailMessage>(token, '/drafts/send', {
-    method: 'POST',
+  return request<GmailMessage>(token, "/drafts/send", {
+    method: "POST",
     body: JSON.stringify({ id: draftId }),
   });
 }
@@ -258,28 +450,28 @@ export async function sendMessage(
   const headers = [
     `To: ${to}`,
     `Subject: ${subject}`,
-    'Content-Type: text/plain; charset=utf-8',
+    "Content-Type: text/plain; charset=utf-8",
   ];
   if (inReplyTo) {
     headers.push(`In-Reply-To: ${inReplyTo}`);
     headers.push(`References: ${inReplyTo}`);
   }
-  const raw = Buffer.from(`${headers.join('\r\n')}\r\n\r\n${body}`, 'utf-8')
-    .toString('base64')
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '');
+  const raw = Buffer.from(`${headers.join("\r\n")}\r\n\r\n${body}`, "utf-8")
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
   const payload: Record<string, unknown> = { raw };
   if (threadId) payload.threadId = threadId;
-  return request<GmailMessage>(token, '/messages/send', {
-    method: 'POST',
+  return request<GmailMessage>(token, "/messages/send", {
+    method: "POST",
     body: JSON.stringify(payload),
   });
 }
 
 /** Get the authenticated user's profile (email address). */
 export async function getProfile(token: string): Promise<GmailProfile> {
-  return request<GmailProfile>(token, '/profile');
+  return request<GmailProfile>(token, "/profile");
 }
 
 /** Get attachment data for a message. */
@@ -288,7 +480,10 @@ export async function getAttachment(
   messageId: string,
   attachmentId: string,
 ): Promise<GmailAttachment> {
-  return request<GmailAttachment>(token, `/messages/${messageId}/attachments/${attachmentId}`);
+  return request<GmailAttachment>(
+    token,
+    `/messages/${messageId}/attachments/${attachmentId}`,
+  );
 }
 
 /** Send an email with a pre-built raw MIME payload (for multipart/attachments). */
@@ -299,8 +494,8 @@ export async function sendMessageRaw(
 ): Promise<GmailMessage> {
   const payload: Record<string, unknown> = { raw };
   if (threadId) payload.threadId = threadId;
-  return request<GmailMessage>(token, '/messages/send', {
-    method: 'POST',
+  return request<GmailMessage>(token, "/messages/send", {
+    method: "POST",
     body: JSON.stringify(payload),
   });
 }
@@ -309,17 +504,23 @@ export async function sendMessageRaw(
 export async function createLabel(
   token: string,
   name: string,
-  opts?: { messageListVisibility?: 'show' | 'hide'; labelListVisibility?: 'labelShow' | 'labelShowIfUnread' | 'labelHide' },
+  opts?: {
+    messageListVisibility?: "show" | "hide";
+    labelListVisibility?: "labelShow" | "labelShowIfUnread" | "labelHide";
+  },
 ): Promise<GmailLabel> {
-  return request<GmailLabel>(token, '/labels', {
-    method: 'POST',
+  return request<GmailLabel>(token, "/labels", {
+    method: "POST",
     body: JSON.stringify({ name, ...opts }),
   });
 }
 
 /** List all Gmail filters. */
 export async function listFilters(token: string): Promise<GmailFilter[]> {
-  const resp = await request<GmailFiltersListResponse>(token, '/settings/filters');
+  const resp = await request<GmailFiltersListResponse>(
+    token,
+    "/settings/filters",
+  );
   return resp.filter ?? [];
 }
 
@@ -329,20 +530,27 @@ export async function createFilter(
   criteria: GmailFilterCriteria,
   action: GmailFilterAction,
 ): Promise<GmailFilter> {
-  return request<GmailFilter>(token, '/settings/filters', {
-    method: 'POST',
+  return request<GmailFilter>(token, "/settings/filters", {
+    method: "POST",
     body: JSON.stringify({ criteria, action }),
   });
 }
 
 /** Delete a Gmail filter. */
-export async function deleteFilter(token: string, filterId: string): Promise<void> {
-  await request<void>(token, `/settings/filters/${filterId}`, { method: 'DELETE' });
+export async function deleteFilter(
+  token: string,
+  filterId: string,
+): Promise<void> {
+  await request<void>(token, `/settings/filters/${filterId}`, {
+    method: "DELETE",
+  });
 }
 
 /** Get vacation auto-reply settings. */
-export async function getVacation(token: string): Promise<GmailVacationSettings> {
-  return request<GmailVacationSettings>(token, '/settings/vacation');
+export async function getVacation(
+  token: string,
+): Promise<GmailVacationSettings> {
+  return request<GmailVacationSettings>(token, "/settings/vacation");
 }
 
 /** Update vacation auto-reply settings. */
@@ -350,8 +558,8 @@ export async function updateVacation(
   token: string,
   settings: GmailVacationSettings,
 ): Promise<GmailVacationSettings> {
-  return request<GmailVacationSettings>(token, '/settings/vacation', {
-    method: 'PUT',
+  return request<GmailVacationSettings>(token, "/settings/vacation", {
+    method: "PUT",
     body: JSON.stringify(settings),
   });
 }

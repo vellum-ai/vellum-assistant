@@ -8,48 +8,56 @@
  *   - New assistantFeatureFlagValues is the sole override mechanism
  *   - Undeclared keys default to enabled
  */
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-
-import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Test-scoped temp directory and config state
 // ---------------------------------------------------------------------------
 
-const TEST_DIR = join(tmpdir(), `vellum-asst-flags-test-${crypto.randomUUID()}`);
+const TEST_DIR = join(
+  tmpdir(),
+  `vellum-asst-flags-test-${crypto.randomUUID()}`,
+);
 
 let currentConfig: Record<string, unknown> = {
-  sandbox: { enabled: false, backend: 'native' },
+  sandbox: { enabled: false, backend: "native" },
 };
 
-const DECLARED_FLAG_KEY = 'feature_flags.hatch-new-assistant.enabled';
-const DECLARED_SKILL_ID = 'hatch-new-assistant';
+const DECLARED_FLAG_KEY = "feature_flags.hatch-new-assistant.enabled";
+const DECLARED_SKILL_ID = "hatch-new-assistant";
 
-mock.module('../util/platform.js', () => ({
+mock.module("../util/platform.js", () => ({
   getRootDir: () => TEST_DIR,
   getDataDir: () => TEST_DIR,
   getWorkspaceDir: () => TEST_DIR,
-  getWorkspaceConfigPath: () => join(TEST_DIR, 'config.json'),
-  getWorkspaceSkillsDir: () => join(TEST_DIR, 'skills'),
-  getWorkspaceHooksDir: () => join(TEST_DIR, 'hooks'),
+  getWorkspaceConfigPath: () => join(TEST_DIR, "config.json"),
+  getWorkspaceSkillsDir: () => join(TEST_DIR, "skills"),
+  getWorkspaceHooksDir: () => join(TEST_DIR, "hooks"),
   getWorkspacePromptPath: (file: string) => join(TEST_DIR, file),
   ensureDataDir: () => {},
-  getSocketPath: () => join(TEST_DIR, 'vellum.sock'),
-  getPidPath: () => join(TEST_DIR, 'vellum.pid'),
-  getDbPath: () => join(TEST_DIR, 'data', 'assistant.db'),
-  getLogPath: () => join(TEST_DIR, 'logs', 'vellum.log'),
-  getHistoryPath: () => join(TEST_DIR, 'history'),
-  getHooksDir: () => join(TEST_DIR, 'hooks'),
-  getIpcBlobDir: () => join(TEST_DIR, 'ipc-blobs'),
-  getSandboxRootDir: () => join(TEST_DIR, 'sandbox'),
+  getSocketPath: () => join(TEST_DIR, "vellum.sock"),
+  getPidPath: () => join(TEST_DIR, "vellum.pid"),
+  getDbPath: () => join(TEST_DIR, "data", "assistant.db"),
+  getLogPath: () => join(TEST_DIR, "logs", "vellum.log"),
+  getHistoryPath: () => join(TEST_DIR, "history"),
+  getHooksDir: () => join(TEST_DIR, "hooks"),
+  getIpcBlobDir: () => join(TEST_DIR, "ipc-blobs"),
+  getSandboxRootDir: () => join(TEST_DIR, "sandbox"),
   getSandboxWorkingDir: () => TEST_DIR,
-  getInterfacesDir: () => join(TEST_DIR, 'interfaces'),
+  getInterfacesDir: () => join(TEST_DIR, "interfaces"),
   isMacOS: () => false,
   isLinux: () => false,
   isWindows: () => false,
-  getPlatformName: () => 'linux',
+  getPlatformName: () => "linux",
   getClipboardCommand: () => null,
   removeSocketFile: () => {},
   migratePath: () => {},
@@ -57,30 +65,32 @@ mock.module('../util/platform.js', () => ({
   migrateToDataLayout: () => {},
 }));
 
-mock.module('../util/logger.js', () => ({
-  getLogger: () => new Proxy({} as Record<string, unknown>, {
-    get: () => () => {},
-  }),
+mock.module("../util/logger.js", () => ({
+  getLogger: () =>
+    new Proxy({} as Record<string, unknown>, {
+      get: () => () => {},
+    }),
   isDebug: () => false,
   truncateForLog: (v: string) => v,
 }));
 
-mock.module('../config/loader.js', () => ({
+mock.module("../config/loader.js", () => ({
   getConfig: () => currentConfig,
 }));
 
-mock.module('../config/user-reference.js', () => ({
-  resolveUserReference: () => 'TestUser',
+mock.module("../config/user-reference.js", () => ({
+  resolveUserReference: () => "TestUser",
   resolveUserPronouns: () => null,
 }));
 
-mock.module('../tools/credentials/metadata-store.js', () => ({
+mock.module("../tools/credentials/metadata-store.js", () => ({
   listCredentialMetadata: () => [],
 }));
 
-const { buildSystemPrompt } = await import('../config/system-prompt.js');
-const { isAssistantFeatureFlagEnabled } = await import('../config/assistant-feature-flags.js');
-const { isSkillFeatureEnabled } = await import('../config/skill-state.js');
+const { buildSystemPrompt } = await import("../config/system-prompt.js");
+const { isAssistantFeatureFlagEnabled } =
+  await import("../config/assistant-feature-flags.js");
+const { isSkillFeatureEnabled } = await import("../config/skill-state.js");
 
 // ---------------------------------------------------------------------------
 // Setup / Teardown
@@ -89,7 +99,7 @@ const { isSkillFeatureEnabled } = await import('../config/skill-state.js');
 beforeEach(() => {
   mkdirSync(TEST_DIR, { recursive: true });
   currentConfig = {
-    sandbox: { enabled: false, backend: 'native' },
+    sandbox: { enabled: false, backend: "native" },
   };
 });
 
@@ -103,15 +113,21 @@ afterEach(() => {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function createSkillOnDisk(id: string, name: string, description: string): void {
-  const skillsDir = join(TEST_DIR, 'skills');
+function createSkillOnDisk(
+  id: string,
+  name: string,
+  description: string,
+): void {
+  const skillsDir = join(TEST_DIR, "skills");
   mkdirSync(join(skillsDir, id), { recursive: true });
   writeFileSync(
-    join(skillsDir, id, 'SKILL.md'),
+    join(skillsDir, id, "SKILL.md"),
     `---\nname: "${name}"\ndescription: "${description}"\n---\n\nInstructions for ${id}.\n`,
   );
-  const indexPath = join(skillsDir, 'SKILLS.md');
-  const existing = existsSync(indexPath) ? readFileSync(indexPath, 'utf-8') : '';
+  const indexPath = join(skillsDir, "SKILLS.md");
+  const existing = existsSync(indexPath)
+    ? readFileSync(indexPath, "utf-8")
+    : "";
   writeFileSync(indexPath, existing + `- ${id}\n`);
 }
 
@@ -119,13 +135,17 @@ function createSkillOnDisk(id: string, name: string, description: string): void 
 // System prompt — assistant feature flag filtering
 // ---------------------------------------------------------------------------
 
-describe('buildSystemPrompt assistant feature flag filtering', () => {
-  test('flag OFF skill does not appear in <available_skills> section', () => {
-    createSkillOnDisk(DECLARED_SKILL_ID, 'Hatch New Assistant', 'Toggle hatch new assistant behavior');
-    createSkillOnDisk('twitter', 'Twitter', 'Post to X/Twitter');
+describe("buildSystemPrompt assistant feature flag filtering", () => {
+  test("flag OFF skill does not appear in <available_skills> section", () => {
+    createSkillOnDisk(
+      DECLARED_SKILL_ID,
+      "Hatch New Assistant",
+      "Toggle hatch new assistant behavior",
+    );
+    createSkillOnDisk("twitter", "Twitter", "Post to X/Twitter");
 
     currentConfig = {
-      sandbox: { enabled: false, backend: 'native' },
+      sandbox: { enabled: false, backend: "native" },
       assistantFeatureFlagValues: { [DECLARED_FLAG_KEY]: false },
     };
 
@@ -135,12 +155,16 @@ describe('buildSystemPrompt assistant feature flag filtering', () => {
     expect(result).not.toContain(`id="${DECLARED_SKILL_ID}"`);
   });
 
-  test('all skills visible when no flag overrides set', () => {
-    createSkillOnDisk(DECLARED_SKILL_ID, 'Hatch New Assistant', 'Toggle hatch new assistant behavior');
-    createSkillOnDisk('twitter', 'Twitter', 'Post to X/Twitter');
+  test("all skills visible when no flag overrides set", () => {
+    createSkillOnDisk(
+      DECLARED_SKILL_ID,
+      "Hatch New Assistant",
+      "Toggle hatch new assistant behavior",
+    );
+    createSkillOnDisk("twitter", "Twitter", "Post to X/Twitter");
 
     currentConfig = {
-      sandbox: { enabled: false, backend: 'native' },
+      sandbox: { enabled: false, backend: "native" },
     };
 
     const result = buildSystemPrompt();
@@ -149,15 +173,19 @@ describe('buildSystemPrompt assistant feature flag filtering', () => {
     expect(result).toContain('id="twitter"');
   });
 
-  test('flagged-off skills hidden when all flags are OFF', () => {
-    createSkillOnDisk(DECLARED_SKILL_ID, 'Hatch New Assistant', 'Toggle hatch new assistant behavior');
-    createSkillOnDisk('twitter', 'Twitter', 'Post to X/Twitter');
+  test("flagged-off skills hidden when all flags are OFF", () => {
+    createSkillOnDisk(
+      DECLARED_SKILL_ID,
+      "Hatch New Assistant",
+      "Toggle hatch new assistant behavior",
+    );
+    createSkillOnDisk("twitter", "Twitter", "Post to X/Twitter");
 
     currentConfig = {
-      sandbox: { enabled: false, backend: 'native' },
+      sandbox: { enabled: false, backend: "native" },
       assistantFeatureFlagValues: {
         [DECLARED_FLAG_KEY]: false,
-        'feature_flags.twitter.enabled': false,
+        "feature_flags.twitter.enabled": false,
       },
     };
 
@@ -167,11 +195,15 @@ describe('buildSystemPrompt assistant feature flag filtering', () => {
     expect(result).not.toContain('id="twitter"');
   });
 
-  test('assistantFeatureFlagValues overrides control visibility', () => {
-    createSkillOnDisk(DECLARED_SKILL_ID, 'Hatch New Assistant', 'Toggle hatch new assistant behavior');
+  test("assistantFeatureFlagValues overrides control visibility", () => {
+    createSkillOnDisk(
+      DECLARED_SKILL_ID,
+      "Hatch New Assistant",
+      "Toggle hatch new assistant behavior",
+    );
 
     currentConfig = {
-      sandbox: { enabled: false, backend: 'native' },
+      sandbox: { enabled: false, backend: "native" },
       assistantFeatureFlagValues: { [DECLARED_FLAG_KEY]: true },
     };
 
@@ -180,12 +212,12 @@ describe('buildSystemPrompt assistant feature flag filtering', () => {
     expect(result).toContain(`id="${DECLARED_SKILL_ID}"`);
   });
 
-  test('persisted overrides for undeclared flags are respected', () => {
-    createSkillOnDisk('browser', 'Browser', 'Web browsing automation');
+  test("persisted overrides for undeclared flags are respected", () => {
+    createSkillOnDisk("browser", "Browser", "Web browsing automation");
 
     currentConfig = {
-      sandbox: { enabled: false, backend: 'native' },
-      assistantFeatureFlagValues: { 'feature_flags.browser.enabled': false },
+      sandbox: { enabled: false, backend: "native" },
+      assistantFeatureFlagValues: { "feature_flags.browser.enabled": false },
     };
 
     const result = buildSystemPrompt();
@@ -195,11 +227,11 @@ describe('buildSystemPrompt assistant feature flag filtering', () => {
     expect(result).not.toContain('id="browser"');
   });
 
-  test('undeclared flags with no persisted override default to enabled', () => {
-    createSkillOnDisk('browser', 'Browser', 'Web browsing automation');
+  test("undeclared flags with no persisted override default to enabled", () => {
+    createSkillOnDisk("browser", "Browser", "Web browsing automation");
 
     currentConfig = {
-      sandbox: { enabled: false, backend: 'native' },
+      sandbox: { enabled: false, backend: "native" },
     };
 
     const result = buildSystemPrompt();
@@ -212,8 +244,8 @@ describe('buildSystemPrompt assistant feature flag filtering', () => {
 // Resolver unit tests (within integration context)
 // ---------------------------------------------------------------------------
 
-describe('isAssistantFeatureFlagEnabled', () => {
-  test('reads from assistantFeatureFlagValues', () => {
+describe("isAssistantFeatureFlagEnabled", () => {
+  test("reads from assistantFeatureFlagValues", () => {
     const config = {
       assistantFeatureFlagValues: { [DECLARED_FLAG_KEY]: true },
     } as any;
@@ -221,15 +253,17 @@ describe('isAssistantFeatureFlagEnabled', () => {
     expect(isAssistantFeatureFlagEnabled(DECLARED_FLAG_KEY, config)).toBe(true);
   });
 
-  test('explicit false override in assistantFeatureFlagValues', () => {
+  test("explicit false override in assistantFeatureFlagValues", () => {
     const config = {
       assistantFeatureFlagValues: { [DECLARED_FLAG_KEY]: false },
     } as any;
 
-    expect(isAssistantFeatureFlagEnabled(DECLARED_FLAG_KEY, config)).toBe(false);
+    expect(isAssistantFeatureFlagEnabled(DECLARED_FLAG_KEY, config)).toBe(
+      false,
+    );
   });
 
-  test('missing persisted value falls back to defaults registry defaultEnabled', () => {
+  test("missing persisted value falls back to defaults registry defaultEnabled", () => {
     // No explicit config at all — should fall back to defaults registry
     // which has defaultEnabled: true for hatch-new-assistant
     const config = {} as any;
@@ -237,23 +271,30 @@ describe('isAssistantFeatureFlagEnabled', () => {
     expect(isAssistantFeatureFlagEnabled(DECLARED_FLAG_KEY, config)).toBe(true);
   });
 
-  test('unknown flag defaults to true when no persisted override', () => {
+  test("unknown flag defaults to true when no persisted override", () => {
     const config = {} as any;
 
-    expect(isAssistantFeatureFlagEnabled('feature_flags.unknown-skill.enabled', config)).toBe(true);
+    expect(
+      isAssistantFeatureFlagEnabled(
+        "feature_flags.unknown-skill.enabled",
+        config,
+      ),
+    ).toBe(true);
   });
 
-  test('undeclared flag respects persisted canonical override', () => {
+  test("undeclared flag respects persisted canonical override", () => {
     const config = {
-      assistantFeatureFlagValues: { 'feature_flags.browser.enabled': false },
+      assistantFeatureFlagValues: { "feature_flags.browser.enabled": false },
     } as any;
 
-    expect(isAssistantFeatureFlagEnabled('feature_flags.browser.enabled', config)).toBe(false);
+    expect(
+      isAssistantFeatureFlagEnabled("feature_flags.browser.enabled", config),
+    ).toBe(false);
   });
 });
 
-describe('legacy isSkillFeatureEnabled backward compat', () => {
-  test('delegates to the canonical resolver', () => {
+describe("legacy isSkillFeatureEnabled backward compat", () => {
+  test("delegates to the canonical resolver", () => {
     const config = {
       assistantFeatureFlagValues: { [DECLARED_FLAG_KEY]: false },
     } as any;
@@ -261,7 +302,7 @@ describe('legacy isSkillFeatureEnabled backward compat', () => {
     expect(isSkillFeatureEnabled(DECLARED_SKILL_ID, config)).toBe(false);
   });
 
-  test('enabled when no override set', () => {
+  test("enabled when no override set", () => {
     const config = {} as any;
 
     expect(isSkillFeatureEnabled(DECLARED_SKILL_ID, config)).toBe(true);
