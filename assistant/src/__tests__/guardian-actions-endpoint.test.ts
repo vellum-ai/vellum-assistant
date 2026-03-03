@@ -600,7 +600,12 @@ describe("listGuardianDecisionPrompts", () => {
     });
     expect(prompts).toHaveLength(1);
     expect(prompts[0].kind).toBe("access_request");
-    expect(prompts[0].questionText).toBe("User wants access");
+    // buildKindAwareQuestionText appends request-code fallback instructions
+    // for access_request kind, so use partial matching
+    expect(prompts[0].questionText).toContain("User wants access");
+    expect(prompts[0].questionText).toContain("approve");
+    expect(prompts[0].questionText).toContain("reject");
+    expect(prompts[0].questionText).toContain("open invite flow");
   });
 
   test("only returns requests for the given conversationId", () => {
