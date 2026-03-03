@@ -13,7 +13,7 @@ mock.module("../config/env.js", () => ({
 
 // ── Real imports (after mocks) ───────────────────────────────────────
 
-import { resolveGuardianTrustClass } from "../daemon/session-tool-setup.js";
+import { resolveTrustClass } from "../daemon/session-tool-setup.js";
 
 afterAll(() => {
   mock.restore();
@@ -21,7 +21,7 @@ afterAll(() => {
 
 // ── Tests ────────────────────────────────────────────────────────────
 
-describe("resolveGuardianTrustClass", () => {
+describe("resolveTrustClass", () => {
   beforeEach(() => {
     fakeHttpAuthDisabled = false;
   });
@@ -30,13 +30,13 @@ describe("resolveGuardianTrustClass", () => {
     const ctx: Pick<TrustContext, "trustClass"> = {
       trustClass: "trusted_contact",
     };
-    expect(resolveGuardianTrustClass(ctx as TrustContext)).toBe(
+    expect(resolveTrustClass(ctx as TrustContext)).toBe(
       "trusted_contact",
     );
   });
 
   test("returns 'unknown' when guardianContext is undefined", () => {
-    expect(resolveGuardianTrustClass(undefined)).toBe("unknown");
+    expect(resolveTrustClass(undefined)).toBe("unknown");
   });
 
   test("forces guardian when HTTP auth is disabled, regardless of context trust class", () => {
@@ -44,7 +44,7 @@ describe("resolveGuardianTrustClass", () => {
     const ctx: Pick<TrustContext, "trustClass"> = {
       trustClass: "trusted_contact",
     };
-    expect(resolveGuardianTrustClass(ctx as TrustContext)).toBe(
+    expect(resolveTrustClass(ctx as TrustContext)).toBe(
       "guardian",
     );
   });
@@ -54,7 +54,7 @@ describe("resolveGuardianTrustClass", () => {
     const ctx: Pick<TrustContext, "trustClass"> = {
       trustClass: "unknown",
     };
-    expect(resolveGuardianTrustClass(ctx as TrustContext)).toBe(
+    expect(resolveTrustClass(ctx as TrustContext)).toBe(
       "guardian",
     );
   });

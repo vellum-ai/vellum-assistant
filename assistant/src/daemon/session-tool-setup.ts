@@ -54,11 +54,11 @@ import { runPostExecutionSideEffects } from "./tool-side-effects.js";
 const log = getLogger("session-tool-setup");
 
 /**
- * Resolve the effective guardian trust class for tool execution.
+ * Resolve the effective trust class for tool execution.
  * When HTTP auth is disabled (dev bypass), always treat the actor as
  * guardian so that control-plane gates don't block local development.
  */
-export function resolveGuardianTrustClass(
+export function resolveTrustClass(
   guardianContext: TrustContext | undefined,
 ): TrustClass {
   if (isHttpAuthDisabled()) return "guardian";
@@ -151,7 +151,7 @@ export function createToolExecutor(
       assistantId: ctx.assistantId,
       requestId: ctx.currentRequestId,
       taskRunId: ctx.taskRunId,
-      trustClass: resolveGuardianTrustClass(ctx.guardianContext),
+      trustClass: resolveTrustClass(ctx.guardianContext),
       executionChannel: ctx.guardianContext?.sourceChannel,
       callSessionId: ctx.callSessionId,
       triggeredBySurfaceAction:
