@@ -139,7 +139,6 @@ import {
   handleListContacts,
   handleMergeContacts,
 } from "./routes/contact-routes.js";
-import { handleGlobalSearch } from "./routes/global-search-routes.js";
 import { handleListConversationAttention } from "./routes/conversation-attention-routes.js";
 // Route handlers — grouped by domain
 import {
@@ -150,6 +149,7 @@ import {
 } from "./routes/conversation-routes.js";
 import { handleDebug } from "./routes/debug-routes.js";
 import { handleSubscribeAssistantEvents } from "./routes/events-routes.js";
+import { handleGlobalSearch } from "./routes/global-search-routes.js";
 import {
   handleGuardianActionDecision,
   handleGuardianActionsPending,
