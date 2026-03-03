@@ -3679,6 +3679,7 @@ public struct IPCSessionListResponseSession: Codable, Sendable {
     public let updatedAt: Int
     public let threadType: String?
     public let source: String?
+    public let scheduleJobId: String?
     /// Channel binding metadata exposed in session/conversation list APIs.
     public let channelBinding: IPCChannelBinding?
     public let conversationOriginChannel: String?
@@ -3688,13 +3689,14 @@ public struct IPCSessionListResponseSession: Codable, Sendable {
     public let displayOrder: Double?
     public let isPinned: Bool?
 
-    public init(id: String, title: String, createdAt: Int? = nil, updatedAt: Int, threadType: String? = nil, source: String? = nil, channelBinding: IPCChannelBinding? = nil, conversationOriginChannel: String? = nil, conversationOriginInterface: String? = nil, assistantAttention: IPCAssistantAttention? = nil, displayOrder: Double? = nil, isPinned: Bool? = nil) {
+    public init(id: String, title: String, createdAt: Int? = nil, updatedAt: Int, threadType: String? = nil, source: String? = nil, scheduleJobId: String? = nil, channelBinding: IPCChannelBinding? = nil, conversationOriginChannel: String? = nil, conversationOriginInterface: String? = nil, assistantAttention: IPCAssistantAttention? = nil, displayOrder: Double? = nil, isPinned: Bool? = nil) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.threadType = threadType
         self.source = source
+        self.scheduleJobId = scheduleJobId
         self.channelBinding = channelBinding
         self.conversationOriginChannel = conversationOriginChannel
         self.conversationOriginInterface = conversationOriginInterface

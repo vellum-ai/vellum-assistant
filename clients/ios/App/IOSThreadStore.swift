@@ -18,8 +18,16 @@ struct IOSThread: Identifiable {
     /// Private threads are excluded from the normal thread list and persist only
     /// for the current session. They match the macOS "temporary chat" behavior.
     var isPrivate: Bool
+    /// The schedule job ID that created this thread, if any.
+    /// Threads sharing the same scheduleJobId belong to the same schedule group.
+    var scheduleJobId: String?
 
-    init(id: UUID = UUID(), title: String = "New Chat", createdAt: Date = Date(), lastActivityAt: Date? = nil, sessionId: String? = nil, isArchived: Bool = false, isPrivate: Bool = false) {
+    /// Whether this thread was created by a schedule or reminder trigger.
+    var isScheduleThread: Bool {
+        return title.hasPrefix("Schedule: ") || title.hasPrefix("Schedule (manual): ") || title.hasPrefix("Reminder: ")
+    }
+
+    init(id: UUID = UUID(), title: String = "New Chat", createdAt: Date = Date(), lastActivityAt: Date? = nil, sessionId: String? = nil, isArchived: Bool = false, isPrivate: Bool = false, scheduleJobId: String? = nil) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
@@ -27,6 +35,7 @@ struct IOSThread: Identifiable {
         self.sessionId = sessionId
         self.isArchived = isArchived
         self.isPrivate = isPrivate
+        self.scheduleJobId = scheduleJobId
     }
 }
 
@@ -312,7 +321,8 @@ class IOSThreadStore: ObservableObject {
                 title: session.title,
                 createdAt: Date(timeIntervalSince1970: TimeInterval(effectiveCreatedAt) / 1000.0),
                 lastActivityAt: Date(timeIntervalSince1970: TimeInterval(session.updatedAt) / 1000.0),
-                sessionId: session.id
+                sessionId: session.id,
+                scheduleJobId: session.scheduleJobId
             )
             let vm = ChatViewModel(daemonClient: daemonClient)
             vm.sessionId = session.id

@@ -555,6 +555,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
                 lastInteractedAt: Date(timeIntervalSince1970: TimeInterval(session.updatedAt) / 1000.0),
                 kind: session.threadType == "private" ? .private : .standard,
                 source: session.source,
+                scheduleJobId: session.scheduleJobId,
                 hasUnseenLatestAssistantMessage: session.assistantAttention?.hasUnseenLatestAssistantMessage ?? false
             )
             if isPinned && session.displayOrder == nil { nextPinnedOrder += 1 }

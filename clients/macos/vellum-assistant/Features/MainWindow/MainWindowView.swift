@@ -36,6 +36,8 @@ final class SidebarInteractionState {
     var renameText: String = ""
     var showAllThreads: Bool = false
     var showAllScheduleThreads: Bool = false
+    /// Set of schedule group keys (scheduleJobId values) that are currently expanded.
+    var expandedScheduleGroups: Set<String> = []
     var showAllApps: Bool = false
     var showPreferencesDrawer: Bool = false
     /// Thread ID that is currently the drop target during a drag-and-drop reorder.
@@ -1063,6 +1065,42 @@ struct MainWindowView: View {
         return sidebar.showAllScheduleThreads ? all : Array(all.prefix(3))
     }
 
+    /// Groups schedule threads by their scheduleJobId.
+    /// Threads without a scheduleJobId are placed in individual groups keyed by their session ID.
+    private var scheduleThreadGroups: [(key: String, label: String, threads: [ThreadModel])] {
+        var grouped: [String: [ThreadModel]] = [:]
+        var order: [String] = []
+        for thread in scheduleThreads {
+            let key = thread.scheduleJobId ?? thread.sessionId ?? thread.id.uuidString
+            if grouped[key] == nil {
+                order.append(key)
+            }
+            grouped[key, default: []].append(thread)
+        }
+        return order.compactMap { key in
+            guard let threads = grouped[key], let first = threads.first else { return nil }
+            // Use the schedule title prefix (before the colon) as the group label,
+            // or fall back to the full title when there's no colon.
+            let label: String
+            if threads.count > 1 {
+                let base = first.title
+                if let colonRange = base.range(of: ":") {
+                    label = String(base[base.startIndex..<colonRange.lowerBound])
+                } else {
+                    label = base
+                }
+            } else {
+                label = first.title
+            }
+            return (key: key, label: label, threads: threads)
+        }
+    }
+
+    private var displayedScheduleGroups: [(key: String, label: String, threads: [ThreadModel])] {
+        let all = scheduleThreadGroups
+        return sidebar.showAllScheduleThreads ? all : Array(all.prefix(3))
+    }
+
     private var displayedApps: [AppListManager.AppItem] {
         let all = appListManager.displayApps
         return sidebar.showAllApps ? all : Array(all.prefix(5))
@@ -1268,51 +1306,50 @@ struct MainWindowView: View {
                         .padding(.top, VSpacing.md)
                         .padding(.bottom, VSpacing.xs)
 
-                        ForEach(displayedScheduleThreads) { thread in
-                            threadItem(thread)
-                                .padding(.bottom, VSpacing.xxs)
-                                .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
-                                    if sidebar.dropTargetThreadId == thread.id {
-                                        Rectangle()
-                                            .fill(adaptiveColor(light: Forest._500, dark: Forest._400))
-                                            .frame(height: 2)
-                                            .transition(.opacity)
-                                    }
-                                }
-                                .dropDestination(for: String.self) { items, _ in
-                                    sidebar.dropTargetThreadId = nil
-                                    sidebar.draggingThreadId = nil
-                                    guard let droppedId = items.first,
-                                          let sourceUUID = UUID(uuidString: droppedId),
-                                          sourceUUID != thread.id else { return false }
-                                    return threadManager.moveThread(sourceId: sourceUUID, targetId: thread.id)
-                                } isTargeted: { isTargeted in
-                                    if isTargeted && thread.id != sidebar.draggingThreadId {
-                                        if let dragId = sidebar.draggingThreadId {
-                                            let sourceIsSchedule = threadManager.visibleThreads.first(where: { $0.id == dragId })?.isScheduleThread ?? false
-                                            if !sourceIsSchedule {
-                                                // Cross-section drag (regular → scheduled): insertion goes
-                                                // to the section boundary, so show indicator at top of
-                                                // the first schedule thread to match actual insertion point.
-                                                sidebar.dropTargetThreadId = displayedScheduleThreads.first?.id ?? thread.id
-                                                sidebar.dropIndicatorAtBottom = false
+                        ForEach(displayedScheduleGroups, id: \.key) { group in
+                            if group.threads.count == 1, let thread = group.threads.first {
+                                // Single-thread group: render inline without a disclosure wrapper
+                                threadItem(thread)
+                                    .padding(.bottom, VSpacing.xxs)
+                            } else {
+                                // Multi-thread group: collapsible disclosure group
+                                DisclosureGroup(
+                                    isExpanded: Binding(
+                                        get: { sidebar.expandedScheduleGroups.contains(group.key) },
+                                        set: { isExpanded in
+                                            if isExpanded {
+                                                sidebar.expandedScheduleGroups.insert(group.key)
                                             } else {
-                                                sidebar.dropTargetThreadId = thread.id
-                                                let visible = threadManager.visibleThreads
-                                                let sIdx = visible.firstIndex(where: { $0.id == dragId }) ?? 0
-                                                let tIdx = visible.firstIndex(where: { $0.id == thread.id }) ?? 0
-                                                sidebar.dropIndicatorAtBottom = sIdx < tIdx
+                                                sidebar.expandedScheduleGroups.remove(group.key)
                                             }
-                                        } else {
-                                            sidebar.dropTargetThreadId = thread.id
                                         }
-                                    } else if !isTargeted && (sidebar.dropTargetThreadId == thread.id || sidebar.dropTargetThreadId == displayedScheduleThreads.first?.id) {
-                                        sidebar.dropTargetThreadId = nil
+                                    )
+                                ) {
+                                    ForEach(group.threads) { thread in
+                                        threadItem(thread)
+                                            .padding(.bottom, VSpacing.xxs)
+                                    }
+                                } label: {
+                                    HStack(spacing: VSpacing.xs) {
+                                        Image(systemName: "clock.arrow.2.circlepath")
+                                            .font(.system(size: 12))
+                                            .foregroundColor(VColor.textMuted)
+                                        Text(group.label)
+                                            .font(VFont.caption)
+                                            .foregroundColor(VColor.textSecondary)
+                                            .lineLimit(1)
+                                        Text("\(group.threads.count)")
+                                            .font(VFont.caption)
+                                            .foregroundColor(VColor.textMuted)
                                     }
                                 }
+                                .padding(.leading, VSpacing.sm)
+                                .padding(.trailing, VSpacing.md)
+                                .padding(.bottom, VSpacing.xxs)
+                            }
                         }
 
-                        if scheduleThreads.count > 3 {
+                        if scheduleThreadGroups.count > 3 {
                             Button {
                                 withAnimation(VAnimation.standard) { sidebar.showAllScheduleThreads.toggle() }
                             } label: {
