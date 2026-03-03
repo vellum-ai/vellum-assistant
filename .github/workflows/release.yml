@@ -666,9 +666,11 @@ jobs:
           BIN_PATH=$(swift build -c release --arch arm64 --product vellum-assistant --show-bin-path)
           mkdir -p /tmp/swift-arm64
           cp "$BIN_PATH/vellum-assistant" /tmp/swift-arm64/
-          # Copy Sparkle framework and resource bundles (needed for app assembly)
+          # Archive Sparkle framework with tar to preserve symlinks (zip from
+          # actions/upload-artifact dereferences them, breaking the versioned
+          # bundle layout and causing codesign "ambiguous bundle format" errors).
           if [ -d "$BIN_PATH/Sparkle.framework" ]; then
-            cp -R "$BIN_PATH/Sparkle.framework" /tmp/swift-arm64/
+            tar -C "$BIN_PATH" -cf /tmp/swift-arm64/Sparkle.framework.tar Sparkle.framework
           fi
           for bundle in "$BIN_PATH"/*.bundle; do
             [ -d "$bundle" ] && cp -R "$bundle" /tmp/swift-arm64/
@@ -713,9 +715,11 @@ jobs:
           BIN_PATH=$(swift build -c release --arch x86_64 --product vellum-assistant --show-bin-path)
           mkdir -p /tmp/swift-x86_64
           cp "$BIN_PATH/vellum-assistant" /tmp/swift-x86_64/
-          # Copy Sparkle framework and resource bundles (needed for app assembly)
+          # Archive Sparkle framework with tar to preserve symlinks (zip from
+          # actions/upload-artifact dereferences them, breaking the versioned
+          # bundle layout and causing codesign "ambiguous bundle format" errors).
           if [ -d "$BIN_PATH/Sparkle.framework" ]; then
-            cp -R "$BIN_PATH/Sparkle.framework" /tmp/swift-x86_64/
+            tar -C "$BIN_PATH" -cf /tmp/swift-x86_64/Sparkle.framework.tar Sparkle.framework
           fi
           for bundle in "$BIN_PATH"/*.bundle; do
             [ -d "$bundle" ] && cp -R "$bundle" /tmp/swift-x86_64/
@@ -797,8 +801,10 @@ jobs:
         run: |
           mkdir -p prebuilt-bin
           cp swift-arm64/vellum-assistant prebuilt-bin/vellum-assistant
-          # Copy Sparkle framework and resource bundles from arm64 build
-          if [ -d swift-arm64/Sparkle.framework ]; then
+          # Extract Sparkle framework from tar (preserves symlinks lost by zip)
+          if [ -f swift-arm64/Sparkle.framework.tar ]; then
+            tar -C prebuilt-bin -xf swift-arm64/Sparkle.framework.tar
+          elif [ -d swift-arm64/Sparkle.framework ]; then
             cp -R swift-arm64/Sparkle.framework prebuilt-bin/
           fi
           for bundle in swift-arm64/*.bundle; do
@@ -1106,8 +1112,10 @@ jobs:
         run: |
           mkdir -p prebuilt-bin
           cp swift-x86_64/vellum-assistant prebuilt-bin/vellum-assistant
-          # Copy Sparkle framework and resource bundles from x86_64 build
-          if [ -d swift-x86_64/Sparkle.framework ]; then
+          # Extract Sparkle framework from tar (preserves symlinks lost by zip)
+          if [ -f swift-x86_64/Sparkle.framework.tar ]; then
+            tar -C prebuilt-bin -xf swift-x86_64/Sparkle.framework.tar
+          elif [ -d swift-x86_64/Sparkle.framework ]; then
             cp -R swift-x86_64/Sparkle.framework prebuilt-bin/
           fi
           for bundle in swift-x86_64/*.bundle; do

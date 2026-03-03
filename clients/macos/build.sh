@@ -692,6 +692,49 @@ echo "Signing with: $SIGN_IDENTITY"
 # Sign components explicitly (Apple's recommended approach instead of --deep)
 # This ensures nested binaries with specific entitlements aren't overwritten
 
+# Repair Sparkle.framework versioned bundle symlinks.
+# When the framework passes through GitHub Actions artifact upload/download (zip),
+# symlinks are dereferenced into regular files/directories. This breaks the
+# versioned bundle layout and causes codesign to report "bundle format is
+# ambiguous (could be app or framework)". Recreating the symlinks restores
+# the canonical framework structure so codesign works on all macOS versions.
+repair_framework_symlinks() {
+    local fw_path="$1"
+    local version_name="$2"  # e.g. "B"
+    local version_dir="$fw_path/Versions/$version_name"
+
+    if [ ! -d "$version_dir" ]; then
+        return 0
+    fi
+
+    # Ensure Versions/Current symlink exists and points to the version
+    if [ ! -L "$fw_path/Versions/Current" ]; then
+        rm -rf "$fw_path/Versions/Current"
+        (cd "$fw_path/Versions" && ln -s "$version_name" Current)
+        echo "  Repaired Versions/Current -> $version_name"
+    fi
+
+    # Recreate top-level symlinks through Versions/Current
+    for item in "$version_dir"/*; do
+        local name
+        name=$(basename "$item")
+        local top_link="$fw_path/$name"
+        if [ -e "$top_link" ] && [ ! -L "$top_link" ]; then
+            rm -rf "$top_link"
+            (cd "$fw_path" && ln -s "Versions/Current/$name" "$name")
+            echo "  Repaired $name -> Versions/Current/$name"
+        elif [ ! -e "$top_link" ]; then
+            (cd "$fw_path" && ln -s "Versions/Current/$name" "$name")
+            echo "  Created $name -> Versions/Current/$name"
+        fi
+    done
+}
+
+if [ -d "$FRAMEWORKS_DIR/Sparkle.framework" ]; then
+    echo "Repairing Sparkle.framework symlinks (if needed)..."
+    repair_framework_symlinks "$FRAMEWORKS_DIR/Sparkle.framework" "B"
+fi
+
 # Sign Sparkle.framework — must sign nested binaries inside-out before the outer framework
 if [ -d "$FRAMEWORKS_DIR/Sparkle.framework" ]; then
     FW_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY")
@@ -713,9 +756,10 @@ if [ -d "$FRAMEWORKS_DIR/Sparkle.framework" ]; then
     [ -f "$SPARKLE_VERSIONS/Autoupdate" ] && codesign "${FW_SIGN_FLAGS[@]}" "$SPARKLE_VERSIONS/Autoupdate"
 
     # Sign the outer framework last
-    # --bundle-format framework is required on newer codesign versions because
-    # Sparkle's Versions/B layout is ambiguous (could be app or framework).
-    # Fall back to plain codesign if the flag isn't supported.
+    # After symlink repair above, the framework has a proper versioned layout
+    # and codesign should recognise it without --bundle-format. We still
+    # prefer --bundle-format framework (available on macOS 15+) as an extra
+    # safeguard, falling back to plain codesign on older systems.
     if codesign --bundle-format framework "${FW_SIGN_FLAGS[@]}" "$FRAMEWORKS_DIR/Sparkle.framework" 2>/dev/null; then
         :
     else

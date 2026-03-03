@@ -13,14 +13,83 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-check:
+  # Separate Swift build job — mirrors release.yml build-swift-arm64.
+  # Sparkle.framework is archived with tar to preserve symlinks through
+  # the artifact upload/download round-trip (zip dereferences them).
+  build-swift-arm64:
     if: contains(github.event.pull_request.labels.*.name, 'preview')
+    name: Swift Build (arm64)
+    runs-on: macos-14
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 16.2
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+
+      - name: Cache SPM build artifacts
+        uses: actions/cache@v4
+        with:
+          path: clients/.build
+          key: macos-spm-${{ hashFiles('clients/Package.resolved') }}-${{ hashFiles('clients/**/*.swift') }}
+          restore-keys: |
+            macos-spm-${{ hashFiles('clients/Package.resolved') }}-
+            macos-spm-
+
+      - name: Build Swift (arm64)
+        working-directory: clients
+        run: |
+          for attempt in 1 2 3; do
+            if swift build -c release --arch arm64 --product vellum-assistant; then
+              exit 0
+            fi
+            echo "warning: swift build failed (attempt $attempt/3), retrying in 10s..."
+            sleep 10
+          done
+          echo "ERROR: swift build failed after 3 attempts"
+          exit 1
+
+      - name: Stage build artifacts
+        working-directory: clients
+        run: |
+          BIN_PATH=$(swift build -c release --arch arm64 --product vellum-assistant --show-bin-path)
+          mkdir -p /tmp/swift-arm64
+          cp "$BIN_PATH/vellum-assistant" /tmp/swift-arm64/
+          # Archive Sparkle framework with tar to preserve symlinks (zip from
+          # actions/upload-artifact dereferences them, breaking the versioned
+          # bundle layout and causing codesign "ambiguous bundle format" errors).
+          if [ -d "$BIN_PATH/Sparkle.framework" ]; then
+            tar -C "$BIN_PATH" -cf /tmp/swift-arm64/Sparkle.framework.tar Sparkle.framework
+          fi
+          for bundle in "$BIN_PATH"/*.bundle; do
+            [ -d "$bundle" ] && cp -R "$bundle" /tmp/swift-arm64/
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: swift-build-arm64
+          path: /tmp/swift-arm64
+          retention-days: 1
+
+      - name: Run tests
+        working-directory: clients/macos
+        run: ./build.sh test
+
+  # App assembly job — mirrors release.yml build-macos-arm64.
+  # Downloads the Swift build artifact (with tar'd Sparkle), builds Bun
+  # binaries, assembles .app, codesigns, creates DMG, and notarizes.
+  build-macos-arm64:
+    needs: build-swift-arm64
     name: macOS Build
-    runs-on: macos-15
-    timeout-minutes: 45
+    runs-on: macos-14
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: clients/macos
     env:
-      VELLUM_FLAG_FEATURE_FLAG_EDITOR_ENABLED: "true"
       APP_DISPLAY_NAME: Vellum ${{ github.event.pull_request.number }}
+      DMG_PATH: build/vellum-assistant-pr-${{ github.event.pull_request.number }}.dmg
       KEYCHAIN_NAME: build.keychain
       KEYCHAIN_PASSWORD: temporary-ci-password
     steps:
@@ -60,14 +129,27 @@ jobs:
           security find-identity -v -p codesigning | grep -q "Developer ID Application" \
             || { echo "::error::Developer ID Application identity not found in keychain. Check the DEVID_CERTIFICATE_P12 secret."; exit 1; }
 
-      - name: Cache SPM build artifacts
-        uses: actions/cache@v4
+      - name: Download Swift build (arm64)
+        uses: actions/download-artifact@v4
         with:
-          path: clients/.build
-          key: macos-spm-${{ hashFiles('clients/Package.resolved') }}-${{ hashFiles('clients/**/*.swift') }}
-          restore-keys: |
-            macos-spm-${{ hashFiles('clients/Package.resolved') }}-
-            macos-spm-
+          name: swift-build-arm64
+          path: clients/macos/swift-arm64
+
+      - name: Prepare prebuilt binaries
+        run: |
+          mkdir -p prebuilt-bin
+          cp swift-arm64/vellum-assistant prebuilt-bin/vellum-assistant
+          # Extract Sparkle framework from tar (preserves symlinks lost by zip)
+          if [ -f swift-arm64/Sparkle.framework.tar ]; then
+            tar -C prebuilt-bin -xf swift-arm64/Sparkle.framework.tar
+          elif [ -d swift-arm64/Sparkle.framework ]; then
+            cp -R swift-arm64/Sparkle.framework prebuilt-bin/
+          fi
+          for bundle in swift-arm64/*.bundle; do
+            [ -d "$bundle" ] && cp -R "$bundle" prebuilt-bin/
+          done
+          echo "arm64 binary prepared:"
+          file prebuilt-bin/vellum-assistant
 
       - name: Cache Bun dependencies (assistant)
         uses: actions/cache@v4
@@ -96,35 +178,34 @@ jobs:
           bun-version: latest
 
       - name: Build binaries
-        working-directory: clients/macos
         run: ./build.sh binaries
 
       - name: Build release .app
-        working-directory: clients/macos
         run: |
-          SKIP_CLEAN=1 \
           BUNDLE_DISPLAY_NAME="$APP_DISPLAY_NAME" \
           SIGN_IDENTITY="Developer ID Application" \
+          PREBUILT_BIN_PATH="$(pwd)/prebuilt-bin" \
+          RELEASE_ARCH_FLAGS="--arch arm64" \
           ./build.sh release
-          ls -la "dist/$APP_DISPLAY_NAME.app"
 
-          codesign --verify --deep --strict "dist/$APP_DISPLAY_NAME.app"
+          APP_PATH="dist/$APP_DISPLAY_NAME.app"
+          ls -la "$APP_PATH"
+          codesign --verify --strict "$APP_PATH"
           echo "Code signature verified"
 
-      - name: Run tests
-        working-directory: clients/macos
-        run: ./build.sh test
+          echo "Main executable architecture:"
+          file "$APP_PATH/Contents/MacOS/$APP_DISPLAY_NAME"
 
       - name: Free disk space
-        working-directory: clients/macos
         run: |
-          rm -rf .build daemon-bin cli-bin gateway-bin
+          rm -rf .build daemon-bin cli-bin gateway-bin swift-arm64 prebuilt-bin
+          rm -rf ../../assistant/node_modules ../../cli/node_modules ../../gateway/node_modules
           rm -rf ~/Library/Developer/Xcode/DerivedData 2>/dev/null || true
           rm -rf ~/Library/Caches/org.swift.swiftpm 2>/dev/null || true
           df -h .
+          echo "Disk space freed"
 
       - name: Generate DMG background
-        working-directory: clients/macos
         run: |
           mkdir -p build
           swift dmg/generate-background.swift build/dmg-background@2x.png
@@ -133,9 +214,6 @@ jobs:
         run: brew install create-dmg
 
       - name: Create DMG
-        working-directory: clients/macos
-        env:
-          DMG_PATH: build/vellum-assistant-pr-${{ github.event.pull_request.number }}.dmg
         run: |
           APP_PATH="dist/$APP_DISPLAY_NAME.app"
 
@@ -171,9 +249,6 @@ jobs:
           ls -lh "$DMG_PATH"
 
       - name: Sign DMG
-        working-directory: clients/macos
-        env:
-          DMG_PATH: build/vellum-assistant-pr-${{ github.event.pull_request.number }}.dmg
         run: |
           codesign --sign "Developer ID Application" \
             --timestamp \
@@ -183,9 +258,7 @@ jobs:
           echo "DMG signature verified"
 
       - name: Notarize DMG
-        working-directory: clients/macos
         env:
-          DMG_PATH: build/vellum-assistant-pr-${{ github.event.pull_request.number }}.dmg
           ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
@@ -222,9 +295,6 @@ jobs:
           echo "Notarization succeeded (status: Accepted)"
 
       - name: Staple notarization ticket
-        working-directory: clients/macos
-        env:
-          DMG_PATH: build/vellum-assistant-pr-${{ github.event.pull_request.number }}.dmg
         run: |
           MAX_ATTEMPTS=15
           WAIT_SECS=60
