@@ -10,15 +10,11 @@
 import { join } from 'node:path';
 
 import { updatePublishedAppDeployment } from '../services/published-app-updater.js';
-import { openAppViaSurface } from '../tools/apps/open-proxy.js';
 import type { ToolExecutionResult } from '../tools/types.js';
 import { getWorkspaceDir } from '../util/platform.js';
 import { isDoordashCommand, updateDoordashProgress } from './doordash-steps.js';
 import type { ServerMessage } from './ipc-protocol.js';
-import {
-  refreshSurfacesForApp,
-  surfaceProxyResolver,
-} from './session-surfaces.js';
+import { refreshSurfacesForApp } from './session-surfaces.js';
 import type { ToolSetupContext } from './session-tool-setup.js';
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -37,20 +33,16 @@ export type PostExecutionHook = (
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-/** Shared logic for refreshing app surfaces, broadcasting changes, and auto-opening. */
+/** Shared logic for refreshing app surfaces, broadcasting changes, and triggering auto-deploy. */
 function handleAppChange(
   ctx: ToolSetupContext,
   appId: string,
   broadcastToAllClients: ((msg: ServerMessage) => void) | undefined,
   opts?: { fileChange?: boolean; status?: string },
 ): void {
-  const refreshed = refreshSurfacesForApp(ctx, appId, opts);
+  refreshSurfacesForApp(ctx, appId, opts);
   broadcastToAllClients?.({ type: 'app_files_changed', appId });
   void updatePublishedAppDeployment(appId);
-  if (!refreshed && !ctx.hasNoClient && !ctx.headlessLock) {
-    const resolver = (tn: string, pi: Record<string, unknown>) => surfaceProxyResolver(ctx, tn, pi);
-    void openAppViaSurface(appId, resolver);
-  }
 }
 
 // ── Registry ─────────────────────────────────────────────────────────
@@ -82,7 +74,6 @@ registerHook('app_create', (_name, _input, result, { ctx, broadcastToAllClients 
 });
 
 // Auto-refresh workspace surfaces when a persisted app is updated.
-// If no surface is currently showing the app, auto-open it.
 registerHook('app_update', (_name, input, _result, { ctx, broadcastToAllClients }) => {
   const appId = input.app_id as string | undefined;
   if (appId) {
@@ -109,7 +100,6 @@ registerHook(
 );
 
 // Auto-refresh workspace surfaces when app files are edited.
-// If no surface is currently showing the app, auto-open it.
 registerHook(
   ['app_file_edit', 'app_file_write'],
   (_name, input, _result, { ctx, broadcastToAllClients }) => {
