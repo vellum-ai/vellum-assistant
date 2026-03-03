@@ -59,6 +59,15 @@ const DEFAULT_INVITE_TTL_MS = INVITE_TOKEN_TTL_MS;
 /** Default runtime HTTP port — used for self-loop and runtime port detection. */
 const RUNTIME_PORT = 7821;
 
+/**
+ * Return the effective port for a parsed URL — the explicit port if present,
+ * otherwise the protocol default (443 for https, 80 for http).
+ */
+function getEffectivePort(parsed: URL): number {
+  if (parsed.port) return parseInt(parsed.port, 10);
+  return parsed.protocol === 'https:' ? 443 : 80;
+}
+
 // ---------------------------------------------------------------------------
 // Result types
 // ---------------------------------------------------------------------------
@@ -176,20 +185,21 @@ export function validateA2ATarget(
   }
 
   const hostname = parsed.hostname;
-  const port = parsed.port ? parseInt(parsed.port, 10) : (parsed.protocol === 'https:' ? 443 : 80);
+  const port = getEffectivePort(parsed);
 
   // Deny runtime port on any address
   if (port === RUNTIME_PORT) {
     return { ok: false, reason: `Port ${RUNTIME_PORT} is the daemon runtime port — use the gateway URL instead` };
   }
 
-  // Deny self-loop
+  // Deny self-loop — compare normalized effective ports so that implicit
+  // defaults (e.g. https://host vs https://host:443) are treated as equal.
   if (ownGatewayUrl) {
     try {
       const ownParsed = new URL(ownGatewayUrl);
       if (
         parsed.hostname === ownParsed.hostname &&
-        parsed.port === ownParsed.port &&
+        getEffectivePort(parsed) === getEffectivePort(ownParsed) &&
         parsed.protocol === ownParsed.protocol
       ) {
         return { ok: false, reason: 'Cannot connect to own gateway (self-loop)' };
@@ -245,8 +255,10 @@ function isLinkLocalAddress(hostname: string): boolean {
 function isLocalAddress(hostname: string): boolean {
   const lower = hostname.toLowerCase();
 
-  // Loopback and mDNS
-  if (lower === 'localhost' || lower === '::1' || lower.endsWith('.local')) {
+  // Loopback and mDNS — WHATWG URL parser returns bracketed hostnames for
+  // IPv6 addresses (e.g. new URL('http://[::1]:7830').hostname === '[::1]'),
+  // so we check both bare and bracketed forms.
+  if (lower === 'localhost' || lower === '::1' || lower === '[::1]' || lower.endsWith('.local')) {
     return true;
   }
 
@@ -456,6 +468,11 @@ export function initiateConnection(params: {
     return { ok: false, reason: 'invite_not_found' };
   }
 
+  // Must be an A2A invite — reject tokens created for other ingress flows
+  if (invite.sourceChannel !== A2A_SOURCE_CHANNEL) {
+    return { ok: false, reason: 'invite_not_found' };
+  }
+
   if (invite.status === 'redeemed') {
     return { ok: false, reason: 'invite_consumed' };
   }
@@ -619,19 +636,21 @@ export function submitVerificationCode(params: {
     return { ok: false, reason: 'invalid_state' };
   }
 
-  // Generate credentials
-  const credentials = generateCredentialPair();
-
-  // Update connection in store: set credentials and transition to active
-  updateConnectionCredentials(params.connectionId, {
-    outboundCredentialHash: credentials.outboundCredentialHash,
-    inboundCredentialHash: credentials.inboundCredentialHash,
-  });
-
+  // CAS transition to active FIRST — if another caller resolved/revoked the
+  // connection between verification and now, this fails and we avoid writing
+  // credentials to a non-active connection.
   const updatedConnection = updateConnectionStatus(params.connectionId, 'active', 'pending');
   if (!updatedConnection) {
     return { ok: false, reason: 'invalid_state' };
   }
+
+  // Generate and persist credentials only after successful status transition
+  const credentials = generateCredentialPair();
+
+  updateConnectionCredentials(params.connectionId, {
+    outboundCredentialHash: credentials.outboundCredentialHash,
+    inboundCredentialHash: credentials.inboundCredentialHash,
+  });
 
   // Clean up handshake session — connection is now active
   handshakeSessions.delete(params.connectionId);
