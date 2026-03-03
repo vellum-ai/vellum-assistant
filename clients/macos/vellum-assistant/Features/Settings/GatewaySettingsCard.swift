@@ -25,19 +25,6 @@ struct GatewaySettingsCard: View {
                     .foregroundColor(VColor.textMuted)
             }
 
-            // Running status row — its own dedicated row at the top of card content
-            HStack {
-                InlineConnectionStatus(
-                    status: gatewayStatusInfo,
-                    isRefreshing: store.isCheckingGateway,
-                    lastChecked: store.gatewayLastChecked,
-                    accessibilityLabel: "gateway"
-                ) {
-                    Task { await store.testGatewayOnly() }
-                }
-                Spacer()
-            }
-
             // Local Gateway Target (read-only copyable address)
             Text("Local Gateway Target")
                 .font(VFont.inputLabel)
@@ -75,6 +62,16 @@ struct GatewaySettingsCard: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Copy gateway address")
                 .help("Copy address")
+
+                // Running status inline at end of address row
+                InlineConnectionStatus(
+                    status: gatewayStatusInfo,
+                    isRefreshing: store.isCheckingGateway,
+                    lastChecked: store.gatewayLastChecked,
+                    accessibilityLabel: "gateway"
+                ) {
+                    Task { await store.testGatewayOnly() }
+                }
             }
 
             Text("Point your tunnel (ngrok, Cloudflare, etc.) to this address.")
@@ -86,15 +83,15 @@ struct GatewaySettingsCard: View {
                 .font(VFont.inputLabel)
                 .foregroundColor(VColor.textSecondary)
 
-            TextField("https://your-tunnel.example.com", text: $gatewayUrlText)
-                .vInputStyle()
-                .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
-                .focused($isGatewayUrlFocused)
+            HStack(spacing: VSpacing.sm) {
+                TextField("https://your-tunnel.example.com", text: $gatewayUrlText)
+                    .vInputStyle()
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+                    .focused($isGatewayUrlFocused)
 
-            // Tunnel status — only shown when URL is non-empty (no "Not configured" state)
-            if !gatewayUrlText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                HStack {
+                // Tunnel status inline at end of URL row (only when URL is non-empty)
+                if !gatewayUrlText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     InlineConnectionStatus(
                         status: tunnelStatusInfo,
                         isRefreshing: store.isCheckingTunnel,
@@ -103,7 +100,6 @@ struct GatewaySettingsCard: View {
                     ) {
                         Task { await store.testTunnelOnly() }
                     }
-                    Spacer()
                 }
             }
 
