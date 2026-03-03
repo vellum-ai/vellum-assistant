@@ -2154,7 +2154,7 @@ The daemon uses a single fixed internal scope constant — `DAEMON_INTERNAL_ASSI
 
 The guardian trust system uses a three-valued `TrustClass` — `'guardian'`, `'trusted_contact'`, or `'unknown'` — as the single vocabulary for actor trust classification across all channels and runtime paths. There is no legacy `actorRole` concept; all trust decisions flow through `TrustClass`.
 
-**`GuardianRuntimeContext`** (in `src/daemon/session-runtime-assembly.ts`) is the single runtime carrier for trust state on channel-originated turns. It carries `trustClass`, guardian identity fields, and requester metadata. The `guardianPrincipalId` field is typed as `?: string` (optional but non-nullable) — a principal ID is present when a guardian binding exists but is never `null`.
+**`TrustContext`** (in `src/daemon/session-runtime-assembly.ts`) is the single runtime carrier for trust state on channel-originated turns. It carries `trustClass`, guardian identity fields, and requester metadata. The `guardianPrincipalId` field is typed as `?: string` (optional but non-nullable) — a principal ID is present when a guardian binding exists but is never `null`.
 
 **Explicit trust gates:** `trustClass` is a **required** field in `ToolContext` (in `src/tools/types.ts`). Every tool execution must carry a trust classification — the field is not optional. This ensures trust-gated tool policies (guardian control-plane restrictions, host-tool blocking for untrusted actors) cannot be bypassed by omitting the classification.
 
@@ -2168,7 +2168,7 @@ The guardian trust system uses a three-valued `TrustClass` — `'guardian'`, `'t
 
 | File                                         | Purpose                                                |
 | -------------------------------------------- | ------------------------------------------------------ |
-| `src/daemon/session-runtime-assembly.ts`     | `GuardianRuntimeContext` type definition               |
+| `src/daemon/session-runtime-assembly.ts`     | `TrustContext` type definition                        |
 | `src/tools/types.ts`                         | `ToolContext.trustClass` (required trust gate)         |
 | `src/runtime/channel-retry-sweep.ts`         | Strict `trustClass` parser for retry sweep             |
 | `src/memory/guardian-bindings.ts`            | `GuardianBinding` with required `guardianPrincipalId`  |

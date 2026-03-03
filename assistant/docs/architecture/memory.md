@@ -197,7 +197,7 @@ Runtime profile flow (per turn):
 
 ### Provenance-Aware Memory Pipeline
 
-Every persisted message carries provenance metadata (`provenanceTrustClass`, `provenanceSourceChannel`, etc.) derived from the `GuardianRuntimeContext` resolved by `guardian-context-resolver.ts`. This metadata records the trust class of the actor who produced the message and through which channel, enabling downstream trust decisions without re-resolving identity at read time.
+Every persisted message carries provenance metadata (`provenanceTrustClass`, `provenanceSourceChannel`, etc.) derived from the `TrustContext` resolved by `guardian-context-resolver.ts`. This metadata records the trust class of the actor who produced the message and through which channel, enabling downstream trust decisions without re-resolving identity at read time.
 
 Two trust gates enforce trust-class-based access control over the memory pipeline:
 

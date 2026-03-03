@@ -55,9 +55,6 @@ export interface TrustContext {
   denialReason?: "no_binding" | "no_identity";
 }
 
-/** @deprecated Use `TrustContext` instead. */
-export type GuardianRuntimeContext = TrustContext;
-
 /**
  * Inbound actor context for the `<inbound_actor_context>` block.
  *
@@ -91,7 +88,7 @@ export interface InboundActorContext {
 }
 
 /**
- * Construct an InboundActorContext from a legacy GuardianRuntimeContext.
+ * Construct an InboundActorContext from a TrustContext.
  *
  * Maps the runtime trust class into the model-facing inbound actor context.
  */
