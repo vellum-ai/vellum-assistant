@@ -555,7 +555,18 @@ struct MessageListView: View {
                 }
             }
             .onChange(of: messages.count) {
-                if isNearBottom && !isSuppressingBottomScroll {
+                // Anchor scroll takes priority: when a notification deep-link
+                // set anchorMessageId, retry scrolling to it as messages load
+                // (e.g., history arrives after a thread switch). This must run
+                // before the bottom-scroll branch to avoid competing scrollTo calls.
+                if let id = anchorMessageId, messages.contains(where: { $0.id == id }) {
+                    withAnimation {
+                        proxy.scrollTo(id, anchor: .center)
+                    }
+                    anchorMessageId = nil
+                    return
+                }
+                if isNearBottom && !isSuppressingBottomScroll && anchorMessageId == nil {
                     withAnimation(VAnimation.fast) {
                         proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
                     }
@@ -611,19 +622,6 @@ struct MessageListView: View {
                 // Only scroll and clear if the target message is already loaded;
                 // otherwise leave the anchor set so the messages-change handler
                 // can retry once history finishes loading.
-                if messages.contains(where: { $0.id == id }) {
-                    withAnimation {
-                        proxy.scrollTo(id, anchor: .center)
-                    }
-                    anchorMessageId = nil
-                }
-            }
-            .onChange(of: messages.count) {
-                // Retry anchor scroll when new messages arrive (e.g., history
-                // loads after a thread switch triggered by a notification
-                // deep-link). Uses messages.count instead of messages to avoid
-                // O(n) array equality checks on every streaming token.
-                guard let id = anchorMessageId else { return }
                 if messages.contains(where: { $0.id == id }) {
                     withAnimation {
                         proxy.scrollTo(id, anchor: .center)
