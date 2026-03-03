@@ -759,14 +759,14 @@ public final class SettingsStore: ObservableObject {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         APIKeyManager.setKey(trimmed, for: "elevenlabs")
-        syncKeyToDaemon(provider: "elevenlabs", value: trimmed)
+        syncCredentialToDaemon(name: "elevenlabs:api_key", value: trimmed)
         hasElevenLabsKey = true
         maskedElevenLabsKey = Self.maskKey(trimmed)
     }
 
     func clearElevenLabsKey() {
         APIKeyManager.deleteKey(for: "elevenlabs")
-        deleteKeyFromDaemon(provider: "elevenlabs")
+        deleteCredentialFromDaemon(name: "elevenlabs:api_key")
         hasElevenLabsKey = false
         maskedElevenLabsKey = ""
     }
@@ -989,19 +989,59 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    /// Re-sync all API keys to daemon on reconnect.
+    /// Notify the daemon that a credential was set (type: "credential", name: "service:field").
+    private func syncCredentialToDaemon(name: String, value: String) {
+        guard let http = resolveRuntimeHTTP() else { return }
+        guard let url = URL(string: "\(http.baseURL)/v1/secrets") else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(http.token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 5
+        let body: [String: String] = ["type": "credential", "name": name, "value": value]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        Task.detached {
+            _ = try? await URLSession.shared.data(for: request)
+        }
+    }
+
+    /// Notify the daemon that a credential was deleted.
+    private func deleteCredentialFromDaemon(name: String) {
+        guard let http = resolveRuntimeHTTP() else { return }
+        guard let url = URL(string: "\(http.baseURL)/v1/secrets") else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.setValue("Bearer \(http.token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 5
+        let body: [String: String] = ["type": "credential", "name": name]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        Task.detached {
+            _ = try? await URLSession.shared.data(for: request)
+        }
+    }
+
+    /// Re-sync all keys to daemon on reconnect, including deletions for cleared keys.
     private func syncAllKeysToDaemon() {
-        let providers: [(String, String?)] = [
+        let apiKeyProviders: [(String, String?)] = [
             ("anthropic", APIKeyManager.getKey()),
             ("brave", APIKeyManager.getKey(for: "brave")),
             ("perplexity", APIKeyManager.getKey(for: "perplexity")),
             ("gemini", APIKeyManager.getKey(for: "gemini")),
-            ("elevenlabs", APIKeyManager.getKey(for: "elevenlabs")),
         ]
-        for (provider, value) in providers {
+        for (provider, value) in apiKeyProviders {
             if let key = value {
                 syncKeyToDaemon(provider: provider, value: key)
+            } else {
+                deleteKeyFromDaemon(provider: provider)
             }
+        }
+
+        // ElevenLabs uses the credential type, not api_key
+        if let key = APIKeyManager.getKey(for: "elevenlabs") {
+            syncCredentialToDaemon(name: "elevenlabs:api_key", value: key)
+        } else {
+            deleteCredentialFromDaemon(name: "elevenlabs:api_key")
         }
     }
 
