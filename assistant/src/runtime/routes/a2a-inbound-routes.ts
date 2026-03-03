@@ -130,8 +130,9 @@ export async function handleA2AMessageInbound(
     return httpError('UNAUTHORIZED', 'Invalid signature', 401);
   }
 
-  // Message deduplication: check (connectionId, nonce) before processing
-  if (defaultMessageDedupStore.isDuplicate(envelope.connectionId, envelope.nonce)) {
+  // Message deduplication: check-only (don't record yet — record after successful processing
+  // so that transient failures allow the peer to retry delivery)
+  if (defaultMessageDedupStore.isKnown(envelope.connectionId, envelope.nonce)) {
     log.info(
       { connectionId: envelope.connectionId, messageId: envelope.messageId },
       'Duplicate A2A message, returning accepted',
@@ -197,6 +198,10 @@ export async function handleA2AMessageInbound(
       'assistant',             // sourceChannel
       'assistant',             // sourceInterface
     );
+
+    // Record the nonce only after successful processing so transient failures
+    // don't permanently mark the message as "seen" (allowing peer retries).
+    defaultMessageDedupStore.record(envelope.connectionId, envelope.nonce);
 
     log.info(
       {
