@@ -1,12 +1,13 @@
 /**
  * Shared inbound trust resolution for channel actors.
  *
- * Provides routing-state helpers and a convenience wrapper around
- * resolveActorTrust that converts the result to a TrustContext.
+ * Provides routing-state helpers and a convenience wrapper
+ * ({@link resolveTrustContext}) around {@link resolveActorTrust} that
+ * converts the result to a {@link TrustContext}.
  *
- * Trust resolution itself lives in actor-trust-resolver.ts; the resolved
- * ActorTrustContext is converted to TrustContext via
- * toTrustContext.
+ * Trust resolution itself lives in `actor-trust-resolver.ts`; the resolved
+ * {@link ActorTrustContext} is converted to {@link TrustContext} via
+ * {@link toTrustContext}.
  */
 import type { TrustContext } from '../daemon/session-runtime-assembly.js';
 import {

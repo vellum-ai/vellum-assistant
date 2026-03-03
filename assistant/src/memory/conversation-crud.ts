@@ -52,7 +52,12 @@ export const messageMetadataSchema = z
     userMessageInterface: interfaceIdSchema.optional(),
     assistantMessageInterface: interfaceIdSchema.optional(),
     subagentNotification: subagentNotificationSchema.optional(),
-    // Provenance fields for trust-aware memory gating (M3)
+    /**
+     * Trust class of the actor at the time this message was persisted.
+     * This is a durable snapshot -- it does NOT change if the actor's
+     * trust status changes later. Used by the memory write gate (indexer)
+     * and read gate (session history loading) to enforce trust-aware access.
+     */
     provenanceTrustClass: z
       .enum(["guardian", "trusted_contact", "unknown"])
       .optional(),

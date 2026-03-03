@@ -1,6 +1,7 @@
 import type { SecretPromptResult } from '../permissions/secret-prompter.js';
 import type { AllowlistOption, RiskLevel, ScopeOption } from '../permissions/types.js';
 import type { ContentBlock,ToolDefinition } from '../providers/types.js';
+import type { TrustClass } from '../runtime/actor-trust-resolver.js';
 import type { SensitiveOutputBinding } from './sensitive-output-placeholders.js';
 
 export type ExecutionTarget = 'sandbox' | 'host';
@@ -137,8 +138,13 @@ export interface ToolContext {
   proxyApprovalCallback?: import('./network/script-proxy/types.js').ProxyApprovalCallback;
   /** Optional principal identifier propagated to sub-tool confirmation flows. */
   principal?: string;
-  /** Inbound trust classification for the session — used by trust/policy gates. */
-  trustClass: 'guardian' | 'trusted_contact' | 'unknown';
+  /**
+   * Trust classification of the actor who initiated this tool invocation.
+   * Determines permission level: guardians self-approve, trusted contacts
+   * may escalate to guardian for approval, unknown actors are fail-closed.
+   * See {@link TrustClass} in actor-trust-resolver.ts for value semantics.
+   */
+  trustClass: TrustClass;
   /** Channel through which the tool invocation originates (e.g. 'telegram', 'voice'). Used for scoped grant consumption. */
   executionChannel?: string;
   /** Voice/call session ID, if the invocation originates from a call. Used for scoped grant consumption. */

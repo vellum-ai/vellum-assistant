@@ -2,6 +2,7 @@ import { createHash } from 'crypto';
 import { desc, eq } from 'drizzle-orm';
 
 import type { MemoryConfig } from '../config/types.js';
+import type { TrustClass } from '../runtime/actor-trust-resolver.js';
 import { getLogger } from '../util/logger.js';
 import { getMemoryCheckpoint, setMemoryCheckpoint } from './checkpoints.js';
 import { getDb } from './db.js';
@@ -22,8 +23,13 @@ export interface IndexMessageInput {
   content: string;
   createdAt: number;
   scopeId?: string;
-  // Provenance for trust-aware extraction gating (M3)
-  provenanceTrustClass?: 'guardian' | 'trusted_contact' | 'unknown';
+  /**
+   * Trust class of the actor who produced this message, captured at
+   * persist time. When `'guardian'` or `undefined` (legacy), extraction
+   * and conflict resolution jobs run. Otherwise, the message is segmented
+   * and embedded but no profile mutations are triggered.
+   */
+  provenanceTrustClass?: TrustClass;
 }
 
 export interface IndexMessageResult {
