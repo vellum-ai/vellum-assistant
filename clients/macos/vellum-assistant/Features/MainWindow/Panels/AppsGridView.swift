@@ -176,6 +176,8 @@ struct AppsGridView: View {
                             Label(app.isPinned ? "Unpin" : "Pin", systemImage: app.isPinned ? "pin.slash" : "pin")
                         }
                         Button(role: .destructive) {
+                            hoveredAppId = nil
+                            NSCursor.pop()
                             appListManager.removeApp(id: app.id)
                         } label: {
                             Label("Delete", systemImage: "trash")
