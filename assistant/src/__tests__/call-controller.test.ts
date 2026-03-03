@@ -2138,6 +2138,86 @@ describe("call-controller", () => {
     controller.destroy();
   });
 
+  test('silence timeout suppressed during in-call guardian consultation (pendingGuardianInput)', async () => {
+    mockSilenceTimeoutMs = 50; // Short timeout for testing
+    mockConsultationTimeoutMs = 10_000; // Long enough to not interfere
+
+    // LLM emits an ASK_GUARDIAN marker so the controller creates a pendingGuardianInput
+    mockStartVoiceTurn.mockImplementation(
+      createMockVoiceTurn(["Let me check with your guardian. [ASK_GUARDIAN: Can this caller access the account?]"]),
+    );
+    const { relay, controller } = setupController();
+
+    // Trigger a turn that creates a pending guardian input request
+    await controller.handleCallerUtterance("I need to access the account");
+    // Allow turn to complete
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Verify a guardian input request is now pending
+    expect(controller.getPendingConsultationQuestionId()).not.toBeNull();
+    // Relay state is still 'connected' (not 'awaiting_guardian_decision')
+    expect(relay.mockConnectionState).toBe("connected");
+
+    // Clear any tokens from the turn itself
+    relay.sentTokens.length = 0;
+
+    // Wait for the silence timeout to fire
+    await new Promise((r) => setTimeout(r, 200));
+
+    // "Are you still there?" should NOT have been sent because
+    // pendingGuardianInput is active
+    const silenceTokens = relay.sentTokens.filter((t) =>
+      t.token.includes("Are you still there?"),
+    );
+    expect(silenceTokens.length).toBe(0);
+
+    controller.destroy();
+  });
+
+  test('silence nudge resumes after guardian consultation resolves', async () => {
+    mockSilenceTimeoutMs = 50; // Short timeout for testing
+    mockConsultationTimeoutMs = 10_000; // Long enough to not interfere
+
+    // LLM emits an ASK_GUARDIAN marker so the controller creates a pendingGuardianInput
+    mockStartVoiceTurn.mockImplementation(
+      createMockVoiceTurn(["Let me check. [ASK_GUARDIAN: Is this approved?]"]),
+    );
+    const { relay, controller } = setupController();
+
+    // Trigger a turn that creates a pending guardian input request
+    await controller.handleCallerUtterance("Can I do this?");
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Verify guardian input request is pending
+    expect(controller.getPendingConsultationQuestionId()).not.toBeNull();
+
+    // Now resolve the consultation by providing an answer
+    // Mock the next LLM turn for the answer-driven follow-up
+    mockStartVoiceTurn.mockImplementation(
+      createMockVoiceTurn(["Great news, your guardian approved the request."]),
+    );
+    await controller.handleUserAnswer("Yes, approved");
+    // Allow the answer-driven turn to complete
+    await new Promise((r) => setTimeout(r, 100));
+
+    // Guardian input request should now be cleared
+    expect(controller.getPendingConsultationQuestionId()).toBeNull();
+
+    // Clear tokens from the answer turn
+    relay.sentTokens.length = 0;
+
+    // Wait for the silence timeout to fire again
+    await new Promise((r) => setTimeout(r, 200));
+
+    // "Are you still there?" SHOULD fire now that guardian wait is resolved
+    const silenceTokens = relay.sentTokens.filter((t) =>
+      t.token.includes("Are you still there?"),
+    );
+    expect(silenceTokens.length).toBe(1);
+
+    controller.destroy();
+  });
+
   // ── Pointer message regression tests ─────────────────────────────
 
   test("END_CALL marker writes completed pointer to origin conversation", async () => {

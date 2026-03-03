@@ -44,11 +44,13 @@ const log = getLogger('call-controller');
 type ControllerState = 'idle' | 'processing' | 'speaking';
 
 /**
- * Tracks a pending guardian consultation independently of the controller's
+ * Tracks a pending guardian input request independently of the controller's
  * turn state. This allows the call to continue normal turn processing
- * (idle -> processing -> speaking) while a consultation is outstanding.
+ * (idle -> processing -> speaking) while a guardian consultation is outstanding.
+ * Also used to suppress the silence nudge ("Are you still there?") while
+ * the caller is waiting on a guardian decision.
  */
-interface PendingConsultation {
+interface PendingGuardianInput {
   questionText: string;
   questionId: string;
   toolApprovalMeta: { toolName: string; inputDigest: string } | null;
@@ -191,16 +193,17 @@ export class CallController {
   private durationTimer: ReturnType<typeof setTimeout> | null = null;
   private durationWarningTimer: ReturnType<typeof setTimeout> | null = null;
   /**
-   * Tracks the currently pending guardian consultation, if any. Decoupled
+   * Tracks the currently pending guardian input request, if any. Decoupled
    * from the controller's turn state so callers can continue to trigger
-   * normal turns while consultation is outstanding.
+   * normal turns while a guardian consultation is outstanding. Also
+   * suppresses the silence nudge while non-null.
    */
-  private pendingConsultation: PendingConsultation | null = null;
+  private pendingGuardianInput: PendingGuardianInput | null = null;
   private durationEndTimer: ReturnType<typeof setTimeout> | null = null;
   private task: string | null;
   /** True when the call session was created via the inbound path (no outbound task). */
   private isInbound: boolean;
-  /** Instructions queued while an LLM turn is in-flight or during pending consultation */
+  /** Instructions queued while an LLM turn is in-flight or during pending guardian input */
   private pendingInstructions: string[] = [];
   /** Ensures the call opener is triggered at most once per call. */
   private initialGreetingStarted = false;
@@ -271,7 +274,7 @@ export class CallController {
    * incoming answers to the correct consultation record.
    */
   getPendingConsultationQuestionId(): string | null {
-    return this.pendingConsultation?.questionId ?? null;
+    return this.pendingGuardianInput?.questionId ?? null;
   }
 
   /**
@@ -357,7 +360,7 @@ export class CallController {
    * speaking.
    */
   async handleUserAnswer(answerText: string): Promise<boolean> {
-    if (!this.pendingConsultation) {
+    if (!this.pendingGuardianInput) {
       log.warn(
         { callSessionId: this.callSessionId, state: this.state },
         'handleUserAnswer called but no pending consultation exists',
@@ -366,8 +369,8 @@ export class CallController {
     }
 
     // Clear the consultation timeout and record
-    clearTimeout(this.pendingConsultation.timer);
-    this.pendingConsultation = null;
+    clearTimeout(this.pendingGuardianInput.timer);
+    this.pendingGuardianInput = null;
 
     updateCallSession(this.callSessionId, { status: 'in_progress' });
 
@@ -436,7 +439,7 @@ export class CallController {
     if (this.silenceTimer) clearTimeout(this.silenceTimer);
     if (this.durationTimer) clearTimeout(this.durationTimer);
     if (this.durationWarningTimer) clearTimeout(this.durationWarningTimer);
-    if (this.pendingConsultation) { clearTimeout(this.pendingConsultation.timer); this.pendingConsultation = null; }
+    if (this.pendingGuardianInput) { clearTimeout(this.pendingGuardianInput.timer); this.pendingGuardianInput = null; }
     if (this.durationEndTimer) { clearTimeout(this.durationEndTimer); this.durationEndTimer = null; }
     this.llmRunVersion++;
     this.abortCurrentTurn();
@@ -713,30 +716,30 @@ export class CallController {
           // the prior pending consultation (preserves tool scope on re-asks).
           const effectiveToolMeta = toolApprovalMeta
             ? { toolName: toolApprovalMeta.toolName, inputDigest: toolApprovalMeta.inputDigest }
-            : this.pendingConsultation?.toolApprovalMeta ?? null;
+            : this.pendingGuardianInput?.toolApprovalMeta ?? null;
 
           // Coalesce repeated identical asks: if a consultation is already
           // pending for the same tool/action (or same informational question),
           // avoid churning requests and just keep the existing one.
-          if (this.pendingConsultation) {
+          if (this.pendingGuardianInput) {
             const isSameToolAction =
-              effectiveToolMeta && this.pendingConsultation.toolApprovalMeta
-                ? effectiveToolMeta.toolName === this.pendingConsultation.toolApprovalMeta.toolName
-                  && effectiveToolMeta.inputDigest === this.pendingConsultation.toolApprovalMeta.inputDigest
-                : !effectiveToolMeta && !this.pendingConsultation.toolApprovalMeta;
+              effectiveToolMeta && this.pendingGuardianInput.toolApprovalMeta
+                ? effectiveToolMeta.toolName === this.pendingGuardianInput.toolApprovalMeta.toolName
+                  && effectiveToolMeta.inputDigest === this.pendingGuardianInput.toolApprovalMeta.inputDigest
+                : !effectiveToolMeta && !this.pendingGuardianInput.toolApprovalMeta;
 
             if (isSameToolAction) {
               // Same tool/action — coalesce. Keep the existing consultation
               // alive and skip creating a new request.
               log.info(
-                { callSessionId: this.callSessionId, questionId: this.pendingConsultation.questionId },
+                { callSessionId: this.callSessionId, questionId: this.pendingGuardianInput.questionId },
                 'Coalescing repeated ASK_GUARDIAN — same tool/action already pending',
               );
               recordCallEvent(this.callSessionId, 'guardian_consult_coalesced', { question: questionText });
               // Fall through to normal turn completion (idle + flushPendingInstructions)
             } else {
               // Materially different intent — supersede the old consultation.
-              clearTimeout(this.pendingConsultation.timer);
+              clearTimeout(this.pendingGuardianInput.timer);
 
               // Expire the previous consultation's storage records so stale
               // guardian answers cannot match the old request.
@@ -752,7 +755,7 @@ export class CallController {
                 );
               }
 
-              this.pendingConsultation = null;
+              this.pendingGuardianInput = null;
 
               // Dispatch the new consultation with effective tool metadata.
               // The previous request ID is passed through so the dispatch
@@ -773,10 +776,10 @@ export class CallController {
         // Without this, the consultation timeout can fire on an already-ended
         // call, overwriting 'completed' status back to 'in_progress' and
         // starting a new LLM turn on a dead session. Similarly, a late
-        // handleUserAnswer could be accepted since pendingConsultation is
+        // handleUserAnswer could be accepted since pendingGuardianInput is
         // still non-null.
-        if (this.pendingConsultation) {
-          clearTimeout(this.pendingConsultation.timer);
+        if (this.pendingGuardianInput) {
+          clearTimeout(this.pendingGuardianInput.timer);
 
           // Expire store-side consultation records so clients don't observe
           // a completed call with a dangling pendingQuestion, and guardian
@@ -787,7 +790,7 @@ export class CallController {
             expireCanonicalGuardianRequest(previousRequest.id);
           }
 
-          this.pendingConsultation = null;
+          this.pendingGuardianInput = null;
         }
 
         const currentSession = getCallSession(this.callSessionId);
@@ -928,7 +931,7 @@ export class CallController {
     // record, not the global controller state.
     const consultationTimer = setTimeout(() => {
       // Only fire if this consultation is still the active one
-      if (!this.pendingConsultation || this.pendingConsultation.questionId !== pendingQuestion.id) return;
+      if (!this.pendingGuardianInput || this.pendingGuardianInput.questionId !== pendingQuestion.id) return;
 
       log.info({ callSessionId: this.callSessionId }, 'Guardian consultation timed out');
 
@@ -960,7 +963,7 @@ export class CallController {
 
       // Expire pending questions and update call state
       expirePendingQuestions(this.callSessionId);
-      this.pendingConsultation = null;
+      this.pendingGuardianInput = null;
       updateCallSession(this.callSessionId, { status: 'in_progress' });
       this.guardianUnavailableForCall = true;
       recordCallEvent(this.callSessionId, 'guardian_consultation_timed_out', { question: questionText });
@@ -982,7 +985,7 @@ export class CallController {
       }
     }, getUserConsultationTimeoutMs());
 
-    this.pendingConsultation = {
+    this.pendingGuardianInput = {
       questionText,
       questionId: pendingQuestion.id,
       toolApprovalMeta: effectiveToolMeta,
@@ -1067,7 +1070,9 @@ export class CallController {
       // During guardian wait states, the relay heartbeat timer handles
       // periodic updates — suppress the generic "Are you still there?"
       // which is confusing when the caller is waiting on a decision.
-      if (this.relay.getConnectionState() === 'awaiting_guardian_decision') {
+      // Two paths: in-call consultation (pendingGuardianInput) and
+      // inbound access-request wait (relay state).
+      if (this.pendingGuardianInput !== null || this.relay.getConnectionState() === 'awaiting_guardian_decision') {
         log.debug({ callSessionId: this.callSessionId }, 'Silence timeout suppressed during guardian wait');
         return;
       }
