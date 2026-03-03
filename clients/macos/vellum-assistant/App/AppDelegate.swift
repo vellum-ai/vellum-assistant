@@ -136,6 +136,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     private var quickInputWindow: QuickInputWindow?
     private var quickInputHotKeyRef: EventHotKeyRef?
     private var quickInputEventHandlerRef: EventHandlerRef?
+    private var commandPaletteWindow: CommandPaletteWindow?
+    private var cmdKLocalMonitor: Any?
     public let services = AppServices()
     private let assistantCli = AssistantCli()
     public let updateManager = UpdateManager()
@@ -1876,6 +1878,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         registerGlobalHotkeyMonitor()
         registerQuickInputMonitor()
         registerFnVMonitor()
+        registerCmdKMonitor()
 
         globalHotkeyObserver = NotificationCenter.default
             .publisher(for: UserDefaults.didChangeNotification)
@@ -1976,6 +1979,36 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             _ = handler(event)
         }
         fnVLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
+    }
+
+    /// Registers Cmd+K as a local shortcut to open the command palette.
+    /// Only active when the app is focused (local monitor, not global).
+    private func registerCmdKMonitor() {
+        let handler: (NSEvent) -> NSEvent? = { [weak self] event in
+            // Cmd+K: keyCode 40 is kVK_ANSI_K
+            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            guard event.keyCode == 40,
+                  mods == [.command] else {
+                return event
+            }
+            Task { @MainActor in
+                guard self?.isBootstrapping != true else { return }
+                self?.toggleCommandPalette()
+            }
+            return nil // consume the event
+        }
+        cmdKLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
+    }
+
+    func toggleCommandPalette() {
+        if let window = commandPaletteWindow, window.isVisible {
+            window.dismiss()
+            return
+        }
+
+        let window = CommandPaletteWindow()
+        window.show()
+        commandPaletteWindow = window
     }
 
     func toggleQuickInput(aboveDock: Bool = false, requestScreenPermission: Bool? = nil) {
