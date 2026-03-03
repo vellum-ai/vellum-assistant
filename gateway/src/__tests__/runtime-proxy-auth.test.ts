@@ -22,11 +22,8 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     defaultAssistantId: undefined,
     unmappedPolicy: "reject",
     port: 7830,
-    runtimeBearerToken: undefined,
-    runtimeGatewayOriginSecret: undefined,
     runtimeProxyEnabled: true,
     runtimeProxyRequireAuth: true,
-    runtimeProxyBearerToken: TOKEN,
     shutdownDrainMs: 5000,
     runtimeTimeoutMs: 30000,
     runtimeMaxRetries: 2,
@@ -59,9 +56,6 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     trustProxy: false,
     ...overrides,
   };
-  if (merged.runtimeGatewayOriginSecret === undefined) {
-    merged.runtimeGatewayOriginSecret = merged.runtimeBearerToken;
-  }
   return merged;
 }
 
@@ -136,7 +130,7 @@ describe("runtime proxy auth enforcement", () => {
   test("auth not required: proxies without token", async () => {
     mockUpstream();
     const handler = createRuntimeProxyHandler(
-      makeConfig({ runtimeProxyRequireAuth: false, runtimeProxyBearerToken: undefined }),
+      makeConfig({ runtimeProxyRequireAuth: false}),
     );
     const req = new Request("http://localhost:7830/v1/health");
     const res = await handler(req);

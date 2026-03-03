@@ -27,11 +27,8 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     defaultAssistantId: undefined,
     unmappedPolicy: "reject",
     port: 7830,
-    runtimeBearerToken: undefined,
-    runtimeGatewayOriginSecret: undefined,
     runtimeProxyEnabled: false,
     runtimeProxyRequireAuth: true,
-    runtimeProxyBearerToken: undefined,
     shutdownDrainMs: 5000,
     runtimeTimeoutMs: 30000,
     runtimeMaxRetries: 2,
@@ -64,9 +61,6 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     trustProxy: false,
     ...overrides,
   };
-  if (merged.runtimeGatewayOriginSecret === undefined) {
-    merged.runtimeGatewayOriginSecret = merged.runtimeBearerToken;
-  }
   return merged;
 }
 
@@ -140,7 +134,7 @@ describe("createTwilioRelayWebsocketHandler", () => {
   });
 
   test("calls server.upgrade with callSessionId and config on valid request with query token", () => {
-    const config = makeConfig({ runtimeProxyBearerToken: TEST_TOKEN });
+    const config = makeConfig({});
     const handler = createTwilioRelayWebsocketHandler(config);
     const req = new Request(
       `http://localhost:7830/ws/twilio/relay?callSessionId=sess-42&token=${TEST_TOKEN}`,
@@ -160,7 +154,7 @@ describe("createTwilioRelayWebsocketHandler", () => {
   });
 
   test("calls server.upgrade when Authorization header provides valid token", () => {
-    const config = makeConfig({ runtimeProxyBearerToken: TEST_TOKEN });
+    const config = makeConfig({});
     const handler = createTwilioRelayWebsocketHandler(config);
     const req = new Request(
       "http://localhost:7830/ws/twilio/relay?callSessionId=sess-42",
@@ -174,7 +168,7 @@ describe("createTwilioRelayWebsocketHandler", () => {
   });
 
   test("returns 500 when server.upgrade fails", () => {
-    const config = makeConfig({ runtimeProxyBearerToken: TEST_TOKEN });
+    const config = makeConfig({});
     const handler = createTwilioRelayWebsocketHandler(config);
     const req = new Request(
       `http://localhost:7830/ws/twilio/relay?callSessionId=sess-1&token=${TEST_TOKEN}`,
@@ -215,7 +209,7 @@ describe("createTwilioRelayWebsocketHandler", () => {
   });
 
   test("returns 401 when token is missing from request", () => {
-    const config = makeConfig({ runtimeProxyBearerToken: TEST_TOKEN });
+    const config = makeConfig({});
     const handler = createTwilioRelayWebsocketHandler(config);
     const req = new Request(
       "http://localhost:7830/ws/twilio/relay?callSessionId=sess-1",
@@ -229,7 +223,7 @@ describe("createTwilioRelayWebsocketHandler", () => {
   });
 
   test("returns 401 when token is wrong", () => {
-    const config = makeConfig({ runtimeProxyBearerToken: TEST_TOKEN });
+    const config = makeConfig({});
     const handler = createTwilioRelayWebsocketHandler(config);
     const req = new Request(
       "http://localhost:7830/ws/twilio/relay?callSessionId=sess-1&token=wrong-token",

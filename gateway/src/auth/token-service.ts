@@ -69,6 +69,16 @@ export function initSigningKey(key: Buffer): void {
   signingKey = key;
 }
 
+/**
+ * Check whether the signing key has been initialized.
+ *
+ * Useful for test setup code that needs to ensure initSigningKey()
+ * has been called before minting tokens.
+ */
+export function isSigningKeyInitialized(): boolean {
+  return signingKey !== null;
+}
+
 function getSigningKey(): Buffer {
   if (!signingKey) {
     throw new Error('Auth signing key not initialized — call initSigningKey() during startup');

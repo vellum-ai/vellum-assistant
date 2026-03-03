@@ -34,22 +34,31 @@ mock.module('../../../config/env.js', () => ({
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../../assistant-scope.js';
 import { authenticateRequest } from '../middleware.js';
 import { initAuthSigningKey, mintToken } from '../token-service.js';
-import type { TokenClaims } from '../types.js';
+import type { TokenAudience, ScopeProfile } from '../types.js';
 
 const TEST_KEY = Buffer.from('test-signing-key-32-bytes-long!!');
 
-function mintValidToken(overrides?: Partial<TokenClaims>): string {
-  const now = Math.floor(Date.now() / 1000);
+function mintValidToken(overrides?: {
+  aud?: TokenAudience;
+  sub?: string;
+  scope_profile?: ScopeProfile;
+  policy_epoch?: number;
+  exp?: number;
+  ttlSeconds?: number;
+}): string {
+  // When exp is provided explicitly, compute ttlSeconds from it.
+  // Otherwise use a default 300-second TTL.
+  let ttl = overrides?.ttlSeconds ?? 300;
+  if (overrides?.exp !== undefined) {
+    const now = Math.floor(Date.now() / 1000);
+    ttl = overrides.exp - now;
+  }
   return mintToken({
-    iss: 'vellum-auth',
-    aud: 'vellum-daemon',
-    sub: 'actor:self:principal-test',
-    scope_profile: 'actor_client_v1',
-    exp: now + 300,
-    policy_epoch: 1,
-    iat: now,
-    jti: 'test-jti-' + Date.now(),
-    ...overrides,
+    aud: overrides?.aud ?? 'vellum-daemon',
+    sub: overrides?.sub ?? 'actor:self:principal-test',
+    scope_profile: overrides?.scope_profile ?? 'actor_client_v1',
+    policy_epoch: overrides?.policy_epoch ?? 1,
+    ttlSeconds: ttl,
   });
 }
 

@@ -28,11 +28,8 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     maxWebhookPayloadBytes: 1024 * 1024,
     port: 7830,
     routingEntries: [],
-    runtimeBearerToken: undefined,
-    runtimeGatewayOriginSecret: undefined,
     runtimeInitialBackoffMs: 500,
     runtimeMaxRetries: 2,
-    runtimeProxyBearerToken: "test-token",
     runtimeProxyEnabled: false,
     runtimeProxyRequireAuth: true,
     runtimeTimeoutMs: 30000,
@@ -64,9 +61,6 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     trustProxy: false,
     ...overrides,
   };
-  if (merged.runtimeGatewayOriginSecret === undefined) {
-    merged.runtimeGatewayOriginSecret = merged.runtimeBearerToken;
-  }
   return merged;
 }
 
@@ -132,7 +126,7 @@ describe("POST /internal/telegram/reconcile", () => {
   });
 
   test("returns 503 when no bearer token is configured", async () => {
-    const config = makeConfig({ runtimeProxyBearerToken: undefined });
+    const config = makeConfig({});
     const handler = createTelegramReconcileHandler(config);
     const res = await handler(makeRequest("POST", "any-token"));
     expect(res.status).toBe(503);
