@@ -1356,9 +1356,6 @@ jobs:
     needs: [bump-and-tag, ci-assistant, ci-cli, ci-gateway]
     runs-on: macos-14
     timeout-minutes: 15
-    continue-on-error: true
-    outputs:
-      actual_result: ${{ steps.report.outputs.status }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -1381,13 +1378,8 @@ jobs:
         working-directory: clients/ios
         run: ./build.sh test
 
-      - name: Report actual result
-        id: report
-        if: always()
-        run: echo "status=${{ job.status }}" >> "$GITHUB_OUTPUT"
-
   release-ios:
-    needs: [bump-and-tag, ci-assistant, ci-cli, ci-gateway]
+    needs: [bump-and-tag, build-ios, ci-assistant, ci-cli, ci-gateway]
     runs-on: macos-14
     timeout-minutes: 30
     env:
@@ -1629,6 +1621,7 @@ jobs:
             "${{ needs.publish-npm.result }}" \
             "${{ needs.publish-meta.result }}" \
             "${{ needs.build-macos.result }}" \
+            "${{ needs.build-ios.result }}" \
             "${{ needs.push-assistant-manifest.result }}" \
             "${{ needs.push-gateway-manifest.result }}" \
             "${{ needs.release.result }}" \
@@ -1659,7 +1652,7 @@ jobs:
           G=$(ci_icon "${{ needs.ci-gateway.result }}")
           P=$(ci_icon "${{ needs.ci-playwright.result }}")
           D=$(ci_icon "${{ needs.build-macos.result }}")
-          I=$(ci_icon "${{ needs.build-ios.outputs.actual_result }}")
+          I=$(ci_icon "${{ needs.build-ios.result }}")
           RI=$(ci_icon "${{ needs.release-ios.result }}")
           AI=$(ci_icon "${{ needs.push-assistant-manifest.result }}")
           GI=$(ci_icon "${{ needs.push-gateway-manifest.result }}")
