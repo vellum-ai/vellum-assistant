@@ -128,9 +128,17 @@ export async function executeAppCreate(
     const createPreview = { ...(preview ?? {}), context: 'app_create' as const };
     const extraInput = { preview: createPreview, open_mode: 'preview' };
     try {
-      await proxyToolResolver('app_open', { app_id: app.id, ...extraInput });
+      const openResult = await proxyToolResolver('app_open', { app_id: app.id, ...extraInput });
+      return {
+        content: JSON.stringify({ ...app, auto_opened: true, open_result: openResult.content }),
+        isError: false,
+      };
     } catch {
       // Preview emission failure is non-fatal — the app was created successfully.
+      return {
+        content: JSON.stringify({ ...app, auto_opened: false, auto_open_error: 'Failed to auto-open app. Use app_open to open it manually.' }),
+        isError: false,
+      };
     }
   }
 
