@@ -1279,9 +1279,6 @@ jobs:
   ci-assistant:
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    continue-on-error: true
-    outputs:
-      actual_result: ${{ steps.report.outputs.status }}
     steps:
       - uses: actions/checkout@v4
 
@@ -1306,11 +1303,6 @@ jobs:
         working-directory: assistant
         env:
           EXCLUDE_EXPERIMENTAL: 'true'
-
-      - name: Report actual result
-        id: report
-        if: always()
-        run: echo "status=${{ job.status }}" >> "$GITHUB_OUTPUT"
 
   ci-cli:
     runs-on: ubuntu-latest
@@ -1641,6 +1633,7 @@ jobs:
             "${{ needs.push-gateway-manifest.result }}" \
             "${{ needs.release.result }}" \
             "${{ needs.update-platform.result }}" \
+            "${{ needs.ci-assistant.result }}" \
             "${{ needs.ci-cli.result }}" \
             "${{ needs.ci-gateway.result }}" \
             "${{ needs.release-ios.result }}"; do
@@ -1661,7 +1654,7 @@ jobs:
           # Build CI status icons
           ci_icon() { if [ "$1" = "success" ]; then printf '✅'; else printf '❌'; fi; }
 
-          A=$(ci_icon "${{ needs.ci-assistant.outputs.actual_result }}")
+          A=$(ci_icon "${{ needs.ci-assistant.result }}")
           C=$(ci_icon "${{ needs.ci-cli.result }}")
           G=$(ci_icon "${{ needs.ci-gateway.result }}")
           P=$(ci_icon "${{ needs.ci-playwright.result }}")
