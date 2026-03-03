@@ -875,9 +875,7 @@ describe("round-trip: export -> validate -> preflight -> import", () => {
 
     const validationResult = validateVBundle(archiveData);
     expect(validationResult.is_valid).toBe(true);
-    expect(validationResult.manifest?.manifest_sha256).toBe(
-      headerSha ?? undefined,
-    );
+    expect(validationResult.manifest?.manifest_sha256).toBe(headerSha!);
   });
 });
 
@@ -905,9 +903,12 @@ describe("partial failure scenarios", () => {
     });
 
     expect(result.ok).toBe(false);
-    if (!result.ok && result.reason === "write_failed") {
-      expect(result.message).toBeDefined();
-      expect(result.message.length).toBeGreaterThan(0);
+    if (!result.ok) {
+      expect(result.reason).toBe("write_failed");
+      if (result.reason === "write_failed") {
+        expect(result.message).toBeDefined();
+        expect(result.message.length).toBeGreaterThan(0);
+      }
     }
 
     // Clean up
@@ -922,10 +923,13 @@ describe("partial failure scenarios", () => {
     });
 
     expect(result.ok).toBe(false);
-    if (!result.ok && result.reason === "validation_failed") {
-      expect(result.errors).toBeDefined();
-      expect(result.errors.length).toBeGreaterThan(0);
-      expect(result.errors[0].code).toBe("INVALID_GZIP");
+    if (!result.ok) {
+      expect(result.reason).toBe("validation_failed");
+      if (result.reason === "validation_failed") {
+        expect(result.errors).toBeDefined();
+        expect(result.errors.length).toBeGreaterThan(0);
+        expect(result.errors[0].code).toBe("INVALID_GZIP");
+      }
     }
   });
 
