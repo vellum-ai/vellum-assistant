@@ -86,12 +86,12 @@ import * as gmailBatchLabel from "./bundled-skills/messaging/tools/gmail-batch-l
 import * as gmailDownloadAttachment from "./bundled-skills/messaging/tools/gmail-download-attachment.js";
 import * as gmailDraft from "./bundled-skills/messaging/tools/gmail-draft.js";
 import * as gmailFilters from "./bundled-skills/messaging/tools/gmail-filters.js";
-import * as gmailSendDraft from "./bundled-skills/messaging/tools/gmail-send-draft.js";
 import * as gmailFollowUp from "./bundled-skills/messaging/tools/gmail-follow-up.js";
 import * as gmailForward from "./bundled-skills/messaging/tools/gmail-forward.js";
 import * as gmailLabel from "./bundled-skills/messaging/tools/gmail-label.js";
 import * as gmailListAttachments from "./bundled-skills/messaging/tools/gmail-list-attachments.js";
 import * as gmailOutreachScan from "./bundled-skills/messaging/tools/gmail-outreach-scan.js";
+import * as gmailSendDraft from "./bundled-skills/messaging/tools/gmail-send-draft.js";
 import * as gmailSendWithAttachments from "./bundled-skills/messaging/tools/gmail-send-with-attachments.js";
 import * as gmailSenderDigest from "./bundled-skills/messaging/tools/gmail-sender-digest.js";
 import * as gmailSummarizeThread from "./bundled-skills/messaging/tools/gmail-summarize-thread.js";
