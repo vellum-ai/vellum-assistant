@@ -205,7 +205,7 @@ export const AssistantConfigSchema = z.object({
     .number({ error: 'maxToolUseTurns must be a number' })
     .int('maxToolUseTurns must be an integer')
     .nonnegative('maxToolUseTurns must be a non-negative integer')
-    .default(40),
+    .default(0),
   thinking: ThinkingConfigSchema.default(ThinkingConfigSchema.parse({})),
   contextWindow: ContextWindowConfigSchema.default(ContextWindowConfigSchema.parse({})),
   memory: MemoryConfigSchema.default(MemoryConfigSchema.parse({})),

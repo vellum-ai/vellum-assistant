@@ -841,6 +841,7 @@ export async function runAgentLoopImpl(
 
     ctx.abortController = null;
     ctx.processing = false;
+    ctx.surfaceActionRequestIds.delete(ctx.currentRequestId ?? '');
     ctx.currentRequestId = undefined;
     ctx.currentActiveSurfaceId = undefined;
     ctx.allowedToolNames = undefined;
