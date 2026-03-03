@@ -187,6 +187,11 @@ struct AssistantProgressView: View {
                 processingStartDate = Date()
             }
         }
+        .onAppear {
+            if phase == .processing && processingStartDate == nil {
+                processingStartDate = Date()
+            }
+        }
     }
 
     // MARK: - Header Row
