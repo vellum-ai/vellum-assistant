@@ -126,10 +126,10 @@ Present these voices grouped by category:
 | Charlie | Casual, Australian               | `IKne3meq5aSn9XLyUdCD`        |
 | Liam    | Young, articulate                | `TX3LPaxmHKxFdv7VOQHJ`        |
 
-After the user picks a voice, set the shared voice ID (this updates both in-app TTS and phone calls):
+After the user picks a voice, use `voice_config_update` to set the shared voice ID. This writes to the config file (`elevenlabs.voiceId`) for phone calls **and** pushes to the macOS app via IPC (`ttsVoiceId`) for in-app TTS in one call:
 
-```bash
-vellum config set elevenlabs.voiceId "<selected-voice-id>"
+```
+voice_config_update setting="tts_voice_id" value="<selected-voice-id>"
 ```
 
 **If the user wants a voice not on this list**, they can browse more voices at https://elevenlabs.io/voice-library and provide the voice ID manually.
@@ -195,10 +195,10 @@ ElevenLabs is the TTS provider for all calls. This section covers advanced voice
 
 ### Changing the voice
 
-To switch to a different voice after initial setup, set the shared voice ID (updates both in-app TTS and phone calls):
+To switch to a different voice after initial setup, use `voice_config_update` to set the shared voice ID. This writes to the config file (`elevenlabs.voiceId`) for phone calls **and** pushes to the macOS app via IPC for in-app TTS:
 
-```bash
-vellum config set elevenlabs.voiceId "<new-voice-id>"
+```
+voice_config_update setting="tts_voice_id" value="<new-voice-id>"
 ```
 
 Browse more voices at https://elevenlabs.io/voice-library.
@@ -233,8 +233,8 @@ curl -s "https://api.elevenlabs.io/v2/voices?search=warm+female&page_size=10" \
 
 After the user picks a voice, set the shared voice ID:
 
-```bash
-vellum config set elevenlabs.voiceId "<selected-voice-id>"
+```
+voice_config_update setting="tts_voice_id" value="<selected-voice-id>"
 ```
 
 ### Voice tuning parameters

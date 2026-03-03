@@ -48,7 +48,7 @@ function mergeWithLegacyElevenLabsConfig(elevenlabs: ReturnType<typeof loadConfi
   const raw = loadRawConfig();
   const legacyPrefix = 'calls.voice.elevenlabs';
 
-  const fields = ['voiceModelId', 'speed', 'stability', 'similarityBoost'] as const;
+  const fields = ['voiceId', 'voiceModelId', 'speed', 'stability', 'similarityBoost'] as const;
   const topLevel = (raw.elevenlabs && typeof raw.elevenlabs === 'object') ? raw.elevenlabs as Record<string, unknown> : {};
 
   const merged = { ...elevenlabs };
