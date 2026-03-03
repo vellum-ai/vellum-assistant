@@ -11,7 +11,6 @@ const env: Record<string, string> = {
   TELEGRAM_BOT_TOKEN: "test-tok",
   TELEGRAM_WEBHOOK_SECRET: "wh-sec",
   ASSISTANT_RUNTIME_BASE_URL: "http://localhost:7821",
-  RUNTIME_BEARER_TOKEN: "test-runtime-token",
   GATEWAY_PORT: "7830",
   // GATEWAY_RUNTIME_PROXY_ENABLED intentionally unset → defaults to false
 };
@@ -38,7 +37,6 @@ const { createRuntimeProxyHandler } = await import(
 const { createRuntimeHealthProxyHandler } = await import(
   "../http/routes/runtime-health-proxy.js"
 );
-const { validateBearerToken } = await import("../http/auth/bearer.js");
 
 const config = loadConfig();
 
@@ -66,11 +64,8 @@ async function handleRequest(req: Request): Promise<Response> {
   }
 
   if (url.pathname === "/v1/health" && req.method === "GET") {
-    const authResult = validateBearerToken(
-      req.headers.get("authorization"),
-      config.runtimeBearerToken ?? "",
-    );
-    if (!authResult.authorized) {
+    const authHeader = req.headers.get("authorization");
+    if (!authHeader || !authHeader.toLowerCase().startsWith("bearer ")) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
     return runtimeHealthProxy.handleRuntimeHealth(req);

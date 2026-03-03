@@ -1,37 +1,51 @@
 /**
- * Refresh token service — mint, rotate, and validate refresh tokens.
+ * JWT credential minting and rotation service.
  *
- * Implements rotating single-use refresh tokens with:
- * - Absolute expiry (365 days)
- * - Inactivity expiry (90 days since last refresh)
- * - Replay detection (reuse of rotated token revokes entire family)
+ * Replaces the legacy actor-token-service + actor-refresh-token-service with
+ * JWT-based access tokens (aud=vellum-gateway) and opaque refresh tokens.
+ *
+ * Access tokens are standard JWTs with:
+ *   - aud: 'vellum-gateway'
+ *   - sub: 'actor:<externalAssistantId>:<guardianPrincipalId>'
+ *   - scope_profile: 'actor_client_v1'
+ *   - policy_epoch: CURRENT_POLICY_EPOCH
+ *   - 30-day TTL
+ *
+ * Refresh tokens remain opaque random bytes with hash-only storage,
+ * family tracking, and replay detection — reusing the existing
+ * actor-refresh-token-store infrastructure.
  */
 
 import { createHash, randomBytes } from 'node:crypto';
 
-import { getDb } from '../memory/db.js';
-import { getLogger } from '../util/logger.js';
+import { getDb } from '../../memory/db.js';
+import { getLogger } from '../../util/logger.js';
 import {
   createRefreshTokenRecord,
   findByTokenHash as findRefreshByHash,
   markRotated,
   revokeByDeviceBinding as revokeRefreshTokensByDevice,
   revokeFamily,
-} from './actor-refresh-token-store.js';
-import { hashToken, mintActorToken } from './actor-token-service.js';
+} from '../actor-refresh-token-store.js';
 import {
   createActorTokenRecord,
   revokeByDeviceBinding as revokeActorTokensByDevice,
-} from './actor-token-store.js';
+} from '../actor-token-store.js';
+import { getExternalAssistantId } from './external-assistant-id.js';
+import { CURRENT_POLICY_EPOCH } from './policy.js';
+import { hashToken, mintToken } from './token-service.js';
 
-const log = getLogger('actor-refresh-token-service');
+const log = getLogger('credential-service');
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Access token TTL: 30 days (reduced from 90). */
-const ACCESS_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+/** Access token TTL: 30 days in seconds. */
+const ACCESS_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
+
+/** Access token TTL in ms (for refresh-after hints). */
+const ACCESS_TOKEN_TTL_MS = ACCESS_TOKEN_TTL_SECONDS * 1000;
 
 /** Refresh token absolute expiry: 365 days from issuance. */
 const REFRESH_ABSOLUTE_TTL_MS = 365 * 24 * 60 * 60 * 1000;
@@ -53,51 +67,83 @@ export type RefreshErrorCode =
   | 'device_binding_mismatch'
   | 'revoked';
 
-export interface RefreshResult {
+export interface CredentialPairResult {
+  accessToken: string;
+  accessTokenExpiresAt: number;
+  refreshToken: string;
+  refreshTokenExpiresAt: number;
+  refreshAfter: number;
   guardianPrincipalId: string;
-  actorToken: string;
-  actorTokenExpiresAt: number;
+}
+
+export interface RotateResult {
+  guardianPrincipalId: string;
+  accessToken: string;
+  accessTokenExpiresAt: number;
   refreshToken: string;
   refreshTokenExpiresAt: number;
   refreshAfter: number;
 }
 
-export interface MintRefreshTokenResult {
-  refreshToken: string;
-  refreshTokenHash: string;
-  refreshTokenExpiresAt: number;
-  refreshAfter: number;
-}
-
 // ---------------------------------------------------------------------------
-// Mint a fresh refresh token (used by bootstrap/pairing)
+// Internal: refresh token helpers
 // ---------------------------------------------------------------------------
 
-/** Hash a raw refresh token for storage. Reuses the actor-token hash function. */
-function hashRefreshToken(token: string): string {
-  return hashToken(token);
-}
-
-/** Generate a cryptographically random refresh token. */
 function generateRefreshToken(): string {
   return randomBytes(32).toString('base64url');
 }
 
-/**
- * Mint a new refresh token and persist its hash.
- * Called during bootstrap, pairing, and rotation.
- */
-export function mintRefreshToken(params: {
+function hashRefreshToken(token: string): string {
+  return hashToken(token);
+}
+
+// ---------------------------------------------------------------------------
+// Internal: mint a JWT access token
+// ---------------------------------------------------------------------------
+
+function mintAccessToken(guardianPrincipalId: string): {
+  token: string;
+  tokenHash: string;
+  expiresAt: number;
+  issuedAt: number;
+} {
+  const externalAssistantId = getExternalAssistantId();
+  const sub = `actor:${externalAssistantId}:${guardianPrincipalId}`;
+
+  const token = mintToken({
+    aud: 'vellum-gateway',
+    sub,
+    scope_profile: 'actor_client_v1',
+    policy_epoch: CURRENT_POLICY_EPOCH,
+    ttlSeconds: ACCESS_TOKEN_TTL_SECONDS,
+  });
+
+  const now = Date.now();
+  return {
+    token,
+    tokenHash: hashToken(token),
+    expiresAt: now + ACCESS_TOKEN_TTL_MS,
+    issuedAt: now,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Internal: mint a fresh refresh token and persist its hash
+// ---------------------------------------------------------------------------
+
+function mintRefreshTokenInternal(params: {
   assistantId: string;
   guardianPrincipalId: string;
   hashedDeviceId: string;
   platform: string;
   familyId?: string;
-  /** When provided (during rotation), inherit the parent token's absolute expiry
-   *  instead of computing a fresh one. This ensures refresh rotation resets the
-   *  inactivity window but does NOT extend the absolute session lifetime. */
   absoluteExpiresAt?: number;
-}): MintRefreshTokenResult {
+}): {
+  refreshToken: string;
+  refreshTokenHash: string;
+  refreshTokenExpiresAt: number;
+  refreshAfter: number;
+} {
   const now = Date.now();
   const familyId = params.familyId ?? randomBytes(16).toString('hex');
   const refreshToken = generateRefreshToken();
@@ -125,9 +171,15 @@ export function mintRefreshToken(params: {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Public: mint credential pair (access token + refresh token)
+// ---------------------------------------------------------------------------
+
 /**
- * Mint both an access token and a refresh token for initial credential issuance.
+ * Mint a JWT access token and an opaque refresh token for initial issuance.
  * Used by bootstrap and pairing flows.
+ *
+ * Revokes any existing credentials for the device before minting.
  */
 export function mintCredentialPair(params: {
   assistantId: string;
@@ -135,39 +187,26 @@ export function mintCredentialPair(params: {
   deviceId: string;
   guardianPrincipalId: string;
   hashedDeviceId: string;
-}): {
-  actorToken: string;
-  actorTokenExpiresAt: number;
-  refreshToken: string;
-  refreshTokenExpiresAt: number;
-  refreshAfter: number;
-  guardianPrincipalId: string;
-} {
+}): CredentialPairResult {
   // Revoke any existing credentials for this device
   revokeActorTokensByDevice(params.assistantId, params.guardianPrincipalId, params.hashedDeviceId);
   revokeRefreshTokensByDevice(params.assistantId, params.guardianPrincipalId, params.hashedDeviceId);
 
-  // Mint new access token with 30-day TTL
-  const { token: actorToken, tokenHash: actorTokenHash, claims } = mintActorToken({
-    assistantId: params.assistantId,
-    platform: params.platform,
-    deviceId: params.deviceId,
-    guardianPrincipalId: params.guardianPrincipalId,
-    ttlMs: ACCESS_TOKEN_TTL_MS,
-  });
+  // Mint new JWT access token
+  const access = mintAccessToken(params.guardianPrincipalId);
 
   createActorTokenRecord({
-    tokenHash: actorTokenHash,
+    tokenHash: access.tokenHash,
     assistantId: params.assistantId,
     guardianPrincipalId: params.guardianPrincipalId,
     hashedDeviceId: params.hashedDeviceId,
     platform: params.platform,
-    issuedAt: claims.iat,
-    expiresAt: claims.exp,
+    issuedAt: access.issuedAt,
+    expiresAt: access.expiresAt,
   });
 
   // Mint new refresh token
-  const refresh = mintRefreshToken({
+  const refresh = mintRefreshTokenInternal({
     assistantId: params.assistantId,
     guardianPrincipalId: params.guardianPrincipalId,
     hashedDeviceId: params.hashedDeviceId,
@@ -175,8 +214,8 @@ export function mintCredentialPair(params: {
   });
 
   return {
-    actorToken,
-    actorTokenExpiresAt: claims.exp!,
+    accessToken: access.token,
+    accessTokenExpiresAt: access.expiresAt,
     refreshToken: refresh.refreshToken,
     refreshTokenExpiresAt: refresh.refreshTokenExpiresAt,
     refreshAfter: refresh.refreshAfter,
@@ -185,19 +224,20 @@ export function mintCredentialPair(params: {
 }
 
 // ---------------------------------------------------------------------------
-// Rotate (the core refresh operation)
+// Public: rotate credentials
 // ---------------------------------------------------------------------------
 
 /**
  * Rotate credentials: validate refresh token, revoke old, mint new pair.
  *
- * Returns either a successful result or an error code.
+ * Returns either a successful result or an error code. The rotation is
+ * wrapped in a SQLite transaction for atomicity.
  */
 export function rotateCredentials(params: {
   refreshToken: string;
   platform: string;
   deviceId: string;
-}): { ok: true; result: RefreshResult } | { ok: false; error: RefreshErrorCode } {
+}): { ok: true; result: RotateResult } | { ok: false; error: RefreshErrorCode } {
   const refreshTokenHash = hashRefreshToken(params.refreshToken);
   const hashedDeviceId = createHash('sha256').update(params.deviceId).digest('hex');
 
@@ -245,12 +285,10 @@ export function rotateCredentials(params: {
     return { ok: false, error: 'device_binding_mismatch' };
   }
 
-  // Wrap the entire rotate-revoke-remint sequence in a transaction so that
-  // partial failures (e.g., DB write error after revoking old tokens) roll back
-  // atomically instead of stranding device credentials.
+  // Wrap the entire rotate-revoke-remint sequence in a transaction
   const db = getDb();
   return db.transaction(() => {
-    // Mark old refresh token as rotated (atomic CAS — fails if a concurrent request already consumed it)
+    // Mark old refresh token as rotated (atomic CAS)
     const didRotate = markRotated(refreshTokenHash);
     if (!didRotate) {
       return { ok: false as const, error: 'refresh_reuse_detected' as const };
@@ -259,28 +297,23 @@ export function rotateCredentials(params: {
     // Revoke old access tokens for this device
     revokeActorTokensByDevice(record.assistantId, record.guardianPrincipalId, record.hashedDeviceId);
 
-    // Mint new access token
-    const { token: actorToken, tokenHash: actorTokenHash, claims } = mintActorToken({
-      assistantId: record.assistantId,
-      platform: params.platform,
-      deviceId: params.deviceId,
-      guardianPrincipalId: record.guardianPrincipalId,
-      ttlMs: ACCESS_TOKEN_TTL_MS,
-    });
+    // Mint new JWT access token
+    const access = mintAccessToken(record.guardianPrincipalId);
 
     createActorTokenRecord({
-      tokenHash: actorTokenHash,
+      tokenHash: access.tokenHash,
       assistantId: record.assistantId,
       guardianPrincipalId: record.guardianPrincipalId,
       hashedDeviceId: record.hashedDeviceId,
       platform: params.platform,
-      issuedAt: claims.iat,
-      expiresAt: claims.exp,
+      issuedAt: access.issuedAt,
+      expiresAt: access.expiresAt,
     });
 
-    // Mint new refresh token in the same family, inheriting the parent's absolute
-    // expiry so rotation resets inactivity but never extends the session lifetime.
-    const refresh = mintRefreshToken({
+    // Mint new refresh token in the same family, inheriting the parent's
+    // absolute expiry so rotation resets inactivity but never extends
+    // the session lifetime.
+    const refresh = mintRefreshTokenInternal({
       assistantId: record.assistantId,
       guardianPrincipalId: record.guardianPrincipalId,
       hashedDeviceId: record.hashedDeviceId,
@@ -298,8 +331,8 @@ export function rotateCredentials(params: {
       ok: true as const,
       result: {
         guardianPrincipalId: record.guardianPrincipalId,
-        actorToken,
-        actorTokenExpiresAt: claims.exp!,
+        accessToken: access.token,
+        accessTokenExpiresAt: access.expiresAt,
         refreshToken: refresh.refreshToken,
         refreshTokenExpiresAt: refresh.refreshTokenExpiresAt,
         refreshAfter: refresh.refreshAfter,

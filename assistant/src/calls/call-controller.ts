@@ -21,7 +21,7 @@ import { revokeScopedApprovalGrantsForContext } from '../memory/scoped-approval-
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
 import { computeToolApprovalDigest } from '../security/tool-approval-digest.js';
 import { getLogger } from '../util/logger.js';
-import { readHttpToken } from '../util/platform.js';
+import { mintDaemonDeliveryToken } from '../runtime/auth/token-service.js';
 import { getMaxCallDurationMs, getSilenceTimeoutMs, getUserConsultationTimeoutMs } from './call-constants.js';
 import { persistCallCompletionMessage } from './call-conversation-messages.js';
 import { addPointerMessage, formatDuration } from './call-pointer-messages.js';
@@ -949,7 +949,7 @@ export class CallController {
           canonicalDeliveries,
           this.assistantId,
           getGatewayInternalBaseUrl(),
-          readHttpToken() ?? undefined,
+          mintDaemonDeliveryToken(),
         ).catch((err) => {
           log.error(
             { err, callSessionId: this.callSessionId, requestId: pendingActionRequest.id },

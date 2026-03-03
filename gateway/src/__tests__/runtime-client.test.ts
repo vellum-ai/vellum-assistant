@@ -27,11 +27,8 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     defaultAssistantId: undefined,
     unmappedPolicy: "reject",
     port: 7830,
-    runtimeBearerToken: undefined,
-    runtimeGatewayOriginSecret: undefined,
     runtimeProxyEnabled: false,
     runtimeProxyRequireAuth: true,
-    runtimeProxyBearerToken: undefined,
     shutdownDrainMs: 5000,
     runtimeTimeoutMs: 30000,
     runtimeMaxRetries: 2,
@@ -64,9 +61,6 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     trustProxy: false,
     ...overrides,
   };
-  if (merged.runtimeGatewayOriginSecret === undefined) {
-    merged.runtimeGatewayOriginSecret = merged.runtimeBearerToken;
-  }
   return merged;
 }
 
@@ -193,7 +187,7 @@ describe("forwardToRuntime", () => {
       new Response(JSON.stringify(successBody), { status: 200 }),
     );
 
-    const config = makeConfig({ runtimeBearerToken: "my-secret-token" });
+    const config = makeConfig({});
     await forwardToRuntime(config, payload);
 
     const calledInit = (fetchMock.mock.calls[0] as unknown[])[1] as RequestInit;
@@ -270,7 +264,7 @@ describe("forwardTwilioVoiceWebhook", () => {
       }),
     );
 
-    const config = makeConfig({ runtimeBearerToken: "rt-tok" });
+    const config = makeConfig({});
     const params = { CallSid: "CA123", AccountSid: "AC456" };
     const originalUrl = "https://example.com/webhooks/twilio/voice?callSessionId=sess-1";
 
@@ -300,7 +294,7 @@ describe("forwardTwilioStatusWebhook", () => {
   test("sends params to runtime internal status endpoint", async () => {
     fetchMock = mock(async () => new Response(null, { status: 200 }));
 
-    const config = makeConfig({ runtimeBearerToken: "rt-tok" });
+    const config = makeConfig({});
     const params = { CallSid: "CA123", CallStatus: "completed" };
 
     const result = await forwardTwilioStatusWebhook(config, params);
@@ -329,7 +323,7 @@ describe("forwardTwilioConnectActionWebhook", () => {
       }),
     );
 
-    const config = makeConfig({ runtimeBearerToken: "rt-tok" });
+    const config = makeConfig({});
     const params = { CallSid: "CA123" };
 
     const result = await forwardTwilioConnectActionWebhook(config, params);

@@ -4,28 +4,29 @@
  * These endpoints let desktop clients fetch pending guardian prompts and
  * submit button decisions without relying on text parsing.
  *
- * All guardian action endpoints require a valid actor token via the
- * X-Actor-Token header (with local CLI fallback). Guardian decisions
- * additionally verify the actor is the bound guardian.
+ * All guardian action endpoints require a valid JWT bearer token.
+ * Auth is verified upstream by JWT middleware; the AuthContext is
+ * threaded through from the HTTP server layer.
+ *
+ * Guardian decisions additionally verify the actor is the bound guardian
+ * via the AuthContext's actorPrincipalId.
  */
 import {
   applyCanonicalGuardianDecision,
 } from '../../approvals/guardian-decision-primitive.js';
+import { isHttpAuthDisabled } from '../../config/env.js';
 import {
   type CanonicalGuardianRequest,
   getCanonicalGuardianRequest,
   listCanonicalGuardianRequests,
 } from '../../memory/canonical-guardian-store.js';
+import { getActiveBinding } from '../../memory/guardian-bindings.js';
 import type { ApprovalAction } from '../channel-approval-types.js';
+import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
+import type { AuthContext } from '../auth/types.js';
 import type { GuardianDecisionPrompt } from '../guardian-decision-types.js';
 import { buildDecisionActions } from '../guardian-decision-types.js';
 import { httpError } from '../http-errors.js';
-import {
-  isActorBoundGuardian,
-  isLocalFallbackBoundGuardian,
-  type ServerWithRequestIP,
-  verifyHttpActorTokenWithLocalFallback,
-} from '../middleware/actor-token.js';
 
 // ---------------------------------------------------------------------------
 // GET /v1/guardian-actions/pending?conversationId=...
@@ -33,23 +34,13 @@ import {
 
 /**
  * List pending guardian decision prompts for a conversation.
- * Requires a valid actor token.
+ * Auth is verified upstream by JWT middleware.
  *
  * Returns guardian approval requests (from the channel guardian store) that
  * are still pending, mapped to the GuardianDecisionPrompt shape so clients
  * can render structured button UIs.
  */
-export function handleGuardianActionsPending(req: Request, server: ServerWithRequestIP): Response {
-  const tokenResult = verifyHttpActorTokenWithLocalFallback(req, server);
-  if (!tokenResult.ok) {
-    return httpError(
-      tokenResult.status === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN',
-      tokenResult.message,
-      tokenResult.status,
-    );
-  }
-
-  const url = new URL(req.url);
+export function handleGuardianActionsPending(url: URL, _authContext: AuthContext): Response {
   const conversationId = url.searchParams.get('conversationId');
 
   if (!conversationId) {
@@ -65,28 +56,40 @@ export function handleGuardianActionsPending(req: Request, server: ServerWithReq
 // ---------------------------------------------------------------------------
 
 /**
+ * Verify that the actor from AuthContext is the bound guardian for the
+ * vellum channel. Returns an error Response if not, or null if allowed.
+ */
+function requireBoundGuardian(authContext: AuthContext): Response | null {
+  // Dev bypass: when auth is disabled, skip guardian binding check
+  // (mirrors enforcePolicy dev bypass in route-policy.ts)
+  if (isHttpAuthDisabled()) {
+    return null;
+  }
+  if (!authContext.actorPrincipalId) {
+    return httpError('FORBIDDEN', 'Actor is not the bound guardian for this channel', 403);
+  }
+  const binding = getActiveBinding(DAEMON_INTERNAL_ASSISTANT_ID, 'vellum');
+  if (!binding) {
+    // No binding yet -- in pre-bootstrap state, allow through
+    return null;
+  }
+  if (binding.guardianExternalUserId !== authContext.actorPrincipalId) {
+    return httpError('FORBIDDEN', 'Actor is not the bound guardian for this channel', 403);
+  }
+  return null;
+}
+
+/**
  * Submit a guardian action decision.
- * Requires a valid actor token for a bound guardian.
+ * Requires AuthContext with a bound guardian actor.
  *
  * Routes all decisions through the unified canonical guardian decision
  * primitive which handles CAS resolution, resolver dispatch, and grant
  * minting.
  */
-export async function handleGuardianActionDecision(req: Request, server: ServerWithRequestIP): Promise<Response> {
-  const tokenResult = verifyHttpActorTokenWithLocalFallback(req, server);
-  if (!tokenResult.ok) {
-    return httpError(
-      tokenResult.status === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN',
-      tokenResult.message,
-      tokenResult.status,
-    );
-  }
-  const isBoundGuardian = tokenResult.claims
-    ? isActorBoundGuardian(tokenResult.claims)
-    : isLocalFallbackBoundGuardian();
-  if (!isBoundGuardian) {
-    return httpError('FORBIDDEN', 'Actor is not the bound guardian for this channel', 403);
-  }
+export async function handleGuardianActionDecision(req: Request, authContext: AuthContext): Promise<Response> {
+  const guardianError = requireBoundGuardian(authContext);
+  if (guardianError) return guardianError;
 
   const body = await req.json() as {
     requestId?: string;
@@ -118,17 +121,9 @@ export async function handleGuardianActionDecision(req: Request, server: ServerW
     }
   }
 
-  // Resolve the actor's external user ID: from the token claims if present,
-  // otherwise from the vellum guardian binding (local fallback).
-  const actorExternalUserId = tokenResult.claims
-    ? tokenResult.claims.guardianPrincipalId
-    : tokenResult.guardianContext.guardianExternalUserId;
-
-  // Resolve the actor's principal ID: from the token claims if present,
-  // otherwise from the vellum guardian binding (local fallback).
-  const actorPrincipalId = tokenResult.claims
-    ? tokenResult.claims.guardianPrincipalId
-    : tokenResult.guardianContext.guardianPrincipalId ?? undefined;
+  // Resolve actor identity from the AuthContext (set by JWT middleware).
+  const actorExternalUserId = authContext.actorPrincipalId ?? undefined;
+  const actorPrincipalId = authContext.actorPrincipalId ?? undefined;
 
   const canonicalResult = await applyCanonicalGuardianDecision({
     requestId,
@@ -223,7 +218,7 @@ function mapCanonicalRequestToPrompt(
     ?? (req.toolName ? `Approve tool: ${req.toolName}` : `Guardian request: ${req.kind}`);
 
   // pending_question requests are typically voice-originated and need
-  // approve/reject only (no approve_always — guardian-on-behalf invariant).
+  // approve/reject only (no approve_always -- guardian-on-behalf invariant).
   const actions = buildDecisionActions({ forGuardianOnBehalf: true });
 
   const expiresAt = req.expiresAt

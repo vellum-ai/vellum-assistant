@@ -74,6 +74,7 @@ import {
 } from './session-process.js';
 import type { QueueDrainReason, QueueMetrics } from './session-queue-manager.js';
 import { MessageQueue } from './session-queue-manager.js';
+import type { AuthContext } from '../runtime/auth/types.js';
 import type { ChannelCapabilities, GuardianRuntimeContext } from './session-runtime-assembly.js';
 import type { SkillProjectionCache } from './session-skill-tools.js';
 import {
@@ -143,6 +144,7 @@ export class Session {
   /** @internal */ currentPage?: string;
   /** @internal */ channelCapabilities?: ChannelCapabilities;
   /** @internal */ guardianContext?: GuardianRuntimeContext;
+  /** @internal */ authContext?: AuthContext;
   /** @internal */ loadedHistoryTrustClass?: GuardianRuntimeContext['trustClass'];
   /** @internal */ voiceCallControlPrompt?: string;
   /** @internal */ assistantId?: string;
@@ -577,6 +579,14 @@ export class Session {
 
   setGuardianContext(ctx: GuardianRuntimeContext | null): void {
     this.guardianContext = ctx ?? undefined;
+  }
+
+  setAuthContext(ctx: AuthContext | null): void {
+    this.authContext = ctx ?? undefined;
+  }
+
+  getAuthContext(): AuthContext | undefined {
+    return this.authContext;
   }
 
   setVoiceCallControlPrompt(prompt: string | null): void {

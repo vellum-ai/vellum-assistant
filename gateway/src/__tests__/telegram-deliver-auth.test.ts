@@ -22,11 +22,8 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     defaultAssistantId: undefined,
     unmappedPolicy: "reject",
     port: 7830,
-    runtimeBearerToken: undefined,
-    runtimeGatewayOriginSecret: undefined,
     runtimeProxyEnabled: false,
     runtimeProxyRequireAuth: false,
-    runtimeProxyBearerToken: TOKEN,
     shutdownDrainMs: 5000,
     runtimeTimeoutMs: 30000,
     runtimeMaxRetries: 2,
@@ -59,9 +56,6 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     trustProxy: false,
     ...overrides,
   };
-  if (merged.runtimeGatewayOriginSecret === undefined) {
-    merged.runtimeGatewayOriginSecret = merged.runtimeBearerToken;
-  }
   return merged;
 }
 
@@ -105,7 +99,7 @@ describe("/deliver/telegram attachment delivery without assistantId", () => {
     });
 
     const handler = createTelegramDeliverHandler(
-      makeConfig({ runtimeProxyBearerToken: undefined, telegramDeliverAuthBypass: true }),
+      makeConfig({ telegramDeliverAuthBypass: true }),
     );
     const req = new Request("http://localhost:7830/deliver/telegram", {
       method: "POST",
@@ -158,7 +152,7 @@ describe("/deliver/telegram attachment delivery without assistantId", () => {
     });
 
     const handler = createTelegramDeliverHandler(
-      makeConfig({ runtimeProxyBearerToken: undefined, telegramDeliverAuthBypass: true }),
+      makeConfig({ telegramDeliverAuthBypass: true }),
     );
     const req = new Request("http://localhost:7830/deliver/telegram", {
       method: "POST",
@@ -209,7 +203,7 @@ describe("/deliver/telegram ID-only attachment validation", () => {
     });
 
     const handler = createTelegramDeliverHandler(
-      makeConfig({ runtimeProxyBearerToken: undefined, telegramDeliverAuthBypass: true }),
+      makeConfig({ telegramDeliverAuthBypass: true }),
     );
     const req = new Request("http://localhost:7830/deliver/telegram", {
       method: "POST",
@@ -234,7 +228,7 @@ describe("/deliver/telegram ID-only attachment validation", () => {
 
   test("rejects attachment missing id with 400", async () => {
     const handler = createTelegramDeliverHandler(
-      makeConfig({ runtimeProxyBearerToken: undefined, telegramDeliverAuthBypass: true }),
+      makeConfig({ telegramDeliverAuthBypass: true }),
     );
     const req = new Request("http://localhost:7830/deliver/telegram", {
       method: "POST",
@@ -275,7 +269,7 @@ describe("/deliver/telegram ID-only attachment validation", () => {
     });
 
     const handler = createTelegramDeliverHandler(
-      makeConfig({ runtimeProxyBearerToken: undefined, telegramDeliverAuthBypass: true }),
+      makeConfig({ telegramDeliverAuthBypass: true }),
     );
     const req = new Request("http://localhost:7830/deliver/telegram", {
       method: "POST",
@@ -362,7 +356,7 @@ describe("/deliver/telegram bearer auth enforcement", () => {
 
   test("returns 503 when no token is configured and bypass is not set", async () => {
     const handler = createTelegramDeliverHandler(
-      makeConfig({ runtimeProxyBearerToken: undefined }),
+      makeConfig({}),
     );
     const req = new Request("http://localhost:7830/deliver/telegram", {
       method: "POST",
@@ -379,7 +373,7 @@ describe("/deliver/telegram bearer auth enforcement", () => {
   test("allows unauthenticated access when bypass flag is set and no token configured", async () => {
     mockTelegramApi();
     const handler = createTelegramDeliverHandler(
-      makeConfig({ runtimeProxyBearerToken: undefined, telegramDeliverAuthBypass: true }),
+      makeConfig({ telegramDeliverAuthBypass: true }),
     );
     const req = new Request("http://localhost:7830/deliver/telegram", {
       method: "POST",

@@ -1,9 +1,32 @@
+import { execFileSync } from "child_process";
 import { existsSync, readFileSync, unlinkSync } from "fs";
+
+/**
+ * Verify that a PID belongs to a vellum-related process by inspecting its
+ * command line via `ps`. Prevents killing unrelated processes when a PID file
+ * is stale and the OS has reused the PID.
+ */
+function isVellumProcess(pid: number): boolean {
+  try {
+    const output = execFileSync("ps", ["-p", String(pid), "-o", "command="], {
+      encoding: "utf-8",
+      timeout: 3000,
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    // Match daemon binary, gateway binary, or bun-run source invocations
+    return /vellum|@vellumai/.test(output);
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Check if a PID file's process is alive.
  */
-export function isProcessAlive(pidFile: string): { alive: boolean; pid: number | null } {
+export function isProcessAlive(pidFile: string): {
+  alive: boolean;
+  pid: number | null;
+} {
   if (!existsSync(pidFile)) {
     return { alive: false, pid: null };
   }
@@ -26,7 +49,10 @@ export function isProcessAlive(pidFile: string): { alive: boolean; pid: number |
  * Stop a process by PID: SIGTERM, wait up to 2s, then SIGKILL if still alive.
  * Returns true if the process was stopped, false if it wasn't alive.
  */
-export async function stopProcess(pid: number, label: string): Promise<boolean> {
+export async function stopProcess(
+  pid: number,
+  label: string,
+): Promise<boolean> {
   try {
     process.kill(pid, 0);
   } catch {
@@ -70,11 +96,35 @@ export async function stopProcessByPidFile(
 
   if (!alive || pid === null) {
     if (existsSync(pidFile)) {
-      try { unlinkSync(pidFile); } catch {}
+      try {
+        unlinkSync(pidFile);
+      } catch {}
     }
     if (cleanupFiles) {
       for (const f of cleanupFiles) {
-        try { unlinkSync(f); } catch {}
+        try {
+          unlinkSync(f);
+        } catch {}
+      }
+    }
+    return false;
+  }
+
+  // Verify the PID actually belongs to a vellum process before killing.
+  // If the PID file is stale and the OS reused the PID, skip the kill
+  // and clean up the stale files instead.
+  if (!isVellumProcess(pid)) {
+    console.log(
+      `PID ${pid} is not a vellum process — cleaning up stale ${label} PID file.`,
+    );
+    try {
+      unlinkSync(pidFile);
+    } catch {}
+    if (cleanupFiles) {
+      for (const f of cleanupFiles) {
+        try {
+          unlinkSync(f);
+        } catch {}
       }
     }
     return false;
@@ -82,10 +132,14 @@ export async function stopProcessByPidFile(
 
   const stopped = await stopProcess(pid, label);
 
-  try { unlinkSync(pidFile); } catch {}
+  try {
+    unlinkSync(pidFile);
+  } catch {}
   if (cleanupFiles) {
     for (const f of cleanupFiles) {
-      try { unlinkSync(f); } catch {}
+      try {
+        unlinkSync(f);
+      } catch {}
     }
   }
 

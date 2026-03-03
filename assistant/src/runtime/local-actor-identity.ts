@@ -12,10 +12,12 @@
  */
 
 import type { ChannelId } from '../channels/types.js';
+import { buildIpcAuthContext } from '../daemon/ipc-handler.js';
 import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
 import { getActiveBinding } from '../memory/guardian-bindings.js';
 import { getLogger } from '../util/logger.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from './assistant-scope.js';
+import type { AuthContext } from './auth/types.js';
 import { resolveGuardianContext } from './guardian-context-resolver.js';
 import { ensureVellumGuardianBinding } from './guardian-vellum-migration.js';
 
@@ -77,4 +79,27 @@ export function resolveLocalIpcGuardianContext(
   // Overlay the caller's actual sourceChannel onto the resolved context
   // so downstream consumers see the correct channel provenance.
   return { ...guardianCtx, sourceChannel };
+}
+
+/**
+ * Build an AuthContext for a local IPC connection.
+ *
+ * Produces the same AuthContext shape that HTTP routes receive from JWT
+ * verification, using the `ipc_v1` scope profile. The `actorPrincipalId`
+ * is populated from the vellum guardian binding when available, enabling
+ * downstream code to resolve guardian context using the same
+ * `authContext.actorPrincipalId` path as HTTP sessions.
+ */
+export function resolveLocalIpcAuthContext(sessionId: string): AuthContext {
+  const authContext = buildIpcAuthContext(sessionId);
+
+  // Enrich with the guardian principal ID when a vellum binding exists,
+  // so downstream guardian resolution can use authContext.actorPrincipalId.
+  const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
+  const binding = getActiveBinding(assistantId, 'vellum');
+  if (binding) {
+    return { ...authContext, actorPrincipalId: binding.guardianExternalUserId };
+  }
+
+  return authContext;
 }
