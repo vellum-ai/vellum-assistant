@@ -144,3 +144,46 @@ export async function stopProcessByPidFile(
 
   return stopped;
 }
+
+/**
+ * Find and stop any vellum daemon processes that may not be tracked by a PID
+ * file. Scans `ps` output for processes matching known daemon command patterns:
+ *   - `vellum-daemon` (bundled binary in .app)
+ *   - `bun` running `daemon/main.ts` (source mode)
+ *
+ * Returns true if at least one process was stopped.
+ */
+export async function stopOrphanedDaemonProcesses(): Promise<boolean> {
+  let output: string;
+  try {
+    output = execFileSync("ps", ["-axww", "-o", "pid=,command="], {
+      encoding: "utf-8",
+      timeout: 5000,
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+  } catch {
+    return false;
+  }
+
+  let stopped = false;
+  for (const line of output.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const spaceIdx = trimmed.indexOf(" ");
+    if (spaceIdx === -1) continue;
+    const pid = parseInt(trimmed.slice(0, spaceIdx), 10);
+    if (isNaN(pid) || pid === process.pid) continue;
+    const cmd = trimmed.slice(spaceIdx + 1);
+
+    // Match known daemon process patterns
+    const isDaemon =
+      cmd.includes("vellum-daemon") ||
+      (cmd.includes("bun") && cmd.includes("daemon/main.ts"));
+
+    if (isDaemon) {
+      const result = await stopProcess(pid, "orphaned daemon");
+      if (result) stopped = true;
+    }
+  }
+  return stopped;
+}
