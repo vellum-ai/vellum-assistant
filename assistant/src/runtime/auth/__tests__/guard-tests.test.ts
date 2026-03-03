@@ -249,6 +249,7 @@ describe("scope profile contract", () => {
       "internal.write",
     ],
     ipc_v1: ["ipc.all"],
+    ui_page_v1: ["settings.read"],
   };
 
   for (const [profile, expectedScopes] of Object.entries(EXPECTED_PROFILES)) {
@@ -271,6 +272,7 @@ describe("scope profile contract", () => {
       "gateway_ingress_v1",
       "gateway_service_v1",
       "ipc_v1",
+      "ui_page_v1",
     ];
 
     for (const profile of profiles) {
