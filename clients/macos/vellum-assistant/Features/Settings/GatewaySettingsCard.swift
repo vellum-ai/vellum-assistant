@@ -62,6 +62,16 @@ struct GatewaySettingsCard: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Copy gateway address")
                 .help("Copy address")
+
+                // Retry button — always visible so user can recheck gateway status
+                Button {
+                    Task { await store.testGatewayOnly() }
+                } label: {
+                    SpinningRefreshIcon(isSpinning: store.isCheckingGateway)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Refresh gateway status")
+                .help(store.gatewayLastChecked != nil ? "Last checked: \(relativeGatewayTime)" : "Test gateway")
             }
 
             // Running badge — only shown when gateway is reachable
@@ -146,6 +156,15 @@ struct GatewaySettingsCard: View {
     }
 
     // MARK: - Connection Status Helpers
+
+    private var relativeGatewayTime: String {
+        guard let date = store.gatewayLastChecked else { return "unknown" }
+        let seconds = Int(-date.timeIntervalSinceNow)
+        if seconds < 5 { return "just now" }
+        if seconds < 60 { return "\(seconds)s ago" }
+        let minutes = seconds / 60
+        return "\(minutes)m ago"
+    }
 
     private var tunnelStatusInfo: ConnectionStatusInfo {
         let trimmedUrl = store.ingressPublicBaseUrl.trimmingCharacters(in: .whitespacesAndNewlines)
