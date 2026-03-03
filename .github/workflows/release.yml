@@ -635,7 +635,7 @@ jobs:
   # then build-macos merges them into a universal binary via lipo.
   build-swift-arm64:
     needs: [bump-and-tag, ci-cli, ci-gateway]
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 15
     outputs:
       version: ${{ needs.bump-and-tag.outputs.version }}
@@ -644,8 +644,8 @@ jobs:
         with:
           ref: "v${{ needs.bump-and-tag.outputs.version }}"
 
-      - name: Select Xcode 16.2
-        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+      - name: Select Xcode 26.2
+        run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
 
       - name: Build Swift (arm64)
         working-directory: clients
@@ -682,7 +682,7 @@ jobs:
 
   build-swift-x86_64:
     needs: [bump-and-tag, ci-cli, ci-gateway]
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 15
     outputs:
       version: ${{ needs.bump-and-tag.outputs.version }}
@@ -691,8 +691,8 @@ jobs:
         with:
           ref: "v${{ needs.bump-and-tag.outputs.version }}"
 
-      - name: Select Xcode 16.2
-        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+      - name: Select Xcode 26.2
+        run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
 
       - name: Build Swift (x86_64)
         working-directory: clients
@@ -732,7 +732,7 @@ jobs:
   # generates the Sparkle appcast. This is the primary/default build.
   build-macos-arm64:
     needs: [build-swift-arm64, ci-cli, ci-gateway]
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 30
     defaults:
       run:
@@ -746,8 +746,8 @@ jobs:
         with:
           ref: "v${{ needs.build-swift-arm64.outputs.version }}"
 
-      - name: Select Xcode 16.2
-        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+      - name: Select Xcode 26.2
+        run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
 
       - name: Import code-signing certificate
         env:
@@ -1041,7 +1041,7 @@ jobs:
   # Runs in parallel with build-macos-arm64 and does NOT block the release job.
   build-macos-x64:
     needs: [build-swift-x86_64, ci-cli, ci-gateway]
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 30
     continue-on-error: true
     defaults:
@@ -1056,8 +1056,8 @@ jobs:
         with:
           ref: "v${{ needs.build-swift-x86_64.outputs.version }}"
 
-      - name: Select Xcode 16.2
-        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+      - name: Select Xcode 26.2
+        run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
 
       - name: Import code-signing certificate
         env:
@@ -1563,15 +1563,15 @@ jobs:
 
   build-ios:
     needs: [bump-and-tag, ci-cli, ci-gateway]
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
           ref: "v${{ needs.bump-and-tag.outputs.version }}"
 
-      - name: Select Xcode 16.2
-        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+      - name: Select Xcode 26.2
+        run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
 
       - name: Install XcodeGen
         run: brew install xcodegen
@@ -1589,7 +1589,7 @@ jobs:
 
   release-ios:
     needs: [bump-and-tag, build-ios, ci-cli, ci-gateway]
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 30
     env:
       KEYCHAIN_NAME: ios-build.keychain
@@ -1599,8 +1599,8 @@ jobs:
         with:
           ref: "v${{ needs.bump-and-tag.outputs.version }}"
 
-      - name: Select Xcode 16.2
-        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+      - name: Select Xcode 26.2
+        run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
 
       - name: Import code-signing certificate
         env:
@@ -1697,7 +1697,7 @@ jobs:
 
   ci-playwright:
     needs: [bump-and-tag, build-macos-arm64]
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 60
     permissions:
       contents: read
