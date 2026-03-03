@@ -12,7 +12,7 @@ struct SettingsAccountTab: View {
 
     // -- Account / Vellum section state --
     @State private var platformUrlText: String = ""
-    @State private var isPlatformUrlFocused: Bool = false
+    @FocusState private var isPlatformUrlFocused: Bool
 
     // -- Assistant Info state (from SettingsAdvancedTab) --
     @State private var showingRetireConfirmation: Bool = false
@@ -126,7 +126,7 @@ struct SettingsAccountTab: View {
                         .vInputStyle()
                         .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
-                        .onFocusChange { focused in isPlatformUrlFocused = focused }
+                        .focused($isPlatformUrlFocused)
                     HStack(spacing: VSpacing.sm) {
                         VButton(label: "Save", style: .secondary, size: .medium) {
                             store.savePlatformBaseUrl(platformUrlText)
@@ -144,7 +144,7 @@ struct SettingsAccountTab: View {
                         .vInputStyle()
                         .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
-                        .onFocusChange { focused in isPlatformUrlFocused = focused }
+                        .focused($isPlatformUrlFocused)
                     HStack(spacing: VSpacing.sm) {
                         VButton(label: "Save", style: .secondary, size: .medium) {
                             store.savePlatformBaseUrl(platformUrlText)

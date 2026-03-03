@@ -10,7 +10,7 @@ struct GatewaySettingsCard: View {
     var daemonClient: DaemonClient?
 
     @State private var gatewayUrlText: String = ""
-    @State private var isGatewayUrlFocused: Bool = false
+    @FocusState private var isGatewayUrlFocused: Bool
     @State private var gatewayTargetCopied: Bool = false
     @State private var tunnelSetupExpanded: Bool = false
 
@@ -130,7 +130,7 @@ struct GatewaySettingsCard: View {
                 .vInputStyle()
                 .font(VFont.body)
                 .foregroundColor(VColor.textPrimary)
-                .onFocusChange { focused in isGatewayUrlFocused = focused }
+                .focused($isGatewayUrlFocused)
 
             HStack(spacing: VSpacing.sm) {
                 VButton(label: "Save", style: .secondary, size: .medium) {
