@@ -15,12 +15,26 @@ export interface Contact {
   principalId: string | null;
 }
 
+export type ChannelStatus = 'active' | 'pending' | 'revoked' | 'blocked' | 'unverified';
+export type ChannelPolicy = 'allow' | 'deny' | 'escalate';
+
 export interface ContactChannel {
   id: string;
   contactId: string;
   type: string;       // 'email' | 'slack' | 'whatsapp' | 'phone' | etc.
   address: string;
   isPrimary: boolean;
+  externalUserId: string | null;
+  externalChatId: string | null;
+  status: ChannelStatus;
+  policy: ChannelPolicy;
+  verifiedAt: number | null;
+  verifiedVia: string | null;
+  inviteId: string | null;
+  revokedReason: string | null;
+  blockedReason: string | null;
+  lastSeenAt: number | null;
+  updatedAt: number | null;
   createdAt: number;
 }
 

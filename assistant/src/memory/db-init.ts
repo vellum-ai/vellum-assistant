@@ -22,6 +22,7 @@ import {
   createWatchersAndLogsTables,
   migrateBackfillGuardianPrincipalId,
   migrateCallSessionMode,
+  migrateContactChannelsAccessFields,
   migrateContactsRolePrincipal,
   migrateCanonicalGuardianDeliveriesDestinationIndex,
   migrateCanonicalGuardianRequesterChatId,
@@ -192,6 +193,9 @@ export function initializeDb(): void {
 
   // 32. Add role and principal_id columns to contacts table
   migrateContactsRolePrincipal(database);
+
+  // 33. Add verification and access-control columns to contact_channels
+  migrateContactChannelsAccessFields(database);
 
   validateMigrationState(database);
 }
