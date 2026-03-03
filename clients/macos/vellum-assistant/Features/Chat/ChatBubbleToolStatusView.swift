@@ -38,40 +38,45 @@ extension ChatBubble {
             }
             .frame(maxWidth: 520, alignment: .leading)
         } else if hasActuallyRunningTool && !permissionWasDenied {
-            // In progress — show live progress view with completed + running steps
-            let current = message.toolCalls.first(where: { !$0.isComplete })!
-            if current.toolName == "claude_code" && !current.claudeCodeSteps.isEmpty {
-                ClaudeCodeProgressView(steps: current.claudeCodeSteps, isRunning: true)
-                    .frame(maxWidth: 520, alignment: .leading)
-            } else {
-                LiveToolProgressView(toolCalls: message.toolCalls, isRunning: true)
-                    .frame(maxWidth: 520, alignment: .leading)
-            }
+            // In progress — show unified progress view with completed + running steps
+            AssistantProgressView(
+                toolCalls: message.toolCalls,
+                isRunning: true,
+                isProcessing: false,
+                onRehydrate: onRehydrate.map { callback in { (_: ToolCallData) in callback() } },
+                isExpanded: $stepsExpanded
+            )
+            .frame(maxWidth: 520, alignment: .leading)
         } else if toolsCompleteButStillStreaming && !permissionWasDenied {
             // All tools done but model is still working (generating next tool call)
-            LiveToolProgressView(toolCalls: message.toolCalls, isRunning: true, thinkingLabel: "Thinking")
-                .frame(maxWidth: 520, alignment: .leading)
+            AssistantProgressView(
+                toolCalls: message.toolCalls,
+                isRunning: true,
+                isProcessing: false,
+                statusText: "Thinking",
+                onRehydrate: onRehydrate.map { callback in { (_: ToolCallData) in callback() } },
+                isExpanded: $stepsExpanded
+            )
+            .frame(maxWidth: 520, alignment: .leading)
         } else if allToolCallsComplete && !permissionWasDenied && !message.toolCalls.isEmpty && !hideToolCalls && !message.toolCalls.contains(where: { $0.isError }) {
-            // All tools finished successfully (no errors) — show a compact completed summary with expandable steps.
-            // Also surface the approved permission chip so it isn't hidden when tools complete after approval.
+            // All tools finished successfully (no errors) — show unified progress with optional permission chip.
             VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .center, spacing: VSpacing.sm) {
-                    UsedToolsList(toolCalls: message.toolCalls, isExpanded: $stepsExpanded)
+                    AssistantProgressView(
+                        toolCalls: message.toolCalls,
+                        isRunning: false,
+                        isProcessing: isProcessingAfterTools,
+                        statusText: isProcessingAfterTools ? processingStatusText : nil,
+                        onRehydrate: onRehydrate.map { callback in { (_: ToolCallData) in callback() } },
+                        isExpanded: $stepsExpanded
+                    )
                     Spacer()
                     if let confirmation = decidedConfirmation, confirmation.state == .approved {
                         compactPermissionChip(confirmation)
                     }
                 }
-                if stepsExpanded {
-                    StepsSection(toolCalls: message.toolCalls, onRehydrate: onRehydrate)
-                }
-                // Inline processing indicator — shown when assistant is still working
-                // after tool calls completed, preventing a duplicate avatar row.
-                if isProcessingAfterTools {
-                    inlineProcessingIndicator
-                        .padding(.top, VSpacing.xs)
-                }
             }
+            .frame(maxWidth: 520, alignment: .leading)
         } else if hasPermission || (hasInProgressTools && permissionWasDenied) {
             // Completed tool steps are hidden — only show permission chip or denied tool chip.
             VStack(alignment: .leading, spacing: 0) {
@@ -85,30 +90,30 @@ extension ChatBubble {
                     Spacer()
                 }
                 if isProcessingAfterTools {
-                    inlineProcessingIndicator
-                        .padding(.top, VSpacing.xs)
+                    AssistantProgressView(
+                        toolCalls: message.toolCalls,
+                        isRunning: false,
+                        isProcessing: true,
+                        statusText: processingStatusText,
+                        onRehydrate: onRehydrate.map { callback in { (_: ToolCallData) in callback() } },
+                        isExpanded: $stepsExpanded
+                    )
+                    .padding(.top, VSpacing.xs)
                 }
             }
             .padding(.top, VSpacing.xxs)
         } else if isProcessingAfterTools {
             // Fallback: no tool status to show but assistant is still processing.
-            inlineProcessingIndicator
+            AssistantProgressView(
+                toolCalls: message.toolCalls,
+                isRunning: false,
+                isProcessing: true,
+                statusText: processingStatusText,
+                onRehydrate: onRehydrate.map { callback in { (_: ToolCallData) in callback() } },
+                isExpanded: $stepsExpanded
+            )
+            .frame(maxWidth: 520, alignment: .leading)
         }
-    }
-
-    /// Inline processing indicator with staged friendly labels for long waits.
-    var inlineProcessingIndicator: some View {
-        let initialLabel = Self.friendlyProcessingLabel(processingStatusText)
-        return RunningIndicator(
-            label: initialLabel,
-            showIcon: false,
-            progressiveLabels: [
-                initialLabel,
-                "Putting this together",
-                "Finalizing your response",
-            ],
-            labelInterval: 8
-        )
     }
 
     /// Maps raw daemon status text to a friendlier label for the inline indicator.
