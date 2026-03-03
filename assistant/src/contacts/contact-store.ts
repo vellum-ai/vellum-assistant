@@ -1,9 +1,9 @@
-import { and, asc,desc, eq, like } from 'drizzle-orm';
+import { and, asc, desc, eq, like, sql } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
 import { getDb } from '../memory/db.js';
-import { contactChannels,contacts } from '../memory/schema.js';
-import type { Contact, ContactChannel, ContactWithChannels } from './types.js';
+import { contactChannels, contacts } from '../memory/schema.js';
+import type { ChannelPolicy, ChannelStatus, Contact, ContactChannel, ContactRole, ContactWithChannels } from './types.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -67,6 +67,21 @@ function withChannels(contact: Contact): ContactWithChannels {
   return { ...contact, channels: getChannelsForContact(contact.id) };
 }
 
+// ── Channel data type for syncChannels ───────────────────────────────
+
+interface SyncChannelData {
+  type: string;
+  address: string;
+  isPrimary?: boolean;
+  externalUserId?: string | null;
+  externalChatId?: string | null;
+  status?: ChannelStatus;
+  policy?: ChannelPolicy;
+  verifiedAt?: number | null;
+  verifiedVia?: string | null;
+  inviteId?: string | null;
+}
+
 // ── CRUD ─────────────────────────────────────────────────────────────
 
 export function getContact(id: string): ContactWithChannels | null {
@@ -83,7 +98,9 @@ export function upsertContact(params: {
   importance?: number;
   responseExpectation?: string | null;
   preferredTone?: string | null;
-  channels?: Array<{ type: string; address: string; isPrimary?: boolean }>;
+  role?: ContactRole;
+  principalId?: string | null;
+  channels?: SyncChannelData[];
 }): ContactWithChannels & { created: boolean } {
   const db = getDb();
   const now = Date.now();
@@ -94,15 +111,19 @@ export function upsertContact(params: {
   if (contactId) {
     const existing = db.select().from(contacts).where(eq(contacts.id, contactId)).get();
     if (existing) {
+      const updateSet: Record<string, unknown> = {
+        displayName: params.displayName,
+        relationship: params.relationship !== undefined ? params.relationship : existing.relationship,
+        importance: params.importance !== undefined ? params.importance : existing.importance,
+        responseExpectation: params.responseExpectation !== undefined ? params.responseExpectation : existing.responseExpectation,
+        preferredTone: params.preferredTone !== undefined ? params.preferredTone : existing.preferredTone,
+        updatedAt: now,
+      };
+      if (params.role !== undefined) updateSet.role = params.role;
+      if (params.principalId !== undefined) updateSet.principalId = params.principalId;
+
       db.update(contacts)
-        .set({
-          displayName: params.displayName,
-          relationship: params.relationship !== undefined ? params.relationship : existing.relationship,
-          importance: params.importance !== undefined ? params.importance : existing.importance,
-          responseExpectation: params.responseExpectation !== undefined ? params.responseExpectation : existing.responseExpectation,
-          preferredTone: params.preferredTone !== undefined ? params.preferredTone : existing.preferredTone,
-          updatedAt: now,
-        })
+        .set(updateSet)
         .where(eq(contacts.id, contactId))
         .run();
 
@@ -124,16 +145,19 @@ export function upsertContact(params: {
         .get();
       if (existingChannel) {
         contactId = existingChannel.contactId;
-        // Update existing contact
+        const updateSet: Record<string, unknown> = {
+          displayName: params.displayName,
+          relationship: params.relationship !== undefined ? params.relationship : undefined,
+          importance: params.importance !== undefined ? params.importance : undefined,
+          responseExpectation: params.responseExpectation !== undefined ? params.responseExpectation : undefined,
+          preferredTone: params.preferredTone !== undefined ? params.preferredTone : undefined,
+          updatedAt: now,
+        };
+        if (params.role !== undefined) updateSet.role = params.role;
+        if (params.principalId !== undefined) updateSet.principalId = params.principalId;
+
         db.update(contacts)
-          .set({
-            displayName: params.displayName,
-            relationship: params.relationship !== undefined ? params.relationship : undefined,
-            importance: params.importance !== undefined ? params.importance : undefined,
-            responseExpectation: params.responseExpectation !== undefined ? params.responseExpectation : undefined,
-            preferredTone: params.preferredTone !== undefined ? params.preferredTone : undefined,
-            updatedAt: now,
-          })
+          .set(updateSet)
           .where(eq(contacts.id, contactId))
           .run();
 
@@ -154,6 +178,8 @@ export function upsertContact(params: {
     preferredTone: params.preferredTone ?? null,
     lastInteraction: null,
     interactionCount: 0,
+    role: params.role ?? 'contact',
+    principalId: params.principalId ?? null,
     createdAt: now,
     updatedAt: now,
   }).run();
@@ -167,11 +193,12 @@ export function upsertContact(params: {
 
 /**
  * Add new channels to a contact without removing existing ones.
- * Skips channels that already exist (same type+address).
+ * When a channel already exists (same type+address), updates access/verification
+ * fields if provided. Skips channels owned by a different contact.
  */
 function syncChannels(
   contactId: string,
-  channels: Array<{ type: string; address: string; isPrimary?: boolean }>,
+  channels: SyncChannelData[],
   now: number,
 ): void {
   const db = getDb();
@@ -193,10 +220,20 @@ function syncChannels(
       .get();
 
     if (existing) {
-      // Update primary flag if specified
-      if (ch.isPrimary !== undefined) {
+      const updateSet: Record<string, unknown> = {};
+      if (ch.isPrimary !== undefined) updateSet.isPrimary = ch.isPrimary;
+      if (ch.externalUserId !== undefined) updateSet.externalUserId = ch.externalUserId;
+      if (ch.externalChatId !== undefined) updateSet.externalChatId = ch.externalChatId;
+      if (ch.status !== undefined) updateSet.status = ch.status;
+      if (ch.policy !== undefined) updateSet.policy = ch.policy;
+      if (ch.verifiedAt !== undefined) updateSet.verifiedAt = ch.verifiedAt;
+      if (ch.verifiedVia !== undefined) updateSet.verifiedVia = ch.verifiedVia;
+      if (ch.inviteId !== undefined) updateSet.inviteId = ch.inviteId;
+
+      if (Object.keys(updateSet).length > 0) {
+        updateSet.updatedAt = now;
         db.update(contactChannels)
-          .set({ isPrimary: ch.isPrimary })
+          .set(updateSet)
           .where(eq(contactChannels.id, existing.id))
           .run();
       }
@@ -227,7 +264,15 @@ function syncChannels(
       type: ch.type,
       address: normalizedAddress,
       isPrimary: ch.isPrimary ?? false,
+      externalUserId: ch.externalUserId ?? null,
+      externalChatId: ch.externalChatId ?? null,
+      status: ch.status ?? 'unverified',
+      policy: ch.policy ?? 'allow',
+      verifiedAt: ch.verifiedAt ?? null,
+      verifiedVia: ch.verifiedVia ?? null,
+      inviteId: ch.inviteId ?? null,
       createdAt: now,
+      updatedAt: now,
     }).run();
   }
 }
@@ -237,6 +282,7 @@ export function searchContacts(params: {
   channelAddress?: string;
   channelType?: string;
   relationship?: string;
+  role?: ContactRole;
   limit?: number;
 }): ContactWithChannels[] {
   const db = getDb();
@@ -265,7 +311,9 @@ export function searchContacts(params: {
     const results: ContactWithChannels[] = [];
     for (const id of contactIds.slice(0, limit)) {
       const contact = getContact(id);
-      if (contact) results.push(contact);
+      if (contact && (!params.role || contact.role === params.role)) {
+        results.push(contact);
+      }
     }
     return results;
   }
@@ -274,13 +322,16 @@ export function searchContacts(params: {
   const conditions = [];
   if (params.query) {
     const sanitized = escapeLike(params.query);
-    if (!sanitized && !params.relationship) return [];
+    if (!sanitized && !params.relationship && !params.role) return [];
     if (sanitized) {
       conditions.push(like(contacts.displayName, `%${sanitized}%`));
     }
   }
   if (params.relationship) {
     conditions.push(eq(contacts.relationship, params.relationship));
+  }
+  if (params.role) {
+    conditions.push(eq(contacts.role, params.role));
   }
 
   const whereClause = conditions.length > 0
@@ -305,7 +356,11 @@ export function listContacts(limit = 50): ContactWithChannels[] {
   const rows = db
     .select()
     .from(contacts)
-    .orderBy(desc(contacts.importance), desc(contacts.lastInteraction))
+    .orderBy(
+      sql`${contacts.role} = 'guardian' DESC`,
+      desc(contacts.importance),
+      desc(contacts.lastInteraction),
+    )
     .limit(Math.min(limit, 200))
     .all();
   return rows.map((r) => withChannels(parseContact(r)));
@@ -421,4 +476,73 @@ export function findContactByAddress(type: string, address: string): ContactWith
 
   if (!channel) return null;
   return getContact(channel.contactId);
+}
+
+/**
+ * Find a contact by channel external user ID. This is the key lookup for trust
+ * resolution — maps a channel-native sender identity to its parent Contact.
+ */
+export function findContactByChannelExternalId(
+  channelType: string,
+  externalUserId: string,
+): ContactWithChannels | null {
+  const db = getDb();
+  const channel = db
+    .select()
+    .from(contactChannels)
+    .where(
+      and(
+        eq(contactChannels.type, channelType),
+        eq(contactChannels.externalUserId, externalUserId),
+      ),
+    )
+    .get();
+
+  if (!channel) return null;
+  return getContact(channel.contactId);
+}
+
+/**
+ * Update a channel's access-control fields (status, policy, reasons).
+ * Returns the updated channel, or null if the channel does not exist.
+ */
+export function updateChannelStatus(
+  channelId: string,
+  params: {
+    status?: ChannelStatus;
+    policy?: ChannelPolicy;
+    revokedReason?: string;
+    blockedReason?: string;
+  },
+): ContactChannel | null {
+  const db = getDb();
+  const existing = db
+    .select()
+    .from(contactChannels)
+    .where(eq(contactChannels.id, channelId))
+    .get();
+
+  if (!existing) return null;
+
+  const updateSet: Record<string, unknown> = {};
+  if (params.status !== undefined) updateSet.status = params.status;
+  if (params.policy !== undefined) updateSet.policy = params.policy;
+  if (params.revokedReason !== undefined) updateSet.revokedReason = params.revokedReason;
+  if (params.blockedReason !== undefined) updateSet.blockedReason = params.blockedReason;
+
+  if (Object.keys(updateSet).length > 0) {
+    updateSet.updatedAt = Date.now();
+    db.update(contactChannels)
+      .set(updateSet)
+      .where(eq(contactChannels.id, channelId))
+      .run();
+  }
+
+  const updated = db
+    .select()
+    .from(contactChannels)
+    .where(eq(contactChannels.id, channelId))
+    .get();
+
+  return updated ? parseChannel(updated) : null;
 }
