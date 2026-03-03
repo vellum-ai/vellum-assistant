@@ -637,6 +637,8 @@ jobs:
     needs: [bump-and-tag, ci-cli, ci-gateway]
     runs-on: macos-14
     timeout-minutes: 15
+    outputs:
+      version: ${{ needs.bump-and-tag.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -682,6 +684,8 @@ jobs:
     needs: [bump-and-tag, ci-cli, ci-gateway]
     runs-on: macos-14
     timeout-minutes: 15
+    outputs:
+      version: ${{ needs.bump-and-tag.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -727,7 +731,7 @@ jobs:
   # builds arm64-only Bun binaries, creates DMG, notarizes, staples, and
   # generates the Sparkle appcast. This is the primary/default build.
   build-macos-arm64:
-    needs: [bump-and-tag, build-swift-arm64, ci-cli, ci-gateway]
+    needs: [build-swift-arm64, ci-cli, ci-gateway]
     runs-on: macos-14
     timeout-minutes: 30
     defaults:
@@ -740,7 +744,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: "v${{ needs.bump-and-tag.outputs.version }}"
+          ref: "v${{ needs.build-swift-arm64.outputs.version }}"
 
       - name: Select Xcode 16.2
         run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
@@ -777,7 +781,7 @@ jobs:
       - name: Set version
         id: version
         run: |
-          DISPLAY_VERSION="${{ needs.bump-and-tag.outputs.version }}"
+          DISPLAY_VERSION="${{ needs.build-swift-arm64.outputs.version }}"
           BUILD_VERSION=$(date -u +%Y%m%d%H%M)
           echo "display_version=$DISPLAY_VERSION" >> "$GITHUB_OUTPUT"
           echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
@@ -1036,7 +1040,7 @@ jobs:
   # x86_64 macOS build — produces a separate DMG for Intel Macs.
   # Runs in parallel with build-macos-arm64 and does NOT block the release job.
   build-macos-x64:
-    needs: [bump-and-tag, build-swift-x86_64, ci-cli, ci-gateway]
+    needs: [build-swift-x86_64, ci-cli, ci-gateway]
     runs-on: macos-14
     timeout-minutes: 30
     continue-on-error: true
@@ -1050,7 +1054,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: "v${{ needs.bump-and-tag.outputs.version }}"
+          ref: "v${{ needs.build-swift-x86_64.outputs.version }}"
 
       - name: Select Xcode 16.2
         run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
@@ -1087,7 +1091,7 @@ jobs:
       - name: Set version
         id: version
         run: |
-          DISPLAY_VERSION="${{ needs.bump-and-tag.outputs.version }}"
+          DISPLAY_VERSION="${{ needs.build-swift-x86_64.outputs.version }}"
           BUILD_VERSION=$(date -u +%Y%m%d%H%M)
           echo "display_version=$DISPLAY_VERSION" >> "$GITHUB_OUTPUT"
           echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
