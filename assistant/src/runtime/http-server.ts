@@ -139,6 +139,7 @@ import {
   handleListContacts,
   handleMergeContacts,
 } from "./routes/contact-routes.js";
+import { handleGlobalSearch } from "./routes/global-search-routes.js";
 import { handleListConversationAttention } from "./routes/conversation-attention-routes.js";
 // Route handlers — grouped by domain
 import {
@@ -1086,6 +1087,8 @@ export class RuntimeHttpServer {
         return handleListMessages(url, this.interfacesDir);
       if (endpoint === "search" && req.method === "GET")
         return handleSearchConversations(url);
+      if (endpoint === "search/global" && req.method === "GET")
+        return handleGlobalSearch(url);
 
       if (endpoint === "messages" && req.method === "POST") {
         return await handleSendMessage(
