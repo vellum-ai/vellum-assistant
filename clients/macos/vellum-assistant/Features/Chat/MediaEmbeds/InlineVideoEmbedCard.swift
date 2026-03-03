@@ -49,9 +49,12 @@ struct InlineVideoEmbedCard: View {
         .frame(height: cardHeight)
         .animation(.easeInOut(duration: 0.25), value: cardHeight)
         .onDisappear {
-            // Tear down active/loading webviews when scrolled offscreen
-            // to prevent memory leaks and background audio playback.
-            if stateManager.state == .playing || stateManager.state == .initializing {
+            // Only reset states that own an active WKWebView.
+            // .placeholder and .failed have no WKWebView; preserve .failed to keep error context.
+            switch stateManager.state {
+            case .placeholder, .failed:
+                break
+            default:
                 stateManager.reset()
             }
         }
