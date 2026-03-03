@@ -57,6 +57,13 @@ final class AppListManager: ObservableObject {
         load()
     }
 
+    /// Test-only initializer that stores data at a custom URL instead of Application Support.
+    /// Allows unit tests to use a temporary directory without polluting real app state.
+    init(fileURL: URL) {
+        self.fileURL = fileURL
+        load()
+    }
+
     func recordAppOpen(id: String, name: String, icon: String? = nil, previewBase64: String? = nil, appType: String? = nil, description: String? = nil) {
         // Clear tombstone so an explicitly re-opened app reappears in the sidebar
         removedAppIds.remove(id)
