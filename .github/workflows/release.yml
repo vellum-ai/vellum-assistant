@@ -634,7 +634,7 @@ jobs:
   # Parallel Swift builds — each architecture compiles on its own runner,
   # then build-macos merges them into a universal binary via lipo.
   build-swift-arm64:
-    needs: bump-and-tag
+    needs: [bump-and-tag, ci-assistant, ci-cli, ci-gateway]
     runs-on: macos-14
     timeout-minutes: 15
     steps:
@@ -679,7 +679,7 @@ jobs:
           retention-days: 1
 
   build-swift-x86_64:
-    needs: bump-and-tag
+    needs: [bump-and-tag, ci-assistant, ci-cli, ci-gateway]
     runs-on: macos-14
     timeout-minutes: 15
     steps:
@@ -718,7 +718,7 @@ jobs:
 
   # Original production build — unchanged, runs the full sequential build.
   build-macos:
-    needs: bump-and-tag
+    needs: [bump-and-tag, ci-assistant, ci-cli, ci-gateway]
     runs-on: macos-14
     timeout-minutes: 30
     defaults:
@@ -1004,7 +1004,7 @@ jobs:
   # (split-arch-build) that is NOT used by the release job. Compare this artifact
   # with the production build to verify correctness before switching over.
   build-macos-split-arch:
-    needs: [bump-and-tag, build-swift-arm64, build-swift-x86_64]
+    needs: [bump-and-tag, build-swift-arm64, build-swift-x86_64, ci-assistant, ci-cli, ci-gateway]
     runs-on: macos-14
     timeout-minutes: 30
     defaults:
@@ -1361,7 +1361,7 @@ jobs:
         working-directory: gateway
 
   build-ios:
-    needs: bump-and-tag
+    needs: [bump-and-tag, ci-assistant, ci-cli, ci-gateway]
     runs-on: macos-14
     timeout-minutes: 15
     continue-on-error: true
@@ -1395,7 +1395,7 @@ jobs:
         run: echo "status=${{ job.status }}" >> "$GITHUB_OUTPUT"
 
   release-ios:
-    needs: bump-and-tag
+    needs: [bump-and-tag, ci-assistant, ci-cli, ci-gateway]
     runs-on: macos-14
     timeout-minutes: 30
     env:
