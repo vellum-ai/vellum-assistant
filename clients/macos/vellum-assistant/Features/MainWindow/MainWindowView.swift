@@ -1342,9 +1342,9 @@ struct MainWindowView: View {
                                     }
                                 } label: {
                                     HStack(spacing: VSpacing.xs) {
-                                        // Unread indicator: show orange dot when group
-                                        // is collapsed and any child thread has unseen messages.
-                                        // Sits in a 20×20 slot to match threadItem leading slot.
+                                        // Leading 20×20 slot matching threadItem layout.
+                                        // Shows unread dot when collapsed + has unseen messages,
+                                        // otherwise a clear placeholder to keep text aligned.
                                         if !sidebar.expandedScheduleGroups.contains(group.key),
                                            group.threads.contains(where: { $0.hasUnseenLatestAssistantMessage }) {
                                             Circle()
@@ -1384,7 +1384,8 @@ struct MainWindowView: View {
                                         }
                                     }
                                 }
-                                .padding(.horizontal, VSpacing.sm)
+                                .padding(.leading, 0)
+                                .padding(.trailing, VSpacing.sm)
                                 .padding(.bottom, VSpacing.xxs)
                             }
                         }
