@@ -1,4 +1,8 @@
 import { consumeGrantForInvocation } from '../approvals/approval-primitive.js';
+import { getConnection } from '../a2a/a2a-peer-connection-store.js';
+import { getRequiredScopeForTool } from '../a2a/a2a-scope-policy.js';
+import { isAssistantFeatureFlagEnabled } from '../config/assistant-feature-flags.js';
+import { getConfig } from '../config/loader.js';
 import { getCanonicalGuardianRequest, updateCanonicalGuardianRequest } from '../memory/canonical-guardian-store.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
 import { createOrReuseToolGrantRequest } from '../runtime/tool-grant-request-helper.js';
@@ -203,33 +207,87 @@ export class ToolApprovalHandler {
       return { allowed: false, result: { content: 'Cancelled', isError: true } };
     }
 
-    // Peer assistants have zero capabilities by default — block all tool execution
-    // until scopes are explicitly configured (future milestone).
+    // Peer assistant scope gating — when the a2a-scope-policy feature flag is
+    // enabled, check whether the connection has a scope that covers the
+    // requested tool. When the flag is off, fall back to blanket deny (safe default).
     if (context.guardianTrustClass === 'peer_assistant') {
-      const reason = `Permission denied for "${name}": peer assistant actors have no tool execution capabilities. Capabilities must be explicitly granted.`;
-      log.warn({
-        toolName: name,
-        sessionId: context.sessionId,
-        conversationId: context.conversationId,
-        trustClass: context.guardianTrustClass,
-        reason: 'peer_assistant_denied',
-      }, 'Peer assistant tool execution blocked (fail-closed)');
-      const durationMs = Date.now() - startTime;
-      emitLifecycleEvent({
-        type: 'permission_denied',
-        toolName: name,
-        executionTarget,
-        input,
-        workingDir: context.workingDir,
-        sessionId: context.sessionId,
-        conversationId: context.conversationId,
-        requestId: context.requestId,
-        riskLevel,
-        decision: 'deny',
-        reason,
-        durationMs,
-      });
-      return { allowed: false, result: { content: reason, isError: true } };
+      const config = getConfig();
+      const scopePolicyActive = isAssistantFeatureFlagEnabled('feature_flags.a2a-scope-policy.enabled', config);
+
+      if (scopePolicyActive) {
+        // The connection ID is carried via requesterChatId for A2A channels
+        const connectionId = context.requesterChatId;
+        const connection = connectionId ? getConnection(connectionId) : null;
+        const requiredScope = getRequiredScopeForTool(name);
+
+        // Allow if the tool has a scope mapping AND the connection has that scope
+        if (requiredScope && connection && connection.scopes.includes(requiredScope)) {
+          log.info({
+            toolName: name,
+            sessionId: context.sessionId,
+            conversationId: context.conversationId,
+            trustClass: context.guardianTrustClass,
+            connectionId,
+            requiredScope,
+          }, 'Peer assistant tool execution allowed by scope grant');
+          // Fall through to remaining gates (allowedToolNames, task-run, registry)
+        } else {
+          const reason = requiredScope
+            ? `Permission denied for "${name}": peer assistant requires scope "${requiredScope}" which is not granted on this connection.`
+            : `Permission denied for "${name}": no scope covers this tool for peer assistant actors.`;
+          log.warn({
+            toolName: name,
+            sessionId: context.sessionId,
+            conversationId: context.conversationId,
+            trustClass: context.guardianTrustClass,
+            connectionId,
+            requiredScope: requiredScope ?? 'none',
+            reason: 'peer_assistant_scope_denied',
+          }, 'Peer assistant tool execution blocked by scope policy');
+          const durationMs = Date.now() - startTime;
+          emitLifecycleEvent({
+            type: 'permission_denied',
+            toolName: name,
+            executionTarget,
+            input,
+            workingDir: context.workingDir,
+            sessionId: context.sessionId,
+            conversationId: context.conversationId,
+            requestId: context.requestId,
+            riskLevel,
+            decision: 'deny',
+            reason,
+            durationMs,
+          });
+          return { allowed: false, result: { content: reason, isError: true } };
+        }
+      } else {
+        // Feature flag off — blanket deny (safe default)
+        const reason = `Permission denied for "${name}": peer assistant actors have no tool execution capabilities. Capabilities must be explicitly granted.`;
+        log.warn({
+          toolName: name,
+          sessionId: context.sessionId,
+          conversationId: context.conversationId,
+          trustClass: context.guardianTrustClass,
+          reason: 'peer_assistant_denied',
+        }, 'Peer assistant tool execution blocked (fail-closed)');
+        const durationMs = Date.now() - startTime;
+        emitLifecycleEvent({
+          type: 'permission_denied',
+          toolName: name,
+          executionTarget,
+          input,
+          workingDir: context.workingDir,
+          sessionId: context.sessionId,
+          conversationId: context.conversationId,
+          requestId: context.requestId,
+          riskLevel,
+          decision: 'deny',
+          reason,
+          durationMs,
+        });
+        return { allowed: false, result: { content: reason, isError: true } };
+      }
     }
 
     // Reject tool invocations targeting guardian control-plane endpoints from non-guardian actors.

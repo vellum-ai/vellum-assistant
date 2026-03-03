@@ -321,34 +321,54 @@ describe('a2a-peer-connection-store', () => {
   test('updates scopes for a connection', () => {
     const conn = createConnection({
       peerGatewayUrl: 'https://a.example.com',
-      scopes: ['scheduling:read'],
+      scopes: ['message'],
     });
 
-    const updated = updateConnectionScopes(conn.id, [
-      'scheduling:read',
-      'scheduling:write',
-      'messaging:relay',
+    const result = updateConnectionScopes(conn.id, [
+      'message',
+      'read_availability',
+      'read_profile',
     ]);
 
-    expect(updated).not.toBeNull();
-    expect(updated!.scopes).toEqual(['scheduling:read', 'scheduling:write', 'messaging:relay']);
-    expect(updated!.updatedAt).toBeGreaterThanOrEqual(conn.updatedAt);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.connection.scopes).toEqual(['message', 'read_availability', 'read_profile']);
+      expect(result.connection.updatedAt).toBeGreaterThanOrEqual(conn.updatedAt);
+    }
   });
 
   test('can set scopes to empty array', () => {
     const conn = createConnection({
       peerGatewayUrl: 'https://a.example.com',
-      scopes: ['scheduling:read'],
+      scopes: ['message'],
     });
 
-    const updated = updateConnectionScopes(conn.id, []);
-    expect(updated).not.toBeNull();
-    expect(updated!.scopes).toEqual([]);
+    const result = updateConnectionScopes(conn.id, []);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.connection.scopes).toEqual([]);
+    }
   });
 
-  test('returns null for nonexistent connection', () => {
-    const updated = updateConnectionScopes('nonexistent', ['scheduling:read']);
-    expect(updated).toBeNull();
+  test('returns not_found for nonexistent connection', () => {
+    const result = updateConnectionScopes('nonexistent', ['message']);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe('not_found');
+    }
+  });
+
+  test('rejects undeclared scope IDs', () => {
+    const conn = createConnection({
+      peerGatewayUrl: 'https://a.example.com',
+    });
+
+    const result = updateConnectionScopes(conn.id, ['message', 'scheduling:read']);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe('invalid_scopes');
+      expect(result.detail).toContain('scheduling:read');
+    }
   });
 
   // ── updateConnectionCredentials ────────────────────────────────────
