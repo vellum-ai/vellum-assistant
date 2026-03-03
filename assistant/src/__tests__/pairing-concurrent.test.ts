@@ -8,8 +8,11 @@
  */
 
 import { randomBytes, randomUUID } from 'node:crypto';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
 
 import { PairingStore } from '../daemon/pairing-store.js';
 
@@ -29,14 +32,28 @@ function buildRegisterParams() {
 
 describe('PairingStore.register — concurrent pairing guard', () => {
   let store: PairingStore;
+  let tmpBase: string;
+  let origBaseDataDir: string | undefined;
+
+  beforeAll(() => {
+    // Isolate disk writes to a temp directory so this test does not
+    // pollute ~/.vellum or interfere with other test files.
+    tmpBase = mkdtempSync(join(tmpdir(), 'pairing-test-'));
+    origBaseDataDir = process.env.BASE_DATA_DIR;
+    process.env.BASE_DATA_DIR = tmpBase;
+  });
+
+  afterAll(() => {
+    if (origBaseDataDir === undefined) {
+      delete process.env.BASE_DATA_DIR;
+    } else {
+      process.env.BASE_DATA_DIR = origBaseDataDir;
+    }
+    rmSync(tmpBase, { recursive: true, force: true });
+  });
 
   beforeEach(() => {
     store = new PairingStore();
-    store.start();
-  });
-
-  afterEach(() => {
-    store.stop();
   });
 
   test('rejects a second registration while one is already in progress', () => {

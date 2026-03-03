@@ -155,7 +155,10 @@ export async function handlePairingRegister(req: Request, ctx: PairingHandlerCon
 
     const result = ctx.pairingStore.register({ pairingRequestId, pairingSecret, gatewayUrl, localLanUrl });
     if (!result.ok) {
-      return httpError('CONFLICT', 'Conflict: pairingRequestId exists with different secret', 409);
+      const message = result.reason === 'active_pairing'
+        ? 'A pairing request is already in progress'
+        : 'Conflict: pairingRequestId exists with different secret';
+      return httpError('CONFLICT', message, 409);
     }
 
     return Response.json({ ok: true });
