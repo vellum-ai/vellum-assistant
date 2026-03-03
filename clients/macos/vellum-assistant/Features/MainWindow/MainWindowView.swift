@@ -1164,6 +1164,11 @@ struct MainWindowView: View {
                     .padding(.vertical, VSpacing.sm)
             }
 
+            // MARK: Search Bar
+            SidebarSearchButton(isExpanded: true) {
+                AppDelegate.shared?.toggleCommandPalette()
+            }
+
             // MARK: Nav Items (fixed)
             SidebarNavRow(icon: "brain.head.profile", label: "Intelligence", isActive: windowState.activePanel == .intelligence) {
                 windowState.togglePanel(.intelligence)
@@ -1362,6 +1367,10 @@ struct MainWindowView: View {
                 VColor.divider
                     .frame(height: 1)
                     .padding(.horizontal, VSpacing.xs)
+            }
+
+            SidebarSearchButton(isExpanded: false) {
+                AppDelegate.shared?.toggleCommandPalette()
             }
 
             SidebarNavRow(icon: "brain.head.profile", label: "Intelligence", isActive: windowState.activePanel == .intelligence, isExpanded: false) {
