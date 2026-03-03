@@ -1,6 +1,79 @@
 import SwiftUI
 import VellumAssistantShared
 
+// MARK: - Attachment Image Grid (async)
+
+/// Renders image attachments in a horizontal grid.
+///
+/// NSImage(data:) must never be called during SwiftUI view body evaluation or
+/// layout measurement — doing so triggers re-entrant AppKit constraint
+/// invalidation that causes EXC_BAD_ACCESS when scrolling. This view decodes
+/// images asynchronously via .task so the layout path only ever sees
+/// pre-decoded NSImage values or a placeholder.
+private struct AttachmentImageGrid: View {
+    let imageAttachments: [ChatAttachment]
+    let onTap: (ChatAttachment) -> Void
+
+    @State private var loadedImages: [String: NSImage] = [:]
+
+    var body: some View {
+        HStack(spacing: VSpacing.sm) {
+            ForEach(imageAttachments, id: \.id) { attachment in
+                Group {
+                    if let nsImage = loadedImages[attachment.id] {
+                        Image(nsImage: nsImage)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                    } else {
+                        // Placeholder shown while the image is being decoded off the main thread.
+                        Rectangle()
+                            .fill(Color.gray.opacity(0.2))
+                    }
+                }
+                .frame(width: 60, height: 60)
+                .clipped()
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                .onTapGesture {
+                    onTap(attachment)
+                }
+                // NSImage(data:) is called directly inside .task — no Task{} wrapper — so
+                // SwiftUI can cancel the work immediately when the bubble scrolls off-screen.
+                // Wrapping in Task(priority:){}.value creates an unstructured task that is NOT
+                // cancelled by the .task modifier, causing off-screen decodes to run to completion.
+                .task(id: attachment.id) {
+                    // Step 1: thumbnailImage is already decoded — zero cost.
+                    if let img = attachment.thumbnailImage {
+                        loadedImages[attachment.id] = img
+                        return
+                    }
+
+                    guard !Task.isCancelled else { return }
+
+                    // Step 2: thumbnailData (small) — synchronous NSImage decode, called directly.
+                    // Fallback chain: thumbnailData → full attachment.data.
+                    // thumbnailData is preferred (smaller), but if it is corrupt or
+                    // missing we still want to show the image from the full payload.
+                    if let thumbnailData = attachment.thumbnailData, !thumbnailData.isEmpty,
+                       let img = NSImage(data: thumbnailData) {
+                        guard !Task.isCancelled else { return }
+                        loadedImages[attachment.id] = img
+                        return
+                    }
+
+                    guard !Task.isCancelled else { return }
+
+                    // Step 3: fallback to full base64 data.
+                    if let fullData = Data(base64Encoded: attachment.data), !fullData.isEmpty,
+                       let img = NSImage(data: fullData) {
+                        guard !Task.isCancelled else { return }
+                        loadedImages[attachment.id] = img
+                    }
+                }
+            }
+        }
+    }
+}
+
 // MARK: - Attachment Content
 
 extension ChatBubble {
@@ -12,15 +85,16 @@ extension ChatBubble {
         return "Sent \(count) attachments"
     }
 
-    /// Partitions attachments into decoded images, videos, and non-media files in a single pass,
-    /// avoiding redundant base64 decoding and NSImage construction across render calls.
-    var partitionedAttachments: (images: [(ChatAttachment, NSImage)], videos: [ChatAttachment], files: [ChatAttachment]) {
-        var images: [(ChatAttachment, NSImage)] = []
+    /// Partitions attachments into image, video, and file buckets without
+    /// performing any image decoding — decoding happens asynchronously in
+    /// AttachmentImageGrid to keep NSImage(data:) off the layout path.
+    var partitionedAttachments: (images: [ChatAttachment], videos: [ChatAttachment], files: [ChatAttachment]) {
+        var images: [ChatAttachment] = []
         var videos: [ChatAttachment] = []
         var files: [ChatAttachment] = []
         for attachment in message.attachments {
-            if attachment.mimeType.hasPrefix("image/"), let img = nsImage(for: attachment) {
-                images.append((attachment, img))
+            if attachment.mimeType.hasPrefix("image/") {
+                images.append(attachment)
             } else if attachment.mimeType.hasPrefix("video/") {
                 videos.append(attachment)
             } else {
@@ -30,20 +104,8 @@ extension ChatBubble {
         return (images, videos, files)
     }
 
-    func attachmentImageGrid(_ images: [(ChatAttachment, NSImage)]) -> some View {
-        HStack(spacing: VSpacing.sm) {
-            ForEach(images, id: \.0.id) { attachment, nsImage in
-                Image(nsImage: nsImage)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: 60, height: 60)
-                    .clipped()
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                    .onTapGesture {
-                        openImageInPreview(attachment)
-                    }
-            }
-        }
+    func attachmentImageGrid(_ images: [ChatAttachment]) -> some View {
+        AttachmentImageGrid(imageAttachments: images, onTap: openImageInPreview)
     }
 
     func fileAttachmentChip(_ attachment: ChatAttachment) -> some View {
@@ -80,21 +142,6 @@ extension ChatBubble {
                 NSCursor.pop()
             }
         }
-    }
-
-    func nsImage(for attachment: ChatAttachment) -> NSImage? {
-        // Use pre-decoded thumbnail image — avoids NSImage(data:) during layout, which
-        // can trigger re-entrant AppKit constraint invalidation and crash on scroll.
-        if let img = attachment.thumbnailImage {
-            return img
-        }
-        if let thumbnailData = attachment.thumbnailData, let img = NSImage(data: thumbnailData) {
-            return img
-        }
-        if let data = Data(base64Encoded: attachment.data), let img = NSImage(data: data) {
-            return img
-        }
-        return nil
     }
 
     func openImageInPreview(_ attachment: ChatAttachment) {
