@@ -277,7 +277,9 @@ async function ensureAssistantHatched(): Promise<void> {
 function readRuntimeUrlFromLockfile(): string {
   const lockfilePath = path.join(getBaseDir(), ".vellum.lock.json");
   if (!existsSync(lockfilePath)) {
-    throw new Error("Lockfile (~/.vellum.lock.json) not found after hatching");
+    throw new Error(
+      `Lockfile not found at ${lockfilePath} after hatching.\n${readHatchLog()}`,
+    );
   }
 
   const raw = readFileSync(lockfilePath, "utf-8");
@@ -285,15 +287,36 @@ function readRuntimeUrlFromLockfile(): string {
   const assistants = data.assistants;
 
   if (!Array.isArray(assistants) || assistants.length === 0) {
-    throw new Error("No assistant entries in lockfile after hatching");
+    throw new Error(
+      `No assistant entries in lockfile after hatching.\n${readHatchLog()}`,
+    );
   }
 
   const runtimeUrl = assistants[0].runtimeUrl;
   if (!runtimeUrl) {
-    throw new Error("Assistant entry missing runtimeUrl in lockfile");
+    throw new Error(
+      `Assistant entry missing runtimeUrl in lockfile.\n${readHatchLog()}`,
+    );
   }
 
   return runtimeUrl;
+}
+
+/** Returns the tail of hatch.log for diagnostic error messages. */
+function readHatchLog(): string {
+  const configHome = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config");
+  const logPath = path.join(configHome, "vellum", "logs", "hatch.log");
+  if (!existsSync(logPath)) {
+    return `hatch.log not found at ${logPath}`;
+  }
+  try {
+    const contents = readFileSync(logPath, "utf-8");
+    const lines = contents.split("\n");
+    const tail = lines.slice(-50).join("\n");
+    return `--- hatch.log (last 50 lines) ---\n${tail}`;
+  } catch {
+    return `Failed to read hatch.log at ${logPath}`;
+  }
 }
 
 /**
