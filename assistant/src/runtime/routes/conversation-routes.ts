@@ -595,7 +595,7 @@ export async function handleSendMessage(
 
     // Fire-and-forget the agent loop; events flow to the hub via onEvent.
     // Mark non-interactive so conflict clarification doesn't block the turn.
-    session.runAgentLoop(content ?? '', messageId, onEvent, { isInteractive: false }).catch((err) => {
+    session.runAgentLoop(content ?? '', messageId, onEvent, { isInteractive: false, isUserMessage: true }).catch((err) => {
       log.error({ err, conversationId: mapping.conversationId }, 'Agent loop failed (POST /messages)');
     });
 
