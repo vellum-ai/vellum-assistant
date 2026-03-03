@@ -673,6 +673,118 @@ const toolGrantRequestResolver: GuardianRequestResolver = {
   },
 };
 
+/**
+ * Resolves `a2a_access_request` requests — A2A peer connection approvals.
+ *
+ * When a remote assistant initiates a connection via the A2A handshake, a
+ * canonical guardian request of kind `a2a_access_request` is created so
+ * the guardian can approve or deny the incoming peer.
+ *
+ * On approve: delegates to A2AConnectionService.approveConnection() which
+ * generates a verification code and transitions the handshake state machine.
+ *
+ * On deny: delegates to A2AConnectionService.approveConnection() with
+ * decision='deny' which revokes the connection.
+ *
+ * The connectionId is stored in the canonical request's `followupState`
+ * field so the resolver can look up the right connection.
+ */
+const a2aAccessRequestResolver: GuardianRequestResolver = {
+  kind: 'a2a_access_request',
+
+  async resolve(ctx: ResolverContext): Promise<ResolverResult> {
+    const { request, decision } = ctx;
+
+    // The connectionId is stored in followupState at request creation time.
+    const connectionId = request.followupState;
+    if (!connectionId) {
+      return { ok: false, reason: 'a2a_access_request missing connectionId in followupState' };
+    }
+
+    // Lazy import to avoid circular dependency — a2a-connection-service
+    // imports from memory/ which imports from this file's sibling modules.
+    const { approveConnection } = await import('../a2a/a2a-connection-service.js');
+
+    if (decision.action === 'reject') {
+      const denyResult = approveConnection({
+        connectionId,
+        decision: 'deny',
+      });
+
+      if (!denyResult.ok) {
+        log.warn(
+          {
+            event: 'resolver_a2a_access_request_deny_failed',
+            requestId: request.id,
+            connectionId,
+            reason: denyResult.reason,
+          },
+          'A2A access request resolver: deny failed',
+        );
+        return { ok: false, reason: `a2a_deny_failed: ${denyResult.reason}` };
+      }
+
+      log.info(
+        {
+          event: 'resolver_a2a_access_request_denied',
+          requestId: request.id,
+          connectionId,
+        },
+        'A2A access request resolver: connection denied',
+      );
+
+      return {
+        ok: true,
+        applied: true,
+        guardianReplyText: 'A2A connection request denied.',
+      };
+    }
+
+    // Approve flow — generates a verification code for IRL exchange.
+    const approveResult = approveConnection({
+      connectionId,
+      decision: 'approve',
+    });
+
+    if (!approveResult.ok) {
+      log.warn(
+        {
+          event: 'resolver_a2a_access_request_approve_failed',
+          requestId: request.id,
+          connectionId,
+          reason: approveResult.reason,
+        },
+        'A2A access request resolver: approve failed',
+      );
+      return { ok: false, reason: `a2a_approve_failed: ${approveResult.reason}` };
+    }
+
+    const verificationCode = 'verificationCode' in approveResult
+      ? approveResult.verificationCode
+      : undefined;
+
+    log.info(
+      {
+        event: 'resolver_a2a_access_request_approved',
+        requestId: request.id,
+        connectionId,
+        hasVerificationCode: !!verificationCode,
+      },
+      'A2A access request resolver: connection approved',
+    );
+
+    const replyText = verificationCode
+      ? `A2A connection approved. Verification code: ${verificationCode}. Share this code with the peer to complete the handshake.`
+      : 'A2A connection approved.';
+
+    return {
+      ok: true,
+      applied: true,
+      guardianReplyText: replyText,
+    };
+  },
+};
+
 // ---------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------
@@ -699,3 +811,4 @@ registerResolver(pendingInteractionResolver);
 registerResolver(pendingQuestionResolver);
 registerResolver(accessRequestResolver);
 registerResolver(toolGrantRequestResolver);
+registerResolver(a2aAccessRequestResolver);
