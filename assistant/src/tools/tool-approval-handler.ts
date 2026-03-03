@@ -119,7 +119,7 @@ export async function waitForInlineGrant(
 }
 
 function isUntrustedGuardianTrustClass(role: ToolContext['guardianTrustClass']): boolean {
-  return role === 'trusted_contact' || role === 'unknown';
+  return role === 'trusted_contact' || role === 'peer_assistant' || role === 'unknown';
 }
 
 function requiresGuardianApprovalForActor(
@@ -201,6 +201,35 @@ export class ToolApprovalHandler {
         errorCategory: 'tool_failure',
       });
       return { allowed: false, result: { content: 'Cancelled', isError: true } };
+    }
+
+    // Peer assistants have zero capabilities by default — block all tool execution
+    // until scopes are explicitly configured (future milestone).
+    if (context.guardianTrustClass === 'peer_assistant') {
+      const reason = `Permission denied for "${name}": peer assistant actors have no tool execution capabilities. Capabilities must be explicitly granted.`;
+      log.warn({
+        toolName: name,
+        sessionId: context.sessionId,
+        conversationId: context.conversationId,
+        trustClass: context.guardianTrustClass,
+        reason: 'peer_assistant_denied',
+      }, 'Peer assistant tool execution blocked (fail-closed)');
+      const durationMs = Date.now() - startTime;
+      emitLifecycleEvent({
+        type: 'permission_denied',
+        toolName: name,
+        executionTarget,
+        input,
+        workingDir: context.workingDir,
+        sessionId: context.sessionId,
+        conversationId: context.conversationId,
+        requestId: context.requestId,
+        riskLevel,
+        decision: 'deny',
+        reason,
+        durationMs,
+      });
+      return { allowed: false, result: { content: reason, isError: true } };
     }
 
     // Reject tool invocations targeting guardian control-plane endpoints from non-guardian actors.

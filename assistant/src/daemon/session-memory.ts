@@ -34,7 +34,7 @@ export interface MemoryPrepareContext {
   conflictGate: ConflictGate;
   scopeId: string;
   includeDefaultFallback: boolean;
-  guardianTrustClass: 'guardian' | 'trusted_contact' | 'unknown';
+  guardianTrustClass: 'guardian' | 'trusted_contact' | 'peer_assistant' | 'unknown';
   /** When false (e.g. scheduled tasks), skip conflict clarification prompts. */
   isInteractive?: boolean;
 }

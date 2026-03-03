@@ -19,6 +19,7 @@ function parseGuardianRuntimeContext(value: unknown): GuardianRuntimeContext | u
   if (
     trustClass !== 'guardian'
     && trustClass !== 'trusted_contact'
+    && trustClass !== 'peer_assistant'
     && trustClass !== 'unknown'
   ) {
     return undefined;

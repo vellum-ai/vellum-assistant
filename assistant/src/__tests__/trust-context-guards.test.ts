@@ -215,4 +215,64 @@ describe("trust-context guards", () => {
         `Found: "${principalLine!.trim()}"`,
     ).toBe(false);
   });
+
+  // -----------------------------------------------------------------------
+  // (f) TrustClass includes peer_assistant
+  // -----------------------------------------------------------------------
+
+  it("TrustClass type includes peer_assistant in actor-trust-resolver", () => {
+    const source = readFileSync(
+      join(srcDir, "runtime", "actor-trust-resolver.ts"),
+      "utf-8",
+    );
+
+    const trustTypeLine = source
+      .split("\n")
+      .find((l) => l.includes("export type TrustClass"));
+    expect(
+      trustTypeLine,
+      "Expected to find TrustClass type definition in actor-trust-resolver.ts",
+    ).toBeDefined();
+
+    expect(
+      trustTypeLine!.includes("peer_assistant"),
+      "TrustClass must include 'peer_assistant' for A2A peer trust classification. " +
+        `Found: "${trustTypeLine!.trim()}"`,
+    ).toBe(true);
+  });
+
+  // -----------------------------------------------------------------------
+  // (g) peer_assistant is treated as untrusted in tool-approval-handler
+  // -----------------------------------------------------------------------
+
+  it("isUntrustedGuardianTrustClass handles peer_assistant in tool-approval-handler", () => {
+    const source = readFileSync(
+      join(srcDir, "tools", "tool-approval-handler.ts"),
+      "utf-8",
+    );
+
+    // Find the peer_assistant blanket block in checkPreExecutionGates
+    expect(
+      source.includes("context.guardianTrustClass === 'peer_assistant'"),
+      "tool-approval-handler must include a blanket deny gate for peer_assistant actors. " +
+        "Peer assistants have zero capabilities by default.",
+    ).toBe(true);
+  });
+
+  // -----------------------------------------------------------------------
+  // (h) peer_assistant is recognized in channel-retry-sweep parser
+  // -----------------------------------------------------------------------
+
+  it("channel-retry-sweep parser recognizes peer_assistant trustClass", () => {
+    const source = readFileSync(
+      join(srcDir, "runtime", "channel-retry-sweep.ts"),
+      "utf-8",
+    );
+
+    expect(
+      source.includes("'peer_assistant'"),
+      "channel-retry-sweep must recognize 'peer_assistant' as a valid trustClass value " +
+        "in parseGuardianRuntimeContext.",
+    ).toBe(true);
+  });
 });

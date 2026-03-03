@@ -24,7 +24,7 @@ const BACKFILL_CHECKPOINT_ID_KEY = 'memory:backfill:last_message_id';
 const RELATION_BACKFILL_CHECKPOINT_KEY = 'memory:relation_backfill:last_created_at';
 const RELATION_BACKFILL_CHECKPOINT_ID_KEY = 'memory:relation_backfill:last_message_id';
 
-type ProvenanceTrustClass = 'guardian' | 'trusted_contact' | 'unknown';
+type ProvenanceTrustClass = 'guardian' | 'trusted_contact' | 'peer_assistant' | 'unknown';
 
 function parseProvenanceTrustClass(rawMetadata: string | null): ProvenanceTrustClass | undefined {
   if (!rawMetadata) return undefined;

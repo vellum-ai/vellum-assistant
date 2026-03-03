@@ -23,7 +23,7 @@ export interface IndexMessageInput {
   createdAt: number;
   scopeId?: string;
   // Provenance for trust-aware extraction gating (M3)
-  provenanceTrustClass?: 'guardian' | 'trusted_contact' | 'unknown';
+  provenanceTrustClass?: 'guardian' | 'trusted_contact' | 'peer_assistant' | 'unknown';
 }
 
 export interface IndexMessageResult {
