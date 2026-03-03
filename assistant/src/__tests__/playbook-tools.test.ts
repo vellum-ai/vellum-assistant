@@ -66,7 +66,7 @@ const ctx: ToolContext = {
   workingDir: "/tmp",
   sessionId: "test-session",
   conversationId: "test-conversation",
-  guardianTrustClass: "guardian",
+  trustClass: "guardian",
 };
 
 function clearPlaybooks(): void {

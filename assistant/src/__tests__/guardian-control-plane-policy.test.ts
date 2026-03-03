@@ -118,7 +118,7 @@ function makeContext(overrides?: Partial<ToolContext>): ToolContext {
     workingDir: "/tmp/project",
     sessionId: "session-1",
     conversationId: "conversation-1",
-    guardianTrustClass: "guardian",
+    trustClass: "guardian",
     ...overrides,
   };
 }
@@ -607,7 +607,7 @@ describe("ToolExecutor guardian-only policy gate", () => {
         command:
           "curl -X POST http://localhost:3000/v1/integrations/guardian/outbound/start",
       },
-      makeContext({ guardianTrustClass: "trusted_contact" }),
+      makeContext({ trustClass: "trusted_contact" }),
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("restricted to guardian users");
@@ -618,7 +618,7 @@ describe("ToolExecutor guardian-only policy gate", () => {
     const result = await executor.execute(
       "network_request",
       { url: "https://api.example.com/v1/integrations/guardian/challenge" },
-      makeContext({ guardianTrustClass: "unknown" }),
+      makeContext({ trustClass: "unknown" }),
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("restricted to guardian users");
@@ -632,7 +632,7 @@ describe("ToolExecutor guardian-only policy gate", () => {
         command:
           "curl -X POST http://localhost:3000/v1/integrations/guardian/outbound/start",
       },
-      makeContext({ guardianTrustClass: "guardian" }),
+      makeContext({ trustClass: "guardian" }),
     );
     expect(result.isError).toBe(false);
     expect(result.content).toBe("ok");
@@ -643,7 +643,7 @@ describe("ToolExecutor guardian-only policy gate", () => {
     const result = await executor.execute(
       "bash",
       { command: "curl http://localhost:3000/v1/integrations/guardian/status" },
-      makeContext(), // defaults to guardianTrustClass: 'guardian'
+      makeContext(), // defaults to trustClass: 'guardian'
     );
     expect(result.isError).toBe(false);
     expect(result.content).toBe("ok");
@@ -654,7 +654,7 @@ describe("ToolExecutor guardian-only policy gate", () => {
     const result = await executor.execute(
       "bash",
       { command: "curl http://localhost:3000/v1/messages" },
-      makeContext({ guardianTrustClass: "trusted_contact" }),
+      makeContext({ trustClass: "trusted_contact" }),
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("requires guardian approval");
@@ -665,7 +665,7 @@ describe("ToolExecutor guardian-only policy gate", () => {
     const result = await executor.execute(
       "file_read",
       { path: "README.md" },
-      makeContext({ guardianTrustClass: "trusted_contact" }),
+      makeContext({ trustClass: "trusted_contact" }),
     );
     expect(result.isError).toBe(false);
     expect(result.content).toBe("ok");
@@ -681,7 +681,7 @@ describe("ToolExecutor guardian-only policy gate", () => {
           "curl http://localhost:3000/v1/integrations/guardian/outbound/cancel",
       },
       makeContext({
-        guardianTrustClass: "trusted_contact",
+        trustClass: "trusted_contact",
         onToolLifecycleEvent: (event: ToolLifecycleEvent) => {
           if (event.type === "permission_denied") {
             capturedEvent = event as ToolPermissionDeniedEvent;
@@ -699,7 +699,7 @@ describe("ToolExecutor guardian-only policy gate", () => {
     const result = await executor.execute(
       "web_fetch",
       { url: "http://localhost:3000/v1/integrations/guardian/outbound/resend" },
-      makeContext({ guardianTrustClass: "trusted_contact" }),
+      makeContext({ trustClass: "trusted_contact" }),
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("restricted to guardian users");
@@ -710,7 +710,7 @@ describe("ToolExecutor guardian-only policy gate", () => {
     const result = await executor.execute(
       "browser_navigate",
       { url: "http://localhost:3000/v1/integrations/guardian/status" },
-      makeContext({ guardianTrustClass: "trusted_contact" }),
+      makeContext({ trustClass: "trusted_contact" }),
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("restricted to guardian users");
@@ -724,7 +724,7 @@ describe("ToolExecutor guardian-only policy gate", () => {
         command:
           "curl -X POST https://internal:8080/v1/integrations/guardian/challenge",
       },
-      makeContext({ guardianTrustClass: "trusted_contact" }),
+      makeContext({ trustClass: "trusted_contact" }),
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("restricted to guardian users");
@@ -744,7 +744,7 @@ describe("ToolExecutor guardian-only policy gate", () => {
       const result = await executor.execute(
         "network_request",
         { url: `https://api.example.com${path}` },
-        makeContext({ guardianTrustClass: "trusted_contact" }),
+        makeContext({ trustClass: "trusted_contact" }),
       );
       expect(result.isError).toBe(true);
       expect(result.content).toContain("restricted to guardian users");
@@ -756,7 +756,7 @@ describe("ToolExecutor guardian-only policy gate", () => {
     const result = await executor.execute(
       "host_file_read",
       { path: "/Users/noaflaherty/.ssh/config" },
-      makeContext({ guardianTrustClass: "trusted_contact" }),
+      makeContext({ trustClass: "trusted_contact" }),
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("requires guardian approval");
@@ -767,7 +767,7 @@ describe("ToolExecutor guardian-only policy gate", () => {
     const result = await executor.execute(
       "reminder_create",
       { fire_at: "2026-02-27T12:00:00-05:00", label: "test", message: "hello" },
-      makeContext({ guardianTrustClass: "unknown" }),
+      makeContext({ trustClass: "unknown" }),
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("verified channel identity");
@@ -778,7 +778,7 @@ describe("ToolExecutor guardian-only policy gate", () => {
     const result = await executor.execute(
       "reminder_create",
       { fire_at: "2026-02-27T12:00:00-05:00", label: "test", message: "hello" },
-      makeContext({ guardianTrustClass: "guardian" }),
+      makeContext({ trustClass: "guardian" }),
     );
     expect(result.isError).toBe(false);
     expect(result.content).toBe("ok");

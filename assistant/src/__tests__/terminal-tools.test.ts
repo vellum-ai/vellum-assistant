@@ -597,7 +597,7 @@ describe("Shell tool input validation", () => {
     workingDir: testTmpDir,
     sessionId: "test-session-1",
     conversationId: "test-conv-1",
-    guardianTrustClass: "guardian" as const,
+    trustClass: "guardian" as const,
     onOutput: () => {},
   };
 

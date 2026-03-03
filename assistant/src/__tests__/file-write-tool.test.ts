@@ -26,7 +26,7 @@ function makeContext(workingDir: string): ToolContext {
     workingDir,
     sessionId: "test-session",
     conversationId: "test-conversation",
-    guardianTrustClass: "guardian",
+    trustClass: "guardian",
   };
 }
 

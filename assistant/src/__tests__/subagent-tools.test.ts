@@ -112,7 +112,7 @@ function makeContext(sessionId: string, extras: Record<string, unknown> = {}) {
     workingDir: "/tmp",
     sessionId,
     conversationId: "conv-1",
-    guardianTrustClass: "guardian" as const,
+    trustClass: "guardian" as const,
     ...extras,
   } as import("../tools/types.js").ToolContext;
 }

@@ -45,7 +45,7 @@ function makeContext(): ToolContext {
     sessionId: "session-1",
     conversationId: "conversation-1",
     assistantId: "self",
-    guardianTrustClass: "guardian",
+    trustClass: "guardian",
   };
 }
 

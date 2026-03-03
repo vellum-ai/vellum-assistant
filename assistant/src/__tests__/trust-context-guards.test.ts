@@ -10,7 +10,7 @@ import { describe, expect, it } from "bun:test";
  *
  *  (a) guardianPrincipalId in TrustContext must be `?: string`
  *      (optional string), NOT `string | null`.
- *  (b) guardianTrustClass in ToolContext must be a required field (no `?`).
+ *  (b) trustClass in ToolContext must be a required field (no `?`).
  *  (c) The channel retry sweep parser must not reference `actorRole`.
  *  (d) guardianPrincipalId in GuardianBinding must be `string` (non-null,
  *      non-optional).
@@ -30,9 +30,7 @@ describe("trust-context guards", () => {
     );
 
     // Extract the TrustContext interface block
-    const ifaceStart = source.indexOf(
-      "export interface TrustContext",
-    );
+    const ifaceStart = source.indexOf("export interface TrustContext");
     expect(ifaceStart).toBeGreaterThan(-1);
 
     const blockStart = source.indexOf("{", ifaceStart);
@@ -76,10 +74,10 @@ describe("trust-context guards", () => {
   });
 
   // -----------------------------------------------------------------------
-  // (b) guardianTrustClass is required in ToolContext
+  // (b) trustClass is required in ToolContext
   // -----------------------------------------------------------------------
 
-  it("guardianTrustClass is a required field in ToolContext", () => {
+  it("trustClass is a required field in ToolContext", () => {
     const source = readFileSync(join(srcDir, "tools", "types.ts"), "utf-8");
 
     // Extract the ToolContext interface block
@@ -99,18 +97,16 @@ describe("trust-context guards", () => {
     }
     const block = source.slice(blockStart, blockEnd);
 
-    const trustLine = block
-      .split("\n")
-      .find((l) => l.includes("guardianTrustClass"));
+    const trustLine = block.split("\n").find((l) => l.includes("trustClass"));
     expect(
       trustLine,
-      "Expected to find guardianTrustClass in ToolContext",
+      "Expected to find trustClass in ToolContext",
     ).toBeDefined();
 
     // The field must NOT have a `?` before the colon — it must be required.
     expect(
-      /guardianTrustClass\s*\?/.test(trustLine!),
-      "guardianTrustClass must be a required field in ToolContext (no `?`). " +
+      /trustClass\s*\?/.test(trustLine!),
+      "trustClass must be a required field in ToolContext (no `?`). " +
         "Explicit trust gates must not be optional — every tool execution " +
         `must carry a trust classification. Found: "${trustLine!.trim()}"`,
     ).toBe(false);
