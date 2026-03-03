@@ -279,9 +279,9 @@ describe("Guardian verification routing section in system prompt", () => {
     expect(prompt).toContain("verify guardian");
   });
 
-  test('routing section includes trigger phrase "set guardian for SMS"', () => {
+  test('routing section does not include SMS trigger phrase', () => {
     const prompt = buildSystemPrompt();
-    expect(prompt).toContain("set guardian for SMS");
+    expect(prompt).not.toContain("set guardian for SMS");
   });
 
   test('routing section includes trigger phrase "verify my Telegram account"', () => {
@@ -309,14 +309,13 @@ describe("Guardian verification routing section in system prompt", () => {
     expect(prompt).toContain("guardian-verify-setup");
   });
 
-  test("routing section mentions all three channels", () => {
+  test("routing section mentions voice and telegram channels but not sms", () => {
     const prompt = buildSystemPrompt();
-    // The section should mention sms, voice, and telegram as supported channels
     const routingStart = prompt.indexOf("## Routing: Guardian Verification");
     const routingSection = prompt.substring(routingStart, routingStart + 1000);
-    expect(routingSection).toContain("sms");
     expect(routingSection).toContain("voice");
     expect(routingSection).toContain("telegram");
+    expect(routingSection).not.toContain("sms");
   });
 
   test("routing section contains exclusivity wording", () => {
