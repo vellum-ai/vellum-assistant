@@ -1,32 +1,16 @@
-# System prompt ownership
-assistant/src/config/system-prompt.ts @awlevin @siddseethepalli @alex-nork
-assistant/src/config/computer-use-prompt.ts @awlevin @siddseethepalli @alex-nork
-assistant/src/config/templates/ @awlevin @siddseethepalli @alex-nork
+# =============================================================================
+# CODEOWNERS — ordered for last-match-wins semantics
+#
+# GitHub uses the LAST matching pattern, so broad directory rules go first
+# and specific overrides go after them.
+# =============================================================================
 
-# Default identity/personality files
-assistant/src/config/templates/IDENTITY.md @awlevin @AnitaKirkovska
-assistant/src/config/templates/USER.md @awlevin @AnitaKirkovska
-assistant/src/config/templates/SOUL.md @awlevin @AnitaKirkovska
-assistant/src/config/templates/BOOTSTRAP.md @awlevin @AnitaKirkovska
-
-# Voice / calls (Alex)
-assistant/src/calls/ @alex-nork
-assistant/src/tools/calls/ @alex-nork
-assistant/src/config/calls-schema.ts @alex-nork
-assistant/src/config/bundled-skills/phone-calls/ @alex-nork
-assistant/src/config/bundled-skills/voice-setup/ @alex-nork
-assistant/src/config/bundled-skills/twilio-setup/ @alex-nork
-assistant/src/runtime/routes/call-routes.ts @alex-nork
-assistant/src/runtime/middleware/twilio-validation.ts @alex-nork
-assistant/src/runtime/channel-invite-transports/voice.ts @alex-nork
-assistant/src/tools/system/voice-config.ts @alex-nork
-assistant/src/util/voice-code.ts @alex-nork
-gateway/src/twilio/ @alex-nork
+# --- Broad directory catch-alls (DRI defaults) ---
 
 # Memory system (Sidd)
 assistant/src/memory/ @siddseethepalli
 
-# Tool definitions and infrastructure
+# Tool definitions and infrastructure (Sidd)
 assistant/src/tools/ @siddseethepalli
 
 # Skill system (Aaron)
@@ -34,15 +18,12 @@ assistant/src/skills/ @awlevin
 assistant/src/config/skills.ts @awlevin
 assistant/src/config/skill-state.ts @awlevin
 assistant/src/config/bundled-skills/ @awlevin
-assistant/src/tools/skills/ @awlevin
 assistant/src/daemon/handlers/skills.ts @awlevin
 assistant/src/daemon/ipc-contract/skills.ts @awlevin
 assistant/src/daemon/session-skill-tools.ts @awlevin
 
 # Agent-to-agent / agent-to-person interactions (Harrison)
 assistant/src/subagent/ @NgoHarrison
-assistant/src/tools/subagent/ @NgoHarrison
-assistant/src/config/bundled-skills/subagent/ @NgoHarrison
 assistant/src/channels/ @NgoHarrison
 assistant/src/messaging/ @NgoHarrison
 assistant/src/notifications/ @NgoHarrison
@@ -57,12 +38,46 @@ gateway/src/telegram/ @NgoHarrison
 gateway/src/slack/ @NgoHarrison
 gateway/src/whatsapp/ @NgoHarrison
 
-# MCP (Vincent)
+# --- Specific overrides (must come AFTER broad rules) ---
+
+# System prompt ownership
+assistant/src/config/system-prompt.ts @awlevin @siddseethepalli @alex-nork
+assistant/src/config/computer-use-prompt.ts @awlevin @siddseethepalli @alex-nork
+assistant/src/config/templates/ @awlevin @siddseethepalli @alex-nork
+
+# Default identity/personality files
+assistant/src/config/templates/IDENTITY.md @awlevin @AnitaKirkovska
+assistant/src/config/templates/USER.md @awlevin @AnitaKirkovska
+assistant/src/config/templates/SOUL.md @awlevin @AnitaKirkovska
+assistant/src/config/templates/BOOTSTRAP.md @awlevin @AnitaKirkovska
+
+# Voice / calls (Alex) — overrides tools/, bundled-skills/, routes/
+assistant/src/calls/ @alex-nork
+assistant/src/tools/calls/ @alex-nork
+assistant/src/tools/system/voice-config.ts @alex-nork
+assistant/src/config/calls-schema.ts @alex-nork
+assistant/src/config/bundled-skills/phone-calls/ @alex-nork
+assistant/src/config/bundled-skills/voice-setup/ @alex-nork
+assistant/src/config/bundled-skills/twilio-setup/ @alex-nork
+assistant/src/runtime/routes/call-routes.ts @alex-nork
+assistant/src/runtime/middleware/twilio-validation.ts @alex-nork
+assistant/src/runtime/channel-invite-transports/voice.ts @alex-nork
+assistant/src/util/voice-code.ts @alex-nork
+gateway/src/twilio/ @alex-nork
+
+# Agent-to-agent / agent-to-person overrides (Harrison) — within tools/, bundled-skills/
+assistant/src/tools/subagent/ @NgoHarrison
+assistant/src/config/bundled-skills/subagent/ @NgoHarrison
+
+# MCP (Vincent) — overrides tools/
 assistant/src/mcp/ @vincent0426
 assistant/src/tools/mcp/ @vincent0426
 assistant/src/cli/mcp.ts @vincent0426
 
-# Guardian approvals (Noa)
+# Skill tools (Aaron) — overrides tools/
+assistant/src/tools/skills/ @awlevin
+
+# Guardian approvals (Noa) — overrides tools/, routes/, memory/, notifications/, bundled-skills/
 assistant/src/approvals/ @noanflaherty
 assistant/src/runtime/channel-approvals.ts @noanflaherty
 assistant/src/runtime/channel-approval-parser.ts @noanflaherty
