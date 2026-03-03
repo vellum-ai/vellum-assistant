@@ -13,8 +13,11 @@ function isVellumProcess(pid: number): boolean {
       timeout: 3000,
       stdio: ["ignore", "pipe", "ignore"],
     }).trim();
-    // Match daemon binary, gateway binary, or bun-run source invocations
-    return /vellum|@vellumai/.test(output);
+    // Match daemon/gateway binaries (vellum-daemon, vellum-gateway), npm
+    // package names (@vellumai/*), or bun-run source invocations where the
+    // command line may only show "bun run src/index.ts" without any
+    // vellum-specific path component (e.g. gateway launched from its cwd).
+    return /vellum|@vellumai|bun\s+(run\s+)?src\/index\.ts/.test(output);
   } catch {
     return false;
   }
