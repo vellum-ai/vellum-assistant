@@ -200,9 +200,9 @@ struct OnboardingFlowView: View {
             }
 
             let runtimeUrl = AuthService.shared.baseURL
-            let fmt = ISO8601DateFormatter()
-            fmt.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            let hatchedAt = fmt.string(from: Date())
+            let isoFormatter = ISO8601DateFormatter()
+            isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            let hatchedAt = isoFormatter.string(from: Date())
 
             let success = LockfileAssistant.upsertManagedEntry(
                 assistantId: assistant.id,
@@ -211,7 +211,6 @@ struct OnboardingFlowView: View {
             )
 
             guard success else {
-                isBootstrappingManaged = false
                 managedBootstrapError = "Failed to save assistant configuration. Please try again."
                 return
             }
