@@ -412,7 +412,7 @@ See [`benchmarking/gateway/README.md`](../benchmarking/gateway/README.md) for lo
 | "No route configured" replies | Add a routing entry or set `GATEWAY_UNMAPPED_POLICY=default` with a default assistant |
 | Runtime errors | Is `ASSISTANT_RUNTIME_BASE_URL` reachable? Check runtime logs. |
 | No reply from assistant | Is the assistant runtime processing messages? Check for `RUNTIME_HTTP_PORT` env var. |
-| 403 on channel inbound | The runtime rejected the request because JWT authentication failed. Ensure the gateway and runtime share the same signing key (`RUNTIME_BEARER_TOKEN` / `~/.vellum/http-token`). |
+| 403 on channel inbound | The runtime rejected the request because JWT authentication failed. Ensure the gateway and runtime share the same signing key (`~/.vellum/protected/actor-token-signing-key`). |
 
 ### Guardian-Specific Troubleshooting
 
