@@ -128,7 +128,7 @@ struct SettingsAccountTab: View {
                         .foregroundColor(VColor.textPrimary)
                         .onFocusChange { focused in isPlatformUrlFocused = focused }
                     HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Save", style: .primary, size: .medium) {
+                        VButton(label: "Save", style: .secondary, size: .medium) {
                             store.savePlatformBaseUrl(platformUrlText)
                             Task { await store.checkVellumPlatform() }
                             isPlatformUrlFocused = false
@@ -146,7 +146,7 @@ struct SettingsAccountTab: View {
                         .foregroundColor(VColor.textPrimary)
                         .onFocusChange { focused in isPlatformUrlFocused = focused }
                     HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Save", style: .primary, size: .medium) {
+                        VButton(label: "Save", style: .secondary, size: .medium) {
                             store.savePlatformBaseUrl(platformUrlText)
                             Task { await store.checkVellumPlatform() }
                             isPlatformUrlFocused = false

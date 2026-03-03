@@ -312,7 +312,7 @@ struct SettingsPanel: View {
                         }
 
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Save", style: .primary, size: .medium) {
+                            VButton(label: "Save", style: .secondary, size: .medium) {
                                 store.saveAPIKey(apiKeyText)
                                 apiKeyText = ""
                                 anthropicSetupExpanded = false
@@ -378,7 +378,7 @@ struct SettingsPanel: View {
                         }
 
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Save", style: .primary, size: .medium) {
+                            VButton(label: "Save", style: .secondary, size: .medium) {
                                 store.savePerplexityKey(perplexityKeyText)
                                 perplexityKeyText = ""
                                 perplexitySetupExpanded = false
@@ -444,7 +444,7 @@ struct SettingsPanel: View {
                         }
 
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Save", style: .primary, size: .medium) {
+                            VButton(label: "Save", style: .secondary, size: .medium) {
                                 store.saveBraveKey(braveKeyText)
                                 braveKeyText = ""
                                 braveSetupExpanded = false
@@ -531,7 +531,7 @@ struct SettingsPanel: View {
                         }
 
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Save", style: .primary, size: .medium) {
+                            VButton(label: "Save", style: .secondary, size: .medium) {
                                 store.saveImageGenKey(imageGenKeyText)
                                 imageGenKeyText = ""
                                 imageGenSetupExpanded = false
@@ -588,120 +588,138 @@ struct SettingsPanel: View {
                     .foregroundColor(VColor.textMuted)
             }
 
-            if store.twitterConnected {
-                // Connected state
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .medium) {}
-                        VButton(label: "Disconnect", style: .danger, size: .medium) {
-                            store.disconnectTwitter()
-                        }
-                    }
-                    if let account = store.twitterAccountInfo {
-                        Text(account)
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                    }
+            // Mode Picker
+            HStack {
+                Text("Integration mode")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textSecondary)
+                Spacer()
+                VSegmentedControl(
+                    items: [
+                        (label: "Set Up", tag: "local_byo"),
+                        (label: "Managed", tag: "managed"),
+                    ],
+                    selection: $store.twitterMode,
+                    style: .pill
+                )
+                .fixedSize()
+                .onChange(of: store.twitterMode) { _, newValue in
+                    store.setTwitterMode(newValue)
                 }
-            } else if store.twitterLocalClientConfigured {
-                // Client configured but not yet connected — allow OAuth connect
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    if store.twitterAuthInProgress {
+            }
+
+            // Managed mode "coming soon"
+            if store.twitterMode == "managed" {
+                HStack(spacing: VSpacing.sm) {
+                    Image(systemName: "info.circle")
+                        .foregroundStyle(VColor.textSecondary)
+                    Text("Managed mode is coming soon. Switch to Set Up to connect now.")
+                        .font(VFont.caption)
+                        .foregroundStyle(VColor.textSecondary)
+                }
+            }
+
+            // Set Up (local BYO) mode content
+            if store.twitterMode == "local_byo" {
+                if store.twitterConnected {
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Connect", style: .primary, size: .medium) {}
-                                .disabled(true)
-                            ProgressView()
-                                .controlSize(.small)
-                            Text("Connecting...")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textSecondary)
-                        }
-                    } else {
-                        HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Connect", style: .primary, size: .medium) {
-                                store.connectTwitter()
+                            VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .medium) {}
+                            VButton(label: "Disconnect", style: .danger, size: .medium) {
+                                store.disconnectTwitter()
                             }
-                            // Reconfigure replaces the old "Clear App Config" footer button
-                            VButton(label: "Reconfigure", style: .secondary, size: .medium) {
-                                store.clearTwitterLocalClient()
+                        }
+                        if let account = store.twitterAccountInfo {
+                            Text(account)
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                        }
+                    }
+                } else if store.twitterLocalClientConfigured {
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        if store.twitterAuthInProgress {
+                            HStack(spacing: VSpacing.sm) {
+                                VButton(label: "Connect", style: .primary, size: .medium) {}
+                                    .disabled(true)
+                                ProgressView()
+                                    .controlSize(.small)
+                                Text("Connecting...")
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.textSecondary)
+                            }
+                        } else {
+                            HStack(spacing: VSpacing.sm) {
+                                VButton(label: "Connect", style: .primary, size: .medium) {
+                                    store.connectTwitter()
+                                }
+                                VButton(label: "Reconfigure", style: .secondary, size: .medium) {
+                                    store.clearTwitterLocalClient()
+                                    twitterClientId = ""
+                                    twitterClientSecret = ""
+                                    twitterSetupExpanded = true
+                                }
+                            }
+                        }
+
+                        if let error = store.twitterAuthError {
+                            Text(error)
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.error)
+                        }
+                    }
+                } else if twitterSetupExpanded {
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        Text("OAuth Client ID")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
+
+                        TextField("OAuth Client ID", text: $twitterClientId)
+                            .vInputStyle()
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textPrimary)
+
+                        Text("OAuth Client Secret (optional)")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
+
+                        SecureField("OAuth Client Secret (optional)", text: $twitterClientSecret)
+                            .vInputStyle()
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textPrimary)
+
+                        HStack(spacing: 0) {
+                            Text("Create an app at ")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                            Link("developer.x.com", destination: URL(string: "https://developer.x.com")!)
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.accent)
+                                .onHover { hovering in
+                                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                                }
+                        }
+
+                        HStack(spacing: VSpacing.sm) {
+                            VButton(label: "Save", style: .secondary, size: .medium) {
+                                store.saveTwitterLocalClient(
+                                    clientId: twitterClientId,
+                                    clientSecret: twitterClientSecret.isEmpty ? nil : twitterClientSecret
+                                )
                                 twitterClientId = ""
                                 twitterClientSecret = ""
-                                twitterSetupExpanded = true
+                                twitterSetupExpanded = false
+                            }
+                            .disabled(twitterClientId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            VButton(label: "Cancel", style: .tertiary, size: .medium) {
+                                twitterSetupExpanded = false
+                                twitterClientId = ""
+                                twitterClientSecret = ""
                             }
                         }
                     }
-
-                    if let error = store.twitterAuthError {
-                        Text(error)
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.error)
-                    }
-                }
-            } else if twitterSetupExpanded {
-                // OAuth client credentials entry
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    Text("OAuth Client ID")
-                        .font(VFont.inputLabel)
-                        .foregroundColor(VColor.textSecondary)
-
-                    TextField("OAuth Client ID", text: $twitterClientId)
-                        .vInputStyle()
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
-
-                    Text("OAuth Client Secret (optional)")
-                        .font(VFont.inputLabel)
-                        .foregroundColor(VColor.textSecondary)
-
-                    SecureField("OAuth Client Secret (optional)", text: $twitterClientSecret)
-                        .vInputStyle()
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
-
-                    HStack(spacing: 0) {
-                        Text("Create an app at ")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                        Link("developer.x.com", destination: URL(string: "https://developer.x.com")!)
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.accent)
-                            .onHover { hovering in
-                                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                            }
-                    }
-
-                    HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Save", style: .primary, size: .medium) {
-                            store.saveTwitterLocalClient(
-                                clientId: twitterClientId,
-                                clientSecret: twitterClientSecret.isEmpty ? nil : twitterClientSecret
-                            )
-                            twitterClientId = ""
-                            twitterClientSecret = ""
-                            twitterSetupExpanded = false
-                        }
-                        .disabled(twitterClientId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        VButton(label: "Cancel", style: .tertiary, size: .medium) {
-                            twitterSetupExpanded = false
-                            twitterClientId = ""
-                            twitterClientSecret = ""
-                        }
-                    }
-                }
-            } else {
-                // Not configured — show Set Up entry point
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                } else {
                     VButton(label: "Set Up", style: .secondary, size: .medium) {
                         twitterSetupExpanded = true
-                    }
-                    // Managed mode is on the roadmap; surface it as a soft note
-                    HStack(spacing: VSpacing.xs) {
-                        Image(systemName: "info.circle")
-                            .font(.system(size: 11))
-                            .foregroundStyle(VColor.textMuted)
-                        Text("Managed mode (no developer account required) is coming soon.")
-                            .font(VFont.caption)
-                            .foregroundStyle(VColor.textMuted)
                     }
                 }
             }
