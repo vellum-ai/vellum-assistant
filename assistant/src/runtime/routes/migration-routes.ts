@@ -10,8 +10,9 @@
  */
 
 import { getLogger } from "../../util/logger.js";
+import { getDbPath, getWorkspaceConfigPath } from "../../util/platform.js";
 import { httpError } from "../http-errors.js";
-import { buildSkeletonVBundle } from "../migrations/vbundle-builder.js";
+import { buildExportVBundle } from "../migrations/vbundle-builder.js";
 import { validateVBundle } from "../migrations/vbundle-validator.js";
 
 const log = getLogger("migration-routes");
@@ -90,10 +91,9 @@ export async function handleMigrationValidate(req: Request): Promise<Response> {
 /**
  * POST /v1/migrations/export
  *
- * Generates a .vbundle archive skeleton and returns it as a binary download.
- * The archive contains the correct file layout structure (manifest, db
- * placeholder, config directory) but does not populate actual conversation
- * or memory data — that is reserved for PR-3.
+ * Exports the assistant's real data as a .vbundle archive. The archive
+ * contains the SQLite database (all conversations, messages, memory
+ * segments, embeddings) and the config file.
  *
  * Accepts an optional JSON body:
  *   { "description": "Human-readable export description" }
@@ -122,7 +122,9 @@ export async function handleMigrationExport(req: Request): Promise<Response> {
   }
 
   try {
-    const { archive, manifest } = buildSkeletonVBundle({
+    const { archive, manifest } = buildExportVBundle({
+      dbPath: getDbPath(),
+      configPath: getWorkspaceConfigPath(),
       source: "runtime-export",
       description,
     });

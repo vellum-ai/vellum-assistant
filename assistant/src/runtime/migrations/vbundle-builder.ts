@@ -3,14 +3,12 @@
  *
  * A .vbundle is a gzip-compressed tar archive containing:
  * - manifest.json: metadata with schema_version, checksums, and bundle info
- * - data/db/assistant.db: the SQLite database (placeholder in skeleton mode)
- * - Additional config files as declared in the manifest
- *
- * This module produces the archive skeleton with correct file layout and
- * checksums. PR-3 will populate the actual conversation/memory data.
+ * - data/db/assistant.db: the SQLite database with conversations and memory
+ * - config/settings.json: the assistant configuration
  */
 
 import { createHash } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 
 import type {
@@ -233,35 +231,54 @@ export function buildVBundle(options: BuildVBundleOptions): BuildVBundleResult {
 }
 
 // ---------------------------------------------------------------------------
-// Skeleton builder
+// Export builder — reads real data from disk
 // ---------------------------------------------------------------------------
 
-/**
- * Build a skeleton .vbundle with placeholder content.
- *
- * The skeleton includes:
- * - manifest.json with proper metadata and checksums
- * - data/db/assistant.db as an empty placeholder
- * - config/settings.json as an empty JSON object placeholder
- *
- * PR-3 will replace the placeholder data with actual exported content.
- */
-export function buildSkeletonVBundle(options?: {
+export interface BuildExportVBundleOptions {
+  /** Path to the SQLite database file (e.g. ~/.vellum/workspace/data/db/assistant.db). */
+  dbPath: string;
+  /** Path to the config file (e.g. ~/.vellum/workspace/config.json). */
+  configPath: string;
+  /** Source identifier. Defaults to "runtime-export". */
   source?: string;
+  /** Human-readable description. */
   description?: string;
-}): BuildVBundleResult {
-  // Placeholder SQLite database (empty file)
-  const dbPlaceholder = new Uint8Array(0);
+}
 
-  // Placeholder config
-  const configPlaceholder = new TextEncoder().encode("{}");
+/**
+ * Build a .vbundle archive populated with real assistant data.
+ *
+ * Reads the actual SQLite database (which contains all conversations,
+ * messages, memory segments, embeddings, and other assistant state) and
+ * the config file from disk. Returns a complete, self-validating archive
+ * ready for migration import.
+ *
+ * Falls back gracefully: if the database does not exist, an empty file is
+ * included. If the config does not exist, an empty JSON object is used.
+ */
+export function buildExportVBundle(
+  options: BuildExportVBundleOptions,
+): BuildVBundleResult {
+  const { dbPath, configPath, source, description } = options;
+
+  // Read the actual SQLite database file. The database contains all
+  // conversation history, messages, memory segments, embeddings, and
+  // other persistent assistant state in a single file.
+  const dbData = existsSync(dbPath)
+    ? new Uint8Array(readFileSync(dbPath))
+    : new Uint8Array(0);
+
+  // Read the config file (settings, provider config, feature flags, etc.).
+  const configData = existsSync(configPath)
+    ? new Uint8Array(readFileSync(configPath))
+    : new TextEncoder().encode("{}");
 
   return buildVBundle({
     files: [
-      { path: "data/db/assistant.db", data: dbPlaceholder },
-      { path: "config/settings.json", data: configPlaceholder },
+      { path: "data/db/assistant.db", data: dbData },
+      { path: "config/settings.json", data: configData },
     ],
-    source: options?.source ?? "runtime-export",
-    description: options?.description ?? "Runtime export bundle (skeleton)",
+    source: source ?? "runtime-export",
+    description: description ?? "Runtime export bundle",
   });
 }
