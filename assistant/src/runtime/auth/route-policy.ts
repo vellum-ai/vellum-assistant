@@ -9,11 +9,11 @@
  * type safety but always allow the request through.
  */
 
-import { isHttpAuthDisabled } from '../../config/env.js';
-import { getLogger } from '../../util/logger.js';
-import type { AuthContext, PrincipalType, Scope } from './types.js';
+import { isHttpAuthDisabled } from "../../config/env.js";
+import { getLogger } from "../../util/logger.js";
+import type { AuthContext, PrincipalType, Scope } from "./types.js";
 
-const log = getLogger('route-policy');
+const log = getLogger("route-policy");
 
 // ---------------------------------------------------------------------------
 // Policy definition
@@ -77,11 +77,20 @@ export function enforcePolicy(
   // Check principal type
   if (!policy.allowedPrincipalTypes.includes(authCtx.principalType)) {
     log.warn(
-      { endpoint, principalType: authCtx.principalType, allowed: policy.allowedPrincipalTypes },
-      'Route policy denied: principal type not allowed',
+      {
+        endpoint,
+        principalType: authCtx.principalType,
+        allowed: policy.allowedPrincipalTypes,
+      },
+      "Route policy denied: principal type not allowed",
     );
     return Response.json(
-      { error: { code: 'FORBIDDEN', message: 'Principal type not permitted for this endpoint' } },
+      {
+        error: {
+          code: "FORBIDDEN",
+          message: "Principal type not permitted for this endpoint",
+        },
+      },
       { status: 403 },
     );
   }
@@ -91,10 +100,15 @@ export function enforcePolicy(
     if (!authCtx.scopes.has(scope)) {
       log.warn(
         { endpoint, missingScope: scope, principalType: authCtx.principalType },
-        'Route policy denied: missing required scope',
+        "Route policy denied: missing required scope",
       );
       return Response.json(
-        { error: { code: 'FORBIDDEN', message: `Missing required scope: ${scope}` } },
+        {
+          error: {
+            code: "FORBIDDEN",
+            message: `Missing required scope: ${scope}`,
+          },
+        },
         { status: 403 },
       );
     }
@@ -110,152 +124,197 @@ export function enforcePolicy(
 // Standard actor endpoints — chat, approvals, settings, etc.
 const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   // Conversation / messaging
-  { endpoint: 'messages:GET', scopes: ['chat.read'] },
-  { endpoint: 'messages:POST', scopes: ['chat.write'] },
-  { endpoint: 'conversations', scopes: ['chat.read'] },
-  { endpoint: 'conversations/attention', scopes: ['chat.read'] },
-  { endpoint: 'conversations/seen', scopes: ['chat.write'] },
-  { endpoint: 'search', scopes: ['chat.read'] },
-  { endpoint: 'suggestion', scopes: ['chat.read'] },
+  { endpoint: "messages:GET", scopes: ["chat.read"] },
+  { endpoint: "messages:POST", scopes: ["chat.write"] },
+  { endpoint: "conversations", scopes: ["chat.read"] },
+  { endpoint: "conversations/attention", scopes: ["chat.read"] },
+  { endpoint: "conversations/seen", scopes: ["chat.write"] },
+  { endpoint: "search", scopes: ["chat.read"] },
+  { endpoint: "suggestion", scopes: ["chat.read"] },
 
   // Approvals
-  { endpoint: 'confirm', scopes: ['approval.write'] },
-  { endpoint: 'secret', scopes: ['approval.write'] },
-  { endpoint: 'trust-rules', scopes: ['approval.write'] },
-  { endpoint: 'pending-interactions', scopes: ['approval.read'] },
+  { endpoint: "confirm", scopes: ["approval.write"] },
+  { endpoint: "secret", scopes: ["approval.write"] },
+  { endpoint: "trust-rules", scopes: ["approval.write"] },
+  { endpoint: "pending-interactions", scopes: ["approval.read"] },
 
   // Guardian actions
-  { endpoint: 'guardian-actions/pending', scopes: ['approval.read'] },
-  { endpoint: 'guardian-actions/decision', scopes: ['approval.write'] },
+  { endpoint: "guardian-actions/pending", scopes: ["approval.read"] },
+  { endpoint: "guardian-actions/decision", scopes: ["approval.write"] },
 
   // Events (SSE)
-  { endpoint: 'events', scopes: ['chat.read'] },
+  { endpoint: "events", scopes: ["chat.read"] },
 
   // Attachments
-  { endpoint: 'attachments:POST', scopes: ['attachments.write'] },
-  { endpoint: 'attachments:DELETE', scopes: ['attachments.write'] },
-  { endpoint: 'attachments:GET', scopes: ['attachments.read'] },
-  { endpoint: 'attachments/content:GET', scopes: ['attachments.read'] },
+  { endpoint: "attachments:POST", scopes: ["attachments.write"] },
+  { endpoint: "attachments:DELETE", scopes: ["attachments.write"] },
+  { endpoint: "attachments:GET", scopes: ["attachments.read"] },
+  { endpoint: "attachments/content:GET", scopes: ["attachments.read"] },
 
   // Calls
-  { endpoint: 'calls/start', scopes: ['calls.write'] },
-  { endpoint: 'calls:GET', scopes: ['calls.read'] },
-  { endpoint: 'calls/cancel', scopes: ['calls.write'] },
-  { endpoint: 'calls/answer', scopes: ['calls.write'] },
-  { endpoint: 'calls/instruction', scopes: ['calls.write'] },
+  { endpoint: "calls/start", scopes: ["calls.write"] },
+  { endpoint: "calls:GET", scopes: ["calls.read"] },
+  { endpoint: "calls/cancel", scopes: ["calls.write"] },
+  { endpoint: "calls/answer", scopes: ["calls.write"] },
+  { endpoint: "calls/instruction", scopes: ["calls.write"] },
 
   // Settings / integrations / identity
-  { endpoint: 'identity', scopes: ['settings.read'] },
-  { endpoint: 'brain-graph', scopes: ['settings.read'] },
-  { endpoint: 'brain-graph-ui', scopes: ['settings.read'] },
-  { endpoint: 'home-base-ui', scopes: ['settings.read'] },
-  { endpoint: 'contacts', scopes: ['settings.read'] },
-  { endpoint: 'contacts/merge', scopes: ['settings.write'] },
-  { endpoint: 'contacts:GET', scopes: ['settings.read'] },
-  { endpoint: 'ingress/members', scopes: ['settings.read'] },
-  { endpoint: 'ingress/members:POST', scopes: ['settings.write'] },
-  { endpoint: 'ingress/members/block', scopes: ['settings.write'] },
-  { endpoint: 'ingress/members:DELETE', scopes: ['settings.write'] },
-  { endpoint: 'ingress/invites', scopes: ['settings.read'] },
-  { endpoint: 'ingress/invites:POST', scopes: ['settings.write'] },
-  { endpoint: 'ingress/invites/redeem', scopes: ['settings.write'] },
-  { endpoint: 'ingress/invites:DELETE', scopes: ['settings.write'] },
-  { endpoint: 'integrations/telegram/config', scopes: ['settings.read'] },
-  { endpoint: 'integrations/telegram/config:POST', scopes: ['settings.write'] },
-  { endpoint: 'integrations/telegram/config:DELETE', scopes: ['settings.write'] },
-  { endpoint: 'integrations/telegram/commands', scopes: ['settings.write'] },
-  { endpoint: 'integrations/telegram/setup', scopes: ['settings.write'] },
-  { endpoint: 'integrations/slack/channel/config', scopes: ['settings.read'] },
-  { endpoint: 'integrations/slack/channel/config:POST', scopes: ['settings.write'] },
-  { endpoint: 'integrations/slack/channel/config:DELETE', scopes: ['settings.write'] },
-  { endpoint: 'integrations/guardian/challenge', scopes: ['settings.write'] },
-  { endpoint: 'integrations/guardian/status', scopes: ['settings.read'] },
-  { endpoint: 'integrations/guardian/outbound/start', scopes: ['settings.write'] },
-  { endpoint: 'integrations/guardian/outbound/resend', scopes: ['settings.write'] },
-  { endpoint: 'integrations/guardian/outbound/cancel', scopes: ['settings.write'] },
-  { endpoint: 'integrations/twilio/config', scopes: ['settings.read'] },
-  { endpoint: 'integrations/twilio/credentials:POST', scopes: ['settings.write'] },
-  { endpoint: 'integrations/twilio/credentials:DELETE', scopes: ['settings.write'] },
-  { endpoint: 'integrations/twilio/numbers', scopes: ['settings.read'] },
-  { endpoint: 'integrations/twilio/numbers/provision', scopes: ['settings.write'] },
-  { endpoint: 'integrations/twilio/numbers/assign', scopes: ['settings.write'] },
-  { endpoint: 'integrations/twilio/numbers/release', scopes: ['settings.write'] },
-  { endpoint: 'integrations/twilio/sms/compliance', scopes: ['settings.read'] },
-  { endpoint: 'integrations/twilio/sms/compliance/tollfree', scopes: ['settings.write'] },
-  { endpoint: 'integrations/twilio/sms/compliance/tollfree:PATCH', scopes: ['settings.write'] },
-  { endpoint: 'integrations/twilio/sms/compliance/tollfree:DELETE', scopes: ['settings.write'] },
-  { endpoint: 'integrations/twilio/sms/test', scopes: ['settings.write'] },
-  { endpoint: 'integrations/twilio/sms/doctor', scopes: ['settings.write'] },
+  { endpoint: "identity", scopes: ["settings.read"] },
+  { endpoint: "brain-graph", scopes: ["settings.read"] },
+  { endpoint: "brain-graph-ui", scopes: ["settings.read"] },
+  { endpoint: "home-base-ui", scopes: ["settings.read"] },
+  { endpoint: "contacts", scopes: ["settings.read"] },
+  { endpoint: "contacts/merge", scopes: ["settings.write"] },
+  { endpoint: "contacts:GET", scopes: ["settings.read"] },
+  { endpoint: "ingress/members", scopes: ["settings.read"] },
+  { endpoint: "ingress/members:POST", scopes: ["settings.write"] },
+  { endpoint: "ingress/members/block", scopes: ["settings.write"] },
+  { endpoint: "ingress/members:DELETE", scopes: ["settings.write"] },
+  { endpoint: "ingress/invites", scopes: ["settings.read"] },
+  { endpoint: "ingress/invites:POST", scopes: ["settings.write"] },
+  { endpoint: "ingress/invites/redeem", scopes: ["settings.write"] },
+  { endpoint: "ingress/invites:DELETE", scopes: ["settings.write"] },
+  { endpoint: "integrations/telegram/config", scopes: ["settings.read"] },
+  { endpoint: "integrations/telegram/config:POST", scopes: ["settings.write"] },
+  {
+    endpoint: "integrations/telegram/config:DELETE",
+    scopes: ["settings.write"],
+  },
+  { endpoint: "integrations/telegram/commands", scopes: ["settings.write"] },
+  { endpoint: "integrations/telegram/setup", scopes: ["settings.write"] },
+  { endpoint: "integrations/slack/channel/config", scopes: ["settings.read"] },
+  {
+    endpoint: "integrations/slack/channel/config:POST",
+    scopes: ["settings.write"],
+  },
+  {
+    endpoint: "integrations/slack/channel/config:DELETE",
+    scopes: ["settings.write"],
+  },
+  { endpoint: "integrations/guardian/challenge", scopes: ["settings.write"] },
+  { endpoint: "integrations/guardian/status", scopes: ["settings.read"] },
+  {
+    endpoint: "integrations/guardian/outbound/start",
+    scopes: ["settings.write"],
+  },
+  {
+    endpoint: "integrations/guardian/outbound/resend",
+    scopes: ["settings.write"],
+  },
+  {
+    endpoint: "integrations/guardian/outbound/cancel",
+    scopes: ["settings.write"],
+  },
+  { endpoint: "integrations/twilio/config", scopes: ["settings.read"] },
+  {
+    endpoint: "integrations/twilio/credentials:POST",
+    scopes: ["settings.write"],
+  },
+  {
+    endpoint: "integrations/twilio/credentials:DELETE",
+    scopes: ["settings.write"],
+  },
+  { endpoint: "integrations/twilio/numbers", scopes: ["settings.read"] },
+  {
+    endpoint: "integrations/twilio/numbers/provision",
+    scopes: ["settings.write"],
+  },
+  {
+    endpoint: "integrations/twilio/numbers/assign",
+    scopes: ["settings.write"],
+  },
+  {
+    endpoint: "integrations/twilio/numbers/release",
+    scopes: ["settings.write"],
+  },
+  { endpoint: "integrations/twilio/sms/compliance", scopes: ["settings.read"] },
+  {
+    endpoint: "integrations/twilio/sms/compliance/tollfree",
+    scopes: ["settings.write"],
+  },
+  {
+    endpoint: "integrations/twilio/sms/compliance/tollfree:PATCH",
+    scopes: ["settings.write"],
+  },
+  {
+    endpoint: "integrations/twilio/sms/compliance/tollfree:DELETE",
+    scopes: ["settings.write"],
+  },
+  { endpoint: "integrations/twilio/sms/test", scopes: ["settings.write"] },
+  { endpoint: "integrations/twilio/sms/doctor", scopes: ["settings.write"] },
 
   // Channel readiness
-  { endpoint: 'channels/readiness', scopes: ['settings.read'] },
-  { endpoint: 'channels/readiness/refresh', scopes: ['settings.write'] },
+  { endpoint: "channels/readiness", scopes: ["settings.read"] },
+  { endpoint: "channels/readiness/refresh", scopes: ["settings.write"] },
 
   // Dead letters
-  { endpoint: 'channels/dead-letters', scopes: ['settings.read'] },
-  { endpoint: 'channels/replay', scopes: ['settings.write'] },
+  { endpoint: "channels/dead-letters", scopes: ["settings.read"] },
+  { endpoint: "channels/replay", scopes: ["settings.write"] },
 
   // Secrets
-  { endpoint: 'secrets', scopes: ['settings.write'] },
+  { endpoint: "secrets", scopes: ["settings.write"] },
 
   // Pairing (authenticated)
-  { endpoint: 'pairing/register', scopes: ['settings.write'] },
+  { endpoint: "pairing/register", scopes: ["settings.write"] },
 
   // Apps
-  { endpoint: 'apps/share', scopes: ['settings.write'] },
-  { endpoint: 'apps/shared:GET', scopes: ['settings.read'] },
-  { endpoint: 'apps/shared:DELETE', scopes: ['settings.write'] },
-  { endpoint: 'apps/shared/metadata', scopes: ['settings.read'] },
+  { endpoint: "apps/share", scopes: ["settings.write"] },
+  { endpoint: "apps/shared:GET", scopes: ["settings.read"] },
+  { endpoint: "apps/shared:DELETE", scopes: ["settings.write"] },
+  { endpoint: "apps/shared/metadata", scopes: ["settings.read"] },
 
   // Debug
-  { endpoint: 'debug', scopes: ['settings.read'] },
+  { endpoint: "debug", scopes: ["settings.read"] },
 
   // Browser relay
-  { endpoint: 'browser-relay/status', scopes: ['settings.read'] },
-  { endpoint: 'browser-relay/command', scopes: ['settings.write'] },
+  { endpoint: "browser-relay/status", scopes: ["settings.read"] },
+  { endpoint: "browser-relay/command", scopes: ["settings.write"] },
 
   // Interfaces
-  { endpoint: 'interfaces', scopes: ['settings.read'] },
+  { endpoint: "interfaces", scopes: ["settings.read"] },
 
   // Trust rule CRUD management
-  { endpoint: 'trust-rules/manage:GET', scopes: ['settings.read'] },
-  { endpoint: 'trust-rules/manage:POST', scopes: ['settings.write'] },
-  { endpoint: 'trust-rules/manage:DELETE', scopes: ['settings.write'] },
-  { endpoint: 'trust-rules/manage:PATCH', scopes: ['settings.write'] },
+  { endpoint: "trust-rules/manage:GET", scopes: ["settings.read"] },
+  { endpoint: "trust-rules/manage:POST", scopes: ["settings.write"] },
+  { endpoint: "trust-rules/manage:DELETE", scopes: ["settings.write"] },
+  { endpoint: "trust-rules/manage:PATCH", scopes: ["settings.write"] },
 
   // Surface actions
-  { endpoint: 'surface-actions', scopes: ['chat.write'] },
+  { endpoint: "surface-actions", scopes: ["chat.write"] },
 
   // Conversation deletion (channel-facing)
-  { endpoint: 'channels/conversation:DELETE', scopes: ['chat.write'] },
+  { endpoint: "channels/conversation:DELETE", scopes: ["chat.write"] },
 
   // Delivery ack
-  { endpoint: 'channels/delivery-ack', scopes: ['internal.write'] },
+  { endpoint: "channels/delivery-ack", scopes: ["internal.write"] },
+
+  // Migrations
+  { endpoint: "migrations/validate", scopes: ["settings.write"] },
 ];
 
 for (const { endpoint, scopes } of ACTOR_ENDPOINTS) {
   registerPolicy(endpoint, {
     requiredScopes: scopes,
-    allowedPrincipalTypes: ['actor', 'svc_gateway', 'ipc'],
+    allowedPrincipalTypes: ["actor", "svc_gateway", "ipc"],
   });
 }
 
 // Channel inbound: gateway-only
-registerPolicy('channels/inbound', {
-  requiredScopes: ['ingress.write'],
-  allowedPrincipalTypes: ['svc_gateway'],
+registerPolicy("channels/inbound", {
+  requiredScopes: ["ingress.write"],
+  allowedPrincipalTypes: ["svc_gateway"],
 });
 
 // Internal forwarding endpoints: gateway-only
 const INTERNAL_ENDPOINTS = [
-  'internal/twilio/voice-webhook',
-  'internal/twilio/status',
-  'internal/twilio/connect-action',
-  'internal/oauth/callback',
+  "internal/twilio/voice-webhook",
+  "internal/twilio/status",
+  "internal/twilio/connect-action",
+  "internal/oauth/callback",
 ];
 for (const endpoint of INTERNAL_ENDPOINTS) {
   registerPolicy(endpoint, {
-    requiredScopes: ['internal.write'],
-    allowedPrincipalTypes: ['svc_gateway'],
+    requiredScopes: ["internal.write"],
+    allowedPrincipalTypes: ["svc_gateway"],
   });
 }

@@ -32,32 +32,44 @@ import {
   getGatewayInternalBaseUrl,
   hasUngatedHttpAuthDisabled,
   isHttpAuthDisabled,
-} from '../config/env.js';
-import type { ServerMessage } from '../daemon/ipc-contract.js';
-import { PairingStore } from '../daemon/pairing-store.js';
-import { type Confidence, getAttentionStateByConversationIds, recordConversationSeenSignal, type SignalType } from '../memory/conversation-attention-store.js';
-import * as conversationStore from '../memory/conversation-store.js';
-import * as externalConversationStore from '../memory/external-conversation-store.js';
-import { consumeCallback, consumeCallbackError } from '../security/oauth-callback-registry.js';
-import { getLogger } from '../util/logger.js';
-import { buildAssistantEvent } from './assistant-event.js';
-import { assistantEventHub } from './assistant-event-hub.js';
-import { DAEMON_INTERNAL_ASSISTANT_ID } from './assistant-scope.js';
+} from "../config/env.js";
+import type { ServerMessage } from "../daemon/ipc-contract.js";
+import { PairingStore } from "../daemon/pairing-store.js";
+import {
+  type Confidence,
+  getAttentionStateByConversationIds,
+  recordConversationSeenSignal,
+  type SignalType,
+} from "../memory/conversation-attention-store.js";
+import * as conversationStore from "../memory/conversation-store.js";
+import * as externalConversationStore from "../memory/external-conversation-store.js";
+import {
+  consumeCallback,
+  consumeCallbackError,
+} from "../security/oauth-callback-registry.js";
+import { getLogger } from "../util/logger.js";
+import { buildAssistantEvent } from "./assistant-event.js";
+import { assistantEventHub } from "./assistant-event-hub.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
 // Auth
-import { authenticateRequest } from './auth/middleware.js';
-import { enforcePolicy, getPolicy } from './auth/route-policy.js';
-import { mintDaemonDeliveryToken, mintUiPageToken, verifyToken } from './auth/token-service.js';
-import type { AuthContext } from './auth/types.js';
-import { sweepFailedEvents } from './channel-retry-sweep.js';
-import { httpError } from './http-errors.js';
+import { authenticateRequest } from "./auth/middleware.js";
+import { enforcePolicy, getPolicy } from "./auth/route-policy.js";
+import {
+  mintDaemonDeliveryToken,
+  mintUiPageToken,
+  verifyToken,
+} from "./auth/token-service.js";
+import type { AuthContext } from "./auth/types.js";
+import { sweepFailedEvents } from "./channel-retry-sweep.js";
+import { httpError } from "./http-errors.js";
 // Middleware
 import {
   extractBearerToken,
   isLoopbackHost,
   isPrivateNetworkOrigin,
   isPrivateNetworkPeer,
-} from './middleware/auth.js';
-import { withErrorHandling } from './middleware/error-handler.js';
+} from "./middleware/auth.js";
+import { withErrorHandling } from "./middleware/error-handler.js";
 import {
   apiRateLimiter,
   extractClientIp,
@@ -169,6 +181,7 @@ import {
   handleSetupTelegram,
   handleStartOutbound,
 } from "./routes/integration-routes.js";
+import { handleMigrationValidate } from "./routes/migration-routes.js";
 import type { PairingHandlerContext } from "./routes/pairing-routes.js";
 // Extracted route handlers
 import {
@@ -245,30 +258,40 @@ const MAX_REQUEST_BODY_BYTES = 50 * 1024 * 1024;
  * Order matters: more specific patterns must come before general ones so
  * that e.g. `attachments/{id}/content` matches before `attachments/{id}`.
  */
-const PARAMETERIZED_ROUTE_PATTERNS: Array<{ re: RegExp; policyBase: string }> = [
-  // calls/{id}/cancel, calls/{id}/answer, calls/{id}/instruction
-  { re: /^calls\/[^/]+\/(cancel|answer|instruction)$/, policyBase: 'calls/$1' },
-  // calls/{id} (GET status)
-  { re: /^calls\/[^/]+$/, policyBase: 'calls' },
-  // contacts/{id}
-  { re: /^contacts\/[^/]+$/, policyBase: 'contacts' },
-  // ingress/members/{id}/block
-  { re: /^ingress\/members\/[^/]+\/block$/, policyBase: 'ingress/members/block' },
-  // ingress/members/{id}
-  { re: /^ingress\/members\/[^/]+$/, policyBase: 'ingress/members' },
-  // ingress/invites/{id}
-  { re: /^ingress\/invites\/[^/]+$/, policyBase: 'ingress/invites' },
-  // integrations/twilio/sms/compliance/tollfree/{sid}
-  { re: /^integrations\/twilio\/sms\/compliance\/tollfree\/[^/]+$/, policyBase: 'integrations/twilio/sms/compliance/tollfree' },
-  // attachments/{id}/content
-  { re: /^attachments\/[^/]+\/content$/, policyBase: 'attachments/content' },
-  // attachments/{id}
-  { re: /^attachments\/[^/]+$/, policyBase: 'attachments' },
-  // trust-rules/manage/{id}
-  { re: /^trust-rules\/manage\/[^/]+$/, policyBase: 'trust-rules/manage' },
-  // interfaces/{path}
-  { re: /^interfaces\/.+$/, policyBase: 'interfaces' },
-];
+const PARAMETERIZED_ROUTE_PATTERNS: Array<{ re: RegExp; policyBase: string }> =
+  [
+    // calls/{id}/cancel, calls/{id}/answer, calls/{id}/instruction
+    {
+      re: /^calls\/[^/]+\/(cancel|answer|instruction)$/,
+      policyBase: "calls/$1",
+    },
+    // calls/{id} (GET status)
+    { re: /^calls\/[^/]+$/, policyBase: "calls" },
+    // contacts/{id}
+    { re: /^contacts\/[^/]+$/, policyBase: "contacts" },
+    // ingress/members/{id}/block
+    {
+      re: /^ingress\/members\/[^/]+\/block$/,
+      policyBase: "ingress/members/block",
+    },
+    // ingress/members/{id}
+    { re: /^ingress\/members\/[^/]+$/, policyBase: "ingress/members" },
+    // ingress/invites/{id}
+    { re: /^ingress\/invites\/[^/]+$/, policyBase: "ingress/invites" },
+    // integrations/twilio/sms/compliance/tollfree/{sid}
+    {
+      re: /^integrations\/twilio\/sms\/compliance\/tollfree\/[^/]+$/,
+      policyBase: "integrations/twilio/sms/compliance/tollfree",
+    },
+    // attachments/{id}/content
+    { re: /^attachments\/[^/]+\/content$/, policyBase: "attachments/content" },
+    // attachments/{id}
+    { re: /^attachments\/[^/]+$/, policyBase: "attachments" },
+    // trust-rules/manage/{id}
+    { re: /^trust-rules\/manage\/[^/]+$/, policyBase: "trust-rules/manage" },
+    // interfaces/{path}
+    { re: /^interfaces\/.+$/, policyBase: "interfaces" },
+  ];
 
 /**
  * Strip parameterized segments from an endpoint string so it matches
@@ -292,7 +315,10 @@ function normalizeEndpointForPolicy(endpoint: string, method: string): string {
     const match = endpoint.match(re);
     if (match) {
       // Support capture-group substitution (e.g. calls/$1 -> calls/cancel)
-      return policyBase.replace(/\$(\d+)/g, (_, idx) => match[Number(idx)] ?? '');
+      return policyBase.replace(
+        /\$(\d+)/g,
+        (_, idx) => match[Number(idx)] ?? "",
+      );
     }
   }
   return endpoint;
@@ -597,10 +623,16 @@ export class RuntimeHttpServer {
     // needs to work when the access token is expired. Bootstrap has its
     // own loopback IP validation; refresh is secured by the refresh token
     // in the request body (32 random bytes, hash-only storage).
-    if (path === '/v1/integrations/guardian/vellum/bootstrap' && req.method === 'POST') {
+    if (
+      path === "/v1/integrations/guardian/vellum/bootstrap" &&
+      req.method === "POST"
+    ) {
       return await handleGuardianBootstrap(req, server);
     }
-    if (path === '/v1/integrations/guardian/vellum/refresh' && req.method === 'POST') {
+    if (
+      path === "/v1/integrations/guardian/vellum/refresh" &&
+      req.method === "POST"
+    ) {
       return await handleGuardianRefresh(req);
     }
 
@@ -628,7 +660,13 @@ export class RuntimeHttpServer {
         return rateLimitResponse(result);
       }
       // Attach rate limit headers to the eventual response
-      const originalResponse = await this.handleAuthenticatedRequest(req, url, path, server, authContext);
+      const originalResponse = await this.handleAuthenticatedRequest(
+        req,
+        url,
+        path,
+        server,
+        authContext,
+      );
       const headers = new Headers(originalResponse.headers);
       for (const [k, v] of Object.entries(rateLimitHeaders(result))) {
         headers.set(k, v);
@@ -646,10 +684,16 @@ export class RuntimeHttpServer {
   /**
    * Handle requests that have already passed auth and rate limiting.
    */
-  private async handleAuthenticatedRequest(req: Request, url: URL, path: string, server: ReturnType<typeof Bun.serve>, authContext: AuthContext): Promise<Response> {
+  private async handleAuthenticatedRequest(
+    req: Request,
+    url: URL,
+    path: string,
+    server: ReturnType<typeof Bun.serve>,
+    authContext: AuthContext,
+  ): Promise<Response> {
     // Pairing registration (bearer-authenticated)
-    if (path === '/v1/pairing/register' && req.method === 'POST') {
-      const policyDenied = enforcePolicy('pairing/register', authContext);
+    if (path === "/v1/pairing/register" && req.method === "POST") {
+      const policyDenied = enforcePolicy("pairing/register", authContext);
       if (policyDenied) return policyDenied;
       return await handlePairingRegister(req, this.pairingContext);
     }
@@ -669,68 +713,97 @@ export class RuntimeHttpServer {
     }
 
     // Cloud sharing endpoints
-    if (path === '/v1/apps/share' && req.method === 'POST') {
-      const policyDenied = enforcePolicy('apps/share', authContext);
+    if (path === "/v1/apps/share" && req.method === "POST") {
+      const policyDenied = enforcePolicy("apps/share", authContext);
       if (policyDenied) return policyDenied;
-      try { return await handleShareApp(req); } catch (err) {
-        log.error({ err }, 'Runtime HTTP handler error sharing app');
-        return httpError('INTERNAL_ERROR', 'Internal server error', 500);
+      try {
+        return await handleShareApp(req);
+      } catch (err) {
+        log.error({ err }, "Runtime HTTP handler error sharing app");
+        return httpError("INTERNAL_ERROR", "Internal server error", 500);
       }
     }
 
     const sharedTokenMatch = path.match(/^\/v1\/apps\/shared\/([^/]+)$/);
     if (sharedTokenMatch) {
       const shareToken = sharedTokenMatch[1];
-      if (req.method === 'GET') {
-        const policyDenied = enforcePolicy('apps/shared:GET', authContext);
+      if (req.method === "GET") {
+        const policyDenied = enforcePolicy("apps/shared:GET", authContext);
         if (policyDenied) return policyDenied;
-        try { return handleDownloadSharedApp(shareToken); } catch (err) {
-          log.error({ err, shareToken }, 'Runtime HTTP handler error downloading shared app');
-          return httpError('INTERNAL_ERROR', 'Internal server error', 500);
+        try {
+          return handleDownloadSharedApp(shareToken);
+        } catch (err) {
+          log.error(
+            { err, shareToken },
+            "Runtime HTTP handler error downloading shared app",
+          );
+          return httpError("INTERNAL_ERROR", "Internal server error", 500);
         }
       }
-      if (req.method === 'DELETE') {
-        const policyDenied = enforcePolicy('apps/shared:DELETE', authContext);
+      if (req.method === "DELETE") {
+        const policyDenied = enforcePolicy("apps/shared:DELETE", authContext);
         if (policyDenied) return policyDenied;
-        try { return handleDeleteSharedApp(shareToken); } catch (err) {
-          log.error({ err, shareToken }, 'Runtime HTTP handler error deleting shared app');
-          return httpError('INTERNAL_ERROR', 'Internal server error', 500);
+        try {
+          return handleDeleteSharedApp(shareToken);
+        } catch (err) {
+          log.error(
+            { err, shareToken },
+            "Runtime HTTP handler error deleting shared app",
+          );
+          return httpError("INTERNAL_ERROR", "Internal server error", 500);
         }
       }
     }
 
-    const sharedMetadataMatch = path.match(/^\/v1\/apps\/shared\/([^/]+)\/metadata$/);
-    if (sharedMetadataMatch && req.method === 'GET') {
-      const policyDenied = enforcePolicy('apps/shared/metadata', authContext);
+    const sharedMetadataMatch = path.match(
+      /^\/v1\/apps\/shared\/([^/]+)\/metadata$/,
+    );
+    if (sharedMetadataMatch && req.method === "GET") {
+      const policyDenied = enforcePolicy("apps/shared/metadata", authContext);
       if (policyDenied) return policyDenied;
-      try { return handleGetSharedAppMetadata(sharedMetadataMatch[1]); } catch (err) {
-        log.error({ err, shareToken: sharedMetadataMatch[1] }, 'Runtime HTTP handler error getting shared app metadata');
-        return httpError('INTERNAL_ERROR', 'Internal server error', 500);
+      try {
+        return handleGetSharedAppMetadata(sharedMetadataMatch[1]);
+      } catch (err) {
+        log.error(
+          { err, shareToken: sharedMetadataMatch[1] },
+          "Runtime HTTP handler error getting shared app metadata",
+        );
+        return httpError("INTERNAL_ERROR", "Internal server error", 500);
       }
     }
 
     // Secret management endpoint
-    if (path === '/v1/secrets' && req.method === 'POST') {
-      const policyDenied = enforcePolicy('secrets', authContext);
+    if (path === "/v1/secrets" && req.method === "POST") {
+      const policyDenied = enforcePolicy("secrets", authContext);
       if (policyDenied) return policyDenied;
-      try { return await handleAddSecret(req); } catch (err) {
-        log.error({ err }, 'Runtime HTTP handler error adding secret');
-        return httpError('INTERNAL_ERROR', 'Internal server error', 500);
+      try {
+        return await handleAddSecret(req);
+      } catch (err) {
+        log.error({ err }, "Runtime HTTP handler error adding secret");
+        return httpError("INTERNAL_ERROR", "Internal server error", 500);
       }
     }
-    if (path === '/v1/secrets' && req.method === 'DELETE') {
-      const policyDenied = enforcePolicy('secrets', authContext);
+    if (path === "/v1/secrets" && req.method === "DELETE") {
+      const policyDenied = enforcePolicy("secrets", authContext);
       if (policyDenied) return policyDenied;
-      try { return await handleDeleteSecret(req); } catch (err) {
-        log.error({ err }, 'Runtime HTTP handler error deleting secret');
-        return httpError('INTERNAL_ERROR', 'Internal server error', 500);
+      try {
+        return await handleDeleteSecret(req);
+      } catch (err) {
+        log.error({ err }, "Runtime HTTP handler error deleting secret");
+        return httpError("INTERNAL_ERROR", "Internal server error", 500);
       }
     }
 
     // Runtime routes: /v1/<endpoint>
     const routeMatch = path.match(/^\/v1\/(.+)$/);
     if (routeMatch) {
-      return this.dispatchEndpoint(routeMatch[1], req, url, server, authContext);
+      return this.dispatchEndpoint(
+        routeMatch[1],
+        req,
+        url,
+        server,
+        authContext,
+      );
     }
 
     return httpError("NOT_FOUND", "Not found", 404);
@@ -753,13 +826,13 @@ export class RuntimeHttpServer {
 
     if (!isHttpAuthDisabled()) {
       const wsUrl = new URL(req.url);
-      const token = wsUrl.searchParams.get('token');
+      const token = wsUrl.searchParams.get("token");
       if (!token) {
-        return httpError('UNAUTHORIZED', 'Unauthorized', 401);
+        return httpError("UNAUTHORIZED", "Unauthorized", 401);
       }
-      const jwtResult = verifyToken(token, 'vellum-daemon');
+      const jwtResult = verifyToken(token, "vellum-daemon");
       if (!jwtResult.ok) {
-        return httpError('UNAUTHORIZED', 'Unauthorized', 401);
+        return httpError("UNAUTHORIZED", "Unauthorized", 401);
       }
     }
 
@@ -1010,20 +1083,28 @@ export class RuntimeHttpServer {
       if (endpoint === "search" && req.method === "GET")
         return handleSearchConversations(url);
 
-      if (endpoint === 'messages' && req.method === 'POST') {
-        return await handleSendMessage(req, {
-          processMessage: this.processMessage,
-          persistAndProcessMessage: this.persistAndProcessMessage,
-          sendMessageDeps: this.sendMessageDeps,
-          approvalConversationGenerator: this.approvalConversationGenerator,
-        }, authContext);
+      if (endpoint === "messages" && req.method === "POST") {
+        return await handleSendMessage(
+          req,
+          {
+            processMessage: this.processMessage,
+            persistAndProcessMessage: this.persistAndProcessMessage,
+            sendMessageDeps: this.sendMessageDeps,
+            approvalConversationGenerator: this.approvalConversationGenerator,
+          },
+          authContext,
+        );
       }
 
       // Standalone approval endpoints — keyed by requestId, orthogonal to message sending
-      if (endpoint === 'confirm' && req.method === 'POST') return await handleConfirm(req, authContext);
-      if (endpoint === 'secret' && req.method === 'POST') return await handleSecret(req, authContext);
-      if (endpoint === 'trust-rules' && req.method === 'POST') return await handleTrustRule(req, authContext);
-      if (endpoint === 'pending-interactions' && req.method === 'GET') return handleListPendingInteractions(url, authContext);
+      if (endpoint === "confirm" && req.method === "POST")
+        return await handleConfirm(req, authContext);
+      if (endpoint === "secret" && req.method === "POST")
+        return await handleSecret(req, authContext);
+      if (endpoint === "trust-rules" && req.method === "POST")
+        return await handleTrustRule(req, authContext);
+      if (endpoint === "pending-interactions" && req.method === "GET")
+        return handleListPendingInteractions(url, authContext);
 
       // Trust rule CRUD — standalone management (not approval-flow)
       if (endpoint === "trust-rules/manage" && req.method === "GET")
@@ -1051,8 +1132,10 @@ export class RuntimeHttpServer {
       }
 
       // Guardian action endpoints — deterministic button-based decisions
-      if (endpoint === 'guardian-actions/pending' && req.method === 'GET') return handleGuardianActionsPending(url, authContext);
-      if (endpoint === 'guardian-actions/decision' && req.method === 'POST') return await handleGuardianActionDecision(req, authContext);
+      if (endpoint === "guardian-actions/pending" && req.method === "GET")
+        return handleGuardianActionsPending(url, authContext);
+      if (endpoint === "guardian-actions/decision" && req.method === "POST")
+        return await handleGuardianActionDecision(req, authContext);
 
       // Contacts
       if (endpoint === "contacts" && req.method === "GET")
@@ -1245,9 +1328,17 @@ export class RuntimeHttpServer {
       if (endpoint === "channels/conversation" && req.method === "DELETE")
         return await handleDeleteConversation(req, assistantId);
 
-      if (endpoint === 'channels/inbound' && req.method === 'POST') {
+      if (endpoint === "channels/inbound" && req.method === "POST") {
         // Route policy enforces svc_gateway principal type.
-        return await handleChannelInbound(req, this.processMessage, assistantId, this.approvalCopyGenerator, this.approvalConversationGenerator, this.guardianActionCopyGenerator, this.guardianFollowUpConversationGenerator);
+        return await handleChannelInbound(
+          req,
+          this.processMessage,
+          assistantId,
+          this.approvalCopyGenerator,
+          this.approvalConversationGenerator,
+          this.guardianActionCopyGenerator,
+          this.guardianFollowUpConversationGenerator,
+        );
       }
 
       if (endpoint === "channels/delivery-ack" && req.method === "POST")
@@ -1283,8 +1374,14 @@ export class RuntimeHttpServer {
 
       // Internal Twilio forwarding endpoints (gateway -> runtime).
       // Route policy enforces svc_gateway principal type.
-      if (endpoint === 'internal/twilio/voice-webhook' && req.method === 'POST') {
-        const json = await req.json() as { params: Record<string, string>; originalUrl?: string };
+      if (
+        endpoint === "internal/twilio/voice-webhook" &&
+        req.method === "POST"
+      ) {
+        const json = (await req.json()) as {
+          params: Record<string, string>;
+          originalUrl?: string;
+        };
         const formBody = new URLSearchParams(json.params).toString();
         const reconstructedUrl = json.originalUrl ?? req.url;
         const fakeReq = new Request(reconstructedUrl, {
@@ -1295,8 +1392,8 @@ export class RuntimeHttpServer {
         return await handleVoiceWebhook(fakeReq);
       }
 
-      if (endpoint === 'internal/twilio/status' && req.method === 'POST') {
-        const json = await req.json() as { params: Record<string, string> };
+      if (endpoint === "internal/twilio/status" && req.method === "POST") {
+        const json = (await req.json()) as { params: Record<string, string> };
         const formBody = new URLSearchParams(json.params).toString();
         const fakeReq = new Request(req.url, {
           method: "POST",
@@ -1306,8 +1403,11 @@ export class RuntimeHttpServer {
         return await handleStatusCallback(fakeReq);
       }
 
-      if (endpoint === 'internal/twilio/connect-action' && req.method === 'POST') {
-        const json = await req.json() as { params: Record<string, string> };
+      if (
+        endpoint === "internal/twilio/connect-action" &&
+        req.method === "POST"
+      ) {
+        const json = (await req.json()) as { params: Record<string, string> };
         const formBody = new URLSearchParams(json.params).toString();
         const fakeReq = new Request(req.url, {
           method: "POST",
@@ -1317,16 +1417,30 @@ export class RuntimeHttpServer {
         return await handleConnectAction(fakeReq);
       }
 
-      if (endpoint === 'identity' && req.method === 'GET') return handleGetIdentity();
-      if (endpoint === 'brain-graph' && req.method === 'GET') return handleGetBrainGraph();
-      if (endpoint === 'brain-graph-ui' && req.method === 'GET') return handleServeBrainGraphUI(mintUiPageToken());
-      if (endpoint === 'home-base-ui' && req.method === 'GET') return handleServeHomeBaseUI(mintUiPageToken());
-      if (endpoint === 'events' && req.method === 'GET') return handleSubscribeAssistantEvents(req, url, { authContext });
+      if (endpoint === "identity" && req.method === "GET")
+        return handleGetIdentity();
+      if (endpoint === "brain-graph" && req.method === "GET")
+        return handleGetBrainGraph();
+      if (endpoint === "brain-graph-ui" && req.method === "GET")
+        return handleServeBrainGraphUI(mintUiPageToken());
+      if (endpoint === "home-base-ui" && req.method === "GET")
+        return handleServeHomeBaseUI(mintUiPageToken());
+      if (endpoint === "events" && req.method === "GET")
+        return handleSubscribeAssistantEvents(req, url, { authContext });
+
+      // Migration endpoints
+      if (endpoint === "migrations/validate" && req.method === "POST")
+        return await handleMigrationValidate(req);
 
       // Internal OAuth callback endpoint (gateway -> runtime)
-      if (endpoint === 'internal/oauth/callback' && req.method === 'POST') {
-        const json = await req.json() as { state: string; code?: string; error?: string };
-        if (!json.state) return httpError('BAD_REQUEST', 'Missing state parameter', 400);
+      if (endpoint === "internal/oauth/callback" && req.method === "POST") {
+        const json = (await req.json()) as {
+          state: string;
+          code?: string;
+          error?: string;
+        };
+        if (!json.state)
+          return httpError("BAD_REQUEST", "Missing state parameter", 400);
         if (json.error) {
           const consumed = consumeCallbackError(json.state, json.error);
           return consumed
