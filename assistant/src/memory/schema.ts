@@ -1224,6 +1224,7 @@ export const a2aPeerConnections = sqliteTable('a2a_peer_connections', {
   scopes: text('scopes').notNull().default('[]'),
   outboundCredentialHash: text('outbound_credential_hash'),
   inboundCredentialHash: text('inbound_credential_hash'),
+  inboundCredential: text('inbound_credential'),
   lastSeenAt: integer('last_seen_at'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),

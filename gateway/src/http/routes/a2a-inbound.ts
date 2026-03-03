@@ -2,17 +2,17 @@
  * Gateway route for inbound A2A messages from peer assistants.
  *
  * This is the endpoint that a peer assistant's outbound delivery adapter
- * calls to send messages. The route:
+ * calls to send messages. The gateway acts as a transparent proxy:
  *
- * 1. Extracts the A2A auth headers (signature, timestamp, nonce, connection ID)
- * 2. Proxies the request to the runtime's /v1/a2a/messages/inbound endpoint
- *    which handles peer auth verification, dedup, and message routing
- * 3. The runtime normalizes the message into a GatewayInboundEvent and
- *    processes it through the standard inbound pipeline with peer_assistant trust
+ * 1. Validates payload size and basic envelope structure
+ * 2. Forwards the request (including all A2A auth headers) to the runtime's
+ *    /v1/a2a/messages/inbound endpoint
+ * 3. The runtime performs HMAC-SHA256 signature verification, connection
+ *    validation, dedup, trust classification, and message routing
  *
- * Auth is handled by HMAC-SHA256 signatures on the A2A headers, not by
- * gateway-level JWT auth. The gateway passes all A2A headers through to the
- * runtime for verification.
+ * The gateway does NOT verify A2A signatures — it passes the x-a2a-* headers
+ * through to the runtime, which has access to the stored inbound credentials
+ * needed for HMAC verification.
  */
 
 import type { GatewayConfig } from '../../config.js';
@@ -33,8 +33,8 @@ export function createA2AInboundHandler(config: GatewayConfig) {
    * POST /v1/a2a/messages/inbound
    *
    * Accepts an A2A message envelope with HMAC-SHA256 auth headers.
-   * The runtime handles peer auth verification and forwards the message
-   * through the standard inbound pipeline with peer_assistant trust.
+   * Proxies to the runtime which verifies the signature, then routes
+   * the message through the inbound pipeline with peer_assistant trust.
    */
   async function handleA2AInbound(req: Request, clientIp?: string): Promise<Response> {
     // Payload size guard
@@ -89,8 +89,9 @@ export function createA2AInboundHandler(config: GatewayConfig) {
     }
 
     // Forward to runtime's A2A inbound endpoint with all A2A auth headers.
-    // The runtime handles peer auth verification (HMAC-SHA256), dedup,
-    // connection lookup, trust classification, and message routing.
+    // The runtime verifies the HMAC-SHA256 signature against the stored
+    // inbound credential, then handles dedup, trust classification, and
+    // message routing.
     const upstream = `${config.assistantRuntimeBaseUrl}/v1/a2a/messages/inbound`;
 
     const headers: Record<string, string> = {

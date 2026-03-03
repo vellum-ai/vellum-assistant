@@ -1,15 +1,13 @@
 /**
  * Runtime route handler for inbound A2A messages from peer assistants.
  *
- * Handles message deduplication, connection validation, and routing through
- * the standard inbound message pipeline with peer_assistant trust
- * classification applied from the start.
+ * Handles HMAC-SHA256 peer auth verification, message deduplication,
+ * connection validation, and routing through the standard inbound message
+ * pipeline with peer_assistant trust classification applied from the start.
  *
- * HMAC-SHA256 peer auth verification is expected to be handled at the
- * gateway/proxy level using the A2A auth headers. The runtime validates
- * the connection is active and the envelope is well-formed.
- *
- * The gateway proxies POST /v1/a2a/messages/inbound to this handler.
+ * The gateway proxies POST /v1/a2a/messages/inbound to this handler,
+ * forwarding the A2A auth headers. The runtime performs the actual HMAC
+ * signature verification against the connection's stored inbound credential.
  */
 
 import {
@@ -17,6 +15,8 @@ import {
   HEADER_TIMESTAMP,
   HEADER_NONCE,
   HEADER_CONNECTION_ID,
+  verifySignature,
+  defaultNonceStore,
 } from '../../a2a/a2a-peer-auth.js';
 import { getConnection } from '../../a2a/a2a-peer-connection-store.js';
 import { defaultMessageDedupStore } from '../../a2a/a2a-message-dedup.js';
@@ -33,9 +33,10 @@ const log = getLogger('a2a-inbound');
  * Flow:
  * 1. Parse the A2A message envelope from the request body
  * 2. Validate A2A auth headers are present and connection ID matches
- * 3. Check the connection is active
- * 4. Check message deduplication via (connectionId, nonce)
- * 5. Route through processMessage with peer_assistant trust context
+ * 3. Look up the connection and verify it is active
+ * 4. Verify the HMAC-SHA256 signature against the stored inbound credential
+ * 5. Check message deduplication via (connectionId, nonce)
+ * 6. Route through processMessage with peer_assistant trust context
  */
 export async function handleA2AMessageInbound(
   req: Request,
@@ -69,19 +70,17 @@ export async function handleA2AMessageInbound(
   }
 
   // Validate A2A auth headers are present
-  const hasA2AAuth = !!(
-    req.headers.get(HEADER_SIGNATURE) &&
-    req.headers.get(HEADER_TIMESTAMP) &&
-    req.headers.get(HEADER_NONCE) &&
-    req.headers.get(HEADER_CONNECTION_ID)
-  );
+  const signature = req.headers.get(HEADER_SIGNATURE);
+  const timestamp = req.headers.get(HEADER_TIMESTAMP);
+  const nonce = req.headers.get(HEADER_NONCE);
+  const connectionIdHeader = req.headers.get(HEADER_CONNECTION_ID);
 
-  if (!hasA2AAuth) {
+  if (!signature || !timestamp || !nonce || !connectionIdHeader) {
     return httpError('UNAUTHORIZED', 'Missing A2A authentication headers', 401);
   }
 
   // Verify the connection ID in the header matches the envelope
-  if (req.headers.get(HEADER_CONNECTION_ID) !== envelope.connectionId) {
+  if (connectionIdHeader !== envelope.connectionId) {
     return httpError('BAD_REQUEST', 'Connection ID mismatch between header and envelope', 400);
   }
 
@@ -93,6 +92,42 @@ export async function handleA2AMessageInbound(
 
   if (connection.status !== 'active') {
     return httpError('FORBIDDEN', 'Connection is not active', 403);
+  }
+
+  // The raw inbound credential is required for HMAC verification.
+  // It is stored alongside the hash when credentials are generated during
+  // the handshake (submitVerificationCode) or rotation (rotateCredentials).
+  if (!connection.inboundCredential) {
+    log.error(
+      { connectionId: envelope.connectionId },
+      'Connection is active but has no stored inbound credential for HMAC verification',
+    );
+    return httpError('INTERNAL_ERROR', 'Connection credential not available', 500);
+  }
+
+  // Verify the HMAC-SHA256 signature using the stored inbound credential.
+  // This checks timestamp freshness, nonce replay, and signature correctness.
+  const verifyResult = verifySignature({
+    signature,
+    timestamp,
+    nonce,
+    body: bodyText,
+    credential: connection.inboundCredential,
+    nonceStore: defaultNonceStore,
+  });
+
+  if (!verifyResult.ok) {
+    log.warn(
+      { connectionId: envelope.connectionId, reason: verifyResult.reason },
+      'A2A inbound message failed HMAC verification',
+    );
+    if (verifyResult.reason === 'timestamp_expired') {
+      return httpError('UNAUTHORIZED', 'Request timestamp outside replay window', 401);
+    }
+    if (verifyResult.reason === 'nonce_replayed') {
+      return httpError('UNAUTHORIZED', 'Nonce has already been used', 401);
+    }
+    return httpError('UNAUTHORIZED', 'Invalid signature', 401);
   }
 
   // Message deduplication: check (connectionId, nonce) before processing

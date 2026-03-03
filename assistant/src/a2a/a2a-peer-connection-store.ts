@@ -40,6 +40,7 @@ export interface A2APeerConnection {
   scopes: string[];
   outboundCredentialHash: string | null;
   inboundCredentialHash: string | null;
+  inboundCredential: string | null;
   lastSeenAt: number | null;
   createdAt: number;
   updatedAt: number;
@@ -66,6 +67,7 @@ function rowToConnection(row: typeof a2aPeerConnections.$inferSelect): A2APeerCo
     scopes: JSON.parse(row.scopes) as string[],
     outboundCredentialHash: row.outboundCredentialHash,
     inboundCredentialHash: row.inboundCredentialHash,
+    inboundCredential: row.inboundCredential ?? null,
     lastSeenAt: row.lastSeenAt,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -90,6 +92,7 @@ export function createConnection(params: {
   scopes?: string[];
   outboundCredentialHash?: string;
   inboundCredentialHash?: string;
+  inboundCredential?: string;
   expiresAt?: number;
 }): A2APeerConnection {
   const db = getDb();
@@ -109,6 +112,7 @@ export function createConnection(params: {
     scopes: JSON.stringify(params.scopes ?? []),
     outboundCredentialHash: params.outboundCredentialHash ?? null,
     inboundCredentialHash: params.inboundCredentialHash ?? null,
+    inboundCredential: params.inboundCredential ?? null,
     lastSeenAt: null,
     createdAt: now,
     updatedAt: now,
@@ -277,6 +281,7 @@ export function updateConnectionCredentials(
   credentials: {
     outboundCredentialHash?: string;
     inboundCredentialHash?: string;
+    inboundCredential?: string;
   },
 ): A2APeerConnection | null {
   const db = getDb();
@@ -289,6 +294,9 @@ export function updateConnectionCredentials(
   }
   if (credentials.inboundCredentialHash !== undefined) {
     setFields.inboundCredentialHash = credentials.inboundCredentialHash;
+  }
+  if (credentials.inboundCredential !== undefined) {
+    setFields.inboundCredential = credentials.inboundCredential;
   }
 
   db.update(a2aPeerConnections)

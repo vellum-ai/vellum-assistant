@@ -282,31 +282,17 @@ export interface VerifyRequestParams {
  * 5. The nonce has not been seen before.
  * 6. The HMAC signature matches.
  *
- * The inbound credential hash in the connection store is the SHA-256 hash
- * of the raw credential the peer uses to sign. We cannot reverse the hash,
- * so the peer's raw credential is used as the HMAC key. We verify by
- * looking up the connection, then using the stored `inboundCredentialHash`
- * to look up the raw credential -- but since we only store hashes, the
- * verification works differently:
+ * The connection store persists both the raw `inboundCredential` and its
+ * SHA-256 hash (`inboundCredentialHash`). The hash is used for
+ * identification/revocation checks; the raw credential is the HMAC key
+ * used for signature verification.
  *
- * Actually, for HMAC verification, we need the raw credential. The peer
- * signs with their outbound credential (which is our inbound credential).
- * We store only the hash. So at verification time, we need an alternative
- * approach: we store a separate HMAC verification key alongside the hash.
+ * This function accepts the raw inbound credential as a parameter so it
+ * can validate (step 3) that the caller-supplied credential matches the
+ * stored hash before using it for HMAC verification (step 6).
  *
- * **Design decision**: The connection store's `inboundCredentialHash` is
- * the SHA-256 hash of the raw credential for identification/lookup. For
- * HMAC verification, we use the raw credential directly as the HMAC key.
- * This means the verifier needs access to the raw inbound credential.
- *
- * To support this without storing raw credentials in the DB, we use a
- * different approach: the inbound credential IS the HMAC key, and we
- * store its hash for revocation checks. The raw credential is exchanged
- * during the handshake and must be available to the verifier at runtime.
- *
- * For the v1 implementation, we accept the raw inbound credential as a
- * parameter for verification. The caller (gateway) maintains a secure
- * mapping of connectionId -> raw inbound credential in memory.
+ * For simpler verification where the caller has already resolved the
+ * connection and credential, use `verifySignature()` instead.
  */
 export function verifyRequest(
   params: VerifyRequestParams & { inboundCredential: string },
@@ -459,6 +445,7 @@ export function rotateCredentials(connectionId: string): RotateResult {
   const updated = updateConnectionCredentials(connectionId, {
     outboundCredentialHash: newCredentials.outboundCredentialHash,
     inboundCredentialHash: newCredentials.inboundCredentialHash,
+    inboundCredential: newCredentials.inboundCredential,
   });
 
   if (!updated) {
@@ -498,6 +485,7 @@ export function revokeCredentials(connectionId: string): RevokeResult {
   updateConnectionCredentials(connectionId, {
     outboundCredentialHash: '',
     inboundCredentialHash: '',
+    inboundCredential: '',
   });
 
   // Transition to revoked status
