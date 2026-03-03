@@ -5,7 +5,7 @@ user-invocable: true
 metadata: {"vellum": {"emoji": "\ud83e\udd1d"}}
 ---
 
-You are helping your user manage assistant-to-assistant (A2A) connections. A2A connections let two Vellum assistants communicate directly, enabling cross-assistant collaboration, delegation, and message passing. All operations go through the gateway HTTP API using `curl` with bearer auth.
+You are helping your user manage assistant-to-assistant (A2A) connections. A2A connections let two Vellum assistants communicate directly, enabling cross-assistant collaboration, delegation, and message passing. Local operations (invite, redeem, approve, revoke, list) go through the local gateway with bearer auth. Peer-facing operations (connect, verify, status polling on the connecting side) target the peer's public gateway and are unauthenticated (invite-token or handshake-gated).
 
 ## Prerequisites
 
@@ -85,17 +85,19 @@ On success, immediately proceed to initiate the connection (Action 3) using the 
 
 ### 3. Initiate a connection
 
-After redeeming an invite, send a connect request to the peer's gateway. The peer's guardian will be notified and must approve.
+After redeeming an invite, send a connect request to the **peer's** gateway (the `peerGatewayUrl` returned by the redeem step). The peer's daemon validates the invite token and creates a pending connection. The peer's guardian will be notified and must approve.
 
-**Important**: The connect endpoint is called on the **peer's** gateway, not on the local gateway. The skill extracts the peer gateway URL from the redeem response and calls it directly. However, since the connect request must include this assistant's own gateway URL (`ownGatewayUrl`), which is derived server-side by the daemon, the call still goes through the **local** gateway's proxy to the daemon runtime endpoint.
+The connect endpoint is **unauthenticated** at the gateway level — access is gated by the invite token, not bearer auth. The `peerGatewayUrl` in the request body is this assistant's own public gateway URL, so the peer knows how to reach back.
 
 ```bash
-TOKEN=$(cat ~/.vellum/http-token)
-RESULT=$(curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/a2a/connect" \
+# PEER_GATEWAY_URL comes from the redeem response (Action 2).
+# OWN_GATEWAY_URL is this assistant's public ingress URL.
+OWN_GATEWAY_URL=$(vellum config get ingress.publicBaseUrl 2>/dev/null | tr -d '[:space:]')
+
+RESULT=$(curl -s -X POST "${PEER_GATEWAY_URL}/v1/a2a/connect" \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
   -d "{
-    \"peerGatewayUrl\": \"<peer_gateway_url>\",
+    \"peerGatewayUrl\": \"$OWN_GATEWAY_URL\",
     \"inviteToken\": \"<invite_token>\"
   }")
 printf '%s\n' "$RESULT"
@@ -141,11 +143,12 @@ On denial, the response is `{ ok: true }` and the connection is rejected.
 
 Use this when the user has received a verification code from the peer's guardian (after the peer approved the connection request). This completes the handshake and activates the connection.
 
+The verify endpoint is called on the **peer's** gateway (the same gateway that received the connect request). It is unauthenticated — the combination of `connectionId` + `code` + `peerIdentity` serves as the auth factor.
+
 ```bash
-TOKEN=$(cat ~/.vellum/http-token)
-RESULT=$(curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/a2a/verify" \
+# PEER_GATEWAY_URL is the same peer gateway URL used in the connect step.
+RESULT=$(curl -s -X POST "${PEER_GATEWAY_URL}/v1/a2a/verify" \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
   -d "{
     \"connectionId\": \"<connection_id>\",
     \"code\": \"<verification_code>\",
@@ -192,6 +195,15 @@ The response contains `{ connections: [...] }` where each connection has:
 ### 7. Check connection status
 
 Use this to poll the status of a specific connection (e.g., while waiting for the peer to approve or verify).
+
+When polling a connection created by a connect request (the connecting side), call the **peer's** gateway — the connection record lives on the peer's daemon:
+
+```bash
+# PEER_GATEWAY_URL is the same peer gateway URL used in the connect step.
+curl -s "${PEER_GATEWAY_URL}/v1/a2a/connections/<connection_id>/status"
+```
+
+When checking a connection that exists locally (the inviting side), use the local gateway:
 
 ```bash
 TOKEN=$(cat ~/.vellum/http-token)
