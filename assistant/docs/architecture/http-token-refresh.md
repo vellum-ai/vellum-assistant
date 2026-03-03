@@ -1,8 +1,10 @@
 # HTTP Token Refresh Protocol
 
+> **DEPRECATED**: This document describes the legacy static bearer token (`~/.vellum/http-token`) refresh protocol. The runtime has migrated to a JWT-based auth model where the daemon signs short-lived JWTs using an Ed25519 signing key, and route-level enforcement is handled by `route-policy.ts` with per-endpoint scope requirements. The `readHttpToken()` export has been removed from `platform.ts`. The `http-token` file on disk is still written at startup for backward compatibility with legacy Swift clients that have not yet migrated to JWT auth, but it is no longer the primary auth mechanism. New code should use the JWT auth system (see `auth/token-service.ts` and `auth/route-policy.ts`).
+
 Design for how the daemon notifies clients of bearer token rotation and how clients recover from stale tokens.
 
-## Current State
+## Current State (Legacy)
 
 The daemon's HTTP bearer token is resolved at startup and persisted to `~/.vellum/http-token` (mode 0600). The startup token resolution order is: (1) the `RUNTIME_PROXY_BEARER_TOKEN` env var if set, (2) the existing token read from `~/.vellum/http-token` if the file is readable and non-empty, (3) a newly generated random token as a last resort. Clients read this file at connection time:
 

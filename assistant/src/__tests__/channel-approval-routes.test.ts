@@ -175,11 +175,6 @@ function registerPendingInteraction(
   return handleConfirmationResponse;
 }
 
-/** Legacy bearer token constant — retained for use in X-Gateway-Origin
- *  headers in test request construction. Gateway-origin proof is now
- *  handled by JWT auth; these headers are ignored by the handler. */
-const TEST_BEARER_TOKEN = 'token';
-
 function makeInboundRequest(overrides: Record<string, unknown> = {}): Request {
   const body: Record<string, unknown> = {
     sourceChannel: 'telegram',
@@ -197,7 +192,6 @@ function makeInboundRequest(overrides: Record<string, unknown> = {}): Request {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'X-Gateway-Origin': TEST_BEARER_TOKEN,
     },
     body: JSON.stringify(body),
   });
@@ -532,7 +526,6 @@ describe('empty content with callbackData bypasses validation', () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Gateway-Origin': TEST_BEARER_TOKEN,
       },
       body: JSON.stringify(reqBody),
     });
@@ -800,7 +793,6 @@ describe('SMS channel approval decisions', () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Gateway-Origin': TEST_BEARER_TOKEN,
       },
       body: JSON.stringify(body),
     });
@@ -908,7 +900,6 @@ describe('SMS guardian verify intercept', () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Gateway-Origin': TEST_BEARER_TOKEN,
       },
       body: JSON.stringify({
         sourceChannel: 'sms',
@@ -949,7 +940,6 @@ describe('SMS guardian verify intercept', () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Gateway-Origin': TEST_BEARER_TOKEN,
       },
       body: JSON.stringify({
         sourceChannel: 'sms',
@@ -1002,7 +992,6 @@ describe('SMS guardian verify intercept', () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Gateway-Origin': TEST_BEARER_TOKEN,
       },
       body: JSON.stringify({
         sourceChannel: 'sms',

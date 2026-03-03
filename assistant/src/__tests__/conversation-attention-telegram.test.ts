@@ -130,7 +130,6 @@ function makeInboundRequest(overrides: Record<string, unknown> = {}): Request {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'X-Gateway-Origin': TEST_BEARER_TOKEN,
     },
     body: JSON.stringify(body),
   });

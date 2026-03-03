@@ -101,7 +101,7 @@ describe("guardian control-plane proxy", () => {
     ]);
   });
 
-  test("replaces caller auth with runtime auth and forwards gateway-origin proof", async () => {
+  test("replaces caller auth with runtime auth", async () => {
     let capturedHeaders: Headers | undefined;
     let capturedBody = "";
     fetchMock = mock(async (_input: string | URL | Request, init?: RequestInit) => {
@@ -128,7 +128,6 @@ describe("guardian control-plane proxy", () => {
     expect(res.status).toBe(200);
     expect(capturedBody).toBe('{"channel":"voice","destination":"+15551234567"}');
     expect(capturedHeaders?.get("authorization")).toBe("Bearer runtime-token");
-    expect(capturedHeaders?.get("X-Gateway-Origin")).toBe("gateway-origin");
     expect(capturedHeaders?.has("host")).toBe(false);
   });
 

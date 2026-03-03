@@ -212,7 +212,6 @@ describe('inbound-message-handler trusted-contact interactivity', () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Gateway-Origin': 'test-token',
       },
       body: JSON.stringify({
         sourceChannel: 'telegram',

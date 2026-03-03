@@ -41,7 +41,6 @@ bun run dev
 | `GATEWAY_RUNTIME_PROXY_ENABLED` | No | `false` | Enable runtime proxy for non-Telegram requests |
 | `GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH` | No | `true` | Require bearer auth for proxied requests |
 | `RUNTIME_BEARER_TOKEN` | No | `~/.vellum/http-token` (if present) | Bearer token used by gateway when forwarding requests to assistant runtime internal endpoints (Twilio/OAuth/proxy upstream). |
-| `RUNTIME_GATEWAY_ORIGIN_SECRET` | No | Falls back to `RUNTIME_BEARER_TOKEN` | Dedicated secret sent as the `X-Gateway-Origin` header on `/channels/inbound` requests to prove gateway origin. When not set, the gateway falls back to sending `RUNTIME_BEARER_TOKEN` as the origin proof. Both gateway and runtime must share the same value. |
 | `RUNTIME_PROXY_BEARER_TOKEN` | Conditional | — | Bearer token for proxy auth (required when proxy + auth enabled) |
 | `GATEWAY_SHUTDOWN_DRAIN_MS` | No | `5000` | Graceful shutdown drain window in milliseconds |
 | `GATEWAY_RUNTIME_TIMEOUT_MS` | No | `30000` | Timeout for runtime HTTP calls (ms) |
@@ -291,7 +290,7 @@ The gateway is the **sole public ingress point** for all external webhooks, incl
 Inbound SMS follows the same gateway-only pattern as voice and Telegram:
 
 1. **Twilio → Gateway** (`/webhooks/twilio/sms`) — Gateway validates `X-Twilio-Signature` using HMAC-SHA1 with the configured `TWILIO_AUTH_TOKEN`.
-2. **Gateway → Runtime** (`/v1/channels/inbound`) — Gateway forwards the normalized event to the runtime with `X-Gateway-Origin` proof and bearer auth.
+2. **Gateway → Runtime** (`/v1/channels/inbound`) — Gateway forwards the normalized event to the runtime with JWT bearer auth.
 3. **Runtime rejects direct SMS webhooks** — Any direct POST to `/webhooks/twilio/sms` or `/v1/calls/twilio/sms` on the runtime returns `410 GATEWAY_ONLY`.
 
 ### Signature URL Tightening
@@ -413,7 +412,7 @@ See [`benchmarking/gateway/README.md`](../benchmarking/gateway/README.md) for lo
 | "No route configured" replies | Add a routing entry or set `GATEWAY_UNMAPPED_POLICY=default` with a default assistant |
 | Runtime errors | Is `ASSISTANT_RUNTIME_BASE_URL` reachable? Check runtime logs. |
 | No reply from assistant | Is the assistant runtime processing messages? Check for `RUNTIME_HTTP_PORT` env var. |
-| 403 `GATEWAY_ORIGIN_REQUIRED` on channel inbound | The runtime rejected the request because it lacks a valid `X-Gateway-Origin` header. Ensure `RUNTIME_GATEWAY_ORIGIN_SECRET` (or `RUNTIME_BEARER_TOKEN` / `~/.vellum/http-token` as fallback) is set on both the gateway and runtime so they share the same secret. |
+| 403 on channel inbound | The runtime rejected the request because JWT authentication failed. Ensure the gateway and runtime share the same signing key (`RUNTIME_BEARER_TOKEN` / `~/.vellum/http-token`). |
 
 ### Guardian-Specific Troubleshooting
 

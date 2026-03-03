@@ -174,7 +174,6 @@ function buildInboundRequest(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'X-Gateway-Origin': TEST_BEARER_TOKEN,
     },
     body: JSON.stringify(body),
   });

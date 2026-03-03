@@ -84,7 +84,7 @@ describe("runtime health proxy", () => {
     expect(await res.json()).toEqual({ status: "healthy" });
   });
 
-  test("replaces caller auth with runtime auth and forwards gateway-origin proof", async () => {
+  test("replaces caller auth with runtime auth", async () => {
     let capturedHeaders: Headers | undefined;
     fetchMock = mock(async (_input: string | URL | Request, init?: RequestInit) => {
       capturedHeaders = init?.headers as unknown as Headers;
@@ -103,7 +103,6 @@ describe("runtime health proxy", () => {
 
     expect(res.status).toBe(200);
     expect(capturedHeaders?.get("authorization")).toBe("Bearer runtime-token");
-    expect(capturedHeaders?.get("X-Gateway-Origin")).toBe("gateway-origin");
     expect(capturedHeaders?.has("host")).toBe(false);
   });
 

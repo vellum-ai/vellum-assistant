@@ -267,18 +267,6 @@ export function readSessionToken(): string | null {
   }
 }
 
-/**
- * Read the runtime HTTP bearer token from disk. Returns null if the
- * file doesn't exist or can't be read (HTTP server not running).
- */
-export function readHttpToken(): string | null {
-  try {
-    return readFileSync(getHttpTokenPath(), 'utf-8').trim();
-  } catch {
-    return null;
-  }
-}
-
 function expandHomePath(p: string): string {
   if (p === '~') return homedir();
   if (p.startsWith('~/')) return join(homedir(), p.slice(2));

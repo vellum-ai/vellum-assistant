@@ -47,7 +47,6 @@ cp .env.example .env
 | `OLLAMA_API_KEY` | No | — | API key for authenticated Ollama deployments |
 | `OLLAMA_BASE_URL` | No | `http://127.0.0.1:11434/v1` | Ollama base URL |
 | `RUNTIME_HTTP_PORT` | No | — | Enable the HTTP server (required for gateway/web) |
-| `RUNTIME_GATEWAY_ORIGIN_SECRET` | No | — | **Deprecated.** Gateway origin is now proven by JWT principal type (`svc_gateway`), not a separate header. |
 | `VELLUM_DAEMON_SOCKET` | No | `~/.vellum/vellum.sock` | Override the daemon socket path |
 
 ## Update Bulletin
@@ -228,7 +227,7 @@ The runtime exposes a RESTful HTTP API for Twilio configuration, credential mana
 | POST | `/v1/integrations/twilio/sms/test` | Sends a test SMS and polls for delivery status |
 | POST | `/v1/integrations/twilio/sms/doctor` | Runs comprehensive SMS health diagnostics |
 
-All endpoints are bearer-authenticated via the runtime HTTP token. Skills and clients should call the gateway URL (default `http://localhost:7830`) rather than the runtime port directly, as the gateway proxies all `/v1/integrations/twilio/*` routes.
+All endpoints are JWT-authenticated (require a valid JWT with appropriate scopes). Skills and clients should call the gateway URL (default `http://localhost:7830`) rather than the runtime port directly, as the gateway proxies all `/v1/integrations/twilio/*` routes.
 
 ### Ingress Webhook Reconciliation
 
