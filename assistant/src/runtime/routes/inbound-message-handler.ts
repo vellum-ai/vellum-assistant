@@ -9,6 +9,7 @@
 import type { ChannelId, InterfaceId } from '../../channels/types.js';
 import { CHANNEL_IDS, INTERFACE_IDS, isChannelId, parseInterfaceId } from '../../channels/types.js';
 import { getGatewayInternalBaseUrl } from '../../config/env.js';
+import { resolveUserReference } from '../../config/user-reference.js';
 import { RESEND_COOLDOWN_MS } from '../../daemon/handlers/config-channels.js';
 import * as attachmentsStore from '../../memory/attachments-store.js';
 import {
@@ -27,7 +28,6 @@ import { canonicalizeInboundIdentity } from '../../util/canonicalize-identity.js
 import { IngressBlockedError } from '../../util/errors.js';
 import { getLogger } from '../../util/logger.js';
 import { notifyGuardianOfAccessRequest } from '../access-request-helper.js';
-import { resolveUserReference } from '../../config/user-reference.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
 import { mintDaemonDeliveryToken } from '../auth/token-service.js';
 import {
