@@ -79,6 +79,7 @@ mock.module("../tools/network/script-proxy/index.js", () => ({
 
 mock.module("../util/platform.js", () => ({
   getDataDir: () => "/tmp",
+  getRootDir: () => "/tmp",
   getSocketPath: () => "/tmp/vellum.sock",
 }));
 
