@@ -182,6 +182,7 @@ export const A2A_EVENT_NAMES = {
   VERIFICATION_CODE_READY: 'a2a.verification_code_ready',
   CONNECTION_ESTABLISHED: 'a2a.connection_established',
   CONNECTION_REVOKED: 'a2a.connection_revoked',
+  SCOPES_CHANGED: 'a2a.scopes_changed',
   MESSAGE_RECEIVED: 'a2a.message_received',
   MESSAGE_DELIVERED: 'a2a.message_delivered',
   MESSAGE_FAILED: 'a2a.message_failed',
@@ -239,6 +240,15 @@ export interface A2AConnectionRevokedPayload {
   peerAssistantId: string | null;
 }
 
+/** Payload for `a2a.scopes_changed`. */
+export interface A2AScopesChangedPayload {
+  connectionId: string;
+  peerAssistantId: string | null;
+  previousScopes: string[];
+  newScopes: string[];
+  timestamp: number;
+}
+
 /** Payload for `a2a.message_received`. */
 export interface A2AMessageReceivedPayload {
   connectionId: string;
@@ -277,6 +287,7 @@ export interface A2AEventPayloadMap {
   'a2a.verification_code_ready': A2AVerificationCodeReadyPayload;
   'a2a.connection_established': A2AConnectionEstablishedPayload;
   'a2a.connection_revoked': A2AConnectionRevokedPayload;
+  'a2a.scopes_changed': A2AScopesChangedPayload;
   'a2a.message_received': A2AMessageReceivedPayload;
   'a2a.message_delivered': A2AMessageDeliveredPayload;
   'a2a.message_failed': A2AMessageFailedPayload;

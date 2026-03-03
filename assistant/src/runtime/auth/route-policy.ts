@@ -231,6 +231,19 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
 
   // Delivery ack
   { endpoint: 'channels/delivery-ack', scopes: ['internal.write'] },
+
+  // A2A connection management
+  { endpoint: 'a2a/invite', scopes: ['settings.write'] },
+  { endpoint: 'a2a/redeem', scopes: ['settings.write'] },
+  { endpoint: 'a2a/connect', scopes: ['settings.write'] },
+  { endpoint: 'a2a/approve', scopes: ['settings.write'] },
+  { endpoint: 'a2a/verify', scopes: ['settings.write'] },
+  { endpoint: 'a2a/revoke', scopes: ['settings.write'] },
+  { endpoint: 'a2a/connections', scopes: ['settings.read'] },
+  { endpoint: 'a2a/connections/status:GET', scopes: ['settings.read'] },
+  { endpoint: 'a2a/connections/messages:POST', scopes: ['settings.write'] },
+  { endpoint: 'a2a/connections/scopes:PUT', scopes: ['settings.write'] },
+  { endpoint: 'a2a/connections/scopes:GET', scopes: ['settings.read'] },
 ];
 
 for (const { endpoint, scopes } of ACTOR_ENDPOINTS) {

@@ -12,12 +12,14 @@
 import {
   approveConnection,
   generateInvite,
+  getScopes,
   initiateConnection,
   listConnectionsFiltered,
   redeemInvite,
   revokeConnection,
   sendMessage,
   submitVerificationCode,
+  updateScopes,
   A2A_PROTOCOL_VERSION,
 } from '../../a2a/a2a-connection-service.js';
 import type { A2AMessageContent } from '../../a2a/a2a-message-schema.js';
@@ -432,4 +434,73 @@ export async function handleA2ASendMessage(req: Request, connectionId: string): 
     messageId: sendResult.messageId,
     conversationId: sendResult.conversationId,
   }, { status: 202 });
+}
+
+// ---------------------------------------------------------------------------
+// PUT /v1/a2a/connections/:connectionId/scopes — Update connection scopes
+// ---------------------------------------------------------------------------
+
+export async function handleA2AUpdateScopes(req: Request, connectionId: string): Promise<Response> {
+  const body = await req.json() as Record<string, unknown>;
+
+  if (!Array.isArray(body.scopes)) {
+    return httpError('BAD_REQUEST', 'Missing required field: scopes (array of scope IDs)', 400);
+  }
+
+  if (!body.scopes.every((s: unknown) => typeof s === 'string')) {
+    return httpError('BAD_REQUEST', 'All scope IDs must be strings', 400);
+  }
+
+  const scopes = body.scopes as string[];
+
+  const result = updateScopes({ connectionId, scopes });
+
+  if (!result.ok) {
+    const statusMap: Record<string, number> = {
+      not_found: 404,
+      not_active: 409,
+      invalid_scopes: 400,
+    };
+    const codeMap: Record<string, 'NOT_FOUND' | 'CONFLICT' | 'BAD_REQUEST'> = {
+      not_found: 'NOT_FOUND',
+      not_active: 'CONFLICT',
+      invalid_scopes: 'BAD_REQUEST',
+    };
+    return httpError(
+      codeMap[result.reason] ?? 'BAD_REQUEST',
+      result.detail ?? result.reason,
+      statusMap[result.reason] ?? 400,
+    );
+  }
+
+  return Response.json({
+    connectionId,
+    previousScopes: result.previousScopes,
+    newScopes: result.newScopes,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// GET /v1/a2a/connections/:connectionId/scopes — Get connection scopes
+// ---------------------------------------------------------------------------
+
+export function handleA2AGetScopes(connectionId: string): Response {
+  const result = getScopes({ connectionId });
+
+  if (!result.ok) {
+    const statusMap: Record<string, number> = {
+      not_found: 404,
+      not_active: 409,
+    };
+    return httpError(
+      result.reason === 'not_found' ? 'NOT_FOUND' : 'CONFLICT',
+      result.reason,
+      statusMap[result.reason] ?? 400,
+    );
+  }
+
+  return Response.json({
+    connectionId: result.connectionId,
+    scopes: result.scopes,
+  });
 }
