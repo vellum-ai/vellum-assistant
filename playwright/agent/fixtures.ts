@@ -7,7 +7,8 @@
  */
 
 import { execSync } from "child_process";
-import { existsSync, mkdirSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "fs";
+import os from "os";
 import path from "path";
 
 // ── Types ───────────────────────────────────────────────────────────
@@ -89,6 +90,7 @@ async function createDesktopAppHatchedFixture(options: FixtureOptions): Promise<
   verifyAppExists(appDisplayName);
   ensureVellumInPath(appDisplayName);
   ensureAssistantHatched();
+  skipAssistantOnboarding();
 
   return {
     teardown: async () => {
@@ -226,6 +228,17 @@ function ensureAssistantHatched(): void {
   }
 
   logVellumPs();
+}
+
+/**
+ * Deletes BOOTSTRAP.md from the assistant workspace so the assistant
+ * skips its first-run acclimation flow (name, personality, etc.).
+ */
+function skipAssistantOnboarding(): void {
+  const bootstrapPath = path.join(os.homedir(), ".vellum", "workspace", "BOOTSTRAP.md");
+  if (existsSync(bootstrapPath)) {
+    unlinkSync(bootstrapPath);
+  }
 }
 
 function retireAssistant(): void {
