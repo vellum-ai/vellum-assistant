@@ -1,16 +1,16 @@
 /**
  * Shared inbound trust resolution for channel actors.
  *
- * GuardianContext is a type alias for GuardianRuntimeContext — the
+ * GuardianContext is a type alias for TrustContext — the
  * canonical runtime trust context used by sessions, tooling, and channel
  * routes. This module re-exports the alias and provides routing-state
  * helpers that operate on the canonical type.
  *
  * Trust resolution itself lives in actor-trust-resolver.ts; the resolved
- * ActorTrustContext is converted to GuardianRuntimeContext via
+ * ActorTrustContext is converted to TrustContext via
  * toGuardianRuntimeContextFromTrust.
  */
-import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
+import type { TrustContext } from '../daemon/session-runtime-assembly.js';
 import {
   resolveActorTrust,
   type ResolveActorTrustInput,
@@ -31,7 +31,7 @@ export type ActorTrustClass = TrustClass;
  * This alias unifies the two shapes and removes the redundant conversion
  * layer.
  */
-export type GuardianContext = GuardianRuntimeContext;
+export type GuardianContext = TrustContext;
 
 export type ResolveGuardianContextInput = ResolveActorTrustInput;
 
@@ -39,7 +39,7 @@ export type ResolveGuardianContextInput = ResolveActorTrustInput;
  * Resolve route-level trust context from canonical identity state.
  *
  * Delegates to resolveActorTrust for classification, then converts to
- * the canonical GuardianRuntimeContext via toGuardianRuntimeContextFromTrust.
+ * the canonical TrustContext via toGuardianRuntimeContextFromTrust.
  */
 export function resolveGuardianContext(input: ResolveGuardianContextInput): GuardianContext {
   const trust = resolveActorTrust(input);
@@ -83,7 +83,7 @@ export interface RoutingState {
  * Trusted contacts are only interactive when a guardian binding exists
  * to receive approval notifications. Unknown actors are never interactive.
  */
-export function resolveRoutingState(ctx: Pick<GuardianRuntimeContext, 'trustClass' | 'guardianExternalUserId'>): RoutingState {
+export function resolveRoutingState(ctx: Pick<TrustContext, 'trustClass' | 'guardianExternalUserId'>): RoutingState {
   const isGuardian = ctx.trustClass === 'guardian';
   const isTrustedContact = ctx.trustClass === 'trusted_contact';
 
@@ -118,15 +118,15 @@ export function resolveRoutingState(ctx: Pick<GuardianRuntimeContext, 'trustClas
 }
 
 /**
- * Convenience: compute routing state from a GuardianRuntimeContext
+ * Convenience: compute routing state from a TrustContext
  * (the shape persisted in stored payloads and used by the retry sweep).
  */
-export function resolveRoutingStateFromRuntime(ctx: GuardianRuntimeContext): RoutingState {
+export function resolveRoutingStateFromRuntime(ctx: TrustContext): RoutingState {
   return resolveRoutingState(ctx);
 }
 
 /**
- * Override the sourceChannel on a resolved GuardianRuntimeContext.
+ * Override the sourceChannel on a resolved TrustContext.
  *
  * The HTTP /messages endpoint resolves trust against a fixed internal
  * channel ('vellum') but the request body carries the actual sourceChannel
@@ -135,7 +135,7 @@ export function resolveRoutingStateFromRuntime(ctx: GuardianRuntimeContext): Rou
  */
 export function toGuardianRuntimeContext(
   sourceChannel: import('../channels/types.js').ChannelId,
-  ctx: GuardianRuntimeContext,
-): GuardianRuntimeContext {
+  ctx: TrustContext,
+): TrustContext {
   return { ...ctx, sourceChannel };
 }

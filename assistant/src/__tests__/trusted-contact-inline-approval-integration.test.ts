@@ -182,7 +182,7 @@ mock.module("../config/env.js", () => ({
 import { applyCanonicalGuardianDecision } from "../approvals/guardian-decision-primitive.js";
 import type { ActorContext } from "../approvals/guardian-request-resolvers.js";
 import { getResolver } from "../approvals/guardian-request-resolvers.js";
-import type { GuardianRuntimeContext } from "../daemon/session-runtime-assembly.js";
+import type { TrustContext } from "../daemon/session-runtime-assembly.js";
 import {
   createCanonicalGuardianRequest,
   getCanonicalGuardianRequest,
@@ -247,7 +247,7 @@ function guardianActor(overrides: Partial<ActorContext> = {}): ActorContext {
   };
 }
 
-function makeTrustedContactGuardianContext(): GuardianRuntimeContext {
+function makeTrustedContactGuardianContext(): TrustContext {
   return {
     sourceChannel: "telegram",
     trustClass: "trusted_contact",
@@ -680,7 +680,7 @@ describe("(d) unknown actor flow: fail-closed with no interactive approval", () 
       expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
     });
 
-    const guardianContext: GuardianRuntimeContext = {
+    const guardianContext: TrustContext = {
       sourceChannel: "telegram",
       trustClass: "unknown",
     };

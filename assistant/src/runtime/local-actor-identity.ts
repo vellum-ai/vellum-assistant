@@ -13,7 +13,7 @@
 
 import type { ChannelId } from '../channels/types.js';
 import { buildIpcAuthContext } from '../daemon/ipc-handler.js';
-import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
+import type { TrustContext } from '../daemon/session-runtime-assembly.js';
 import { getActiveBinding } from '../memory/guardian-bindings.js';
 import { getLogger } from '../util/logger.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from './assistant-scope.js';
@@ -37,7 +37,7 @@ const log = getLogger('local-actor-identity');
  */
 export function resolveLocalIpcGuardianContext(
   sourceChannel: ChannelId = 'vellum',
-): GuardianRuntimeContext {
+): TrustContext {
   const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
   const binding = getActiveBinding(assistantId, 'vellum');
 

@@ -6,7 +6,7 @@ import type { ChannelId, InterfaceId } from "../channels/types.js";
 import { parseChannelId, parseInterfaceId } from "../channels/types.js";
 import { CHANNEL_IDS, INTERFACE_IDS, isChannelId } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
-import type { GuardianRuntimeContext } from "../daemon/session-runtime-assembly.js";
+import type { TrustContext } from "../daemon/session-runtime-assembly.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getLogger } from "../util/logger.js";
 import { createRowMapper } from "../util/row-mapper.js";
@@ -65,13 +65,13 @@ export const messageMetadataSchema = z
 export type MessageMetadata = z.infer<typeof messageMetadataSchema>;
 
 /**
- * Extract provenance metadata fields from a GuardianRuntimeContext.
+ * Extract provenance metadata fields from a TrustContext.
  * When no guardian context is provided, defaults to 'unknown' because the
  * absence of trust context means we cannot verify trust —
  * callers with actual guardian trust should always supply a real context.
  */
 export function provenanceFromGuardianContext(
-  ctx: GuardianRuntimeContext | null | undefined,
+  ctx: TrustContext | null | undefined,
 ): Record<string, unknown> {
   if (!ctx) return { provenanceTrustClass: "unknown" };
   return {

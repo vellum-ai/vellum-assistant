@@ -90,7 +90,7 @@ mock.module("../runtime/channel-guardian-service.js", () => ({
   },
 }));
 
-import type { GuardianRuntimeContext } from "../daemon/session-runtime-assembly.js";
+import type { TrustContext } from "../daemon/session-runtime-assembly.js";
 import {
   createCanonicalGuardianRequest,
   generateCanonicalRequestCode,
@@ -139,8 +139,8 @@ function makeCanonicalRequest(overrides: Record<string, unknown> = {}) {
 }
 
 function makeTrustedContactContext(
-  overrides: Partial<GuardianRuntimeContext> = {},
-): GuardianRuntimeContext {
+  overrides: Partial<TrustContext> = {},
+): TrustContext {
   return {
     sourceChannel: "telegram",
     trustClass: "trusted_contact",
@@ -191,7 +191,7 @@ describe("bridgeConfirmationRequestToGuardian", () => {
 
   test("skips guardian actor sessions (self-approve)", () => {
     const canonicalRequest = makeCanonicalRequest();
-    const guardianContext: GuardianRuntimeContext = {
+    const guardianContext: TrustContext = {
       sourceChannel: "telegram",
       trustClass: "guardian",
       guardianExternalUserId: "guardian-1",
@@ -213,7 +213,7 @@ describe("bridgeConfirmationRequestToGuardian", () => {
 
   test("skips unknown actor sessions", () => {
     const canonicalRequest = makeCanonicalRequest();
-    const guardianContext: GuardianRuntimeContext = {
+    const guardianContext: TrustContext = {
       sourceChannel: "telegram",
       trustClass: "unknown",
     };

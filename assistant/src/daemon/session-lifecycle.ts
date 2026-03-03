@@ -19,12 +19,12 @@ import { repairHistory } from './history-repair.js';
 import type { SurfaceData,SurfaceType, UsageStats } from './ipc-protocol.js';
 import { unregisterCallNotifiers,unregisterWatchNotifiers } from './session-notifiers.js';
 import type { MessageQueue } from './session-queue-manager.js';
-import type { GuardianRuntimeContext } from './session-runtime-assembly.js';
+import type { TrustContext } from './session-runtime-assembly.js';
 import { resetSkillToolProjection } from './session-skill-tools.js';
 
 const log = getLogger('session-lifecycle');
 
-type GuardianTrustClass = GuardianRuntimeContext['trustClass'];
+type GuardianTrustClass = TrustContext['trustClass'];
 
 function parseProvenanceTrustClass(metadata: string | null): GuardianTrustClass | undefined {
   if (!metadata) return undefined;

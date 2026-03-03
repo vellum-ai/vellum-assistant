@@ -88,7 +88,7 @@ import type {
 import { MessageQueue } from "./session-queue-manager.js";
 import type {
   ChannelCapabilities,
-  GuardianRuntimeContext,
+  TrustContext,
 } from "./session-runtime-assembly.js";
 import type { SkillProjectionCache } from "./session-skill-tools.js";
 import {
@@ -163,9 +163,9 @@ export class Session {
   /** @internal */ currentActiveSurfaceId?: string;
   /** @internal */ currentPage?: string;
   /** @internal */ channelCapabilities?: ChannelCapabilities;
-  /** @internal */ guardianContext?: GuardianRuntimeContext;
+  /** @internal */ guardianContext?: TrustContext;
   /** @internal */ authContext?: AuthContext;
-  /** @internal */ loadedHistoryTrustClass?: GuardianRuntimeContext["trustClass"];
+  /** @internal */ loadedHistoryTrustClass?: TrustContext["trustClass"];
   /** @internal */ voiceCallControlPrompt?: string;
   /** @internal */ assistantId?: string;
   /** @internal */ commandIntent?: {
@@ -610,7 +610,7 @@ export class Session {
     this.channelCapabilities = caps ?? undefined;
   }
 
-  setGuardianContext(ctx: GuardianRuntimeContext | null): void {
+  setGuardianContext(ctx: TrustContext | null): void {
     this.guardianContext = ctx ?? undefined;
   }
 

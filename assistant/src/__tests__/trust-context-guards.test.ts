@@ -8,7 +8,7 @@ import { describe, expect, it } from "bun:test";
  * These tests prevent reintroduction of removed compatibility patterns
  * by scanning source files for type invariants:
  *
- *  (a) guardianPrincipalId in GuardianRuntimeContext must be `?: string`
+ *  (a) guardianPrincipalId in TrustContext must be `?: string`
  *      (optional string), NOT `string | null`.
  *  (b) guardianTrustClass in ToolContext must be a required field (no `?`).
  *  (c) The channel retry sweep parser must not reference `actorRole`.
@@ -23,15 +23,15 @@ describe("trust-context guards", () => {
   // (a) No `string | null` for guardianPrincipalId in runtime types
   // -----------------------------------------------------------------------
 
-  it("guardianPrincipalId is not typed as string | null in GuardianRuntimeContext", () => {
+  it("guardianPrincipalId is not typed as string | null in TrustContext", () => {
     const source = readFileSync(
       join(srcDir, "daemon", "session-runtime-assembly.ts"),
       "utf-8",
     );
 
-    // Extract the GuardianRuntimeContext interface block
+    // Extract the TrustContext interface block
     const ifaceStart = source.indexOf(
-      "export interface GuardianRuntimeContext",
+      "export interface TrustContext",
     );
     expect(ifaceStart).toBeGreaterThan(-1);
 
@@ -54,13 +54,13 @@ describe("trust-context guards", () => {
       .find((l) => l.includes("guardianPrincipalId"));
     expect(
       principalLine,
-      "Expected to find guardianPrincipalId in GuardianRuntimeContext",
+      "Expected to find guardianPrincipalId in TrustContext",
     ).toBeDefined();
 
     expect(
       principalLine!.includes("string | null") ||
         principalLine!.includes("null | string"),
-      "guardianPrincipalId must not be typed as nullable in GuardianRuntimeContext. " +
+      "guardianPrincipalId must not be typed as nullable in TrustContext. " +
         "Use `guardianPrincipalId?: string` (optional, non-nullable) instead. " +
         `Found: "${principalLine!.trim()}"`,
     ).toBe(false);
@@ -69,7 +69,7 @@ describe("trust-context guards", () => {
     // principal exists should be able to omit it.
     expect(
       /guardianPrincipalId\s*\?/.test(principalLine!),
-      "guardianPrincipalId must remain optional (`?:`) in GuardianRuntimeContext. " +
+      "guardianPrincipalId must remain optional (`?:`) in TrustContext. " +
         "Channels without a guardian principal need to omit this field. " +
         `Found: "${principalLine!.trim()}"`,
     ).toBe(true);
@@ -156,7 +156,7 @@ describe("trust-context guards", () => {
     // The sweep must synthesize a trust context when guardianCtx is absent,
     // so `guardianContext` should never be conditionally undefined at the
     // processMessage callsite. Look for the pattern that ensures this:
-    // a `const guardianContext: GuardianRuntimeContext = parsedGuardianContext ?? {`
+    // a `const guardianContext: TrustContext = parsedGuardianContext ?? {`
     // fallback that synthesizes trustClass: 'unknown'.
     expect(
       source.includes("trustClass: 'unknown'"),

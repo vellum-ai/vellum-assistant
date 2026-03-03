@@ -10,7 +10,7 @@
 
 import { getGatewayInternalBaseUrl } from '../config/env.js';
 import type { ServerMessage } from '../daemon/ipc-contract.js';
-import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
+import type { TrustContext } from '../daemon/session-runtime-assembly.js';
 import {
   expireCanonicalGuardianRequest,
   getCanonicalRequestByPendingQuestionId,
@@ -216,7 +216,7 @@ export class CallController {
   /** Assistant identity for scoping guardian bindings. */
   private assistantId: string;
   /** Guardian trust context for the current caller, when available. */
-  private guardianContext: GuardianRuntimeContext | null;
+  private guardianContext: TrustContext | null;
   /** Conversation ID for the voice session. */
   private conversationId: string;
   /**
@@ -241,7 +241,7 @@ export class CallController {
     opts?: {
       broadcast?: (msg: ServerMessage) => void;
       assistantId?: string;
-      guardianContext?: GuardianRuntimeContext;
+      guardianContext?: TrustContext;
     },
   ) {
     this.callSessionId = callSessionId;
@@ -280,7 +280,7 @@ export class CallController {
   /**
    * Update guardian trust context for subsequent LLM turns.
    */
-  setGuardianContext(ctx: GuardianRuntimeContext | null): void {
+  setGuardianContext(ctx: TrustContext | null): void {
     this.guardianContext = ctx;
   }
 
