@@ -36,33 +36,38 @@ private struct AttachmentImageGrid: View {
                 .onTapGesture {
                     onTap(attachment)
                 }
-                // Decode off the main actor so NSImage(data:) never runs during layout.
-                // Uses Task { }.value (not Task.detached) so cancellation propagates when
-                // the bubble scrolls off-screen and the .task modifier cancels.
+                // NSImage(data:) is called directly inside .task — no Task{} wrapper — so
+                // SwiftUI can cancel the work immediately when the bubble scrolls off-screen.
+                // Wrapping in Task(priority:){}.value creates an unstructured task that is NOT
+                // cancelled by the .task modifier, causing off-screen decodes to run to completion.
                 .task(id: attachment.id) {
+                    // Step 1: thumbnailImage is already decoded — zero cost.
                     if let img = attachment.thumbnailImage {
                         loadedImages[attachment.id] = img
                         return
                     }
+
+                    guard !Task.isCancelled else { return }
+
+                    // Step 2: thumbnailData (small) — synchronous NSImage decode, called directly.
                     // Fallback chain: thumbnailData → full attachment.data.
                     // thumbnailData is preferred (smaller), but if it is corrupt or
                     // missing we still want to show the image from the full payload.
-                    let decoded: NSImage?
-                    if let thumbnailData = attachment.thumbnailData, !thumbnailData.isEmpty {
-                        decoded = await Task(priority: .userInitiated) { NSImage(data: thumbnailData) }.value
-                    } else {
-                        decoded = nil
-                    }
-                    if let decoded {
+                    if let thumbnailData = attachment.thumbnailData, !thumbnailData.isEmpty,
+                       let img = NSImage(data: thumbnailData) {
                         guard !Task.isCancelled else { return }
-                        loadedImages[attachment.id] = decoded
+                        loadedImages[attachment.id] = img
                         return
                     }
-                    // thumbnailData was absent or unreadable — fall back to full data.
-                    guard let fullData = Data(base64Encoded: attachment.data), !fullData.isEmpty else { return }
-                    let fallback = await Task(priority: .userInitiated) { NSImage(data: fullData) }.value
-                    guard !Task.isCancelled, let fallback else { return }
-                    loadedImages[attachment.id] = fallback
+
+                    guard !Task.isCancelled else { return }
+
+                    // Step 3: fallback to full base64 data.
+                    if let fullData = Data(base64Encoded: attachment.data), !fullData.isEmpty,
+                       let img = NSImage(data: fullData) {
+                        guard !Task.isCancelled else { return }
+                        loadedImages[attachment.id] = img
+                    }
                 }
             }
         }
