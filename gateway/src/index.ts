@@ -28,6 +28,7 @@ import { createWhatsAppWebhookHandler } from "./http/routes/whatsapp-webhook.js"
 import { createWhatsAppDeliverHandler } from "./http/routes/whatsapp-deliver.js";
 import { createSlackDeliverHandler } from "./http/routes/slack-deliver.js";
 import { createOAuthCallbackHandler } from "./http/routes/oauth-callback.js";
+import { createA2AProxyHandler } from "./http/routes/a2a-proxy.js";
 import { createPairingProxyHandler } from "./http/routes/pairing-proxy.js";
 import { createFeatureFlagsGetHandler, createFeatureFlagsPatchHandler } from "./http/routes/feature-flags.js";
 import { createGuardianControlPlaneProxyHandler } from "./http/routes/guardian-control-plane-proxy.js";
@@ -56,6 +57,9 @@ let draining = false;
 
 // Shared rate limiter for auth failures and unauthenticated endpoints
 const authRateLimiter = new AuthRateLimiter();
+
+// Per-IP rate limiter for A2A connect requests (10 per minute)
+const a2aConnectRateLimiter = new AuthRateLimiter(10, 60_000);
 
 function isBrowserRelaySocketData(data: unknown): data is BrowserRelaySocketData {
   return !!data && typeof data === "object" && (data as { wsType?: unknown }).wsType === "browser-relay";
@@ -108,6 +112,7 @@ function main() {
   const handleWhatsAppDeliver = createWhatsAppDeliverHandler(config);
   const handleSlackDeliver = createSlackDeliverHandler(config);
   const handleOAuthCallback = createOAuthCallbackHandler(config);
+  const a2aProxy = createA2AProxyHandler(config);
   const pairingProxy = createPairingProxyHandler(config);
   const guardianControlPlaneProxy = createGuardianControlPlaneProxyHandler(config);
   const telegramControlPlaneProxy = createTelegramControlPlaneProxyHandler(config);
@@ -616,6 +621,38 @@ function main() {
           authRateLimiter.recordFailure(getClientIp(req, svr, config.trustProxy));
         }
         return res;
+      }
+
+      // ── A2A peer handshake proxy ──
+      // These endpoints are public-facing (unauthenticated at gateway level).
+      // The connect endpoint is invite-token-gated; verify/status occur during
+      // the handshake before credentials are exchanged.
+      if (url.pathname === "/v1/a2a/connect" && tracedReq.method === "POST") {
+        const connectClientIp = getClientIp(req, svr, config.trustProxy);
+        if (a2aConnectRateLimiter.isBlocked(connectClientIp)) {
+          log.warn({ ip: connectClientIp }, "A2A connect rate limit exceeded");
+          return Response.json(
+            { error: { code: "RATE_LIMITED", message: "Too Many Requests" } },
+            { status: 429, headers: { "Retry-After": "60" } },
+          );
+        }
+        a2aConnectRateLimiter.recordFailure(connectClientIp);
+        const res = await a2aProxy.handleConnect(tracedReq);
+        if (res.status === 401 || res.status === 403) {
+          authRateLimiter.recordFailure(connectClientIp);
+        }
+        return res;
+      }
+      if (url.pathname === "/v1/a2a/verify" && tracedReq.method === "POST") {
+        const res = await a2aProxy.handleVerify(tracedReq);
+        if (res.status === 401 || res.status === 403) {
+          authRateLimiter.recordFailure(getClientIp(req, svr, config.trustProxy));
+        }
+        return res;
+      }
+      const a2aStatusMatch = url.pathname.match(/^\/v1\/a2a\/connections\/([^/]+)\/status$/);
+      if (a2aStatusMatch && tracedReq.method === "GET") {
+        return a2aProxy.handleConnectionStatus(tracedReq, decodeURIComponent(a2aStatusMatch[1]));
       }
 
       // ── Feature flags API ──
