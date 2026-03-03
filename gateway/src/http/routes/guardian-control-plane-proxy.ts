@@ -90,6 +90,10 @@ export function createGuardianControlPlaneProxyHandler(config: GatewayConfig) {
       return proxyToRuntime(req, "/v1/integrations/guardian/status", url.search);
     },
 
+    async handleRevokeGuardian(req: Request): Promise<Response> {
+      return proxyToRuntime(req, "/v1/integrations/guardian/revoke", "");
+    },
+
     async handleStartGuardianOutbound(req: Request): Promise<Response> {
       return proxyToRuntime(req, "/v1/integrations/guardian/outbound/start", "");
     },

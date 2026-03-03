@@ -4,6 +4,7 @@
  * POST /v1/migrations/validate        — validate a .vbundle archive upload.
  * POST /v1/migrations/export          — generate and download a .vbundle archive.
  * POST /v1/migrations/import-preflight — dry-run import analysis of a .vbundle archive.
+ * POST /v1/migrations/import          — commit a .vbundle archive import to disk.
  *
  * Accepts raw binary body (Content-Type: application/octet-stream) or
  * multipart form data with a "file" field. Returns structured validation
@@ -18,6 +19,7 @@ import {
   analyzeImport,
   DefaultPathResolver,
 } from "../migrations/vbundle-import-analyzer.js";
+import { commitImport } from "../migrations/vbundle-importer.js";
 import { validateVBundle } from "../migrations/vbundle-validator.js";
 
 const log = getLogger("migration-routes");
@@ -281,6 +283,109 @@ export async function handleMigrationImportPreflight(
     return httpError(
       "INTERNAL_ERROR",
       err instanceof Error ? err.message : "Unexpected import preflight error",
+      500,
+    );
+  }
+}
+
+/**
+ * POST /v1/migrations/import
+ *
+ * Commits a .vbundle archive import to disk. This is a destructive operation
+ * that writes bundle files to their target locations, replacing existing data.
+ *
+ * The import process:
+ * 1. Validates the bundle (validation before any state mutation)
+ * 2. Extracts files from the archive
+ * 3. Backs up existing files before overwriting
+ * 4. Writes bundle files to disk
+ * 5. Verifies post-write integrity (SHA-256 check)
+ * 6. Returns a detailed report of what was imported
+ *
+ * The file can be sent as:
+ * - Raw binary body with Content-Type: application/octet-stream
+ * - Multipart form data with a "file" field
+ *
+ * Returns:
+ *   200: {
+ *     success: true,
+ *     summary: { total_files, files_created, files_overwritten, files_skipped, backups_created },
+ *     files: [{ path, disk_path, action, size, sha256, backup_path }],
+ *     manifest: { ... },
+ *     warnings: [...]
+ *   }
+ *   200: { success: false, reason: "validation_failed", errors: [...] }
+ *   400: Standard error envelope for missing/empty body
+ *   500: Standard error envelope for unexpected failures
+ *
+ * Auth: Requires settings.write scope. Allowed for actor, svc_gateway, ipc.
+ */
+export async function handleMigrationImport(req: Request): Promise<Response> {
+  const extracted = await extractFileData(req);
+  if ("error" in extracted) {
+    return extracted.error;
+  }
+
+  const fileData = extracted.data;
+  if (fileData.length === 0) {
+    return httpError(
+      "BAD_REQUEST",
+      "Request body is empty — a .vbundle file is required",
+      400,
+    );
+  }
+
+  try {
+    const pathResolver = new DefaultPathResolver(
+      getDbPath(),
+      getWorkspaceConfigPath(),
+    );
+
+    const result = commitImport({
+      archiveData: fileData,
+      pathResolver,
+    });
+
+    if (!result.ok) {
+      if (result.reason === "validation_failed") {
+        return Response.json({
+          success: false,
+          reason: "validation_failed",
+          errors: result.errors,
+        });
+      }
+
+      if (result.reason === "extraction_failed") {
+        return Response.json(
+          {
+            success: false,
+            reason: "extraction_failed",
+            message: result.message,
+          },
+          { status: 500 },
+        );
+      }
+
+      // write_failed
+      return Response.json(
+        {
+          success: false,
+          reason: "write_failed",
+          message: result.message,
+          ...(result.partial_report
+            ? { partial_report: result.partial_report }
+            : {}),
+        },
+        { status: 500 },
+      );
+    }
+
+    return Response.json(result.report);
+  } catch (err) {
+    log.error({ err }, "Unexpected error during import commit");
+    return httpError(
+      "INTERNAL_ERROR",
+      err instanceof Error ? err.message : "Unexpected import error",
       500,
     );
   }

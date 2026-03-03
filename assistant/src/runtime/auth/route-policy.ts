@@ -194,6 +194,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   },
   { endpoint: "integrations/guardian/challenge", scopes: ["settings.write"] },
   { endpoint: "integrations/guardian/status", scopes: ["settings.read"] },
+  { endpoint: "integrations/guardian/revoke", scopes: ["settings.write"] },
   {
     endpoint: "integrations/guardian/outbound/start",
     scopes: ["settings.write"],
@@ -293,6 +294,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "migrations/validate", scopes: ["settings.write"] },
   { endpoint: "migrations/export", scopes: ["settings.write"] },
   { endpoint: "migrations/import-preflight", scopes: ["settings.write"] },
+  { endpoint: "migrations/import", scopes: ["settings.write"] },
 ];
 
 for (const { endpoint, scopes } of ACTOR_ENDPOINTS) {
