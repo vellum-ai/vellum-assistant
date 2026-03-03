@@ -21,7 +21,5 @@ Verify that the assistant saves memories during a session and recalls them corre
 
 ## Expected
 
-- The assistant saves the shared information to long-term memory during the first chat
-- In the new chat, the assistant recalls the previously shared information accurately
-- No memory corruption or stale/incorrect data is returned
+- In the new chat, the assistant recalls the previously shared information accurately (not stale or fabricated)
 - If memory recall fails, the assistant communicates gracefully rather than hallucinating or crashing
