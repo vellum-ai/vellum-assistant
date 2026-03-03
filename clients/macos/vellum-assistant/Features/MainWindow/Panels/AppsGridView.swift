@@ -43,17 +43,18 @@ struct AppsGridView: View {
                         VStack(spacing: VSpacing.xxl) {
                             searchBar
 
-                            let allApps = filteredApps
-                            if !allApps.isEmpty {
-                                LazyVGrid(columns: columns, spacing: VSpacing.xxl) {
-                                    ForEach(allApps) { app in
-                                        appCard(app)
-                                            .onAppear { fetchPreviewIfNeeded(app) }
-                                    }
-                                }
+                            let pinned = filteredPinnedApps
+                            let recents = filteredRecentApps
+
+                            if !pinned.isEmpty {
+                                appSection(title: "Pinned", apps: pinned)
                             }
 
-                            if allApps.isEmpty && !searchText.isEmpty {
+                            if !recents.isEmpty {
+                                appSection(title: "Recents", apps: recents)
+                            }
+
+                            if pinned.isEmpty && recents.isEmpty && !searchText.isEmpty {
                                 VEmptyState(
                                     title: "No apps matched",
                                     subtitle: "No apps matched \"\(searchText)\"",
@@ -165,44 +166,38 @@ struct AppsGridView: View {
                         .stroke(VColor.surfaceBorder, lineWidth: 1)
                 )
                 .overlay(alignment: .topTrailing) {
-                    Menu {
-                        Button {
-                            if app.isPinned {
-                                appListManager.unpinApp(id: app.id)
-                            } else {
-                                appListManager.pinApp(id: app.id)
+                    VIconButton(label: "App actions", icon: "ellipsis", iconOnly: true, variant: .filled(VColor.buttonPrimary), size: 24) {}
+                        .overlay {
+                            Menu {
+                                Button {
+                                    if app.isPinned {
+                                        appListManager.unpinApp(id: app.id)
+                                    } else {
+                                        appListManager.pinApp(id: app.id)
+                                    }
+                                } label: {
+                                    Label(app.isPinned ? "Unpin" : "Pin", systemImage: app.isPinned ? "pin.slash" : "pin")
+                                }
+                                Button(role: .destructive) {
+                                    if hoveredAppId != nil {
+                                        hoveredAppId = nil
+                                        NSCursor.pop()
+                                    }
+                                    appListManager.removeApp(id: app.id)
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            } label: {
+                                Color.clear
                             }
-                        } label: {
-                            Label(app.isPinned ? "Unpin" : "Pin", systemImage: app.isPinned ? "pin.slash" : "pin")
+                            .menuStyle(.borderlessButton)
+                            .menuIndicator(.hidden)
                         }
-                        Button(role: .destructive) {
-                            // Only pop the cursor if onHover exit hasn't already done so.
-                            // When the menu popover opens the cursor leaves the card, firing
-                            // the onHover exit which pops the cursor and nils hoveredAppId.
-                            // Popping again here would unbalance the cursor stack.
-                            if hoveredAppId != nil {
-                                hoveredAppId = nil
-                                NSCursor.pop()
-                            }
-                            appListManager.removeApp(id: app.id)
-                        } label: {
-                            Label("Delete", systemImage: "trash")
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis")
-                            .font(.system(size: 14, weight: .bold))
-                            .foregroundColor(.white)
-                            .frame(width: 28, height: 28)
-                            .background(Circle().fill(Color(hex: 0x4B6845)))
-                    }
-                    .menuStyle(.borderlessButton)
-                    .menuIndicator(.hidden)
-                    .accessibilityLabel("App actions")
-                    .fixedSize()
-                    .padding(VSpacing.sm)
-                    .opacity(isHovered ? 1 : 0)
-                    .allowsHitTesting(isHovered)
-                    .animation(VAnimation.fast, value: isHovered)
+                        .accessibilityLabel("App actions")
+                        .padding(VSpacing.sm)
+                        .opacity(isHovered ? 1 : 0)
+                        .allowsHitTesting(isHovered)
+                        .animation(VAnimation.fast, value: isHovered)
                 }
                 .shadow(color: .black.opacity(0.06), radius: 4, y: 2)
 
@@ -223,8 +218,6 @@ struct AppsGridView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .opacity(isHovered ? 0.85 : 1.0)
-        .animation(VAnimation.fast, value: isHovered)
         .onHover { hovering in
             hoveredAppId = hovering ? app.id : nil
             if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
@@ -290,6 +283,23 @@ struct AppsGridView: View {
         previewTasks[appId] = task
     }
 
+    // MARK: - Sections
+
+    private func appSection(title: String, apps: [AppListManager.AppItem]) -> some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            Text(title)
+                .font(VFont.headline)
+                .foregroundColor(VColor.textSecondary)
+
+            LazyVGrid(columns: columns, spacing: VSpacing.xxl) {
+                ForEach(apps) { app in
+                    appCard(app)
+                        .onAppear { fetchPreviewIfNeeded(app) }
+                }
+            }
+        }
+    }
+
     // MARK: - Helpers
 
     private func resolvedIcon(for app: AppListManager.AppItem) -> (sfSymbol: String, colors: [String]) {
@@ -299,11 +309,18 @@ struct AppsGridView: View {
         return VAppIconGenerator.generate(from: app.name, type: app.appType)
     }
 
-    /// All apps sorted with pinned first (by pinnedOrder), then unpinned (by lastOpenedAt desc), filtered by search.
-    private var filteredApps: [AppListManager.AppItem] {
-        let sorted = appListManager.displayApps
-        guard !searchText.isEmpty else { return sorted }
-        return sorted.filter { matchesSearch($0) }
+    /// Pinned apps filtered by search text.
+    private var filteredPinnedApps: [AppListManager.AppItem] {
+        let pinned = appListManager.pinnedApps
+        guard !searchText.isEmpty else { return pinned }
+        return pinned.filter { matchesSearch($0) }
+    }
+
+    /// Unpinned apps sorted by lastOpenedAt descending, filtered by search text.
+    private var filteredRecentApps: [AppListManager.AppItem] {
+        let unpinned = appListManager.displayApps.filter { !$0.isPinned }
+        guard !searchText.isEmpty else { return unpinned }
+        return unpinned.filter { matchesSearch($0) }
     }
 
     private func matchesSearch(_ app: AppListManager.AppItem) -> Bool {
