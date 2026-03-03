@@ -164,10 +164,18 @@ final class OnboardingState {
         UserDefaults.standard.set(Self.currentFlowVersion, forKey: "onboarding.flowVersion")
     }
 
-    /// Resets cloud provider and credential fields to defaults.
-    func resetCloudCredentials() {
+    /// Resets all hatch-related and credential state for a clean retry,
+    /// including persisted UserDefaults keys.
+    func resetForRetry() {
+        // Reset hatch flags
+        isHatching = false
+        hatchFailed = false
+        hatchCompleted = false
+        hatchLogLines = []
+        hasHatched = false
+
+        // Reset cloud credentials (in-memory only; not persisted)
         cloudProvider = "local"
-        UserDefaults.standard.set("local", forKey: "onboarding.cloudProvider")
         gcpProjectId = ""
         gcpZone = "us-central1-a"
         gcpServiceAccountKey = ""
@@ -176,6 +184,10 @@ final class OnboardingState {
         sshUser = ""
         sshPrivateKey = ""
         customQRCodeImageData = Data()
+
+        // Return to welcome screen and persist the reset
+        currentStep = 0
+        persist()
     }
 
     static func clearPersistedState() {

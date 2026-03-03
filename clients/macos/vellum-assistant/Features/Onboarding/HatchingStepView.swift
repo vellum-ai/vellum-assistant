@@ -218,20 +218,9 @@ struct HatchingStepView: View {
     }
 
     private func retryHatch() {
-        // Reset hatching state
-        state.isHatching = false
-        state.hatchFailed = false
-        state.hatchCompleted = false
-        state.hatchLogLines = []
-        state.hasHatched = false
         hatchStarted = false
         failureReason = nil
-
-        // Clear provider/credential state so the user gets a clean slate
-        state.resetCloudCredentials()
-
-        // Return to the welcome screen (step 0)
-        state.currentStep = 0
+        state.resetForRetry()
     }
 
     // MARK: - Timers
