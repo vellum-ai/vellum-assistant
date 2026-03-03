@@ -146,135 +146,29 @@ class BrowserManager {
   private rawPages = new Map<string, unknown>();
   private cdpSessions = new Map<string, CDPSession>();
   private snapshotMaps = new Map<string, Map<string, string>>();
-  private cdpUrl: string = "http://localhost:9222";
-  private cdpBrowser: unknown = null; // Store CDP browser reference separately
-  private _browserLaunched = false; // true when browser was launched via test injection (vs connected via CDP)
   private browserCdpSession: CDPSession | null = null;
   private browserWindowId: number | null = null;
-  private cdpRequestResolvers = new Map<
-    string,
-    (response: { success: boolean; declined?: boolean }) => void
-  >();
   private interactiveModeSessions = new Set<string>();
   private handoffResolvers = new Map<string, () => void>();
-  private sessionSenders = new Map<
-    string,
-    (msg: { type: string; sessionId: string }) => void
-  >();
   private downloads = new Map<string, DownloadInfo[]>();
   private pendingDownloads = new Map<
     string,
     { resolve: (info: DownloadInfo) => void; reject: (err: Error) => void }[]
   >();
 
-  /** Whether page.route() is supported. False for connectOverCDP browsers. */
+  /** Whether page.route() is supported. Always true for launched browsers. */
   get supportsRouteInterception(): boolean {
-    // page.route() only works with launched browsers (test injection), not CDP-connected ones
-    return this._browserLaunched;
+    return true;
   }
 
-  registerSender(
-    sessionId: string,
-    sendToClient: (msg: { type: string; sessionId: string }) => void,
-  ): void {
-    this.sessionSenders.set(sessionId, sendToClient);
-  }
-
-  unregisterSender(sessionId: string): void {
-    this.sessionSenders.delete(sessionId);
-  }
-
-  async detectCDP(url?: string): Promise<boolean> {
-    const target = url || this.cdpUrl;
-    try {
-      const response = await fetch(`${target}/json/version`, {
-        signal: AbortSignal.timeout(3000),
-      });
-      return response.ok;
-    } catch {
-      return false;
-    }
-  }
-
-  /**
-   * Request Chrome restart from client via IPC. Returns true if client confirmed and CDP is now available.
-   * The sendToClient callback sends the request, and resolveCDPResponse() is called when the response arrives.
-   */
-  async requestCDPFromClient(
-    sessionId: string,
-    sendToClient: (msg: { type: string; sessionId: string }) => void,
-  ): Promise<boolean> {
-    // Cancel any existing pending request for this session to avoid leaked promises
-    const existing = this.cdpRequestResolvers.get(sessionId);
-    if (existing) {
-      existing({ success: false });
-    }
-
-    return new Promise<boolean>((resolve) => {
-      const resolver = (response: { success: boolean; declined?: boolean }) => {
-        clearTimeout(timer);
-        // Only act if we're still the active resolver for this session
-        if (this.cdpRequestResolvers.get(sessionId) === resolver) {
-          this.cdpRequestResolvers.delete(sessionId);
-        }
-        resolve(response.success);
-      };
-
-      // Set a timeout in case the client never responds
-      const timer = setTimeout(() => {
-        if (this.cdpRequestResolvers.get(sessionId) === resolver) {
-          this.cdpRequestResolvers.delete(sessionId);
-        }
-        resolve(false);
-      }, 15_000);
-
-      this.cdpRequestResolvers.set(sessionId, resolver);
-      sendToClient({ type: "browser_cdp_request", sessionId });
-    });
-  }
-
-  /**
-   * Called when a browser_cdp_response message arrives from the client.
-   */
-  resolveCDPResponse(
-    sessionId: string,
-    success: boolean,
-    declined?: boolean,
-  ): void {
-    const resolver = this.cdpRequestResolvers.get(sessionId);
-    if (resolver) {
-      resolver({ success, declined });
-    }
-  }
-
-  private async ensureContext(
-    _invokingSessionId?: string,
-  ): Promise<BrowserContext> {
+  private async ensureContext(): Promise<BrowserContext> {
     if (this.context) return this.context;
     if (this.contextCreating) return this.contextCreating;
 
     this.contextCreating = (async () => {
-      // Deterministic test mode: when launch is injected via setLaunchFn,
-      // bypass ambient CDP probing/negotiation and use the injected launcher.
-      if (launchPersistentContext != null) {
-        const profileDir = getProfileDir();
-        mkdirSync(profileDir, { recursive: true });
-        await authSessionCache.load();
-        const ctx = await launchPersistentContext(profileDir, {
-          headless: false,
-        });
-        this._browserLaunched = true;
-        log.info({ profileDir }, "Browser context created (test injection)");
-        return ctx;
-      }
-
-      // Initialize auth session cache alongside browser context
       await authSessionCache.load();
 
-      // Launch browser via Playwright directly. Playwright's connectOverCDP
-      // is broken under Bun's runtime (websocket handshake times out), so we
-      // launch Playwright's own Chromium instead.
-      // Auto-install Chromium if missing.
+      // Auto-install Chromium if needed (skip when test launcher is injected)
       if (!launchPersistentContext) {
         const status = await checkBrowserRuntime();
         if (status.playwrightAvailable && !status.chromiumInstalled) {
@@ -317,7 +211,6 @@ class BrowserManager {
       const launch = launchPersistentContext ?? (await getDefaultLaunchFn());
       const headless = !canDisplayGui();
       const ctx = await launch(profileDir, { headless });
-      this._browserLaunched = true;
       log.info(
         { profileDir, headless },
         headless
@@ -343,8 +236,6 @@ class BrowserManager {
           this.contextCloseHandler = null;
           this.browserCdpSession = null;
           this.browserWindowId = null;
-          this.cdpBrowser = null;
-          this._browserLaunched = false;
           // Resolve any pending handoffs before clearing state
           for (const resolver of this.handoffResolvers.values()) {
             resolver();
@@ -373,7 +264,7 @@ class BrowserManager {
   }
 
   async getOrCreateSessionPage(sessionId: string): Promise<Page> {
-    const context = await this.ensureContext(sessionId);
+    const context = await this.ensureContext();
 
     const existing = this.pages.get(sessionId);
     if (existing && !existing.isClosed()) {
@@ -384,43 +275,17 @@ class BrowserManager {
     this.snapshotMaps.delete(sessionId);
     await this.stopScreencast(sessionId);
 
-    let page: Page | undefined;
-
-    // In connectOverCDP mode, Chrome often starts with a pre-opened blank tab.
-    // Only reuse blank/new-tab pages to avoid hijacking active user tabs, which
-    // could cause user-visible disruption or data loss when the session closes.
-    if (!this._browserLaunched && typeof context.pages === "function") {
-      const BLANK_TAB_URLS = new Set([
-        "about:blank",
-        "chrome://newtab/",
-        "chrome://new-tab-page/",
-      ]);
-      const claimedPages = new Set(this.pages.values());
-      const reusable = context.pages().find((p) => {
-        if (p.isClosed() || claimedPages.has(p)) return false;
-        const url = p.url();
-        return BLANK_TAB_URLS.has(url) || url === "";
-      });
-      if (reusable) {
-        page = reusable;
-        log.debug(
-          { sessionId, url: reusable.url() },
-          "Reusing blank CDP tab instead of creating a new page",
-        );
-      }
-    }
-
-    page ??= await context.newPage();
+    const page = await context.newPage();
     this.pages.set(sessionId, page);
     this.rawPages.set(sessionId, page);
 
     // Track downloads for this page
     this.setupDownloadTracking(sessionId, page);
 
-    // For launched browsers (not CDP-connected), create a page-level CDP session
-    // so we can position the browser window. Browser domain commands (setWindowBounds,
-    // getWindowForTarget) are accessible from page-level CDP sessions.
-    if (!this.browserCdpSession && this._browserLaunched) {
+    // Create a page-level CDP session for window positioning.
+    // Browser domain commands (setWindowBounds, getWindowForTarget) are accessible
+    // from page-level CDP sessions.
+    if (!this.browserCdpSession) {
       try {
         const rawPage = page as unknown as RawPlaywrightPage;
         this.browserCdpSession = await rawPage.context().newCDPSession(rawPage);
@@ -530,28 +395,6 @@ class BrowserManager {
       this.browserCdpSession = null;
       this.browserWindowId = null;
     }
-
-    // Close or disconnect CDP browser connection if present
-    if (this.cdpBrowser) {
-      const b = this.cdpBrowser as {
-        close?: () => Promise<void>;
-        disconnect?: () => Promise<void>;
-      };
-      const wasLaunched = this._browserLaunched;
-      this.cdpBrowser = null;
-      this._browserLaunched = false;
-      try {
-        if (wasLaunched) {
-          // Launched browsers must be closed to terminate the process
-          await b.close?.();
-        } else {
-          // CDP-connected browsers should be disconnected, not closed
-          await b.disconnect?.();
-        }
-      } catch (err) {
-        log.warn({ err }, "Failed to close/disconnect CDP browser");
-      }
-    }
   }
 
   async stopScreencast(sessionId: string): Promise<void> {
@@ -582,26 +425,6 @@ class BrowserManager {
     const map = this.snapshotMaps.get(sessionId);
     if (!map) return null;
     return map.get(elementId) ?? null;
-  }
-
-  /**
-   * Create a browser-level CDP session and discover the window ID.
-   * Called once after browser launch/connect so positionWindowSidebar/moveWindowOnscreen can work.
-   */
-  private async initBrowserCdpSession(): Promise<void> {
-    if (!this.cdpBrowser) return;
-    try {
-      const browser = this.cdpBrowser as {
-        newBrowserCDPSession?: () => Promise<CDPSession>;
-      };
-      if (typeof browser.newBrowserCDPSession !== "function") return;
-
-      this.browserCdpSession = await browser.newBrowserCDPSession();
-      this.browserWindowId = null;
-      await this.ensureBrowserWindowId();
-    } catch (err) {
-      log.warn({ err }, "Failed to init browser CDP session");
-    }
   }
 
   private async ensureBrowserWindowId(): Promise<number | null> {

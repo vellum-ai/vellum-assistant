@@ -476,11 +476,6 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     service: "gmail",
     requestedScopes: ["https://www.googleapis.com/auth/gmail.readonly"],
   },
-  browser_cdp_response: {
-    type: "browser_cdp_response",
-    sessionId: "test-session",
-    success: true,
-  },
   work_items_list: {
     type: "work_items_list",
     status: "queued",
@@ -1591,10 +1586,6 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     success: true,
     grantedScopes: ["https://www.googleapis.com/auth/gmail.readonly"],
     accountInfo: "user@example.com",
-  },
-  browser_cdp_request: {
-    type: "browser_cdp_request",
-    sessionId: "test-session",
   },
   document_editor_show: {
     type: "document_editor_show",

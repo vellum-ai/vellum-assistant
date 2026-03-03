@@ -413,9 +413,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends an `integration_connect_result` message.
     public var onIntegrationConnectResult: ((IPCIntegrationConnectResult) -> Void)?
 
-    /// Called when the daemon sends a `browser_cdp_request` message.
-    public var onBrowserCDPRequest: ((BrowserCDPRequestMessage) -> Void)?
-
     /// Called when the daemon sends a `diagnostics_export_response` message.
     public var onDiagnosticsExportResponse: ((DiagnosticsExportResponseMessage) -> Void)?
 
