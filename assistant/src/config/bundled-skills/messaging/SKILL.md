@@ -307,7 +307,7 @@ When a user asks to declutter, clean up, or organize their email — start scann
      - **Unsub? cell values**: Use rich cell format: `{ "text": "Yes", "icon": "checkmark.circle.fill", "iconColor": "success" }` when `has_unsubscribe` is true, `{ "text": "No", "icon": "minus.circle", "iconColor": "muted" }` when false.
    - **Non-Gmail columns (exactly 2)**: Sender, Emails Found (omit the Unsub? column — unsubscribe is not available)
    - **Pre-select all rows** (`selected: true`) — users deselect what they want to keep
-   - **Caption**: "Showing emails from last 90 days in Promotions" (or adjusted to match the query used)
+   - **Caption**: Include two parts separated by a newline: (1) data scope, e.g. "Newsletters, notifications, and outreach from last 90 days. Deselect anything you want to keep." (adjusted to match the query used), and (2) for Gmail tables only, the Unsub? column legend: "Unsub? — \"Yes\" means these emails contain an unsubscribe link, so I can opt you out automatically. \"No\" means no unsubscribe link was found — these will be archived but you may continue receiving them."
    - **Gmail action buttons (exactly 2)**: "Archive & Unsubscribe" (primary), "Archive Only" (secondary). **NEVER offer Delete, Trash, or any destructive action.**
    - **Non-Gmail action button (exactly 1)**: "Archive Selected" (primary). Do not offer an unsubscribe button — it is Gmail-specific. **NEVER offer Delete, Trash, or any destructive action.**
 3. **Wait for user action**: Stop and wait. Do NOT proceed to archiving or unsubscribing until the user clicks one of the action buttons on the table. When the user clicks an action button:
