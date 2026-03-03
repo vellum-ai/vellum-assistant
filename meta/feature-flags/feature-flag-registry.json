@@ -58,9 +58,9 @@
       "defaultEnabled": true
     },
     {
-      "id": "a2a_connections",
+      "id": "a2a-connections",
       "scope": "assistant",
-      "key": "feature_flags.a2a_connections.enabled",
+      "key": "feature_flags.a2a-connections.enabled",
       "label": "A2A Connections",
       "description": "Enable assistant-to-assistant connection management via chat skills",
       "defaultEnabled": false
