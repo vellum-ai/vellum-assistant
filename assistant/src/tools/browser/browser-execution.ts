@@ -604,20 +604,6 @@ export async function executeBrowserClick(
 
 // ── browser_type ─────────────────────────────────────────────────────
 
-/**
- * Check whether a given text value matches the value of any current
- * environment variable. Used to guard against typing secrets into
- * non-password fields.
- */
-export function isEnvVarValue(text: string): boolean {
-  for (const value of Object.values(process.env)) {
-    if (value && value.length >= 1 && value === text) {
-      return true;
-    }
-  }
-  return false;
-}
-
 export async function executeBrowserType(
   input: Record<string, unknown>,
   context: ToolContext,
@@ -645,33 +631,6 @@ export async function executeBrowserType(
 
   try {
     const page = await browserManager.getOrCreateSessionPage(context.sessionId);
-
-    // Guard: if the text matches an env var value, only allow typing into
-    // password or secret input fields. This prevents accidental exposure
-    // of sensitive values in visible form fields.
-    if (isEnvVarValue(text)) {
-      const isSecretInput = (await page.evaluate(
-        `(() => {
-          const el = document.querySelector(${JSON.stringify(selector!)});
-          if (!el) return false;
-          const tag = el.tagName.toLowerCase();
-          if (tag !== 'input') return false;
-          const type = (el.getAttribute('type') || 'text').toLowerCase();
-          return type === 'password';
-        })()`,
-      )) as boolean;
-
-      if (!isSecretInput) {
-        if (sender) {
-          updateHighlights(context.sessionId, sender, []);
-          updateBrowserStatus(context.sessionId, sender, 'idle');
-        }
-        return {
-          content: 'Error: The text matches an environment variable value and can only be typed into a password or secret input field. Use browser_fill_credential for non-password fields that need sensitive values.',
-          isError: true,
-        };
-      }
-    }
 
     const fillTimeout = typeof input.timeout === 'number' ? input.timeout : ACTION_TIMEOUT_MS;
 
