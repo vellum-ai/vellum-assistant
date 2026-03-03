@@ -10,6 +10,7 @@ export interface Conversation {
   memberCount?: number;
   topic?: string;
   isArchived?: boolean;
+  isPrivate?: boolean;
   metadata?: Record<string, unknown>;
 }
 
