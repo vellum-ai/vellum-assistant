@@ -42,15 +42,17 @@ async function retireLocal(name: string, entry: AssistantEntry): Promise<void> {
   // Stop daemon via PID file
   const daemonPidFile = join(vellumDir, "vellum.pid");
   const socketFile = join(vellumDir, "vellum.sock");
-  await stopProcessByPidFile(daemonPidFile, "daemon", [socketFile]);
+  const daemonStopped = await stopProcessByPidFile(daemonPidFile, "daemon", [socketFile]);
 
   // Stop gateway via PID file
   const gatewayPidFile = join(vellumDir, "gateway.pid");
   await stopProcessByPidFile(gatewayPidFile, "gateway");
 
-  // Catch any daemon processes that weren't tracked by the PID file
-  // (e.g. started via bunx or source mode without writing a PID).
-  await stopOrphanedDaemonProcesses();
+  // If the PID file didn't track a running daemon, scan for orphaned
+  // daemon processes that may have been started without writing a PID.
+  if (!daemonStopped) {
+    await stopOrphanedDaemonProcesses();
+  }
 
   // Move ~/.vellum out of the way so the path is immediately available for the
   // next hatch, then kick off the tar archive in the background.
