@@ -86,6 +86,7 @@ import * as gmailBatchLabel from "./bundled-skills/messaging/tools/gmail-batch-l
 import * as gmailDownloadAttachment from "./bundled-skills/messaging/tools/gmail-download-attachment.js";
 import * as gmailDraft from "./bundled-skills/messaging/tools/gmail-draft.js";
 import * as gmailFilters from "./bundled-skills/messaging/tools/gmail-filters.js";
+import * as gmailSendDraft from "./bundled-skills/messaging/tools/gmail-send-draft.js";
 import * as gmailFollowUp from "./bundled-skills/messaging/tools/gmail-follow-up.js";
 import * as gmailForward from "./bundled-skills/messaging/tools/gmail-forward.js";
 import * as gmailLabel from "./bundled-skills/messaging/tools/gmail-label.js";
@@ -286,6 +287,7 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["messaging:tools/gmail-trash.ts", gmailTrash],
   ["messaging:tools/gmail-unsubscribe.ts", gmailUnsubscribe],
   ["messaging:tools/gmail-draft.ts", gmailDraft],
+  ["messaging:tools/gmail-send-draft.ts", gmailSendDraft],
   ["messaging:tools/gmail-list-attachments.ts", gmailListAttachments],
   ["messaging:tools/gmail-download-attachment.ts", gmailDownloadAttachment],
   ["messaging:tools/gmail-send-with-attachments.ts", gmailSendWithAttachments],
