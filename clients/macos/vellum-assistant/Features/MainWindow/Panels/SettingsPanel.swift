@@ -91,22 +91,21 @@ struct SettingsPanel: View {
     @State private var selectedTab: SettingsTab = .account
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Two-column layout
-            HStack(spacing: 0) {
-                // Left: nav sidebar
-                settingsNav
-                    .frame(width: 200)
+        // Two-column layout: bare nav on window background, content in its own surface panel
+        HStack(alignment: .top, spacing: 0) {
+            // Left: nav sidebar sits directly on the window background — no card/surface wrapper
+            settingsNav
+                .frame(width: 200)
 
-                Divider()
-
-                // Right: content for selected tab
-                ScrollView {
-                    selectedTabContent
-                        .padding(VSpacing.lg)
-                        .frame(maxWidth: .infinity, alignment: .top)
-                }
+            // Right: tab content lives in its own surface panel
+            ScrollView {
+                selectedTabContent
+                    .padding(VSpacing.lg)
+                    .frame(maxWidth: .infinity, alignment: .top)
             }
+            .vCard(radius: VRadius.lg, background: VColor.surface)
+            .padding(.trailing, VSpacing.lg)
+            .padding(.vertical, VSpacing.lg)
         }
         .task {
             // Refresh permission status when the view appears
