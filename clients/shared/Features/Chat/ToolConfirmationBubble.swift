@@ -171,33 +171,18 @@ public struct ToolConfirmationBubble: View {
 
     @ViewBuilder
     private var systemPermissionCollapsed: some View {
-        HStack(spacing: VSpacing.sm) {
-            Group {
-                switch confirmation.state {
-                case .approved:
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(VColor.success)
-                case .denied:
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundColor(VColor.error)
-                case .timedOut:
-                    Image(systemName: "clock.fill")
-                        .foregroundColor(VColor.textMuted)
-                default:
-                    EmptyView()
-                }
-            }
-            .font(.system(size: 12))
+        ApprovalStatusRow(
+            outcome: collapsedOutcome,
+            label: systemPermissionCollapsedLabel
+        )
+    }
 
-            Text(confirmation.state == .approved
-                 ? "\(confirmation.permissionFriendlyName) granted"
-                 : confirmation.state == .denied
-                 ? "\(confirmation.permissionFriendlyName) skipped"
-                 : "Timed out")
-                .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
-
-            Spacer()
+    private var systemPermissionCollapsedLabel: String {
+        switch confirmation.state {
+        case .approved:  return "\(confirmation.permissionFriendlyName) granted"
+        case .denied:    return "\(confirmation.permissionFriendlyName) skipped"
+        case .timedOut:  return "Timed out"
+        case .pending:   return ""
         }
     }
 
@@ -738,25 +723,17 @@ public struct ToolConfirmationBubble: View {
         }
     }
 
+    /// Convenience wrapper around the shared `ApprovalActionButton` to preserve
+    /// call-site compatibility within the existing button row logic.
     @ViewBuilder
     private func confirmationButton(_ label: String, isPrimary: Bool, isDanger: Bool, isKeyboardSelected: Bool = false, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(label)
-                .font(VFont.caption)
-                .foregroundColor(isPrimary || isDanger ? .white : VColor.textSecondary)
-                .padding(.horizontal, VSpacing.sm)
-                .padding(.vertical, VSpacing.xxs + 1)
-                .background(isDanger ? VColor.error : isPrimary ? VColor.buttonPrimary : Color.clear)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.sm)
-                        .stroke(
-                            isKeyboardSelected ? VColor.accent : (isPrimary || isDanger ? Color.clear : VColor.surfaceBorder),
-                            lineWidth: isKeyboardSelected ? 2 : 1
-                        )
-                )
-        }
-        .buttonStyle(.plain)
+        ApprovalActionButton(
+            label: label,
+            isPrimary: isPrimary,
+            isDanger: isDanger,
+            isKeyboardSelected: isKeyboardSelected,
+            action: action
+        )
     }
 
     // MARK: - Always Allow Button
@@ -921,29 +898,18 @@ public struct ToolConfirmationBubble: View {
 
     @ViewBuilder
     private var collapsedContent: some View {
-        HStack(spacing: VSpacing.sm) {
-            Group {
-                switch confirmation.state {
-                case .approved:
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(VColor.success)
-                case .denied:
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundColor(VColor.error)
-                case .timedOut:
-                    Image(systemName: "clock.fill")
-                        .foregroundColor(VColor.textMuted)
-                default:
-                    EmptyView()
-                }
-            }
-            .font(.system(size: 12))
+        ApprovalStatusRow(
+            outcome: collapsedOutcome,
+            label: collapsedLabel
+        )
+    }
 
-            Text(collapsedLabel)
-                .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
-
-            Spacer()
+    private var collapsedOutcome: ApprovalOutcome {
+        switch confirmation.state {
+        case .approved:  return .approved
+        case .denied:    return .denied
+        case .timedOut:  return .timedOut
+        case .pending:   return .approved
         }
     }
 

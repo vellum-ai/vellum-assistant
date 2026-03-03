@@ -1,7 +1,10 @@
 import SwiftUI
 
 /// Renders a guardian decision prompt with actionable buttons in the chat UI.
-/// Follows the same card styling pattern as `ToolConfirmationBubble`.
+/// Supports multiple request kinds: `tool_approval`, `pending_question`, and
+/// `access_request`, each with a distinct header and accent color.
+/// Uses shared `ApprovalActionButton`, `GuardianApprovalActionRow`, and
+/// `ApprovalStatusRow` primitives from the unified approval UI layer.
 public struct GuardianDecisionBubble: View {
     public let decision: GuardianDecisionData
     public let onAction: (String, String) -> Void
@@ -16,15 +19,20 @@ public struct GuardianDecisionBubble: View {
         return false
     }
 
-    /// The canonical request kind (e.g. "tool_approval", "pending_question").
-    /// Determines header text and available action rendering.
-    private var kind: String? {
-        decision.kind
-    }
+    // MARK: - Kind-aware header configuration
 
-    /// Whether this prompt is for a pending question (voice-originated).
-    private var isPendingQuestion: Bool {
-        kind == "pending_question"
+    /// Header icon, title, and accent color derived from the canonical request kind.
+    private var headerConfig: (icon: String, title: String, accent: Color) {
+        switch decision.kind {
+        case "pending_question":
+            return ("questionmark.circle.fill", "Question Pending", VColor.accent)
+        case "access_request":
+            return ("person.badge.key.fill", "Access Request", VColor.warning)
+        case "tool_approval":
+            return ("shield.lefthalf.filled", "Tool Approval Required", VColor.warning)
+        default:
+            return ("shield.lefthalf.filled", "Guardian Approval Required", VColor.warning)
+        }
     }
 
     public var body: some View {
@@ -39,65 +47,60 @@ public struct GuardianDecisionBubble: View {
 
     @ViewBuilder
     private var pendingContent: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            // Header — adapts to the canonical request kind
-            HStack(spacing: VSpacing.sm) {
-                Image(systemName: isPendingQuestion ? "questionmark.circle.fill" : "shield.lefthalf.filled")
-                    .font(.system(size: 14))
-                    .foregroundColor(isPendingQuestion ? VColor.accent : VColor.warning)
+        let config = headerConfig
 
-                Text(isPendingQuestion ? "Question Pending" : "Guardian Approval Required")
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            // Kind-aware header
+            HStack(spacing: VSpacing.sm) {
+                Image(systemName: config.icon)
+                    .font(.system(size: 14))
+                    .foregroundColor(config.accent)
+
+                Text(config.title)
                     .font(VFont.captionMedium)
                     .foregroundColor(VColor.textSecondary)
             }
 
-            // Question text
+            // Question text (primary interaction prompt)
             Text(decision.questionText)
                 .font(VFont.bodyBold)
                 .foregroundColor(VColor.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            // Tool name
-            if let toolName = decision.toolName, !toolName.isEmpty {
-                HStack(spacing: VSpacing.xs) {
-                    Image(systemName: "wrench")
-                        .font(.system(size: 10))
-                        .foregroundColor(VColor.textMuted)
-                    Text(toolName)
-                        .font(VFont.monoSmall)
-                        .foregroundColor(VColor.textSecondary)
-                }
+            // Action buttons (primary interaction)
+            GuardianApprovalActionRow(
+                actions: decision.actions,
+                isSubmitting: decision.isSubmitting
+            ) { action in
+                onAction(decision.requestId, action)
             }
 
-            // Request code reference
-            if !decision.requestCode.isEmpty {
-                HStack(spacing: VSpacing.xs) {
-                    Text("Ref:")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
-                    Text(decision.requestCode)
-                        .font(VFont.monoSmall)
-                        .foregroundColor(VColor.textMuted)
-                }
-            }
+            // Secondary metadata: tool name and request code reference
+            if hasSecondaryMetadata {
+                Divider()
 
-            // Action buttons
-            HStack(spacing: VSpacing.xs) {
-                ForEach(decision.actions, id: \.action) { actionOption in
-                    actionButton(actionOption)
-                }
-                Spacer()
-            }
-            .opacity(decision.isSubmitting ? 0.5 : 1.0)
-            .allowsHitTesting(!decision.isSubmitting)
+                VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                    if let toolName = decision.toolName, !toolName.isEmpty {
+                        HStack(spacing: VSpacing.xs) {
+                            Image(systemName: "wrench")
+                                .font(.system(size: 10))
+                                .foregroundColor(VColor.textMuted)
+                            Text(toolName)
+                                .font(VFont.monoSmall)
+                                .foregroundColor(VColor.textSecondary)
+                        }
+                    }
 
-            if decision.isSubmitting {
-                HStack(spacing: VSpacing.xs) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Submitting...")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                    if !decision.requestCode.isEmpty {
+                        HStack(spacing: VSpacing.xs) {
+                            Text("Ref:")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                            Text(decision.requestCode)
+                                .font(VFont.monoSmall)
+                                .foregroundColor(VColor.textMuted)
+                        }
+                    }
                 }
             }
         }
@@ -107,43 +110,38 @@ public struct GuardianDecisionBubble: View {
                 .fill(VColor.surface)
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.md)
-                        .stroke(
-                            (isPendingQuestion ? VColor.accent : VColor.warning).opacity(0.3),
-                            lineWidth: 1
-                        )
+                        .stroke(config.accent.opacity(0.3), lineWidth: 1)
                 )
         )
+    }
+
+    private var hasSecondaryMetadata: Bool {
+        let hasToolName = decision.toolName != nil && !(decision.toolName?.isEmpty ?? true)
+        let hasRequestCode = !decision.requestCode.isEmpty
+        return hasToolName || hasRequestCode
     }
 
     // MARK: - Collapsed (resolved or stale)
 
     @ViewBuilder
     private var collapsedContent: some View {
-        HStack(spacing: VSpacing.sm) {
-            Group {
-                switch decision.state {
-                case .resolved(let action):
-                    if action == "deny" || action == "reject" {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(VColor.error)
-                    } else {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(VColor.success)
-                    }
-                case .stale(_):
-                    Image(systemName: "clock.fill")
-                        .foregroundColor(VColor.textMuted)
-                case .pending:
-                    EmptyView()
-                }
+        ApprovalStatusRow(
+            outcome: resolvedOutcome,
+            label: resolvedLabel
+        )
+    }
+
+    private var resolvedOutcome: ApprovalOutcome {
+        switch decision.state {
+        case .resolved(let action):
+            if action == "deny" || action == "reject" {
+                return .denied
             }
-            .font(.system(size: 12))
-
-            Text(resolvedLabel)
-                .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
-
-            Spacer()
+            return .approved
+        case .stale:
+            return .stale
+        case .pending:
+            return .approved
         }
     }
 
@@ -161,38 +159,12 @@ public struct GuardianDecisionBubble: View {
             return ""
         }
     }
-
-    // MARK: - Action Button
-
-    @ViewBuilder
-    private func actionButton(_ actionOption: GuardianActionOption) -> some View {
-        let isPrimary = actionOption.action.hasPrefix("approve") || actionOption.action == "allow"
-        let isDanger = actionOption.action == "deny" || actionOption.action == "reject"
-
-        Button {
-            onAction(decision.requestId, actionOption.action)
-        } label: {
-            Text(actionOption.label)
-                .font(VFont.caption)
-                .foregroundColor(isPrimary ? .white : isDanger ? VColor.error : VColor.textSecondary)
-                .padding(.horizontal, VSpacing.sm)
-                .padding(.vertical, VSpacing.xxs + 1)
-                .background(isPrimary ? VColor.buttonPrimary : Color.clear)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.sm)
-                        .stroke(isPrimary ? Color.clear : isDanger ? VColor.error.opacity(0.5) : VColor.surfaceBorder, lineWidth: 1)
-                )
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(actionOption.label)
-    }
 }
 
 #if DEBUG
 #Preview("GuardianDecisionBubble") {
     VStack(spacing: VSpacing.lg) {
-        // Pending with actions
+        // Tool approval (default kind)
         GuardianDecisionBubble(
             decision: GuardianDecisionData(
                 requestId: "req-1",
@@ -203,7 +175,42 @@ public struct GuardianDecisionBubble: View {
                     GuardianActionOption(action: "approve", label: "Approve"),
                     GuardianActionOption(action: "deny", label: "Deny"),
                 ],
-                conversationId: "conv-1"
+                conversationId: "conv-1",
+                kind: "tool_approval"
+            ),
+            onAction: { _, _ in }
+        )
+
+        // Access request kind
+        GuardianDecisionBubble(
+            decision: GuardianDecisionData(
+                requestId: "req-6",
+                requestCode: "GRD-K1L2",
+                questionText: "User john@example.com is requesting access to the assistant.",
+                toolName: nil,
+                actions: [
+                    GuardianActionOption(action: "approve", label: "Grant Access"),
+                    GuardianActionOption(action: "deny", label: "Deny"),
+                ],
+                conversationId: "conv-1",
+                kind: "access_request"
+            ),
+            onAction: { _, _ in }
+        )
+
+        // Pending question kind
+        GuardianDecisionBubble(
+            decision: GuardianDecisionData(
+                requestId: "req-5",
+                requestCode: "GRD-I9J0",
+                questionText: "What is the preferred deployment target?",
+                toolName: nil,
+                actions: [
+                    GuardianActionOption(action: "approve_once", label: "Approve"),
+                    GuardianActionOption(action: "reject", label: "Reject"),
+                ],
+                conversationId: "conv-1",
+                kind: "pending_question"
             ),
             onAction: { _, _ in }
         )
@@ -246,23 +253,6 @@ public struct GuardianDecisionBubble: View {
                 actions: [],
                 conversationId: "conv-1",
                 state: .stale(reason: "expired")
-            ),
-            onAction: { _, _ in }
-        )
-
-        // Pending question kind
-        GuardianDecisionBubble(
-            decision: GuardianDecisionData(
-                requestId: "req-5",
-                requestCode: "GRD-I9J0",
-                questionText: "What is the preferred deployment target?",
-                toolName: nil,
-                actions: [
-                    GuardianActionOption(action: "approve_once", label: "Approve"),
-                    GuardianActionOption(action: "reject", label: "Reject"),
-                ],
-                conversationId: "conv-1",
-                kind: "pending_question"
             ),
             onAction: { _, _ in }
         )
