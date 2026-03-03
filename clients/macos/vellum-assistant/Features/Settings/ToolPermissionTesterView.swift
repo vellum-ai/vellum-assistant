@@ -52,8 +52,6 @@ struct ToolPermissionTesterView: View {
                     .font(VFont.mono)
             }
 
-            Divider().background(VColor.surfaceBorder)
-
             // Toggles
             HStack(spacing: VSpacing.xl) {
                 VToggle(isOn: $model.isInteractive, label: "Interactive")
