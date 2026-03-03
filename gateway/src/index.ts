@@ -637,22 +637,24 @@ function main() {
           );
         }
         a2aConnectRateLimiter.recordFailure(connectClientIp);
-        const res = await a2aProxy.handleConnect(tracedReq);
+        const res = await a2aProxy.handleConnect(tracedReq, connectClientIp);
         if (res.status === 401 || res.status === 403) {
           authRateLimiter.recordFailure(connectClientIp);
         }
         return res;
       }
       if (url.pathname === "/v1/a2a/verify" && tracedReq.method === "POST") {
-        const res = await a2aProxy.handleVerify(tracedReq);
+        const verifyClientIp = getClientIp(req, svr, config.trustProxy);
+        const res = await a2aProxy.handleVerify(tracedReq, verifyClientIp);
         if (res.status === 401 || res.status === 403) {
-          authRateLimiter.recordFailure(getClientIp(req, svr, config.trustProxy));
+          authRateLimiter.recordFailure(verifyClientIp);
         }
         return res;
       }
       const a2aStatusMatch = url.pathname.match(/^\/v1\/a2a\/connections\/([^/]+)\/status$/);
       if (a2aStatusMatch && tracedReq.method === "GET") {
-        return a2aProxy.handleConnectionStatus(tracedReq, decodeURIComponent(a2aStatusMatch[1]));
+        const statusClientIp = getClientIp(req, svr, config.trustProxy);
+        return a2aProxy.handleConnectionStatus(tracedReq, decodeURIComponent(a2aStatusMatch[1]), statusClientIp);
       }
 
       // ── Feature flags API ──
