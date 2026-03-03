@@ -193,9 +193,15 @@ describe("SSE route — capacity limit", () => {
     expect(res2.status).toBe(200);
     expect(hub.subscriberCount()).toBe(1); // evicted 1, added 1
 
-    // First stream should be closed by onEvict.
-    const { done } = await reader1.read();
-    expect(done).toBe(true);
+    // First stream: the immediate heartbeat was enqueued during start(),
+    // then eviction closed the controller.  Read past any buffered data
+    // until the stream signals done.
+    let evictDone = false;
+    while (!evictDone) {
+      const result = await reader1.read();
+      evictDone = result.done;
+    }
+    expect(evictDone).toBe(true);
 
     ac2.abort();
   });

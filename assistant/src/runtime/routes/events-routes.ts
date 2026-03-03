@@ -116,6 +116,13 @@ export function handleSubscribeAssistantEvents(
         return;
       }
 
+      // Immediately enqueue a heartbeat comment so the HTTP status line and
+      // headers are flushed to the client without waiting for a real event.
+      // Without this, Bun may buffer the headers until the first data chunk
+      // arrives, causing clients (e.g. Python `requests`) to hang until the
+      // periodic heartbeat fires or an event is published.
+      controller.enqueue(encoder.encode(formatSseHeartbeat()));
+
       // Send a keep-alive comment on each interval to prevent proxies and
       // load-balancers from treating idle connections as timed out.
       heartbeatTimer = setInterval(() => {
