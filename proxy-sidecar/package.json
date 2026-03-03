@@ -5,6 +5,7 @@
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "scripts": {
+    "start": "bun run src/main.ts",
     "typecheck": "bunx tsc --noEmit",
     "test": "bun test"
   },

@@ -60,6 +60,10 @@ export type { PolicyCallback } from './http-forwarder.js';
 export { createProxyServer } from './server.js';
 export type { MitmHandlerConfig, ProxyServerConfig } from './server.js';
 
+// Sidecar configuration
+export { ConfigError, loadConfig } from './config.js';
+export type { SidecarConfig } from './config.js';
+
 // Logging/diagnostics
 export {
   buildCredentialRefTrace,
