@@ -64,7 +64,7 @@ struct SettingsChannelsTab: View {
     private let labelColumnWidth: CGFloat = 140
 
     var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.xl) {
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
             connectionsSection
         }
         .onAppear {
@@ -191,7 +191,7 @@ struct SettingsChannelsTab: View {
     // MARK: - Connections Section
 
     private var connectionsSection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
             mobileCard
             telegramCard
             slackChannelCard
