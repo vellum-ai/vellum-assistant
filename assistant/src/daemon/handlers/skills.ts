@@ -300,6 +300,7 @@ export async function handleSkillsInstall(
     );
     if (bundled) {
       // Auto-enable the bundled skill so it's immediately usable
+      let autoEnabled = false;
       try {
         const raw = loadRawConfig();
         ensureSkillEntry(raw, msg.slug).enabled = true;
@@ -319,6 +320,7 @@ export async function handleSkillsInstall(
           CONFIG_RELOAD_DEBOUNCE_MS,
         );
         ctx.updateConfigFingerprint();
+        autoEnabled = true;
       } catch (err) {
         log.warn(
           { err, skillId: msg.slug },
@@ -331,11 +333,13 @@ export async function handleSkillsInstall(
         operation: "install",
         success: true,
       });
-      ctx.broadcast({
-        type: "skills_state_changed",
-        name: msg.slug,
-        state: "enabled",
-      });
+      if (autoEnabled) {
+        ctx.broadcast({
+          type: "skills_state_changed",
+          name: msg.slug,
+          state: "enabled",
+        });
+      }
       return;
     }
 
@@ -357,6 +361,7 @@ export async function handleSkillsInstall(
     loadSkillCatalog();
 
     // Auto-enable the newly installed skill so it's immediately usable.
+    let autoEnabled = false;
     try {
       const raw = loadRawConfig();
       ensureSkillEntry(raw, skillId).enabled = true;
@@ -376,6 +381,7 @@ export async function handleSkillsInstall(
         CONFIG_RELOAD_DEBOUNCE_MS,
       );
       ctx.updateConfigFingerprint();
+      autoEnabled = true;
     } catch (err) {
       log.warn({ err, skillId }, "Failed to auto-enable installed skill");
     }
@@ -385,11 +391,13 @@ export async function handleSkillsInstall(
       operation: "install",
       success: true,
     });
-    ctx.broadcast({
-      type: "skills_state_changed",
-      name: skillId,
-      state: "enabled",
-    });
+    if (autoEnabled) {
+      ctx.broadcast({
+        type: "skills_state_changed",
+        name: skillId,
+        state: "enabled",
+      });
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err }, "Failed to install skill");
