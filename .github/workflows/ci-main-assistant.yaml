@@ -38,14 +38,25 @@ jobs:
       - name: Verify Swift decoder is in sync with contract
         run: bun run ipc:check-swift-drift
 
-      - name: Type check
-        run: bunx tsc --noEmit
+      - name: Lint, Type check & Test
+        run: |
+          set +e
+          bunx tsc --noEmit &
+          TSC_PID=$!
+          bun run lint &
+          LINT_PID=$!
+          bun run test:stable &
+          TEST_PID=$!
 
-      - name: Lint
-        run: bun run lint
+          TSC_RC=0;  wait $TSC_PID  || TSC_RC=$?
+          LINT_RC=0; wait $LINT_PID || LINT_RC=$?
+          TEST_RC=0; wait $TEST_PID || TEST_RC=$?
 
-      - name: Test
-        run: bun run test:stable
+          if [ $TSC_RC -ne 0 ];  then echo "::error::Type check failed (exit $TSC_RC)"; fi
+          if [ $LINT_RC -ne 0 ]; then echo "::error::Lint failed (exit $LINT_RC)"; fi
+          if [ $TEST_RC -ne 0 ]; then echo "::error::Tests failed (exit $TEST_RC)"; fi
+
+          [ $TSC_RC -eq 0 ] && [ $LINT_RC -eq 0 ] && [ $TEST_RC -eq 0 ]
         env:
           TEST_WORKERS: '4'
 
