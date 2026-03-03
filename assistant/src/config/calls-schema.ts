@@ -93,7 +93,7 @@ export const CallsConfigSchema = z.object({
     .int('calls.guardianWaitUpdateInitialIntervalMs must be an integer')
     .min(1000, 'calls.guardianWaitUpdateInitialIntervalMs must be >= 1000')
     .max(60_000, 'calls.guardianWaitUpdateInitialIntervalMs must be at most 60000')
-    .default(5000),
+    .default(15_000),
   guardianWaitUpdateInitialWindowMs: z
     .number({ error: 'calls.guardianWaitUpdateInitialWindowMs must be a number' })
     .int('calls.guardianWaitUpdateInitialWindowMs must be an integer')
@@ -105,13 +105,13 @@ export const CallsConfigSchema = z.object({
     .int('calls.guardianWaitUpdateSteadyMinIntervalMs must be an integer')
     .min(1000, 'calls.guardianWaitUpdateSteadyMinIntervalMs must be >= 1000')
     .max(60_000, 'calls.guardianWaitUpdateSteadyMinIntervalMs must be at most 60000')
-    .default(7000),
+    .default(20_000),
   guardianWaitUpdateSteadyMaxIntervalMs: z
     .number({ error: 'calls.guardianWaitUpdateSteadyMaxIntervalMs must be a number' })
     .int('calls.guardianWaitUpdateSteadyMaxIntervalMs must be an integer')
     .min(1000, 'calls.guardianWaitUpdateSteadyMaxIntervalMs must be >= 1000')
     .max(60_000, 'calls.guardianWaitUpdateSteadyMaxIntervalMs must be at most 60000')
-    .default(10_000),
+    .default(30_000),
   disclosure: CallsDisclosureConfigSchema.default(CallsDisclosureConfigSchema.parse({})),
   safety: CallsSafetyConfigSchema.default(CallsSafetyConfigSchema.parse({})),
   voice: CallsVoiceConfigSchema.default(CallsVoiceConfigSchema.parse({})),

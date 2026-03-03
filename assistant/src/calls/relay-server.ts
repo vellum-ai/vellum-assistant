@@ -1214,10 +1214,14 @@ export class RelayConnection {
 
     updateCallSession(this.callSessionId, { status: 'waiting_on_user' });
 
-    // Start the heartbeat timer for periodic progress updates
-    this.accessRequestWaitStartedAt = Date.now();
+    // Start the heartbeat timer for periodic progress updates.
+    // Delay the first heartbeat by the estimated TTS playback duration so
+    // the initial hold message finishes before any heartbeat fires.
     this.heartbeatSequence = 0;
-    this.scheduleNextHeartbeat();
+    this.accessRequestHeartbeatTimer = setTimeout(() => {
+      this.accessRequestWaitStartedAt = Date.now();
+      this.scheduleNextHeartbeat();
+    }, getTtsPlaybackDelayMs());
 
     // Poll the canonical request status
     this.accessRequestPollTimer = setInterval(() => {
