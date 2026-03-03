@@ -344,11 +344,17 @@ struct ThreadListView: View {
             .swipeActions(edge: .trailing) {
                 Button(role: .destructive) {
                     store.deleteThread(thread)
+                    if horizontalSizeClass == .regular && selectedThreadId == thread.id {
+                        selectedThreadId = activeThreads.first?.id
+                    }
                 } label: {
                     Label("Delete", systemImage: "trash")
                 }
                 Button {
                     store.archiveThread(thread)
+                    if horizontalSizeClass == .regular && selectedThreadId == thread.id {
+                        selectedThreadId = activeThreads.first?.id
+                    }
                 } label: {
                     Label("Archive", systemImage: "archivebox")
                 }
@@ -373,11 +379,17 @@ struct ThreadListView: View {
                     .swipeActions(edge: .trailing) {
                         Button(role: .destructive) {
                             store.deleteThread(thread)
+                            if horizontalSizeClass == .regular && selectedThreadId == thread.id {
+                                selectedThreadId = activeThreads.first?.id
+                            }
                         } label: {
                             Label("Delete", systemImage: "trash")
                         }
                         Button {
                             store.archiveThread(thread)
+                            if horizontalSizeClass == .regular && selectedThreadId == thread.id {
+                                selectedThreadId = activeThreads.first?.id
+                            }
                         } label: {
                             Label("Archive", systemImage: "archivebox")
                         }

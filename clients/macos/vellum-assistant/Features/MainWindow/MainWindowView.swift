@@ -1328,34 +1328,11 @@ struct MainWindowView: View {
                                                 .transition(.opacity)
                                         }
                                     }
-                                    .dropDestination(for: String.self) { items, _ in
-                                        sidebar.dropTargetThreadId = nil
-                                        sidebar.draggingThreadId = nil
-                                        guard let droppedId = items.first,
-                                              let sourceUUID = UUID(uuidString: droppedId),
-                                              sourceUUID != thread.id else { return false }
-                                        return threadManager.moveThread(sourceId: sourceUUID, targetId: thread.id)
-                                    } isTargeted: { isTargeted in
-                                        if isTargeted && thread.id != sidebar.draggingThreadId {
-                                            if let dragId = sidebar.draggingThreadId {
-                                                let sourceIsSchedule = threadManager.visibleThreads.first(where: { $0.id == dragId })?.isScheduleThread ?? false
-                                                if !sourceIsSchedule {
-                                                    sidebar.dropTargetThreadId = displayedScheduleThreads.first?.id ?? thread.id
-                                                    sidebar.dropIndicatorAtBottom = false
-                                                } else {
-                                                    sidebar.dropTargetThreadId = thread.id
-                                                    let visible = threadManager.visibleThreads
-                                                    let sIdx = visible.firstIndex(where: { $0.id == dragId }) ?? 0
-                                                    let tIdx = visible.firstIndex(where: { $0.id == thread.id }) ?? 0
-                                                    sidebar.dropIndicatorAtBottom = sIdx < tIdx
-                                                }
-                                            } else {
-                                                sidebar.dropTargetThreadId = thread.id
-                                            }
-                                        } else if !isTargeted && (sidebar.dropTargetThreadId == thread.id || sidebar.dropTargetThreadId == displayedScheduleThreads.first?.id) {
-                                            sidebar.dropTargetThreadId = nil
-                                        }
-                                    }
+                                    .onDrop(of: [.plainText], delegate: ScheduleReorderDropDelegate(
+                                        targetThread: thread,
+                                        sidebar: sidebar,
+                                        threadManager: threadManager
+                                    ))
                             } else {
                                 // Multi-thread group: DisclosureGroup with fully-tappable label
                                 DisclosureGroup(
@@ -1384,34 +1361,11 @@ struct MainWindowView: View {
                                                             .transition(.opacity)
                                                     }
                                                 }
-                                                .dropDestination(for: String.self) { items, _ in
-                                                    sidebar.dropTargetThreadId = nil
-                                                    sidebar.draggingThreadId = nil
-                                                    guard let droppedId = items.first,
-                                                          let sourceUUID = UUID(uuidString: droppedId),
-                                                          sourceUUID != thread.id else { return false }
-                                                    return threadManager.moveThread(sourceId: sourceUUID, targetId: thread.id)
-                                                } isTargeted: { isTargeted in
-                                                    if isTargeted && thread.id != sidebar.draggingThreadId {
-                                                        if let dragId = sidebar.draggingThreadId {
-                                                            let sourceIsSchedule = threadManager.visibleThreads.first(where: { $0.id == dragId })?.isScheduleThread ?? false
-                                                            if !sourceIsSchedule {
-                                                                sidebar.dropTargetThreadId = displayedScheduleThreads.first?.id ?? thread.id
-                                                                sidebar.dropIndicatorAtBottom = false
-                                                            } else {
-                                                                sidebar.dropTargetThreadId = thread.id
-                                                                let visible = threadManager.visibleThreads
-                                                                let sIdx = visible.firstIndex(where: { $0.id == dragId }) ?? 0
-                                                                let tIdx = visible.firstIndex(where: { $0.id == thread.id }) ?? 0
-                                                                sidebar.dropIndicatorAtBottom = sIdx < tIdx
-                                                            }
-                                                        } else {
-                                                            sidebar.dropTargetThreadId = thread.id
-                                                        }
-                                                    } else if !isTargeted && (sidebar.dropTargetThreadId == thread.id || sidebar.dropTargetThreadId == displayedScheduleThreads.first?.id) {
-                                                        sidebar.dropTargetThreadId = nil
-                                                    }
-                                                }
+                                                .onDrop(of: [.plainText], delegate: ScheduleReorderDropDelegate(
+                                                    targetThread: thread,
+                                                    sidebar: sidebar,
+                                                    threadManager: threadManager
+                                                ))
                                         }
                                     }
                                 } label: {
@@ -1458,27 +1412,13 @@ struct MainWindowView: View {
                                 }
                                 .padding(.horizontal, VSpacing.sm)
                                 .padding(.bottom, VSpacing.xxs)
-                                // Drop target on the group header so collapsed groups accept drops.
-                                .dropDestination(for: String.self) { items, _ in
-                                    sidebar.dropTargetThreadId = nil
-                                    sidebar.draggingThreadId = nil
-                                    guard let droppedId = items.first,
-                                          let sourceUUID = UUID(uuidString: droppedId),
-                                          let firstThread = group.threads.first,
-                                          sourceUUID != firstThread.id else { return false }
-                                    return threadManager.moveThread(sourceId: sourceUUID, targetId: firstThread.id)
-                                } isTargeted: { isTargeted in
-                                    if isTargeted, let firstThread = group.threads.first,
-                                       firstThread.id != sidebar.draggingThreadId {
-                                        sidebar.dropTargetThreadId = firstThread.id
-                                        sidebar.dropIndicatorAtBottom = false
-                                    } else if !isTargeted {
-                                        if let firstThread = group.threads.first,
-                                           sidebar.dropTargetThreadId == firstThread.id {
-                                            sidebar.dropTargetThreadId = nil
-                                        }
-                                    }
-                                }
+                                // Drop target on the group header so collapsed groups accept drops
+                                // (only from threads within the same schedule group).
+                                .onDrop(of: [.plainText], delegate: ScheduleGroupHeaderDropDelegate(
+                                    group: group,
+                                    sidebar: sidebar,
+                                    threadManager: threadManager
+                                ))
                             }
                         }
 
@@ -1936,6 +1876,112 @@ private struct DrawerThemeToggle: View {
                     .stroke(VColor.surfaceBorder, lineWidth: 1)
             )
         }
+    }
+}
+
+/// Drop delegate for reordering scheduled threads within the same schedule group.
+/// Returns `.move` operation to show a reorder cursor instead of the copy/plus icon.
+private struct ScheduleReorderDropDelegate: DropDelegate {
+    let targetThread: ThreadModel
+    let sidebar: SidebarInteractionState
+    let threadManager: ThreadManager
+
+    func validateDrop(info: DropInfo) -> Bool {
+        guard let dragId = sidebar.draggingThreadId,
+              dragId != targetThread.id,
+              let sourceThread = threadManager.visibleThreads.first(where: { $0.id == dragId }),
+              sourceThread.isScheduleThread,
+              sourceThread.scheduleJobId == targetThread.scheduleJobId
+        else { return false }
+        return true
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        return DropProposal(operation: .move)
+    }
+
+    func dropEntered(info: DropInfo) {
+        guard let dragId = sidebar.draggingThreadId,
+              dragId != targetThread.id,
+              let sourceThread = threadManager.visibleThreads.first(where: { $0.id == dragId }),
+              sourceThread.isScheduleThread,
+              sourceThread.scheduleJobId == targetThread.scheduleJobId
+        else { return }
+
+        sidebar.dropTargetThreadId = targetThread.id
+        let visible = threadManager.visibleThreads
+        let sIdx = visible.firstIndex(where: { $0.id == dragId }) ?? 0
+        let tIdx = visible.firstIndex(where: { $0.id == targetThread.id }) ?? 0
+        sidebar.dropIndicatorAtBottom = sIdx < tIdx
+    }
+
+    func dropExited(info: DropInfo) {
+        if sidebar.dropTargetThreadId == targetThread.id {
+            sidebar.dropTargetThreadId = nil
+        }
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        let sourceId = sidebar.draggingThreadId
+        sidebar.dropTargetThreadId = nil
+        sidebar.draggingThreadId = nil
+        guard let sourceId = sourceId, sourceId != targetThread.id else { return false }
+        return threadManager.moveThread(sourceId: sourceId, targetId: targetThread.id)
+    }
+}
+
+/// Drop delegate for the collapsed schedule group header.
+/// Targets the first thread in the group; only accepts drops from the same schedule group.
+private struct ScheduleGroupHeaderDropDelegate: DropDelegate {
+    let group: (key: String, label: String, threads: [ThreadModel])
+    let sidebar: SidebarInteractionState
+    let threadManager: ThreadManager
+
+    private var firstThread: ThreadModel? { group.threads.first }
+
+    func validateDrop(info: DropInfo) -> Bool {
+        guard let firstThread = firstThread,
+              let dragId = sidebar.draggingThreadId,
+              dragId != firstThread.id,
+              let sourceThread = threadManager.visibleThreads.first(where: { $0.id == dragId }),
+              sourceThread.isScheduleThread,
+              sourceThread.scheduleJobId == firstThread.scheduleJobId
+        else { return false }
+        return true
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        return DropProposal(operation: .move)
+    }
+
+    func dropEntered(info: DropInfo) {
+        guard let firstThread = firstThread,
+              let dragId = sidebar.draggingThreadId,
+              dragId != firstThread.id,
+              let sourceThread = threadManager.visibleThreads.first(where: { $0.id == dragId }),
+              sourceThread.isScheduleThread,
+              sourceThread.scheduleJobId == firstThread.scheduleJobId
+        else { return }
+
+        sidebar.dropTargetThreadId = firstThread.id
+        sidebar.dropIndicatorAtBottom = false
+    }
+
+    func dropExited(info: DropInfo) {
+        if let firstThread = firstThread, sidebar.dropTargetThreadId == firstThread.id {
+            sidebar.dropTargetThreadId = nil
+        }
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        let sourceId = sidebar.draggingThreadId
+        sidebar.dropTargetThreadId = nil
+        sidebar.draggingThreadId = nil
+        guard let firstThread = firstThread,
+              let sourceId = sourceId,
+              sourceId != firstThread.id
+        else { return false }
+        return threadManager.moveThread(sourceId: sourceId, targetId: firstThread.id)
     }
 }
 
