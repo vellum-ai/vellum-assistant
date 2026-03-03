@@ -9,11 +9,10 @@ You are helping your user set up SMS messaging. This skill orchestrates Twilio s
 
 ## Step 1: Check Channel Readiness
 
-First, check the current SMS channel readiness state via the gateway:
+First, check the current SMS channel readiness state via Vellum CLI:
 
 ```bash
-curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/config" \
-  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN"
+vellum integrations twilio config --json
 ```
 
 Inspect the response for `hasCredentials` and `phoneNumber`.
@@ -31,11 +30,10 @@ skill_load skill=twilio-setup
 
 Tell the user: _"SMS needs Twilio configured first. I've loaded the Twilio setup guide — let's walk through it."_
 
-After twilio-setup completes, re-check readiness by calling the config endpoint again:
+After twilio-setup completes, re-check readiness:
 
 ```bash
-curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/config" \
-  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN"
+vellum integrations twilio config --json
 ```
 
 If baseline is still not ready, report the specific failures and ask the user to address them before continuing.
@@ -45,8 +43,7 @@ If baseline is still not ready, report the specific failures and ask the user to
 Once baseline is ready, check SMS compliance status including remote (Twilio API) checks:
 
 ```bash
-curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/sms/compliance" \
-  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN"
+vellum integrations twilio sms compliance --json
 ```
 
 Examine the compliance results:
