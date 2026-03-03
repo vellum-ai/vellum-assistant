@@ -174,7 +174,7 @@ public enum VColor {
 
     // Text
     public static let textPrimary = adaptiveColor(light: Stone._900, dark: Moss._50)
-    public static let textSecondary = adaptiveColor(light: Stone._600, dark: Moss._400)
+    public static let textSecondary = adaptiveColor(light: Stone._700, dark: Moss._400)
     public static let textMuted = adaptiveColor(light: Stone._600, dark: Moss._500)
 
     // Accent
