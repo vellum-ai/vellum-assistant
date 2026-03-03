@@ -122,15 +122,19 @@ final class ChromeAccessibilityHelper {
         }
 
         // 2. Also check Playwright cache directly (bundle ID lookup can miss it)
-        let playwriteGlob = NSHomeDirectory() + "/Library/Caches/ms-playwright/chromium-*/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"
+        //    Playwright uses "chrome-mac-arm64" on Apple Silicon and "chrome-mac" on Intel.
+        let archDirs = ["chrome-mac-arm64", "chrome-mac"]
         if let match = try? FileManager.default.contentsOfDirectory(atPath: NSHomeDirectory() + "/Library/Caches/ms-playwright")
             .filter({ $0.hasPrefix("chromium-") })
             .sorted()
-            .last,
-           FileManager.default.fileExists(atPath: NSHomeDirectory() + "/Library/Caches/ms-playwright/\(match)/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing") {
-            let binary = NSHomeDirectory() + "/Library/Caches/ms-playwright/\(match)/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"
-            log.info("Resolved CDP binary: Chrome for Testing (Playwright cache) at \(binary, privacy: .public)")
-            return binary
+            .last {
+            for archDir in archDirs {
+                let binary = NSHomeDirectory() + "/Library/Caches/ms-playwright/\(match)/\(archDir)/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"
+                if FileManager.default.fileExists(atPath: binary) {
+                    log.info("Resolved CDP binary: Chrome for Testing (Playwright cache) at \(binary, privacy: .public)")
+                    return binary
+                }
+            }
         }
 
         // 3. Fall back to regular Chrome
