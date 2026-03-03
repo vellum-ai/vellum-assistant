@@ -265,6 +265,12 @@ registerPolicy('a2a/messages/inbound', {
   allowedPrincipalTypes: ['svc_gateway'],
 });
 
+// A2A revocation notifications from peers: gateway-only
+registerPolicy('a2a/revoke-notify', {
+  requiredScopes: ['ingress.write'],
+  allowedPrincipalTypes: ['svc_gateway'],
+});
+
 // Internal forwarding endpoints: gateway-only
 const INTERNAL_ENDPOINTS = [
   'internal/twilio/voice-webhook',

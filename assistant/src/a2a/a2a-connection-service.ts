@@ -15,6 +15,7 @@ import {
   createConnection,
   getConnection,
   listConnections as storeListConnections,
+  tombstoneOutboundCredential,
   updateConnectionCredentials,
   updateConnectionScopes as storeUpdateConnectionScopes,
   updateConnectionStatus,
@@ -43,6 +44,7 @@ import {
   type A2ADeliveryMetadata,
 } from './a2a-message-schema.js';
 import { deliverMessage } from './a2a-outbound-delivery.js';
+import { deliverRevocationNotification } from './a2a-revocation-delivery.js';
 
 import {
   createInvite as createIngressInvite,
@@ -120,7 +122,7 @@ export type SubmitVerificationCodeResult =
   | { ok: false; reason: 'not_found' | 'invalid_code' | 'expired' | 'max_attempts' | 'invalid_state' | 'identity_mismatch' };
 
 export type RevokeConnectionResult =
-  | { ok: true }
+  | { ok: true; status: 'revoked' | 'revocation_pending' }
   | { ok: false; reason: 'not_found' };
 
 export type ListConnectionsResult = {
@@ -820,40 +822,95 @@ export function submitVerificationCode(params: {
  * Revoke an active connection.
  *
  * Idempotent: revoking an already-revoked connection returns `{ ok: true }`.
- * Tombstones credentials and updates status.
+ * Tombstones the inbound credential immediately (blocks accepting messages
+ * from this peer). Attempts to notify the peer via signed outbound delivery.
+ *
+ * If delivery succeeds, tombstones the outbound credential and transitions
+ * to `revoked`. If delivery fails, the connection is marked
+ * `revocation_pending` with the outbound credential preserved so the sweep
+ * timer can sign retry delivery attempts.
  */
-export function revokeConnection(params: {
+export async function revokeConnection(params: {
   connectionId: string;
-}): RevokeConnectionResult {
+}): Promise<RevokeConnectionResult> {
   const connection = getConnection(params.connectionId);
   if (!connection) {
     return { ok: false, reason: 'not_found' };
   }
 
-  // Idempotent: already revoked is a success
+  // Idempotent: already revoked or revocation_pending is a success
   if (connection.status === 'revoked' || connection.status === 'revoked_by_peer') {
-    return { ok: true };
+    return { ok: true, status: 'revoked' };
+  }
+  if (connection.status === 'revocation_pending') {
+    return { ok: true, status: 'revocation_pending' };
   }
 
-  // Capture connection details before tombstoning
   const peerGatewayUrl = connection.peerGatewayUrl;
   const peerAssistantId = connection.peerAssistantId;
+  const outboundCredential = connection.outboundCredential;
 
-  // Tombstone credentials
+  // Capture the original status before any async work — the event loop can
+  // yield during deliverRevocationNotification and handlePeerRevocationNotification
+  // can execute concurrently, changing the status to revoked_by_peer.
+  const originalStatus = connection.status;
+
+  // Tombstone inbound credential immediately — blocks accepting messages
+  // from this peer right away. Outbound credential is preserved so the
+  // sweep timer can sign retry attempts if initial delivery fails.
   updateConnectionCredentials(params.connectionId, {
-    outboundCredentialHash: '',
-    outboundCredential: '',
     inboundCredentialHash: '',
     inboundCredential: '',
   });
 
-  // Transition to revoked
-  updateConnectionStatus(params.connectionId, 'revoked');
-
   // Clean up any lingering handshake session
   handshakeSessions.delete(params.connectionId);
 
-  // Emit notification signal: connection revoked
+  // Attempt to deliver revocation notification to the peer. If the peer is
+  // unreachable, mark as revocation_pending so the sweep timer retries.
+  let finalStatus: 'revoked' | 'revocation_pending' = 'revoked';
+
+  if (outboundCredential) {
+    const deliveryResult = await deliverRevocationNotification({
+      connectionId: params.connectionId,
+      peerGatewayUrl,
+      outboundCredential,
+    });
+
+    if (!deliveryResult.ok) {
+      log.warn(
+        { connectionId: params.connectionId, error: deliveryResult.error },
+        'Failed to deliver revocation notification to peer — marking as revocation_pending',
+      );
+      finalStatus = 'revocation_pending';
+    }
+  }
+
+  // Tombstone the outbound credential now if delivery succeeded (or there
+  // was no credential). When delivery failed, leave it intact for sweep retries.
+  if (finalStatus === 'revoked') {
+    tombstoneOutboundCredential(params.connectionId);
+  }
+
+  // CAS transition: only update if status hasn't been changed concurrently
+  // (e.g. by handlePeerRevocationNotification setting revoked_by_peer).
+  const updatedConnection = updateConnectionStatus(params.connectionId, finalStatus, originalStatus);
+
+  if (!updatedConnection) {
+    // Status was changed concurrently — re-read and return idempotent success.
+    // The peer likely revoked while we were delivering, so the connection is
+    // already in a terminal state.
+    const current = getConnection(params.connectionId);
+    const currentStatus = current?.status;
+    if (currentStatus === 'revoked' || currentStatus === 'revoked_by_peer' || currentStatus === 'revocation_pending') {
+      return { ok: true, status: currentStatus === 'revocation_pending' ? 'revocation_pending' : 'revoked' };
+    }
+    // Unexpected state — still return success since we've already tombstoned
+    // inbound credentials
+    return { ok: true, status: 'revoked' };
+  }
+
+  // Emit notification signal: connection revoked (regardless of delivery outcome)
   void emitNotificationSignal({
     sourceEventName: 'a2a.connection_revoked',
     sourceChannel: 'a2a',
@@ -869,8 +926,113 @@ export function revokeConnection(params: {
       connectionId: params.connectionId,
       peerGatewayUrl,
       peerAssistantId: peerAssistantId ?? null,
+      status: finalStatus,
     },
     dedupeKey: `a2a:connection-revoked:${params.connectionId}`,
+  });
+
+  return { ok: true, status: finalStatus };
+}
+
+/**
+ * Handle an inbound revocation notification from a peer.
+ *
+ * Called when a peer sends us a revocation notification. Marks the
+ * connection as `revoked_by_peer`, tombstones credentials, and emits
+ * a lifecycle event.
+ */
+export function handlePeerRevocationNotification(params: {
+  connectionId: string;
+}): { ok: true } | { ok: false; reason: 'not_found' | 'already_revoked' } {
+  const connection = getConnection(params.connectionId);
+  if (!connection) {
+    return { ok: false, reason: 'not_found' };
+  }
+
+  // Idempotent: already fully revoked by us or by peer
+  if (
+    connection.status === 'revoked' ||
+    connection.status === 'revoked_by_peer'
+  ) {
+    return { ok: false, reason: 'already_revoked' };
+  }
+
+  // When our local status is revocation_pending, the peer's revocation
+  // notification takes precedence — transition to revoked_by_peer, tombstone
+  // ALL credentials (outbound was preserved for sweep retries but now the
+  // peer has revoked so we no longer need it), and emit the lifecycle event.
+  if (connection.status === 'revocation_pending') {
+    // Tombstone both inbound and outbound credentials
+    updateConnectionCredentials(params.connectionId, {
+      outboundCredentialHash: '',
+      outboundCredential: '',
+      inboundCredentialHash: '',
+      inboundCredential: '',
+    });
+
+    // Transition to revoked_by_peer — stops unnecessary sweep retries
+    updateConnectionStatus(params.connectionId, 'revoked_by_peer', 'revocation_pending');
+
+    // Clean up any lingering handshake session
+    handshakeSessions.delete(params.connectionId);
+
+    // Emit notification signal
+    void emitNotificationSignal({
+      sourceEventName: 'a2a.connection_revoked',
+      sourceChannel: 'a2a',
+      sourceSessionId: params.connectionId,
+      assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
+      attentionHints: {
+        requiresAction: false,
+        urgency: 'low',
+        isAsyncBackground: false,
+        visibleInSourceNow: false,
+      },
+      contextPayload: {
+        connectionId: params.connectionId,
+        peerGatewayUrl: connection.peerGatewayUrl,
+        peerAssistantId: connection.peerAssistantId ?? null,
+        revokedByPeer: true,
+      },
+      dedupeKey: `a2a:connection-revoked-by-peer:${params.connectionId}`,
+    });
+
+    return { ok: true };
+  }
+
+  // Tombstone credentials
+  updateConnectionCredentials(params.connectionId, {
+    outboundCredentialHash: '',
+    outboundCredential: '',
+    inboundCredentialHash: '',
+    inboundCredential: '',
+  });
+
+  // Transition to revoked_by_peer
+  updateConnectionStatus(params.connectionId, 'revoked_by_peer');
+
+  // Clean up any lingering handshake session
+  handshakeSessions.delete(params.connectionId);
+
+  // Emit notification signal
+  void emitNotificationSignal({
+    sourceEventName: 'a2a.connection_revoked',
+    sourceChannel: 'a2a',
+    sourceSessionId: params.connectionId,
+    assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
+    attentionHints: {
+      requiresAction: false,
+      urgency: 'low',
+      isAsyncBackground: false,
+      visibleInSourceNow: false,
+    },
+    contextPayload: {
+      connectionId: params.connectionId,
+      peerGatewayUrl: connection.peerGatewayUrl,
+      peerAssistantId: connection.peerAssistantId ?? null,
+      revokedByPeer: true,
+    },
+    dedupeKey: `a2a:connection-revoked-by-peer:${params.connectionId}`,
   });
 
   return { ok: true };

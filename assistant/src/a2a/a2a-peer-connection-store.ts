@@ -347,6 +347,22 @@ export function updateConnectionCredentials(
 }
 
 // ---------------------------------------------------------------------------
+// tombstoneOutboundCredential
+// ---------------------------------------------------------------------------
+
+/**
+ * Tombstone only the outbound credential for a connection. Used after the
+ * revocation sweep successfully delivers a notification (or gives up), so
+ * the signing material is cleared once it's no longer needed for retries.
+ */
+export function tombstoneOutboundCredential(connectionId: string): A2APeerConnection | null {
+  return updateConnectionCredentials(connectionId, {
+    outboundCredentialHash: '',
+    outboundCredential: '',
+  });
+}
+
+// ---------------------------------------------------------------------------
 // deleteConnection
 // ---------------------------------------------------------------------------
 

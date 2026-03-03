@@ -13,6 +13,7 @@ import {
   approveConnection,
   generateInvite,
   getScopes,
+  handlePeerRevocationNotification,
   initiateConnection,
   listConnectionsFiltered,
   redeemInvite,
@@ -291,10 +292,53 @@ export async function handleA2ARevoke(req: Request): Promise<Response> {
     return httpError('BAD_REQUEST', 'Missing required field: connectionId', 400);
   }
 
-  const result = revokeConnection({ connectionId });
+  const result = await revokeConnection({ connectionId });
 
   if (!result.ok) {
     return httpError('NOT_FOUND', result.reason, 404);
+  }
+
+  return Response.json({ ok: true, status: result.status });
+}
+
+// ---------------------------------------------------------------------------
+// POST /v1/a2a/revoke-notify — Receive revocation notification from peer
+// ---------------------------------------------------------------------------
+
+export async function handleA2ARevokeNotify(req: Request): Promise<Response> {
+  const bodyText = await req.text();
+
+  let body: Record<string, unknown>;
+  try {
+    body = JSON.parse(bodyText) as Record<string, unknown>;
+  } catch {
+    return httpError('BAD_REQUEST', 'Invalid JSON', 400);
+  }
+
+  const connectionId = typeof body.connectionId === 'string' ? body.connectionId : '';
+  if (!connectionId) {
+    return httpError('BAD_REQUEST', 'Missing required field: connectionId', 400);
+  }
+
+  // Validate the A2A auth headers (HMAC signature)
+  const { verifyA2ASignatureForConnection } = await import('./a2a-revoke-notify-auth.js');
+  const authResult = verifyA2ASignatureForConnection(req, bodyText, connectionId);
+  if (!authResult.ok) {
+    log.warn({ connectionId, reason: authResult.reason }, 'Revoke-notify auth failed');
+    if (authResult.reason === 'connection_not_found') {
+      return httpError('NOT_FOUND', 'Connection not found', 404);
+    }
+    return httpError('UNAUTHORIZED', authResult.reason, 401);
+  }
+
+  const result = handlePeerRevocationNotification({ connectionId });
+
+  if (!result.ok) {
+    if (result.reason === 'not_found') {
+      return httpError('NOT_FOUND', 'Connection not found', 404);
+    }
+    // already_revoked is fine — idempotent
+    return Response.json({ ok: true, alreadyRevoked: true });
   }
 
   return Response.json({ ok: true });

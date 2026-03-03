@@ -27,6 +27,12 @@ mock.module('../../util/logger.js', () => ({
     }),
 }));
 
+// Mock the revocation delivery to always succeed so route tests
+// don't need network access.
+mock.module('../a2a-revocation-delivery.js', () => ({
+  deliverRevocationNotification: async () => ({ ok: true }),
+}));
+
 import {
   handleA2AInvite,
   handleA2ARedeem,
