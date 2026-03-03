@@ -38,13 +38,14 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
   const query = (input.query as string) ?? 'category:promotions newer_than:90d';
   const maxMessages = Math.min((input.max_messages as number) ?? 500, MAX_MESSAGES_CAP);
   const maxSenders = (input.max_senders as number) ?? 30;
+  const inputPageToken = input.page_token as string | undefined;
 
   try {
     const provider = getMessagingProvider('gmail');
     return withValidToken(provider.credentialService, async (token) => {
       // Paginate through listMessages to collect up to maxMessages IDs
       const allMessageIds: string[] = [];
-      let pageToken: string | undefined;
+      let pageToken: string | undefined = inputPageToken;
       let truncated = false;
 
       while (allMessageIds.length < maxMessages) {
@@ -171,7 +172,7 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
         senders: result,
         total_scanned: allMessageIds.length,
         query_used: query,
-        ...(truncated ? { truncated: true } : {}),
+        ...(truncated ? { truncated: true, next_page_token: pageToken } : {}),
         note: `message_count reflects emails found per sender within the ${allMessageIds.length} messages scanned. Use the message_ids array with gmail_batch_archive to archive exactly these messages.`,
       }));
     });

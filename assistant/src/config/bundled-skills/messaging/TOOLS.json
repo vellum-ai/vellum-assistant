@@ -1011,6 +1011,10 @@
           "max_senders": {
             "type": "number",
             "description": "Maximum senders to return (default 30)"
+          },
+          "page_token": {
+            "type": "string",
+            "description": "Resume token from a previous scan's next_page_token to continue scanning beyond the cap"
           }
         }
       },
@@ -1040,6 +1044,10 @@
           "max_senders": {
             "type": "number",
             "description": "Maximum senders to return (default 30)"
+          },
+          "page_token": {
+            "type": "string",
+            "description": "Resume token from a previous scan's next_page_token to continue scanning beyond the cap"
           }
         }
       },
@@ -1098,6 +1106,10 @@
           "min_confidence": {
             "type": "number",
             "description": "Minimum confidence threshold 0-1 (default 0.5)"
+          },
+          "page_token": {
+            "type": "string",
+            "description": "Resume token from a previous scan's next_page_token to continue scanning beyond the cap"
           }
         }
       },

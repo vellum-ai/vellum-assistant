@@ -195,13 +195,13 @@ export const gmailMessagingProvider: MessagingProvider = {
     await gmail.modifyMessage(token, messageId, { removeLabelIds: ['UNREAD'] });
   },
 
-  async senderDigest(token: string, query: string, options?: { maxMessages?: number; maxSenders?: number }): Promise<SenderDigestResult> {
+  async senderDigest(token: string, query: string, options?: { maxMessages?: number; maxSenders?: number; pageToken?: string }): Promise<SenderDigestResult> {
     const maxMessages = Math.min(options?.maxMessages ?? 2000, 2000);
     const maxSenders = options?.maxSenders ?? 30;
     const maxIdsPerSender = 2000;
 
     const allMessageIds: string[] = [];
-    let pageToken: string | undefined;
+    let pageToken: string | undefined = options?.pageToken;
     let truncated = false;
 
     while (allMessageIds.length < maxMessages) {
@@ -289,7 +289,7 @@ export const gmailMessagingProvider: MessagingProvider = {
       hasMore: s.hasMore,
     }));
 
-    return { senders, totalScanned: allMessageIds.length, queryUsed: query, ...(truncated ? { truncated } : {}) };
+    return { senders, totalScanned: allMessageIds.length, queryUsed: query, ...(truncated ? { truncated, nextPageToken: pageToken } : {}) };
   },
 
   async archiveByQuery(token: string, query: string): Promise<ArchiveResult> {
