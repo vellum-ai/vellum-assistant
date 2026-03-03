@@ -92,6 +92,26 @@ public struct IPCAppDataResponse: Codable, Sendable {
     }
 }
 
+public struct IPCAppDeleteRequest: Codable, Sendable {
+    public let type: String
+    public let appId: String
+
+    public init(type: String, appId: String) {
+        self.type = type
+        self.appId = appId
+    }
+}
+
+public struct IPCAppDeleteResponse: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+
+    public init(type: String, success: Bool) {
+        self.type = type
+        self.success = success
+    }
+}
+
 public struct IPCAppDiffRequest: Codable, Sendable {
     public let type: String
     public let appId: String

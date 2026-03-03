@@ -33,6 +33,11 @@ export interface SharedAppsListRequest {
   type: 'shared_apps_list';
 }
 
+export interface AppDeleteRequest {
+  type: 'app_delete';
+  appId: string;
+}
+
 export interface SharedAppDeleteRequest {
   type: 'shared_app_delete';
   uuid: string;
@@ -213,6 +218,11 @@ export interface SharedAppsListResponse {
   }>;
 }
 
+export interface AppDeleteResponse {
+  type: 'app_delete_response';
+  success: boolean;
+}
+
 export interface SharedAppDeleteResponse {
   type: 'shared_app_delete_response';
   success: boolean;
@@ -364,6 +374,7 @@ export type _AppsClientMessages =
   | HomeBaseGetRequest
   | AppOpenRequest
   | SharedAppsListRequest
+  | AppDeleteRequest
   | SharedAppDeleteRequest
   | ForkSharedAppRequest
   | BundleAppRequest
@@ -388,6 +399,7 @@ export type _AppsServerMessages =
   | AppsListResponse
   | HomeBaseGetResponse
   | SharedAppsListResponse
+  | AppDeleteResponse
   | SharedAppDeleteResponse
   | ForkSharedAppResponse
   | BundleAppResponse

@@ -311,6 +311,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `shared_apps_list_response` message.
     public var onSharedAppsListResponse: ((SharedAppsListResponseMessage) -> Void)?
 
+    /// Called when the daemon sends an `app_delete_response` message.
+    public var onAppDeleteResponse: ((AppDeleteResponseMessage) -> Void)?
+
     /// Called when the daemon sends a `shared_app_delete_response` message.
     public var onSharedAppDeleteResponse: ((SharedAppDeleteResponseMessage) -> Void)?
 
@@ -1121,6 +1124,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Request the list of shared/received apps.
     public func sendSharedAppsList() throws {
         try send(SharedAppsListRequestMessage())
+    }
+
+    /// Delete a persistent user-created app by ID.
+    public func sendAppDelete(appId: String) throws {
+        try send(AppDeleteRequestMessage(appId: appId))
     }
 
     /// Delete a shared app by UUID.

@@ -121,6 +121,8 @@ extension DaemonClient {
             onAppRestoreResponse?(msg)
         case .sharedAppsListResponse(let msg):
             onSharedAppsListResponse?(msg)
+        case .appDeleteResponse(let msg):
+            onAppDeleteResponse?(msg)
         case .sharedAppDeleteResponse(let msg):
             onSharedAppDeleteResponse?(msg)
         case .forkSharedAppResponse(let msg):
