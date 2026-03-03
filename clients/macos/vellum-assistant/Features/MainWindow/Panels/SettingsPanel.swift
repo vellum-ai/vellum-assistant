@@ -62,6 +62,13 @@ struct SettingsPanel: View {
     @State private var braveKeyText: String = ""
     @State private var perplexityKeyText: String = ""
     @State private var imageGenKeyText: String = ""
+
+    // Setup expanded state for Models & Services credential cards
+    @State private var anthropicSetupExpanded = false
+    @State private var perplexitySetupExpanded = false
+    @State private var braveSetupExpanded = false
+    @State private var imageGenSetupExpanded = false
+
     @State private var showingTrustRules = false
     @State private var showingReminders = false
     @State private var showingScheduledTasks = false
@@ -274,51 +281,25 @@ struct SettingsPanel: View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
             // ANTHROPIC section
             VStack(alignment: .leading, spacing: VSpacing.md) {
-                Text("Anthropic")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
-
-                if store.hasKey {
-                    HStack(spacing: VSpacing.sm) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(VColor.success)
-                            .font(.system(size: 14))
-                        Text(store.maskedKey)
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
-                        Spacer()
-                        VButton(label: "Clear", style: .danger) {
-                            store.clearAPIKey()
-                            apiKeyText = ""
-                        }
-                    }
-                } else {
-                    HStack(spacing: VSpacing.xs) {
-                        Text("Enter API Key")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
-                        VInfoTooltip("Get your API key at console.anthropic.com")
-                    }
-
-                    VInlineActionField(text: $apiKeyText, placeholder: "This is your private generated key", isSecure: true) {
-                        store.saveAPIKey(apiKeyText)
-                        apiKeyText = ""
-                    }
-
-                    HStack(spacing: 0) {
-                        Text("Get your API key at ")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                        Link("console.anthropic.com", destination: URL(string: "https://console.anthropic.com")!)
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.accent)
-                            .onHover { hovering in
-                                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                            }
-                    }
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Anthropic")
+                        .font(VFont.sectionTitle)
+                        .foregroundColor(VColor.textPrimary)
+                    Text("Required for AI responses")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
                 }
 
                 if store.hasKey {
+                    HStack(spacing: VSpacing.sm) {
+                        VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .large) {}
+                        VButton(label: "Clear", style: .danger, size: .large) {
+                            store.clearAPIKey()
+                            apiKeyText = ""
+                            anthropicSetupExpanded = false
+                        }
+                    }
+
                     Divider()
                         .background(VColor.surfaceBorder)
 
@@ -331,6 +312,39 @@ struct SettingsPanel: View {
                             store: store,
                             isOpen: $showModelDropdown
                         )
+                    }
+                } else if anthropicSetupExpanded {
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        Text("API Key")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
+
+                        VInlineActionField(text: $apiKeyText, placeholder: "This is your private generated key", isSecure: true) {
+                            store.saveAPIKey(apiKeyText)
+                            apiKeyText = ""
+                            anthropicSetupExpanded = false
+                        }
+
+                        HStack(spacing: 0) {
+                            Text("Get your API key at ")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                            Link("console.anthropic.com", destination: URL(string: "https://console.anthropic.com")!)
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.accent)
+                                .onHover { hovering in
+                                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                                }
+                        }
+
+                        VButton(label: "Cancel", style: .tertiary, size: .large) {
+                            anthropicSetupExpanded = false
+                            apiKeyText = ""
+                        }
+                    }
+                } else {
+                    VButton(label: "Set Up", style: .secondary, size: .large) {
+                        anthropicSetupExpanded = true
                     }
                 }
             }
@@ -379,47 +393,56 @@ struct SettingsPanel: View {
 
             // PERPLEXITY SEARCH section
             VStack(alignment: .leading, spacing: VSpacing.md) {
-                Text("Perplexity Search")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Perplexity Search")
+                        .font(VFont.sectionTitle)
+                        .foregroundColor(VColor.textPrimary)
+                    Text("Enables real-time web search in responses")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                }
 
                 if store.hasPerplexityKey {
                     HStack(spacing: VSpacing.sm) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(VColor.success)
-                            .font(.system(size: 14))
-                        Text(store.maskedPerplexityKey)
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
-                        Spacer()
-                        VButton(label: "Clear", style: .danger) {
+                        VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .large) {}
+                        VButton(label: "Clear", style: .danger, size: .large) {
                             store.clearPerplexityKey()
+                            perplexityKeyText = ""
+                            perplexitySetupExpanded = false
+                        }
+                    }
+                } else if perplexitySetupExpanded {
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        Text("API Key")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
+
+                        VInlineActionField(text: $perplexityKeyText, placeholder: "Your Perplexity API key", isSecure: true) {
+                            store.savePerplexityKey(perplexityKeyText)
+                            perplexityKeyText = ""
+                            perplexitySetupExpanded = false
+                        }
+
+                        HStack(spacing: 0) {
+                            Text("Get your API key at ")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                            Link("perplexity.ai/settings/api", destination: URL(string: "https://perplexity.ai/settings/api")!)
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.accent)
+                                .onHover { hovering in
+                                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                                }
+                        }
+
+                        VButton(label: "Cancel", style: .tertiary, size: .large) {
+                            perplexitySetupExpanded = false
                             perplexityKeyText = ""
                         }
                     }
                 } else {
-                    HStack(spacing: VSpacing.xs) {
-                        Text("Enter Perplexity API Key")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
-                        VInfoTooltip("Get your API key at perplexity.ai/settings/api")
-                    }
-
-                    VInlineActionField(text: $perplexityKeyText, placeholder: "Your Perplexity API key", isSecure: true) {
-                        store.savePerplexityKey(perplexityKeyText)
-                        perplexityKeyText = ""
-                    }
-
-                    HStack(spacing: 0) {
-                        Text("Get your API key at ")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                        Link("perplexity.ai/settings/api", destination: URL(string: "https://perplexity.ai/settings/api")!)
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.accent)
-                            .onHover { hovering in
-                                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                            }
+                    VButton(label: "Set Up", style: .secondary, size: .large) {
+                        perplexitySetupExpanded = true
                     }
                 }
             }
@@ -428,47 +451,56 @@ struct SettingsPanel: View {
 
             // BRAVE SEARCH section
             VStack(alignment: .leading, spacing: VSpacing.md) {
-                Text("Brave Search")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Brave Search")
+                        .font(VFont.sectionTitle)
+                        .foregroundColor(VColor.textPrimary)
+                    Text("Enables private web search in responses")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                }
 
                 if store.hasBraveKey {
                     HStack(spacing: VSpacing.sm) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(VColor.success)
-                            .font(.system(size: 14))
-                        Text(store.maskedBraveKey)
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
-                        Spacer()
-                        VButton(label: "Clear", style: .danger) {
+                        VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .large) {}
+                        VButton(label: "Clear", style: .danger, size: .large) {
                             store.clearBraveKey()
+                            braveKeyText = ""
+                            braveSetupExpanded = false
+                        }
+                    }
+                } else if braveSetupExpanded {
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        Text("API Key")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
+
+                        VInlineActionField(text: $braveKeyText, placeholder: "Your Brave Search API key", isSecure: true) {
+                            store.saveBraveKey(braveKeyText)
+                            braveKeyText = ""
+                            braveSetupExpanded = false
+                        }
+
+                        HStack(spacing: 0) {
+                            Text("Get your API key at ")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                            Link("brave.com/search/api", destination: URL(string: "https://brave.com/search/api")!)
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.accent)
+                                .onHover { hovering in
+                                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                                }
+                        }
+
+                        VButton(label: "Cancel", style: .tertiary, size: .large) {
+                            braveSetupExpanded = false
                             braveKeyText = ""
                         }
                     }
                 } else {
-                    HStack(spacing: VSpacing.xs) {
-                        Text("Enter Brave Search API Key")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
-                        VInfoTooltip("Get your API key at brave.com/search/api")
-                    }
-
-                    VInlineActionField(text: $braveKeyText, placeholder: "Your Brave Search API key", isSecure: true) {
-                        store.saveBraveKey(braveKeyText)
-                        braveKeyText = ""
-                    }
-
-                    HStack(spacing: 0) {
-                        Text("Get your API key at ")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                        Link("brave.com/search/api", destination: URL(string: "https://brave.com/search/api")!)
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.accent)
-                            .onHover { hovering in
-                                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                            }
+                    VButton(label: "Set Up", style: .secondary, size: .large) {
+                        braveSetupExpanded = true
                     }
                 }
             }
@@ -477,24 +509,27 @@ struct SettingsPanel: View {
 
             // IMAGE GENERATION section
             VStack(alignment: .leading, spacing: VSpacing.md) {
-                Text("Image Generation")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Image Generation")
+                        .font(VFont.sectionTitle)
+                        .foregroundColor(VColor.textPrimary)
+                    Text("Enables AI image generation via Gemini")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                }
 
                 if store.hasImageGenKey {
                     HStack(spacing: VSpacing.sm) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(VColor.success)
-                            .font(.system(size: 14))
-                        Text(store.maskedImageGenKey)
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
-                        Spacer()
-                        VButton(label: "Clear", style: .danger) {
+                        VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .large) {}
+                        VButton(label: "Clear", style: .danger, size: .large) {
                             store.clearImageGenKey()
                             imageGenKeyText = ""
+                            imageGenSetupExpanded = false
                         }
                     }
+
+                    Divider()
+                        .background(VColor.surfaceBorder)
 
                     HStack {
                         Text("Model")
@@ -513,29 +548,38 @@ struct SettingsPanel: View {
                         .labelsHidden()
                         .fixedSize()
                     }
-                } else {
-                    HStack(spacing: VSpacing.xs) {
-                        Text("Enter Gemini API Key")
+                } else if imageGenSetupExpanded {
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        Text("API Key")
                             .font(VFont.caption)
                             .foregroundColor(VColor.textSecondary)
-                        VInfoTooltip("Get your API key at aistudio.google.com/apikey")
-                    }
 
-                    VInlineActionField(text: $imageGenKeyText, placeholder: "Your Gemini API key", isSecure: true) {
-                        store.saveImageGenKey(imageGenKeyText)
-                        imageGenKeyText = ""
-                    }
+                        VInlineActionField(text: $imageGenKeyText, placeholder: "Your Gemini API key", isSecure: true) {
+                            store.saveImageGenKey(imageGenKeyText)
+                            imageGenKeyText = ""
+                            imageGenSetupExpanded = false
+                        }
 
-                    HStack(spacing: 0) {
-                        Text("Get your API key at ")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                        Link("aistudio.google.com/apikey", destination: URL(string: "https://aistudio.google.com/apikey")!)
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.accent)
-                            .onHover { hovering in
-                                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                            }
+                        HStack(spacing: 0) {
+                            Text("Get your API key at ")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                            Link("aistudio.google.com/apikey", destination: URL(string: "https://aistudio.google.com/apikey")!)
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.accent)
+                                .onHover { hovering in
+                                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                                }
+                        }
+
+                        VButton(label: "Cancel", style: .tertiary, size: .large) {
+                            imageGenSetupExpanded = false
+                            imageGenKeyText = ""
+                        }
+                    }
+                } else {
+                    VButton(label: "Set Up", style: .secondary, size: .large) {
+                        imageGenSetupExpanded = true
                     }
                 }
             }
@@ -566,9 +610,14 @@ struct SettingsPanel: View {
 
     private var twitterSection: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("Twitter / X")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text("Twitter / X")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+                Text("Post and read tweets as your assistant")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+            }
 
             // Mode Picker
             HStack {
@@ -644,21 +693,17 @@ struct SettingsPanel: View {
                     // Client configured — show connect or connected state
                     if store.twitterConnected {
                         // Connected state
-                        HStack(spacing: VSpacing.sm) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundColor(VColor.success)
-                                .font(.system(size: 14))
-                            Text("Connected")
-                                .font(VFont.body)
-                                .foregroundColor(VColor.textSecondary)
+                        VStack(alignment: .leading, spacing: VSpacing.sm) {
+                            HStack(spacing: VSpacing.sm) {
+                                VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .large) {}
+                                VButton(label: "Disconnect", style: .danger, size: .large) {
+                                    store.disconnectTwitter()
+                                }
+                            }
                             if let account = store.twitterAccountInfo {
                                 Text(account)
                                     .font(VFont.caption)
                                     .foregroundColor(VColor.textMuted)
-                            }
-                            Spacer()
-                            VButton(label: "Disconnect", style: .danger) {
-                                store.disconnectTwitter()
                             }
                         }
                     } else {
