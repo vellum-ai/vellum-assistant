@@ -14,6 +14,10 @@ export const memorySearchDefinition: ToolDefinition = {
         type: 'number',
         description: 'Maximum number of results to return (default: 5)',
       },
+      reason: {
+        type: 'string',
+        description: 'Brief non-technical explanation of what you are looking up and why, shown to the user as a status update. Use simple language a non-technical person would understand.',
+      },
     },
     required: ['query'],
   },
@@ -38,6 +42,10 @@ export const memorySaveDefinition: ToolDefinition = {
         type: 'string',
         description: 'Short subject/topic label (2-8 words)',
       },
+      reason: {
+        type: 'string',
+        description: 'Brief non-technical explanation of what you are saving and why, shown to the user as a status update. Use simple language a non-technical person would understand.',
+      },
     },
     required: ['statement', 'kind'],
   },
@@ -56,6 +64,10 @@ export const memoryUpdateDefinition: ToolDefinition = {
       statement: {
         type: 'string',
         description: 'The updated statement to replace the existing one',
+      },
+      reason: {
+        type: 'string',
+        description: 'Brief non-technical explanation of what you are updating and why, shown to the user as a status update. Use simple language a non-technical person would understand.',
       },
     },
     required: ['memory_id', 'statement'],

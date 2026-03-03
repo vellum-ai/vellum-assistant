@@ -41,6 +41,10 @@ class BrowserNavigateTool implements Tool {
             type: 'boolean',
             description: 'If true, allows navigation to localhost/private-network hosts. Disabled by default for SSRF safety.',
           },
+          reason: {
+            type: 'string',
+            description: 'Brief non-technical explanation of what you are navigating to and why, shown to the user as a status update. Use simple language a non-technical person would understand.',
+          },
         },
         required: ['url'],
       },
@@ -68,7 +72,12 @@ class BrowserSnapshotTool implements Tool {
       description: this.description,
       input_schema: {
         type: 'object',
-        properties: {},
+        properties: {
+          reason: {
+            type: 'string',
+            description: 'Brief non-technical explanation of what you are inspecting and why, shown to the user as a status update. Use simple language a non-technical person would understand.',
+          },
+        },
       },
     };
   }
@@ -98,6 +107,10 @@ class BrowserScreenshotTool implements Tool {
           full_page: {
             type: 'boolean',
             description: 'Capture the full scrollable page instead of just the viewport.',
+          },
+          reason: {
+            type: 'string',
+            description: 'Brief non-technical explanation of what you are capturing and why, shown to the user as a status update. Use simple language a non-technical person would understand.',
           },
         },
       },
@@ -129,6 +142,10 @@ class BrowserCloseTool implements Tool {
           close_all_pages: {
             type: 'boolean',
             description: 'If true, close all browser pages and the browser context. Default: false (close only the current session page).',
+          },
+          reason: {
+            type: 'string',
+            description: 'Brief non-technical explanation of what you are doing and why, shown to the user as a status update. Use simple language a non-technical person would understand.',
           },
         },
       },
@@ -168,6 +185,10 @@ class BrowserClickTool implements Tool {
           timeout: {
             type: 'number',
             description: 'Max time in ms to wait for the element to be clickable (default: 10000).',
+          },
+          reason: {
+            type: 'string',
+            description: 'Brief non-technical explanation of what you are clicking and why, shown to the user as a status update. Use simple language a non-technical person would understand.',
           },
         },
       },
@@ -216,6 +237,10 @@ class BrowserTypeTool implements Tool {
             type: 'boolean',
             description: 'If true, press Enter after typing the text.',
           },
+          reason: {
+            type: 'string',
+            description: 'Brief non-technical explanation of what you are typing and why, shown to the user as a status update. Use simple language a non-technical person would understand.',
+          },
         },
         required: ['text'],
       },
@@ -255,6 +280,10 @@ class BrowserPressKeyTool implements Tool {
           selector: {
             type: 'string',
             description: 'Optional CSS selector to target.',
+          },
+          reason: {
+            type: 'string',
+            description: 'Brief non-technical explanation of what you are doing and why, shown to the user as a status update. Use simple language a non-technical person would understand.',
           },
         },
         required: ['key'],
@@ -300,6 +329,10 @@ class BrowserScrollTool implements Tool {
           selector: {
             type: 'string',
             description: 'Optional CSS selector of element to scroll within.',
+          },
+          reason: {
+            type: 'string',
+            description: 'Brief non-technical explanation of what you are scrolling to see and why, shown to the user as a status update. Use simple language a non-technical person would understand.',
           },
         },
         required: ['direction'],
@@ -349,6 +382,10 @@ class BrowserSelectOptionTool implements Tool {
             type: 'number',
             description: 'The zero-based index of the <option> to select.',
           },
+          reason: {
+            type: 'string',
+            description: 'Brief non-technical explanation of what you are selecting and why, shown to the user as a status update. Use simple language a non-technical person would understand.',
+          },
         },
       },
     };
@@ -383,6 +420,10 @@ class BrowserHoverTool implements Tool {
           selector: {
             type: 'string',
             description: 'A CSS selector to target. Used as fallback when element_id is not available.',
+          },
+          reason: {
+            type: 'string',
+            description: 'Brief non-technical explanation of what you are hovering over and why, shown to the user as a status update. Use simple language a non-technical person would understand.',
           },
         },
       },
@@ -427,6 +468,10 @@ class BrowserWaitForTool implements Tool {
             type: 'number',
             description: 'Maximum wait time in milliseconds (default and max: 30000).',
           },
+          reason: {
+            type: 'string',
+            description: 'Brief non-technical explanation of what you are waiting for and why, shown to the user as a status update. Use simple language a non-technical person would understand.',
+          },
         },
       },
     };
@@ -457,6 +502,10 @@ class BrowserExtractTool implements Tool {
           include_links: {
             type: 'boolean',
             description: 'If true, include a list of links found on the page (up to 200).',
+          },
+          reason: {
+            type: 'string',
+            description: 'Brief non-technical explanation of what you are extracting and why, shown to the user as a status update. Use simple language a non-technical person would understand.',
           },
         },
       },
@@ -504,6 +553,10 @@ class BrowserFillCredentialTool implements Tool {
           press_enter: {
             type: 'boolean',
             description: 'Press Enter after filling',
+          },
+          reason: {
+            type: 'string',
+            description: 'Brief non-technical explanation of what you are filling in and why, shown to the user as a status update. Use simple language a non-technical person would understand.',
           },
         },
         required: ['service', 'field'],

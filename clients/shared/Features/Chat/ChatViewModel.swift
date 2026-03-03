@@ -2068,6 +2068,8 @@ public final class ChatViewModel: ObservableObject {
                         imageData: nil
                     )
                     toolCall.cachedImage = decodedImage
+                    toolCall.reasonDescription = (tc.input["reason"]?.value as? String)
+                        ?? (tc.input["reasoning"]?.value as? String)
                     // Cap tool input size to prevent unbounded memory from large history
                     // restores. Check size synchronously to avoid a race where a deferred
                     // Task might run before self.messages is populated with these new items.

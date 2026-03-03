@@ -25,6 +25,10 @@ export class DeleteManagedSkillTool implements Tool {
             type: 'boolean',
             description: 'Whether to remove the skill from SKILLS.md index (default: true).',
           },
+          reason: {
+            type: 'string',
+            description: 'Brief non-technical explanation of what you are deleting and why, shown to the user as a status update. Use simple language a non-technical person would understand.',
+          },
         },
         required: ['skill_id'],
       },

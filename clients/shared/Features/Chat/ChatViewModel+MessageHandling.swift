@@ -1124,6 +1124,8 @@ extension ChatViewModel {
                 startedAt: Date()
             )
             toolCall.buildingStatus = buildingStatus
+            toolCall.reasonDescription = (msg.input["reason"]?.value as? String)
+                ?? (msg.input["reasoning"]?.value as? String)
             // Add to existing assistant message or create one.
             // Cap at 100 tool calls per message to prevent unbounded memory growth;
             // overflow falls through to create a new message.

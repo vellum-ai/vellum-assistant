@@ -783,6 +783,8 @@ public struct ToolCallData: Identifiable, Equatable {
     public var imageData: String?
     /// Human-readable building status from app tool input (e.g. "Adding dark mode styles").
     public var buildingStatus: String?
+    /// Non-technical reason for the tool call, extracted from the `reason` field of tool input.
+    public var reasonDescription: String?
     /// Sub-tool steps for claude_code tool calls (live progress tracking).
     public var claudeCodeSteps: [ClaudeCodeSubStep] = []
     /// Pre-decoded NSImage cached to avoid repeated base64 decoding in SwiftUI body.
@@ -809,6 +811,7 @@ public struct ToolCallData: Identifiable, Equatable {
             && lhs.inputFullLength == rhs.inputFullLength
             && lhs.inputRawValueLength == rhs.inputRawValueLength
             && lhs.buildingStatus == rhs.buildingStatus
+            && lhs.reasonDescription == rhs.reasonDescription
             && lhs.claudeCodeSteps == rhs.claudeCodeSteps
     }
 

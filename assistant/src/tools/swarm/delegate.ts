@@ -41,6 +41,10 @@ export const swarmDelegateTool: Tool = {
             type: 'number',
             description: 'Maximum concurrent workers (1-6, default from config)',
           },
+          reason: {
+            type: 'string',
+            description: 'Brief non-technical explanation of what you are doing and why, shown to the user as a status update. Use simple language a non-technical person would understand.',
+          },
         },
         required: ['objective'],
       },
