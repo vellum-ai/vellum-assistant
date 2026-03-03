@@ -229,7 +229,7 @@ Now link the user's phone number as the trusted guardian for SMS and/or voice ch
 
 Load the **guardian-verify-setup** skill to handle the verification flow:
 
-- Call `skill_load` with `skill_id: "guardian-verify-setup"` to load the dependency skill.
+- Call `skill_load` with `skill: "guardian-verify-setup"` to load the dependency skill.
 
 The guardian-verify-setup skill manages the full outbound verification flow for **one channel at a time** (sms, voice, or telegram). Each invocation handles:
 
