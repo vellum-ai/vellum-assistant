@@ -7,7 +7,7 @@
  */
 
 import { execSync } from "child_process";
-import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "fs";
 import os from "os";
 import path from "path";
 
@@ -89,7 +89,7 @@ async function createDesktopAppHatchedFixture(options: FixtureOptions): Promise<
 
   verifyAppExists(appDisplayName);
   ensureVellumInPath(appDisplayName);
-  ensureAssistantHatched();
+  await ensureAssistantHatched();
   skipAssistantOnboarding();
 
   return {
@@ -188,12 +188,14 @@ function ensureVellumInPath(appDisplayName: string): void {
 }
 
 /**
- * Ensures an assistant is hatched.
+ * Ensures an assistant is hatched, the lockfile is populated, and the
+ * assistant is healthy before returning.
  *
  * Checks `vellum ps` for an existing assistant. If none is found,
- * runs `vellum hatch` to create one.
+ * runs `vellum hatch` to create one. Then verifies the lockfile has
+ * an assistant entry and polls `/healthz` until it reports healthy.
  */
-function ensureAssistantHatched(): void {
+async function ensureAssistantHatched(): Promise<void> {
   let psOutput: string;
   try {
     psOutput = execSync("vellum ps", {
@@ -210,24 +212,81 @@ function ensureAssistantHatched(): void {
     .split("\n")
     .filter((l) => l.trim() && !l.includes("NAME") && !l.startsWith("  -"));
 
-  if (lines.length > 0) {
-    logVellumPs();
-    return;
-  }
-
-  // No assistant found — hatch one
-  try {
-    execSync("vellum hatch", {
-      stdio: "inherit",
-      timeout: 300_000,
-      shell: "/bin/bash",
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`Failed to hatch assistant: ${message}`);
+  if (lines.length === 0) {
+    // No assistant found — hatch one
+    try {
+      execSync("vellum hatch", {
+        stdio: "inherit",
+        timeout: 300_000,
+        shell: "/bin/bash",
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new Error(`Failed to hatch assistant: ${message}`);
+    }
   }
 
   logVellumPs();
+
+  // Verify the lockfile was updated with an assistant entry
+  const runtimeUrl = readRuntimeUrlFromLockfile();
+
+  // Poll health endpoint until the assistant is ready
+  const maxWaitMs = 60_000;
+  const pollIntervalMs = 1_000;
+  const startTime = Date.now();
+
+  while (Date.now() - startTime < maxWaitMs) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 1_500);
+      const response = await fetch(`${runtimeUrl}/healthz`, {
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      if (response.ok) {
+        const body = (await response.json()) as { status?: string };
+        if (body.status === "healthy") {
+          return;
+        }
+      }
+    } catch {
+      // Not ready yet — keep polling
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+  }
+
+  throw new Error(
+    `Assistant at ${runtimeUrl} did not become healthy within ${maxWaitMs / 1_000}s`,
+  );
+}
+
+/**
+ * Reads the latest assistant's runtimeUrl from ~/.vellum.lock.json.
+ * Throws if the lockfile is missing or has no assistant entries.
+ */
+function readRuntimeUrlFromLockfile(): string {
+  const lockfilePath = path.join(os.homedir(), ".vellum.lock.json");
+  if (!existsSync(lockfilePath)) {
+    throw new Error("Lockfile (~/.vellum.lock.json) not found after hatching");
+  }
+
+  const raw = readFileSync(lockfilePath, "utf-8");
+  const data = JSON.parse(raw) as { assistants?: { runtimeUrl?: string }[] };
+  const assistants = data.assistants;
+
+  if (!Array.isArray(assistants) || assistants.length === 0) {
+    throw new Error("No assistant entries in lockfile after hatching");
+  }
+
+  const runtimeUrl = assistants[0].runtimeUrl;
+  if (!runtimeUrl) {
+    throw new Error("Assistant entry missing runtimeUrl in lockfile");
+  }
+
+  return runtimeUrl;
 }
 
 /**
