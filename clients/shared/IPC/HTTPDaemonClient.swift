@@ -238,14 +238,17 @@ public final class HTTPTransport {
     }
 
     /// Builds paths for the platform assistant proxy layout
-    /// (e.g. /v1/assistants/{id}/healthz/, /v1/assistants/{id}/messages/).
+    /// (e.g. /v1/assistants/{id}/health, /v1/assistants/{id}/messages/).
     /// Trailing slashes match the Django URL convention.
     private func buildPlatformProxyPath(for endpoint: Endpoint, assistantId: String) -> (path: String, query: String?) {
         let prefix = "/v1/assistants/\(assistantId)"
 
         switch endpoint {
         case .healthz:
-            return ("\(prefix)/healthz/", nil)
+            // Use /health (no trailing slash) so the gateway proxy rewrites to
+            // /v1/health, which the runtime serves. /healthz is a root-level
+            // endpoint that doesn't exist under /v1/.
+            return ("\(prefix)/health", nil)
         case .events(let conversationKey):
             let encoded = conversationKey.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? conversationKey
             return ("\(prefix)/events/", "conversationKey=\(encoded)")
@@ -330,6 +333,12 @@ public final class HTTPTransport {
                 let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
                 if statusCode == 401 {
                     handleAuthenticationFailure(responseData: data)
+                    if isManagedMode {
+                        // Stop polling — the session is expired and reconnecting
+                        // would just loop. The session-error event already tells
+                        // the UI to prompt re-authentication.
+                        shouldReconnect = false
+                    }
                 }
                 throw HTTPTransportError.healthCheckFailed
             }
@@ -410,6 +419,12 @@ public final class HTTPTransport {
                     log.error("SSE connection failed with status \(statusCode)")
                     if statusCode == 401 {
                         self.handleAuthenticationFailure()
+                        if self.isManagedMode {
+                            // In managed mode, 401 means the session token expired.
+                            // Don't reconnect — it would loop indefinitely.
+                            self.setSSEConnected(false)
+                            return
+                        }
                     }
                     self.handleSSEDisconnect()
                     return
