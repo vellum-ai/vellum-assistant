@@ -353,14 +353,14 @@ describe("ephemeral-permissions", () => {
       expect(result.decision).toBe("deny");
     });
 
-    test("proxied bash still prompts in workspace mode", async () => {
+    test("proxied bash follows normal rules in workspace mode (no special-casing)", async () => {
       const result = await check(
         "bash",
         { command: "echo hello", network_mode: "proxied" },
         testDir,
       );
-      expect(result.decision).toBe("prompt");
-      expect(result.reason).toContain("Proxied");
+      // Default allow-bash rule auto-allows; proxied mode is not special-cased.
+      expect(result.decision).toBe("allow");
     });
 
     test("ephemeral task rules + workspace mode: deny rule wins", async () => {
