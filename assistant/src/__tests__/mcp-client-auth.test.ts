@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, jest, mock, test } from "bun:test";
+import { describe, expect, jest, mock, test } from "bun:test";
 
 // Mock secure-keys so McpOAuthProvider doesn't try to access the keychain
 mock.module("../security/secure-keys.js", () => ({
@@ -28,13 +28,16 @@ const httpTransport = {
 
 describe("McpClient auth error detection", () => {
   test("treats StreamableHTTPError with code 401 as auth error (does not throw)", async () => {
-    const client = new McpClient("test-server", { quiet: true });
+    const client = new McpClient("test-server");
 
     // Monkey-patch createTransport to throw a 401 StreamableHTTPError
     (client as any).createTransport = () => ({});
     (client as any).client = {
       connect: () => {
-        throw new FakeStreamableHTTPError(401, 'Error POSTing to endpoint: {"error":"invalid_token"}');
+        throw new FakeStreamableHTTPError(
+          401,
+          'Error POSTing to endpoint: {"error":"invalid_token"}',
+        );
       },
       close: async () => {},
     };
@@ -45,7 +48,7 @@ describe("McpClient auth error detection", () => {
   });
 
   test("treats StreamableHTTPError with code 403 as auth error (does not throw)", async () => {
-    const client = new McpClient("test-server", { quiet: true });
+    const client = new McpClient("test-server");
 
     (client as any).createTransport = () => ({});
     (client as any).client = {
@@ -60,7 +63,7 @@ describe("McpClient auth error detection", () => {
   });
 
   test("rethrows non-auth StreamableHTTPError for HTTP transports", async () => {
-    const client = new McpClient("test-server", { quiet: true });
+    const client = new McpClient("test-server");
 
     (client as any).createTransport = () => ({});
     (client as any).client = {
@@ -70,11 +73,13 @@ describe("McpClient auth error detection", () => {
       close: async () => {},
     };
 
-    await expect(client.connect(httpTransport)).rejects.toThrow("Internal Server Error");
+    await expect(client.connect(httpTransport)).rejects.toThrow(
+      "Internal Server Error",
+    );
   });
 
   test("treats error message containing 'unauthorized' as auth error", async () => {
-    const client = new McpClient("test-server", { quiet: true });
+    const client = new McpClient("test-server");
 
     (client as any).createTransport = () => ({});
     (client as any).client = {
