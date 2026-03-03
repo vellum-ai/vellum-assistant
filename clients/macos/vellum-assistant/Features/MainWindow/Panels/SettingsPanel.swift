@@ -319,11 +319,10 @@ struct SettingsPanel: View {
                             .font(VFont.caption)
                             .foregroundColor(VColor.textSecondary)
 
-                        VInlineActionField(text: $apiKeyText, placeholder: "This is your private generated key", isSecure: true) {
-                            store.saveAPIKey(apiKeyText)
-                            apiKeyText = ""
-                            anthropicSetupExpanded = false
-                        }
+                        SecureField("This is your private generated key", text: $apiKeyText)
+                            .vInputStyle()
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textPrimary)
 
                         HStack(spacing: 0) {
                             Text("Get your API key at ")
@@ -337,9 +336,17 @@ struct SettingsPanel: View {
                                 }
                         }
 
-                        VButton(label: "Cancel", style: .tertiary, size: .large) {
-                            anthropicSetupExpanded = false
-                            apiKeyText = ""
+                        HStack(spacing: VSpacing.sm) {
+                            VButton(label: "Save", style: .primary, size: .large) {
+                                store.saveAPIKey(apiKeyText)
+                                apiKeyText = ""
+                                anthropicSetupExpanded = false
+                            }
+                            .disabled(apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            VButton(label: "Cancel", style: .secondary, size: .large) {
+                                apiKeyText = ""
+                                anthropicSetupExpanded = false
+                            }
                         }
                     }
                 } else {
@@ -417,11 +424,10 @@ struct SettingsPanel: View {
                             .font(VFont.caption)
                             .foregroundColor(VColor.textSecondary)
 
-                        VInlineActionField(text: $perplexityKeyText, placeholder: "Your Perplexity API key", isSecure: true) {
-                            store.savePerplexityKey(perplexityKeyText)
-                            perplexityKeyText = ""
-                            perplexitySetupExpanded = false
-                        }
+                        SecureField("Your Perplexity API key", text: $perplexityKeyText)
+                            .vInputStyle()
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textPrimary)
 
                         HStack(spacing: 0) {
                             Text("Get your API key at ")
@@ -435,9 +441,17 @@ struct SettingsPanel: View {
                                 }
                         }
 
-                        VButton(label: "Cancel", style: .tertiary, size: .large) {
-                            perplexitySetupExpanded = false
-                            perplexityKeyText = ""
+                        HStack(spacing: VSpacing.sm) {
+                            VButton(label: "Save", style: .primary, size: .large) {
+                                store.savePerplexityKey(perplexityKeyText)
+                                perplexityKeyText = ""
+                                perplexitySetupExpanded = false
+                            }
+                            .disabled(perplexityKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            VButton(label: "Cancel", style: .secondary, size: .large) {
+                                perplexityKeyText = ""
+                                perplexitySetupExpanded = false
+                            }
                         }
                     }
                 } else {
@@ -475,11 +489,10 @@ struct SettingsPanel: View {
                             .font(VFont.caption)
                             .foregroundColor(VColor.textSecondary)
 
-                        VInlineActionField(text: $braveKeyText, placeholder: "Your Brave Search API key", isSecure: true) {
-                            store.saveBraveKey(braveKeyText)
-                            braveKeyText = ""
-                            braveSetupExpanded = false
-                        }
+                        SecureField("Your Brave Search API key", text: $braveKeyText)
+                            .vInputStyle()
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textPrimary)
 
                         HStack(spacing: 0) {
                             Text("Get your API key at ")
@@ -493,9 +506,17 @@ struct SettingsPanel: View {
                                 }
                         }
 
-                        VButton(label: "Cancel", style: .tertiary, size: .large) {
-                            braveSetupExpanded = false
-                            braveKeyText = ""
+                        HStack(spacing: VSpacing.sm) {
+                            VButton(label: "Save", style: .primary, size: .large) {
+                                store.saveBraveKey(braveKeyText)
+                                braveKeyText = ""
+                                braveSetupExpanded = false
+                            }
+                            .disabled(braveKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            VButton(label: "Cancel", style: .secondary, size: .large) {
+                                braveKeyText = ""
+                                braveSetupExpanded = false
+                            }
                         }
                     }
                 } else {
@@ -554,11 +575,10 @@ struct SettingsPanel: View {
                             .font(VFont.caption)
                             .foregroundColor(VColor.textSecondary)
 
-                        VInlineActionField(text: $imageGenKeyText, placeholder: "Your Gemini API key", isSecure: true) {
-                            store.saveImageGenKey(imageGenKeyText)
-                            imageGenKeyText = ""
-                            imageGenSetupExpanded = false
-                        }
+                        SecureField("Your Gemini API key", text: $imageGenKeyText)
+                            .vInputStyle()
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textPrimary)
 
                         HStack(spacing: 0) {
                             Text("Get your API key at ")
@@ -572,9 +592,17 @@ struct SettingsPanel: View {
                                 }
                         }
 
-                        VButton(label: "Cancel", style: .tertiary, size: .large) {
-                            imageGenSetupExpanded = false
-                            imageGenKeyText = ""
+                        HStack(spacing: VSpacing.sm) {
+                            VButton(label: "Save", style: .primary, size: .large) {
+                                store.saveImageGenKey(imageGenKeyText)
+                                imageGenKeyText = ""
+                                imageGenSetupExpanded = false
+                            }
+                            .disabled(imageGenKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            VButton(label: "Cancel", style: .secondary, size: .large) {
+                                imageGenKeyText = ""
+                                imageGenSetupExpanded = false
+                            }
                         }
                     }
                 } else {

@@ -122,14 +122,38 @@ struct SettingsAccountTab: View {
                 // When not reachable/configured, show the inline field or a Set Up prompt.
                 if store.vellumPlatformReachable == true {
                     VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .large) {}
-                    VInlineActionField(text: $platformUrlText, placeholder: "https://platform.vellum.ai", isFocused: $isPlatformUrlFocused) {
-                        store.savePlatformBaseUrl(platformUrlText)
-                        Task { await store.checkVellumPlatform() }
+                    TextField("https://platform.vellum.ai", text: $platformUrlText)
+                        .vInputStyle()
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+                    HStack(spacing: VSpacing.sm) {
+                        VButton(label: "Save", style: .primary, size: .large) {
+                            store.savePlatformBaseUrl(platformUrlText)
+                            Task { await store.checkVellumPlatform() }
+                            isPlatformUrlFocused = false
+                        }
+                        .disabled(platformUrlText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        VButton(label: "Cancel", style: .secondary, size: .large) {
+                            platformUrlText = store.platformBaseUrl
+                            isPlatformUrlFocused = false
+                        }
                     }
                 } else if isPlatformUrlFocused || !platformUrlText.isEmpty {
-                    VInlineActionField(text: $platformUrlText, placeholder: "https://platform.vellum.ai", isFocused: $isPlatformUrlFocused) {
-                        store.savePlatformBaseUrl(platformUrlText)
-                        Task { await store.checkVellumPlatform() }
+                    TextField("https://platform.vellum.ai", text: $platformUrlText)
+                        .vInputStyle()
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+                    HStack(spacing: VSpacing.sm) {
+                        VButton(label: "Save", style: .primary, size: .large) {
+                            store.savePlatformBaseUrl(platformUrlText)
+                            Task { await store.checkVellumPlatform() }
+                            isPlatformUrlFocused = false
+                        }
+                        .disabled(platformUrlText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        VButton(label: "Cancel", style: .secondary, size: .large) {
+                            platformUrlText = ""
+                            isPlatformUrlFocused = false
+                        }
                     }
                 } else {
                     VButton(label: "Set Up", style: .secondary, size: .large) {
