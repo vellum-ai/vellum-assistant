@@ -1336,6 +1336,16 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             )
         }
 
+        // Schedule threads — created when the scheduler fires and creates a conversation.
+        daemonClient.onScheduleThreadCreated = { [weak self] msg in
+            guard let self, !self.isBootstrapping else { return }
+            self.mainWindow?.threadManager.createScheduleThread(
+                conversationId: msg.conversationId,
+                scheduleJobId: msg.scheduleJobId,
+                title: msg.title
+            )
+        }
+
         // Notification threads — created when the notification pipeline delivers
         // to the vellum channel with start_new_conversation strategy.
         daemonClient.onNotificationThreadCreated = { [weak self] msg in

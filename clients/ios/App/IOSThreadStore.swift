@@ -149,6 +149,17 @@ class IOSThreadStore: ObservableObject {
         daemon.onMessageContentResponse = { [weak self] response in
             self?.handleMessageContentResponse(response)
         }
+        daemon.onScheduleThreadCreated = { [weak self] msg in
+            guard let self else { return }
+            // Avoid duplicates
+            guard !self.threads.contains(where: { $0.sessionId == msg.conversationId }) else { return }
+            let thread = IOSThread(
+                title: msg.title,
+                sessionId: msg.conversationId,
+                scheduleJobId: msg.scheduleJobId
+            )
+            self.threads.insert(thread, at: 0)
+        }
 
         // Fetch session list once connected. Try immediately if already connected,
         // otherwise wait for the daemonDidReconnect notification.
@@ -226,6 +237,7 @@ class IOSThreadStore: ObservableObject {
             oldDaemon.onHistoryResponse = nil
             oldDaemon.onSubagentDetailResponse = nil
             oldDaemon.onMessageContentResponse = nil
+            oldDaemon.onScheduleThreadCreated = nil
         }
 
         daemonClient = newClient

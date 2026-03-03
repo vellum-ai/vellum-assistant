@@ -329,6 +329,34 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         log.info("Created task run thread \(thread.id) for conversation \(conversationId) (work item \(workItemId))")
     }
 
+    /// Create a visible thread bound to a schedule-created conversation.
+    /// Called when the daemon broadcasts `schedule_thread_created` so the user
+    /// sees scheduled threads in the sidebar without a full refresh.
+    func createScheduleThread(conversationId: String, scheduleJobId: String, title: String) {
+        // Avoid creating a duplicate thread if one already exists for this conversation
+        if threads.contains(where: { $0.sessionId == conversationId }) {
+            return
+        }
+
+        var thread = ThreadModel(title: title, sessionId: conversationId)
+        thread.scheduleJobId = scheduleJobId
+        thread.source = "schedule"
+        let viewModel = makeViewModel()
+        viewModel.sessionId = conversationId
+        viewModel.isHistoryLoaded = true
+        viewModel.startMessageLoop()
+
+        threads.insert(thread, at: 0)
+        chatViewModels[thread.id] = viewModel
+        subscribeToBusyState(for: thread.id, viewModel: viewModel)
+        subscribeToAssistantActivity(for: thread.id, viewModel: viewModel)
+        subscribeToInteractionState(for: thread.id, viewModel: viewModel)
+        touchVMAccessOrder(thread.id)
+        evictStaleCachedViewModels()
+
+        log.info("Created schedule thread \(thread.id) for conversation \(conversationId) (schedule \(scheduleJobId))")
+    }
+
     /// Create a visible thread bound to a notification-created conversation.
     /// Called when the daemon broadcasts `notification_thread_created` so the user
     /// can see notification threads and deep-link into them.

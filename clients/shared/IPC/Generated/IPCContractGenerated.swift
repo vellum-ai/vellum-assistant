@@ -3517,6 +3517,21 @@ public struct IPCSchedulesListResponseSchedule: Codable, Sendable {
     }
 }
 
+/// Server push — broadcast when a schedule creates a conversation, so the client can show it as a chat thread.
+public struct IPCScheduleThreadCreated: Codable, Sendable {
+    public let type: String
+    public let conversationId: String
+    public let scheduleJobId: String
+    public let title: String
+
+    public init(type: String, conversationId: String, scheduleJobId: String, title: String) {
+        self.type = type
+        self.conversationId = conversationId
+        self.scheduleJobId = scheduleJobId
+        self.title = title
+    }
+}
+
 public struct IPCScheduleToggle: Codable, Sendable {
     public let type: String
     public let id: String
