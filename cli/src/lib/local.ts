@@ -193,9 +193,6 @@ async function startDaemonWatchFromSource(assistantIndex: string): Promise<void>
     ...process.env,
     RUNTIME_HTTP_PORT: process.env.RUNTIME_HTTP_PORT || "7821",
   };
-  if (process.env.VELLUM_DESKTOP_APP) {
-    env.VELLUM_DAEMON_TCP_ENABLED = process.env.VELLUM_DAEMON_TCP_ENABLED || "1";
-  }
 
   const daemonLogFd = openLogFile("daemon.log");
   let daemonPid: number | undefined;

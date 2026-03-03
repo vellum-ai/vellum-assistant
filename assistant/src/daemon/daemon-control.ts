@@ -251,6 +251,34 @@ function releaseStartupLock(): void {
   try { unlinkSync(getStartupLockPath()); } catch { /* already removed */ }
 }
 
+/**
+ * Lifecycle guard: ensures only one daemon runs per workspace.
+ *
+ * Checks whether a healthy daemon is already running. If so, exits the
+ * process (exit 0) to prevent split-brain state. Otherwise, kills any
+ * stale daemon, ensures the root directory exists, and removes the stale
+ * socket file so the new daemon can bind cleanly.
+ *
+ * Called from daemon/main.ts so that every entry point (normal start,
+ * --watch, dev) is protected — not just the `daemon start` parent process.
+ */
+export async function guardDaemonStartup(): Promise<void> {
+  const status = await getDaemonStatus();
+  if (status.running) {
+    log.info({ pid: status.pid }, 'Daemon already running — exiting');
+    process.exit(0);
+  }
+
+  killStaleDaemon();
+
+  const rootDir = getRootDir();
+  if (!existsSync(rootDir)) {
+    mkdirSync(rootDir, { recursive: true });
+  }
+
+  removeSocketFile(getSocketPath());
+}
+
 export async function startDaemon(): Promise<{
   pid: number;
   alreadyRunning: boolean;
