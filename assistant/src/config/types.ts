@@ -4,7 +4,6 @@ export type {
   CallerIdentityConfig,
   CallsConfig,
   CallsDisclosureConfig,
-  CallsElevenLabsConfig,
   CallsSafetyConfig,
   CallsVoiceConfig,
   ContextWindowConfig,

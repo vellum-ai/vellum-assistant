@@ -60,13 +60,12 @@ const mockConfigObj = {
   memory: { enabled: false },
   rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
   secretDetection: { enabled: false },
+  elevenlabs: { voiceId: "21m00Tcm4TlvDq8ikWAM" },
   calls: {
     voice: {
-      mode: "twilio_standard",
       language: "en-US",
       transcriptionProvider: "Deepgram",
-      fallbackToStandardOnError: true,
-      elevenlabs: { voiceId: "" },
+      elevenlabs: {},
     },
   },
 };
