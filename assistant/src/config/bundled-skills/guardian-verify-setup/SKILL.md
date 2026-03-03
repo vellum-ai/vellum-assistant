@@ -145,7 +145,8 @@ When in a **rebind flow** (i.e., the `start_outbound` request included `"rebind"
 After the user reports entering the code, verify the binding was created:
 
 ```bash
-vellum integrations guardian status --channel <channel> --json
+CHANNEL="<channel>"
+vellum integrations guardian status --channel "$CHANNEL" --json
 ```
 
 If the response shows the guardian is bound, confirm success: "Guardian verified! Your [channel] identity is now the trusted guardian."
