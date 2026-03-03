@@ -38,7 +38,16 @@ export function indexMessageNow(
   if (!config.enabled) return { indexedSegments: 0, enqueuedJobs: 0 };
 
   // Provenance-based trust gating: only guardian and legacy (undefined) actors
-  // are trusted for extraction and conflict resolution.
+  // are trusted for extraction and conflict resolution. peer_assistant (A2A)
+  // actors are explicitly excluded — their messages are indexed for segment
+  // search but never trigger profile extraction or conflict resolution.
+  //
+  // Extension point (scope-aware extraction): A future milestone could allow
+  // limited extraction from peer_assistant messages when the connection has
+  // specific scopes (e.g., `read_profile` could permit extracting the peer's
+  // timezone or language preference). The gate below would then check both
+  // trust class and granted scopes. Until then, the binary gate prevents
+  // untrusted content from polluting the guardian's memory profile.
   const isTrustedActor = input.provenanceTrustClass === 'guardian' || input.provenanceTrustClass === undefined;
 
   const text = extractTextFromStoredMessageContent(input.content);

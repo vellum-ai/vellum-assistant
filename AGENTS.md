@@ -368,7 +368,14 @@ Conversational guardian verification control-plane invocation is guardian-only. 
 
 ## Memory Provenance Invariant
 
-All memory extraction and retrieval decisions must consider actor-role provenance. Untrusted actors (non-guardian, unverified_channel) must not trigger profile extraction or receive memory recall/conflict disclosures. This invariant is enforced in `indexer.ts` (write gate) and `session-memory.ts` (read gate).
+All memory extraction and retrieval decisions must consider actor-role provenance. Untrusted actors — including `non_guardian`, `unverified_channel`, and `peer_assistant` (A2A peers) — must not trigger profile extraction or receive memory recall/conflict disclosures. This invariant is enforced at four gate points:
+
+- **Write gate** (`indexer.ts`): Only `guardian` and legacy `undefined` provenance actors trigger `extract_items` and conflict resolution jobs. `peer_assistant` messages are indexed for segment search but extraction is suppressed.
+- **Read gate** (`session-memory.ts`): Only `guardian` actors receive memory recall, dynamic profile injection, and conflict gate evaluation. All other trust classes (including `peer_assistant`) get an empty recall result.
+- **History view gate** (`session-lifecycle.ts`): `peer_assistant` is treated as untrusted — only peer-provenance messages are visible, and compacted summaries (which may contain guardian-only context) are suppressed.
+- **Backfill gate** (`job-handlers/backfill.ts`): Same trust logic as the write gate — `peer_assistant` provenance is excluded from extraction during backfill.
+
+A guard test (`memory-provenance-a2a-guard.test.ts`) enforces that all four gate points correctly exclude `peer_assistant` from trusted paths.
 
 ## Guardian Privilege Isolation Invariant
 
