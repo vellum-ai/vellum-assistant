@@ -56,7 +56,7 @@ function mergeWithLegacyElevenLabsConfig(elevenlabs: ReturnType<typeof loadConfi
     // Only fall back to legacy if the top-level config doesn't explicitly set this field
     if (topLevel[field] === undefined) {
       const legacyValue = getNestedValue(raw, `${legacyPrefix}.${field}`);
-      if (legacyValue !== undefined) {
+      if (legacyValue !== undefined && legacyValue !== '') {
         (merged as Record<string, unknown>)[field] = legacyValue;
       }
     }
