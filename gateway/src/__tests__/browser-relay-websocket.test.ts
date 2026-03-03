@@ -1,9 +1,25 @@
 import { describe, test, expect, mock, beforeEach, afterAll } from "bun:test";
 import type { GatewayConfig } from "../config.js";
+import { initSigningKey, mintToken } from "../auth/token-service.js";
+import { CURRENT_POLICY_EPOCH } from "../auth/policy.js";
 import {
   createBrowserRelayWebsocketHandler,
   getBrowserRelayWebsocketHandlers,
 } from "../http/routes/browser-relay-websocket.js";
+
+const TEST_SIGNING_KEY = Buffer.from('test-signing-key-at-least-32-bytes-long');
+initSigningKey(TEST_SIGNING_KEY);
+
+/** Mint a valid edge JWT for browser relay auth. */
+function mintEdgeToken(): string {
+  return mintToken({
+    aud: 'vellum-gateway',
+    sub: 'actor:test-assistant:test-user',
+    scope_profile: 'actor_client_v1',
+    policy_epoch: CURRENT_POLICY_EPOCH,
+    ttlSeconds: 300,
+  });
+}
 
 const WS_CONNECTING = WebSocket.CONNECTING; // 0
 const WS_OPEN = WebSocket.OPEN; // 1
@@ -95,7 +111,7 @@ function createFakeUpstreamWs() {
 }
 
 describe("createBrowserRelayWebsocketHandler", () => {
-  const TEST_TOKEN = "relay-token-abc123";
+  const TEST_TOKEN = mintEdgeToken();
 
   test("upgrades when token query parameter is valid", () => {
     const config = makeConfig({});
@@ -238,7 +254,8 @@ describe("getBrowserRelayWebsocketHandlers", () => {
     handlers.message(ws as never, "hello-before-open");
 
     const MockWS = globalThis.WebSocket as unknown as ReturnType<typeof mock>;
-    expect(MockWS).toHaveBeenCalledWith("ws://runtime.internal:7821/v1/browser-relay?token=runtime-token");
+    const calledUrl = (MockWS.mock.calls[0] as unknown[])[0] as string;
+    expect(calledUrl).toMatch(/^ws:\/\/runtime\.internal:7821\/v1\/browser-relay\?token=ey/);
 
     fakeUpstream.readyState = WS_OPEN;
     fakeUpstream.emit("open");

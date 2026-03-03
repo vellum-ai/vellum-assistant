@@ -1,5 +1,23 @@
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import type { GatewayConfig } from "../config.js";
+import { initSigningKey, mintToken } from "../auth/token-service.js";
+import { CURRENT_POLICY_EPOCH } from "../auth/policy.js";
+
+const TEST_SIGNING_KEY = Buffer.from('test-signing-key-at-least-32-bytes-long');
+initSigningKey(TEST_SIGNING_KEY);
+
+/** Mint a valid daemon JWT for reconcile auth. */
+function mintDaemonToken(): string {
+  return mintToken({
+    aud: 'vellum-daemon',
+    sub: 'svc:gateway:self',
+    scope_profile: 'gateway_service_v1',
+    policy_epoch: CURRENT_POLICY_EPOCH,
+    ttlSeconds: 300,
+  });
+}
+
+const TOKEN = mintDaemonToken();
 
 type FetchFn = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(async () => new Response());
@@ -125,15 +143,6 @@ describe("POST /internal/telegram/reconcile", () => {
     expect(res.status).toBe(405);
   });
 
-  test("returns 503 when no bearer token is configured", async () => {
-    const config = makeConfig({});
-    const handler = createTelegramReconcileHandler(config);
-    const res = await handler(makeRequest("POST", "any-token"));
-    expect(res.status).toBe(503);
-    const body = await res.json();
-    expect(body.error).toContain("bearer token required");
-  });
-
   test("returns 401 for missing auth header", async () => {
     const config = makeConfig();
     const handler = createTelegramReconcileHandler(config);
@@ -151,7 +160,7 @@ describe("POST /internal/telegram/reconcile", () => {
   test("triggers reconcile with correct auth", async () => {
     const config = makeConfig();
     const handler = createTelegramReconcileHandler(config);
-    const res = await handler(makeRequest("POST", "test-token"));
+    const res = await handler(makeRequest("POST", TOKEN));
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.ok).toBe(true);
@@ -163,7 +172,7 @@ describe("POST /internal/telegram/reconcile", () => {
     const config = makeConfig({ ingressPublicBaseUrl: "https://old.example.com" });
     const handler = createTelegramReconcileHandler(config);
     const res = await handler(
-      makeRequest("POST", "test-token", {
+      makeRequest("POST", TOKEN, {
         ingressPublicBaseUrl: "https://new.example.com/",
       }),
     );
@@ -176,7 +185,7 @@ describe("POST /internal/telegram/reconcile", () => {
     const config = makeConfig({ ingressPublicBaseUrl: "https://old.example.com" });
     const handler = createTelegramReconcileHandler(config);
     const res = await handler(
-      makeRequest("POST", "test-token", {
+      makeRequest("POST", TOKEN, {
         ingressPublicBaseUrl: "",
       }),
     );
@@ -190,7 +199,7 @@ describe("POST /internal/telegram/reconcile", () => {
     const req = new Request("http://localhost:7830/internal/telegram/reconcile", {
       method: "POST",
       headers: {
-        authorization: "Bearer test-token",
+        authorization: `Bearer ${TOKEN}`,
       },
     });
     const res = await handler(req);
@@ -204,7 +213,7 @@ describe("POST /internal/telegram/reconcile", () => {
     });
     const config = makeConfig();
     const handler = createTelegramReconcileHandler(config);
-    const res = await handler(makeRequest("POST", "test-token"));
+    const res = await handler(makeRequest("POST", TOKEN));
     expect(res.status).toBe(502);
     const body = await res.json();
     expect(body.error).toBe("Reconciliation failed");
@@ -216,7 +225,7 @@ describe("POST /internal/telegram/reconcile", () => {
     const req = new Request("http://localhost:7830/internal/telegram/reconcile", {
       method: "POST",
       headers: {
-        authorization: "Bearer test-token",
+        authorization: `Bearer ${TOKEN}`,
         "content-type": "application/json",
       },
       body: "not-json{",
@@ -263,12 +272,12 @@ describe("POST /internal/telegram/reconcile", () => {
     // is still running, leaving Telegram pointed at the first URL.
     const [res1, res2] = await Promise.all([
       handler(
-        makeRequest("POST", "test-token", {
+        makeRequest("POST", TOKEN, {
           ingressPublicBaseUrl: "https://first.com",
         }),
       ),
       handler(
-        makeRequest("POST", "test-token", {
+        makeRequest("POST", TOKEN, {
           ingressPublicBaseUrl: "https://second.com",
         }),
       ),

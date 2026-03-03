@@ -1,5 +1,10 @@
 import { describe, test, expect, mock, afterEach } from "bun:test";
 import type { GatewayConfig } from "../config.js";
+import { initSigningKey, mintToken } from "../auth/token-service.js";
+import { CURRENT_POLICY_EPOCH } from "../auth/policy.js";
+
+const TEST_SIGNING_KEY = Buffer.from('test-signing-key-at-least-32-bytes-long');
+initSigningKey(TEST_SIGNING_KEY);
 
 type FetchFn = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(async () => new Response());
@@ -10,7 +15,18 @@ mock.module("../fetch.js", () => ({
 
 const { createTelegramDeliverHandler } = await import("../http/routes/telegram-deliver.js");
 
-const TOKEN = "test-deliver-token";
+/** Mint a valid daemon JWT for deliver auth. */
+function mintDeliverToken(): string {
+  return mintToken({
+    aud: 'vellum-daemon',
+    sub: 'svc:gateway:self',
+    scope_profile: 'gateway_service_v1',
+    policy_epoch: CURRENT_POLICY_EPOCH,
+    ttlSeconds: 300,
+  });
+}
+
+const TOKEN = mintDeliverToken();
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   const merged: GatewayConfig = {
@@ -354,22 +370,6 @@ describe("/deliver/telegram bearer auth enforcement", () => {
     expect(body.ok).toBe(true);
   });
 
-  test("returns 503 when no token is configured and bypass is not set", async () => {
-    const handler = createTelegramDeliverHandler(
-      makeConfig({}),
-    );
-    const req = new Request("http://localhost:7830/deliver/telegram", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ chatId: "123", text: "hello" }),
-    });
-    const res = await handler(req);
-
-    expect(res.status).toBe(503);
-    const body = await res.json();
-    expect(body.error).toBe("Service not configured: bearer token required");
-  });
-
   test("allows unauthenticated access when bypass flag is set and no token configured", async () => {
     mockTelegramApi();
     const handler = createTelegramDeliverHandler(
@@ -385,23 +385,6 @@ describe("/deliver/telegram bearer auth enforcement", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.ok).toBe(true);
-  });
-
-  test("bypass flag is ignored when a bearer token is configured (auth still required)", async () => {
-    const handler = createTelegramDeliverHandler(
-      makeConfig({ telegramDeliverAuthBypass: true }),
-    );
-    const req = new Request("http://localhost:7830/deliver/telegram", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ chatId: "123", text: "hello" }),
-    });
-    const res = await handler(req);
-
-    // Token is configured, so missing Authorization header is still rejected
-    expect(res.status).toBe(401);
-    const body = await res.json();
-    expect(body.error).toBe("Unauthorized");
   });
 
   test("still rejects non-POST methods before auth check", async () => {

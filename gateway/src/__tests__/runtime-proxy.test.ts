@@ -1,5 +1,9 @@
 import { describe, test, expect, mock, afterEach } from "bun:test";
 import type { GatewayConfig } from "../config.js";
+import { initSigningKey } from "../auth/token-service.js";
+
+const TEST_SIGNING_KEY = Buffer.from('test-signing-key-at-least-32-bytes-long');
+initSigningKey(TEST_SIGNING_KEY);
 
 type FetchFn = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(async () => new Response());
@@ -223,7 +227,7 @@ describe("runtime proxy handler", () => {
     expect(capturedSignal).toBeInstanceOf(AbortSignal);
   });
 
-  test("forwards authorization header when auth is not required", async () => {
+  test("replaces client authorization with JWT service token when auth is not required", async () => {
     let capturedHeaders: Headers | undefined;
     fetchMock = mock(async (_input: string | URL | Request, init?: RequestInit) => {
       capturedHeaders = init?.headers as unknown as Headers;
@@ -236,10 +240,11 @@ describe("runtime proxy handler", () => {
     });
     await handler(req);
 
-    expect(capturedHeaders!.get("authorization")).toBe("Bearer upstream-token");
+    // When auth is not required, gateway still mints a JWT service token for the runtime
+    expect(capturedHeaders!.get("authorization")).toMatch(/^Bearer ey/);
   });
 
-  test("replaces client authorization with configured bearer token for upstream", async () => {
+  test("replaces client authorization with JWT token for upstream", async () => {
     let capturedHeaders: Headers | undefined;
     fetchMock = mock(async (_input: string | URL | Request, init?: RequestInit) => {
       capturedHeaders = init?.headers as unknown as Headers;
@@ -254,7 +259,7 @@ describe("runtime proxy handler", () => {
     });
     await handler(req);
 
-    expect(capturedHeaders!.get("authorization")).toBe("Bearer daemon-token");
+    expect(capturedHeaders!.get("authorization")).toMatch(/^Bearer ey/);
   });
 
   test("truncates long upstream error bodies in logs", async () => {

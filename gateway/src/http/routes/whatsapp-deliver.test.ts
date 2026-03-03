@@ -1,5 +1,10 @@
 import { describe, it, expect, mock, beforeEach } from "bun:test";
 import type { GatewayConfig } from "../../config.js";
+import { initSigningKey, mintToken } from "../../auth/token-service.js";
+import { CURRENT_POLICY_EPOCH } from "../../auth/policy.js";
+
+const TEST_SIGNING_KEY = Buffer.from('test-signing-key-at-least-32-bytes-long');
+initSigningKey(TEST_SIGNING_KEY);
 
 // ---- Mocks ----
 
@@ -16,7 +21,18 @@ const { createWhatsAppDeliverHandler } = await import("./whatsapp-deliver.js");
 
 // ---- Helpers ----
 
-const TOKEN = "test-deliver-token";
+/** Mint a valid daemon JWT for deliver auth. */
+function mintDeliverToken(): string {
+  return mintToken({
+    aud: 'vellum-daemon',
+    sub: 'svc:gateway:self',
+    scope_profile: 'gateway_service_v1',
+    policy_epoch: CURRENT_POLICY_EPOCH,
+    ttlSeconds: 300,
+  });
+}
+
+const TOKEN = mintDeliverToken();
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   const merged: GatewayConfig = {
@@ -94,22 +110,9 @@ describe("/deliver/whatsapp", () => {
     expect(body.error).toBe("Method not allowed");
   });
 
-  it("rejects when no bearer token and bypass not set with 503", async () => {
-    const handler = createWhatsAppDeliverHandler(
-      makeConfig({
-        whatsappDeliverAuthBypass: false,
-      }),
-    );
-    const req = makeRequest({ to: "+15559876543", text: "hello" });
-    const res = await handler(req);
-    expect(res.status).toBe(503);
-    const body = await res.json();
-    expect(body.error).toBe("Service not configured: bearer token required");
-  });
-
   it("rejects request without Authorization header with 401", async () => {
     const handler = createWhatsAppDeliverHandler(
-      makeConfig({}),
+      makeConfig({ whatsappDeliverAuthBypass: false }),
     );
     const req = makeRequest({ to: "+15559876543", text: "hello" });
     const res = await handler(req);
@@ -120,7 +123,7 @@ describe("/deliver/whatsapp", () => {
 
   it("rejects request with wrong bearer token with 401", async () => {
     const handler = createWhatsAppDeliverHandler(
-      makeConfig({}),
+      makeConfig({ whatsappDeliverAuthBypass: false }),
     );
     const req = makeRequest({ to: "+15559876543", text: "hello" }, {
       authorization: "Bearer wrong-token",
@@ -133,7 +136,7 @@ describe("/deliver/whatsapp", () => {
 
   it("accepts request with correct bearer token", async () => {
     const handler = createWhatsAppDeliverHandler(
-      makeConfig({}),
+      makeConfig({ whatsappDeliverAuthBypass: false }),
     );
     const req = makeRequest({ to: "+15559876543", text: "hello" }, {
       authorization: `Bearer ${TOKEN}`,

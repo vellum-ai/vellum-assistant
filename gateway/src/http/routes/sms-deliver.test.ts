@@ -1,5 +1,10 @@
 import { describe, it, expect, mock, afterEach } from "bun:test";
 import type { GatewayConfig } from "../../config.js";
+import { initSigningKey, mintToken } from "../../auth/token-service.js";
+import { CURRENT_POLICY_EPOCH } from "../../auth/policy.js";
+
+const TEST_SIGNING_KEY = Buffer.from('test-signing-key-at-least-32-bytes-long');
+initSigningKey(TEST_SIGNING_KEY);
 
 type FetchFn = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(async () => new Response());
@@ -12,7 +17,18 @@ const { createSmsDeliverHandler } = await import("./sms-deliver.js");
 
 // --- Helpers ---------------------------------------------------------------
 
-const TOKEN = "test-deliver-token";
+/** Mint a valid daemon JWT for deliver auth. */
+function mintDeliverToken(): string {
+  return mintToken({
+    aud: 'vellum-daemon',
+    sub: 'svc:gateway:self',
+    scope_profile: 'gateway_service_v1',
+    policy_epoch: CURRENT_POLICY_EPOCH,
+    ttlSeconds: 300,
+  });
+}
+
+const TOKEN = mintDeliverToken();
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   const merged: GatewayConfig = {
@@ -95,17 +111,6 @@ describe("/deliver/sms", () => {
     });
     const res = await handler(req);
     expect(res.status).toBe(405);
-  });
-
-  it("rejects when no bearer token and bypass not set with 503", async () => {
-    const handler = createSmsDeliverHandler(
-      makeConfig({}),
-    );
-    const req = makeRequest({ to: "+15559876543", text: "hello" });
-    const res = await handler(req);
-    expect(res.status).toBe(503);
-    const body = await res.json();
-    expect(body.error).toBe("Service not configured: bearer token required");
   });
 
   it("rejects request without Authorization header with 401", async () => {

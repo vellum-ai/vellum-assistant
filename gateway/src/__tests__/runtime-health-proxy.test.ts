@@ -1,5 +1,9 @@
 import { describe, test, expect, mock, afterEach } from "bun:test";
 import type { GatewayConfig } from "../config.js";
+import { initSigningKey } from "../auth/token-service.js";
+
+const TEST_SIGNING_KEY = Buffer.from('test-signing-key-at-least-32-bytes-long');
+initSigningKey(TEST_SIGNING_KEY);
 
 type FetchFn = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(async () => new Response());
@@ -102,7 +106,7 @@ describe("runtime health proxy", () => {
     );
 
     expect(res.status).toBe(200);
-    expect(capturedHeaders?.get("authorization")).toBe("Bearer runtime-token");
+    expect(capturedHeaders?.get("authorization")).toMatch(/^Bearer ey/);
     expect(capturedHeaders?.has("host")).toBe(false);
   });
 

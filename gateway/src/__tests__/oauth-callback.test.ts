@@ -1,5 +1,9 @@
 import { describe, test, expect, mock, afterEach } from "bun:test";
 import type { GatewayConfig } from "../config.js";
+import { initSigningKey } from "../auth/token-service.js";
+
+const TEST_SIGNING_KEY = Buffer.from('test-signing-key-at-least-32-bytes-long');
+initSigningKey(TEST_SIGNING_KEY);
 
 type FetchFn = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(async () => new Response());
@@ -96,7 +100,7 @@ describe("OAuth callback handler", () => {
     expect(sentBody.error).toBeUndefined();
 
     const headers = calledInit.headers as Record<string, string>;
-    expect(headers["Authorization"]).toBe("Bearer rt-token");
+    expect(headers["Authorization"]).toMatch(/^Bearer ey/);
   });
 
   test("missing state parameter returns 400 error page", async () => {
@@ -317,7 +321,7 @@ describe("OAuth callback handler", () => {
     expect(fetchMock.mock.calls.length).toBe(MAX_CONSUMED_STATES + 1);
   });
 
-  test("omits Authorization header when runtimeBearerToken is undefined", async () => {
+  test("always sends JWT Authorization header to runtime", async () => {
     fetchMock = mock(async () =>
       Response.json({ ok: true }, { status: 200 }),
     );
@@ -334,6 +338,6 @@ describe("OAuth callback handler", () => {
 
     const calledInit = (fetchMock.mock.calls[0] as unknown[])[1] as RequestInit;
     const headers = calledInit.headers as Record<string, string>;
-    expect(headers["Authorization"]).toBeUndefined();
+    expect(headers["Authorization"]).toMatch(/^Bearer ey/);
   });
 });
