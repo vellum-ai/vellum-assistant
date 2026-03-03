@@ -176,8 +176,14 @@ struct AppsGridView: View {
                             Label(app.isPinned ? "Unpin" : "Pin", systemImage: app.isPinned ? "pin.slash" : "pin")
                         }
                         Button(role: .destructive) {
-                            hoveredAppId = nil
-                            NSCursor.pop()
+                            // Only pop the cursor if onHover exit hasn't already done so.
+                            // When the menu popover opens the cursor leaves the card, firing
+                            // the onHover exit which pops the cursor and nils hoveredAppId.
+                            // Popping again here would unbalance the cursor stack.
+                            if hoveredAppId != nil {
+                                hoveredAppId = nil
+                                NSCursor.pop()
+                            }
                             appListManager.removeApp(id: app.id)
                         } label: {
                             Label("Delete", systemImage: "trash")
