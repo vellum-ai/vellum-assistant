@@ -41,12 +41,15 @@ export function parseFrontmatterFields(
   function flushContinuation() {
     if (currentKey !== undefined) {
       if (continuationLines.length > 0) {
-        // Join continuation lines, then strip trailing commas before closing
-        // braces/brackets so that prettier-formatted JSON remains valid for JSON.parse.
-        fields[currentKey] = continuationLines
-          .map((l) => l.trim())
-          .join(" ")
-          .replace(/,\s*([}\]])/g, "$1");
+        const joined = continuationLines.map((l) => l.trim()).join(" ");
+        // Try parsing as-is first to avoid corrupting commas inside quoted strings.
+        // Only apply trailing-comma cleanup if the raw text isn't valid JSON.
+        try {
+          JSON.parse(joined);
+          fields[currentKey] = joined;
+        } catch {
+          fields[currentKey] = joined.replace(/,\s*([}\]])/g, "$1");
+        }
       } else {
         fields[currentKey] = "";
       }
