@@ -301,7 +301,7 @@ struct MessageListView: View {
                         $0.toolCalls.contains(where: { !$0.isComplete })
                     })
                     let shouldShowThinkingIndicator = isSending
-                        && !(lastVisible?.isStreaming == true)
+                        && (isThinking || !(lastVisible?.isStreaming == true))
                         && !hasActiveToolCall
                     ForEach(Array(zip(displayMessages.indices, displayMessages)), id: \.1.id) { index, message in
                         if showTimestamp.contains(index) {
