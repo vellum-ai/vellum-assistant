@@ -49,6 +49,7 @@
     "accept_starter_bundle",
     "add_trust_rule",
     "app_data_request",
+    "app_delete",
     "app_diff_request",
     "app_file_at_version_request",
     "app_history_request",
@@ -189,6 +190,7 @@
   "serverWireTypes": [
     "accept_starter_bundle_response",
     "app_data_response",
+    "app_delete_response",
     "app_diff_response",
     "app_file_at_version_response",
     "app_files_changed",
