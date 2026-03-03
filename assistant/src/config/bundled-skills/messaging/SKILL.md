@@ -306,6 +306,7 @@ When a user asks to declutter, clean up, or organize their email — start scann
 1. **Scan**: Call `gmail_sender_digest` (or `messaging_sender_digest` for non-Gmail). Default query targets promotions from the last 90 days.
 2. **Present**: Show results as a `ui_show` table with `selectionMode: "multiple"`:
    - **Gmail columns (exactly 3)**: Sender, Emails Found, Unsub?
+     - **Unsub? cell values**: Use rich cell format: `{ "text": "Yes", "icon": "checkmark.circle.fill", "iconColor": "success" }` when `has_unsubscribe` is true, `{ "text": "No", "icon": "minus.circle", "iconColor": "muted" }` when false.
    - **Non-Gmail columns (exactly 2)**: Sender, Emails Found (omit the Unsub? column — unsubscribe is not available)
    - **Pre-select all rows** (`selected: true`) — users deselect what they want to keep
    - **Caption**: "Showing emails from last 90 days in Promotions" (or adjusted to match the query used)
