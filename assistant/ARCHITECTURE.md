@@ -1987,7 +1987,7 @@ The pairing function (`pairDeliveryWithConversation`) is resilient — errors ar
 
 The notification pipeline uses a single conversation materialization path across producers:
 
-1. **Canonical pipeline** (`emitNotificationSignal` → decision engine → broadcaster → conversation pairing → adapters): The broadcaster pairs each delivery with a conversation, then dispatches a `notification_intent` IPC event via the Vellum adapter. The IPC payload includes `deepLinkMetadata` (e.g. `{ conversationId }`) so the macOS/iOS client can deep-link to the relevant context when the user taps the notification.
+1. **Canonical pipeline** (`emitNotificationSignal` → decision engine → broadcaster → conversation pairing → adapters): The broadcaster pairs each delivery with a conversation, then dispatches a `notification_intent` IPC event via the Vellum adapter. The IPC payload includes `deepLinkMetadata` (e.g. `{ conversationId, messageId }`) so the macOS/iOS client can deep-link to the relevant context when the user taps the notification. When `messageId` is present, the client scrolls to that specific message within the thread (message-level anchoring).
 2. **Guardian bookkeeping** (`dispatchGuardianQuestion`): Guardian dispatch creates `guardian_action_request` / `guardian_action_delivery` audit rows derived from pipeline delivery results and the per-dispatch `onThreadCreated` callback — there is no separate thread-creation path.
 
 ### Thread Surfacing via `notification_thread_created` IPC (Creation-Only)
@@ -2016,6 +2016,15 @@ The decision engine produces per-channel thread actions using a candidate-driven
 5. **IPC gating**: `notification_thread_created` fires only on actual creation, not on reuse.
 6. **Audit trail**: Thread actions are persisted in both `notification_decisions.validation_results` and `notification_deliveries` columns (`thread_action`, `thread_target_conversation_id`, `thread_decision_fallback_used`).
 
+### Guardian Call Thread Affinity
+
+When a guardian question originates from an active phone call (`callSessionId` present on the signal), the decision engine enforces thread affinity so all questions within the same call land in one vellum thread:
+
+- **First question in a call** (no `conversationAffinityHint`): `enforceGuardianCallThreadAffinity` forces `start_new` for the vellum channel, creating a dedicated thread for the call.
+- **Subsequent questions in the same call** (affinity hint already set by `dispatchGuardianQuestion`): The guard is a no-op, and `enforceConversationAffinity` routes to `reuse_existing` using the hint's `conversationId`.
+
+This guard runs **before** `enforceConversationAffinity` in the post-decision chain so the two cooperate: the first dispatch creates the thread, and subsequent dispatches reuse it via the affinity hint that `dispatchGuardianQuestion` sets after observing the first delivery's `conversationId`.
+
 ### Guardian Multi-Request Disambiguation in Reused Threads
 
 When the decision engine routes multiple guardian questions to the same conversation (via `reuse_existing`), those questions share a single thread. The guardian disambiguates which question they are answering using **request-code prefixes**:
@@ -2034,7 +2043,7 @@ Reminders carry optional `routingIntent` (`single_channel` | `multi_channel` | `
 
 Notifications are delivered to three channel types:
 
-- **Vellum (always connected)**: Local IPC via the daemon's broadcast mechanism. The `VellumAdapter` emits a `notification_intent` message with rendered copy and optional `deepLinkMetadata`.
+- **Vellum (always connected)**: Local IPC via the daemon's broadcast mechanism. The `VellumAdapter` emits a `notification_intent` message with rendered copy and optional `deepLinkMetadata` (includes `conversationId` for thread navigation and `messageId` for message-level scroll anchoring).
 - **Telegram (when guardian binding exists)**: HTTP POST to the gateway's `/deliver/telegram` endpoint. Requires an active guardian binding for the assistant.
 - **SMS (when guardian binding exists)**: HTTP POST to the gateway's `/deliver/sms` endpoint. Follows the same pattern as Telegram; the `SmsAdapter` sends text-only messages via the Twilio Messages API. The `assistantId` is threaded through the delivery payload for multi-assistant phone number resolution.
 

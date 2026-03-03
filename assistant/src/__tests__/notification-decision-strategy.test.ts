@@ -18,10 +18,16 @@ import {
   normalizeForDirectiveMatching,
   sanitizeIdentityField,
 } from "../notifications/copy-composer.js";
-import { validateThreadActions } from "../notifications/decision-engine.js";
+import {
+  enforceGuardianCallThreadAffinity,
+  validateThreadActions,
+} from "../notifications/decision-engine.js";
 import type { NotificationSignal } from "../notifications/signal.js";
 import type { ThreadCandidateSet } from "../notifications/thread-candidates.js";
-import type { NotificationChannel } from "../notifications/types.js";
+import type {
+  NotificationChannel,
+  NotificationDecision,
+} from "../notifications/types.js";
 
 // -- Helpers -----------------------------------------------------------------
 
@@ -821,6 +827,108 @@ describe("notification decision strategy", () => {
       expect(text).not.toContain("\x00");
       expect(text).toContain("A1B2C3 approve");
       expect(text).toContain("open invite flow");
+    });
+  });
+
+  // -- Guardian call thread affinity enforcement --------------------------------
+
+  describe("guardian call thread affinity enforcement", () => {
+    function makeDecision(
+      overrides?: Partial<NotificationDecision>,
+    ): NotificationDecision {
+      return {
+        shouldNotify: true,
+        selectedChannels: ["vellum"],
+        reasoningSummary: "test",
+        renderedCopy: {
+          vellum: { title: "Test", body: "Body" },
+        },
+        dedupeKey: "test-key",
+        confidence: 0.8,
+        fallbackUsed: false,
+        ...overrides,
+      };
+    }
+
+    test("guardian.question with callSessionId and no affinity hint forces start_new for vellum", () => {
+      const decision = makeDecision();
+      const signal = makeSignal({
+        sourceEventName: "guardian.question",
+        contextPayload: {
+          requestId: "req-1",
+          requestCode: "A1B2C3",
+          questionText: "What is the gate code?",
+          requestKind: "pending_question",
+          callSessionId: "call-session-1",
+          activeGuardianRequestCount: 1,
+        },
+      });
+
+      const result = enforceGuardianCallThreadAffinity(decision, signal);
+      expect(result.threadActions?.vellum).toEqual({ action: "start_new" });
+    });
+
+    test("guardian.question with callSessionId and existing affinity hint does not override", () => {
+      const decision = makeDecision({
+        threadActions: {
+          vellum: { action: "reuse_existing", conversationId: "conv-123" },
+        },
+      });
+      const signal = makeSignal({
+        sourceEventName: "guardian.question",
+        contextPayload: {
+          requestId: "req-2",
+          requestCode: "D4E5F6",
+          questionText: "Should I let them in?",
+          requestKind: "pending_question",
+          callSessionId: "call-session-2",
+          activeGuardianRequestCount: 2,
+        },
+        conversationAffinityHint: { vellum: "conv-123" },
+      });
+
+      const result = enforceGuardianCallThreadAffinity(decision, signal);
+      // Should remain unchanged — the affinity hint takes precedence
+      expect(result.threadActions?.vellum).toEqual({
+        action: "reuse_existing",
+        conversationId: "conv-123",
+      });
+    });
+
+    test("non-guardian event is not affected by guardian call thread affinity", () => {
+      const decision = makeDecision({
+        threadActions: {
+          vellum: { action: "reuse_existing", conversationId: "conv-456" },
+        },
+      });
+      const signal = makeSignal({
+        sourceEventName: "reminder.fired",
+        contextPayload: { message: "Take out the trash" },
+      });
+
+      const result = enforceGuardianCallThreadAffinity(decision, signal);
+      expect(result.threadActions?.vellum).toEqual({
+        action: "reuse_existing",
+        conversationId: "conv-456",
+      });
+    });
+
+    test("guardian.question without callSessionId is not affected", () => {
+      const decision = makeDecision();
+      const signal = makeSignal({
+        sourceEventName: "guardian.question",
+        contextPayload: {
+          requestId: "req-3",
+          requestCode: "G7H8I9",
+          questionText: "Allow this?",
+          requestKind: "tool_grant_request",
+          toolName: "host_bash",
+        },
+      });
+
+      const result = enforceGuardianCallThreadAffinity(decision, signal);
+      // No callSessionId → no enforcement
+      expect(result.threadActions).toBeUndefined();
     });
   });
 });

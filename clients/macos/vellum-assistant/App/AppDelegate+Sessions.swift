@@ -332,7 +332,10 @@ extension AppDelegate {
     /// Opens the main window and navigates to the thread for the given conversation ID.
     /// Retries if the thread isn't populated yet (e.g., ThreadManager hasn't loaded it).
     /// Used by Quick Chat and notification deep links.
-    func openConversationThread(conversationId: String?) {
+    /// - Parameters:
+    ///   - conversationId: The conversation to navigate to.
+    ///   - anchorMessageId: Optional message ID to scroll to after the thread is selected.
+    func openConversationThread(conversationId: String?, anchorMessageId: String? = nil) {
         showMainWindow()
         guard let conversationId else { return }
 
@@ -351,6 +354,11 @@ extension AppDelegate {
             // already set above, so we call markConversationSeen explicitly to
             // keep both the local flag and the daemon's server-side state in sync.
             threadManager.markConversationSeen(threadId: thread.id)
+            // Set pending anchor message so the message list scrolls to the
+            // relevant notification message when the view appears.
+            if let anchorMessageId, let anchorUUID = UUID(uuidString: anchorMessageId) {
+                threadManager.setPendingAnchorMessage(threadId: thread.id, messageId: anchorUUID)
+            }
             return true
         }
 

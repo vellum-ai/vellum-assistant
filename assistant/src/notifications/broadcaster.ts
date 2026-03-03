@@ -165,6 +165,9 @@ export class NotificationBroadcaster {
       let deepLinkTarget = decision.deepLinkTarget;
       if (channel === 'vellum' && pairing.conversationId) {
         deepLinkTarget = { ...deepLinkTarget, conversationId: pairing.conversationId };
+        if (pairing.messageId) {
+          deepLinkTarget = { ...deepLinkTarget, messageId: pairing.messageId };
+        }
 
         // Resolve guardian scoping for thread-created events so clients
         // can filter guardian-sensitive threads the same way they filter

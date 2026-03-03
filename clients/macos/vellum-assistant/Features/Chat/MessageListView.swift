@@ -51,6 +51,9 @@ struct MessageListView: View {
     var loadPreviousMessagePage: (() async -> Bool)?
 
     var threadId: UUID?
+    /// When set, scroll to this message ID and clear the binding.
+    /// Used by notification deep links to anchor the view to a specific message.
+    @Binding var anchorMessageId: UUID?
     @Binding var isNearBottom: Bool
     @Environment(\.conversationZoomScale) private var conversationZoomScale
     @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
@@ -584,6 +587,14 @@ struct MessageListView: View {
                 isThreadContentHovered = false
                 DispatchQueue.main.async {
                     proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                }
+            }
+            .onChange(of: anchorMessageId) {
+                if let id = anchorMessageId {
+                    withAnimation {
+                        proxy.scrollTo(id, anchor: .center)
+                    }
+                    anchorMessageId = nil
                 }
             }
             .onChange(of: currentPendingRequestId) {

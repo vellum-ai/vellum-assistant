@@ -696,6 +696,85 @@ describe("guardian-dispatch", () => {
     });
   });
 
+  test("ASK_GUARDIAN_APPROVAL path (toolName present) uses same-thread affinity on second dispatch", async () => {
+    const convId = "conv-dispatch-affinity-tool";
+    ensureConversation(convId);
+
+    const sharedConversationId = "conv-affinity-tool-guardian";
+
+    const session = createCallSession({
+      conversationId: convId,
+      provider: "twilio",
+      fromNumber: "+15550001111",
+      toNumber: "+15550002222",
+    });
+
+    // First dispatch — tool-approval style pending_question (toolName set)
+    const pq1 = createPendingQuestion(
+      session.id,
+      "Allow send_email to bob@example.com?",
+    );
+    mockEmitResult = {
+      signalId: "sig-tool-affinity-1",
+      deduplicated: false,
+      dispatched: true,
+      reason: "ok",
+      deliveryResults: [
+        {
+          channel: "vellum",
+          destination: "vellum",
+          status: "sent",
+          conversationId: sharedConversationId,
+        },
+      ],
+    };
+
+    await dispatchGuardianQuestion({
+      callSessionId: session.id,
+      conversationId: convId,
+      assistantId: "self",
+      pendingQuestion: pq1,
+      toolName: "send_email",
+    });
+
+    const firstParams = emitCalls[0] as Record<string, unknown>;
+    expect(firstParams.conversationAffinityHint).toBeUndefined();
+
+    // Second dispatch — also with toolName
+    emitCalls.length = 0;
+    const pq2 = createPendingQuestion(
+      session.id,
+      "Allow run_script with sudo?",
+    );
+    mockEmitResult = {
+      signalId: "sig-tool-affinity-2",
+      deduplicated: false,
+      dispatched: true,
+      reason: "ok",
+      deliveryResults: [
+        {
+          channel: "vellum",
+          destination: "vellum",
+          status: "sent",
+          conversationId: sharedConversationId,
+        },
+      ],
+    };
+
+    await dispatchGuardianQuestion({
+      callSessionId: session.id,
+      conversationId: convId,
+      assistantId: "self",
+      pendingQuestion: pq2,
+      toolName: "run_script",
+    });
+
+    const secondParams = emitCalls[0] as Record<string, unknown>;
+    expect(secondParams.conversationAffinityHint).toEqual({
+      vellum: sharedConversationId,
+    });
+  });
+
   test("third guardian question in same call session also carries affinity hint", async () => {
     const convId = "conv-dispatch-affinity-2";
     ensureConversation(convId);

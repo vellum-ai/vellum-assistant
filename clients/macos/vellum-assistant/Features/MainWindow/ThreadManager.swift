@@ -101,6 +101,8 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     @Published private(set) var threadInteractionStates: [UUID: ThreadInteractionState] = [:]
     /// Subscriptions to per-thread interaction-state changes.
     private var interactionStateCancellables: [UUID: Set<AnyCancellable>] = [:]
+    /// Pending anchor message ID for scroll-to behavior on notification deep links.
+    @Published var pendingAnchorMessageId: UUID?
     /// Session IDs whose seen signals are deferred pending undo expiration.
     private var pendingSeenSessionIds: [String] = []
     /// Task that auto-commits deferred seen signals after the undo window.
@@ -1022,6 +1024,20 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         if let sessionId = threads[idx].sessionId {
             emitConversationSeenSignal(conversationId: sessionId)
         }
+    }
+
+    /// Set a pending anchor message for scroll-to behavior on notification deep links.
+    /// Only takes effect when the specified thread is currently active.
+    func setPendingAnchorMessage(threadId: UUID, messageId: UUID) {
+        guard activeThreadId == threadId else { return }
+        pendingAnchorMessageId = messageId
+    }
+
+    /// Consume the pending anchor message, returning it if present. Resets to nil.
+    func consumePendingAnchorMessage() -> UUID? {
+        let id = pendingAnchorMessageId
+        pendingAnchorMessageId = nil
+        return id
     }
 
     /// Mark all visible (non-archived, non-private) threads as seen locally.
