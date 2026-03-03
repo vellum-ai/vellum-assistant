@@ -748,4 +748,27 @@ When the daemon is unreachable, outgoing user messages are buffered in `OfflineM
 
 Storage key: `offline_message_queue_v1` (UserDefaults).
 
+### Guardian Approval Card UI (macOS/iOS)
+
+Guardian approval prompts are rendered as structured card UIs in the chat timeline using a "buttons first, text fallback" model. The daemon delivers `GuardianDecisionPrompt` objects via IPC or HTTP, and the client renders them as kind-aware cards with tappable action buttons.
+
+**Kind-aware rendering:** `GuardianDecisionBubble` renders distinct card headers for each canonical request kind:
+
+| Kind | Header | Icon | Accent |
+|------|--------|------|--------|
+| `tool_approval` | "Tool Approval Required" | `shield.lefthalf.filled` | Warning |
+| `pending_question` | "Question Pending" | `questionmark.circle.fill` | Accent |
+| `access_request` | "Access Request" | `person.badge.key.fill` | Warning |
+
+**Interaction model:** Each card displays the `questionText` (which includes text fallback directives for `access_request`), action buttons (Approve once / Reject), and secondary metadata (tool name, request code). Buttons submit decisions via `POST /v1/guardian-actions/decision` with the `requestId` and chosen action. The `requestCode` is always visible as a "Ref:" label so guardians can use text-based fallback (`<code> approve` / `<code> reject`) if buttons are not available or not used.
+
+**Shared primitives:** Action buttons use `ApprovalActionButton` (shared with `ToolConfirmationBubble`), and the button row is rendered by `GuardianApprovalActionRow`. Resolved prompts collapse to `ApprovalStatusRow` showing the outcome.
+
+| File | Purpose |
+|------|---------|
+| `clients/shared/Features/Chat/GuardianDecisionBubble.swift` | Kind-aware guardian approval card with action buttons |
+| `clients/shared/Features/Chat/ApprovalActionRow.swift` | Shared `ApprovalActionButton` and `GuardianApprovalActionRow` |
+| `clients/shared/Features/Chat/ApprovalStatusRow.swift` | Collapsed resolved-state display |
+| `clients/shared/Features/Chat/ToolConfirmationBubble.swift` | Tool confirmation card (shares `ApprovalActionButton`) |
+
 ---
