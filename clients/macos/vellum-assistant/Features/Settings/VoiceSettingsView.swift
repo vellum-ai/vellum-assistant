@@ -54,12 +54,12 @@ struct VoiceSettingsView: View {
 
     private var pttCard: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
                 Text("Push to Talk")
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
                 Text("Hold the activation key to dictate text or start a voice conversation. Uses on-device speech recognition.")
-                    .font(VFont.caption)
+                    .font(VFont.sectionDescription)
                     .foregroundColor(VColor.textMuted)
             }
 
@@ -88,8 +88,8 @@ struct VoiceSettingsView: View {
             if pttEnabled {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     Text("Activation key")
-                        .font(VFont.bodyMedium)
-                        .foregroundColor(VColor.textPrimary)
+                        .font(VFont.inputLabel)
+                        .foregroundColor(VColor.textSecondary)
 
                     HStack(spacing: VSpacing.sm) {
                         // Preset buttons
@@ -278,12 +278,12 @@ struct VoiceSettingsView: View {
 
     private var wakeWordCard: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
                 Text("Talk to Vellum, hands free")
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
                 Text("Wake word lets you start a conversation by speaking a keyword aloud \u{2014} no need to click or press anything. It uses on-device speech recognition, so nothing you say ever leaves your Mac.")
-                    .font(VFont.caption)
+                    .font(VFont.sectionDescription)
                     .foregroundColor(VColor.textMuted)
                     .lineSpacing(2)
             }
@@ -313,8 +313,8 @@ struct VoiceSettingsView: View {
                 // Keyword
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     Text("Keyword")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
+                        .font(VFont.inputLabel)
+                        .foregroundColor(VColor.textSecondary)
 
                     TextField("Enter wake word or phrase", text: $wakeWordKeyword)
                         .vInputStyle()
@@ -338,10 +338,10 @@ struct VoiceSettingsView: View {
 
                 // Conversation timeout
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
                         Text("Conversation timeout")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
+                            .font(VFont.inputLabel)
+                            .foregroundColor(VColor.textSecondary)
                         Text("How long to wait for follow-up speech before ending the conversation.")
                             .font(VFont.caption)
                             .foregroundColor(VColor.textMuted)
@@ -408,12 +408,12 @@ struct VoiceSettingsView: View {
 
     private var ttsCard: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
                 Text("Text-to-Speech")
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
                 Text("ElevenLabs provides high-quality voice responses during voice conversations. An API key is required.")
-                    .font(VFont.caption)
+                    .font(VFont.sectionDescription)
                     .foregroundColor(VColor.textMuted)
             }
 
@@ -429,7 +429,7 @@ struct VoiceSettingsView: View {
             } else if ttsSetupExpanded {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     Text("ElevenLabs API Key")
-                        .font(VFont.caption)
+                        .font(VFont.inputLabel)
                         .foregroundColor(VColor.textSecondary)
 
                     SecureField("Your ElevenLabs API key", text: $elevenLabsKeyText)

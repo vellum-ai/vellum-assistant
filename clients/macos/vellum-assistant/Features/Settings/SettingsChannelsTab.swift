@@ -112,7 +112,7 @@ struct SettingsChannelsTab: View {
     private var bearerTokenContent: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Bearer Token")
-                .font(VFont.bodyMedium)
+                .font(VFont.inputLabel)
                 .foregroundColor(VColor.textSecondary)
 
             if bearerToken.isEmpty {
@@ -204,12 +204,12 @@ struct SettingsChannelsTab: View {
 
     private var emailCard: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
                 Text("Email")
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
                 Text("Send and receive emails as your assistant")
-                    .font(VFont.caption)
+                    .font(VFont.sectionDescription)
                     .foregroundColor(VColor.textMuted)
             }
 
@@ -263,12 +263,12 @@ struct SettingsChannelsTab: View {
 
     private var telegramCard: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
                 Text("Telegram")
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
                 Text("Message your assistant from Telegram")
-                    .font(VFont.caption)
+                    .font(VFont.sectionDescription)
                     .foregroundColor(VColor.textMuted)
             }
 
@@ -374,7 +374,7 @@ struct SettingsChannelsTab: View {
     private var telegramCredentialEntry: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Bot Token")
-                .font(VFont.caption)
+                .font(VFont.inputLabel)
                 .foregroundColor(VColor.textSecondary)
 
             SecureField("Telegram bot token", text: $telegramBotTokenText)
@@ -415,12 +415,12 @@ struct SettingsChannelsTab: View {
 
     private var slackChannelCard: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
                 Text("Slack")
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
                 Text("Message your assistant from Slack")
-                    .font(VFont.caption)
+                    .font(VFont.sectionDescription)
                     .foregroundColor(VColor.textMuted)
             }
 
@@ -465,7 +465,7 @@ struct SettingsChannelsTab: View {
     private var slackChannelCredentialEntry: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Slack Credentials")
-                .font(VFont.caption)
+                .font(VFont.inputLabel)
                 .foregroundColor(VColor.textSecondary)
 
             SecureField("Bot Token (xoxb-...)", text: $slackChannelBotTokenInput)
@@ -519,12 +519,12 @@ struct SettingsChannelsTab: View {
 
     private var twilioCard: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
                 Text("SMS")
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
                 Text("Text your assistant using Twilio as the SMS provider")
-                    .font(VFont.caption)
+                    .font(VFont.sectionDescription)
                     .foregroundColor(VColor.textMuted)
             }
 
@@ -547,9 +547,9 @@ struct SettingsChannelsTab: View {
             // Phone number row (only when credentials exist)
             if store.twilioHasCredentials {
                 Divider().background(VColor.surfaceBorder)
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
                     Text("Phone Number")
-                        .font(VFont.caption)
+                        .font(VFont.inputLabel)
                         .foregroundColor(VColor.textSecondary)
                     VDropdown(
                         placeholder: "Not Set",
@@ -594,12 +594,12 @@ struct SettingsChannelsTab: View {
 
     private var voiceCard: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
                 Text("Phone Calling")
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
                 Text("Receive and make phone calls via Twilio")
-                    .font(VFont.caption)
+                    .font(VFont.sectionDescription)
                     .foregroundColor(VColor.textMuted)
             }
 
@@ -622,9 +622,9 @@ struct SettingsChannelsTab: View {
             // Phone number row (only when credentials exist)
             if store.twilioHasCredentials {
                 Divider().background(VColor.surfaceBorder)
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
                     Text("Phone Number")
-                        .font(VFont.caption)
+                        .font(VFont.inputLabel)
                         .foregroundColor(VColor.textSecondary)
                     VDropdown(
                         placeholder: "Not Set",
@@ -671,7 +671,7 @@ struct SettingsChannelsTab: View {
     private var twilioCredentialEntry: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Account SID and Auth Token")
-                .font(VFont.caption)
+                .font(VFont.inputLabel)
                 .foregroundColor(VColor.textSecondary)
 
             TextField("Account SID", text: $twilioAccountSidText)
@@ -722,7 +722,7 @@ struct SettingsChannelsTab: View {
     private var voiceCredentialEntry: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Account SID and Auth Token")
-                .font(VFont.caption)
+                .font(VFont.inputLabel)
                 .foregroundColor(VColor.textSecondary)
 
             TextField("Account SID", text: $voiceAccountSidText)
@@ -1444,12 +1444,12 @@ struct SettingsChannelsTab: View {
 
     private var mobileCard: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
                 Text("Mobile (iOS)")
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
                 Text("Connect your phone to your assistant through the iOS app")
-                    .font(VFont.caption)
+                    .font(VFont.sectionDescription)
                     .foregroundColor(VColor.textMuted)
             }
 
@@ -1457,7 +1457,7 @@ struct SettingsChannelsTab: View {
             if !store.approvedDevices.isEmpty {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text("Devices")
-                        .font(VFont.caption)
+                        .font(VFont.inputLabel)
                         .foregroundColor(VColor.textSecondary)
 
                     ForEach(store.approvedDevices, id: \.hashedDeviceId) { device in

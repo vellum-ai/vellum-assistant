@@ -24,10 +24,11 @@ struct SettingsAppearanceTab: View {
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
 
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                HStack(alignment: .center, spacing: VSpacing.lg) {
                     Text("Theme")
-                        .font(VFont.body)
+                        .font(VFont.inputLabel)
                         .foregroundColor(VColor.textSecondary)
+                    Spacer()
                     VSegmentedControl(
                         items: [
                             (label: "System", tag: "system"),
@@ -46,20 +47,23 @@ struct SettingsAppearanceTab: View {
                     .fixedSize()
                 }
 
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("User timezone")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
-                    Text("Timezone used for time-aware responses.")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                HStack(alignment: .top, spacing: VSpacing.lg) {
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        Text("User timezone")
+                            .font(VFont.inputLabel)
+                            .foregroundColor(VColor.textSecondary)
+                        Text("Timezone used for time-aware responses.")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                    }
+                    Spacer()
                     VDropdown(
                         placeholder: "Not Set",
                         selection: $selectedTimezone,
                         options: [(label: "Not Set", value: "")] + Self.knownTimezones.map { (label: $0, value: $0) },
                         emptyValue: ""
                     )
-                    .frame(width: 360)
+                    .frame(width: 200)
                 }
                 .onChange(of: selectedTimezone) { _, newValue in
                     if newValue.isEmpty {

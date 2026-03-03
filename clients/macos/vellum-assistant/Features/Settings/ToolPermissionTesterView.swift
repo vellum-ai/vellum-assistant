@@ -7,13 +7,13 @@ struct ToolPermissionTesterView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
                 Text("Permission Simulator")
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
 
                 Text("Test how a tool invocation would be evaluated by the permission system.")
-                    .font(VFont.caption)
+                    .font(VFont.sectionDescription)
                     .foregroundColor(VColor.textMuted)
             }
 
@@ -319,7 +319,7 @@ struct ToolPermissionTesterView: View {
 
     private func fieldLabel(_ text: String) -> some View {
         Text(text)
-            .font(VFont.captionMedium)
+            .font(VFont.inputLabel)
             .foregroundColor(VColor.textSecondary)
     }
 
