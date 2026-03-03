@@ -80,10 +80,12 @@ private struct AttachmentImageGrid<Fallback: View>: View {
                         return
                     }
 
-                    guard !Task.isCancelled else { return }
-
-                    // All three paths exhausted with no image — mark as failed so the
-                    // file chip fallback is shown instead of the permanent gray placeholder.
+                    // All three decode paths exhausted with no image.
+                    // Do NOT guard on Task.isCancelled here — once every decode path has
+                    // failed we must always transition to the file-chip fallback regardless
+                    // of cancellation. Without this, a cancellation that races with decode
+                    // completion leaves the attachment permanently stuck on the gray
+                    // placeholder instead of showing the filename/download affordance.
                     failedIds.insert(attachment.id)
                 }
             }
