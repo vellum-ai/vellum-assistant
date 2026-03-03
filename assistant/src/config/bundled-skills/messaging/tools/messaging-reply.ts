@@ -53,18 +53,20 @@ function parseAddressList(header: string): string[] {
  *   - `"Team <Ops>" <user@example.com>`
  *   - `user@example.com (team <ops>)`
  *
- * Extracts all angle-bracketed segments and picks the first one containing `@`,
- * preferring the sender mailbox over trailing comment addresses. If no segment
- * contains `@`, strips angle-bracketed portions and returns the remaining text.
- * This handles display names with angle brackets and trailing RFC 5322 comments.
+ * Extracts all angle-bracketed segments and picks the last one containing `@`,
+ * preferring the actual mailbox over display-name fragments like
+ * `"Acme <support@acme.com>" <owner@example.com>`. If no segment contains `@`,
+ * strips angle-bracketed portions and parenthetical comments, returning the
+ * remaining text. This handles display names with angle brackets and trailing
+ * RFC 5322 comments.
  */
 function extractEmail(address: string): string {
   const segments = [...address.matchAll(/<([^>]+)>/g)].map((m) => m[1]);
   if (segments.length > 0) {
-    const emailSegment = segments.find((s) => s.includes('@'));
+    const emailSegment = [...segments].reverse().find((s) => s.includes('@'));
     if (emailSegment) return emailSegment.trim().toLowerCase();
   }
-  return address.replace(/<[^>]+>/g, '').trim().toLowerCase();
+  return address.replace(/<[^>]+>/g, '').replace(/\(.*?\)/g, '').trim().toLowerCase();
 }
 
 export async function run(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
