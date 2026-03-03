@@ -1,8 +1,6 @@
 import { addReaction } from '../../../../messaging/providers/slack/client.js';
-import { getMessagingProvider } from '../../../../messaging/registry.js';
-import { withValidToken } from '../../../../security/token-manager.js';
 import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
-import { err,ok } from './shared.js';
+import { err, ok, withSlackToken } from './shared.js';
 
 export async function run(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
   const channel = input.channel as string;
@@ -14,8 +12,7 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
   }
 
   try {
-    const provider = getMessagingProvider('slack');
-    return withValidToken(provider.credentialService, async (token) => {
+    return withSlackToken(async (token) => {
       await addReaction(token, channel, timestamp, emoji);
       return ok(`Added :${emoji}: reaction.`);
     });

@@ -20,6 +20,7 @@ export interface SlackConversation {
   is_group?: boolean;
   is_im?: boolean;
   is_mpim?: boolean;
+  is_private?: boolean;
   is_archived?: boolean;
   is_member?: boolean;
   topic?: { value: string };
@@ -106,6 +107,10 @@ export interface SlackSearchMatch {
   channel: { id: string; name: string };
   permalink: string;
   thread_ts?: string;
+}
+
+export interface SlackConversationInfoResponse extends SlackApiResponse {
+  channel: SlackConversation;
 }
 
 export interface SlackConversationsOpenResponse extends SlackApiResponse {
