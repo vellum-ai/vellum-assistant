@@ -159,21 +159,24 @@ export function revokeGuardianForChannel(
   const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
   const resolvedChannel = channel ?? 'telegram';
 
+  // Always revoke pending challenges first — the macOS app uses
+  // action: "revoke" to cancel an in-flight challenge even before
+  // a binding exists (e.g. during verification setup).
+  revokePendingChallenges(assistantId, resolvedChannel);
+
   // Capture binding before revoking so we can revoke the guardian's
   // ingress member record — without this, the guardian would still pass
   // the ACL check after unbinding.
   const bindingBeforeRevoke = getGuardianBinding(assistantId, resolvedChannel);
   if (!bindingBeforeRevoke) {
     return {
-      success: false,
-      error: 'not_bound',
-      message: 'No active guardian binding exists for this channel.',
+      success: true,
+      bound: false,
       channel: resolvedChannel,
     };
   }
 
   revokeGuardianBinding(assistantId, resolvedChannel);
-  revokePendingChallenges(assistantId, resolvedChannel);
 
   const member = findMember({
     assistantId,
