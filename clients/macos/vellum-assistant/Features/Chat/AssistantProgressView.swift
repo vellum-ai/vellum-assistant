@@ -5,7 +5,7 @@ import VellumAssistantShared
 
 /// Internal enum representing the current phase of assistant progress.
 /// Derived from the combination of tool calls, streaming state, and text output.
-private enum ProgressPhase {
+private enum ProgressPhase: Equatable {
     case thinking
     case toolRunning
     case streamingCode
@@ -33,6 +33,7 @@ struct AssistantProgressView: View {
 
     @State private var isExpanded: Bool = false
     @State private var startDate: Date = Date()
+    @State private var processingStartDate: Date?
 
     // MARK: - Derived State
 
@@ -68,6 +69,12 @@ struct AssistantProgressView: View {
         // At least one tool still running
         if hasTools && !allComplete {
             return .toolRunning
+        }
+
+        // All tools done and streaming with text already visible — user sees the response,
+        // so treat this as settled rather than showing a spinner.
+        if allComplete && isStreaming && hasText {
+            return .complete
         }
 
         // All tools done but still streaming with no text yet
@@ -175,6 +182,11 @@ struct AssistantProgressView: View {
         }
         .background(VColor.surface.opacity(0.5))
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .onChange(of: phase) { _, newPhase in
+            if newPhase == .processing {
+                processingStartDate = Date()
+            }
+        }
     }
 
     // MARK: - Header Row
@@ -267,6 +279,8 @@ struct AssistantProgressView: View {
     }
 
     /// Progressive labels for the processing phase that cycle through at 8-second intervals.
+    /// Uses `processingStartDate` (set when entering `.processing`) so label cycling starts
+    /// from zero regardless of how long the view has been alive.
     private var processingLabel: some View {
         let initialLabel = ChatBubble.friendlyProcessingLabel(processingStatusText)
         let labels = [
@@ -274,11 +288,12 @@ struct AssistantProgressView: View {
             "Putting this together",
             "Finalizing your response",
         ]
+        let anchor = processingStartDate ?? Date()
 
         return TimelineView(.periodic(from: .now, by: 0.4)) { context in
-            let elapsed = context.date.timeIntervalSince(startDate)
-            let labelIndex = min(Int(elapsed / 8), labels.count - 1)
-            let phase = Int(elapsed / 0.4) % 3
+            let elapsed = max(0, context.date.timeIntervalSince(anchor))
+            let labelIndex = max(0, min(Int(elapsed / 8), labels.count - 1))
+            let dotPhase = max(0, Int(elapsed / 0.4) % 3)
 
             HStack(spacing: VSpacing.xs) {
                 Text(labels[labelIndex])
@@ -290,7 +305,7 @@ struct AssistantProgressView: View {
                     Circle()
                         .fill(VColor.textSecondary)
                         .frame(width: 5, height: 5)
-                        .opacity(phase == index ? 1.0 : 0.4)
+                        .opacity(dotPhase == index ? 1.0 : 0.4)
                 }
             }
         }
@@ -300,7 +315,7 @@ struct AssistantProgressView: View {
 
     private var elapsedTimeLabel: some View {
         TimelineView(.periodic(from: .now, by: 1.0)) { context in
-            let elapsed = context.date.timeIntervalSince(startDate)
+            let elapsed = max(0, context.date.timeIntervalSince(startDate))
             if elapsed >= 5 {
                 Text(RunningIndicator.formatElapsed(elapsed))
                     .font(VFont.caption)
@@ -319,11 +334,14 @@ struct AssistantProgressView: View {
             StepsSection(toolCalls: toolCalls, onRehydrate: onRehydrate)
                 .padding(.bottom, VSpacing.xs)
         default:
-            // In-progress or error: show completed + running rows
+            // In-progress, error, or denied: show completed + running/blocked rows
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
                 ForEach(toolCalls) { toolCall in
                     if toolCall.isComplete {
                         completedToolRow(toolCall)
+                    } else if phase == .denied {
+                        // Permission was denied — show incomplete tools as blocked, not running
+                        blockedToolRow(toolCall)
                     } else if toolCall.toolName == "claude_code" && !toolCall.claudeCodeSteps.isEmpty {
                         // Claude Code sub-steps
                         ClaudeCodeProgressView(steps: toolCall.claudeCodeSteps, isRunning: true)
@@ -385,6 +403,29 @@ struct AssistantProgressView: View {
             ))
                 .font(VFont.captionMedium)
                 .foregroundColor(VColor.textSecondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+
+            Spacer()
+        }
+        .padding(.horizontal, VSpacing.sm)
+        .padding(.vertical, VSpacing.xxs)
+    }
+
+    private func blockedToolRow(_ toolCall: ToolCallData) -> some View {
+        HStack(spacing: VSpacing.sm) {
+            Image(systemName: "xmark.circle.fill")
+                .font(.system(size: 10))
+                .foregroundColor(VColor.textMuted)
+                .frame(width: 14)
+
+            Text("Blocked — " + ChatBubble.friendlyRunningLabel(
+                toolCall.toolName,
+                inputSummary: toolCall.inputSummary,
+                buildingStatus: toolCall.buildingStatus
+            ))
+                .font(VFont.captionMedium)
+                .foregroundColor(VColor.textMuted)
                 .lineLimit(1)
                 .truncationMode(.tail)
 
