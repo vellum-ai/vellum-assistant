@@ -55,7 +55,7 @@ import {
 import { ensureVellumGuardianBinding } from "../runtime/guardian-vellum-migration.js";
 import {
   resolveLocalIpcAuthContext,
-  resolveLocalIpcGuardianContext,
+  resolveLocalIpcTrustContext,
 } from "../runtime/local-actor-identity.js";
 
 // ---------------------------------------------------------------------------
@@ -378,17 +378,17 @@ describe("bootstrap endpoint idempotency", () => {
 // Local IPC identity resolution
 // ---------------------------------------------------------------------------
 
-describe("resolveLocalIpcGuardianContext", () => {
+describe("resolveLocalIpcTrustContext", () => {
   test("returns guardian context when vellum binding exists", () => {
     ensureVellumGuardianBinding("self");
 
-    const ctx = resolveLocalIpcGuardianContext();
+    const ctx = resolveLocalIpcTrustContext();
     expect(ctx.trustClass).toBe("guardian");
     expect(ctx.sourceChannel).toBe("vellum");
   });
 
   test("returns guardian context with principal when no vellum binding exists (pre-bootstrap self-heal)", () => {
-    const ctx = resolveLocalIpcGuardianContext();
+    const ctx = resolveLocalIpcTrustContext();
     expect(ctx.trustClass).toBe("guardian");
     expect(ctx.sourceChannel).toBe("vellum");
     expect(ctx.guardianPrincipalId).toBeDefined();
@@ -396,7 +396,7 @@ describe("resolveLocalIpcGuardianContext", () => {
 
   test("respects custom sourceChannel parameter", () => {
     ensureVellumGuardianBinding("self");
-    const ctx = resolveLocalIpcGuardianContext("vellum");
+    const ctx = resolveLocalIpcTrustContext("vellum");
     expect(ctx.sourceChannel).toBe("vellum");
   });
 });

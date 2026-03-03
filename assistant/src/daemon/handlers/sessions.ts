@@ -19,7 +19,7 @@ import { GENERATING_TITLE, queueGenerateConversationTitle, UNTITLED_FALLBACK } f
 import * as externalConversationStore from '../../memory/external-conversation-store.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from '../../runtime/assistant-scope.js';
 import { routeGuardianReply } from '../../runtime/guardian-reply-router.js';
-import { resolveLocalIpcAuthContext, resolveLocalIpcGuardianContext } from '../../runtime/local-actor-identity.js';
+import { resolveLocalIpcAuthContext, resolveLocalIpcTrustContext } from '../../runtime/local-actor-identity.js';
 import * as pendingInteractions from '../../runtime/pending-interactions.js';
 import { checkIngressForSecrets } from '../../security/secret-ingress.js';
 import { compileCustomPatterns, redactSecrets } from '../../security/secret-scanner.js';
@@ -124,14 +124,14 @@ function makeIpcEventSender(params: {
       });
 
       try {
-        const guardianContext = session.guardianContext;
+        const trustContext = session.trustContext;
         createCanonicalGuardianRequest({
           id: event.requestId,
           kind: 'tool_approval',
           sourceType: 'desktop',
           sourceChannel,
           conversationId,
-          guardianPrincipalId: guardianContext?.guardianPrincipalId ?? undefined,
+          guardianPrincipalId: trustContext?.guardianPrincipalId ?? undefined,
           toolName: event.toolName,
           status: 'pending',
           requestCode: generateCanonicalRequestCode(),
@@ -284,9 +284,9 @@ export async function handleUserMessage(
       session.setAssistantId(DAEMON_INTERNAL_ASSISTANT_ID);
       // Resolve local IPC actor identity through the same trust pipeline
       // used by HTTP channel ingress. The vellum guardian binding provides
-      // the guardianPrincipalId, and resolveGuardianContext classifies the
+      // the guardianPrincipalId, and resolveTrustContext classifies the
       // local user as 'guardian' via binding match.
-      session.setGuardianContext(resolveLocalIpcGuardianContext(ipcChannel));
+      session.setTrustContext(resolveLocalIpcTrustContext(ipcChannel));
       // Align IPC sessions with the same AuthContext shape as HTTP sessions.
       session.setAuthContext(resolveLocalIpcAuthContext(msg.sessionId));
       session.setCommandIntent(null);
@@ -604,7 +604,7 @@ export async function handleUserMessage(
         if (pendingRequestIdsForConversation.length > 0) {
           // Resolve the local IPC actor's principal via the vellum guardian binding
           // for principal-based authorization in the canonical decision primitive.
-          const localCtx = resolveLocalIpcGuardianContext(ipcChannel);
+          const localCtx = resolveLocalIpcTrustContext(ipcChannel);
           const routerResult = await routeGuardianReply({
             messageText: messageText.trim(),
             channel: ipcChannel,
@@ -876,6 +876,7 @@ export function handleSessionList(socket: net.Socket, ctx: HandlerContext, offse
             username: binding.username,
           },
         } : {}),
+        ...(c.scheduleJobId ? { scheduleJobId: c.scheduleJobId } : {}),
         ...(originChannel ? { conversationOriginChannel: originChannel } : {}),
         ...(originInterface ? { conversationOriginInterface: originInterface } : {}),
         ...(assistantAttention ? { assistantAttention } : {}),

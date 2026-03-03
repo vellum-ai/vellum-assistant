@@ -197,7 +197,7 @@ Runtime profile flow (per turn):
 
 ### Provenance-Aware Memory Pipeline
 
-Every persisted message carries provenance metadata (`provenanceTrustClass`, `provenanceSourceChannel`, etc.) derived from the `GuardianRuntimeContext` resolved by `guardian-context-resolver.ts`. This metadata records the trust class of the actor who produced the message and through which channel, enabling downstream trust decisions without re-resolving identity at read time.
+Every persisted message carries provenance metadata (`provenanceTrustClass`, `provenanceSourceChannel`, etc.) derived from the `TrustContext` resolved by `trust-context-resolver.ts`. This metadata records the trust class of the actor who produced the message and through which channel, enabling downstream trust decisions without re-resolving identity at read time.
 
 Two trust gates enforce trust-class-based access control over the memory pipeline:
 
@@ -205,7 +205,7 @@ Two trust gates enforce trust-class-based access control over the memory pipelin
 
 - **Read gate** (`session-memory.ts`): When the current session's actor is untrusted, the memory recall pipeline returns a no-op context — no recall injection, no dynamic profile, no conflict clarification prompts. This ensures untrusted actors cannot surface or exploit previously extracted memory.
 
-Trust policy is **cross-channel and trust-class-based**: decisions use `guardianContext.trustClass`, not the channel string. Desktop/IPC sessions default to `trustClass: 'guardian'`. External channels (Telegram, SMS, WhatsApp, voice) provide explicit guardian context via the resolver. Messages without provenance metadata are treated as trusted (guardian); all new messages carry provenance.
+Trust policy is **cross-channel and trust-class-based**: decisions use `trustContext.trustClass`, not the channel string. Desktop/IPC sessions default to `trustClass: 'guardian'`. External channels (Telegram, SMS, WhatsApp, voice) provide explicit trust context via the resolver. Messages without provenance metadata are treated as trusted (guardian); all new messages carry provenance.
 
 ---
 

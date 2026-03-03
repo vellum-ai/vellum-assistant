@@ -19,7 +19,7 @@ import {
 } from '../calls/call-state.js';
 import { getCallSession } from '../calls/call-store.js';
 import * as conversationStore from '../memory/conversation-store.js';
-import { provenanceFromGuardianContext } from '../memory/conversation-store.js';
+import { provenanceFromTrustContext } from '../memory/conversation-store.js';
 import type { Message } from '../providers/types.js';
 import type { WatchSession } from '../tools/watch/watch-state.js';
 import {
@@ -32,7 +32,7 @@ import {
   unregisterWatchStartNotifier,
 } from '../tools/watch/watch-state.js';
 import type { ServerMessage } from './ipc-protocol.js';
-import type { GuardianRuntimeContext } from './session-runtime-assembly.js';
+import type { TrustContext } from './session-runtime-assembly.js';
 import { lastCommentaryBySession, lastSummaryBySession } from './watch-handler.js';
 
 /**
@@ -42,7 +42,7 @@ import { lastCommentaryBySession, lastSummaryBySession } from './watch-handler.j
 export interface NotifierSessionContext {
   sendToClient: (msg: ServerMessage) => void;
   messages: Message[];
-  guardianContext?: GuardianRuntimeContext;
+  trustContext?: TrustContext;
 }
 
 /**
@@ -105,7 +105,7 @@ export function registerSessionNotifiers(
       conversationId,
       'assistant',
       JSON.stringify([{ type: 'text', text: questionText }]),
-      { ...provenanceFromGuardianContext(ctx.guardianContext), userMessageChannel: 'voice', assistantMessageChannel: 'voice', userMessageInterface: 'voice', assistantMessageInterface: 'voice' },
+      { ...provenanceFromTrustContext(ctx.trustContext), userMessageChannel: 'voice', assistantMessageChannel: 'voice', userMessageInterface: 'voice', assistantMessageInterface: 'voice' },
     );
 
     ctx.messages.push(createAssistantMessage(questionText));

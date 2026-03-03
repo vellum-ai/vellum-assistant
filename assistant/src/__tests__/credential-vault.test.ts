@@ -77,7 +77,7 @@ const _ctx: ToolContext = {
   workingDir: "/tmp",
   sessionId: "test-session",
   conversationId: "test-conv",
-  guardianTrustClass: "guardian",
+  trustClass: "guardian",
 };
 
 // We'll manually instantiate the tool for testing

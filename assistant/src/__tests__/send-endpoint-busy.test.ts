@@ -65,7 +65,7 @@ mock.module("../runtime/guardian-vellum-migration.js", () => ({
 // Mock local-actor-identity to return a stable guardian context that uses
 // the same principal as the canonical requests created in tests.
 mock.module("../runtime/local-actor-identity.js", () => ({
-  resolveLocalIpcGuardianContext: () => ({
+  resolveLocalIpcTrustContext: () => ({
     sourceChannel: "vellum",
     trustClass: "guardian",
     guardianPrincipalId: "test-principal-id",
@@ -107,7 +107,7 @@ function makeCompletingSession(): Session {
     },
     setChannelCapabilities: () => {},
     setAssistantId: () => {},
-    setGuardianContext: () => {},
+    setTrustContext: () => {},
     setAuthContext: () => {},
     setCommandIntent: () => {},
     setTurnChannelContext: () => {},
@@ -160,7 +160,7 @@ function makeHangingSession(): Session {
     },
     setChannelCapabilities: () => {},
     setAssistantId: () => {},
-    setGuardianContext: () => {},
+    setTrustContext: () => {},
     setAuthContext: () => {},
     setCommandIntent: () => {},
     setTurnChannelContext: () => {},
@@ -238,9 +238,9 @@ function makePendingApprovalSession(
     },
     setChannelCapabilities: () => {},
     setAssistantId: () => {},
-    guardianContext: undefined as unknown,
-    setGuardianContext(this: { guardianContext: unknown }, ctx: unknown) {
-      this.guardianContext = ctx;
+    trustContext: undefined as unknown,
+    setTrustContext(this: { trustContext: unknown }, ctx: unknown) {
+      this.trustContext = ctx;
     },
     setAuthContext: () => {},
     setCommandIntent: () => {},

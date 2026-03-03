@@ -32,7 +32,7 @@
 export type MigrationTarget = "runtime" | "managed";
 
 export interface TransportConfig {
-  /** Base URL of the target API (e.g. "http://localhost:7821" or "https://platform.vellum.ai"). */
+  /** Base URL of the target API (e.g. "https://platform.vellum.ai"). */
   baseURL: string;
   /** Which API surface to target. Managed endpoints use trailing slashes. */
   target: MigrationTarget;

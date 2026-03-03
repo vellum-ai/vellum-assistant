@@ -26,7 +26,7 @@ export {
   type MessageRow,
   parseConversation,
   parseMessage,
-  provenanceFromGuardianContext,
+  provenanceFromTrustContext,
   relinkAttachments,
   setConversationOriginChannelIfUnset,
   setConversationOriginInterfaceIfUnset,

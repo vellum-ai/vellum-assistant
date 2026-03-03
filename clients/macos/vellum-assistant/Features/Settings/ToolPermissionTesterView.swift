@@ -13,7 +13,7 @@ struct ToolPermissionTesterView: View {
                     .foregroundColor(VColor.textPrimary)
 
                 Text("Test how a tool invocation would be evaluated by the permission system.")
-                    .font(VFont.caption)
+                    .font(VFont.sectionDescription)
                     .foregroundColor(VColor.textMuted)
             }
 
@@ -24,6 +24,7 @@ struct ToolPermissionTesterView: View {
             resultSection
         }
         .padding(VSpacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
         .onAppear {
             model.fetchToolNames()
@@ -52,15 +53,13 @@ struct ToolPermissionTesterView: View {
                     .font(VFont.mono)
             }
 
-            Divider().background(VColor.surfaceBorder)
-
             // Toggles
             HStack(spacing: VSpacing.xl) {
-                VToggle(isOn: $model.isInteractive, label: "Interactive")
+                VToggle(isOn: $model.isInteractive, label: "Interactive", size: .medium)
                     .font(VFont.body)
                     .foregroundColor(VColor.textSecondary)
 
-                VToggle(isOn: $model.forcePromptSideEffects, label: "In Temporary Chat")
+                VToggle(isOn: $model.forcePromptSideEffects, label: "In Temporary Chat", size: .medium)
                     .font(VFont.body)
                     .foregroundColor(VColor.textSecondary)
             }
@@ -92,7 +91,7 @@ struct ToolPermissionTesterView: View {
             } else {
                 // Optional fields have a checkbox
                 HStack(spacing: VSpacing.xs) {
-                    VToggle(isOn: fieldEnabledBinding(for: field.id))
+                    VToggle(isOn: fieldEnabledBinding(for: field.id), size: .medium)
                     fieldNameLabel(field)
                 }
 
@@ -140,7 +139,7 @@ struct ToolPermissionTesterView: View {
                 .font(VFont.mono)
 
         case .boolean:
-            VToggle(isOn: fieldBoolBinding(for: field.id))
+            VToggle(isOn: fieldBoolBinding(for: field.id), size: .medium)
 
         case .enumeration(let values):
             VDropdown(
@@ -194,7 +193,7 @@ struct ToolPermissionTesterView: View {
     @ViewBuilder
     private var simulateButton: some View {
         HStack(spacing: VSpacing.sm) {
-            VButton(label: model.isSimulating ? "Simulating\u{2026}" : "Simulate", style: .primary, size: .large) {
+            VButton(label: model.isSimulating ? "Simulating\u{2026}" : "Simulate", style: .primary, size: .medium) {
                 model.simulate()
             }
             .disabled(!model.canSimulate)
@@ -320,7 +319,7 @@ struct ToolPermissionTesterView: View {
 
     private func fieldLabel(_ text: String) -> some View {
         Text(text)
-            .font(VFont.captionMedium)
+            .font(VFont.inputLabel)
             .foregroundColor(VColor.textSecondary)
     }
 

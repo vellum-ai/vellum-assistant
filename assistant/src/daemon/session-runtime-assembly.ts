@@ -38,20 +38,49 @@ export interface ChannelCapabilities {
   microphonePermissionGranted?: boolean;
 }
 
-/** Guardian identity/trust context for external chat channels. */
-export interface GuardianRuntimeContext {
+/**
+ * Runtime trust context for an inbound actor session.
+ *
+ * Carries the resolved trust classification, guardian binding metadata, and
+ * requester identity for the current session. This is the canonical trust
+ * shape used by sessions, tool execution, memory gating, and channel routing.
+ *
+ * Produced by {@link resolveActorTrust} -> {@link toTrustContext}, or by
+ * the convenience wrapper {@link resolveTrustContext}.
+ *
+ * The `trustClass` field determines the actor's permission level:
+ * - `'guardian'`: full access, self-approves tool invocations
+ * - `'trusted_contact'`: can invoke tools, sensitive ops require guardian approval
+ * - `'unknown'`: fail-closed, no escalation
+ *
+ * Guardian-specific fields (`guardianChatId`, `guardianExternalUserId`,
+ * `guardianPrincipalId`) describe the guardian binding for this channel,
+ * NOT the current actor (unless the actor IS the guardian).
+ */
+export interface TrustContext {
+  /** Channel through which the inbound message arrived. */
   sourceChannel: ChannelId;
+  /** Trust classification -- see {@link TrustClass} for semantics. */
   trustClass: "guardian" | "trusted_contact" | "unknown";
+  /** Chat/conversation ID for delivering guardian notifications. */
   guardianChatId?: string;
+  /** Canonical external user ID of the guardian for this (assistant, channel) binding. */
   guardianExternalUserId?: string;
-  /** Canonical principal ID for the guardian binding. */
+  /** Internal principal ID of the guardian. */
   guardianPrincipalId?: string;
+  /** Human-readable identifier for the requester (e.g. @username or phone number). */
   requesterIdentifier?: string;
+  /** Preferred display name for the requester (member name or sender name). */
   requesterDisplayName?: string;
+  /** Raw sender display name as provided by the channel transport. */
   requesterSenderDisplayName?: string;
+  /** Guardian-managed member display name from ingress membership. */
   requesterMemberDisplayName?: string;
+  /** Canonical external user ID of the requester (the current actor). */
   requesterExternalUserId?: string;
+  /** Chat/conversation ID the requester is interacting through. */
   requesterChatId?: string;
+  /** Access denial reason, if applicable. See {@link DenialReason}. */
   denialReason?: "no_binding" | "no_identity";
 }
 
@@ -88,12 +117,12 @@ export interface InboundActorContext {
 }
 
 /**
- * Construct an InboundActorContext from a legacy GuardianRuntimeContext.
+ * Construct an InboundActorContext from a TrustContext.
  *
  * Maps the runtime trust class into the model-facing inbound actor context.
  */
-export function inboundActorContextFromGuardian(
-  ctx: GuardianRuntimeContext,
+export function inboundActorContextFromTrustContext(
+  ctx: TrustContext,
 ): InboundActorContext {
   return {
     sourceChannel: ctx.sourceChannel,

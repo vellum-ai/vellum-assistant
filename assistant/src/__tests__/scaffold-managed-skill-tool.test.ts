@@ -32,7 +32,7 @@ function makeContext(): ToolContext {
     workingDir: "/tmp",
     sessionId: "test-session",
     conversationId: "test-conversation",
-    guardianTrustClass: "guardian",
+    trustClass: "guardian",
   };
 }
 

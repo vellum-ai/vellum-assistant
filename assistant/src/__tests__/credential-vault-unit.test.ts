@@ -70,7 +70,7 @@ const _ctx: ToolContext = {
   workingDir: "/tmp",
   sessionId: "test-session",
   conversationId: "test-conv",
-  guardianTrustClass: "guardian",
+  trustClass: "guardian",
 };
 
 afterAll(() => {

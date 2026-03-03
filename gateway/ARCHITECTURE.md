@@ -437,7 +437,7 @@ flowchart TD
 
     ESCALATE_CHECK -- No --> VERIFY_CHECK{"Guardian verify<br/>code?"}
     VERIFY_CHECK -- Yes --> VERIFY["Validate challenge<br/>→ create guardian binding"]
-    VERIFY_CHECK -- No --> ROLE_RESOLVE["Resolve actor role<br/>(guardian-context-resolver)"]
+    VERIFY_CHECK -- No --> ROLE_RESOLVE["Resolve actor role<br/>(trust-context-resolver)"]
     ROLE_RESOLVE --> APPROVAL_INTERCEPT["Approval interception<br/>+ message processing"]
 ```
 
@@ -491,7 +491,7 @@ The `channelGuardianApprovalRequests` table tracks per-run approval state. Each 
 |--------|---------|
 | `assistant/src/memory/channel-guardian-store.ts` | CRUD for guardian bindings, verification challenges, and approval requests (all scoped by `assistantId`) |
 | `assistant/src/runtime/channel-guardian-service.ts` | Challenge creation/validation, guardian identity checks (`isGuardian()`, `getGuardianBinding()`) -- all accept `assistantId` |
-| `assistant/src/runtime/guardian-context-resolver.ts` | Actor role classification: guardian / non-guardian / unverified_channel based on binding state + sender identity |
+| `assistant/src/runtime/trust-context-resolver.ts` | Actor role classification: guardian / non-guardian / unverified_channel based on binding state + sender identity |
 | `assistant/src/runtime/routes/inbound-message-handler.ts` | Ingress ACL enforcement, verification-code intercept, escalation creation, actor role resolution |
 | `assistant/src/runtime/routes/channel-routes.ts` | Approval routing to guardian, proactive expiry sweep (`sweepExpiredGuardianApprovals`, `startGuardianExpirySweep`) |
 | `assistant/src/calls/guardian-dispatch.ts` | Cross-channel ASK_GUARDIAN dispatch: creates guardian_action_requests, fans out to mac/telegram/sms, manages deliveries |

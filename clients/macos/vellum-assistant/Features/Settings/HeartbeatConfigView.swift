@@ -62,7 +62,7 @@ struct HeartbeatConfigView: View {
                                     .foregroundColor(VColor.textMuted)
                             }
                             Spacer()
-                            VToggle(isOn: $enabled)
+                            VToggle(isOn: $enabled, size: .medium)
                                 .onChange(of: enabled) { _, newValue in
                                     guard !isApplyingFromServer else { return }
                                     saveConfig(enabled: newValue)
@@ -112,7 +112,7 @@ struct HeartbeatConfigView: View {
                                         .foregroundColor(VColor.textMuted)
                                 }
                                 Spacer()
-                                VToggle(isOn: $activeHoursEnabled)
+                                VToggle(isOn: $activeHoursEnabled, size: .medium)
                                     .onChange(of: activeHoursEnabled) { _, newValue in
                                         guard !isApplyingFromServer else { return }
                                         if newValue {

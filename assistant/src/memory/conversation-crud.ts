@@ -6,7 +6,7 @@ import type { ChannelId, InterfaceId } from "../channels/types.js";
 import { parseChannelId, parseInterfaceId } from "../channels/types.js";
 import { CHANNEL_IDS, INTERFACE_IDS, isChannelId } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
-import type { GuardianRuntimeContext } from "../daemon/session-runtime-assembly.js";
+import type { TrustContext } from "../daemon/session-runtime-assembly.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getLogger } from "../util/logger.js";
 import { createRowMapper } from "../util/row-mapper.js";
@@ -52,7 +52,12 @@ export const messageMetadataSchema = z
     userMessageInterface: interfaceIdSchema.optional(),
     assistantMessageInterface: interfaceIdSchema.optional(),
     subagentNotification: subagentNotificationSchema.optional(),
-    // Provenance fields for trust-aware memory gating (M3)
+    /**
+     * Trust class of the actor at the time this message was persisted.
+     * This is a durable snapshot -- it does NOT change if the actor's
+     * trust status changes later. Used by the memory write gate (indexer)
+     * and read gate (session history loading) to enforce trust-aware access.
+     */
     provenanceTrustClass: z
       .enum(["guardian", "trusted_contact", "unknown"])
       .optional(),
@@ -65,13 +70,13 @@ export const messageMetadataSchema = z
 export type MessageMetadata = z.infer<typeof messageMetadataSchema>;
 
 /**
- * Extract provenance metadata fields from a GuardianRuntimeContext.
+ * Extract provenance metadata fields from a TrustContext.
  * When no guardian context is provided, defaults to 'unknown' because the
  * absence of trust context means we cannot verify trust —
  * callers with actual guardian trust should always supply a real context.
  */
-export function provenanceFromGuardianContext(
-  ctx: GuardianRuntimeContext | null | undefined,
+export function provenanceFromTrustContext(
+  ctx: TrustContext | null | undefined,
 ): Record<string, unknown> {
   if (!ctx) return { provenanceTrustClass: "unknown" };
   return {
@@ -99,6 +104,7 @@ export interface ConversationRow {
   originChannel: string | null;
   originInterface: string | null;
   isAutoTitle: number;
+  scheduleJobId: string | null;
 }
 
 export const parseConversation = createRowMapper<
@@ -121,6 +127,7 @@ export const parseConversation = createRowMapper<
   originChannel: "originChannel",
   originInterface: "originInterface",
   isAutoTitle: "isAutoTitle",
+  scheduleJobId: "scheduleJobId",
 });
 
 export interface MessageRow {

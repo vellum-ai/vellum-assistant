@@ -2,7 +2,7 @@
  * End-to-end integration tests for the trusted-contact inline guardian approval feature.
  *
  * Verifies the full integration of M1-M4 milestones:
- *   M1: RoutingState (guardian-context-resolver.ts)
+ *   M1: RoutingState (trust-context-resolver.ts)
  *   M2: Confirmation request guardian bridge (confirmation-request-guardian-bridge.ts)
  *   M3: Pending approval notifier (inbound-message-handler.ts)
  *   M4: Inline grant wait-and-resume (tool-approval-handler.ts) +
@@ -182,7 +182,7 @@ mock.module("../config/env.js", () => ({
 import { applyCanonicalGuardianDecision } from "../approvals/guardian-decision-primitive.js";
 import type { ActorContext } from "../approvals/guardian-request-resolvers.js";
 import { getResolver } from "../approvals/guardian-request-resolvers.js";
-import type { GuardianRuntimeContext } from "../daemon/session-runtime-assembly.js";
+import type { TrustContext } from "../daemon/session-runtime-assembly.js";
 import {
   createCanonicalGuardianRequest,
   getCanonicalGuardianRequest,
@@ -192,10 +192,7 @@ import {
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { scopedApprovalGrants } from "../memory/schema.js";
 import { bridgeConfirmationRequestToGuardian } from "../runtime/confirmation-request-guardian-bridge.js";
-import {
-  type GuardianContext,
-  resolveRoutingState,
-} from "../runtime/guardian-context-resolver.js";
+import { resolveRoutingState } from "../runtime/trust-context-resolver.js";
 import {
   TC_GRANT_WAIT_MAX_MS,
   ToolApprovalHandler,
@@ -231,7 +228,7 @@ function makeToolContext(overrides: Partial<ToolContext> = {}): ToolContext {
     conversationId: "conv-1",
     assistantId: "self",
     requestId: "req-1",
-    guardianTrustClass: "trusted_contact",
+    trustClass: "trusted_contact",
     executionChannel: "telegram",
     requesterExternalUserId: "requester-1",
     ...overrides,
@@ -247,7 +244,7 @@ function guardianActor(overrides: Partial<ActorContext> = {}): ActorContext {
   };
 }
 
-function makeTrustedContactGuardianContext(): GuardianRuntimeContext {
+function makeTrustedContactTrustContext(): TrustContext {
   return {
     sourceChannel: "telegram",
     trustClass: "trusted_contact",
@@ -292,7 +289,7 @@ describe("(a) target flow: trusted-contact inline guardian approval end-to-end",
   test("trusted contact requests tool, guardian approves mid-wait, tool executes inline", async () => {
     const toolName = "bash";
     const input = { command: "echo hello" };
-    const context = makeToolContext({ guardianTrustClass: "trusted_contact" });
+    const context = makeToolContext({ trustClass: "trusted_contact" });
 
     // Schedule guardian approval after 100ms during the inline wait
     const approvalPromise = (async () => {
@@ -349,20 +346,20 @@ describe("(a) target flow: trusted-contact inline guardian approval end-to-end",
 
   test("complete flow: routing state allows interactive + bridge notifies guardian + tool resumes", async () => {
     // Step 1: Verify routing state allows interactive turns for trusted contacts
-    const guardianCtx: GuardianContext = {
+    const trustCtx: TrustContext = {
       sourceChannel: "telegram",
       trustClass: "trusted_contact",
       guardianExternalUserId: "guardian-1",
       guardianChatId: "guardian-chat-1",
     };
-    const routing = resolveRoutingState(guardianCtx);
+    const routing = resolveRoutingState(trustCtx);
     expect(routing.promptWaitingAllowed).toBe(true);
     expect(routing.guardianRouteResolvable).toBe(true);
 
     // Step 2: Tool invocation creates escalation + waits inline + guardian approves
     const toolName = "bash";
     const input = { command: "deploy" };
-    const context = makeToolContext({ guardianTrustClass: "trusted_contact" });
+    const context = makeToolContext({ trustClass: "trusted_contact" });
 
     const approvalPromise = (async () => {
       await new Promise((r) => setTimeout(r, 80));
@@ -431,11 +428,11 @@ describe("(b) prompt-path flow: confirmation_request bridges to guardian", () =>
       expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
     });
 
-    const guardianContext = makeTrustedContactGuardianContext();
+    const trustContext = makeTrustedContactTrustContext();
 
     const result = bridgeConfirmationRequestToGuardian({
       canonicalRequest,
-      guardianContext,
+      trustContext,
       conversationId: "conv-bridge-1",
       toolName: "bash",
     });
@@ -470,11 +467,11 @@ describe("(b) prompt-path flow: confirmation_request bridges to guardian", () =>
       expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
     });
 
-    const guardianContext = makeTrustedContactGuardianContext();
+    const trustContext = makeTrustedContactTrustContext();
 
     bridgeConfirmationRequestToGuardian({
       canonicalRequest,
-      guardianContext,
+      trustContext,
       conversationId: "conv-unified-1",
       toolName: "bash",
     });
@@ -505,7 +502,7 @@ describe("(c) no-binding flow: trusted contact fails fast without guardian bindi
   });
 
   test("routing state blocks prompt waiting when no guardian binding exists", () => {
-    const ctx: GuardianContext = {
+    const ctx: TrustContext = {
       sourceChannel: "telegram",
       trustClass: "trusted_contact",
       // No guardianExternalUserId — mirrors no binding
@@ -521,7 +518,7 @@ describe("(c) no-binding flow: trusted contact fails fast without guardian bindi
     const toolName = "bash";
     const input = { command: "ls" };
     const context = makeToolContext({
-      guardianTrustClass: "trusted_contact",
+      trustClass: "trusted_contact",
       executionChannel: "telegram",
     });
 
@@ -569,11 +566,11 @@ describe("(c) no-binding flow: trusted contact fails fast without guardian bindi
       expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
     });
 
-    const guardianContext = makeTrustedContactGuardianContext();
+    const trustContext = makeTrustedContactTrustContext();
 
     const result = bridgeConfirmationRequestToGuardian({
       canonicalRequest,
-      guardianContext,
+      trustContext,
       conversationId: "conv-nobinding",
       toolName: "bash",
     });
@@ -614,7 +611,7 @@ describe("(d) unknown actor flow: fail-closed with no interactive approval", () 
     const toolName = "bash";
     const input = { command: "ls" };
     const context = makeToolContext({
-      guardianTrustClass: "unknown",
+      trustClass: "unknown",
       executionChannel: "telegram",
       requesterExternalUserId: "unknown-user",
     });
@@ -649,12 +646,12 @@ describe("(d) unknown actor flow: fail-closed with no interactive approval", () 
   });
 
   test("unknown actors have promptWaitingAllowed=false regardless of guardian route", () => {
-    const withRoute: GuardianContext = {
+    const withRoute: TrustContext = {
       sourceChannel: "telegram",
       trustClass: "unknown",
       guardianExternalUserId: "guardian-1",
     };
-    const withoutRoute: GuardianContext = {
+    const withoutRoute: TrustContext = {
       sourceChannel: "telegram",
       trustClass: "unknown",
     };
@@ -680,14 +677,14 @@ describe("(d) unknown actor flow: fail-closed with no interactive approval", () 
       expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
     });
 
-    const guardianContext: GuardianRuntimeContext = {
+    const trustContext: TrustContext = {
       sourceChannel: "telegram",
       trustClass: "unknown",
     };
 
     const result = bridgeConfirmationRequestToGuardian({
       canonicalRequest,
-      guardianContext,
+      trustContext,
       conversationId: "conv-unknown",
       toolName: "bash",
     });
@@ -710,12 +707,12 @@ describe("(d) unknown actor flow: fail-closed with no interactive approval", () 
  * flags as always-false under strict literal narrowing — TS2367/TS2872).
  */
 function checkIsBoundGuardianActor(params: {
-  guardianTrustClass: string;
+  trustClass: string;
   guardianExternalUserId: string | undefined;
   requesterExternalUserId: string;
 }): boolean {
   return (
-    params.guardianTrustClass === "guardian" &&
+    params.trustClass === "guardian" &&
     !!params.guardianExternalUserId &&
     params.requesterExternalUserId === params.guardianExternalUserId
   );
@@ -741,7 +738,7 @@ describe("(e) guardian-only prompt delivery invariant", () => {
     // actors matching the binding receive the prompt.
 
     const result = checkIsBoundGuardianActor({
-      guardianTrustClass: "trusted_contact",
+      trustClass: "trusted_contact",
       guardianExternalUserId: "guardian-1",
       requesterExternalUserId: "requester-1",
     });
@@ -752,7 +749,7 @@ describe("(e) guardian-only prompt delivery invariant", () => {
 
   test("unknown actors do NOT receive approval prompt UI", () => {
     const result = checkIsBoundGuardianActor({
-      guardianTrustClass: "unknown",
+      trustClass: "unknown",
       guardianExternalUserId: "guardian-1",
       requesterExternalUserId: "unknown-user",
     });
@@ -762,7 +759,7 @@ describe("(e) guardian-only prompt delivery invariant", () => {
 
   test("guardian actor that matches binding DOES receive approval prompt UI", () => {
     const result = checkIsBoundGuardianActor({
-      guardianTrustClass: "guardian",
+      trustClass: "guardian",
       guardianExternalUserId: "guardian-1",
       requesterExternalUserId: "guardian-1",
     });
@@ -773,7 +770,7 @@ describe("(e) guardian-only prompt delivery invariant", () => {
   test("guardian actor with identity mismatch does NOT receive approval prompt UI", () => {
     // After guardian rotation, old guardian identity should not receive prompts
     const result = checkIsBoundGuardianActor({
-      guardianTrustClass: "guardian",
+      trustClass: "guardian",
       guardianExternalUserId: "new-guardian-2",
       requesterExternalUserId: "old-guardian-1",
     });
@@ -810,7 +807,7 @@ describe("(f) timeout/stale flow: stale guardian decision after inline wait time
   test("inline wait timeout clears followupState so later approval sends retry notification", async () => {
     const toolName = "bash";
     const input = { command: "echo stale" };
-    const context = makeToolContext({ guardianTrustClass: "trusted_contact" });
+    const context = makeToolContext({ trustClass: "trusted_contact" });
 
     // Let the tool invocation time out (no guardian approval within 100ms)
     const result = await handler.checkPreExecutionGates(
@@ -966,7 +963,7 @@ describe("(f) timeout/stale flow: stale guardian decision after inline wait time
   test("denied inline wait produces explicit denial (no false success)", async () => {
     const toolName = "bash";
     const input = { command: "rm -rf /" };
-    const context = makeToolContext({ guardianTrustClass: "trusted_contact" });
+    const context = makeToolContext({ trustClass: "trusted_contact" });
 
     // Schedule guardian rejection after 80ms
     const rejectionPromise = (async () => {
@@ -1009,7 +1006,7 @@ describe("(f) timeout/stale flow: stale guardian decision after inline wait time
   test("timeout produces explicit timeout message (no false success)", async () => {
     const toolName = "bash";
     const input = { command: "curl example.com" };
-    const context = makeToolContext({ guardianTrustClass: "trusted_contact" });
+    const context = makeToolContext({ trustClass: "trusted_contact" });
 
     const result = await handler.checkPreExecutionGates(
       toolName,
@@ -1054,7 +1051,7 @@ describe("cross-milestone integration checks", () => {
 
   test("M1+M4: routing state interactivity drives inline wait eligibility", async () => {
     // With guardian binding: interactive + inline wait allowed
-    const withBinding: GuardianContext = {
+    const withBinding: TrustContext = {
       sourceChannel: "telegram",
       trustClass: "trusted_contact",
       guardianExternalUserId: "guardian-1",
@@ -1062,7 +1059,7 @@ describe("cross-milestone integration checks", () => {
     expect(resolveRoutingState(withBinding).promptWaitingAllowed).toBe(true);
 
     // Without guardian binding: not interactive + inline wait should not enter dead-end
-    const withoutBinding: GuardianContext = {
+    const withoutBinding: TrustContext = {
       sourceChannel: "telegram",
       trustClass: "trusted_contact",
     };
@@ -1090,11 +1087,11 @@ describe("cross-milestone integration checks", () => {
       expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
     });
 
-    const guardianContext = makeTrustedContactGuardianContext();
+    const trustContext = makeTrustedContactTrustContext();
 
     const bridgeResult = bridgeConfirmationRequestToGuardian({
       canonicalRequest,
-      guardianContext,
+      trustContext,
       conversationId: "conv-consistency",
       toolName: "bash",
     });
@@ -1125,7 +1122,7 @@ describe("cross-milestone integration checks", () => {
     const toolName = "bash";
     const input = { command: "ls" };
     const context = makeToolContext({
-      guardianTrustClass: "guardian",
+      trustClass: "guardian",
       executionChannel: "telegram",
       requesterExternalUserId: "guardian-1",
     });
@@ -1158,7 +1155,7 @@ describe("cross-milestone integration checks", () => {
     const input = { command: "aborted-command" };
     const controller = new AbortController();
     const context = makeToolContext({
-      guardianTrustClass: "trusted_contact",
+      trustClass: "trusted_contact",
       signal: controller.signal,
     });
 

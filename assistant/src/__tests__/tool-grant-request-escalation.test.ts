@@ -168,7 +168,7 @@ function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
     conversationId: "conv-1",
     assistantId: "self",
     requestId: "req-1",
-    guardianTrustClass: "trusted_contact",
+    trustClass: "trusted_contact",
     executionChannel: "telegram",
     requesterExternalUserId: "requester-1",
     ...overrides,
@@ -229,7 +229,7 @@ describe("ToolApprovalHandler / grant-miss escalation", () => {
     const toolName = "bash";
     const input = { command: "cat /etc/passwd" };
 
-    const context = makeContext({ guardianTrustClass: "trusted_contact" });
+    const context = makeContext({ trustClass: "trusted_contact" });
     const result = await handler.checkPreExecutionGates(
       toolName,
       input,
@@ -264,7 +264,7 @@ describe("ToolApprovalHandler / grant-miss escalation", () => {
     const toolName = "bash";
     const input = { command: "deploy" };
 
-    const context = makeContext({ guardianTrustClass: "trusted_contact" });
+    const context = makeContext({ trustClass: "trusted_contact" });
     const result = await handler.checkPreExecutionGates(
       toolName,
       input,
@@ -289,7 +289,7 @@ describe("ToolApprovalHandler / grant-miss escalation", () => {
     const toolName = "bash";
     const input = { command: "rm -rf /" };
 
-    const context = makeContext({ guardianTrustClass: "trusted_contact" });
+    const context = makeContext({ trustClass: "trusted_contact" });
 
     // First invocation creates the request (and waits, then times out)
     await handler.checkPreExecutionGates(
@@ -345,7 +345,7 @@ describe("ToolApprovalHandler / grant-miss escalation", () => {
     const input = { command: "ls" };
 
     const context = makeContext({
-      guardianTrustClass: "unknown",
+      trustClass: "unknown",
       executionChannel: "telegram",
       requesterExternalUserId: "unknown-user",
     });
@@ -377,7 +377,7 @@ describe("ToolApprovalHandler / grant-miss escalation", () => {
     const input = { command: "deploy" };
 
     const context = makeContext({
-      guardianTrustClass: "trusted_contact",
+      trustClass: "trusted_contact",
       executionChannel: undefined, // no channel info
     });
     const result = await handler.checkPreExecutionGates(
@@ -528,7 +528,7 @@ describe("end-to-end: tool grant escalation -> approval -> consume", () => {
     const input = { command: "echo secret" };
     const _inputDigest = computeToolApprovalDigest(toolName, input);
 
-    const context = makeContext({ guardianTrustClass: "trusted_contact" });
+    const context = makeContext({ trustClass: "trusted_contact" });
 
     // Schedule guardian approval after 100ms — within the 2s wait window.
     // The approval happens asynchronously while checkPreExecutionGates is
@@ -583,7 +583,7 @@ describe("end-to-end: tool grant escalation -> approval -> consume", () => {
     const input = { command: "echo secret" };
     const _inputDigest = computeToolApprovalDigest(toolName, input);
 
-    const context = makeContext({ guardianTrustClass: "trusted_contact" });
+    const context = makeContext({ trustClass: "trusted_contact" });
 
     // Step 1: First invocation times out (short wait, no approval)
     const shortHandler = new ToolApprovalHandler({
@@ -813,7 +813,7 @@ describe("inline wait-and-resume", () => {
 
     const toolName = "bash";
     const input = { command: "rm -rf /" };
-    const context = makeContext({ guardianTrustClass: "trusted_contact" });
+    const context = makeContext({ trustClass: "trusted_contact" });
 
     // Schedule rejection after 100ms
     const rejectionPromise = (async () => {
@@ -861,7 +861,7 @@ describe("inline wait-and-resume", () => {
     const input = { command: "do something" };
     const controller = new AbortController();
     const context = makeContext({
-      guardianTrustClass: "trusted_contact",
+      trustClass: "trusted_contact",
       signal: controller.signal,
     });
 
@@ -895,7 +895,7 @@ describe("inline wait-and-resume", () => {
     const toolName = "bash";
     const input = { command: "ls" };
     const context = makeContext({
-      guardianTrustClass: "unknown",
+      trustClass: "unknown",
       executionChannel: "telegram",
       requesterExternalUserId: "unknown-user",
     });

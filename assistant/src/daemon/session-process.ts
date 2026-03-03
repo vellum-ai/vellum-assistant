@@ -14,7 +14,7 @@ import {
   listPendingRequestsByConversationScope,
 } from '../memory/canonical-guardian-store.js';
 import * as conversationStore from '../memory/conversation-store.js';
-import { provenanceFromGuardianContext } from '../memory/conversation-store.js';
+import { provenanceFromTrustContext } from '../memory/conversation-store.js';
 import { extractPreferences } from '../notifications/preference-extractor.js';
 import { createPreference } from '../notifications/preferences-store.js';
 import type { Message } from '../providers/types.js';
@@ -25,7 +25,7 @@ import type { UsageStats } from './ipc-contract.js';
 import type { ServerMessage, UserMessageAttachment } from './ipc-protocol.js';
 import type { MessageQueue } from './session-queue-manager.js';
 import type { QueueDrainReason } from './session-queue-manager.js';
-import type { GuardianRuntimeContext } from './session-runtime-assembly.js';
+import type { TrustContext } from './session-runtime-assembly.js';
 import { resolveSlash, type SlashContext } from './session-slash.js';
 import type { TraceEmitter } from './trace-emitter.js';
 
@@ -73,7 +73,7 @@ export interface ProcessSessionContext {
   preactivatedSkillIds?: string[];
   /** Assistant identity — used for scoping notification preferences. */
   readonly assistantId?: string;
-  guardianContext?: GuardianRuntimeContext;
+  trustContext?: TrustContext;
   ensureActorScopedHistory(): Promise<void>;
   persistUserMessage(content: string, attachments: UserMessageAttachment[], requestId?: string, metadata?: Record<string, unknown>, displayContent?: string): Promise<string>;
   runAgentLoop(
@@ -188,7 +188,7 @@ export async function drainQueue(session: ProcessSessionContext, reason: QueueDr
   // failed write never leaves an unpersisted message in memory.
   if (slashResult.kind === 'unknown') {
     try {
-      const drainProvenance = provenanceFromGuardianContext(session.guardianContext);
+      const drainProvenance = provenanceFromTrustContext(session.trustContext);
       const drainChannelMeta = {
         ...drainProvenance,
         ...(queuedTurnCtx
@@ -375,9 +375,9 @@ export async function processMessage(
       messageText: trimmedContent,
       channel: 'vellum',
       actor: {
-        externalUserId: session.guardianContext?.guardianExternalUserId,
+        externalUserId: session.trustContext?.guardianExternalUserId,
         channel: 'vellum',
-        guardianPrincipalId: session.guardianContext?.guardianPrincipalId ?? undefined,
+        guardianPrincipalId: session.trustContext?.guardianPrincipalId ?? undefined,
       },
       conversationId: session.conversationId,
       pendingRequestIds: canonicalPendingRequestIdsForConversation,
@@ -438,7 +438,7 @@ export async function processMessage(
   if (slashResult.kind === 'unknown') {
     const pmTurnCtx = session.getTurnChannelContext();
     const pmInterfaceCtx = session.getTurnInterfaceContext();
-    const pmProvenance = provenanceFromGuardianContext(session.guardianContext);
+    const pmProvenance = provenanceFromTrustContext(session.trustContext);
     const pmChannelMeta = {
       ...pmProvenance,
       ...(pmTurnCtx

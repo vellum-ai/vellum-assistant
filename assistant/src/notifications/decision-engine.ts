@@ -609,6 +609,7 @@ export async function evaluateSignal(
     let decision = buildFallbackDecision(signal, availableChannels);
     decision = enforceGuardianRequestCode(decision, signal);
     decision = enforceAccessRequestInstructions(decision, signal);
+    decision = enforceGuardianCallThreadAffinity(decision, signal);
     decision = enforceConversationAffinity(decision, signal.conversationAffinityHint);
     decision.persistedDecisionId = persistDecision(signal, decision);
     return decision;
@@ -625,6 +626,7 @@ export async function evaluateSignal(
 
   decision = enforceGuardianRequestCode(decision, signal);
   decision = enforceAccessRequestInstructions(decision, signal);
+  decision = enforceGuardianCallThreadAffinity(decision, signal);
   decision = enforceConversationAffinity(decision, signal.conversationAffinityHint);
   decision.persistedDecisionId = persistDecision(signal, decision);
 
@@ -758,6 +760,46 @@ export function enforceRoutingIntent(
   }
 
   return decision;
+}
+
+// ── Guardian call thread affinity ────────────────────────────────────────
+
+/**
+ * Force a new vellum thread for the first guardian question in a phone call.
+ *
+ * When a guardian.question signal carries a callSessionId but has no
+ * conversationAffinityHint, this is the first dispatch in a new call and
+ * should get its own thread. Without this guard the LLM might reuse a
+ * thread from a previous call. For subsequent dispatches within the same
+ * call, the affinity hint already exists and enforceConversationAffinity
+ * handles routing — so this guard is a no-op.
+ */
+export function enforceGuardianCallThreadAffinity(
+  decision: NotificationDecision,
+  signal: NotificationSignal,
+): NotificationDecision {
+  if (signal.sourceEventName !== 'guardian.question') return decision;
+
+  const callSessionId = signal.contextPayload?.callSessionId;
+  if (typeof callSessionId !== 'string' || callSessionId.trim().length === 0) return decision;
+
+  // If an affinity hint already exists for vellum, the second+ dispatch
+  // will be handled by enforceConversationAffinity — nothing to do here.
+  if (signal.conversationAffinityHint?.vellum) return decision;
+
+  const enforced = { ...decision };
+  const threadActions: Partial<Record<NotificationChannel, ThreadAction>> = {
+    ...(decision.threadActions ?? {}),
+  };
+  threadActions.vellum = { action: 'start_new' };
+  enforced.threadActions = threadActions;
+
+  log.info(
+    { callSessionId },
+    'Guardian call thread affinity: first question in call — forcing start_new for vellum',
+  );
+
+  return enforced;
 }
 
 // ── Conversation affinity enforcement ───────────────────────────────────

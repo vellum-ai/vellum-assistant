@@ -59,7 +59,7 @@ struct VoiceSettingsView: View {
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
                 Text("Hold the activation key to dictate text or start a voice conversation. Uses on-device speech recognition.")
-                    .font(VFont.caption)
+                    .font(VFont.sectionDescription)
                     .foregroundColor(VColor.textMuted)
             }
 
@@ -81,15 +81,15 @@ struct VoiceSettingsView: View {
                             selectActivator(.off)
                         }
                     }
-                ))
+                ), size: .medium)
                 .accessibilityLabel("Enable Push to Talk")
             }
 
             if pttEnabled {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     Text("Activation key")
-                        .font(VFont.bodyMedium)
-                        .foregroundColor(VColor.textPrimary)
+                        .font(VFont.inputLabel)
+                        .foregroundColor(VColor.textSecondary)
 
                     HStack(spacing: VSpacing.sm) {
                         // Preset buttons
@@ -169,6 +169,7 @@ struct VoiceSettingsView: View {
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Custom Key Recording
@@ -282,7 +283,7 @@ struct VoiceSettingsView: View {
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
                 Text("Wake word lets you start a conversation by speaking a keyword aloud \u{2014} no need to click or press anything. It uses on-device speech recognition, so nothing you say ever leaves your Mac.")
-                    .font(VFont.caption)
+                    .font(VFont.sectionDescription)
                     .foregroundColor(VColor.textMuted)
                     .lineSpacing(2)
             }
@@ -297,7 +298,7 @@ struct VoiceSettingsView: View {
                         .foregroundColor(VColor.textMuted)
                 }
                 Spacer()
-                VToggle(isOn: $wakeWordEnabled)
+                VToggle(isOn: $wakeWordEnabled, size: .medium)
                     .accessibilityLabel("Enable wake word listening")
             }
 
@@ -312,8 +313,8 @@ struct VoiceSettingsView: View {
                 // Keyword
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     Text("Keyword")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
+                        .font(VFont.inputLabel)
+                        .foregroundColor(VColor.textSecondary)
 
                     TextField("Enter wake word or phrase", text: $wakeWordKeyword)
                         .vInputStyle()
@@ -337,10 +338,10 @@ struct VoiceSettingsView: View {
 
                 // Conversation timeout
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
                         Text("Conversation timeout")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
+                            .font(VFont.inputLabel)
+                            .foregroundColor(VColor.textSecondary)
                         Text("How long to wait for follow-up speech before ending the conversation.")
                             .font(VFont.caption)
                             .foregroundColor(VColor.textMuted)
@@ -368,6 +369,7 @@ struct VoiceSettingsView: View {
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func wakeWordStepCard(number: String, title: String, description: String) -> some View {
@@ -391,6 +393,7 @@ struct VoiceSettingsView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(VSpacing.lg)
         .vCard(background: VColor.surfaceSubtle)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private let timeoutOptions: [(label: String, value: Int)] = [
@@ -410,14 +413,14 @@ struct VoiceSettingsView: View {
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
                 Text("ElevenLabs provides high-quality voice responses during voice conversations. An API key is required.")
-                    .font(VFont.caption)
+                    .font(VFont.sectionDescription)
                     .foregroundColor(VColor.textMuted)
             }
 
             if store.hasElevenLabsKey {
                 HStack(spacing: VSpacing.sm) {
-                    VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .large) {}
-                    VButton(label: "Disconnect", style: .danger, size: .large) {
+                    VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .medium) {}
+                    VButton(label: "Disconnect", style: .danger, size: .medium) {
                         store.clearElevenLabsKey()
                         elevenLabsKeyText = ""
                         ttsSetupExpanded = false
@@ -426,7 +429,7 @@ struct VoiceSettingsView: View {
             } else if ttsSetupExpanded {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     Text("ElevenLabs API Key")
-                        .font(VFont.caption)
+                        .font(VFont.inputLabel)
                         .foregroundColor(VColor.textSecondary)
 
                     SecureField("Your ElevenLabs API key", text: $elevenLabsKeyText)
@@ -444,19 +447,19 @@ struct VoiceSettingsView: View {
                     }
 
                     HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Connect", style: .secondary, size: .large, isDisabled: elevenLabsKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
+                        VButton(label: "Connect", style: .secondary, size: .medium, isDisabled: elevenLabsKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
                             store.saveElevenLabsKey(elevenLabsKeyText)
                             elevenLabsKeyText = ""
                             ttsSetupExpanded = false
                         }
-                        VButton(label: "Cancel", style: .tertiary, size: .large) {
+                        VButton(label: "Cancel", style: .tertiary, size: .medium) {
                             ttsSetupExpanded = false
                             elevenLabsKeyText = ""
                         }
                     }
                 }
             } else {
-                VButton(label: "Set Up", style: .secondary, size: .large) {
+                VButton(label: "Set Up", style: .secondary, size: .medium) {
                     ttsSetupExpanded = true
                 }
             }
@@ -464,5 +467,6 @@ struct VoiceSettingsView: View {
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

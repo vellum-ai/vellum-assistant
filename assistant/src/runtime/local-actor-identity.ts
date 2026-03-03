@@ -6,28 +6,28 @@
  * deterministic local actor identity server-side by looking up the vellum
  * channel guardian binding.
  *
- * This routes IPC connections through the same `resolveGuardianContext`
+ * This routes IPC connections through the same `resolveTrustContext`
  * pathway used by HTTP channel ingress, producing equivalent
  * guardian-context behavior for the vellum channel.
  */
 
-import type { ChannelId } from '../channels/types.js';
-import { buildIpcAuthContext } from '../daemon/ipc-handler.js';
-import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
-import { getActiveBinding } from '../memory/guardian-bindings.js';
-import { getLogger } from '../util/logger.js';
-import { DAEMON_INTERNAL_ASSISTANT_ID } from './assistant-scope.js';
-import type { AuthContext } from './auth/types.js';
-import { resolveGuardianContext } from './guardian-context-resolver.js';
-import { ensureVellumGuardianBinding } from './guardian-vellum-migration.js';
+import type { ChannelId } from "../channels/types.js";
+import { buildIpcAuthContext } from "../daemon/ipc-handler.js";
+import type { TrustContext } from "../daemon/session-runtime-assembly.js";
+import { getActiveBinding } from "../memory/guardian-bindings.js";
+import { getLogger } from "../util/logger.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
+import type { AuthContext } from "./auth/types.js";
+import { ensureVellumGuardianBinding } from "./guardian-vellum-migration.js";
+import { resolveTrustContext } from "./trust-context-resolver.js";
 
-const log = getLogger('local-actor-identity');
+const log = getLogger("local-actor-identity");
 
 /**
  * Resolve the guardian runtime context for a local IPC connection.
  *
  * Looks up the vellum guardian binding to obtain the `guardianPrincipalId`,
- * then passes it as the sender identity through `resolveGuardianContext` --
+ * then passes it as the sender identity through `resolveTrustContext` --
  * the same pathway HTTP channel routes use. This ensures IPC and HTTP
  * produce equivalent trust classification for the vellum channel.
  *
@@ -35,11 +35,11 @@ const log = getLogger('local-actor-identity');
  * bootstrap), falls back to a minimal guardian context so the local
  * user is not incorrectly denied.
  */
-export function resolveLocalIpcGuardianContext(
-  sourceChannel: ChannelId = 'vellum',
-): GuardianRuntimeContext {
+export function resolveLocalIpcTrustContext(
+  sourceChannel: ChannelId = "vellum",
+): TrustContext {
   const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
-  const binding = getActiveBinding(assistantId, 'vellum');
+  const binding = getActiveBinding(assistantId, "vellum");
 
   if (!binding) {
     // No vellum binding yet (pre-bootstrap). Eagerly create one so
@@ -47,18 +47,20 @@ export function resolveLocalIpcGuardianContext(
     // (tool_approval, pending_question) always has a guardianPrincipalId
     // available. Without this, createCanonicalGuardianRequest throws
     // IntegrityError and the request is silently dropped.
-    log.debug('No vellum guardian binding found; bootstrapping binding for IPC');
+    log.debug(
+      "No vellum guardian binding found; bootstrapping binding for IPC",
+    );
     const principalId = ensureVellumGuardianBinding(assistantId);
 
     // Re-resolve through the shared pipeline now that the binding exists.
-    const guardianCtx = resolveGuardianContext({
+    const trustCtx = resolveTrustContext({
       assistantId,
-      sourceChannel: 'vellum',
-      conversationExternalId: 'local',
+      sourceChannel: "vellum",
+      conversationExternalId: "local",
       actorExternalId: principalId,
     });
     // Overlay the caller's actual sourceChannel onto the resolved context.
-    return { ...guardianCtx, sourceChannel };
+    return { ...trustCtx, sourceChannel };
   }
 
   const guardianPrincipalId = binding.guardianExternalUserId;
@@ -69,16 +71,16 @@ export function resolveLocalIpcGuardianContext(
   // 'vellum' — otherwise resolveActorTrust would look up a different
   // channel's binding (e.g. telegram/sms) and the IDs wouldn't match,
   // causing a 'unknown' trust classification.
-  const guardianCtx = resolveGuardianContext({
+  const trustCtx = resolveTrustContext({
     assistantId,
-    sourceChannel: 'vellum',
-    conversationExternalId: 'local',
+    sourceChannel: "vellum",
+    conversationExternalId: "local",
     actorExternalId: guardianPrincipalId,
   });
 
   // Overlay the caller's actual sourceChannel onto the resolved context
   // so downstream consumers see the correct channel provenance.
-  return { ...guardianCtx, sourceChannel };
+  return { ...trustCtx, sourceChannel };
 }
 
 /**
@@ -96,7 +98,7 @@ export function resolveLocalIpcAuthContext(sessionId: string): AuthContext {
   // Enrich with the guardian principal ID when a vellum binding exists,
   // so downstream guardian resolution can use authContext.actorPrincipalId.
   const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
-  const binding = getActiveBinding(assistantId, 'vellum');
+  const binding = getActiveBinding(assistantId, "vellum");
   if (binding) {
     return { ...authContext, actorPrincipalId: binding.guardianExternalUserId };
   }

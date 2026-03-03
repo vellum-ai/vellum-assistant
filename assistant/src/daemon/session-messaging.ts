@@ -12,13 +12,13 @@ import type { TurnChannelContext, TurnInterfaceContext } from '../channels/types
 import { parseChannelId, parseInterfaceId } from '../channels/types.js';
 import { AttachmentUploadError, linkAttachmentToMessage, uploadAttachment, validateAttachmentUpload } from '../memory/attachments-store.js';
 import * as conversationStore from '../memory/conversation-store.js';
-import { provenanceFromGuardianContext } from '../memory/conversation-store.js';
+import { provenanceFromTrustContext } from '../memory/conversation-store.js';
 import type { SecretPrompter } from '../permissions/secret-prompter.js';
 import type { Message } from '../providers/types.js';
 import { getLogger } from '../util/logger.js';
 import type { ServerMessage, UserMessageAttachment } from './ipc-protocol.js';
 import type { MessageQueue } from './session-queue-manager.js';
-import type { GuardianRuntimeContext } from './session-runtime-assembly.js';
+import type { TrustContext } from './session-runtime-assembly.js';
 
 const log = getLogger('session-messaging');
 
@@ -92,7 +92,7 @@ export interface MessagingSessionContext {
   abortController: AbortController | null;
   currentRequestId?: string;
   readonly queue: MessageQueue;
-  guardianContext?: GuardianRuntimeContext;
+  trustContext?: TrustContext;
   getTurnChannelContext(): TurnChannelContext | null;
   getTurnInterfaceContext(): TurnInterfaceContext | null;
 }
@@ -188,7 +188,7 @@ export async function persistUserMessage(
   try {
     const turnCtx = extractTurnChannelContext(metadata) ?? ctx.getTurnChannelContext();
     const turnIfCtx = extractTurnInterfaceContext(metadata) ?? ctx.getTurnInterfaceContext();
-    const provenance = provenanceFromGuardianContext(ctx.guardianContext);
+    const provenance = provenanceFromTrustContext(ctx.trustContext);
     const mergedMetadata = {
       ...(metadata ?? {}),
       ...provenance,

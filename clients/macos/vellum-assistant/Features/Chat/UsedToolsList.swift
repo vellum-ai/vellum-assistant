@@ -12,7 +12,6 @@ struct UsedToolsList: View {
 
     private var pillLabel: String {
         let count = toolCalls.count
-        if count == 1 { return toolCalls[0].actionDescription }
 
         // If all tool calls are app-building related, show a friendly summary
         let appToolNames: Set<String> = ["app_create", "app_update", "app_file_edit", "app_file_write"]
@@ -21,7 +20,7 @@ struct UsedToolsList: View {
             return "Built your app"
         }
 
-        return "Completed \(count) steps"
+        return "Completed \(count) step\(count == 1 ? "" : "s")"
     }
 
     private var pillIcon: String { "checkmark.circle.fill" }
@@ -138,7 +137,7 @@ private struct UsedToolsRow: View {
                             .foregroundColor(.white)
                     }
 
-                    // Human-readable title + optional duration
+                    // Human-readable title + optional reason subtitle
                     VStack(alignment: .leading, spacing: VSpacing.xxs) {
                         Text(toolCall.actionDescription)
                             .font(VFont.captionMedium)
@@ -146,20 +145,31 @@ private struct UsedToolsRow: View {
                             .lineLimit(1)
                             .truncationMode(.tail)
 
-                        if let started = toolCall.startedAt, let completed = toolCall.completedAt {
-                            Text(formatDuration(completed.timeIntervalSince(started)))
+                        if let reason = toolCall.reasonDescription, !reason.isEmpty {
+                            Text(reason)
                                 .font(VFont.small)
                                 .foregroundColor(VColor.textMuted)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
                         }
                     }
 
                     Spacer()
 
-                    if hasDetails {
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundColor(VColor.textMuted)
-                            .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    // Duration + chevron right-aligned
+                    HStack(spacing: VSpacing.xs) {
+                        if let started = toolCall.startedAt, let completed = toolCall.completedAt {
+                            Text(formatDuration(completed.timeIntervalSince(started)))
+                                .font(VFont.small)
+                                .foregroundColor(VColor.textMuted)
+                        }
+
+                        if hasDetails {
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundColor(VColor.textMuted)
+                                .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        }
                     }
                 }
                 .padding(.horizontal, VSpacing.md)

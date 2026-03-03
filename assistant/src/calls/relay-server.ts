@@ -6,38 +6,38 @@
  * from Twilio and can send text tokens back for TTS.
  */
 
-import { randomInt } from 'node:crypto';
+import { randomInt } from "node:crypto";
 
-import type { ServerWebSocket } from 'bun';
+import type { ServerWebSocket } from "bun";
 
-import { getConfig } from '../config/loader.js';
-import { resolveUserReference } from '../config/user-reference.js';
-import { getAssistantName } from '../daemon/identity-helpers.js';
-import { getCanonicalGuardianRequest } from '../memory/canonical-guardian-store.js';
-import { listActiveBindingsByAssistant } from '../memory/channel-guardian-store.js';
-import * as conversationStore from '../memory/conversation-store.js';
-import { findActiveVoiceInvites } from '../memory/ingress-invite-store.js';
-import { findMember, upsertMember } from '../memory/ingress-member-store.js';
-import { revokeScopedApprovalGrantsForContext } from '../memory/scoped-approval-grants.js';
-import { emitNotificationSignal } from '../notifications/emit-signal.js';
-import { notifyGuardianOfAccessRequest } from '../runtime/access-request-helper.js';
+import { getConfig } from "../config/loader.js";
+import { resolveUserReference } from "../config/user-reference.js";
+import { getAssistantName } from "../daemon/identity-helpers.js";
+import { getCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
+import { listActiveBindingsByAssistant } from "../memory/channel-guardian-store.js";
+import * as conversationStore from "../memory/conversation-store.js";
+import { findActiveVoiceInvites } from "../memory/ingress-invite-store.js";
+import { findMember, upsertMember } from "../memory/ingress-member-store.js";
+import { revokeScopedApprovalGrantsForContext } from "../memory/scoped-approval-grants.js";
+import { emitNotificationSignal } from "../notifications/emit-signal.js";
+import { notifyGuardianOfAccessRequest } from "../runtime/access-request-helper.js";
 import {
   resolveActorTrust,
-  toGuardianRuntimeContextFromTrust,
-} from '../runtime/actor-trust-resolver.js';
-import { DAEMON_INTERNAL_ASSISTANT_ID } from '../runtime/assistant-scope.js';
+  toTrustContext,
+} from "../runtime/actor-trust-resolver.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import {
   getGuardianBinding,
   getPendingChallenge,
   validateAndConsumeChallenge,
-} from '../runtime/channel-guardian-service.js';
+} from "../runtime/channel-guardian-service.js";
 import {
   composeVerificationVoice,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
-} from '../runtime/guardian-verification-templates.js';
-import { redeemVoiceInviteCode } from '../runtime/ingress-service.js';
-import { parseJsonSafe } from '../util/json.js';
-import { getLogger } from '../util/logger.js';
+} from "../runtime/guardian-verification-templates.js";
+import { redeemVoiceInviteCode } from "../runtime/ingress-service.js";
+import { parseJsonSafe } from "../util/json.js";
+import { getLogger } from "../util/logger.js";
 import {
   getAccessRequestPollIntervalMs,
   getGuardianWaitUpdateInitialIntervalMs,
@@ -46,31 +46,34 @@ import {
   getGuardianWaitUpdateSteadyMinIntervalMs,
   getTtsPlaybackDelayMs,
   getUserConsultationTimeoutMs,
-} from './call-constants.js';
-import { CallController } from './call-controller.js';
-import { persistCallCompletionMessage } from './call-conversation-messages.js';
-import { addPointerMessage, formatDuration } from './call-pointer-messages.js';
-import { fireCallCompletionNotifier,fireCallTranscriptNotifier } from './call-state.js';
-import { isTerminalState } from './call-state-machine.js';
+} from "./call-constants.js";
+import { CallController } from "./call-controller.js";
+import { persistCallCompletionMessage } from "./call-conversation-messages.js";
+import { addPointerMessage, formatDuration } from "./call-pointer-messages.js";
+import {
+  fireCallCompletionNotifier,
+  fireCallTranscriptNotifier,
+} from "./call-state.js";
+import { isTerminalState } from "./call-state-machine.js";
 import {
   expirePendingQuestions,
   getCallSession,
   recordCallEvent,
   updateCallSession,
-} from './call-store.js';
+} from "./call-store.js";
 import {
   extractPromptSpeakerMetadata,
   type PromptSpeakerContext,
   SpeakerIdentityTracker,
-} from './speaker-identification.js';
+} from "./speaker-identification.js";
 
-const log = getLogger('relay-server');
+const log = getLogger("relay-server");
 
 // ── ConversationRelay message types ──────────────────────────────────
 
 // Messages FROM Twilio
 export interface RelaySetupMessage {
-  type: 'setup';
+  type: "setup";
   callSid: string;
   from: string;
   to: string;
@@ -78,7 +81,7 @@ export interface RelaySetupMessage {
 }
 
 export interface RelayPromptMessage {
-  type: 'prompt';
+  type: "prompt";
   voicePrompt: string;
   lang: string;
   last: boolean;
@@ -102,17 +105,17 @@ export interface RelayPromptMessage {
 }
 
 export interface RelayInterruptMessage {
-  type: 'interrupt';
+  type: "interrupt";
   utteranceUntilInterrupt: string;
 }
 
 export interface RelayDtmfMessage {
-  type: 'dtmf';
+  type: "dtmf";
   digit: string;
 }
 
 export interface RelayErrorMessage {
-  type: 'error';
+  type: "error";
   description: string;
 }
 
@@ -125,13 +128,13 @@ export type RelayInboundMessage =
 
 // Messages TO Twilio
 export interface RelayTextMessage {
-  type: 'text';
+  type: "text";
   token: string;
   last: boolean;
 }
 
 export interface RelayEndMessage {
-  type: 'end';
+  type: "end";
   handoffData?: string;
 }
 
@@ -147,10 +150,14 @@ export interface RelayWebSocketData {
 export const activeRelayConnections = new Map<string, RelayConnection>();
 
 /** Module-level broadcast function, set by the HTTP server during startup. */
-let globalBroadcast: ((msg: import('../daemon/ipc-contract.js').ServerMessage) => void) | undefined;
+let globalBroadcast:
+  | ((msg: import("../daemon/ipc-contract.js").ServerMessage) => void)
+  | undefined;
 
 /** Register a broadcast function so RelayConnection can forward IPC events. */
-export function setRelayBroadcast(fn: (msg: import('../daemon/ipc-contract.js').ServerMessage) => void): void {
+export function setRelayBroadcast(
+  fn: (msg: import("../daemon/ipc-contract.js").ServerMessage) => void,
+): void {
   globalBroadcast = fn;
 }
 
@@ -159,13 +166,18 @@ export function setRelayBroadcast(fn: (msg: import('../daemon/ipc-contract.js').
 /**
  * Manages a single WebSocket connection for one call.
  */
-export type RelayConnectionState = 'connected' | 'verification_pending' | 'awaiting_name' | 'awaiting_guardian_decision' | 'disconnecting';
+export type RelayConnectionState =
+  | "connected"
+  | "verification_pending"
+  | "awaiting_name"
+  | "awaiting_guardian_decision"
+  | "disconnecting";
 
 export class RelayConnection {
   private ws: ServerWebSocket<RelayWebSocketData>;
   private callSessionId: string;
   private conversationHistory: Array<{
-    role: 'caller' | 'assistant';
+    role: "caller" | "assistant";
     text: string;
     timestamp: number;
     speaker?: PromptSpeakerContext;
@@ -175,12 +187,12 @@ export class RelayConnection {
   private speakerIdentityTracker: SpeakerIdentityTracker;
 
   // Verification state (outbound callee verification)
-  private connectionState: RelayConnectionState = 'connected';
+  private connectionState: RelayConnectionState = "connected";
   private verificationCode: string | null = null;
   private verificationAttempts = 0;
   private verificationMaxAttempts = 3;
   private verificationCodeLength = 6;
-  private dtmfBuffer = '';
+  private dtmfBuffer = "";
 
   // Inbound voice guardian verification state
   private guardianVerificationActive = false;
@@ -204,14 +216,16 @@ export class RelayConnection {
   private accessRequestAssistantId: string | null = null;
   private accessRequestFromNumber: string | null = null;
   private accessRequestPollTimer: ReturnType<typeof setInterval> | null = null;
-  private accessRequestTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
+  private accessRequestTimeoutTimer: ReturnType<typeof setTimeout> | null =
+    null;
   private accessRequestCallerName: string | null = null;
 
   // Name capture timeout (unknown inbound callers)
   private nameCaptureTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Guardian wait heartbeat state
-  private accessRequestHeartbeatTimer: ReturnType<typeof setTimeout> | null = null;
+  private accessRequestHeartbeatTimer: ReturnType<typeof setTimeout> | null =
+    null;
   private accessRequestWaitStartedAt: number = 0;
   private heartbeatSequence = 0;
 
@@ -259,28 +273,37 @@ export class RelayConnection {
   async handleMessage(data: string): Promise<void> {
     const parsed = parseJsonSafe<RelayInboundMessage>(data);
     if (!parsed) {
-      log.warn({ callSessionId: this.callSessionId, data }, 'Failed to parse relay message');
+      log.warn(
+        { callSessionId: this.callSessionId, data },
+        "Failed to parse relay message",
+      );
       return;
     }
 
     switch (parsed.type) {
-      case 'setup':
+      case "setup":
         await this.handleSetup(parsed);
         break;
-      case 'prompt':
+      case "prompt":
         await this.handlePrompt(parsed);
         break;
-      case 'interrupt':
+      case "interrupt":
         this.handleInterrupt(parsed);
         break;
-      case 'dtmf':
+      case "dtmf":
         this.handleDtmf(parsed);
         break;
-      case 'error':
+      case "error":
         this.handleError(parsed);
         break;
       default:
-        log.warn({ callSessionId: this.callSessionId, type: (parsed as { type: unknown }).type }, 'Unknown relay message type');
+        log.warn(
+          {
+            callSessionId: this.callSessionId,
+            type: (parsed as { type: unknown }).type,
+          },
+          "Unknown relay message type",
+        );
     }
   }
 
@@ -288,11 +311,14 @@ export class RelayConnection {
    * Send a text token to the caller for TTS playback.
    */
   sendTextToken(token: string, last: boolean): void {
-    const message: RelayTextMessage = { type: 'text', token, last };
+    const message: RelayTextMessage = { type: "text", token, last };
     try {
       this.ws.send(JSON.stringify(message));
     } catch (err) {
-      log.error({ err, callSessionId: this.callSessionId }, 'Failed to send text token');
+      log.error(
+        { err, callSessionId: this.callSessionId },
+        "Failed to send text token",
+      );
     }
   }
 
@@ -300,22 +326,33 @@ export class RelayConnection {
    * End the ConversationRelay session.
    */
   endSession(reason?: string): void {
-    const message: RelayEndMessage = { type: 'end' };
+    const message: RelayEndMessage = { type: "end" };
     if (reason) {
       message.handoffData = JSON.stringify({ reason });
     }
     try {
       this.ws.send(JSON.stringify(message));
     } catch (err) {
-      log.error({ err, callSessionId: this.callSessionId }, 'Failed to send end message');
+      log.error(
+        { err, callSessionId: this.callSessionId },
+        "Failed to send end message",
+      );
     }
   }
 
   /**
    * Get the conversation history for context.
    */
-  getConversationHistory(): Array<{ role: string; text: string; speaker?: PromptSpeakerContext }> {
-    return this.conversationHistory.map(({ role, text, speaker }) => ({ role, text, speaker }));
+  getConversationHistory(): Array<{
+    role: string;
+    text: string;
+    speaker?: PromptSpeakerContext;
+  }> {
+    return this.conversationHistory.map(({ role, text, speaker }) => ({
+      role,
+      text,
+      speaker,
+    }));
   }
 
   /**
@@ -365,7 +402,10 @@ export class RelayConnection {
     }
     this.accessRequestWaitActive = false;
     this.abortController.abort();
-    log.info({ callSessionId: this.callSessionId }, 'RelayConnection destroyed');
+    log.info(
+      { callSessionId: this.callSessionId },
+      "RelayConnection destroyed",
+    );
   }
 
   /**
@@ -378,7 +418,7 @@ export class RelayConnection {
     // If the call was still in guardian-wait with callback opt-in, emit the
     // handoff notification before cleaning up wait state.
     if (this.accessRequestWaitActive && this.callbackOptIn) {
-      this.emitAccessRequestCallbackHandoff('transport_closed');
+      this.emitAccessRequestCallbackHandoff("transport_closed");
     }
 
     // Clean up access request wait state on disconnect to stop polling
@@ -395,41 +435,60 @@ export class RelayConnection {
     const isNormalClose = code === 1000;
     if (isNormalClose) {
       updateCallSession(this.callSessionId, {
-        status: 'completed',
+        status: "completed",
         endedAt: Date.now(),
       });
-      recordCallEvent(this.callSessionId, 'call_ended', {
-        reason: reason || 'relay_closed',
+      recordCallEvent(this.callSessionId, "call_ended", {
+        reason: reason || "relay_closed",
         closeCode: code,
       });
 
       // Post a pointer message in the initiating conversation
       if (session.initiatedFromConversationId) {
-        const durationMs = session.startedAt ? Date.now() - session.startedAt : 0;
-        addPointerMessage(session.initiatedFromConversationId, 'completed', session.toNumber, {
-          duration: durationMs > 0 ? formatDuration(durationMs) : undefined,
-        }).catch((err) => {
-          log.warn({ conversationId: session.initiatedFromConversationId, err }, 'Skipping pointer write — origin conversation may no longer exist');
+        const durationMs = session.startedAt
+          ? Date.now() - session.startedAt
+          : 0;
+        addPointerMessage(
+          session.initiatedFromConversationId,
+          "completed",
+          session.toNumber,
+          {
+            duration: durationMs > 0 ? formatDuration(durationMs) : undefined,
+          },
+        ).catch((err) => {
+          log.warn(
+            { conversationId: session.initiatedFromConversationId, err },
+            "Skipping pointer write — origin conversation may no longer exist",
+          );
         });
       }
     } else {
-      const detail = reason || (code ? `relay_closed_${code}` : 'relay_closed_abnormal');
+      const detail =
+        reason || (code ? `relay_closed_${code}` : "relay_closed_abnormal");
       updateCallSession(this.callSessionId, {
-        status: 'failed',
+        status: "failed",
         endedAt: Date.now(),
         lastError: `Relay websocket closed unexpectedly: ${detail}`,
       });
-      recordCallEvent(this.callSessionId, 'call_failed', {
+      recordCallEvent(this.callSessionId, "call_failed", {
         reason: detail,
         closeCode: code,
       });
 
       // Post a failure pointer message in the initiating conversation
       if (session.initiatedFromConversationId) {
-        addPointerMessage(session.initiatedFromConversationId, 'failed', session.toNumber, {
-          reason: detail,
-        }).catch((err) => {
-          log.warn({ conversationId: session.initiatedFromConversationId, err }, 'Skipping pointer write — origin conversation may no longer exist');
+        addPointerMessage(
+          session.initiatedFromConversationId,
+          "failed",
+          session.toNumber,
+          {
+            reason: detail,
+          },
+        ).catch((err) => {
+          log.warn(
+            { conversationId: session.initiatedFromConversationId, err },
+            "Skipping pointer write — origin conversation may no longer exist",
+          );
         });
       }
     }
@@ -441,14 +500,31 @@ export class RelayConnection {
     // guardian-approval-interception minting path sets callSessionId: null
     // but always sets conversationId.
     try {
-      revokeScopedApprovalGrantsForContext({ callSessionId: this.callSessionId });
-      revokeScopedApprovalGrantsForContext({ conversationId: session.conversationId });
+      revokeScopedApprovalGrantsForContext({
+        callSessionId: this.callSessionId,
+      });
+      revokeScopedApprovalGrantsForContext({
+        conversationId: session.conversationId,
+      });
     } catch (err) {
-      log.warn({ err, callSessionId: this.callSessionId }, 'Failed to revoke scoped grants on transport close');
+      log.warn(
+        { err, callSessionId: this.callSessionId },
+        "Failed to revoke scoped grants on transport close",
+      );
     }
 
-    persistCallCompletionMessage(session.conversationId, this.callSessionId).catch((err) => {
-      log.error({ err, conversationId: session.conversationId, callSessionId: this.callSessionId }, 'Failed to persist call completion message');
+    persistCallCompletionMessage(
+      session.conversationId,
+      this.callSessionId,
+    ).catch((err) => {
+      log.error(
+        {
+          err,
+          conversationId: session.conversationId,
+          callSessionId: this.callSessionId,
+        },
+        "Failed to persist call completion message",
+      );
     });
     fireCallCompletionNotifier(session.conversationId, this.callSessionId);
   }
@@ -457,8 +533,13 @@ export class RelayConnection {
 
   private async handleSetup(msg: RelaySetupMessage): Promise<void> {
     log.info(
-      { callSessionId: this.callSessionId, callSid: msg.callSid, from: msg.from, to: msg.to },
-      'ConversationRelay setup received',
+      {
+        callSessionId: this.callSessionId,
+        callSid: msg.callSid,
+        from: msg.from,
+        to: msg.to,
+      },
+      "ConversationRelay setup received",
     );
 
     // Store the callSid association on the call session
@@ -467,8 +548,12 @@ export class RelayConnection {
       const updates: Parameters<typeof updateCallSession>[1] = {
         providerCallSid: msg.callSid,
       };
-      if (!isTerminalState(session.status) && session.status !== 'in_progress' && session.status !== 'waiting_on_user') {
-        updates.status = 'in_progress';
+      if (
+        !isTerminalState(session.status) &&
+        session.status !== "in_progress" &&
+        session.status !== "waiting_on_user"
+      ) {
+        updates.status = "in_progress";
         if (!session.startedAt) {
           updates.startedAt = Date.now();
         }
@@ -481,12 +566,12 @@ export class RelayConnection {
     const safeCustomParameters = msg.customParameters
       ? Object.fromEntries(
           Object.entries(msg.customParameters).filter(
-            ([key]) => !key.toLowerCase().includes('secret'),
+            ([key]) => !key.toLowerCase().includes("secret"),
           ),
         )
       : undefined;
 
-    recordCallEvent(this.callSessionId, 'call_connected', {
+    recordCallEvent(this.callSessionId, "call_connected", {
       callSid: msg.callSid,
       from: msg.from,
       to: msg.to,
@@ -511,17 +596,25 @@ export class RelayConnection {
     const otherPartyNumber = isInbound ? msg.from : msg.to;
     const initialActorTrust = resolveActorTrust({
       assistantId,
-      sourceChannel: 'voice',
+      sourceChannel: "voice",
       conversationExternalId: otherPartyNumber,
       actorExternalId: otherPartyNumber || undefined,
     });
-    const initialGuardianContext = toGuardianRuntimeContextFromTrust(initialActorTrust, otherPartyNumber);
+    const initialTrustContext = toTrustContext(
+      initialActorTrust,
+      otherPartyNumber,
+    );
 
-    const controller = new CallController(this.callSessionId, this, session?.task ?? null, {
-      broadcast: globalBroadcast,
-      assistantId,
-      guardianContext: initialGuardianContext,
-    });
+    const controller = new CallController(
+      this.callSessionId,
+      this,
+      session?.task ?? null,
+      {
+        broadcast: globalBroadcast,
+        assistantId,
+        trustContext: initialTrustContext,
+      },
+    );
     this.setController(controller);
 
     // Detect outbound guardian verification call from persisted call session
@@ -529,21 +622,37 @@ export class RelayConnection {
     // as secondary signal for backward compatibility and observability.
     const persistedMode = session?.callMode;
     const persistedGvSessionId = session?.guardianVerificationSessionId;
-    const customParamGvSessionId = msg.customParameters?.guardianVerificationSessionId;
-    const guardianVerificationSessionId = persistedGvSessionId ?? customParamGvSessionId;
+    const customParamGvSessionId =
+      msg.customParameters?.guardianVerificationSessionId;
+    const guardianVerificationSessionId =
+      persistedGvSessionId ?? customParamGvSessionId;
 
-    if (persistedMode === 'guardian_verification' && guardianVerificationSessionId) {
-      this.startOutboundGuardianVerification(assistantId, guardianVerificationSessionId, msg.to);
+    if (
+      persistedMode === "guardian_verification" &&
+      guardianVerificationSessionId
+    ) {
+      this.startOutboundGuardianVerification(
+        assistantId,
+        guardianVerificationSessionId,
+        msg.to,
+      );
       return;
     }
 
     // Secondary signal: custom parameter without persisted mode (pre-migration sessions)
     if (!persistedMode && customParamGvSessionId) {
       log.warn(
-        { callSessionId: this.callSessionId, guardianVerificationSessionId: customParamGvSessionId },
-        'Guardian verification detected via setup custom parameter (no persisted call_mode) — entering verification path',
+        {
+          callSessionId: this.callSessionId,
+          guardianVerificationSessionId: customParamGvSessionId,
+        },
+        "Guardian verification detected via setup custom parameter (no persisted call_mode) — entering verification path",
       );
-      this.startOutboundGuardianVerification(assistantId, customParamGvSessionId, msg.to);
+      this.startOutboundGuardianVerification(
+        assistantId,
+        customParamGvSessionId,
+        msg.to,
+      );
       return;
     }
 
@@ -562,7 +671,7 @@ export class RelayConnection {
       // verification flow.
       const actorTrust = resolveActorTrust({
         assistantId,
-        sourceChannel: 'voice',
+        sourceChannel: "voice",
         conversationExternalId: msg.from,
         actorExternalId: msg.from || undefined,
       });
@@ -570,9 +679,9 @@ export class RelayConnection {
       // Check for a pending voice guardian challenge before the ACL deny
       // gate. An unknown caller with a pending challenge is expected —
       // they need to complete verification to establish a binding.
-      const pendingChallenge = getPendingChallenge(assistantId, 'voice');
+      const pendingChallenge = getPendingChallenge(assistantId, "voice");
 
-      if (actorTrust.trustClass === 'unknown' && !pendingChallenge) {
+      if (actorTrust.trustClass === "unknown" && !pendingChallenge) {
         // Before entering the name capture flow, check if there is an
         // active voice invite bound to the caller's phone number. If so,
         // enter the invite redemption subflow instead.
@@ -583,42 +692,54 @@ export class RelayConnection {
             expectedExternalUserId: msg.from,
           });
         } catch (err) {
-          log.warn({ err, callSessionId: this.callSessionId }, 'Failed to check voice invites for unknown caller');
+          log.warn(
+            { err, callSessionId: this.callSessionId },
+            "Failed to check voice invites for unknown caller",
+          );
         }
 
         // Exclude invites that are past their expiresAt even if the DB
         // status hasn't been lazily flipped to 'expired' yet.
         const now = Date.now();
-        const nonExpiredInvites = voiceInvites.filter(i => !i.expiresAt || i.expiresAt > now);
+        const nonExpiredInvites = voiceInvites.filter(
+          (i) => !i.expiresAt || i.expiresAt > now,
+        );
 
         // Blocked members get immediate denial — the guardian already made
         // an explicit decision to block them. This must be checked before
         // invite redemption so a blocked caller cannot bypass the block by
         // redeeming an active invite.
-        if (actorTrust.memberRecord?.status === 'blocked') {
+        if (actorTrust.memberRecord?.status === "blocked") {
           log.info(
-            { callSessionId: this.callSessionId, from: msg.from, trustClass: actorTrust.trustClass },
-            'Inbound voice ACL: blocked caller denied',
+            {
+              callSessionId: this.callSessionId,
+              from: msg.from,
+              trustClass: actorTrust.trustClass,
+            },
+            "Inbound voice ACL: blocked caller denied",
           );
 
-          recordCallEvent(this.callSessionId, 'inbound_acl_denied', {
+          recordCallEvent(this.callSessionId, "inbound_acl_denied", {
             from: msg.from,
             trustClass: actorTrust.trustClass,
             denialReason: actorTrust.denialReason,
           });
 
-          this.sendTextToken('This number is not authorized to use this assistant.', true);
+          this.sendTextToken(
+            "This number is not authorized to use this assistant.",
+            true,
+          );
 
-          this.connectionState = 'disconnecting';
+          this.connectionState = "disconnecting";
 
           updateCallSession(this.callSessionId, {
-            status: 'failed',
+            status: "failed",
             endedAt: Date.now(),
-            lastError: 'Inbound voice ACL: caller blocked',
+            lastError: "Inbound voice ACL: caller blocked",
           });
 
           setTimeout(() => {
-            this.endSession('Inbound voice ACL denied — blocked');
+            this.endSession("Inbound voice ACL denied — blocked");
           }, getTtsPlaybackDelayMs());
           return;
         }
@@ -628,23 +749,36 @@ export class RelayConnection {
           const matchedInvite = nonExpiredInvites[0];
           log.info(
             { callSessionId: this.callSessionId, from: msg.from },
-            'Inbound voice ACL: unknown caller has active voice invite — entering redemption flow',
+            "Inbound voice ACL: unknown caller has active voice invite — entering redemption flow",
           );
-          this.startInviteRedemption(assistantId, msg.from, matchedInvite.friendName, matchedInvite.guardianName);
+          this.startInviteRedemption(
+            assistantId,
+            msg.from,
+            matchedInvite.friendName,
+            matchedInvite.guardianName,
+          );
           return;
         }
 
         // Unknown/revoked/pending callers enter the name capture + guardian
         // approval wait flow instead of being hard-rejected.
         log.info(
-          { callSessionId: this.callSessionId, from: msg.from, trustClass: actorTrust.trustClass },
-          'Inbound voice ACL: unknown caller — entering name capture flow',
+          {
+            callSessionId: this.callSessionId,
+            from: msg.from,
+            trustClass: actorTrust.trustClass,
+          },
+          "Inbound voice ACL: unknown caller — entering name capture flow",
         );
 
-        recordCallEvent(this.callSessionId, 'inbound_acl_name_capture_started', {
-          from: msg.from,
-          trustClass: actorTrust.trustClass,
-        });
+        recordCallEvent(
+          this.callSessionId,
+          "inbound_acl_name_capture_started",
+          {
+            from: msg.from,
+            trustClass: actorTrust.trustClass,
+          },
+        );
 
         this.startNameCapture(assistantId, msg.from);
         return;
@@ -653,31 +787,39 @@ export class RelayConnection {
       // Members with policy: 'deny' have status: 'active' so resolveActorTrust
       // classifies them as trusted_contact, but the guardian has explicitly
       // denied their access. Block them the same way the text-channel path does.
-      if (actorTrust.memberRecord?.policy === 'deny') {
+      if (actorTrust.memberRecord?.policy === "deny") {
         log.info(
-          { callSessionId: this.callSessionId, from: msg.from, memberId: actorTrust.memberRecord.id, trustClass: actorTrust.trustClass },
-          'Inbound voice ACL: member policy deny',
+          {
+            callSessionId: this.callSessionId,
+            from: msg.from,
+            memberId: actorTrust.memberRecord.id,
+            trustClass: actorTrust.trustClass,
+          },
+          "Inbound voice ACL: member policy deny",
         );
 
-        recordCallEvent(this.callSessionId, 'inbound_acl_denied', {
+        recordCallEvent(this.callSessionId, "inbound_acl_denied", {
           from: msg.from,
           trustClass: actorTrust.trustClass,
           memberId: actorTrust.memberRecord.id,
           memberPolicy: actorTrust.memberRecord.policy,
         });
 
-        this.sendTextToken('This number is not authorized to use this assistant.', true);
+        this.sendTextToken(
+          "This number is not authorized to use this assistant.",
+          true,
+        );
 
-        this.connectionState = 'disconnecting';
+        this.connectionState = "disconnecting";
 
         updateCallSession(this.callSessionId, {
-          status: 'failed',
+          status: "failed",
           endedAt: Date.now(),
-          lastError: 'Inbound voice ACL: member policy deny',
+          lastError: "Inbound voice ACL: member policy deny",
         });
 
         setTimeout(() => {
-          this.endSession('Inbound voice ACL: member policy deny');
+          this.endSession("Inbound voice ACL: member policy deny");
         }, getTtsPlaybackDelayMs());
         return;
       }
@@ -685,31 +827,40 @@ export class RelayConnection {
       // Members with policy: 'escalate' require guardian approval, but a live
       // voice call cannot be paused for async approval. Fail-closed by denying
       // the call with an appropriate message — mirrors the deny block above.
-      if (actorTrust.memberRecord?.policy === 'escalate') {
+      if (actorTrust.memberRecord?.policy === "escalate") {
         log.info(
-          { callSessionId: this.callSessionId, from: msg.from, memberId: actorTrust.memberRecord.id, trustClass: actorTrust.trustClass },
-          'Inbound voice ACL: member policy escalate — cannot hold live call for guardian approval',
+          {
+            callSessionId: this.callSessionId,
+            from: msg.from,
+            memberId: actorTrust.memberRecord.id,
+            trustClass: actorTrust.trustClass,
+          },
+          "Inbound voice ACL: member policy escalate — cannot hold live call for guardian approval",
         );
 
-        recordCallEvent(this.callSessionId, 'inbound_acl_denied', {
+        recordCallEvent(this.callSessionId, "inbound_acl_denied", {
           from: msg.from,
           trustClass: actorTrust.trustClass,
           memberId: actorTrust.memberRecord.id,
           memberPolicy: actorTrust.memberRecord.policy,
         });
 
-        this.sendTextToken('This number requires guardian approval for calls. Please have the account guardian update your permissions.', true);
+        this.sendTextToken(
+          "This number requires guardian approval for calls. Please have the account guardian update your permissions.",
+          true,
+        );
 
-        this.connectionState = 'disconnecting';
+        this.connectionState = "disconnecting";
 
         updateCallSession(this.callSessionId, {
-          status: 'failed',
+          status: "failed",
           endedAt: Date.now(),
-          lastError: 'Inbound voice ACL: member policy escalate — voice calls cannot await guardian approval',
+          lastError:
+            "Inbound voice ACL: member policy escalate — voice calls cannot await guardian approval",
         });
 
         setTimeout(() => {
-          this.endSession('Inbound voice ACL: member policy escalate');
+          this.endSession("Inbound voice ACL: member policy escalate");
         }, getTtsPlaybackDelayMs());
         return;
       }
@@ -717,9 +868,9 @@ export class RelayConnection {
       // Guardian and trusted-contact callers proceed normally.
       // Update the controller's guardian context with the trust-resolved
       // context so downstream policy gates have accurate actor metadata.
-      if (this.controller && actorTrust.trustClass !== 'unknown') {
-        const resolvedGuardianContext = toGuardianRuntimeContextFromTrust(actorTrust, msg.from);
-        this.controller.setGuardianContext(resolvedGuardianContext);
+      if (this.controller && actorTrust.trustClass !== "unknown") {
+        const resolvedTrustContext = toTrustContext(actorTrust, msg.from);
+        this.controller.setTrustContext(resolvedTrustContext);
       }
 
       if (pendingChallenge) {
@@ -742,22 +893,27 @@ export class RelayConnection {
     this.verificationMaxAttempts = verificationConfig.maxAttempts;
     this.verificationCodeLength = verificationConfig.codeLength;
     this.verificationAttempts = 0;
-    this.dtmfBuffer = '';
+    this.dtmfBuffer = "";
 
     // Generate a random numeric code
     const maxValue = Math.pow(10, this.verificationCodeLength);
-    const code = randomInt(0, maxValue).toString().padStart(this.verificationCodeLength, '0');
+    const code = randomInt(0, maxValue)
+      .toString()
+      .padStart(this.verificationCodeLength, "0");
     this.verificationCode = code;
-    this.connectionState = 'verification_pending';
+    this.connectionState = "verification_pending";
 
-    recordCallEvent(this.callSessionId, 'callee_verification_started', {
+    recordCallEvent(this.callSessionId, "callee_verification_started", {
       codeLength: this.verificationCodeLength,
       maxAttempts: this.verificationMaxAttempts,
     });
 
     // Send a TTS prompt with the code spoken digit by digit
-    const spokenCode = code.split('').join('. ');
-    this.sendTextToken(`Please enter the verification code: ${spokenCode}.`, true);
+    const spokenCode = code.split("").join(". ");
+    this.sendTextToken(
+      `Please enter the verification code: ${spokenCode}.`,
+      true,
+    );
 
     // Post the verification code to the initiating conversation so the
     // guardian (user) can share it with the callee.
@@ -765,15 +921,23 @@ export class RelayConnection {
       const codeMsg = `\u{1F510} Verification code for call to ${session.toNumber}: ${code}`;
       await conversationStore.addMessage(
         session.initiatedFromConversationId,
-        'assistant',
-        JSON.stringify([{ type: 'text', text: codeMsg }]),
-        { userMessageChannel: 'voice', assistantMessageChannel: 'voice', userMessageInterface: 'voice', assistantMessageInterface: 'voice' },
+        "assistant",
+        JSON.stringify([{ type: "text", text: codeMsg }]),
+        {
+          userMessageChannel: "voice",
+          assistantMessageChannel: "voice",
+          userMessageInterface: "voice",
+          assistantMessageInterface: "voice",
+        },
       );
     }
 
     log.info(
-      { callSessionId: this.callSessionId, codeLength: this.verificationCodeLength },
-      'Callee verification started',
+      {
+        callSessionId: this.callSessionId,
+        codeLength: this.verificationCodeLength,
+      },
+      "Callee verification started",
     );
   }
 
@@ -781,12 +945,20 @@ export class RelayConnection {
    * Start normal call flow — fire the controller greeting unless a
    * static welcome greeting is configured.
    */
-  private startNormalCallFlow(controller: CallController, isInbound: boolean): void {
+  private startNormalCallFlow(
+    controller: CallController,
+    isInbound: boolean,
+  ): void {
     const hasStaticGreeting = !!process.env.CALL_WELCOME_GREETING?.trim();
     if (!hasStaticGreeting) {
-      controller.startInitialGreeting().catch((err) =>
-        log.error({ err, callSessionId: this.callSessionId }, `Failed to start initial ${isInbound ? 'inbound' : 'outbound'} greeting`),
-      );
+      controller
+        .startInitialGreeting()
+        .catch((err) =>
+          log.error(
+            { err, callSessionId: this.callSessionId },
+            `Failed to start initial ${isInbound ? "inbound" : "outbound"} greeting`,
+          ),
+        );
     }
   }
 
@@ -809,42 +981,50 @@ export class RelayConnection {
       try {
         upsertMember({
           assistantId,
-          sourceChannel: 'voice',
+          sourceChannel: "voice",
           externalUserId: fromNumber,
           externalChatId: fromNumber,
           displayName: callerName,
-          status: 'active',
-          policy: 'allow',
+          status: "active",
+          policy: "allow",
         });
       } catch (err) {
-        log.error({ err, callSessionId: this.callSessionId }, 'Failed to activate voice caller as trusted contact');
+        log.error(
+          { err, callSessionId: this.callSessionId },
+          "Failed to activate voice caller as trusted contact",
+        );
       }
     }
 
     const updatedTrust = resolveActorTrust({
       assistantId,
-      sourceChannel: 'voice',
+      sourceChannel: "voice",
       conversationExternalId: fromNumber,
       actorExternalId: fromNumber,
     });
 
     if (this.controller) {
-      this.controller.setGuardianContext(
-        toGuardianRuntimeContextFromTrust(updatedTrust, fromNumber),
-      );
+      this.controller.setTrustContext(toTrustContext(updatedTrust, fromNumber));
     }
 
-    this.connectionState = 'connected';
-    updateCallSession(this.callSessionId, { status: 'in_progress' });
+    this.connectionState = "connected";
+    updateCallSession(this.callSessionId, { status: "in_progress" });
 
     const guardianLabel = this.resolveGuardianLabel();
     const handoffText = `Great! ${guardianLabel} said I can speak with you. How can I help?`;
     this.sendTextToken(handoffText, true);
 
-    recordCallEvent(this.callSessionId, 'assistant_spoke', { text: handoffText });
+    recordCallEvent(this.callSessionId, "assistant_spoke", {
+      text: handoffText,
+    });
     const session = getCallSession(this.callSessionId);
     if (session) {
-      fireCallTranscriptNotifier(session.conversationId, this.callSessionId, 'assistant', handoffText);
+      fireCallTranscriptNotifier(
+        session.conversationId,
+        this.callSessionId,
+        "assistant",
+        handoffText,
+      );
     }
 
     if (this.controller) {
@@ -857,29 +1037,32 @@ export class RelayConnection {
    * voice guardian challenge. Prompts the caller to enter their six-digit
    * verification code via DTMF or by speaking it.
    */
-  private startInboundGuardianVerification(assistantId: string, fromNumber: string): void {
+  private startInboundGuardianVerification(
+    assistantId: string,
+    fromNumber: string,
+  ): void {
     this.guardianVerificationActive = true;
     this.guardianChallengeAssistantId = assistantId;
     this.guardianVerificationFromNumber = fromNumber;
-    this.connectionState = 'verification_pending';
+    this.connectionState = "verification_pending";
     this.verificationAttempts = 0;
     this.verificationMaxAttempts = 3;
     this.verificationCodeLength = 6;
-    this.dtmfBuffer = '';
+    this.dtmfBuffer = "";
 
-    recordCallEvent(this.callSessionId, 'guardian_voice_verification_started', {
+    recordCallEvent(this.callSessionId, "guardian_voice_verification_started", {
       assistantId,
       maxAttempts: this.verificationMaxAttempts,
     });
 
     this.sendTextToken(
-      'Welcome. Please enter your six-digit verification code using your keypad, or speak the digits now.',
+      "Welcome. Please enter your six-digit verification code using your keypad, or speak the digits now.",
       true,
     );
 
     log.info(
       { callSessionId: this.callSessionId, assistantId },
-      'Inbound guardian voice verification started',
+      "Inbound guardian voice verification started",
     );
   }
 
@@ -898,17 +1081,21 @@ export class RelayConnection {
     this.guardianChallengeAssistantId = assistantId;
     // For outbound guardian calls, the "to" number is the guardian's phone
     this.guardianVerificationFromNumber = toNumber;
-    this.connectionState = 'verification_pending';
+    this.connectionState = "verification_pending";
     this.verificationAttempts = 0;
     this.verificationMaxAttempts = 3;
     this.verificationCodeLength = 6;
-    this.dtmfBuffer = '';
+    this.dtmfBuffer = "";
 
-    recordCallEvent(this.callSessionId, 'outbound_guardian_voice_verification_started', {
-      assistantId,
-      guardianVerificationSessionId,
-      maxAttempts: this.verificationMaxAttempts,
-    });
+    recordCallEvent(
+      this.callSessionId,
+      "outbound_guardian_voice_verification_started",
+      {
+        assistantId,
+        guardianVerificationSessionId,
+        maxAttempts: this.verificationMaxAttempts,
+      },
+    );
 
     const introText = composeVerificationVoice(
       GUARDIAN_VERIFY_TEMPLATE_KEYS.VOICE_CALL_INTRO,
@@ -917,8 +1104,12 @@ export class RelayConnection {
     this.sendTextToken(introText, true);
 
     log.info(
-      { callSessionId: this.callSessionId, assistantId, guardianVerificationSessionId },
-      'Outbound guardian voice verification started',
+      {
+        callSessionId: this.callSessionId,
+        assistantId,
+        guardianVerificationSessionId,
+      },
+      "Outbound guardian voice verification started",
     );
   }
 
@@ -928,16 +1119,24 @@ export class RelayConnection {
    */
   private static parseDigitsFromSpeech(transcript: string): string {
     const wordToDigit: Record<string, string> = {
-      zero: '0', oh: '0', o: '0',
-      one: '1', won: '1',
-      two: '2', too: '2', to: '2',
-      three: '3',
-      four: '4', for: '4', fore: '4',
-      five: '5',
-      six: '6',
-      seven: '7',
-      eight: '8', ate: '8',
-      nine: '9',
+      zero: "0",
+      oh: "0",
+      o: "0",
+      one: "1",
+      won: "1",
+      two: "2",
+      too: "2",
+      to: "2",
+      three: "3",
+      four: "4",
+      for: "4",
+      fore: "4",
+      five: "5",
+      six: "6",
+      seven: "7",
+      eight: "8",
+      ate: "8",
+      nine: "9",
     };
 
     const digits: string[] = [];
@@ -952,11 +1151,11 @@ export class RelayConnection {
         digits.push(wordToDigit[token]);
       } else if (/^\d+$/.test(token)) {
         // Multi-digit number like "123456" — split into individual digits
-        digits.push(...token.split(''));
+        digits.push(...token.split(""));
       }
     }
 
-    return digits.join('');
+    return digits.join("");
   }
 
   /**
@@ -968,7 +1167,10 @@ export class RelayConnection {
    * On failure, enforces max attempts and terminates the call if exhausted.
    */
   private attemptGuardianCodeVerification(enteredCode: string): void {
-    if (!this.guardianChallengeAssistantId || !this.guardianVerificationFromNumber) {
+    if (
+      !this.guardianChallengeAssistantId ||
+      !this.guardianVerificationFromNumber
+    ) {
       return;
     }
 
@@ -977,7 +1179,7 @@ export class RelayConnection {
 
     const result = validateAndConsumeChallenge(
       this.guardianChallengeAssistantId,
-      'voice',
+      "voice",
       enteredCode,
       this.guardianVerificationFromNumber,
       this.guardianVerificationFromNumber,
@@ -985,21 +1187,21 @@ export class RelayConnection {
 
     if (result.success) {
       // Guardian binding was created by validateAndConsumeChallenge
-      this.connectionState = 'connected';
+      this.connectionState = "connected";
       this.guardianVerificationActive = false;
       this.verificationAttempts = 0;
-      this.dtmfBuffer = '';
+      this.dtmfBuffer = "";
 
       const eventName = isOutbound
-        ? 'outbound_guardian_voice_verification_succeeded'
-        : 'guardian_voice_verification_succeeded';
+        ? "outbound_guardian_voice_verification_succeeded"
+        : "guardian_voice_verification_succeeded";
 
       recordCallEvent(this.callSessionId, eventName, {
-        bindingId: 'bindingId' in result ? result.bindingId : undefined,
+        bindingId: "bindingId" in result ? result.bindingId : undefined,
       });
       log.info(
         { callSessionId: this.callSessionId, isOutbound },
-        'Guardian voice verification succeeded',
+        "Guardian voice verification succeeded",
       );
 
       if (isOutbound) {
@@ -1007,7 +1209,7 @@ export class RelayConnection {
         // There is no normal conversation to transition to.
         // Set disconnecting to ignore any further DTMF/speech input
         // during the brief delay before the session ends.
-        this.connectionState = 'disconnecting';
+        this.connectionState = "disconnecting";
 
         const successText = composeVerificationVoice(
           GUARDIAN_VERIFY_TEMPLATE_KEYS.VOICE_SUCCESS,
@@ -1016,7 +1218,7 @@ export class RelayConnection {
         this.sendTextToken(successText, true);
 
         updateCallSession(this.callSessionId, {
-          status: 'completed',
+          status: "completed",
           endedAt: Date.now(),
         });
 
@@ -1026,18 +1228,24 @@ export class RelayConnection {
         if (successSession?.initiatedFromConversationId) {
           addPointerMessage(
             successSession.initiatedFromConversationId,
-            'guardian_verification_succeeded',
+            "guardian_verification_succeeded",
             successSession.toNumber,
-            { channel: 'voice' },
+            { channel: "voice" },
           ).catch((err) => {
-            log.warn({ conversationId: successSession.initiatedFromConversationId, err }, 'Skipping pointer write — origin conversation may no longer exist');
+            log.warn(
+              {
+                conversationId: successSession.initiatedFromConversationId,
+                err,
+              },
+              "Skipping pointer write — origin conversation may no longer exist",
+            );
           });
         }
 
         setTimeout(() => {
-          this.endSession('Guardian verification succeeded');
+          this.endSession("Verified — guardian challenge passed");
         }, getTtsPlaybackDelayMs());
-      } else if (result.verificationType === 'trusted_contact') {
+      } else if (result.verificationType === "trusted_contact") {
         // Inbound trusted-contact verification: activate and continue
         // the live call with the shared handoff primitive.
         this.continueCallAfterTrustedContactActivation({
@@ -1049,12 +1257,15 @@ export class RelayConnection {
         if (this.controller) {
           const verifiedActorTrust = resolveActorTrust({
             assistantId: this.guardianChallengeAssistantId,
-            sourceChannel: 'voice',
+            sourceChannel: "voice",
             conversationExternalId: this.guardianVerificationFromNumber,
             actorExternalId: this.guardianVerificationFromNumber,
           });
-          this.controller.setGuardianContext(
-            toGuardianRuntimeContextFromTrust(verifiedActorTrust, this.guardianVerificationFromNumber),
+          this.controller.setTrustContext(
+            toTrustContext(
+              verifiedActorTrust,
+              this.guardianVerificationFromNumber,
+            ),
           );
           this.startNormalCallFlow(this.controller, true);
         }
@@ -1068,61 +1279,99 @@ export class RelayConnection {
         this.guardianVerificationActive = false;
 
         const failEventName = isOutbound
-          ? 'outbound_guardian_voice_verification_failed'
-          : 'guardian_voice_verification_failed';
+          ? "outbound_guardian_voice_verification_failed"
+          : "guardian_voice_verification_failed";
 
         recordCallEvent(this.callSessionId, failEventName, {
           attempts: this.verificationAttempts,
         });
         log.warn(
-          { callSessionId: this.callSessionId, attempts: this.verificationAttempts, isOutbound },
-          'Guardian voice verification failed — max attempts reached',
+          {
+            callSessionId: this.callSessionId,
+            attempts: this.verificationAttempts,
+            isOutbound,
+          },
+          "Guardian voice verification failed — max attempts reached",
         );
 
         const failureText = isOutbound
-          ? composeVerificationVoice(GUARDIAN_VERIFY_TEMPLATE_KEYS.VOICE_FAILURE, { codeDigits })
-          : 'Verification failed. Goodbye.';
+          ? composeVerificationVoice(
+              GUARDIAN_VERIFY_TEMPLATE_KEYS.VOICE_FAILURE,
+              { codeDigits },
+            )
+          : "Verification failed. Goodbye.";
         this.sendTextToken(failureText, true);
 
         updateCallSession(this.callSessionId, {
-          status: 'failed',
+          status: "failed",
           endedAt: Date.now(),
-          lastError: 'Guardian voice verification failed — max attempts exceeded',
+          lastError:
+            "Guardian voice verification failed — max attempts exceeded",
         });
 
         const failSession = getCallSession(this.callSessionId);
         if (failSession) {
           expirePendingQuestions(this.callSessionId);
-          persistCallCompletionMessage(failSession.conversationId, this.callSessionId).catch((err) => {
-            log.error({ err, conversationId: failSession.conversationId, callSessionId: this.callSessionId }, 'Failed to persist call completion message');
+          persistCallCompletionMessage(
+            failSession.conversationId,
+            this.callSessionId,
+          ).catch((err) => {
+            log.error(
+              {
+                err,
+                conversationId: failSession.conversationId,
+                callSessionId: this.callSessionId,
+              },
+              "Failed to persist call completion message",
+            );
           });
-          fireCallCompletionNotifier(failSession.conversationId, this.callSessionId);
+          fireCallCompletionNotifier(
+            failSession.conversationId,
+            this.callSessionId,
+          );
 
           // Emit a pointer message to the origin conversation so the
           // requesting chat sees a deterministic failure notice.
           if (isOutbound && failSession.initiatedFromConversationId) {
             addPointerMessage(
               failSession.initiatedFromConversationId,
-              'guardian_verification_failed',
+              "guardian_verification_failed",
               failSession.toNumber,
-              { channel: 'voice', reason: 'Max verification attempts exceeded' },
+              {
+                channel: "voice",
+                reason: "Max verification attempts exceeded",
+              },
             ).catch((err) => {
-              log.warn({ conversationId: failSession.initiatedFromConversationId, err }, 'Skipping pointer write — origin conversation may no longer exist');
+              log.warn(
+                {
+                  conversationId: failSession.initiatedFromConversationId,
+                  err,
+                },
+                "Skipping pointer write — origin conversation may no longer exist",
+              );
             });
           }
         }
 
         setTimeout(() => {
-          this.endSession('Guardian verification failed');
+          this.endSession("Verification failed — challenge rejected");
         }, getTtsPlaybackDelayMs());
       } else {
         const retryText = isOutbound
-          ? composeVerificationVoice(GUARDIAN_VERIFY_TEMPLATE_KEYS.VOICE_RETRY, { codeDigits })
-          : 'That code was incorrect. Please try again.';
+          ? composeVerificationVoice(
+              GUARDIAN_VERIFY_TEMPLATE_KEYS.VOICE_RETRY,
+              { codeDigits },
+            )
+          : "That code was incorrect. Please try again.";
 
         log.info(
-          { callSessionId: this.callSessionId, attempt: this.verificationAttempts, maxAttempts: this.verificationMaxAttempts, isOutbound },
-          'Guardian voice verification attempt failed — retrying',
+          {
+            callSessionId: this.callSessionId,
+            attempt: this.verificationAttempts,
+            maxAttempts: this.verificationMaxAttempts,
+            isOutbound,
+          },
+          "Guardian voice verification attempt failed — retrying",
         );
         this.sendTextToken(retryText, true);
       }
@@ -1134,26 +1383,31 @@ export class RelayConnection {
    * who has an active voice invite. Prompts the caller to enter their
    * invite code via DTMF or speech.
    */
-  private startInviteRedemption(assistantId: string, fromNumber: string, friendName: string | null, guardianName: string | null): void {
+  private startInviteRedemption(
+    assistantId: string,
+    fromNumber: string,
+    friendName: string | null,
+    guardianName: string | null,
+  ): void {
     this.inviteRedemptionActive = true;
     this.inviteRedemptionAssistantId = assistantId;
     this.inviteRedemptionFromNumber = fromNumber;
     this.inviteRedemptionFriendName = friendName;
     this.inviteRedemptionGuardianName = guardianName;
-    this.connectionState = 'verification_pending';
+    this.connectionState = "verification_pending";
     this.verificationAttempts = 0;
     this.verificationMaxAttempts = 1;
     this.inviteRedemptionCodeLength = 6;
-    this.dtmfBuffer = '';
+    this.dtmfBuffer = "";
 
-    recordCallEvent(this.callSessionId, 'invite_redemption_started', {
+    recordCallEvent(this.callSessionId, "invite_redemption_started", {
       assistantId,
       codeLength: 6,
       maxAttempts: this.verificationMaxAttempts,
     });
 
-    const displayFriend = friendName ?? 'there';
-    const displayGuardian = guardianName ?? 'your contact';
+    const displayFriend = friendName ?? "there";
+    const displayGuardian = guardianName ?? "your contact";
     this.sendTextToken(
       `Welcome ${displayFriend}. Please enter the 6-digit code that ${displayGuardian} provided you to verify your identity.`,
       true,
@@ -1161,7 +1415,7 @@ export class RelayConnection {
 
     log.info(
       { callSessionId: this.callSessionId, assistantId },
-      'Inbound voice invite redemption started',
+      "Inbound voice invite redemption started",
     );
   }
 
@@ -1173,7 +1427,7 @@ export class RelayConnection {
   private startNameCapture(assistantId: string, fromNumber: string): void {
     this.accessRequestAssistantId = assistantId;
     this.accessRequestFromNumber = fromNumber;
-    this.connectionState = 'awaiting_name';
+    this.connectionState = "awaiting_name";
 
     const guardianLabel = this.resolveGuardianLabel();
     const assistantName = this.resolveAssistantLabel();
@@ -1189,13 +1443,17 @@ export class RelayConnection {
     // to avoid wasting resources on callers who never respond.
     const NAME_CAPTURE_TIMEOUT_MS = 30_000;
     this.nameCaptureTimeoutTimer = setTimeout(() => {
-      if (this.connectionState !== 'awaiting_name') return;
+      if (this.connectionState !== "awaiting_name") return;
       this.handleNameCaptureTimeout();
     }, NAME_CAPTURE_TIMEOUT_MS);
 
     log.info(
-      { callSessionId: this.callSessionId, assistantId, timeoutMs: NAME_CAPTURE_TIMEOUT_MS },
-      'Name capture started for unknown inbound caller',
+      {
+        callSessionId: this.callSessionId,
+        assistantId,
+        timeoutMs: NAME_CAPTURE_TIMEOUT_MS,
+      },
+      "Name capture started for unknown inbound caller",
     );
   }
 
@@ -1217,7 +1475,7 @@ export class RelayConnection {
 
     this.accessRequestCallerName = callerName;
 
-    recordCallEvent(this.callSessionId, 'inbound_acl_name_captured', {
+    recordCallEvent(this.callSessionId, "inbound_acl_name_captured", {
       from: this.accessRequestFromNumber,
       callerName,
     });
@@ -1227,7 +1485,7 @@ export class RelayConnection {
     try {
       const accessResult = notifyGuardianOfAccessRequest({
         canonicalAssistantId: this.accessRequestAssistantId,
-        sourceChannel: 'voice',
+        sourceChannel: "voice",
         conversationExternalId: this.accessRequestFromNumber,
         actorExternalId: this.accessRequestFromNumber,
         actorDisplayName: callerName,
@@ -1236,17 +1494,24 @@ export class RelayConnection {
       if (accessResult.notified) {
         this.accessRequestId = accessResult.requestId;
         log.info(
-          { callSessionId: this.callSessionId, requestId: accessResult.requestId, callerName },
-          'Guardian notified of voice access request with caller name',
+          {
+            callSessionId: this.callSessionId,
+            requestId: accessResult.requestId,
+            callerName,
+          },
+          "Guardian notified of voice access request with caller name",
         );
       } else {
         log.warn(
           { callSessionId: this.callSessionId },
-          'Failed to notify guardian of voice access request — no sender ID',
+          "Failed to notify guardian of voice access request — no sender ID",
         );
       }
     } catch (err) {
-      log.error({ err, callSessionId: this.callSessionId }, 'Failed to create access request for voice caller');
+      log.error(
+        { err, callSessionId: this.callSessionId },
+        "Failed to create access request for voice caller",
+      );
     }
 
     // If the access request was not successfully created (notifyGuardianOfAccessRequest
@@ -1255,7 +1520,7 @@ export class RelayConnection {
     if (!this.accessRequestId) {
       log.warn(
         { callSessionId: this.callSessionId },
-        'Access request ID is null after notification attempt — failing closed',
+        "Access request ID is null after notification attempt — failing closed",
       );
       this.handleAccessRequestTimeout();
       return;
@@ -1271,7 +1536,7 @@ export class RelayConnection {
    */
   private startAccessRequestWait(): void {
     this.accessRequestWaitActive = true;
-    this.connectionState = 'awaiting_guardian_decision';
+    this.connectionState = "awaiting_guardian_decision";
 
     const timeoutMs = getUserConsultationTimeoutMs();
     const pollIntervalMs = getAccessRequestPollIntervalMs();
@@ -1282,7 +1547,7 @@ export class RelayConnection {
       true,
     );
 
-    updateCallSession(this.callSessionId, { status: 'waiting_on_user' });
+    updateCallSession(this.callSessionId, { status: "waiting_on_user" });
 
     // Start the heartbeat timer for periodic progress updates.
     // Delay the first heartbeat by the estimated TTS playback duration so
@@ -1305,9 +1570,9 @@ export class RelayConnection {
         return;
       }
 
-      if (request.status === 'approved') {
+      if (request.status === "approved") {
         this.handleAccessRequestApproved();
-      } else if (request.status === 'denied') {
+      } else if (request.status === "denied") {
         this.handleAccessRequestDenied();
       }
       // 'pending' continues polling; 'expired'/'cancelled' handled by timeout
@@ -1319,15 +1584,19 @@ export class RelayConnection {
 
       log.info(
         { callSessionId: this.callSessionId, requestId: this.accessRequestId },
-        'Access request in-call wait timed out',
+        "Access request in-call wait timed out",
       );
 
       this.handleAccessRequestTimeout();
     }, timeoutMs);
 
     log.info(
-      { callSessionId: this.callSessionId, requestId: this.accessRequestId, timeoutMs },
-      'Access request in-call wait started',
+      {
+        callSessionId: this.callSessionId,
+        requestId: this.accessRequestId,
+        timeoutMs,
+      },
+      "Access request in-call wait started",
     );
   }
 
@@ -1361,7 +1630,7 @@ export class RelayConnection {
     const fromNumber = this.accessRequestFromNumber!;
     const callerName = this.accessRequestCallerName;
 
-    recordCallEvent(this.callSessionId, 'inbound_acl_access_approved', {
+    recordCallEvent(this.callSessionId, "inbound_acl_access_approved", {
       from: fromNumber,
       callerName,
       requestId: this.accessRequestId,
@@ -1369,7 +1638,7 @@ export class RelayConnection {
 
     log.info(
       { callSessionId: this.callSessionId, from: fromNumber },
-      'Access request approved — caller activated and continuing call',
+      "Access request approved — caller activated and continuing call",
     );
 
     this.continueCallAfterTrustedContactActivation({
@@ -1378,9 +1647,13 @@ export class RelayConnection {
       callerName: callerName ?? undefined,
     });
 
-    recordCallEvent(this.callSessionId, 'inbound_acl_post_approval_handoff_spoken', {
-      from: fromNumber,
-    });
+    recordCallEvent(
+      this.callSessionId,
+      "inbound_acl_post_approval_handoff_spoken",
+      {
+        from: fromNumber,
+      },
+    );
   }
 
   /**
@@ -1391,7 +1664,7 @@ export class RelayConnection {
 
     const guardianLabel = this.resolveGuardianLabel();
 
-    recordCallEvent(this.callSessionId, 'inbound_acl_access_denied', {
+    recordCallEvent(this.callSessionId, "inbound_acl_access_denied", {
       from: this.accessRequestFromNumber,
       requestId: this.accessRequestId,
     });
@@ -1401,21 +1674,21 @@ export class RelayConnection {
       true,
     );
 
-    this.connectionState = 'disconnecting';
+    this.connectionState = "disconnecting";
 
     updateCallSession(this.callSessionId, {
-      status: 'failed',
+      status: "failed",
       endedAt: Date.now(),
-      lastError: 'Inbound voice ACL: guardian denied access request',
+      lastError: "Inbound voice ACL: guardian denied access request",
     });
 
     log.info(
       { callSessionId: this.callSessionId },
-      'Access request denied — ending call',
+      "Access request denied — ending call",
     );
 
     setTimeout(() => {
-      this.endSession('Access request denied');
+      this.endSession("Access request denied");
     }, getTtsPlaybackDelayMs());
   }
 
@@ -1424,13 +1697,13 @@ export class RelayConnection {
    */
   private handleAccessRequestTimeout(): void {
     // Emit callback handoff notification before clearing wait state
-    this.emitAccessRequestCallbackHandoff('timeout');
+    this.emitAccessRequestCallbackHandoff("timeout");
 
     this.clearAccessRequestWait();
 
     const guardianLabel = this.resolveGuardianLabel();
 
-    recordCallEvent(this.callSessionId, 'inbound_acl_access_timeout', {
+    recordCallEvent(this.callSessionId, "inbound_acl_access_timeout", {
       from: this.accessRequestFromNumber,
       requestId: this.accessRequestId,
       callbackOptIn: this.callbackOptIn,
@@ -1438,27 +1711,27 @@ export class RelayConnection {
 
     const callbackNote = this.callbackOptIn
       ? ` I've noted that you'd like a callback — I'll pass that along to ${guardianLabel}.`
-      : '';
+      : "";
     this.sendTextToken(
       `Sorry, I can't get ahold of ${guardianLabel} right now. I'll let them know you called.${callbackNote}`,
       true,
     );
 
-    this.connectionState = 'disconnecting';
+    this.connectionState = "disconnecting";
 
     updateCallSession(this.callSessionId, {
-      status: 'failed',
+      status: "failed",
       endedAt: Date.now(),
-      lastError: 'Inbound voice ACL: guardian approval wait timed out',
+      lastError: "Inbound voice ACL: guardian approval wait timed out",
     });
 
     log.info(
       { callSessionId: this.callSessionId },
-      'Access request timed out — ending call',
+      "Access request timed out — ending call",
     );
 
     setTimeout(() => {
-      this.endSession('Access request timed out');
+      this.endSession("Access request timed out");
     }, getTtsPlaybackDelayMs());
   }
 
@@ -1470,14 +1743,17 @@ export class RelayConnection {
    * Idempotent: uses callbackHandoffNotified guard + deterministic dedupeKey
    * to ensure at most one notification per call/request.
    */
-  private emitAccessRequestCallbackHandoff(reason: 'timeout' | 'transport_closed'): void {
+  private emitAccessRequestCallbackHandoff(
+    reason: "timeout" | "transport_closed",
+  ): void {
     if (!this.callbackOptIn) return;
     if (!this.accessRequestId) return;
     if (this.callbackHandoffNotified) return;
 
     this.callbackHandoffNotified = true;
 
-    const assistantId = this.accessRequestAssistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
+    const assistantId =
+      this.accessRequestAssistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
     const fromNumber = this.accessRequestFromNumber ?? null;
 
     // Resolve canonical request for requestCode and conversationId
@@ -1491,30 +1767,34 @@ export class RelayConnection {
       try {
         const member = findMember({
           assistantId,
-          sourceChannel: 'voice',
+          sourceChannel: "voice",
           externalUserId: fromNumber,
           externalChatId: fromNumber,
         });
-        if (member && member.status === 'active' && member.policy === 'allow') {
+        if (member && member.status === "active" && member.policy === "allow") {
           requesterMemberId = member.id;
         }
       } catch (err) {
-        log.warn({ err, callSessionId: this.callSessionId }, 'Failed to resolve member for callback handoff');
+        log.warn(
+          { err, callSessionId: this.callSessionId },
+          "Failed to resolve member for callback handoff",
+        );
       }
     }
 
     const dedupeKey = `access-request-callback-handoff:${this.accessRequestId}`;
-    const sourceSessionId = canonicalRequest?.conversationId
-      ?? `access-req-callback-${this.accessRequestId}`;
+    const sourceSessionId =
+      canonicalRequest?.conversationId ??
+      `access-req-callback-${this.accessRequestId}`;
 
     void emitNotificationSignal({
-      sourceEventName: 'ingress.access_request.callback_handoff',
-      sourceChannel: 'voice',
+      sourceEventName: "ingress.access_request.callback_handoff",
+      sourceChannel: "voice",
       sourceSessionId,
       assistantId,
       attentionHints: {
         requiresAction: false,
-        urgency: 'medium',
+        urgency: "medium",
         isAsyncBackground: true,
         visibleInSourceNow: false,
       },
@@ -1522,7 +1802,7 @@ export class RelayConnection {
         requestId: this.accessRequestId,
         requestCode: canonicalRequest?.requestCode ?? null,
         callSessionId: this.callSessionId,
-        sourceChannel: 'voice',
+        sourceChannel: "voice",
         reason,
         callbackOptIn: true,
         callerPhoneNumber: fromNumber,
@@ -1530,30 +1810,40 @@ export class RelayConnection {
         requesterExternalUserId: fromNumber,
         requesterChatId: fromNumber,
         requesterMemberId,
-        requesterMemberSourceChannel: requesterMemberId ? 'voice' : null,
+        requesterMemberSourceChannel: requesterMemberId ? "voice" : null,
       },
       dedupeKey,
-    }).then(() => {
-      recordCallEvent(this.callSessionId, 'callback_handoff_notified', {
-        requestId: this.accessRequestId,
-        reason,
-        requesterMemberId,
+    })
+      .then(() => {
+        recordCallEvent(this.callSessionId, "callback_handoff_notified", {
+          requestId: this.accessRequestId,
+          reason,
+          requesterMemberId,
+        });
+        log.info(
+          {
+            callSessionId: this.callSessionId,
+            requestId: this.accessRequestId,
+            reason,
+          },
+          "Callback handoff notification emitted",
+        );
+      })
+      .catch((err) => {
+        recordCallEvent(this.callSessionId, "callback_handoff_failed", {
+          requestId: this.accessRequestId,
+          reason,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        log.error(
+          {
+            err,
+            callSessionId: this.callSessionId,
+            requestId: this.accessRequestId,
+          },
+          "Failed to emit callback handoff notification",
+        );
       });
-      log.info(
-        { callSessionId: this.callSessionId, requestId: this.accessRequestId, reason },
-        'Callback handoff notification emitted',
-      );
-    }).catch((err) => {
-      recordCallEvent(this.callSessionId, 'callback_handoff_failed', {
-        requestId: this.accessRequestId,
-        reason,
-        error: err instanceof Error ? err.message : String(err),
-      });
-      log.error(
-        { err, callSessionId: this.callSessionId, requestId: this.accessRequestId },
-        'Failed to emit callback handoff notification',
-      );
-    });
   }
 
   /**
@@ -1566,7 +1856,7 @@ export class RelayConnection {
       this.nameCaptureTimeoutTimer = null;
     }
 
-    recordCallEvent(this.callSessionId, 'inbound_acl_name_capture_timeout', {
+    recordCallEvent(this.callSessionId, "inbound_acl_name_capture_timeout", {
       from: this.accessRequestFromNumber,
     });
 
@@ -1575,21 +1865,21 @@ export class RelayConnection {
       true,
     );
 
-    this.connectionState = 'disconnecting';
+    this.connectionState = "disconnecting";
 
     updateCallSession(this.callSessionId, {
-      status: 'failed',
+      status: "failed",
       endedAt: Date.now(),
-      lastError: 'Inbound voice ACL: name capture timed out',
+      lastError: "Inbound voice ACL: name capture timed out",
     });
 
     log.info(
       { callSessionId: this.callSessionId },
-      'Name capture timed out — ending call',
+      "Name capture timed out — ending call",
     );
 
     setTimeout(() => {
-      this.endSession('Name capture timed out');
+      this.endSession("Name capture timed out");
     }, getTtsPlaybackDelayMs());
   }
 
@@ -1606,22 +1896,26 @@ export class RelayConnection {
     const result = redeemVoiceInviteCode({
       assistantId: this.inviteRedemptionAssistantId,
       callerExternalUserId: this.inviteRedemptionFromNumber,
-      sourceChannel: 'voice',
+      sourceChannel: "voice",
       code: enteredCode,
     });
 
     if (result.ok) {
       this.inviteRedemptionActive = false;
       this.verificationAttempts = 0;
-      this.dtmfBuffer = '';
+      this.dtmfBuffer = "";
 
-      recordCallEvent(this.callSessionId, 'invite_redemption_succeeded', {
+      recordCallEvent(this.callSessionId, "invite_redemption_succeeded", {
         memberId: result.memberId,
-        ...(result.type === 'redeemed' ? { inviteId: result.inviteId } : {}),
+        ...(result.type === "redeemed" ? { inviteId: result.inviteId } : {}),
       });
       log.info(
-        { callSessionId: this.callSessionId, memberId: result.memberId, type: result.type },
-        'Voice invite redemption succeeded',
+        {
+          callSessionId: this.callSessionId,
+          memberId: result.memberId,
+          type: result.type,
+        },
+        "Voice invite redemption succeeded",
       );
 
       this.continueCallAfterTrustedContactActivation({
@@ -1634,39 +1928,53 @@ export class RelayConnection {
       // On any invalid/expired code, emit exact deterministic failure copy and end call immediately.
       this.inviteRedemptionActive = false;
 
-      recordCallEvent(this.callSessionId, 'invite_redemption_failed', {
+      recordCallEvent(this.callSessionId, "invite_redemption_failed", {
         attempts: 1,
       });
       log.warn(
         { callSessionId: this.callSessionId },
-        'Voice invite redemption failed — invalid or expired code',
+        "Voice invite redemption failed — invalid or expired code",
       );
 
-      const displayGuardian = this.inviteRedemptionGuardianName ?? 'your contact';
+      const displayGuardian =
+        this.inviteRedemptionGuardianName ?? "your contact";
       this.sendTextToken(
         `Sorry, the code you provided is incorrect or has since expired. Please ask ${displayGuardian} for a new code. Goodbye.`,
         true,
       );
 
-      this.connectionState = 'disconnecting';
+      this.connectionState = "disconnecting";
 
       updateCallSession(this.callSessionId, {
-        status: 'failed',
+        status: "failed",
         endedAt: Date.now(),
-        lastError: 'Voice invite redemption failed — invalid or expired code',
+        lastError: "Voice invite redemption failed — invalid or expired code",
       });
 
       const failSession = getCallSession(this.callSessionId);
       if (failSession) {
         expirePendingQuestions(this.callSessionId);
-        persistCallCompletionMessage(failSession.conversationId, this.callSessionId).catch((err) => {
-          log.error({ err, conversationId: failSession.conversationId, callSessionId: this.callSessionId }, 'Failed to persist call completion message');
+        persistCallCompletionMessage(
+          failSession.conversationId,
+          this.callSessionId,
+        ).catch((err) => {
+          log.error(
+            {
+              err,
+              conversationId: failSession.conversationId,
+              callSessionId: this.callSessionId,
+            },
+            "Failed to persist call completion message",
+          );
         });
-        fireCallCompletionNotifier(failSession.conversationId, this.callSessionId);
+        fireCallCompletionNotifier(
+          failSession.conversationId,
+          this.callSessionId,
+        );
       }
 
       setTimeout(() => {
-        this.endSession('Invite redemption failed');
+        this.endSession("Invite redemption failed");
       }, getTtsPlaybackDelayMs());
     }
   }
@@ -1679,13 +1987,14 @@ export class RelayConnection {
    * to @username, then the user's preferred name from USER.md.
    */
   private resolveGuardianLabel(): string {
-    const assistantId = this.accessRequestAssistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
+    const assistantId =
+      this.accessRequestAssistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
 
     // Try the voice-channel binding first, then fall back to any active
     // binding for the assistant (mirrors the cross-channel fallback pattern
     // in access-request-helper.ts).
     let metadataJson: string | null = null;
-    const voiceBinding = getGuardianBinding(assistantId, 'voice');
+    const voiceBinding = getGuardianBinding(assistantId, "voice");
     if (voiceBinding?.metadataJson) {
       metadataJson = voiceBinding.metadataJson;
     } else {
@@ -1698,10 +2007,16 @@ export class RelayConnection {
     if (metadataJson) {
       try {
         const parsed = JSON.parse(metadataJson) as Record<string, unknown>;
-        if (typeof parsed.displayName === 'string' && parsed.displayName.trim().length > 0) {
+        if (
+          typeof parsed.displayName === "string" &&
+          parsed.displayName.trim().length > 0
+        ) {
           return parsed.displayName.trim();
         }
-        if (typeof parsed.username === 'string' && parsed.username.trim().length > 0) {
+        if (
+          typeof parsed.username === "string" &&
+          parsed.username.trim().length > 0
+        ) {
           return `@${parsed.username.trim()}`;
         }
       } catch {
@@ -1751,10 +2066,18 @@ export class RelayConnection {
 
     const elapsed = Date.now() - this.accessRequestWaitStartedAt;
     const initialWindow = getGuardianWaitUpdateInitialWindowMs();
-    const intervalMs = elapsed < initialWindow
-      ? getGuardianWaitUpdateInitialIntervalMs()
-      : getGuardianWaitUpdateSteadyMinIntervalMs() +
-        Math.floor(Math.random() * Math.max(0, getGuardianWaitUpdateSteadyMaxIntervalMs() - getGuardianWaitUpdateSteadyMinIntervalMs()));
+    const intervalMs =
+      elapsed < initialWindow
+        ? getGuardianWaitUpdateInitialIntervalMs()
+        : getGuardianWaitUpdateSteadyMinIntervalMs() +
+          Math.floor(
+            Math.random() *
+              Math.max(
+                0,
+                getGuardianWaitUpdateSteadyMaxIntervalMs() -
+                  getGuardianWaitUpdateSteadyMinIntervalMs(),
+              ),
+          );
 
     this.accessRequestHeartbeatTimer = setTimeout(() => {
       if (!this.accessRequestWaitActive) return;
@@ -1762,14 +2085,21 @@ export class RelayConnection {
       const message = this.getHeartbeatMessage();
       this.sendTextToken(message, true);
 
-      recordCallEvent(this.callSessionId, 'voice_guardian_wait_heartbeat_sent', {
-        sequence: this.heartbeatSequence - 1,
-        message,
-      });
+      recordCallEvent(
+        this.callSessionId,
+        "voice_guardian_wait_heartbeat_sent",
+        {
+          sequence: this.heartbeatSequence - 1,
+          message,
+        },
+      );
 
       log.debug(
-        { callSessionId: this.callSessionId, sequence: this.heartbeatSequence - 1 },
-        'Guardian wait heartbeat sent',
+        {
+          callSessionId: this.callSessionId,
+          sequence: this.heartbeatSequence - 1,
+        },
+        "Guardian wait heartbeat sent",
       );
 
       // Schedule the next heartbeat
@@ -1786,52 +2116,72 @@ export class RelayConnection {
    * - 'callback_decline': explicitly declining a callback
    * - 'neutral': anything else
    */
-  private classifyWaitUtterance(text: string): 'empty' | 'patience_check' | 'impatient' | 'callback_opt_in' | 'callback_decline' | 'neutral' {
+  private classifyWaitUtterance(
+    text: string,
+  ):
+    | "empty"
+    | "patience_check"
+    | "impatient"
+    | "callback_opt_in"
+    | "callback_decline"
+    | "neutral" {
     const lower = text.toLowerCase().trim();
-    if (lower.length === 0) return 'empty';
+    if (lower.length === 0) return "empty";
 
     // Callback opt-in patterns (check before impatience to catch "yes call me back")
     if (this.callbackOfferMade) {
-      if (/\b(yes|yeah|yep|sure|okay|ok|please)\b.*\b(call\s*(me\s*)?back|callback)\b/.test(lower)
-        || /\b(call\s*(me\s*)?back|callback)\b.*\b(yes|yeah|please|sure)\b/.test(lower)
-        || /^(yes|yeah|yep|sure|okay|ok|please)\s*[.,!]?\s*$/.test(lower)
-        || /\bcall\s*(me\s*)?back\b/.test(lower)
-        || /\bplease\s+do\b/.test(lower)) {
-        return 'callback_opt_in';
+      if (
+        /\b(yes|yeah|yep|sure|okay|ok|please)\b.*\b(call\s*(me\s*)?back|callback)\b/.test(
+          lower,
+        ) ||
+        /\b(call\s*(me\s*)?back|callback)\b.*\b(yes|yeah|please|sure)\b/.test(
+          lower,
+        ) ||
+        /^(yes|yeah|yep|sure|okay|ok|please)\s*[.,!]?\s*$/.test(lower) ||
+        /\bcall\s*(me\s*)?back\b/.test(lower) ||
+        /\bplease\s+do\b/.test(lower)
+      ) {
+        return "callback_opt_in";
       }
-      if (/\b(no|nah|nope)\b/.test(lower)
-        || /\bi('?ll| will)\s+hold\b/.test(lower)
-        || /\bi('?ll| will)\s+wait\b/.test(lower)) {
-        return 'callback_decline';
+      if (
+        /\b(no|nah|nope)\b/.test(lower) ||
+        /\bi('?ll| will)\s+hold\b/.test(lower) ||
+        /\bi('?ll| will)\s+wait\b/.test(lower)
+      ) {
+        return "callback_decline";
       }
     }
 
     // Impatience patterns
-    if (/\bhurry\s*(up)?\b/.test(lower)
-      || /\btaking\s+(too\s+|so\s+)?long\b/.test(lower)
-      || /\bforget\s+it\b/.test(lower)
-      || /\bnever\s*mind\b/.test(lower)
-      || /\bdon'?t\s+have\s+time\b/.test(lower)
-      || /\bhow\s+much\s+longer\b/.test(lower)
-      || /\bi('?m| am)\s+(getting\s+)?impatient\b/.test(lower)
-      || /\bthis\s+is\s+(ridiculous|absurd|crazy)\b/.test(lower)
-      || /\bcome\s+on\b/.test(lower)
-      || /\bi\s+(gotta|have\s+to|need\s+to)\s+go\b/.test(lower)) {
-      return 'impatient';
+    if (
+      /\bhurry\s*(up)?\b/.test(lower) ||
+      /\btaking\s+(too\s+|so\s+)?long\b/.test(lower) ||
+      /\bforget\s+it\b/.test(lower) ||
+      /\bnever\s*mind\b/.test(lower) ||
+      /\bdon'?t\s+have\s+time\b/.test(lower) ||
+      /\bhow\s+much\s+longer\b/.test(lower) ||
+      /\bi('?m| am)\s+(getting\s+)?impatient\b/.test(lower) ||
+      /\bthis\s+is\s+(ridiculous|absurd|crazy)\b/.test(lower) ||
+      /\bcome\s+on\b/.test(lower) ||
+      /\bi\s+(gotta|have\s+to|need\s+to)\s+go\b/.test(lower)
+    ) {
+      return "impatient";
     }
 
     // Patience check / status inquiry patterns
-    if (/\bhello\??\s*$/.test(lower)
-      || /\bstill\s+there\b/.test(lower)
-      || /\bany\s+(update|news)\b/.test(lower)
-      || /\bwhat('?s| is)\s+(happening|going\s+on)\b/.test(lower)
-      || /\bare\s+you\s+still\b/.test(lower)
-      || /\bhow\s+(long|much\s+longer)\b/.test(lower)
-      || /\banyone\s+there\b/.test(lower)) {
-      return 'patience_check';
+    if (
+      /\bhello\??\s*$/.test(lower) ||
+      /\bstill\s+there\b/.test(lower) ||
+      /\bany\s+(update|news)\b/.test(lower) ||
+      /\bwhat('?s| is)\s+(happening|going\s+on)\b/.test(lower) ||
+      /\bare\s+you\s+still\b/.test(lower) ||
+      /\bhow\s+(long|much\s+longer)\b/.test(lower) ||
+      /\banyone\s+there\b/.test(lower)
+    ) {
+      return "patience_check";
     }
 
-    return 'neutral';
+    return "neutral";
   }
 
   /**
@@ -1842,12 +2192,16 @@ export class RelayConnection {
     const now = Date.now();
     const classification = this.classifyWaitUtterance(text);
 
-    recordCallEvent(this.callSessionId, 'voice_guardian_wait_prompt_classified', {
-      classification,
-      transcript: text,
-    });
+    recordCallEvent(
+      this.callSessionId,
+      "voice_guardian_wait_prompt_classified",
+      {
+        classification,
+        transcript: text,
+      },
+    );
 
-    if (classification === 'empty') return;
+    if (classification === "empty") return;
 
     const guardianLabel = this.resolveGuardianLabel();
 
@@ -1855,10 +2209,14 @@ export class RelayConnection {
     // the caller is answering a direct question and dropping their response
     // would silently discard their decision.
     switch (classification) {
-      case 'callback_opt_in': {
+      case "callback_opt_in": {
         this.callbackOptIn = true;
         this.lastInWaitReplyAt = now;
-        recordCallEvent(this.callSessionId, 'voice_guardian_wait_callback_opt_in_set', {});
+        recordCallEvent(
+          this.callSessionId,
+          "voice_guardian_wait_callback_opt_in_set",
+          {},
+        );
         if (this.accessRequestHeartbeatTimer) {
           clearTimeout(this.accessRequestHeartbeatTimer);
           this.accessRequestHeartbeatTimer = null;
@@ -1870,10 +2228,14 @@ export class RelayConnection {
         this.scheduleNextHeartbeat();
         return;
       }
-      case 'callback_decline': {
+      case "callback_decline": {
         this.callbackOptIn = false;
         this.lastInWaitReplyAt = now;
-        recordCallEvent(this.callSessionId, 'voice_guardian_wait_callback_opt_in_declined', {});
+        recordCallEvent(
+          this.callSessionId,
+          "voice_guardian_wait_callback_opt_in_declined",
+          {},
+        );
         if (this.accessRequestHeartbeatTimer) {
           clearTimeout(this.accessRequestHeartbeatTimer);
           this.accessRequestHeartbeatTimer = null;
@@ -1890,21 +2252,31 @@ export class RelayConnection {
     }
 
     // Enforce cooldown on non-callback utterances to prevent spam
-    if (now - this.lastInWaitReplyAt < RelayConnection.IN_WAIT_REPLY_COOLDOWN_MS) {
-      log.debug({ callSessionId: this.callSessionId }, 'In-wait reply suppressed by cooldown');
+    if (
+      now - this.lastInWaitReplyAt <
+      RelayConnection.IN_WAIT_REPLY_COOLDOWN_MS
+    ) {
+      log.debug(
+        { callSessionId: this.callSessionId },
+        "In-wait reply suppressed by cooldown",
+      );
       return;
     }
     this.lastInWaitReplyAt = now;
 
     switch (classification) {
-      case 'impatient': {
+      case "impatient": {
         if (this.accessRequestHeartbeatTimer) {
           clearTimeout(this.accessRequestHeartbeatTimer);
           this.accessRequestHeartbeatTimer = null;
         }
         if (!this.callbackOfferMade) {
           this.callbackOfferMade = true;
-          recordCallEvent(this.callSessionId, 'voice_guardian_wait_callback_offer_sent', {});
+          recordCallEvent(
+            this.callSessionId,
+            "voice_guardian_wait_callback_offer_sent",
+            {},
+          );
           this.sendTextToken(
             `I understand this is taking a while. I can have ${guardianLabel} call you back once I hear from them. Would you like that, or would you prefer to keep holding?`,
             true,
@@ -1919,7 +2291,7 @@ export class RelayConnection {
         this.scheduleNextHeartbeat();
         break;
       }
-      case 'patience_check': {
+      case "patience_check": {
         // Immediate reassurance — reset the heartbeat timer so we
         // don't double up with a scheduled heartbeat
         if (this.accessRequestHeartbeatTimer) {
@@ -1933,7 +2305,7 @@ export class RelayConnection {
         this.scheduleNextHeartbeat();
         break;
       }
-      case 'neutral':
+      case "neutral":
       default: {
         if (this.accessRequestHeartbeatTimer) {
           clearTimeout(this.accessRequestHeartbeatTimer);
@@ -1950,7 +2322,7 @@ export class RelayConnection {
   }
 
   private async handlePrompt(msg: RelayPromptMessage): Promise<void> {
-    if (this.connectionState === 'disconnecting') {
+    if (this.connectionState === "disconnecting") {
       return;
     }
 
@@ -1960,7 +2332,7 @@ export class RelayConnection {
     }
 
     // During name capture, the caller's response is their name.
-    if (this.connectionState === 'awaiting_name') {
+    if (this.connectionState === "awaiting_name") {
       const callerName = msg.voicePrompt.trim();
       if (!callerName) {
         // Whitespace-only or empty transcript (e.g. silence/noise) —
@@ -1970,7 +2342,7 @@ export class RelayConnection {
       }
       log.info(
         { callSessionId: this.callSessionId, callerName },
-        'Name captured from unknown inbound caller',
+        "Name captured from unknown inbound caller",
       );
       this.handleNameCaptureResponse(callerName);
       return;
@@ -1978,18 +2350,27 @@ export class RelayConnection {
 
     // During guardian decision wait, classify caller speech for
     // reassurance, impatience detection, and callback offer.
-    if (this.connectionState === 'awaiting_guardian_decision') {
+    if (this.connectionState === "awaiting_guardian_decision") {
       this.handleWaitStatePrompt(msg.voicePrompt);
       return;
     }
 
     // During guardian verification (inbound or outbound), attempt to parse
     // spoken digits from the transcript and validate them.
-    if (this.connectionState === 'verification_pending' && this.guardianVerificationActive) {
-      const spokenDigits = RelayConnection.parseDigitsFromSpeech(msg.voicePrompt);
+    if (
+      this.connectionState === "verification_pending" &&
+      this.guardianVerificationActive
+    ) {
+      const spokenDigits = RelayConnection.parseDigitsFromSpeech(
+        msg.voicePrompt,
+      );
       log.info(
-        { callSessionId: this.callSessionId, transcript: msg.voicePrompt, spokenDigits },
-        'Speech received during guardian voice verification',
+        {
+          callSessionId: this.callSessionId,
+          transcript: msg.voicePrompt,
+          spokenDigits,
+        },
+        "Speech received during guardian voice verification",
       );
       if (spokenDigits.length >= this.verificationCodeLength) {
         const enteredCode = spokenDigits.slice(0, this.verificationCodeLength);
@@ -2005,14 +2386,26 @@ export class RelayConnection {
 
     // During invite redemption, attempt to parse spoken digits from the
     // transcript and validate against the caller's active voice invite.
-    if (this.connectionState === 'verification_pending' && this.inviteRedemptionActive) {
-      const spokenDigits = RelayConnection.parseDigitsFromSpeech(msg.voicePrompt);
+    if (
+      this.connectionState === "verification_pending" &&
+      this.inviteRedemptionActive
+    ) {
+      const spokenDigits = RelayConnection.parseDigitsFromSpeech(
+        msg.voicePrompt,
+      );
       log.info(
-        { callSessionId: this.callSessionId, transcript: msg.voicePrompt, spokenDigits },
-        'Speech received during invite redemption',
+        {
+          callSessionId: this.callSessionId,
+          transcript: msg.voicePrompt,
+          spokenDigits,
+        },
+        "Speech received during invite redemption",
       );
       if (spokenDigits.length >= this.inviteRedemptionCodeLength) {
-        const enteredCode = spokenDigits.slice(0, this.inviteRedemptionCodeLength);
+        const enteredCode = spokenDigits.slice(
+          0,
+          this.inviteRedemptionCodeLength,
+        );
         this.attemptInviteCodeRedemption(enteredCode);
       } else if (spokenDigits.length > 0) {
         this.sendTextToken(
@@ -2025,31 +2418,39 @@ export class RelayConnection {
 
     // During outbound callee verification, ignore voice prompts — the callee
     // should be entering DTMF digits, not speaking.
-    if (this.connectionState === 'verification_pending') {
-      log.debug({ callSessionId: this.callSessionId }, 'Ignoring voice prompt during callee verification');
+    if (this.connectionState === "verification_pending") {
+      log.debug(
+        { callSessionId: this.callSessionId },
+        "Ignoring voice prompt during callee verification",
+      );
       return;
     }
 
     log.info(
-      { callSessionId: this.callSessionId, transcript: msg.voicePrompt, lang: msg.lang },
-      'Caller transcript received (final)',
+      {
+        callSessionId: this.callSessionId,
+        transcript: msg.voicePrompt,
+        lang: msg.lang,
+      },
+      "Caller transcript received (final)",
     );
 
     // Spread to widen the typed message into a plain record — extractPromptSpeakerMetadata
     // probes for snake_case and nested property variants not on RelayPromptMessage.
     const speakerMetadata = extractPromptSpeakerMetadata({ ...msg });
-    const speaker = this.speakerIdentityTracker.identifySpeaker(speakerMetadata);
+    const speaker =
+      this.speakerIdentityTracker.identifySpeaker(speakerMetadata);
 
     // Record in conversation history
     this.conversationHistory.push({
-      role: 'caller',
+      role: "caller",
       text: msg.voicePrompt,
       timestamp: Date.now(),
       speaker,
     });
 
     // Record event
-    recordCallEvent(this.callSessionId, 'caller_spoke', {
+    recordCallEvent(this.callSessionId, "caller_spoke", {
       transcript: msg.voicePrompt,
       lang: msg.lang,
       speakerId: speaker.speakerId,
@@ -2063,7 +2464,12 @@ export class RelayConnection {
       // User message persistence is handled by the session pipeline
       // (voice-session-bridge -> session.persistUserMessage) so we only
       // need to fire the transcript notifier for UI subscribers here.
-      fireCallTranscriptNotifier(session.conversationId, this.callSessionId, 'caller', msg.voicePrompt);
+      fireCallTranscriptNotifier(
+        session.conversationId,
+        this.callSessionId,
+        "caller",
+        msg.voicePrompt,
+      );
     }
 
     // Route to controller for session-backed response
@@ -2078,24 +2484,35 @@ export class RelayConnection {
         try {
           await conversationStore.addMessage(
             session.conversationId,
-            'user',
-            JSON.stringify([{ type: 'text', text: msg.voicePrompt }]),
-            { userMessageChannel: 'voice', assistantMessageChannel: 'voice', userMessageInterface: 'voice', assistantMessageInterface: 'voice' },
+            "user",
+            JSON.stringify([{ type: "text", text: msg.voicePrompt }]),
+            {
+              userMessageChannel: "voice",
+              assistantMessageChannel: "voice",
+              userMessageInterface: "voice",
+              assistantMessageInterface: "voice",
+            },
           );
         } catch (err) {
           // Best-effort — don't let persistence failures prevent the hold
           // response from reaching the caller.
-          log.warn({ err, callSessionId: this.callSessionId }, 'Failed to persist early caller utterance');
+          log.warn(
+            { err, callSessionId: this.callSessionId },
+            "Failed to persist early caller utterance",
+          );
         }
       }
-      this.sendTextToken('I\'m still setting up. Please hold.', true);
+      this.sendTextToken("I'm still setting up. Please hold.", true);
     }
   }
 
   private handleInterrupt(msg: RelayInterruptMessage): void {
     log.info(
-      { callSessionId: this.callSessionId, utteranceUntilInterrupt: msg.utteranceUntilInterrupt },
-      'Caller interrupted assistant',
+      {
+        callSessionId: this.callSessionId,
+        utteranceUntilInterrupt: msg.utteranceUntilInterrupt,
+      },
+      "Caller interrupted assistant",
     );
 
     // Abort any in-flight processing
@@ -2109,32 +2526,41 @@ export class RelayConnection {
   }
 
   private handleDtmf(msg: RelayDtmfMessage): void {
-    if (this.connectionState === 'disconnecting') {
+    if (this.connectionState === "disconnecting") {
       return;
     }
 
     // Ignore DTMF during name capture and guardian decision wait
-    if (this.connectionState === 'awaiting_name' || this.connectionState === 'awaiting_guardian_decision') {
+    if (
+      this.connectionState === "awaiting_name" ||
+      this.connectionState === "awaiting_guardian_decision"
+    ) {
       return;
     }
 
     log.info(
       { callSessionId: this.callSessionId, digit: msg.digit },
-      'DTMF digit received',
+      "DTMF digit received",
     );
 
-    recordCallEvent(this.callSessionId, 'caller_spoke', {
+    recordCallEvent(this.callSessionId, "caller_spoke", {
       dtmfDigit: msg.digit,
     });
 
     // If guardian verification (inbound or outbound) is pending, accumulate
     // digits and validate against the challenge via the guardian service.
-    if (this.connectionState === 'verification_pending' && this.guardianVerificationActive) {
+    if (
+      this.connectionState === "verification_pending" &&
+      this.guardianVerificationActive
+    ) {
       this.dtmfBuffer += msg.digit;
 
       if (this.dtmfBuffer.length >= this.verificationCodeLength) {
-        const enteredCode = this.dtmfBuffer.slice(0, this.verificationCodeLength);
-        this.dtmfBuffer = '';
+        const enteredCode = this.dtmfBuffer.slice(
+          0,
+          this.verificationCodeLength,
+        );
+        this.dtmfBuffer = "";
         this.attemptGuardianCodeVerification(enteredCode);
       }
       return;
@@ -2142,39 +2568,63 @@ export class RelayConnection {
 
     // If invite redemption is pending, accumulate digits and validate
     // the code against the caller's active voice invite.
-    if (this.connectionState === 'verification_pending' && this.inviteRedemptionActive) {
+    if (
+      this.connectionState === "verification_pending" &&
+      this.inviteRedemptionActive
+    ) {
       this.dtmfBuffer += msg.digit;
 
       if (this.dtmfBuffer.length >= this.inviteRedemptionCodeLength) {
-        const enteredCode = this.dtmfBuffer.slice(0, this.inviteRedemptionCodeLength);
-        this.dtmfBuffer = '';
+        const enteredCode = this.dtmfBuffer.slice(
+          0,
+          this.inviteRedemptionCodeLength,
+        );
+        this.dtmfBuffer = "";
         this.attemptInviteCodeRedemption(enteredCode);
       }
       return;
     }
 
     // If outbound callee verification is pending, accumulate digits and check the code
-    if (this.connectionState === 'verification_pending' && this.verificationCode) {
+    if (
+      this.connectionState === "verification_pending" &&
+      this.verificationCode
+    ) {
       this.dtmfBuffer += msg.digit;
 
       if (this.dtmfBuffer.length >= this.verificationCodeLength) {
-        const enteredCode = this.dtmfBuffer.slice(0, this.verificationCodeLength);
-        this.dtmfBuffer = '';
+        const enteredCode = this.dtmfBuffer.slice(
+          0,
+          this.verificationCodeLength,
+        );
+        this.dtmfBuffer = "";
 
         if (enteredCode === this.verificationCode) {
           // Verification succeeded
-          this.connectionState = 'connected';
+          this.connectionState = "connected";
           this.verificationCode = null;
           this.verificationAttempts = 0;
 
-          recordCallEvent(this.callSessionId, 'callee_verification_succeeded', {});
-          log.info({ callSessionId: this.callSessionId }, 'Callee verification succeeded');
+          recordCallEvent(
+            this.callSessionId,
+            "callee_verification_succeeded",
+            {},
+          );
+          log.info(
+            { callSessionId: this.callSessionId },
+            "Callee verification succeeded",
+          );
 
           // Proceed to the normal call flow
           if (this.controller) {
-            this.controller.startInitialGreeting().catch((err) =>
-              log.error({ err, callSessionId: this.callSessionId }, 'Failed to start initial outbound greeting after verification'),
-            );
+            this.controller
+              .startInitialGreeting()
+              .catch((err) =>
+                log.error(
+                  { err, callSessionId: this.callSessionId },
+                  "Failed to start initial outbound greeting after verification",
+                ),
+              );
           }
         } else {
           // Verification failed for this attempt
@@ -2182,48 +2632,85 @@ export class RelayConnection {
 
           if (this.verificationAttempts >= this.verificationMaxAttempts) {
             // Max attempts reached — end the call
-            recordCallEvent(this.callSessionId, 'callee_verification_failed', {
+            recordCallEvent(this.callSessionId, "callee_verification_failed", {
               attempts: this.verificationAttempts,
             });
-            log.warn({ callSessionId: this.callSessionId, attempts: this.verificationAttempts }, 'Callee verification failed — max attempts reached');
+            log.warn(
+              {
+                callSessionId: this.callSessionId,
+                attempts: this.verificationAttempts,
+              },
+              "Callee verification failed — max attempts reached",
+            );
 
-            this.sendTextToken('Verification failed. Goodbye.', true);
+            this.sendTextToken("Verification failed. Goodbye.", true);
 
             // Mark failed immediately so a relay close during the goodbye TTS
             // window cannot race this into a terminal "completed" status.
             updateCallSession(this.callSessionId, {
-              status: 'failed',
+              status: "failed",
               endedAt: Date.now(),
-              lastError: 'Callee verification failed — max attempts exceeded',
+              lastError: "Callee verification failed — max attempts exceeded",
             });
 
             const session = getCallSession(this.callSessionId);
             if (session) {
               expirePendingQuestions(this.callSessionId);
-              persistCallCompletionMessage(session.conversationId, this.callSessionId).catch((err) => {
-                log.error({ err, conversationId: session.conversationId, callSessionId: this.callSessionId }, 'Failed to persist call completion message');
+              persistCallCompletionMessage(
+                session.conversationId,
+                this.callSessionId,
+              ).catch((err) => {
+                log.error(
+                  {
+                    err,
+                    conversationId: session.conversationId,
+                    callSessionId: this.callSessionId,
+                  },
+                  "Failed to persist call completion message",
+                );
               });
-              fireCallCompletionNotifier(session.conversationId, this.callSessionId);
+              fireCallCompletionNotifier(
+                session.conversationId,
+                this.callSessionId,
+              );
               if (session.initiatedFromConversationId) {
-                addPointerMessage(session.initiatedFromConversationId, 'failed', session.toNumber, {
-                  reason: 'Callee verification failed',
-                }).catch((err) => {
-                  log.warn({ conversationId: session.initiatedFromConversationId, err }, 'Skipping pointer write — origin conversation may no longer exist');
+                addPointerMessage(
+                  session.initiatedFromConversationId,
+                  "failed",
+                  session.toNumber,
+                  {
+                    reason: "Callee verification failed",
+                  },
+                ).catch((err) => {
+                  log.warn(
+                    {
+                      conversationId: session.initiatedFromConversationId,
+                      err,
+                    },
+                    "Skipping pointer write — origin conversation may no longer exist",
+                  );
                 });
               }
             }
 
             // End the call with failed status after TTS plays
             setTimeout(() => {
-              this.endSession('Verification failed');
+              this.endSession("Verification failed");
             }, getTtsPlaybackDelayMs());
           } else {
             // Allow another attempt
             log.info(
-              { callSessionId: this.callSessionId, attempt: this.verificationAttempts, maxAttempts: this.verificationMaxAttempts },
-              'Callee verification attempt failed — retrying',
+              {
+                callSessionId: this.callSessionId,
+                attempt: this.verificationAttempts,
+                maxAttempts: this.verificationMaxAttempts,
+              },
+              "Callee verification attempt failed — retrying",
             );
-            this.sendTextToken('That code was incorrect. Please try again.', true);
+            this.sendTextToken(
+              "That code was incorrect. Please try again.",
+              true,
+            );
           }
         }
       }
@@ -2233,10 +2720,10 @@ export class RelayConnection {
   private handleError(msg: RelayErrorMessage): void {
     log.error(
       { callSessionId: this.callSessionId, description: msg.description },
-      'ConversationRelay error',
+      "ConversationRelay error",
     );
 
-    recordCallEvent(this.callSessionId, 'call_failed', {
+    recordCallEvent(this.callSessionId, "call_failed", {
       error: msg.description,
     });
   }

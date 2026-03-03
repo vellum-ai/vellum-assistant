@@ -104,7 +104,7 @@ function makeContext(overrides: Record<string, unknown> = {}) {
     workingDir: "/tmp",
     sessionId: "s1",
     conversationId: "c1",
-    guardianTrustClass: "guardian" as const,
+    trustClass: "guardian" as const,
     ...overrides,
   };
 }

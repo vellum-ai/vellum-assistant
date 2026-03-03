@@ -314,6 +314,8 @@ struct ChatBubble: View {
                             .lineSpacing(6)
                             .foregroundColor(VColor.textPrimary)
                             .textSelection(.enabled)
+                            // Frame before fixedSize to bound horizontal measurement.
+                            .frame(maxWidth: .infinity, alignment: .leading)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 } else if hasText {
@@ -344,6 +346,8 @@ struct ChatBubble: View {
                             .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
                             .tint(isUser ? VColor.userBubbleText : VColor.accent)
                             .selectableText(!message.isStreaming)
+                            // Frame before fixedSize to bound horizontal measurement.
+                            .frame(maxWidth: .infinity, alignment: .leading)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 } else if !message.attachments.isEmpty {
@@ -414,15 +418,16 @@ struct ChatBubble: View {
     // monotonically increasing counter. On eviction the entry with the
     // lowest accessTime is removed (least-recently-used).
 
-    @MainActor static var lruCounter: Int = 0
+    // UInt64 to avoid silent overflow after billions of cache accesses in long-running sessions.
+    @MainActor static var lruCounter: UInt64 = 0
 
-    @MainActor static var segmentCache = [String: (value: [MarkdownSegment], accessTime: Int)]()
-    @MainActor static var markdownCache = [String: (value: AttributedString, accessTime: Int)]()
+    @MainActor static var segmentCache = [String: (value: [MarkdownSegment], accessTime: UInt64)]()
+    @MainActor static var markdownCache = [String: (value: AttributedString, accessTime: UInt64)]()
     /// Separate cache for inline markdown (used by interleaved text segments).
     /// Kept distinct from `markdownCache` because `markdownText` applies
     /// slash-command highlighting before caching, which would contaminate
     /// inline results (and vice versa) if they shared a dictionary.
-    @MainActor static var inlineMarkdownCache = [String: (value: AttributedString, accessTime: Int)]()
+    @MainActor static var inlineMarkdownCache = [String: (value: AttributedString, accessTime: UInt64)]()
     static let maxCacheSize = 100
 
     // MARK: - Cache Guardrails
@@ -439,9 +444,11 @@ struct ChatBubble: View {
     @MainActor static var estimatedCacheBytes: Int = 0
 
     /// Estimate the in-memory cost of caching the given text's parsed result.
-    /// Uses `utf8.count * 3` as a rough AttributedString/segment overhead.
+    /// Uses `utf8.count * 10` as a conservative estimate: AttributedString carries
+    /// significant overhead beyond raw bytes (attribute containers, font metrics,
+    /// paragraph style objects), so 3x was too low and allowed the budget to be exceeded.
     static func estimatedBytes(for text: String) -> Int {
-        text.utf8.count * 3
+        text.utf8.count * 10
     }
 
     /// Evicts the oldest entries across all three caches until
@@ -450,7 +457,7 @@ struct ChatBubble: View {
         while estimatedCacheBytes > maxCacheBytes {
             // Find the LRU entry across all three caches.
             var oldestKey: String?
-            var oldestTime = Int.max
+            var oldestTime = UInt64.max
             var oldestCache: CacheKind?
 
             for (key, entry) in markdownCache where entry.accessTime < oldestTime {

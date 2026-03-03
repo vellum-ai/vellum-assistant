@@ -15,7 +15,7 @@ import type { ChannelId } from '../channels/types.js';
 import { getConfig } from '../config/loader.js';
 import type { ServerMessage } from '../daemon/ipc-protocol.js';
 import type { Session } from '../daemon/session.js';
-import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
+import type { TrustContext } from '../daemon/session-runtime-assembly.js';
 import { resolveChannelCapabilities } from '../daemon/session-runtime-assembly.js';
 import { buildAssistantEvent } from '../runtime/assistant-event.js';
 import { assistantEventHub } from '../runtime/assistant-event-hub.js';
@@ -91,7 +91,7 @@ export interface VoiceTurnOptions {
   /** Assistant scope for multi-assistant channels. */
   assistantId?: string;
   /** Guardian trust context for the caller. */
-  guardianContext?: GuardianRuntimeContext;
+  trustContext?: TrustContext;
   /** Whether this is an inbound call (no outbound task). */
   isInbound: boolean;
   /** The outbound call task, if any. */
@@ -251,7 +251,7 @@ export async function startVoiceTurn(opts: VoiceTurnOptions): Promise<VoiceTurnH
   // - guardian: permission prompts auto-allow (parity with guardian chat)
   // - everyone else (including unknown): fail-closed strict side-effects
   //   with auto-deny confirmations.
-  const trustClass = opts.guardianContext?.trustClass;
+  const trustClass = opts.trustContext?.trustClass;
   const isGuardian = trustClass === 'guardian';
   const forceStrictSideEffects = isGuardian ? undefined : true;
 
@@ -265,7 +265,7 @@ export async function startVoiceTurn(opts: VoiceTurnOptions): Promise<VoiceTurnH
 
   // Build the call-control protocol prompt so the model knows how to emit
   // control markers (ASK_GUARDIAN, END_CALL, etc.) and recognize opener turns.
-  const isCallerGuardian = opts.guardianContext?.trustClass === 'guardian';
+  const isCallerGuardian = opts.trustContext?.trustClass === 'guardian';
 
   const voiceCallControlPrompt = buildVoiceCallControlPrompt({
     isInbound: opts.isInbound,
@@ -309,7 +309,7 @@ export async function startVoiceTurn(opts: VoiceTurnOptions): Promise<VoiceTurnH
   };
   session.setAssistantId(opts.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID);
   session.callSessionId = opts.callSessionId;
-  session.setGuardianContext(opts.guardianContext ?? null);
+  session.setTrustContext(opts.trustContext ?? null);
   session.setCommandIntent(null);
   session.setTurnChannelContext({
     userMessageChannel: 'voice',
@@ -369,7 +369,7 @@ export async function startVoiceTurn(opts: VoiceTurnOptions): Promise<VoiceTurnH
             executionChannel: 'voice',
             conversationId: opts.conversationId,
             callSessionId: opts.callSessionId,
-            requesterExternalUserId: opts.guardianContext?.requesterExternalUserId,
+            requesterExternalUserId: opts.trustContext?.requesterExternalUserId,
           }, { maxWaitMs: 0 });
 
           if (consumeResult.ok) {
@@ -441,7 +441,7 @@ export async function startVoiceTurn(opts: VoiceTurnOptions): Promise<VoiceTurnH
     // Reset channel capabilities so a subsequent IPC/desktop session on the
     // same conversation is not incorrectly treated as a voice client.
     session.setChannelCapabilities(null);
-    session.setGuardianContext(null);
+    session.setTrustContext(null);
     session.setCommandIntent(null);
     session.setAssistantId('self');
     session.setVoiceCallControlPrompt(null);

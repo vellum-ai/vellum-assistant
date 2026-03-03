@@ -88,9 +88,9 @@ mock.module("../security/secret-allowlist.js", () => ({
 mock.module("../memory/conversation-store.js", () => ({
   getConversationThreadType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
-  provenanceFromGuardianContext: () => ({
+  provenanceFromTrustContext: () => ({
     source: "user",
-    guardianContext: undefined,
+    trustContext: undefined,
   }),
   getConversationOriginInterface: () => null,
   getConversationOriginChannel: () => null,

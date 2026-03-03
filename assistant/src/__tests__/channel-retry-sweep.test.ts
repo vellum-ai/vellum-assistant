@@ -63,7 +63,7 @@ function seedFailedEventWithTrustClass(
     content: "retry me",
     sourceChannel: "telegram",
     interface: "telegram",
-    guardianCtx: {
+    trustCtx: {
       trustClass,
       sourceChannel: "telegram",
       guardianPrincipalId: "principal-1",
@@ -98,7 +98,7 @@ function seedFailedEventWithActorRoleOnly(
     content: "retry me",
     sourceChannel: "telegram",
     interface: "telegram",
-    guardianCtx: {
+    trustCtx: {
       actorRole,
       sourceChannel: "telegram",
       requesterExternalUserId: "legacy-user",
@@ -139,7 +139,7 @@ describe("channel-retry-sweep", () => {
       const eventId = seedFailedEventWithTrustClass(c.trustClass);
       let capturedOptions:
         | {
-            guardianContext?: {
+            trustContext?: {
               trustClass?: string;
               guardianPrincipalId?: string;
             };
@@ -150,7 +150,7 @@ describe("channel-retry-sweep", () => {
       await sweepFailedEvents(
         async (conversationId, _content, _attachmentIds, options) => {
           capturedOptions = options as {
-            guardianContext?: {
+            trustContext?: {
               trustClass?: string;
               guardianPrincipalId?: string;
             };
@@ -172,8 +172,8 @@ describe("channel-retry-sweep", () => {
         undefined,
       );
 
-      expect(capturedOptions?.guardianContext?.trustClass).toBe(c.trustClass);
-      expect(capturedOptions?.guardianContext?.guardianPrincipalId).toBe(
+      expect(capturedOptions?.trustContext?.trustClass).toBe(c.trustClass);
+      expect(capturedOptions?.trustContext?.guardianPrincipalId).toBe(
         "principal-1",
       );
       expect(capturedOptions?.isInteractive).toBe(c.expectedInteractive);
@@ -217,7 +217,7 @@ describe("channel-retry-sweep", () => {
         undefined,
       );
 
-      // Legacy payloads with guardianCtx that can't be parsed into canonical form
+      // Legacy payloads with trustCtx that can't be parsed into canonical form
       // must be marked as failed to prevent privilege escalation — processMessage
       // should never be called.
       expect(processMessageCalled).toBe(false);
@@ -256,7 +256,7 @@ describe("channel-retry-sweep", () => {
       undefined,
     );
 
-    // guardianCtx was present but couldn't be parsed (invalid trustClass),
+    // trustCtx was present but couldn't be parsed (invalid trustClass),
     // so the event must be failed rather than processed without trust context.
     expect(processMessageCalled).toBe(false);
 
@@ -269,7 +269,7 @@ describe("channel-retry-sweep", () => {
     expect(row?.processingStatus).toBe("failed");
   });
 
-  test("synthesizes unknown trust context when guardianCtx is missing", async () => {
+  test("synthesizes unknown trust context when trustCtx is missing", async () => {
     const inbound = channelDeliveryStore.recordInbound(
       "telegram",
       "chat-no-ctx",
@@ -293,7 +293,7 @@ describe("channel-retry-sweep", () => {
 
     let capturedOptions:
       | {
-          guardianContext?: { trustClass?: string; sourceChannel?: string };
+          trustContext?: { trustClass?: string; sourceChannel?: string };
           isInteractive?: boolean;
         }
       | undefined;
@@ -301,7 +301,7 @@ describe("channel-retry-sweep", () => {
     await sweepFailedEvents(
       async (conversationId, _content, _attachmentIds, options) => {
         capturedOptions = options as {
-          guardianContext?: { trustClass?: string; sourceChannel?: string };
+          trustContext?: { trustClass?: string; sourceChannel?: string };
           isInteractive?: boolean;
         };
         const messageId = "message-no-ctx";
@@ -319,10 +319,10 @@ describe("channel-retry-sweep", () => {
       undefined,
     );
 
-    // When guardianCtx is absent, the sweep synthesizes an explicit 'unknown'
+    // When trustCtx is absent, the sweep synthesizes an explicit 'unknown'
     // trust context to prevent downstream defaults from granting guardian trust.
-    expect(capturedOptions?.guardianContext?.trustClass).toBe("unknown");
-    expect(capturedOptions?.guardianContext?.sourceChannel).toBe("telegram");
+    expect(capturedOptions?.trustContext?.trustClass).toBe("unknown");
+    expect(capturedOptions?.trustContext?.sourceChannel).toBe("telegram");
     expect(capturedOptions?.isInteractive).toBe(false);
   });
 });

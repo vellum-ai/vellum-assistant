@@ -98,7 +98,7 @@ import {
   createConversation,
   getConversationMemoryScopeId,
   messageMetadataSchema,
-  provenanceFromGuardianContext,
+  provenanceFromTrustContext,
 } from "../memory/conversation-store.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { selectEmbeddingBackend } from "../memory/embedding-backend.js";
@@ -5633,23 +5633,23 @@ describe("Memory regressions", () => {
     expect(validUnverified.success).toBe(true);
   });
 
-  test("provenanceFromGuardianContext returns unverified_channel default when no context", () => {
-    const result = provenanceFromGuardianContext(null);
+  test("provenanceFromTrustContext returns unverified_channel default when no context", () => {
+    const result = provenanceFromTrustContext(null);
     expect(result.provenanceTrustClass).toBe("unknown");
     expect(result.provenanceSourceChannel).toBeUndefined();
 
-    const result2 = provenanceFromGuardianContext(undefined);
+    const result2 = provenanceFromTrustContext(undefined);
     expect(result2.provenanceTrustClass).toBe("unknown");
   });
 
-  test("provenanceFromGuardianContext extracts fields from guardian context", () => {
+  test("provenanceFromTrustContext extracts fields from guardian context", () => {
     const ctx = {
       sourceChannel: "telegram" as const,
       trustClass: "trusted_contact" as const,
       guardianExternalUserId: "g-456",
       requesterIdentifier: "Charlie",
     };
-    const result = provenanceFromGuardianContext(ctx);
+    const result = provenanceFromTrustContext(ctx);
     expect(result.provenanceTrustClass).toBe("trusted_contact");
     expect(result.provenanceSourceChannel).toBe("telegram");
     expect(result.provenanceGuardianExternalUserId).toBe("g-456");

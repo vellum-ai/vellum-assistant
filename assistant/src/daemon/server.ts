@@ -23,7 +23,7 @@ import {
   generateCanonicalRequestCode,
 } from "../memory/canonical-guardian-store.js";
 import * as conversationStore from "../memory/conversation-store.js";
-import { provenanceFromGuardianContext } from "../memory/conversation-store.js";
+import { provenanceFromTrustContext } from "../memory/conversation-store.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
 import {
   getFailoverProvider,
@@ -170,19 +170,19 @@ function makePendingInteractionRegistrar(
       // Create a canonical guardian request so IPC/HTTP handlers can find it
       // via applyCanonicalGuardianDecision.
       try {
-        const guardianContext = session.guardianContext;
-        const sourceChannel = guardianContext?.sourceChannel ?? "vellum";
+        const trustContext = session.trustContext;
+        const sourceChannel = trustContext?.sourceChannel ?? "vellum";
         const canonicalRequest = createCanonicalGuardianRequest({
           id: msg.requestId,
           kind: "tool_approval",
           sourceType: resolveCanonicalRequestSourceType(sourceChannel),
           sourceChannel,
           conversationId,
-          requesterExternalUserId: guardianContext?.requesterExternalUserId,
-          requesterChatId: guardianContext?.requesterChatId,
-          guardianExternalUserId: guardianContext?.guardianExternalUserId,
+          requesterExternalUserId: trustContext?.requesterExternalUserId,
+          requesterChatId: trustContext?.requesterChatId,
+          guardianExternalUserId: trustContext?.guardianExternalUserId,
           guardianPrincipalId:
-            guardianContext?.guardianPrincipalId ?? undefined,
+            trustContext?.guardianPrincipalId ?? undefined,
           toolName: msg.toolName,
           status: "pending",
           requestCode: generateCanonicalRequestCode(),
@@ -191,10 +191,10 @@ function makePendingInteractionRegistrar(
 
         // For trusted-contact sessions, bridge to guardian.question so the
         // guardian gets notified and can approve via callback/request-code.
-        if (guardianContext) {
+        if (trustContext) {
           bridgeConfirmationRequestToGuardian({
             canonicalRequest,
-            guardianContext,
+            trustContext,
             conversationId,
             toolName: msg.toolName,
             assistantId: session.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
@@ -1056,7 +1056,7 @@ export class DaemonServer {
     session.setAssistantId(
       options?.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
     );
-    session.setGuardianContext(options?.guardianContext ?? null);
+    session.setTrustContext(options?.trustContext ?? null);
     session.setAuthContext(options?.authContext ?? null);
     await session.ensureActorScopedHistory();
     session.setChannelCapabilities(
@@ -1163,8 +1163,8 @@ export class DaemonServer {
     if (slashResult.kind === "unknown") {
       const serverTurnCtx = session.getTurnChannelContext();
       const serverInterfaceCtx = session.getTurnInterfaceContext();
-      const serverProvenance = provenanceFromGuardianContext(
-        session.guardianContext,
+      const serverProvenance = provenanceFromTrustContext(
+        session.trustContext,
       );
       const serverChannelMeta = {
         ...serverProvenance,

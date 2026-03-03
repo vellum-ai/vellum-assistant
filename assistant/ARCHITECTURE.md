@@ -14,11 +14,11 @@ This document owns assistant-runtime architecture details. The repo-level archit
 
 ### Guardian Actor Context (Unified Across Channels)
 
-- Guardian/non-guardian/unverified classification is centralized in `assistant/src/runtime/guardian-context-resolver.ts`.
+- Guardian/non-guardian/unverified classification is centralized in `assistant/src/runtime/trust-context-resolver.ts`.
 - The same resolver is used by:
   - `/channels/inbound` (Telegram/SMS/WhatsApp path) before run orchestration.
   - Inbound Twilio voice setup (`RelayConnection.handleSetup`) to seed call-time actor context.
-- Runtime channel runs pass this as `guardianContext`, and session runtime assembly injects `<inbound_actor_context>` (via `inboundActorContextFromGuardian()`) into provider-facing prompts.
+- Runtime channel runs pass this as `trustContext`, and session runtime assembly injects `<inbound_actor_context>` (via `inboundActorContextFromTrustContext()`) into provider-facing prompts.
 - Voice calls mirror the same prompt contract: `CallController` receives guardian context on setup and refreshes it immediately after successful voice challenge verification, so the first post-verification turn is grounded as `actor_role: guardian`.
 - Voice-specific behavior (DTMF/speech verification flow, relay state machine) remains voice-local; only actor-role resolution is shared.
 
@@ -1995,7 +1995,7 @@ The pairing function (`pairDeliveryWithConversation`) is resilient — errors ar
 
 The notification pipeline uses a single conversation materialization path across producers:
 
-1. **Canonical pipeline** (`emitNotificationSignal` → decision engine → broadcaster → conversation pairing → adapters): The broadcaster pairs each delivery with a conversation, then dispatches a `notification_intent` IPC event via the Vellum adapter. The IPC payload includes `deepLinkMetadata` (e.g. `{ conversationId }`) so the macOS/iOS client can deep-link to the relevant context when the user taps the notification.
+1. **Canonical pipeline** (`emitNotificationSignal` → decision engine → broadcaster → conversation pairing → adapters): The broadcaster pairs each delivery with a conversation, then dispatches a `notification_intent` IPC event via the Vellum adapter. The IPC payload includes `deepLinkMetadata` (e.g. `{ conversationId, messageId }`) so the macOS/iOS client can deep-link to the relevant context when the user taps the notification. When `messageId` is present, the client scrolls to that specific message within the thread (message-level anchoring).
 2. **Guardian bookkeeping** (`dispatchGuardianQuestion`): Guardian dispatch creates `guardian_action_request` / `guardian_action_delivery` audit rows derived from pipeline delivery results and the per-dispatch `onThreadCreated` callback — there is no separate thread-creation path.
 
 ### Thread Surfacing via `notification_thread_created` IPC (Creation-Only)
@@ -2024,6 +2024,15 @@ The decision engine produces per-channel thread actions using a candidate-driven
 5. **IPC gating**: `notification_thread_created` fires only on actual creation, not on reuse.
 6. **Audit trail**: Thread actions are persisted in both `notification_decisions.validation_results` and `notification_deliveries` columns (`thread_action`, `thread_target_conversation_id`, `thread_decision_fallback_used`).
 
+### Guardian Call Thread Affinity
+
+When a guardian question originates from an active phone call (`callSessionId` present on the signal), the decision engine enforces thread affinity so all questions within the same call land in one vellum thread:
+
+- **First question in a call** (no `conversationAffinityHint`): `enforceGuardianCallThreadAffinity` forces `start_new` for the vellum channel, creating a dedicated thread for the call.
+- **Subsequent questions in the same call** (affinity hint already set by `dispatchGuardianQuestion`): The guard is a no-op, and `enforceConversationAffinity` routes to `reuse_existing` using the hint's `conversationId`.
+
+This guard runs **before** `enforceConversationAffinity` in the post-decision chain so the two cooperate: the first dispatch creates the thread, and subsequent dispatches reuse it via the affinity hint that `dispatchGuardianQuestion` sets after observing the first delivery's `conversationId`.
+
 ### Guardian Multi-Request Disambiguation in Reused Threads
 
 When the decision engine routes multiple guardian questions to the same conversation (via `reuse_existing`), those questions share a single thread. The guardian disambiguates which question they are answering using **request-code prefixes**:
@@ -2042,7 +2051,7 @@ Reminders carry optional `routingIntent` (`single_channel` | `multi_channel` | `
 
 Notifications are delivered to three channel types:
 
-- **Vellum (always connected)**: Local IPC via the daemon's broadcast mechanism. The `VellumAdapter` emits a `notification_intent` message with rendered copy and optional `deepLinkMetadata`.
+- **Vellum (always connected)**: Local IPC via the daemon's broadcast mechanism. The `VellumAdapter` emits a `notification_intent` message with rendered copy and optional `deepLinkMetadata` (includes `conversationId` for thread navigation and `messageId` for message-level scroll anchoring).
 - **Telegram (when guardian binding exists)**: HTTP POST to the gateway's `/deliver/telegram` endpoint. Requires an active guardian binding for the assistant.
 - **SMS (when guardian binding exists)**: HTTP POST to the gateway's `/deliver/sms` endpoint. Follows the same pattern as Telegram; the `SmsAdapter` sends text-only messages via the Twilio Messages API. The `assistantId` is threaded through the delivery payload for multi-assistant phone number resolution.
 
@@ -2153,13 +2162,13 @@ The daemon uses a single fixed internal scope constant — `DAEMON_INTERNAL_ASSI
 
 The guardian trust system uses a three-valued `TrustClass` — `'guardian'`, `'trusted_contact'`, or `'unknown'` — as the single vocabulary for actor trust classification across all channels and runtime paths. There is no legacy `actorRole` concept; all trust decisions flow through `TrustClass`.
 
-**`GuardianRuntimeContext`** (in `src/daemon/session-runtime-assembly.ts`) is the single runtime carrier for trust state on channel-originated turns. It carries `trustClass`, guardian identity fields, and requester metadata. The `guardianPrincipalId` field is typed as `?: string` (optional but non-nullable) — a principal ID is present when a guardian binding exists but is never `null`.
+**`TrustContext`** (in `src/daemon/session-runtime-assembly.ts`) is the single runtime carrier for trust state on channel-originated turns. It carries `trustClass`, guardian identity fields, and requester metadata. The `guardianPrincipalId` field is typed as `?: string` (optional but non-nullable) — a principal ID is present when a guardian binding exists but is never `null`.
 
-**Explicit trust gates:** `guardianTrustClass` is a **required** field in `ToolContext` (in `src/tools/types.ts`). Every tool execution must carry a trust classification — the field is not optional. This ensures trust-gated tool policies (guardian control-plane restrictions, host-tool blocking for untrusted actors) cannot be bypassed by omitting the classification.
+**Explicit trust gates:** `trustClass` is a **required** field in `ToolContext` (in `src/tools/types.ts`). Every tool execution must carry a trust classification — the field is not optional. This ensures trust-gated tool policies (guardian control-plane restrictions, host-tool blocking for untrusted actors) cannot be bypassed by omitting the classification.
 
 **Guardian bindings** (in `src/memory/guardian-bindings.ts`) always carry `guardianPrincipalId: string` as a required, non-null field. A binding without a principal ID is invalid and cannot be created.
 
-**Strict retry sweep parsing:** The channel retry sweep (`src/runtime/channel-retry-sweep.ts`) uses `parseGuardianRuntimeContext()` which validates `trustClass` against the canonical three-value set. There is no fallback to a legacy `actorRole` field — stored payloads that lack a valid `trustClass` are rejected deterministically to prevent silent privilege escalation. When `guardianCtx` is entirely absent from a stored payload (pre-guardian events), the sweep synthesizes an explicit `trustClass: 'unknown'` context so that replay never proceeds without a trust classification.
+**Strict retry sweep parsing:** The channel retry sweep (`src/runtime/channel-retry-sweep.ts`) uses `parseTrustRuntimeContext()` which validates `trustClass` against the canonical three-value set. There is no fallback to a legacy `actorRole` field — stored payloads that lack a valid `trustClass` are rejected deterministically to prevent silent privilege escalation. When `trustCtx` is entirely absent from a stored payload (pre-guardian events), the sweep synthesizes an explicit `trustClass: 'unknown'` context so that replay never proceeds without a trust classification.
 
 **Rollout note — legacy `actorRole` payloads:** Previously failed events stored with only `actorRole` (no `trustClass`) will be marked as failed on each retry attempt and eventually dead-lettered after exhausting `RETRY_MAX_ATTEMPTS`. This is an intentional security tradeoff: replaying these events with inferred trust would violate the explicit-trust model. If legacy events need to be recovered, they should be repaired (adding a canonical `trustClass` to the stored payload) before replay via `replayDeadLetters()`.
 
@@ -2167,8 +2176,8 @@ The guardian trust system uses a three-valued `TrustClass` — `'guardian'`, `'t
 
 | File                                         | Purpose                                                |
 | -------------------------------------------- | ------------------------------------------------------ |
-| `src/daemon/session-runtime-assembly.ts`     | `GuardianRuntimeContext` type definition               |
-| `src/tools/types.ts`                         | `ToolContext.guardianTrustClass` (required trust gate) |
+| `src/daemon/session-runtime-assembly.ts`     | `TrustContext` type definition                        |
+| `src/tools/types.ts`                         | `ToolContext.trustClass` (required trust gate)         |
 | `src/runtime/channel-retry-sweep.ts`         | Strict `trustClass` parser for retry sweep             |
 | `src/memory/guardian-bindings.ts`            | `GuardianBinding` with required `guardianPrincipalId`  |
 | `src/__tests__/trust-context-guards.test.ts` | Guard tests enforcing trust-context type invariants    |

@@ -69,7 +69,7 @@ struct AppsGridView: View {
                         .padding(.top, VSpacing.lg)
                     }
                 }
-                .padding(VSpacing.lg)
+                .padding(VSpacing.xl)
             }
         }
         .background(VColor.backgroundSubtle)
@@ -166,38 +166,41 @@ struct AppsGridView: View {
                         .stroke(VColor.surfaceBorder, lineWidth: 1)
                 )
                 .overlay(alignment: .topTrailing) {
-                    VIconButton(label: "App actions", icon: "ellipsis", iconOnly: true, variant: .filled(VColor.buttonPrimary), size: 24) {}
-                        .overlay {
-                            Menu {
-                                Button {
-                                    if app.isPinned {
-                                        appListManager.unpinApp(id: app.id)
-                                    } else {
-                                        appListManager.pinApp(id: app.id)
-                                    }
-                                } label: {
-                                    Label(app.isPinned ? "Unpin" : "Pin", systemImage: app.isPinned ? "pin.slash" : "pin")
-                                }
-                                Button(role: .destructive) {
-                                    if hoveredAppId != nil {
-                                        hoveredAppId = nil
-                                        NSCursor.pop()
-                                    }
-                                    appListManager.removeApp(id: app.id)
-                                } label: {
-                                    Label("Delete", systemImage: "trash")
+                    ZStack {
+                        VIconButton(label: "App actions", icon: "ellipsis", iconOnly: true, variant: .filled(VColor.buttonPrimary), size: 24) {}
+                            .allowsHitTesting(false)
+                        Menu {
+                            Button {
+                                if app.isPinned {
+                                    appListManager.unpinApp(id: app.id)
+                                } else {
+                                    appListManager.pinApp(id: app.id)
                                 }
                             } label: {
-                                Color.clear
+                                Label(app.isPinned ? "Unpin" : "Pin", systemImage: app.isPinned ? "pin.slash" : "pin")
                             }
-                            .menuStyle(.borderlessButton)
-                            .menuIndicator(.hidden)
+                            Button(role: .destructive) {
+                                if hoveredAppId != nil {
+                                    hoveredAppId = nil
+                                    NSCursor.pop()
+                                }
+                                try? daemonClient.sendAppDelete(appId: app.id)
+                                appListManager.removeApp(id: app.id)
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                        } label: {
+                            Color.clear.contentShape(Rectangle())
                         }
-                        .accessibilityLabel("App actions")
-                        .padding(VSpacing.sm)
-                        .opacity(isHovered ? 1 : 0)
-                        .allowsHitTesting(isHovered)
-                        .animation(VAnimation.fast, value: isHovered)
+                        .menuStyle(.borderlessButton)
+                        .menuIndicator(.hidden)
+                        .fixedSize()
+                    }
+                    .accessibilityLabel("App actions")
+                    .padding(VSpacing.sm)
+                    .opacity(isHovered ? 1 : 0)
+                    .allowsHitTesting(isHovered)
+                    .animation(VAnimation.fast, value: isHovered)
                 }
                 .shadow(color: .black.opacity(0.06), radius: 4, y: 2)
 

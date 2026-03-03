@@ -159,6 +159,24 @@ describe("notification deep-link metadata", () => {
       expect(metadata.workItemId).toBe("work-item-7");
     });
 
+    test("deep-link payload includes messageId when present", async () => {
+      const messages: ServerMessage[] = [];
+      const adapter = new VellumAdapter((msg) => messages.push(msg));
+
+      await adapter.send(
+        {
+          sourceEventName: "guardian.question",
+          copy: { title: "Question", body: "Body" },
+          deepLinkTarget: { conversationId: "conv-1", messageId: "msg-1" },
+        },
+        { channel: "vellum" },
+      );
+
+      const msg = messages[0] as unknown as Record<string, unknown>;
+      const metadata = msg.deepLinkMetadata as Record<string, unknown>;
+      expect(metadata.messageId).toBe("msg-1");
+    });
+
     // ── Deep-link conversationId present regardless of reuse/new ──────
 
     test("deep-link payload includes conversationId for a newly created conversation", async () => {

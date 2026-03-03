@@ -128,7 +128,7 @@ mock.module("../config/user-reference.js", () => ({
 // Import module under test AFTER mocks are set up
 import type { ChannelId } from "../channels/types.js";
 import { resolveUserReference } from "../config/user-reference.js";
-import type { GuardianContext } from "../runtime/guardian-context-resolver.js";
+import type { TrustContext } from "../daemon/session-runtime-assembly.js";
 
 // We need to test the private functions by importing the module.
 // Since startTrustedContactApprovalNotifier is not exported, we test it
@@ -156,7 +156,7 @@ async function simulateNotifierPoll(params: {
   conversationId: string;
   sourceChannel: ChannelId;
   externalChatId: string;
-  guardianTrustClass: GuardianContext["trustClass"];
+  trustClass: TrustContext["trustClass"];
   guardianExternalUserId?: string;
   replyCallbackUrl: string;
   bearerToken?: string;
@@ -165,13 +165,13 @@ async function simulateNotifierPoll(params: {
 }): Promise<boolean> {
   const {
     conversationId,
-    guardianTrustClass,
+    trustClass,
     guardianExternalUserId,
     notifiedRequestIds,
   } = params;
 
   // Gate check: only trusted contacts with guardian route
-  if (guardianTrustClass !== "trusted_contact" || !guardianExternalUserId) {
+  if (trustClass !== "trusted_contact" || !guardianExternalUserId) {
     return false;
   }
 
@@ -285,7 +285,7 @@ describe("trusted-contact pending-approval notifier", () => {
       conversationId: "conv-1",
       sourceChannel: "telegram",
       externalChatId: "chat-123",
-      guardianTrustClass: "trusted_contact",
+      trustClass: "trusted_contact",
       guardianExternalUserId: "guardian-1",
       replyCallbackUrl: "http://localhost:3000/deliver/telegram",
       bearerToken: "test-token",
@@ -322,7 +322,7 @@ describe("trusted-contact pending-approval notifier", () => {
       conversationId: "conv-1",
       sourceChannel: "telegram",
       externalChatId: "chat-123",
-      guardianTrustClass: "trusted_contact",
+      trustClass: "trusted_contact",
       guardianExternalUserId: "guardian-1",
       replyCallbackUrl: "http://localhost:3000/deliver/telegram",
       notifiedRequestIds: notified,
@@ -355,7 +355,7 @@ describe("trusted-contact pending-approval notifier", () => {
       conversationId: "conv-1",
       sourceChannel: "telegram",
       externalChatId: "chat-123",
-      guardianTrustClass: "trusted_contact",
+      trustClass: "trusted_contact",
       guardianExternalUserId: "guardian-1",
       replyCallbackUrl: "http://localhost:3000/deliver/telegram",
       notifiedRequestIds: notified,
@@ -384,7 +384,7 @@ describe("trusted-contact pending-approval notifier", () => {
       conversationId: "conv-1",
       sourceChannel: "telegram",
       externalChatId: "chat-123",
-      guardianTrustClass: "trusted_contact",
+      trustClass: "trusted_contact",
       guardianExternalUserId: "guardian-1",
       replyCallbackUrl: "http://localhost:3000/deliver/telegram",
       notifiedRequestIds: notified,
@@ -416,7 +416,7 @@ describe("trusted-contact pending-approval notifier", () => {
       conversationId: "conv-1",
       sourceChannel: "telegram" as ChannelId,
       externalChatId: "chat-123",
-      guardianTrustClass: "trusted_contact" as const,
+      trustClass: "trusted_contact" as const,
       guardianExternalUserId: "guardian-1",
       replyCallbackUrl: "http://localhost:3000/deliver/telegram",
       notifiedRequestIds: notified,
@@ -444,7 +444,7 @@ describe("trusted-contact pending-approval notifier", () => {
       conversationId: "conv-1",
       sourceChannel: "telegram" as ChannelId,
       externalChatId: "chat-123",
-      guardianTrustClass: "trusted_contact" as const,
+      trustClass: "trusted_contact" as const,
       guardianExternalUserId: "guardian-1",
       replyCallbackUrl: "http://localhost:3000/deliver/telegram",
       notifiedRequestIds: notified,
@@ -497,7 +497,7 @@ describe("trusted-contact pending-approval notifier", () => {
       conversationId: "conv-A",
       sourceChannel: "telegram",
       externalChatId: "chat-A",
-      guardianTrustClass: "trusted_contact",
+      trustClass: "trusted_contact",
       guardianExternalUserId: "guardian-1",
       replyCallbackUrl: "http://localhost:3000/deliver/telegram",
       notifiedRequestIds: notified,
@@ -512,7 +512,7 @@ describe("trusted-contact pending-approval notifier", () => {
       conversationId: "conv-B",
       sourceChannel: "telegram",
       externalChatId: "chat-B",
-      guardianTrustClass: "trusted_contact",
+      trustClass: "trusted_contact",
       guardianExternalUserId: "guardian-1",
       replyCallbackUrl: "http://localhost:3000/deliver/telegram",
       notifiedRequestIds: notified,
@@ -535,7 +535,7 @@ describe("trusted-contact pending-approval notifier", () => {
       conversationId: "conv-A",
       sourceChannel: "telegram",
       externalChatId: "chat-A",
-      guardianTrustClass: "trusted_contact",
+      trustClass: "trusted_contact",
       guardianExternalUserId: "guardian-1",
       replyCallbackUrl: "http://localhost:3000/deliver/telegram",
       notifiedRequestIds: notified,
@@ -559,7 +559,7 @@ describe("trusted-contact pending-approval notifier", () => {
       conversationId: "conv-1",
       sourceChannel: "telegram",
       externalChatId: "chat-123",
-      guardianTrustClass: "guardian",
+      trustClass: "guardian",
       guardianExternalUserId: "guardian-1",
       replyCallbackUrl: "http://localhost:3000/deliver/telegram",
       notifiedRequestIds: notified,
@@ -584,7 +584,7 @@ describe("trusted-contact pending-approval notifier", () => {
       conversationId: "conv-1",
       sourceChannel: "telegram",
       externalChatId: "chat-123",
-      guardianTrustClass: "unknown",
+      trustClass: "unknown",
       replyCallbackUrl: "http://localhost:3000/deliver/telegram",
       notifiedRequestIds: notified,
     });
@@ -608,7 +608,7 @@ describe("trusted-contact pending-approval notifier", () => {
       conversationId: "conv-1",
       sourceChannel: "telegram",
       externalChatId: "chat-123",
-      guardianTrustClass: "trusted_contact",
+      trustClass: "trusted_contact",
       guardianExternalUserId: undefined,
       replyCallbackUrl: "http://localhost:3000/deliver/telegram",
       notifiedRequestIds: notified,
@@ -638,7 +638,7 @@ describe("trusted-contact pending-approval notifier", () => {
       conversationId: "conv-1",
       sourceChannel: "telegram" as ChannelId,
       externalChatId: "chat-123",
-      guardianTrustClass: "trusted_contact" as const,
+      trustClass: "trusted_contact" as const,
       guardianExternalUserId: "guardian-1",
       replyCallbackUrl: "http://localhost:3000/deliver/telegram",
       notifiedRequestIds: notified,
@@ -666,7 +666,7 @@ describe("trusted-contact pending-approval notifier", () => {
       conversationId: "conv-1",
       sourceChannel: "telegram",
       externalChatId: "chat-123",
-      guardianTrustClass: "trusted_contact",
+      trustClass: "trusted_contact",
       guardianExternalUserId: "guardian-1",
       replyCallbackUrl: "http://localhost:3000/deliver/telegram",
       notifiedRequestIds: notified,
@@ -699,7 +699,7 @@ describe("trusted-contact pending-approval notifier", () => {
       conversationId: "conv-1",
       sourceChannel: "telegram",
       externalChatId: "chat-123",
-      guardianTrustClass: "trusted_contact",
+      trustClass: "trusted_contact",
       guardianExternalUserId: "guardian-1",
       replyCallbackUrl: "http://localhost:3000/deliver/telegram",
       notifiedRequestIds: notified,
@@ -731,7 +731,7 @@ describe("trusted-contact pending-approval notifier", () => {
       conversationId: "conv-1",
       sourceChannel: "telegram",
       externalChatId: "chat-123",
-      guardianTrustClass: "trusted_contact",
+      trustClass: "trusted_contact",
       guardianExternalUserId: "guardian-1",
       replyCallbackUrl: "http://localhost:3000/deliver/telegram",
       notifiedRequestIds: notified,

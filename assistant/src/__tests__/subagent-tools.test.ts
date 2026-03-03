@@ -23,9 +23,9 @@ mock.module("../memory/conversation-store.js", () => ({
     totalEstimatedCost: 0,
     title: null,
   }),
-  provenanceFromGuardianContext: () => ({
+  provenanceFromTrustContext: () => ({
     source: "user",
-    guardianContext: undefined,
+    trustContext: undefined,
   }),
   getConversationOriginInterface: () => null,
   getConversationOriginChannel: () => null,
@@ -112,7 +112,7 @@ function makeContext(sessionId: string, extras: Record<string, unknown> = {}) {
     workingDir: "/tmp",
     sessionId,
     conversationId: "conv-1",
-    guardianTrustClass: "guardian" as const,
+    trustClass: "guardian" as const,
     ...extras,
   } as import("../tools/types.js").ToolContext;
 }

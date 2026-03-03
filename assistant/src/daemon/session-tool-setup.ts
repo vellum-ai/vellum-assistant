@@ -42,7 +42,7 @@ import {
   markDoordashStepInProgress,
 } from "./doordash-steps.js";
 import type { ServerMessage, UiSurfaceShow } from "./ipc-protocol.js";
-import type { GuardianRuntimeContext } from "./session-runtime-assembly.js";
+import type { TrustContext } from "./session-runtime-assembly.js";
 import {
   projectSkillTools,
   type SkillProjectionCache,
@@ -54,15 +54,20 @@ import { runPostExecutionSideEffects } from "./tool-side-effects.js";
 const log = getLogger("session-tool-setup");
 
 /**
- * Resolve the effective guardian trust class for tool execution.
- * When HTTP auth is disabled (dev bypass), always treat the actor as
- * guardian so that control-plane gates don't block local development.
+ * Resolve the effective trust class for tool execution.
+ *
+ * When HTTP auth is disabled (dev bypass), always returns `'guardian'`
+ * so that control-plane gates don't block local development.
+ *
+ * When no trust context is available (e.g. desktop-only sessions that
+ * don't go through channel trust resolution), defaults to `'unknown'`
+ * to fail-closed.
  */
-export function resolveGuardianTrustClass(
-  guardianContext: GuardianRuntimeContext | undefined,
+export function resolveTrustClass(
+  trustContext: TrustContext | undefined,
 ): TrustClass {
   if (isHttpAuthDisabled()) return "guardian";
-  return guardianContext?.trustClass ?? "guardian";
+  return trustContext?.trustClass ?? "unknown";
 }
 
 // ── Context Interface ────────────────────────────────────────────────
@@ -90,7 +95,7 @@ export interface ToolSetupContext extends SurfaceSessionContext {
   /** When set, this session is executing a task run. Used to retrieve ephemeral permission rules. */
   taskRunId?: string;
   /** Guardian runtime context for the session — trustClass is propagated into ToolContext for control-plane policy enforcement. */
-  guardianContext?: GuardianRuntimeContext;
+  trustContext?: TrustContext;
   /** Voice/call session ID, if the session originates from a call. Propagated into ToolContext for scoped grant consumption. */
   callSessionId?: string;
 }
@@ -151,13 +156,13 @@ export function createToolExecutor(
       assistantId: ctx.assistantId,
       requestId: ctx.currentRequestId,
       taskRunId: ctx.taskRunId,
-      guardianTrustClass: resolveGuardianTrustClass(ctx.guardianContext),
-      executionChannel: ctx.guardianContext?.sourceChannel,
+      trustClass: resolveTrustClass(ctx.trustContext),
+      executionChannel: ctx.trustContext?.sourceChannel,
       callSessionId: ctx.callSessionId,
       triggeredBySurfaceAction:
         ctx.surfaceActionRequestIds?.has(ctx.currentRequestId ?? "") ?? false,
-      requesterExternalUserId: ctx.guardianContext?.requesterExternalUserId,
-      requesterChatId: ctx.guardianContext?.requesterChatId,
+      requesterExternalUserId: ctx.trustContext?.requesterExternalUserId,
+      requesterChatId: ctx.trustContext?.requesterChatId,
       onOutput,
       signal: ctx.abortController?.signal,
       sandboxOverride: ctx.sandboxOverride,
@@ -217,7 +222,7 @@ export function createToolExecutor(
         }
         // Auto-approve sub-tool confirmations when a temporary approval
         // override is active for this conversation (guardian only).
-        const guardianTrust = ctx.guardianContext?.trustClass ?? "guardian";
+        const guardianTrust = ctx.trustContext?.trustClass ?? "unknown";
         if (
           guardianTrust === "guardian" &&
           getEffectiveMode(ctx.conversationId) !== undefined

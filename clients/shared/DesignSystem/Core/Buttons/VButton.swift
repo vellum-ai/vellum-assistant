@@ -158,9 +158,9 @@ private struct VButtonStyle: ButtonStyle {
             if isHovered { return VColor.buttonPrimaryHover }
             return VColor.buttonPrimary
         case .secondary:
-            if isPressed { return adaptiveColor(light: Color(hex: 0xC0CEBC), dark: Color(hex: 0x4A4A46)) }
-            if isHovered { return adaptiveColor(light: Color(hex: 0xCAD7C6), dark: Color(hex: 0x424240)) }
-            return adaptiveColor(light: Forest._200, dark: Color(hex: 0x3A3A37))
+            if isPressed { return adaptiveColor(light: Color(hex: 0xC3D2C3), dark: Color(hex: 0x4A4A46)) }
+            if isHovered { return adaptiveColor(light: Color(hex: 0xCBD8CB), dark: Color(hex: 0x424240)) }
+            return adaptiveColor(light: Color(hex: 0xD4DFD4), dark: Color(hex: 0x3A3A37))
         case .danger:
             if isPressed { return Color(hex: 0xE0745A) }
             if isHovered { return Color(hex: 0xD4582F) }
@@ -186,11 +186,11 @@ private struct VButtonStyle: ButtonStyle {
         switch style {
         case .primary: return .white
         case .tertiary: return VColor.buttonSecondaryText
-        case .secondary: return adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._400)
+        case .secondary: return adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._400)
         case .danger: return .white
-        case .ghost: return Color(hex: 0x516748)
+        case .ghost: return Color(hex: 0x537D53)
         case .outlined: return VColor.buttonSecondaryText
-        case .success: return adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._300)
+        case .success: return adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._300)
         }
     }
 

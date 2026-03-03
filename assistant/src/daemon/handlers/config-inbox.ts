@@ -306,11 +306,11 @@ async function executeApprove(
   }
   session.setAssistantId(assistantId);
   // The guardian already approved this escalation via the inbox, so we
-  // directly set guardian trust. Going through resolveLocalIpcGuardianContext
+  // directly set guardian trust. Going through resolveLocalIpcTrustContext
   // would look up the vellum binding's guardian ID and compare it against
   // a different channel's binding (e.g. telegram/sms), misclassifying the
   // actor as 'unknown'.
-  session.setGuardianContext({
+  session.setTrustContext({
     sourceChannel: sourceChannel ?? 'vellum',
     trustClass: 'guardian',
   });

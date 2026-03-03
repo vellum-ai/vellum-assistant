@@ -3,7 +3,7 @@ import {
 } from '../../approvals/guardian-decision-primitive.js';
 import { getCanonicalGuardianRequest, isRequestInConversationScope } from '../../memory/canonical-guardian-store.js';
 import type { ApprovalAction } from '../../runtime/channel-approval-types.js';
-import { resolveLocalIpcGuardianContext } from '../../runtime/local-actor-identity.js';
+import { resolveLocalIpcTrustContext } from '../../runtime/local-actor-identity.js';
 import { listGuardianDecisionPrompts } from '../../runtime/routes/guardian-action-routes.js';
 import type { GuardianActionDecision, GuardianActionsPendingRequest } from '../ipc-protocol.js';
 import { defineHandlers, log } from './shared.js';
@@ -48,14 +48,14 @@ export const guardianActionsHandlers = defineHandlers({
     }
 
     // Resolve the local IPC actor's principal via the vellum guardian binding.
-    const localGuardianCtx = resolveLocalIpcGuardianContext('vellum');
+    const localTrustCtx = resolveLocalIpcTrustContext('vellum');
     const canonicalResult = await applyCanonicalGuardianDecision({
       requestId: msg.requestId,
       action: msg.action as ApprovalAction,
       actorContext: {
-        externalUserId: localGuardianCtx.guardianExternalUserId,
+        externalUserId: localTrustCtx.guardianExternalUserId,
         channel: 'vellum',
-        guardianPrincipalId: localGuardianCtx.guardianPrincipalId ?? undefined,
+        guardianPrincipalId: localTrustCtx.guardianPrincipalId ?? undefined,
       },
       userText: undefined,
     });

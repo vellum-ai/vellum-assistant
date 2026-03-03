@@ -3,6 +3,8 @@ import VellumAssistantShared
 
 /// Appearance settings tab — theme selection, keyboard shortcuts, and media embed configuration.
 struct SettingsAppearanceTab: View {
+    private static let knownTimezones: [String] = TimeZone.knownTimeZoneIdentifiers.sorted()
+
     @ObservedObject var store: SettingsStore
     @AppStorage("themePreference") private var themePreference: String = "system"
     @State private var newAllowlistDomain = ""
@@ -12,7 +14,7 @@ struct SettingsAppearanceTab: View {
     @State private var flagsMonitor: Any?
     @State private var recordingDisplayString: String?
     @State private var shortcutConflictWarning: String?
-    @State private var showTimezonePicker = false
+    @State private var selectedTimezone: String = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
@@ -22,9 +24,9 @@ struct SettingsAppearanceTab: View {
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
 
-                HStack {
+                HStack(alignment: .center, spacing: VSpacing.lg) {
                     Text("Theme")
-                        .font(VFont.body)
+                        .font(VFont.inputLabel)
                         .foregroundColor(VColor.textSecondary)
                     Spacer()
                     VSegmentedControl(
@@ -42,50 +44,51 @@ struct SettingsAppearanceTab: View {
                         ),
                         style: .pill
                     )
-                    .frame(width: 220)
+                    .fixedSize()
                 }
 
-                Divider()
-                    .background(VColor.surfaceBorder)
+                Divider().background(VColor.surfaceBorder)
 
-                HStack(alignment: .center, spacing: VSpacing.sm) {
+                HStack(alignment: .top, spacing: VSpacing.lg) {
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
                         Text("User timezone")
-                            .font(VFont.body)
+                            .font(VFont.inputLabel)
                             .foregroundColor(VColor.textSecondary)
                         Text("Timezone used for time-aware responses.")
                             .font(VFont.caption)
                             .foregroundColor(VColor.textMuted)
                     }
                     Spacer()
-                    if let tz = store.userTimezone {
-                        Text(tz)
-                            .font(VFont.mono)
-                            .foregroundColor(VColor.textPrimary)
+                    VDropdown(
+                        placeholder: "Not Set",
+                        selection: $selectedTimezone,
+                        options: [(label: "Not Set", value: "")] + Self.knownTimezones.map { (label: $0, value: $0) },
+                        emptyValue: ""
+                    )
+                    .frame(width: 200)
+                }
+                .onChange(of: selectedTimezone) { oldValue, newValue in
+                    guard oldValue != newValue else { return }
+                    if newValue.isEmpty {
+                        store.clearUserTimezone()
                     } else {
-                        Text("Not set")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textMuted)
-                    }
-                    VButton(label: store.userTimezone != nil ? "Change" : "Set", style: .tertiary) {
-                        showTimezonePicker = true
-                    }
-                    .popover(isPresented: $showTimezonePicker, arrowEdge: .bottom) {
-                        TimezonePicker { selected in
-                            store.saveUserTimezone(selected)
-                            showTimezonePicker = false
-                        }
-                    }
-                    if store.userTimezone != nil {
-                        VButton(label: "Clear", style: .tertiary) {
-                            store.clearUserTimezone()
-                        }
+                        store.saveUserTimezone(newValue)
                     }
                 }
 
             }
             .padding(VSpacing.lg)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .vCard(background: VColor.surfaceSubtle)
+            .onAppear {
+                selectedTimezone = store.userTimezone ?? ""
+            }
+            .onChange(of: store.userTimezone) { _, newStoreValue in
+                let mapped = newStoreValue ?? ""
+                if mapped != selectedTimezone {
+                    selectedTimezone = mapped
+                }
+            }
 
             // KEYBOARD SHORTCUTS section
             VStack(alignment: .leading, spacing: 0) {
@@ -107,11 +110,11 @@ struct SettingsAppearanceTab: View {
                     }
 
                     if isRecordingGlobalHotkey {
-                        VButton(label: "Press shortcut...", style: .outlined, size: .large) {
+                        VButton(label: "Press shortcut...", style: .outlined, size: .medium) {
                             stopRecording()
                         }
                     } else {
-                        VButton(label: "Record", style: .outlined, size: .large) {
+                        VButton(label: "Record", style: .outlined, size: .medium) {
                             startRecording()
                         }
                     }
@@ -140,11 +143,11 @@ struct SettingsAppearanceTab: View {
                     }
 
                     if isRecordingQuickInputHotkey {
-                        VButton(label: "Press shortcut...", style: .outlined, size: .large) {
+                        VButton(label: "Press shortcut...", style: .outlined, size: .medium) {
                             stopRecording()
                         }
                     } else {
-                        VButton(label: "Record", style: .outlined, size: .large) {
+                        VButton(label: "Record", style: .outlined, size: .medium) {
                             startRecordingQuickInput()
                         }
                     }
@@ -170,11 +173,12 @@ struct SettingsAppearanceTab: View {
                     VToggle(isOn: Binding(
                         get: { store.cmdEnterToSend },
                         set: { store.cmdEnterToSend = $0 }
-                    ))
+                    ), size: .medium)
                 }
                 .padding(.vertical, VSpacing.md)
             }
             .padding(VSpacing.lg)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .vCard(background: VColor.surfaceSubtle)
             .onDisappear {
                 stopRecording()
@@ -194,7 +198,7 @@ struct SettingsAppearanceTab: View {
                     VToggle(isOn: Binding(
                         get: { store.mediaEmbedsEnabled },
                         set: { store.setMediaEmbedsEnabled($0) }
-                    ))
+                    ), size: .medium)
                 }
 
                 Text("Automatically embed images, videos, and other media shared in chat messages.")
@@ -240,15 +244,14 @@ struct SettingsAppearanceTab: View {
                         .padding(.vertical, VSpacing.xs)
                     }
 
-                    HStack {
-                        Spacer()
-                        VButton(label: "Reset to Defaults", style: .tertiary) {
-                            store.setMediaEmbedVideoAllowlistDomains(MediaEmbedSettings.defaultDomains)
-                        }
+                    VButton(label: "Reset to Defaults", style: .secondary, size: .medium) {
+                        store.setMediaEmbedVideoAllowlistDomains(MediaEmbedSettings.defaultDomains)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
             .padding(VSpacing.lg)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .vCard(background: VColor.surfaceSubtle)
         }
     }

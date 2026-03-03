@@ -1,49 +1,31 @@
 /**
  * Shared inbound trust resolution for channel actors.
  *
- * GuardianContext is a type alias for GuardianRuntimeContext — the
- * canonical runtime trust context used by sessions, tooling, and channel
- * routes. This module re-exports the alias and provides routing-state
- * helpers that operate on the canonical type.
+ * Provides routing-state helpers and a convenience wrapper
+ * ({@link resolveTrustContext}) around {@link resolveActorTrust} that
+ * converts the result to a {@link TrustContext}.
  *
- * Trust resolution itself lives in actor-trust-resolver.ts; the resolved
- * ActorTrustContext is converted to GuardianRuntimeContext via
- * toGuardianRuntimeContextFromTrust.
+ * Trust resolution itself lives in `actor-trust-resolver.ts`; the resolved
+ * {@link ActorTrustContext} is converted to {@link TrustContext} via
+ * {@link toTrustContext}.
  */
-import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
+import type { TrustContext } from '../daemon/session-runtime-assembly.js';
 import {
   resolveActorTrust,
   type ResolveActorTrustInput,
-  toGuardianRuntimeContextFromTrust,
-  type TrustClass,
+  toTrustContext,
 } from './actor-trust-resolver.js';
 export type { DenialReason } from './actor-trust-resolver.js';
-
-/** Trust classification used by route-level channel logic. */
-export type ActorTrustClass = TrustClass;
-
-/**
- * GuardianContext is the canonical runtime trust context.
- *
- * Previously this was a separate interface with extra fields (memberStatus,
- * memberPolicy). Those fields were only needed for InboundActorContext
- * construction, which now sources them directly from ActorTrustContext.
- * This alias unifies the two shapes and removes the redundant conversion
- * layer.
- */
-export type GuardianContext = GuardianRuntimeContext;
-
-export type ResolveGuardianContextInput = ResolveActorTrustInput;
 
 /**
  * Resolve route-level trust context from canonical identity state.
  *
  * Delegates to resolveActorTrust for classification, then converts to
- * the canonical GuardianRuntimeContext via toGuardianRuntimeContextFromTrust.
+ * the canonical TrustContext via toTrustContext.
  */
-export function resolveGuardianContext(input: ResolveGuardianContextInput): GuardianContext {
+export function resolveTrustContext(input: ResolveActorTrustInput): TrustContext {
   const trust = resolveActorTrust(input);
-  return toGuardianRuntimeContextFromTrust(trust, input.conversationExternalId);
+  return toTrustContext(trust, input.conversationExternalId);
 }
 
 // ---------------------------------------------------------------------------
@@ -83,7 +65,7 @@ export interface RoutingState {
  * Trusted contacts are only interactive when a guardian binding exists
  * to receive approval notifications. Unknown actors are never interactive.
  */
-export function resolveRoutingState(ctx: Pick<GuardianRuntimeContext, 'trustClass' | 'guardianExternalUserId'>): RoutingState {
+export function resolveRoutingState(ctx: Pick<TrustContext, 'trustClass' | 'guardianExternalUserId'>): RoutingState {
   const isGuardian = ctx.trustClass === 'guardian';
   const isTrustedContact = ctx.trustClass === 'trusted_contact';
 
@@ -118,24 +100,24 @@ export function resolveRoutingState(ctx: Pick<GuardianRuntimeContext, 'trustClas
 }
 
 /**
- * Convenience: compute routing state from a GuardianRuntimeContext
+ * Convenience: compute routing state from a TrustContext
  * (the shape persisted in stored payloads and used by the retry sweep).
  */
-export function resolveRoutingStateFromRuntime(ctx: GuardianRuntimeContext): RoutingState {
+export function resolveRoutingStateFromRuntime(ctx: TrustContext): RoutingState {
   return resolveRoutingState(ctx);
 }
 
 /**
- * Override the sourceChannel on a resolved GuardianRuntimeContext.
+ * Override the sourceChannel on a resolved TrustContext.
  *
  * The HTTP /messages endpoint resolves trust against a fixed internal
  * channel ('vellum') but the request body carries the actual sourceChannel
  * (e.g. the channel the gateway routed the request through). This helper
  * copies the context with the caller-supplied sourceChannel.
  */
-export function toGuardianRuntimeContext(
+export function withSourceChannel(
   sourceChannel: import('../channels/types.js').ChannelId,
-  ctx: GuardianRuntimeContext,
-): GuardianRuntimeContext {
+  ctx: TrustContext,
+): TrustContext {
   return { ...ctx, sourceChannel };
 }

@@ -62,6 +62,14 @@ struct SettingsPanel: View {
     @State private var braveKeyText: String = ""
     @State private var perplexityKeyText: String = ""
     @State private var imageGenKeyText: String = ""
+
+    // Setup expanded state for Models & Services credential cards
+    @State private var anthropicSetupExpanded = false
+    @State private var perplexitySetupExpanded = false
+    @State private var braveSetupExpanded = false
+    @State private var imageGenSetupExpanded = false
+    @State private var twitterSetupExpanded = false
+
     @State private var showingTrustRules = false
     @State private var showingReminders = false
     @State private var showingScheduledTasks = false
@@ -81,42 +89,23 @@ struct SettingsPanel: View {
     @State private var notificationsGranted: Bool = false
     @State private var notificationBadgesGranted: Bool = false
     @State private var permissionCheckTask: Task<Void, Never>?
-    @State private var showModelDropdown = false
-    @State private var mouseDownMonitor: Any?
-    @State private var modelDropdownFrame: CGRect = .zero
     @State private var selectedTab: SettingsTab = .account
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Header (matches VSidePanel style)
-            HStack {
-                Text("Settings")
-                    .font(VFont.panelTitle)
-                    .foregroundColor(VColor.textPrimary)
-                Spacer()
-                VIconButton(label: "Close Settings", icon: "xmark", iconOnly: true, action: onClose)
+        // Two-column layout: bare nav on window background, content in its own surface panel
+        HStack(alignment: .top, spacing: 0) {
+            // Left: nav sidebar sits directly on the window background — no card/surface wrapper
+            settingsNav
+                .frame(width: 200)
+
+            // Right: tab content — panel background on content only, nav floats on window chrome
+            ScrollView {
+                selectedTabContent
+                    .padding(VSpacing.lg)
+                    .frame(maxWidth: .infinity, alignment: .top)
             }
-            .padding(.horizontal, VSpacing.lg)
-            .padding(.vertical, VSpacing.lg)
-
-            Divider()
-                .background(VColor.surfaceBorder)
-
-            // Two-column layout
-            HStack(spacing: 0) {
-                // Left: nav sidebar
-                settingsNav
-                    .frame(width: 200)
-
-                Divider()
-
-                // Right: content for selected tab
-                ScrollView {
-                    selectedTabContent
-                        .padding(VSpacing.lg)
-                        .frame(maxWidth: .infinity, alignment: .top)
-                }
-            }
+            .background(VColor.backgroundSubtle)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         }
         .task {
             // Refresh permission status when the view appears
@@ -149,39 +138,6 @@ struct SettingsPanel: View {
             daemonClient?.onIntegrationListResponse = nil
             daemonClient?.onIntegrationConnectResult = nil
             permissionCheckTask?.cancel()
-            if let monitor = mouseDownMonitor {
-                NSEvent.removeMonitor(monitor)
-                mouseDownMonitor = nil
-            }
-        }
-        .onChange(of: showModelDropdown) { _, isOpen in
-            if let monitor = mouseDownMonitor {
-                NSEvent.removeMonitor(monitor)
-                mouseDownMonitor = nil
-            }
-            if isOpen {
-                mouseDownMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { event in
-                    // Only dismiss if the click is outside the dropdown.
-                    // SwiftUI .global uses flipped coords (Y=0 at top);
-                    // AppKit locationInWindow uses Y=0 at bottom.
-                    if let window = event.window {
-                        let windowHeight = window.frame.height
-                        let loc = event.locationInWindow
-                        let flippedY = windowHeight - loc.y
-                        let clickPoint = CGPoint(x: loc.x, y: flippedY)
-                        if !self.modelDropdownFrame.contains(clickPoint) {
-                            DispatchQueue.main.async {
-                                withAnimation(VAnimation.fast) { showModelDropdown = false }
-                            }
-                        }
-                    } else {
-                        DispatchQueue.main.async {
-                            withAnimation(VAnimation.fast) { showModelDropdown = false }
-                        }
-                    }
-                    return event
-                }
-            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .navigateToSettingsTab)) { notification in
             if let tab = notification.object as? SettingsTab {
@@ -230,6 +186,24 @@ struct SettingsPanel: View {
 
     private var settingsNav: some View {
         VStack(alignment: .leading, spacing: VSpacing.xxs) {
+            // Back to app link at top of sidebar
+            Button(action: onClose) {
+                HStack(spacing: VSpacing.sm) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(VColor.textMuted)
+                    Text("Back to app")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textMuted)
+                }
+                .padding(.horizontal, VSpacing.sm)
+                .padding(.vertical, VSpacing.xs)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.bottom, VSpacing.md)
+
+            // Tab nav items
             ForEach(SettingsTab.visibleTabs(isDevMode: store.isDevMode), id: \.self) { tab in
                 SettingsNavRow(tab: tab, isSelected: selectedTab == tab) {
                     selectedTab = tab
@@ -273,234 +247,252 @@ struct SettingsPanel: View {
     // MARK: - Integrations Tab
 
     private var integrationsContent: some View {
-        VStack(alignment: .leading, spacing: VSpacing.xl) {
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
             // ANTHROPIC section
             VStack(alignment: .leading, spacing: VSpacing.md) {
-                Text("Anthropic")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
-
-                if store.hasKey {
-                    HStack(spacing: VSpacing.sm) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(VColor.success)
-                            .font(.system(size: 14))
-                        Text(store.maskedKey)
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
-                        Spacer()
-                        VButton(label: "Clear", style: .danger) {
-                            store.clearAPIKey()
-                            apiKeyText = ""
-                        }
-                    }
-                } else {
-                    HStack(spacing: VSpacing.xs) {
-                        Text("Enter API Key")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
-                        VInfoTooltip("Get your API key at console.anthropic.com")
-                    }
-
-                    VInlineActionField(text: $apiKeyText, placeholder: "This is your private generated key", isSecure: true) {
-                        store.saveAPIKey(apiKeyText)
-                        apiKeyText = ""
-                    }
-
-                    HStack(spacing: 0) {
-                        Text("Get your API key at ")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                        Link("console.anthropic.com", destination: URL(string: "https://console.anthropic.com")!)
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.accent)
-                            .onHover { hovering in
-                                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                            }
-                    }
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    Text("Anthropic")
+                        .font(VFont.sectionTitle)
+                        .foregroundColor(VColor.textPrimary)
+                    Text("Required for AI responses")
+                        .font(VFont.sectionDescription)
+                        .foregroundColor(VColor.textMuted)
                 }
 
                 if store.hasKey {
-                    Divider()
-                        .background(VColor.surfaceBorder)
-
-                    HStack {
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
                         Text("Active Model")
-                            .font(VFont.body)
+                            .font(VFont.inputLabel)
                             .foregroundColor(VColor.textSecondary)
-                        Spacer()
-                        ModelPickerButton(
-                            store: store,
-                            isOpen: $showModelDropdown
+                        VDropdown(
+                            placeholder: "Select a model…",
+                            selection: Binding(
+                                get: { store.selectedModel },
+                                set: { model in
+                                    store.selectedModel = model
+                                    store.setModel(model)
+                                }
+                            ),
+                            options: SettingsStore.availableModels.map { model in
+                                (label: SettingsStore.modelDisplayNames[model] ?? model, value: model)
+                            }
                         )
+                        .frame(width: 360)
+                    }
+
+                    HStack(spacing: VSpacing.sm) {
+                        VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .medium) {}
+                        VButton(label: "Clear", style: .danger, size: .medium) {
+                            store.clearAPIKey()
+                            apiKeyText = ""
+                            anthropicSetupExpanded = false
+                        }
+                    }
+                } else if anthropicSetupExpanded {
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        Text("API Key")
+                            .font(VFont.inputLabel)
+                            .foregroundColor(VColor.textSecondary)
+
+                        SecureField("This is your private generated key", text: $apiKeyText)
+                            .vInputStyle()
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textPrimary)
+
+                        HStack(spacing: 0) {
+                            Text("Get your API key at ")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                            Link("console.anthropic.com", destination: URL(string: "https://console.anthropic.com")!)
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.accent)
+                                .onHover { hovering in
+                                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                                }
+                        }
+
+                        HStack(spacing: VSpacing.sm) {
+                            VButton(label: "Save", style: .secondary, size: .medium) {
+                                store.saveAPIKey(apiKeyText)
+                                apiKeyText = ""
+                                anthropicSetupExpanded = false
+                            }
+                            .disabled(apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            VButton(label: "Cancel", style: .tertiary, size: .medium) {
+                                apiKeyText = ""
+                                anthropicSetupExpanded = false
+                            }
+                        }
+                    }
+                } else {
+                    VButton(label: "Set Up", style: .secondary, size: .medium) {
+                        anthropicSetupExpanded = true
                     }
                 }
             }
             .padding(VSpacing.lg)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .vCard(background: VColor.surfaceSubtle)
-            .overlay(alignment: .bottomTrailing) {
-                if showModelDropdown {
-                    VStack(alignment: .leading, spacing: 0) {
-                        ForEach(SettingsStore.availableModels, id: \.self) { model in
-                            ModelPickerItem(
-                                name: SettingsStore.modelDisplayNames[model] ?? model,
-                                isSelected: model == store.selectedModel
-                            ) {
-                                store.selectedModel = model
-                                store.setModel(model)
-                                withAnimation(VAnimation.fast) { showModelDropdown = false }
-                            }
-                        }
-                    }
-                    .padding(.vertical, VSpacing.xs)
-                    .background(VColor.surface)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.lg)
-                            .stroke(VColor.surfaceBorder, lineWidth: 1)
-                    )
-                    .shadow(color: .black.opacity(0.3), radius: 12, y: 4)
-                    .fixedSize(horizontal: true, vertical: true)
-                    .alignmentGuide(.bottom) { d in d[.top] }
-                    .padding(.trailing, VSpacing.lg)
-                    .transition(.opacity)
-                    .background(
-                        GeometryReader { geo in
-                            Color.clear.onAppear {
-                                modelDropdownFrame = geo.frame(in: .global)
-                            }
-                            .onChange(of: geo.frame(in: .global)) { _, newFrame in
-                                modelDropdownFrame = newFrame
-                            }
-                        }
-                    )
-                }
-            }
-            .animation(VAnimation.fast, value: showModelDropdown)
-            .zIndex(showModelDropdown ? 1 : 0)
 
             // PERPLEXITY SEARCH section
             VStack(alignment: .leading, spacing: VSpacing.md) {
-                Text("Perplexity Search")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    Text("Perplexity Search")
+                        .font(VFont.sectionTitle)
+                        .foregroundColor(VColor.textPrimary)
+                    Text("Enables real-time web search in responses")
+                        .font(VFont.sectionDescription)
+                        .foregroundColor(VColor.textMuted)
+                }
 
                 if store.hasPerplexityKey {
                     HStack(spacing: VSpacing.sm) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(VColor.success)
-                            .font(.system(size: 14))
-                        Text(store.maskedPerplexityKey)
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
-                        Spacer()
-                        VButton(label: "Clear", style: .danger) {
+                        VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .medium) {}
+                        VButton(label: "Clear", style: .danger, size: .medium) {
                             store.clearPerplexityKey()
                             perplexityKeyText = ""
+                            perplexitySetupExpanded = false
+                        }
+                    }
+                } else if perplexitySetupExpanded {
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        Text("API Key")
+                            .font(VFont.inputLabel)
+                            .foregroundColor(VColor.textSecondary)
+
+                        SecureField("Your Perplexity API key", text: $perplexityKeyText)
+                            .vInputStyle()
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textPrimary)
+
+                        HStack(spacing: 0) {
+                            Text("Get your API key at ")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                            Link("perplexity.ai/settings/api", destination: URL(string: "https://perplexity.ai/settings/api")!)
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.accent)
+                                .onHover { hovering in
+                                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                                }
+                        }
+
+                        HStack(spacing: VSpacing.sm) {
+                            VButton(label: "Save", style: .secondary, size: .medium) {
+                                store.savePerplexityKey(perplexityKeyText)
+                                perplexityKeyText = ""
+                                perplexitySetupExpanded = false
+                            }
+                            .disabled(perplexityKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            VButton(label: "Cancel", style: .tertiary, size: .medium) {
+                                perplexityKeyText = ""
+                                perplexitySetupExpanded = false
+                            }
                         }
                     }
                 } else {
-                    HStack(spacing: VSpacing.xs) {
-                        Text("Enter Perplexity API Key")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
-                        VInfoTooltip("Get your API key at perplexity.ai/settings/api")
-                    }
-
-                    VInlineActionField(text: $perplexityKeyText, placeholder: "Your Perplexity API key", isSecure: true) {
-                        store.savePerplexityKey(perplexityKeyText)
-                        perplexityKeyText = ""
-                    }
-
-                    HStack(spacing: 0) {
-                        Text("Get your API key at ")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                        Link("perplexity.ai/settings/api", destination: URL(string: "https://perplexity.ai/settings/api")!)
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.accent)
-                            .onHover { hovering in
-                                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                            }
+                    VButton(label: "Set Up", style: .secondary, size: .medium) {
+                        perplexitySetupExpanded = true
                     }
                 }
             }
             .padding(VSpacing.lg)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .vCard(background: VColor.surfaceSubtle)
 
             // BRAVE SEARCH section
             VStack(alignment: .leading, spacing: VSpacing.md) {
-                Text("Brave Search")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    Text("Brave Search")
+                        .font(VFont.sectionTitle)
+                        .foregroundColor(VColor.textPrimary)
+                    Text("Enables private web search in responses")
+                        .font(VFont.sectionDescription)
+                        .foregroundColor(VColor.textMuted)
+                }
 
                 if store.hasBraveKey {
                     HStack(spacing: VSpacing.sm) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(VColor.success)
-                            .font(.system(size: 14))
-                        Text(store.maskedBraveKey)
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
-                        Spacer()
-                        VButton(label: "Clear", style: .danger) {
+                        VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .medium) {}
+                        VButton(label: "Clear", style: .danger, size: .medium) {
                             store.clearBraveKey()
                             braveKeyText = ""
+                            braveSetupExpanded = false
+                        }
+                    }
+                } else if braveSetupExpanded {
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        Text("API Key")
+                            .font(VFont.inputLabel)
+                            .foregroundColor(VColor.textSecondary)
+
+                        SecureField("Your Brave Search API key", text: $braveKeyText)
+                            .vInputStyle()
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textPrimary)
+
+                        HStack(spacing: 0) {
+                            Text("Get your API key at ")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                            Link("brave.com/search/api", destination: URL(string: "https://brave.com/search/api")!)
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.accent)
+                                .onHover { hovering in
+                                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                                }
+                        }
+
+                        HStack(spacing: VSpacing.sm) {
+                            VButton(label: "Save", style: .secondary, size: .medium) {
+                                store.saveBraveKey(braveKeyText)
+                                braveKeyText = ""
+                                braveSetupExpanded = false
+                            }
+                            .disabled(braveKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            VButton(label: "Cancel", style: .tertiary, size: .medium) {
+                                braveKeyText = ""
+                                braveSetupExpanded = false
+                            }
                         }
                     }
                 } else {
-                    HStack(spacing: VSpacing.xs) {
-                        Text("Enter Brave Search API Key")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
-                        VInfoTooltip("Get your API key at brave.com/search/api")
-                    }
-
-                    VInlineActionField(text: $braveKeyText, placeholder: "Your Brave Search API key", isSecure: true) {
-                        store.saveBraveKey(braveKeyText)
-                        braveKeyText = ""
-                    }
-
-                    HStack(spacing: 0) {
-                        Text("Get your API key at ")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                        Link("brave.com/search/api", destination: URL(string: "https://brave.com/search/api")!)
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.accent)
-                            .onHover { hovering in
-                                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                            }
+                    VButton(label: "Set Up", style: .secondary, size: .medium) {
+                        braveSetupExpanded = true
                     }
                 }
             }
             .padding(VSpacing.lg)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .vCard(background: VColor.surfaceSubtle)
 
             // IMAGE GENERATION section
             VStack(alignment: .leading, spacing: VSpacing.md) {
-                Text("Image Generation")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    Text("Image Generation")
+                        .font(VFont.sectionTitle)
+                        .foregroundColor(VColor.textPrimary)
+                    Text("Enables AI image generation via Gemini")
+                        .font(VFont.sectionDescription)
+                        .foregroundColor(VColor.textMuted)
+                }
 
                 if store.hasImageGenKey {
                     HStack(spacing: VSpacing.sm) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(VColor.success)
-                            .font(.system(size: 14))
-                        Text(store.maskedImageGenKey)
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
-                        Spacer()
-                        VButton(label: "Clear", style: .danger) {
+                        VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .medium) {}
+                        VButton(label: "Clear", style: .danger, size: .medium) {
                             store.clearImageGenKey()
                             imageGenKeyText = ""
+                            imageGenSetupExpanded = false
                         }
                     }
 
+                    Divider()
+                        .background(VColor.surfaceBorder)
+
                     HStack {
                         Text("Model")
-                            .font(VFont.body)
+                            .font(VFont.inputLabel)
                             .foregroundColor(VColor.textSecondary)
                         Spacer()
                         Picker("", selection: Binding(
@@ -515,33 +507,50 @@ struct SettingsPanel: View {
                         .labelsHidden()
                         .fixedSize()
                     }
-                } else {
-                    HStack(spacing: VSpacing.xs) {
-                        Text("Enter Gemini API Key")
-                            .font(VFont.caption)
+                } else if imageGenSetupExpanded {
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        Text("API Key")
+                            .font(VFont.inputLabel)
                             .foregroundColor(VColor.textSecondary)
-                        VInfoTooltip("Get your API key at aistudio.google.com/apikey")
-                    }
 
-                    VInlineActionField(text: $imageGenKeyText, placeholder: "Your Gemini API key", isSecure: true) {
-                        store.saveImageGenKey(imageGenKeyText)
-                        imageGenKeyText = ""
-                    }
+                        SecureField("Your Gemini API key", text: $imageGenKeyText)
+                            .vInputStyle()
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textPrimary)
 
-                    HStack(spacing: 0) {
-                        Text("Get your API key at ")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                        Link("aistudio.google.com/apikey", destination: URL(string: "https://aistudio.google.com/apikey")!)
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.accent)
-                            .onHover { hovering in
-                                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                        HStack(spacing: 0) {
+                            Text("Get your API key at ")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                            Link("aistudio.google.com/apikey", destination: URL(string: "https://aistudio.google.com/apikey")!)
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.accent)
+                                .onHover { hovering in
+                                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                                }
+                        }
+
+                        HStack(spacing: VSpacing.sm) {
+                            VButton(label: "Save", style: .secondary, size: .medium) {
+                                store.saveImageGenKey(imageGenKeyText)
+                                imageGenKeyText = ""
+                                imageGenSetupExpanded = false
                             }
+                            .disabled(imageGenKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            VButton(label: "Cancel", style: .tertiary, size: .medium) {
+                                imageGenKeyText = ""
+                                imageGenSetupExpanded = false
+                            }
+                        }
+                    }
+                } else {
+                    VButton(label: "Set Up", style: .secondary, size: .medium) {
+                        imageGenSetupExpanded = true
                     }
                 }
             }
             .padding(VSpacing.lg)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .vCard(background: VColor.surfaceSubtle)
 
             // INTEGRATIONS section (hidden when empty)
@@ -556,21 +565,28 @@ struct SettingsPanel: View {
                     }
                 }
                 .padding(VSpacing.lg)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .vCard(background: VColor.surfaceSubtle)
             }
 
             // TWITTER / X section
             twitterSection
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Twitter Section
 
     private var twitterSection: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("Twitter / X")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                Text("Twitter / X")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+                Text("Post and read tweets as your assistant")
+                    .font(VFont.sectionDescription)
+                    .foregroundColor(VColor.textMuted)
+            }
 
             // Mode Picker
             HStack {
@@ -592,7 +608,7 @@ struct SettingsPanel: View {
                 }
             }
 
-            // Managed mode "coming soon" card
+            // Managed mode "coming soon"
             if store.twitterMode == "managed" {
                 HStack(spacing: VSpacing.sm) {
                     Image(systemName: "info.circle")
@@ -603,118 +619,120 @@ struct SettingsPanel: View {
                 }
             }
 
-            // Local BYO mode content
+            // Set Up (local BYO) mode content
             if store.twitterMode == "local_byo" {
-                if !store.twitterLocalClientConfigured {
-                    // Client credentials entry (when not yet configured)
+                if store.twitterConnected {
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        HStack(spacing: VSpacing.sm) {
+                            VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .medium) {}
+                            VButton(label: "Disconnect", style: .danger, size: .medium) {
+                                store.disconnectTwitter()
+                            }
+                        }
+                        if let account = store.twitterAccountInfo {
+                            Text(account)
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                        }
+                    }
+                } else if store.twitterLocalClientConfigured {
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        if store.twitterAuthInProgress {
+                            HStack(spacing: VSpacing.sm) {
+                                VButton(label: "Connect", style: .primary, size: .medium) {}
+                                    .disabled(true)
+                                ProgressView()
+                                    .controlSize(.small)
+                                Text("Connecting...")
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.textSecondary)
+                            }
+                        } else {
+                            HStack(spacing: VSpacing.sm) {
+                                VButton(label: "Connect", style: .primary, size: .medium) {
+                                    store.connectTwitter()
+                                }
+                                VButton(label: "Reconfigure", style: .secondary, size: .medium) {
+                                    store.clearTwitterLocalClient()
+                                    twitterClientId = ""
+                                    twitterClientSecret = ""
+                                    twitterSetupExpanded = true
+                                }
+                            }
+                        }
+
+                        if let error = store.twitterAuthError {
+                            Text(error)
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.error)
+                        }
+                    }
+                } else if twitterSetupExpanded {
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        Text("OAuth Client ID")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
+
                         TextField("OAuth Client ID", text: $twitterClientId)
                             .vInputStyle()
                             .font(VFont.body)
                             .foregroundColor(VColor.textPrimary)
+
+                        Text("OAuth Client Secret (optional)")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
 
                         SecureField("OAuth Client Secret (optional)", text: $twitterClientSecret)
                             .vInputStyle()
                             .font(VFont.body)
                             .foregroundColor(VColor.textPrimary)
 
-                        HStack {
-                            HStack(spacing: 0) {
-                                Text("Create an app at ")
-                                    .font(VFont.caption)
-                                    .foregroundColor(VColor.textMuted)
-                                Link("developer.x.com", destination: URL(string: "https://developer.x.com")!)
-                                    .font(VFont.caption)
-                                    .foregroundColor(VColor.accent)
-                                    .onHover { hovering in
-                                        if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                                    }
-                            }
-                            Spacer()
-                            VButton(label: "Save", style: .primary) {
+                        HStack(spacing: 0) {
+                            Text("Create an app at ")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                            Link("developer.x.com", destination: URL(string: "https://developer.x.com")!)
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.accent)
+                                .onHover { hovering in
+                                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                                }
+                        }
+
+                        HStack(spacing: VSpacing.sm) {
+                            VButton(label: "Save", style: .secondary, size: .medium) {
                                 store.saveTwitterLocalClient(
                                     clientId: twitterClientId,
                                     clientSecret: twitterClientSecret.isEmpty ? nil : twitterClientSecret
                                 )
                                 twitterClientId = ""
                                 twitterClientSecret = ""
+                                twitterSetupExpanded = false
                             }
                             .disabled(twitterClientId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            VButton(label: "Cancel", style: .tertiary, size: .medium) {
+                                twitterSetupExpanded = false
+                                twitterClientId = ""
+                                twitterClientSecret = ""
+                            }
                         }
                     }
                 } else {
-                    // Client configured — show connect or connected state
-                    if store.twitterConnected {
-                        // Connected state
-                        HStack(spacing: VSpacing.sm) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundColor(VColor.success)
-                                .font(.system(size: 14))
-                            Text("Connected")
-                                .font(VFont.body)
-                                .foregroundColor(VColor.textSecondary)
-                            if let account = store.twitterAccountInfo {
-                                Text(account)
-                                    .font(VFont.caption)
-                                    .foregroundColor(VColor.textMuted)
-                            }
-                            Spacer()
-                            VButton(label: "Disconnect", style: .danger) {
-                                store.disconnectTwitter()
-                            }
-                        }
-                    } else {
-                        // Client configured but not connected
-                        HStack(spacing: VSpacing.sm) {
-                            Image(systemName: "circle")
-                                .foregroundColor(VColor.textMuted)
-                                .font(.system(size: 14))
-                            Text("App configured")
-                                .font(VFont.body)
-                                .foregroundColor(VColor.textSecondary)
-                            Spacer()
-                            if store.twitterAuthInProgress {
-                                ProgressView()
-                                    .controlSize(.small)
-                                Text("Connecting...")
-                                    .font(VFont.caption)
-                                    .foregroundColor(VColor.textSecondary)
-                            } else {
-                                VButton(label: "Connect", style: .primary) {
-                                    store.connectTwitter()
-                                }
-                            }
-                        }
-                    }
-
-                    if let error = store.twitterAuthError {
-                        Text(error)
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.error)
-                    }
-
-                    // Clear/reconfigure button
-                    HStack {
-                        Spacer()
-                        Button("Clear App Config") {
-                            store.clearTwitterLocalClient()
-                            twitterClientId = ""
-                            twitterClientSecret = ""
-                        }
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                    VButton(label: "Set Up", style: .secondary, size: .medium) {
+                        twitterSetupExpanded = true
                     }
                 }
             }
         }
         .padding(VSpacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
     }
 
     // MARK: - Permissions Tab
 
     private var permissionsContent: some View {
-        VStack(alignment: .leading, spacing: VSpacing.xl) {
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
             // PERMISSIONS section (OS permissions)
             VStack(alignment: .leading, spacing: VSpacing.md) {
                 Text("macOS System Permissions")
@@ -776,6 +794,7 @@ struct SettingsPanel: View {
                 }
             }
             .padding(VSpacing.lg)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .vCard(background: VColor.surfaceSubtle)
 
             // TRUST RULES section
@@ -785,7 +804,7 @@ struct SettingsPanel: View {
                         .font(VFont.sectionTitle)
                         .foregroundColor(VColor.textPrimary)
 
-                    HStack {
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
                             Text("Manage Trust Rules")
                                 .font(VFont.body)
@@ -794,8 +813,7 @@ struct SettingsPanel: View {
                                 .font(VFont.caption)
                                 .foregroundColor(VColor.textMuted)
                         }
-                        Spacer()
-                        VButton(label: "Manage...", style: .tertiary) {
+                        VButton(label: "Manage...", style: .secondary, size: .medium) {
                             daemonClient?.isTrustRulesSheetOpen = true
                             showingTrustRules = true
                         }
@@ -803,6 +821,7 @@ struct SettingsPanel: View {
                     }
                 }
                 .padding(VSpacing.lg)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .vCard(background: VColor.surfaceSubtle)
             }
 
@@ -826,9 +845,11 @@ struct SettingsPanel: View {
                 VSlider(value: $store.maxSteps, range: 1...100, step: 10, showTickMarks: true)
             }
             .padding(VSpacing.lg)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .vCard(background: VColor.surfaceSubtle)
 
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Integration Row
@@ -898,6 +919,7 @@ struct SettingsPanel: View {
             }
         }
         .padding(VSpacing.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
     }
 
@@ -985,7 +1007,7 @@ struct SettingsPanel: View {
 
                 Spacer()
 
-                VToggle(isOn: .constant(granted)).allowsHitTesting(false)
+                VToggle(isOn: .constant(granted), size: .medium).allowsHitTesting(false)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
@@ -1050,73 +1072,6 @@ private struct SettingsNavRow: View {
         }
         .buttonStyle(.plain)
         .help(tab.rawValue)
-        .onHover { hovering in
-            isHovered = hovering
-            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-        }
-    }
-}
-
-// MARK: - Custom Model Picker
-
-private struct ModelPickerButton: View {
-    @ObservedObject var store: SettingsStore
-    @Binding var isOpen: Bool
-    @State private var isHovered = false
-
-    var body: some View {
-        Button {
-            withAnimation(VAnimation.fast) { isOpen.toggle() }
-        } label: {
-            HStack(spacing: VSpacing.sm) {
-                Text(SettingsStore.modelDisplayNames[store.selectedModel] ?? store.selectedModel)
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(VColor.textMuted)
-            }
-            .padding(.horizontal, VSpacing.md)
-            .padding(.vertical, VSpacing.sm)
-            .background(isHovered ? VColor.hoverOverlay.opacity(0.06) : VColor.surface)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-            .overlay(
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .stroke(VColor.surfaceBorder, lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering in
-            isHovered = hovering
-            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-        }
-    }
-}
-
-private struct ModelPickerItem: View {
-    let name: String
-    let isSelected: Bool
-    let onSelect: () -> Void
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: onSelect) {
-            HStack(spacing: VSpacing.md) {
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(isSelected ? VColor.accent : (isHovered ? VColor.textPrimary : VColor.textSecondary))
-                    .frame(width: 18)
-                Text(name)
-                    .font(isSelected ? VFont.bodyBold : VFont.body)
-                    .foregroundColor(VColor.textPrimary)
-                Spacer()
-            }
-            .padding(.horizontal, VSpacing.lg)
-            .padding(.vertical, VSpacing.sm)
-            .background(isHovered ? VColor.hoverOverlay.opacity(0.06) : Color.clear)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
         .onHover { hovering in
             isHovered = hovering
             if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }

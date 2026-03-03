@@ -169,7 +169,7 @@ export class PermissionChecker {
           name === "bash" && input.network_mode === "proxied"
         );
         if (
-          context.guardianTrustClass === "guardian" &&
+          context.trustClass === "guardian" &&
           persistentDecisionsAllowedForOverride &&
           getEffectiveMode(context.conversationId) !== undefined
         ) {
@@ -219,7 +219,7 @@ export class PermissionChecker {
           | Array<"allow_10m" | "allow_thread">
           | undefined =
           persistentDecisionsAllowed &&
-          context.guardianTrustClass === "guardian"
+          context.trustClass === "guardian"
             ? ["allow_10m", "allow_thread"]
             : undefined;
 

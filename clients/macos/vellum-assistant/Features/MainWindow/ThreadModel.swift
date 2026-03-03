@@ -21,9 +21,12 @@ struct ThreadModel: Identifiable, Hashable {
     var lastInteractedAt: Date
     var kind: ThreadKind
     var source: String?
+    /// The schedule job ID that created this thread, if any.
+    /// Threads sharing the same scheduleJobId belong to the same schedule group.
+    var scheduleJobId: String?
     var hasUnseenLatestAssistantMessage: Bool = false
 
-    init(id: UUID = UUID(), title: String = "New Conversation", createdAt: Date = Date(), sessionId: String? = nil, isArchived: Bool = false, isPinned: Bool = false, pinnedOrder: Int? = nil, displayOrder: Int? = nil, lastInteractedAt: Date? = nil, kind: ThreadKind = .standard, source: String? = nil, hasUnseenLatestAssistantMessage: Bool = false) {
+    init(id: UUID = UUID(), title: String = "New Conversation", createdAt: Date = Date(), sessionId: String? = nil, isArchived: Bool = false, isPinned: Bool = false, pinnedOrder: Int? = nil, displayOrder: Int? = nil, lastInteractedAt: Date? = nil, kind: ThreadKind = .standard, source: String? = nil, scheduleJobId: String? = nil, hasUnseenLatestAssistantMessage: Bool = false) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
@@ -35,6 +38,7 @@ struct ThreadModel: Identifiable, Hashable {
         self.lastInteractedAt = lastInteractedAt ?? createdAt
         self.kind = kind
         self.source = source
+        self.scheduleJobId = scheduleJobId
         self.hasUnseenLatestAssistantMessage = hasUnseenLatestAssistantMessage
     }
 

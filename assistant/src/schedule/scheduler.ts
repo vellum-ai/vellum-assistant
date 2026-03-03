@@ -42,6 +42,12 @@ export type ReminderNotifier = (reminder: {
 
 export type ScheduleNotifier = (schedule: { id: string; name: string }) => void;
 
+export type ScheduleThreadCreatedNotifier = (info: {
+  conversationId: string;
+  scheduleJobId: string;
+  title: string;
+}) => void;
+
 export interface SchedulerHandle {
   runOnce(): Promise<number>;
   stop(): void;
@@ -55,6 +61,7 @@ export function startScheduler(
   notifySchedule: ScheduleNotifier,
   watcherNotifier?: WatcherNotifier,
   watcherEscalator?: WatcherEscalator,
+  onScheduleThreadCreated?: ScheduleThreadCreatedNotifier,
 ): SchedulerHandle {
   let stopped = false;
   let tickRunning = false;
@@ -69,6 +76,7 @@ export function startScheduler(
         notifySchedule,
         watcherNotifier,
         watcherEscalator,
+        onScheduleThreadCreated,
       );
     } catch (err) {
       log.error({ err }, "Schedule tick failed");
@@ -91,6 +99,7 @@ export function startScheduler(
         notifySchedule,
         watcherNotifier,
         watcherEscalator,
+        onScheduleThreadCreated,
       );
     },
     stop(): void {
@@ -106,6 +115,7 @@ async function runScheduleOnce(
   notifySchedule: ScheduleNotifier,
   watcherNotifier?: WatcherNotifier,
   watcherEscalator?: WatcherEscalator,
+  onScheduleThreadCreated?: ScheduleThreadCreatedNotifier,
 ): Promise<number> {
   const now = Date.now();
   let processed = 0;
@@ -177,6 +187,11 @@ async function runScheduleOnce(
           conversationId: fallbackConversation.id,
           context: { origin: "schedule", systemHint: `Schedule: ${job.name}` },
         });
+        onScheduleThreadCreated?.({
+          conversationId: fallbackConversation.id,
+          scheduleJobId: job.id,
+          title: `${job.name}: Error`,
+        });
         const runId = createScheduleRun(job.id, fallbackConversation.id);
         completeScheduleRun(runId, { status: "error", error: message });
       }
@@ -191,6 +206,11 @@ async function runScheduleOnce(
     queueGenerateConversationTitle({
       conversationId: conversation.id,
       context: { origin: "schedule", systemHint: `Schedule: ${job.name}` },
+    });
+    onScheduleThreadCreated?.({
+      conversationId: conversation.id,
+      scheduleJobId: job.id,
+      title: job.name,
     });
     const runId = createScheduleRun(job.id, conversation.id);
     const isRruleSetMsg =

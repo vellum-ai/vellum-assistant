@@ -41,6 +41,7 @@ import { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { UserDecision } from "../permissions/types.js";
 import type { Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
+import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import type { AuthContext } from "../runtime/auth/types.js";
 import * as approvalOverrides from "../runtime/session-approval-overrides.js";
 import { ToolExecutor } from "../tools/executor.js";
@@ -88,7 +89,7 @@ import type {
 import { MessageQueue } from "./session-queue-manager.js";
 import type {
   ChannelCapabilities,
-  GuardianRuntimeContext,
+  TrustContext,
 } from "./session-runtime-assembly.js";
 import type { SkillProjectionCache } from "./session-skill-tools.js";
 import {
@@ -163,9 +164,9 @@ export class Session {
   /** @internal */ currentActiveSurfaceId?: string;
   /** @internal */ currentPage?: string;
   /** @internal */ channelCapabilities?: ChannelCapabilities;
-  /** @internal */ guardianContext?: GuardianRuntimeContext;
+  /** @internal */ trustContext?: TrustContext;
   /** @internal */ authContext?: AuthContext;
-  /** @internal */ loadedHistoryTrustClass?: GuardianRuntimeContext["trustClass"];
+  /** @internal */ loadedHistoryTrustClass?: TrustClass;
   /** @internal */ voiceCallControlPrompt?: string;
   /** @internal */ assistantId?: string;
   /** @internal */ commandIntent?: {
@@ -359,7 +360,7 @@ export class Session {
   }
 
   async ensureActorScopedHistory(): Promise<void> {
-    const currentTrustClass = this.guardianContext?.trustClass;
+    const currentTrustClass = this.trustContext?.trustClass;
     if (this.loadedHistoryTrustClass === currentTrustClass) return;
     await this.loadFromDb();
   }
@@ -610,8 +611,8 @@ export class Session {
     this.channelCapabilities = caps ?? undefined;
   }
 
-  setGuardianContext(ctx: GuardianRuntimeContext | null): void {
-    this.guardianContext = ctx ?? undefined;
+  setTrustContext(ctx: TrustContext | null): void {
+    this.trustContext = ctx ?? undefined;
   }
 
   setAuthContext(ctx: AuthContext | null): void {

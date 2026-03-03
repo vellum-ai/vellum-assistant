@@ -243,7 +243,7 @@ function setupController(
   task?: string,
   opts?: {
     assistantId?: string;
-    guardianContext?: import("../daemon/session-runtime-assembly.js").GuardianRuntimeContext;
+    trustContext?: import("../daemon/session-runtime-assembly.js").TrustContext;
   },
 ) {
   ensureConversation("conv-ctrl-test");
@@ -262,7 +262,7 @@ function setupController(
     task ?? null,
     {
       assistantId: opts?.assistantId,
-      guardianContext: opts?.guardianContext,
+      trustContext: opts?.trustContext,
     },
   );
   return { session, relay, controller };
@@ -845,7 +845,7 @@ describe("call-controller", () => {
   // ── Guardian context pass-through ──────────────────────────────────
 
   test("handleCallerUtterance: passes guardian context to startVoiceTurn", async () => {
-    const guardianCtx = {
+    const trustCtx = {
       sourceChannel: "voice" as const,
       trustClass: "trusted_contact" as const,
       guardianExternalUserId: "+15550009999",
@@ -853,14 +853,14 @@ describe("call-controller", () => {
       requesterExternalUserId: "+15550002222",
     };
 
-    let capturedGuardianContext: unknown = undefined;
+    let capturedTrustContext: unknown = undefined;
     mockStartVoiceTurn.mockImplementation(
       async (opts: {
-        guardianContext?: unknown;
+        trustContext?: unknown;
         onTextDelta: (t: string) => void;
         onComplete: () => void;
       }) => {
-        capturedGuardianContext = opts.guardianContext;
+        capturedTrustContext = opts.trustContext;
         opts.onTextDelta("Hello.");
         opts.onComplete();
         return { turnId: "run-gc", abort: () => {} };
@@ -868,12 +868,12 @@ describe("call-controller", () => {
     );
 
     const { controller } = setupController(undefined, {
-      guardianContext: guardianCtx,
+      trustContext: trustCtx,
     });
 
     await controller.handleCallerUtterance("Hello");
 
-    expect(capturedGuardianContext).toEqual(guardianCtx);
+    expect(capturedTrustContext).toEqual(trustCtx);
 
     controller.destroy();
   });
@@ -904,7 +904,7 @@ describe("call-controller", () => {
     controller.destroy();
   });
 
-  test("setGuardianContext: subsequent turns use updated guardian context", async () => {
+  test("setTrustContext: subsequent turns use updated guardian context", async () => {
     const initialCtx = {
       sourceChannel: "voice" as const,
       trustClass: "unknown" as const,
@@ -921,11 +921,11 @@ describe("call-controller", () => {
     const capturedContexts: unknown[] = [];
     mockStartVoiceTurn.mockImplementation(
       async (opts: {
-        guardianContext?: unknown;
+        trustContext?: unknown;
         onTextDelta: (t: string) => void;
         onComplete: () => void;
       }) => {
-        capturedContexts.push(opts.guardianContext);
+        capturedContexts.push(opts.trustContext);
         opts.onTextDelta("Response.");
         opts.onComplete();
         return { turnId: `run-${capturedContexts.length}`, abort: () => {} };
@@ -933,7 +933,7 @@ describe("call-controller", () => {
     );
 
     const { controller } = setupController(undefined, {
-      guardianContext: initialCtx,
+      trustContext: initialCtx,
     });
 
     // First turn: unverified
@@ -941,7 +941,7 @@ describe("call-controller", () => {
     expect(capturedContexts[0]).toEqual(initialCtx);
 
     // Simulate guardian verification succeeding
-    controller.setGuardianContext(upgradedCtx);
+    controller.setTrustContext(upgradedCtx);
 
     // Second turn: should use upgraded guardian context
     await controller.handleCallerUtterance("I verified");

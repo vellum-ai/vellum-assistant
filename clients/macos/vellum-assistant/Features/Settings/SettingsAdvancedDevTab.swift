@@ -77,7 +77,7 @@ struct SettingsAdvancedDevTab: View {
             }
 
             Text("Sourced from the gateway API. Changes are synced remotely.")
-                .font(VFont.caption)
+                .font(VFont.sectionDescription)
                 .foregroundColor(VColor.textMuted)
 
             if let error = assistantFlagsError {
@@ -102,6 +102,7 @@ struct SettingsAdvancedDevTab: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(VSpacing.lg)
         .vCard(background: VColor.surfaceSubtle)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func assistantFlagRow(flag: DaemonClient.AssistantFeatureFlag) -> some View {
@@ -151,7 +152,7 @@ struct SettingsAdvancedDevTab: View {
                 }
             }
             Spacer()
-            VToggle(isOn: flagBinding)
+            VToggle(isOn: flagBinding, size: .medium)
                 .accessibilityLabel(flag.displayName)
         }
         .contentShape(Rectangle())
@@ -178,7 +179,7 @@ struct SettingsAdvancedDevTab: View {
                 }
             }
             Spacer()
-            VToggle(isOn: flagBinding)
+            VToggle(isOn: flagBinding, size: .medium)
                 .accessibilityLabel(entry.label)
         }
         .contentShape(Rectangle())
@@ -189,13 +190,15 @@ struct SettingsAdvancedDevTab: View {
 
     private var macOSFeatureFlagSection: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("macOS Feature Flags")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text("macOS Feature Flags")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
 
-            Text("Local-only flags stored in UserDefaults on this Mac.")
-                .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
+                Text("Local-only flags stored in UserDefaults on this Mac.")
+                    .font(VFont.sectionDescription)
+                    .foregroundColor(VColor.textMuted)
+            }
 
             if macOSFlagStates.isEmpty {
                 Text("No macOS feature flags available.")
@@ -210,6 +213,7 @@ struct SettingsAdvancedDevTab: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(VSpacing.lg)
         .vCard(background: VColor.surfaceSubtle)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Developer
@@ -222,17 +226,16 @@ struct SettingsAdvancedDevTab: View {
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
 
-                HStack {
-                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                VStack(alignment: .leading, spacing: VSpacing.md) {
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
                         Text("Environment Variables")
-                            .font(VFont.body)
+                            .font(VFont.inputLabel)
                             .foregroundColor(VColor.textSecondary)
                         Text("View env vars for both the app and daemon processes")
                             .font(VFont.caption)
                             .foregroundColor(VColor.textMuted)
                     }
-                    Spacer()
-                    VButton(label: "View...", style: .tertiary) {
+                    VButton(label: "View...", style: .secondary, size: .medium) {
                         appEnvVars = ProcessInfo.processInfo.environment
                             .sorted(by: { $0.key < $1.key })
                             .map { ($0.key, $0.value) }
@@ -250,7 +253,9 @@ struct SettingsAdvancedDevTab: View {
                 }
             }
             .padding(VSpacing.lg)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .vCard(background: VColor.surfaceSubtle)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }

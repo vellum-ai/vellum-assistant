@@ -24,11 +24,11 @@ mock.module("../util/logger.js", () => ({
 
 import { QdrantManager } from "../memory/qdrant-manager.js";
 
-/** Short timeouts so tests don't wait 30s+ for readyz / shutdown grace. */
+/** Minimal timeouts so tests complete as fast as possible. */
 const FAST_TIMEOUTS = {
-  readyzPollIntervalMs: 50,
-  readyzTimeoutMs: 1_500,
-  shutdownGraceMs: 500,
+  readyzPollIntervalMs: 10,
+  readyzTimeoutMs: 500,
+  shutdownGraceMs: 200,
 } as const;
 
 function placeFakeBinary(script: string): string {
@@ -219,7 +219,7 @@ describe("QdrantManager", () => {
       const startPromise = mgr.start();
 
       // Wait for spawn to happen
-      await Bun.sleep(500);
+      await Bun.sleep(300);
 
       // PID file should be written
       expect(existsSync(pidPath)).toBe(true);
@@ -248,7 +248,7 @@ describe("QdrantManager", () => {
       });
 
       const startPromise = mgr.start();
-      await Bun.sleep(500);
+      await Bun.sleep(300);
 
       expect(existsSync(pidPath)).toBe(true);
 
@@ -256,8 +256,8 @@ describe("QdrantManager", () => {
       await mgr.stop();
       const stopElapsed = Date.now() - stopStart;
 
-      // Grace period is 500ms with FAST_TIMEOUTS — should wait at least that long
-      expect(stopElapsed).toBeGreaterThanOrEqual(400);
+      // Grace period is 200ms with FAST_TIMEOUTS — should wait at least that long
+      expect(stopElapsed).toBeGreaterThanOrEqual(100);
       expect(existsSync(pidPath)).toBe(false);
 
       await expect(startPromise).rejects.toThrow("did not become ready");

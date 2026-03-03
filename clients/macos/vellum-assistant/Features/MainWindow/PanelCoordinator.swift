@@ -418,7 +418,8 @@ extension MainWindowView {
                     onEndVoiceMode: {
                         voiceModeManager.deactivate()
                     },
-                    threadId: threadManager.activeThreadId
+                    threadId: threadManager.activeThreadId,
+                    anchorMessageId: $threadManager.pendingAnchorMessageId
                 )
                 .environment(\.conversationZoomScale, conversationZoomManager.zoomLevel)
                 .overlay(alignment: .top) {
@@ -438,7 +439,6 @@ extension MainWindowView {
         switch panel {
         case .settings:
             SettingsPanel(onClose: { windowState.dismissOverlay() }, store: settingsStore, daemonClient: daemonClient, threadManager: threadManager, authManager: authManager)
-                .background(adaptiveColor(light: Moss._50, dark: Moss._950))
         case .debug:
             DebugPanel(
                 traceStore: traceStore,
@@ -605,6 +605,7 @@ struct ActiveChatViewWrapper: View {
     var voiceService: OpenAIVoiceService? = nil
     var onEndVoiceMode: (() -> Void)? = nil
     var threadId: UUID?
+    @Binding var anchorMessageId: UUID?
 
     /// Reads the persisted bootstrap state so the chat view can suppress
     /// the empty state during first-launch bootstrap.
@@ -723,6 +724,7 @@ struct ActiveChatViewWrapper: View {
             voiceService: voiceService,
             onEndVoiceMode: onEndVoiceMode,
             threadId: threadId,
+            anchorMessageId: $anchorMessageId,
             displayedMessageCount: viewModel.displayedMessageCount,
             hasMoreMessages: viewModel.hasMoreMessages,
             isLoadingMoreMessages: viewModel.isLoadingMoreMessages,

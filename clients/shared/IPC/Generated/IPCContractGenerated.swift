@@ -92,6 +92,26 @@ public struct IPCAppDataResponse: Codable, Sendable {
     }
 }
 
+public struct IPCAppDeleteRequest: Codable, Sendable {
+    public let type: String
+    public let appId: String
+
+    public init(type: String, appId: String) {
+        self.type = type
+        self.appId = appId
+    }
+}
+
+public struct IPCAppDeleteResponse: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+
+    public init(type: String, success: Bool) {
+        self.type = type
+        self.success = success
+    }
+}
+
 public struct IPCAppDiffRequest: Codable, Sendable {
     public let type: String
     public let appId: String
@@ -3493,6 +3513,21 @@ public struct IPCSchedulesListResponseSchedule: Codable, Sendable {
     }
 }
 
+/// Server push — broadcast when a schedule creates a conversation, so the client can show it as a chat thread.
+public struct IPCScheduleThreadCreated: Codable, Sendable {
+    public let type: String
+    public let conversationId: String
+    public let scheduleJobId: String
+    public let title: String
+
+    public init(type: String, conversationId: String, scheduleJobId: String, title: String) {
+        self.type = type
+        self.conversationId = conversationId
+        self.scheduleJobId = scheduleJobId
+        self.title = title
+    }
+}
+
 public struct IPCScheduleToggle: Codable, Sendable {
     public let type: String
     public let id: String
@@ -3655,6 +3690,7 @@ public struct IPCSessionListResponseSession: Codable, Sendable {
     public let updatedAt: Int
     public let threadType: String?
     public let source: String?
+    public let scheduleJobId: String?
     /// Channel binding metadata exposed in session/conversation list APIs.
     public let channelBinding: IPCChannelBinding?
     public let conversationOriginChannel: String?
@@ -3664,13 +3700,14 @@ public struct IPCSessionListResponseSession: Codable, Sendable {
     public let displayOrder: Double?
     public let isPinned: Bool?
 
-    public init(id: String, title: String, createdAt: Int? = nil, updatedAt: Int, threadType: String? = nil, source: String? = nil, channelBinding: IPCChannelBinding? = nil, conversationOriginChannel: String? = nil, conversationOriginInterface: String? = nil, assistantAttention: IPCAssistantAttention? = nil, displayOrder: Double? = nil, isPinned: Bool? = nil) {
+    public init(id: String, title: String, createdAt: Int? = nil, updatedAt: Int, threadType: String? = nil, source: String? = nil, scheduleJobId: String? = nil, channelBinding: IPCChannelBinding? = nil, conversationOriginChannel: String? = nil, conversationOriginInterface: String? = nil, assistantAttention: IPCAssistantAttention? = nil, displayOrder: Double? = nil, isPinned: Bool? = nil) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.threadType = threadType
         self.source = source
+        self.scheduleJobId = scheduleJobId
         self.channelBinding = channelBinding
         self.conversationOriginChannel = conversationOriginChannel
         self.conversationOriginInterface = conversationOriginInterface

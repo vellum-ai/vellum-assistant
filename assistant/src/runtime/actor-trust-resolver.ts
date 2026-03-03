@@ -13,22 +13,53 @@
  */
 
 import type { ChannelId } from '../channels/types.js';
-import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
+import type { TrustContext } from '../daemon/session-runtime-assembly.js';
 import type { IngressMember } from '../memory/ingress-member-store.js';
 import { findMember } from '../memory/ingress-member-store.js';
 import { canonicalizeInboundIdentity } from '../util/canonicalize-identity.js';
 import { DAEMON_INTERNAL_ASSISTANT_ID } from './assistant-scope.js';
 import { getGuardianBinding } from './channel-guardian-service.js';
 
-export type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
+export type { TrustContext } from '../daemon/session-runtime-assembly.js';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
+/**
+ * Trust classification for an inbound actor.
+ *
+ * - `'guardian'`: The sender matches the active guardian binding for this
+ *   (assistant, channel). Guardians have full control-plane access and
+ *   self-approve tool invocations.
+ * - `'trusted_contact'`: The sender is an active ingress member (not the
+ *   guardian). Trusted contacts can invoke tools but require guardian
+ *   approval for sensitive operations.
+ * - `'unknown'`: The sender has no member record, no identity could be
+ *   established, or the sender is an inactive/revoked member. Unknown
+ *   actors are fail-closed with no escalation path.
+ */
 export type TrustClass = 'guardian' | 'trusted_contact' | 'unknown';
+/**
+ * Reason an actor was denied access during trust resolution.
+ *
+ * - `'no_binding'`: No guardian binding exists for this (assistant, channel),
+ *   so trust cannot be established for any actor.
+ * - `'no_identity'`: The inbound message carried no usable identity fields
+ *   (e.g. missing external user ID), so the sender could not be identified.
+ */
 export type DenialReason = 'no_binding' | 'no_identity';
 
+/**
+ * Fully resolved trust context from the actor trust resolver.
+ *
+ * This is the intermediate representation between raw inbound identity
+ * fields ({@link ResolveActorTrustInput}) and the runtime trust context
+ * ({@link TrustContext}). It carries the full resolution state including
+ * canonical identity, guardian binding match, member record, and trust
+ * classification. Convert to `TrustContext` via {@link toTrustContext}
+ * for use in sessions and tooling.
+ */
 export interface ActorTrustContext {
   /** Canonical (normalized) sender identity. Null when identity could not be established. */
   canonicalSenderId: string | null;
@@ -57,6 +88,11 @@ export interface ActorTrustContext {
   denialReason?: DenialReason;
 }
 
+/**
+ * Raw identity fields from an inbound channel message, used as input to
+ * {@link resolveActorTrust}. These are the channel-agnostic identity
+ * signals available at message ingress before any trust resolution.
+ */
 export interface ResolveActorTrustInput {
   assistantId: string;
   sourceChannel: ChannelId;
@@ -203,17 +239,17 @@ export function resolveActorTrust(input: ResolveActorTrustInput): ActorTrustCont
 }
 
 /**
- * Convert an ActorTrustContext into the runtime trust context shape used by
+ * Convert an ActorTrustContext into the runtime TrustContext shape used by
  * sessions/tooling.
  *
  * This is the single canonical conversion from resolved trust to runtime
  * context. The guardianExternalUserId is canonicalized to handle phone-
  * channel formatting variance (e.g. stored binding vs E.164).
  */
-export function toGuardianRuntimeContextFromTrust(
+export function toTrustContext(
   ctx: ActorTrustContext,
   conversationExternalId: string,
-): GuardianRuntimeContext {
+): TrustContext {
   const canonicalGuardianExternalUserId = ctx.guardianBindingMatch?.guardianExternalUserId
     ? canonicalizeInboundIdentity(ctx.actorMetadata.channel, ctx.guardianBindingMatch.guardianExternalUserId) ?? undefined
     : undefined;

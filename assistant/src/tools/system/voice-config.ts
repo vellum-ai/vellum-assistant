@@ -108,6 +108,10 @@ export class VoiceConfigUpdateTool implements Tool {
             type: 'string',
             description: 'Deprecated — use setting: "activation_key" with value instead',
           },
+          reason: {
+            type: 'string',
+            description: 'Brief non-technical explanation of what you are changing and why, shown to the user as a status update. Use simple language a non-technical person would understand.',
+          },
         },
       },
     };

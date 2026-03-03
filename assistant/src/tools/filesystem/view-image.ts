@@ -90,6 +90,10 @@ class ViewImageTool implements Tool {
             description:
               'The path to the image file (absolute or relative to working directory)',
           },
+          reason: {
+            type: 'string',
+            description: 'Brief non-technical explanation of what you are viewing and why, shown to the user as a status update. Use simple language a non-technical person would understand.',
+          },
         },
         required: ['path'],
       },

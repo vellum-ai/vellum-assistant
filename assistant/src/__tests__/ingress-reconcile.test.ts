@@ -170,7 +170,7 @@ describe("Ingress reconcile trigger in handleIngressConfig", () => {
         return new Response(JSON.stringify({ ok: true }), { status: 200 });
       }
       return originalFetch(url, init);
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
   });
 
   afterEach(() => {
@@ -432,7 +432,7 @@ describe("Ingress reconcile trigger in handleIngressConfig", () => {
         return new Response(JSON.stringify({ ok: true }), { status: 200 });
       }
       return originalFetch(url, init);
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const msg: IngressConfigRequest = {
       type: "ingress_config",

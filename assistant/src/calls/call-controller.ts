@@ -10,7 +10,7 @@
 
 import { getGatewayInternalBaseUrl } from '../config/env.js';
 import type { ServerMessage } from '../daemon/ipc-contract.js';
-import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
+import type { TrustContext } from '../daemon/session-runtime-assembly.js';
 import {
   expireCanonicalGuardianRequest,
   getCanonicalRequestByPendingQuestionId,
@@ -216,7 +216,7 @@ export class CallController {
   /** Assistant identity for scoping guardian bindings. */
   private assistantId: string;
   /** Guardian trust context for the current caller, when available. */
-  private guardianContext: GuardianRuntimeContext | null;
+  private trustContext: TrustContext | null;
   /** Conversation ID for the voice session. */
   private conversationId: string;
   /**
@@ -241,7 +241,7 @@ export class CallController {
     opts?: {
       broadcast?: (msg: ServerMessage) => void;
       assistantId?: string;
-      guardianContext?: GuardianRuntimeContext;
+      trustContext?: TrustContext;
     },
   ) {
     this.callSessionId = callSessionId;
@@ -250,7 +250,7 @@ export class CallController {
     this.isInbound = !task;
     this.broadcast = opts?.broadcast;
     this.assistantId = opts?.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
-    this.guardianContext = opts?.guardianContext ?? null;
+    this.trustContext = opts?.trustContext ?? null;
 
     // Resolve the conversation ID from the call session
     const session = getCallSession(callSessionId);
@@ -280,8 +280,8 @@ export class CallController {
   /**
    * Update guardian trust context for subsequent LLM turns.
    */
-  setGuardianContext(ctx: GuardianRuntimeContext | null): void {
-    this.guardianContext = ctx;
+  setTrustContext(ctx: TrustContext | null): void {
+    this.trustContext = ctx;
   }
 
   /**
@@ -601,7 +601,7 @@ export class CallController {
           callSessionId: this.callSessionId,
           content,
           assistantId: this.assistantId,
-          guardianContext: this.guardianContext ?? undefined,
+          trustContext: this.trustContext ?? undefined,
           isInbound: this.isInbound,
           task: this.task,
           onTextDelta,
@@ -873,7 +873,7 @@ export class CallController {
   }
 
   private isCallerGuardian(): boolean {
-    return this.guardianContext?.trustClass === 'guardian';
+    return this.trustContext?.trustClass === 'guardian';
   }
 
   /**

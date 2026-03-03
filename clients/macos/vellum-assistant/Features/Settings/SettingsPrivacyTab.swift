@@ -66,13 +66,14 @@ struct SettingsPrivacyTab: View {
                         collectUsageData = newValue
                         Task { await setCollectUsageData(newValue) }
                     }
-                ))
+                ), size: .medium)
                 .disabled(isLoading || isUpdating || daemonClient == nil)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(VSpacing.lg)
         .vCard(background: VColor.surfaceSubtle)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Data Loading

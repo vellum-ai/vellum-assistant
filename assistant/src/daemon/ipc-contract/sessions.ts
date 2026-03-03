@@ -218,7 +218,7 @@ export interface AssistantAttention {
 
 export interface SessionListResponse {
   type: 'session_list_response';
-  sessions: Array<{ id: string; title: string; createdAt?: number; updatedAt: number; threadType?: ThreadType; source?: string; channelBinding?: ChannelBinding; conversationOriginChannel?: ChannelId; conversationOriginInterface?: InterfaceId; assistantAttention?: AssistantAttention; displayOrder?: number; isPinned?: boolean }>;
+  sessions: Array<{ id: string; title: string; createdAt?: number; updatedAt: number; threadType?: ThreadType; source?: string; scheduleJobId?: string; channelBinding?: ChannelBinding; conversationOriginChannel?: ChannelId; conversationOriginInterface?: InterfaceId; assistantAttention?: AssistantAttention; displayOrder?: number; isPinned?: boolean }>;
   /** Whether more sessions exist beyond the returned page. */
   hasMore?: boolean;
 }
@@ -376,6 +376,14 @@ export interface SessionErrorMessage {
   debugDetails?: string;
 }
 
+/** Server push — broadcast when a schedule creates a conversation, so the client can show it as a chat thread. */
+export interface ScheduleThreadCreated {
+  type: 'schedule_thread_created';
+  conversationId: string;
+  scheduleJobId: string;
+  title: string;
+}
+
 // --- Domain-level union aliases (consumed by the barrel file) ---
 
 export type _SessionsClientMessages =
@@ -418,4 +426,5 @@ export type _SessionsServerMessages =
   | SessionListResponse
   | SessionsClearResponse
   | ConversationSearchResponse
-  | MessageContentResponse;
+  | MessageContentResponse
+  | ScheduleThreadCreated;

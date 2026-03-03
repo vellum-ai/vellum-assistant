@@ -32,6 +32,10 @@ export class NavigateSettingsTabTool implements Tool {
             enum: [...SETTINGS_TABS],
             description: 'The settings tab to navigate to',
           },
+          reason: {
+            type: 'string',
+            description: 'Brief non-technical explanation of what you are navigating to and why, shown to the user as a status update. Use simple language a non-technical person would understand.',
+          },
         },
         required: ['tab'],
       },

@@ -28,7 +28,12 @@ class VersionTool implements Tool {
       description: this.description,
       input_schema: {
         type: 'object',
-        properties: {},
+        properties: {
+          reason: {
+            type: 'string',
+            description: 'Brief non-technical explanation of why you are checking the version, shown to the user as a status update. Use simple language a non-technical person would understand.',
+          },
+        },
         required: [],
       },
     };

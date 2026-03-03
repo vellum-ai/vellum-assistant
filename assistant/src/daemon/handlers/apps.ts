@@ -10,11 +10,12 @@ import { defaultGallery } from '../../gallery/default-gallery.js';
 import { resolveHomeBaseAppId } from '../../home-base/bootstrap.js';
 import { isPrebuiltHomeBaseApp } from '../../home-base/prebuilt-home-base-updater.js';
 import { getAppDiff, getAppFileAtVersion, getAppHistory, restoreAppVersion } from '../../memory/app-git-service.js';
-import { createApp, createAppRecord, deleteAppRecord, getApp, getAppPreview, listApps, queryAppRecords, updateApp,updateAppRecord } from '../../memory/app-store.js';
+import { createApp, createAppRecord, deleteApp, deleteAppRecord, getApp, getAppPreview, listApps, queryAppRecords, updateApp,updateAppRecord } from '../../memory/app-store.js';
 import { createSharedAppLink } from '../../memory/shared-app-links-store.js';
 import { computeContentId } from '../../util/content-id.js';
 import type {
   AppDataRequest,
+  AppDeleteRequest,
   AppDiffRequest,
   AppFileAtVersionRequest,
   AppHistoryRequest,
@@ -211,6 +212,20 @@ export function handleAppPreview(
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err, appId: msg.appId }, 'Failed to get app preview');
     ctx.send(socket, { type: 'error', message: `Failed to get app preview: ${message}` });
+  }
+}
+
+export function handleAppDelete(
+  msg: AppDeleteRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  try {
+    deleteApp(msg.appId);
+    ctx.send(socket, { type: 'app_delete_response', success: true });
+  } catch (err) {
+    log.error({ err, appId: msg.appId }, 'Failed to delete app');
+    ctx.send(socket, { type: 'app_delete_response', success: false });
   }
 }
 
@@ -572,6 +587,7 @@ export const appHandlers = defineHandlers({
   app_preview_request: handleAppPreview,
   apps_list: (_msg, socket, ctx) => handleAppsList(socket, ctx),
   shared_apps_list: (_msg, socket, ctx) => handleSharedAppsList(socket, ctx),
+  app_delete: handleAppDelete,
   shared_app_delete: handleSharedAppDelete,
   fork_shared_app: handleForkSharedApp,
   share_app_cloud: handleShareAppCloud,

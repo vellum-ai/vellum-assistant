@@ -1,37 +1,44 @@
 /**
  * Route handlers for conversation messages and suggestions.
  */
-import { existsSync, readdirSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { existsSync, readdirSync, statSync } from "node:fs";
+import { join, relative } from "node:path";
 
-import { createAssistantMessage, createUserMessage } from '../../agent/message-types.js';
-import { CHANNEL_IDS, INTERFACE_IDS, parseChannelId, parseInterfaceId } from '../../channels/types.js';
-import { mergeToolResults,renderHistoryContent } from '../../daemon/handlers.js';
-import type { ServerMessage } from '../../daemon/ipc-protocol.js';
-import * as attachmentsStore from '../../memory/attachments-store.js';
+import {
+  createAssistantMessage,
+  createUserMessage,
+} from "../../agent/message-types.js";
+import {
+  CHANNEL_IDS,
+  INTERFACE_IDS,
+  parseChannelId,
+  parseInterfaceId,
+} from "../../channels/types.js";
+import {
+  mergeToolResults,
+  renderHistoryContent,
+} from "../../daemon/handlers.js";
+import type { ServerMessage } from "../../daemon/ipc-protocol.js";
+import * as attachmentsStore from "../../memory/attachments-store.js";
 import {
   createCanonicalGuardianRequest,
   generateCanonicalRequestCode,
   listPendingRequestsByConversationScope,
-} from '../../memory/canonical-guardian-store.js';
+} from "../../memory/canonical-guardian-store.js";
 import {
   getConversationByKey,
   getOrCreateConversation,
-} from '../../memory/conversation-key-store.js';
-import * as conversationStore from '../../memory/conversation-store.js';
-import { getConfiguredProvider } from '../../providers/provider-send-message.js';
-import type { Provider } from '../../providers/types.js';
-import { getLogger } from '../../util/logger.js';
-import { buildAssistantEvent } from '../assistant-event.js';
-import { DAEMON_INTERNAL_ASSISTANT_ID } from '../assistant-scope.js';
-import type { AuthContext } from '../auth/types.js';
-import { bridgeConfirmationRequestToGuardian } from '../confirmation-request-guardian-bridge.js';
-import {
-  resolveGuardianContext,
-  toGuardianRuntimeContext,
-} from '../guardian-context-resolver.js';
-import { routeGuardianReply } from '../guardian-reply-router.js';
-import { httpError } from '../http-errors.js';
+} from "../../memory/conversation-key-store.js";
+import * as conversationStore from "../../memory/conversation-store.js";
+import { getConfiguredProvider } from "../../providers/provider-send-message.js";
+import type { Provider } from "../../providers/types.js";
+import { getLogger } from "../../util/logger.js";
+import { buildAssistantEvent } from "../assistant-event.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
+import type { AuthContext } from "../auth/types.js";
+import { bridgeConfirmationRequestToGuardian } from "../confirmation-request-guardian-bridge.js";
+import { routeGuardianReply } from "../guardian-reply-router.js";
+import { httpError } from "../http-errors.js";
 import type {
   ApprovalConversationGenerator,
   MessageProcessor,
@@ -39,22 +46,26 @@ import type {
   RuntimeAttachmentMetadata,
   RuntimeMessagePayload,
   SendMessageDeps,
-} from '../http-types.js';
-import * as pendingInteractions from '../pending-interactions.js';
+} from "../http-types.js";
+import * as pendingInteractions from "../pending-interactions.js";
+import {
+  resolveTrustContext,
+  withSourceChannel,
+} from "../trust-context-resolver.js";
 
-const log = getLogger('conversation-routes');
+const log = getLogger("conversation-routes");
 
 const SUGGESTION_CACHE_MAX = 100;
 
 function collectCanonicalGuardianRequestHintIds(
   conversationId: string,
   sourceChannel: string,
-  session: import('../../daemon/session.js').Session,
+  session: import("../../daemon/session.js").Session,
 ): string[] {
   const requests = listPendingRequestsByConversationScope(conversationId, sourceChannel);
 
   return requests
-    .filter((req) => req.kind !== 'tool_approval' || session.hasPendingConfirmation(req.id))
+    .filter((req) => req.kind !== "tool_approval" || session.hasPendingConfirmation(req.id))
     .map((req) => req.id);
 }
 
@@ -69,7 +80,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
     mimeType: string;
     data: string;
   }>;
-  session: import('../../daemon/session.js').Session;
+  session: import("../../daemon/session.js").Session;
   onEvent: (msg: ServerMessage) => void;
   approvalConversationGenerator?: ApprovalConversationGenerator;
   /** Verified actor identity from actor-token middleware. */
@@ -95,8 +106,13 @@ async function tryConsumeCanonicalGuardianReply(params: {
     return { consumed: false };
   }
 
-  const pendingRequestHintIds = collectCanonicalGuardianRequestHintIds(conversationId, sourceChannel, session);
-  const pendingRequestIds = pendingRequestHintIds.length > 0 ? pendingRequestHintIds : undefined;
+  const pendingRequestHintIds = collectCanonicalGuardianRequestHintIds(
+    conversationId,
+    sourceChannel,
+    session,
+  );
+  const pendingRequestIds =
+    pendingRequestHintIds.length > 0 ? pendingRequestHintIds : undefined;
 
   const routerResult = await routeGuardianReply({
     messageText: trimmedContent,
@@ -110,12 +126,12 @@ async function tryConsumeCanonicalGuardianReply(params: {
     pendingRequestIds,
     approvalConversationGenerator,
     emissionContext: {
-      source: 'inline_nl',
+      source: "inline_nl",
       decisionText: trimmedContent,
     },
   });
 
-  if (!routerResult.consumed || routerResult.type === 'nl_keep_pending') {
+  if (!routerResult.consumed || routerResult.type === "nl_keep_pending") {
     return { consumed: false };
   }
 
@@ -127,8 +143,8 @@ async function tryConsumeCanonicalGuardianReply(params: {
     session.emitConfirmationStateChanged({
       sessionId: conversationId,
       requestId: routerResult.requestId,
-      state: 'resolved_stale',
-      source: 'inline_nl',
+      state: "resolved_stale",
+      source: "inline_nl",
       decisionText: trimmedContent,
     });
   }
@@ -143,24 +159,27 @@ async function tryConsumeCanonicalGuardianReply(params: {
       assistantMessageChannel: sourceChannel,
       userMessageInterface: sourceInterface,
       assistantMessageInterface: sourceInterface,
-      provenanceTrustClass: 'guardian' as const,
+      provenanceTrustClass: "guardian" as const,
     };
 
     const userMessage = createUserMessage(content, attachments);
     const persistedUser = await conversationStore.addMessage(
       conversationId,
-      'user',
+      "user",
       JSON.stringify(userMessage.content),
       channelMeta,
     );
     messageId = persistedUser.id;
 
-    const replyText = (routerResult.replyText?.trim())
-      || (routerResult.decisionApplied ? 'Decision applied.' : 'Request already resolved.');
+    const replyText =
+      routerResult.replyText?.trim() ||
+      (routerResult.decisionApplied
+        ? "Decision applied."
+        : "Request already resolved.");
     const assistantMessage = createAssistantMessage(replyText);
     await conversationStore.addMessage(
       conversationId,
-      'assistant',
+      "assistant",
       JSON.stringify(assistantMessage.content),
       channelMeta,
     );
@@ -168,27 +187,38 @@ async function tryConsumeCanonicalGuardianReply(params: {
     // Avoid mutating in-memory history / emitting stream deltas while a run is active.
     if (!session.isProcessing()) {
       session.getMessages().push(userMessage, assistantMessage);
-      onEvent({ type: 'assistant_text_delta', text: replyText, sessionId: conversationId });
-      onEvent({ type: 'message_complete', sessionId: conversationId });
+      onEvent({
+        type: "assistant_text_delta",
+        text: replyText,
+        sessionId: conversationId,
+      });
+      onEvent({ type: "message_complete", sessionId: conversationId });
     }
   } catch (err) {
-    log.warn({ err, conversationId }, 'Failed to persist inline approval transcript entries');
+    log.warn(
+      { err, conversationId },
+      "Failed to persist inline approval transcript entries",
+    );
   }
 
   return { consumed: true, messageId };
 }
 
-function resolveCanonicalRequestSourceType(sourceChannel: string | undefined): 'desktop' | 'channel' | 'voice' {
-  if (sourceChannel === 'voice') {
-    return 'voice';
+function resolveCanonicalRequestSourceType(
+  sourceChannel: string | undefined,
+): "desktop" | "channel" | "voice" {
+  if (sourceChannel === "voice") {
+    return "voice";
   }
-  if (sourceChannel === 'vellum') {
-    return 'desktop';
+  if (sourceChannel === "vellum") {
+    return "desktop";
   }
-  return 'channel';
+  return "channel";
 }
 
-function getInterfaceFilesWithMtimes(interfacesDir: string | null): Array<{ path: string; mtimeMs: number }> {
+function getInterfaceFilesWithMtimes(
+  interfacesDir: string | null,
+): Array<{ path: string; mtimeMs: number }> {
   if (!interfacesDir || !existsSync(interfacesDir)) return [];
   const results: Array<{ path: string; mtimeMs: number }> = [];
   const scan = (dir: string): void => {
@@ -212,8 +242,8 @@ export function handleListMessages(
   url: URL,
   interfacesDir: string | null,
 ): Response {
-  const conversationId = url.searchParams.get('conversationId');
-  const conversationKey = url.searchParams.get('conversationKey');
+  const conversationId = url.searchParams.get("conversationId");
+  const conversationKey = url.searchParams.get("conversationKey");
 
   let resolvedConversationId: string | undefined;
   if (conversationId) {
@@ -222,7 +252,11 @@ export function handleListMessages(
     const mapping = getConversationByKey(conversationKey);
     resolvedConversationId = mapping?.conversationId;
   } else {
-    return httpError('BAD_REQUEST', 'conversationKey or conversationId query parameter is required', 400);
+    return httpError(
+      "BAD_REQUEST",
+      "conversationKey or conversationId query parameter is required",
+      400,
+    );
   }
 
   if (!resolvedConversationId) {
@@ -233,7 +267,11 @@ export function handleListMessages(
   // Parse content blocks and extract text + tool calls
   const parsed = rawMessages.map((msg) => {
     let content: unknown;
-    try { content = JSON.parse(msg.content); } catch { content = msg.content; }
+    try {
+      content = JSON.parse(msg.content);
+    } catch {
+      content = msg.content;
+    }
     const rendered = renderHistoryContent(content);
     return {
       role: msg.role,
@@ -258,7 +296,7 @@ export function handleListMessages(
   let prevAssistantTimestamp = 0;
   const messages: RuntimeMessagePayload[] = merged.map((m) => {
     let msgAttachments: RuntimeAttachmentMetadata[] = [];
-    if (m.role === 'assistant' && m.id) {
+    if (m.role === "assistant" && m.id) {
       const linked = attachmentsStore.getAttachmentMetadataForMessage(m.id);
       if (linked.length > 0) {
         msgAttachments = linked.map((a) => ({
@@ -272,10 +310,13 @@ export function handleListMessages(
     }
 
     let interfaces: string[] | undefined;
-    if (m.role === 'assistant') {
+    if (m.role === "assistant") {
       const msgTimestamp = new Date(m.timestamp).getTime();
       const dirtied = interfaceFiles
-        .filter((f) => f.mtimeMs > prevAssistantTimestamp && f.mtimeMs <= msgTimestamp)
+        .filter(
+          (f) =>
+            f.mtimeMs > prevAssistantTimestamp && f.mtimeMs <= msgTimestamp,
+        )
         .map((f) => f.path);
       if (dirtied.length > 0) {
         interfaces = dirtied;
@@ -284,7 +325,7 @@ export function handleListMessages(
     }
 
     return {
-      id: m.id ?? '',
+      id: m.id ?? "",
       role: m.role,
       content: m.text,
       timestamp: new Date(m.timestamp).toISOString(),
@@ -308,16 +349,16 @@ export function handleListMessages(
 function makeHubPublisher(
   deps: SendMessageDeps,
   conversationId: string,
-  session: import('../../daemon/session.js').Session,
+  session: import("../../daemon/session.js").Session,
 ): (msg: ServerMessage) => void {
   let hubChain: Promise<void> = Promise.resolve();
   return (msg: ServerMessage) => {
     // Register pending interactions for approval events
-    if (msg.type === 'confirmation_request') {
+    if (msg.type === "confirmation_request") {
       pendingInteractions.register(msg.requestId, {
         session,
         conversationId,
-        kind: 'confirmation',
+        kind: "confirmation",
         confirmationDetails: {
           toolName: msg.toolName,
           input: msg.input,
@@ -333,30 +374,30 @@ function makeHubPublisher(
       // Create a canonical guardian request so IPC/HTTP handlers can find it
       // via applyCanonicalGuardianDecision.
       try {
-        const guardianContext = session.guardianContext;
-        const sourceChannel = guardianContext?.sourceChannel ?? 'vellum';
+        const trustContext = session.trustContext;
+        const sourceChannel = trustContext?.sourceChannel ?? "vellum";
         const canonicalRequest = createCanonicalGuardianRequest({
           id: msg.requestId,
-          kind: 'tool_approval',
+          kind: "tool_approval",
           sourceType: resolveCanonicalRequestSourceType(sourceChannel),
           sourceChannel,
           conversationId,
-          requesterExternalUserId: guardianContext?.requesterExternalUserId,
-          requesterChatId: guardianContext?.requesterChatId,
-          guardianExternalUserId: guardianContext?.guardianExternalUserId,
-          guardianPrincipalId: guardianContext?.guardianPrincipalId ?? undefined,
+          requesterExternalUserId: trustContext?.requesterExternalUserId,
+          requesterChatId: trustContext?.requesterChatId,
+          guardianExternalUserId: trustContext?.guardianExternalUserId,
+          guardianPrincipalId: trustContext?.guardianPrincipalId ?? undefined,
           toolName: msg.toolName,
-          status: 'pending',
+          status: "pending",
           requestCode: generateCanonicalRequestCode(),
           expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
         });
 
         // For trusted-contact sessions, bridge to guardian.question so the
         // guardian gets notified and can approve via callback/request-code.
-        if (guardianContext) {
+        if (trustContext) {
           bridgeConfirmationRequestToGuardian({
             canonicalRequest,
-            guardianContext,
+            trustContext,
             conversationId,
             toolName: msg.toolName,
             assistantId: session.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
@@ -365,30 +406,38 @@ function makeHubPublisher(
       } catch (err) {
         log.debug(
           { err, requestId: msg.requestId, conversationId },
-          'Failed to create canonical request from hub publisher',
+          "Failed to create canonical request from hub publisher",
         );
       }
-    } else if (msg.type === 'secret_request') {
+    } else if (msg.type === "secret_request") {
       pendingInteractions.register(msg.requestId, {
         session,
         conversationId,
-        kind: 'secret',
+        kind: "secret",
       });
     }
 
     // ServerMessage is a large union; sessionId exists on most but not all variants.
     const msgSessionId =
-      'sessionId' in msg && typeof (msg as { sessionId?: unknown }).sessionId === 'string'
+      "sessionId" in msg &&
+      typeof (msg as { sessionId?: unknown }).sessionId === "string"
         ? (msg as { sessionId: string }).sessionId
         : undefined;
     const resolvedSessionId = msgSessionId ?? conversationId;
-    const event = buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, msg, resolvedSessionId);
+    const event = buildAssistantEvent(
+      DAEMON_INTERNAL_ASSISTANT_ID,
+      msg,
+      resolvedSessionId,
+    );
     hubChain = (async () => {
       await hubChain;
       try {
         await deps.assistantEventHub.publish(event);
       } catch (err) {
-        log.warn({ err }, 'assistant-events hub subscriber threw during POST /messages');
+        log.warn(
+          { err },
+          "assistant-events hub subscriber threw during POST /messages",
+        );
       }
     })();
   };
@@ -404,7 +453,7 @@ export async function handleSendMessage(
   },
   authContext: AuthContext,
 ): Promise<Response> {
-  const body = await req.json() as {
+  const body = (await req.json()) as {
     conversationKey?: string;
     content?: string;
     attachmentIds?: string[];
@@ -413,37 +462,50 @@ export async function handleSendMessage(
   };
 
   const { conversationKey, content, attachmentIds } = body;
-  if (!body.sourceChannel || typeof body.sourceChannel !== 'string') {
-    return httpError('BAD_REQUEST', 'sourceChannel is required', 400);
+  if (!body.sourceChannel || typeof body.sourceChannel !== "string") {
+    return httpError("BAD_REQUEST", "sourceChannel is required", 400);
   }
   const sourceChannel = parseChannelId(body.sourceChannel);
 
   if (!sourceChannel) {
-    return httpError('BAD_REQUEST', `Invalid sourceChannel: ${body.sourceChannel}. Valid values: ${CHANNEL_IDS.join(', ')}`, 400);
+    return httpError(
+      "BAD_REQUEST",
+      `Invalid sourceChannel: ${body.sourceChannel}. Valid values: ${CHANNEL_IDS.join(", ")}`,
+      400,
+    );
   }
 
-  if (!body.interface || typeof body.interface !== 'string') {
-    return httpError('BAD_REQUEST', 'interface is required', 400);
+  if (!body.interface || typeof body.interface !== "string") {
+    return httpError("BAD_REQUEST", "interface is required", 400);
   }
   const sourceInterface = parseInterfaceId(body.interface);
   if (!sourceInterface) {
-    return httpError('BAD_REQUEST', `Invalid interface: ${body.interface}. Valid values: ${INTERFACE_IDS.join(', ')}`, 400);
+    return httpError(
+      "BAD_REQUEST",
+      `Invalid interface: ${body.interface}. Valid values: ${INTERFACE_IDS.join(", ")}`,
+      400,
+    );
   }
 
   if (!conversationKey) {
-    return httpError('BAD_REQUEST', 'conversationKey is required', 400);
+    return httpError("BAD_REQUEST", "conversationKey is required", 400);
   }
 
   // Reject non-string content values (numbers, objects, etc.)
-  if (content != null && typeof content !== 'string') {
-    return httpError('BAD_REQUEST', 'content must be a string', 400);
+  if (content != null && typeof content !== "string") {
+    return httpError("BAD_REQUEST", "content must be a string", 400);
   }
 
-  const trimmedContent = typeof content === 'string' ? content.trim() : '';
-  const hasAttachments = Array.isArray(attachmentIds) && attachmentIds.length > 0;
+  const trimmedContent = typeof content === "string" ? content.trim() : "";
+  const hasAttachments =
+    Array.isArray(attachmentIds) && attachmentIds.length > 0;
 
   if (trimmedContent.length === 0 && !hasAttachments) {
-    return httpError('BAD_REQUEST', 'content or attachmentIds is required', 400);
+    return httpError(
+      "BAD_REQUEST",
+      "content or attachmentIds is required",
+      400,
+    );
   }
 
   // Validate that all attachment IDs resolve
@@ -452,7 +514,11 @@ export async function handleSendMessage(
     if (resolved.length !== attachmentIds.length) {
       const resolvedIds = new Set(resolved.map((a) => a.id));
       const missing = attachmentIds.filter((id) => !resolvedIds.has(id));
-      return httpError('BAD_REQUEST', `Attachment IDs not found: ${missing.join(', ')}`, 400);
+      return httpError(
+        "BAD_REQUEST",
+        `Attachment IDs not found: ${missing.join(", ")}`,
+        400,
+      );
     }
   }
 
@@ -468,17 +534,17 @@ export async function handleSendMessage(
     // the same trust resolution pipeline that channel ingress uses.
     if (authContext.actorPrincipalId) {
       const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
-      const guardianCtx = resolveGuardianContext({
+      const trustCtx = resolveTrustContext({
         assistantId,
-        sourceChannel: 'vellum',
-        conversationExternalId: 'local',
+        sourceChannel: "vellum",
+        conversationExternalId: "local",
         actorExternalId: authContext.actorPrincipalId,
       });
-      session.setGuardianContext(toGuardianRuntimeContext(sourceChannel, guardianCtx));
+      session.setTrustContext(withSourceChannel(sourceChannel, trustCtx));
     } else {
       // Service principals (svc_gateway) or tokens without an actor ID
       // get a minimal guardian context so downstream code has something.
-      session.setGuardianContext({ trustClass: 'guardian', sourceChannel });
+      session.setTrustContext({ trustClass: "guardian", sourceChannel });
     }
 
     const onEvent = makeHubPublisher(smDeps, mapping.conversationId, session);
@@ -494,8 +560,10 @@ export async function handleSendMessage(
 
     // Resolve the verified actor's external user ID and principal for inline
     // approval routing from the session's guardian context.
-    const verifiedActorExternalUserId = session.guardianContext?.guardianExternalUserId;
-    const verifiedActorPrincipalId = session.guardianContext?.guardianPrincipalId ?? undefined;
+    const verifiedActorExternalUserId =
+      session.trustContext?.guardianExternalUserId;
+    const verifiedActorPrincipalId =
+      session.trustContext?.guardianPrincipalId ?? undefined;
 
     // Try to consume the message as a canonical guardian approval/rejection reply.
     // On failure, degrade to the existing queue/auto-deny path rather than
@@ -505,7 +573,7 @@ export async function handleSendMessage(
         conversationId: mapping.conversationId,
         sourceChannel,
         sourceInterface,
-        content: content ?? '',
+        content: content ?? "",
         attachments,
         session,
         onEvent,
@@ -515,12 +583,20 @@ export async function handleSendMessage(
       });
       if (inlineReplyResult.consumed) {
         return Response.json(
-          { accepted: true, ...(inlineReplyResult.messageId ? { messageId: inlineReplyResult.messageId } : {}) },
+          {
+            accepted: true,
+            ...(inlineReplyResult.messageId
+              ? { messageId: inlineReplyResult.messageId }
+              : {}),
+          },
           { status: 202 },
         );
       }
     } catch (err) {
-      log.warn({ err, conversationId: mapping.conversationId }, 'Inline approval consumption failed, falling through to normal send path');
+      log.warn(
+        { err, conversationId: mapping.conversationId },
+        "Inline approval consumption failed, falling through to normal send path",
+      );
     }
 
     if (session.isProcessing()) {
@@ -529,13 +605,18 @@ export async function handleSendMessage(
       if (session.hasAnyPendingConfirmation()) {
         // Emit authoritative denial state for each pending request.
         // The onStateSignal listener routes these to the SSE hub automatically.
-        for (const interaction of pendingInteractions.getByConversation(mapping.conversationId)) {
-          if (interaction.session === session && interaction.kind === 'confirmation') {
+        for (const interaction of pendingInteractions.getByConversation(
+          mapping.conversationId,
+        )) {
+          if (
+            interaction.session === session &&
+            interaction.kind === "confirmation"
+          ) {
             session.emitConfirmationStateChanged({
               sessionId: mapping.conversationId,
               requestId: interaction.requestId,
-              state: 'denied' as const,
-              source: 'auto_deny' as const,
+              state: "denied" as const,
+              source: "auto_deny" as const,
             });
           }
         }
@@ -546,7 +627,7 @@ export async function handleSendMessage(
       // Queue the message so it's processed when the current turn completes
       const requestId = crypto.randomUUID();
       const result = session.enqueueMessage(
-        content ?? '',
+        content ?? "",
         attachments,
         onEvent,
         requestId,
@@ -561,7 +642,11 @@ export async function handleSendMessage(
         { isInteractive: false },
       );
       if (result.rejected) {
-        return httpError('RATE_LIMITED', 'Message queue is full. Please retry later.', 429);
+        return httpError(
+          "RATE_LIMITED",
+          "Message queue is full. Please retry later.",
+          429,
+        );
       }
       return Response.json({ accepted: true, queued: true }, { status: 202 });
     }
@@ -576,13 +661,25 @@ export async function handleSendMessage(
       assistantMessageInterface: sourceInterface,
     });
     const requestId = crypto.randomUUID();
-    const messageId = await session.persistUserMessage(content ?? '', attachments, requestId);
+    const messageId = await session.persistUserMessage(
+      content ?? "",
+      attachments,
+      requestId,
+    );
 
     // Fire-and-forget the agent loop; events flow to the hub via onEvent.
     // Mark non-interactive so conflict clarification doesn't block the turn.
-    session.runAgentLoop(content ?? '', messageId, onEvent, { isInteractive: false, isUserMessage: true }).catch((err) => {
-      log.error({ err, conversationId: mapping.conversationId }, 'Agent loop failed (POST /messages)');
-    });
+    session
+      .runAgentLoop(content ?? "", messageId, onEvent, {
+        isInteractive: false,
+        isUserMessage: true,
+      })
+      .catch((err) => {
+        log.error(
+          { err, conversationId: mapping.conversationId },
+          "Agent loop failed (POST /messages)",
+        );
+      });
 
     return Response.json({ accepted: true, messageId }, { status: 202 });
   }
@@ -590,61 +687,77 @@ export async function handleSendMessage(
   // ── Legacy path (fallback when sendMessageDeps not wired) ───────────
   const processor = deps.persistAndProcessMessage ?? deps.processMessage;
   if (!processor) {
-    return httpError('SERVICE_UNAVAILABLE', 'Message processing not configured', 503);
+    return httpError(
+      "SERVICE_UNAVAILABLE",
+      "Message processing not configured",
+      503,
+    );
   }
 
   // Resolve guardian context from AuthContext for the legacy path too.
-  let guardianContext: import('../../daemon/session-runtime-assembly.js').GuardianRuntimeContext;
+  let trustContext: import("../../daemon/session-runtime-assembly.js").TrustContext;
   if (authContext.actorPrincipalId) {
-    const legacyGuardianCtx = resolveGuardianContext({
+    const legacyTrustCtx = resolveTrustContext({
       assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
-      sourceChannel: 'vellum',
-      conversationExternalId: 'local',
+      sourceChannel: "vellum",
+      conversationExternalId: "local",
       actorExternalId: authContext.actorPrincipalId,
     });
-    guardianContext = toGuardianRuntimeContext(sourceChannel, legacyGuardianCtx);
+    trustContext = withSourceChannel(sourceChannel, legacyTrustCtx);
   } else {
-    guardianContext = { trustClass: 'guardian' as const, sourceChannel };
+    trustContext = { trustClass: "guardian" as const, sourceChannel };
   }
 
   try {
     const result = await processor(
       mapping.conversationId,
-      content ?? '',
+      content ?? "",
       hasAttachments ? attachmentIds : undefined,
-      { guardianContext },
+      { trustContext },
       sourceChannel,
       sourceInterface,
     );
-    return Response.json({ accepted: true, messageId: result.messageId }, { status: 202 });
+    return Response.json(
+      { accepted: true, messageId: result.messageId },
+      { status: 202 },
+    );
   } catch (err) {
-    if (err instanceof Error && err.message === 'Session is already processing a message') {
-      return httpError('CONFLICT', 'Session is busy processing another message. Please retry.', 409);
+    if (
+      err instanceof Error &&
+      err.message === "Session is already processing a message"
+    ) {
+      return httpError(
+        "CONFLICT",
+        "Session is busy processing another message. Please retry.",
+        409,
+      );
     }
     throw err;
   }
 }
 
-async function generateLlmSuggestion(provider: Provider, assistantText: string): Promise<string | null> {
-  const truncated = assistantText.length > 2000
-    ? assistantText.slice(-2000)
-    : assistantText;
+async function generateLlmSuggestion(
+  provider: Provider,
+  assistantText: string,
+): Promise<string | null> {
+  const truncated =
+    assistantText.length > 2000 ? assistantText.slice(-2000) : assistantText;
 
   const prompt = `Given this assistant message, write a very short tab-complete suggestion (max 50 chars) the user could send next to keep the conversation going. Be casual, curious, or actionable — like a quick reply, not a formal request. Reply with ONLY the suggestion text.\n\nAssistant's message:\n${truncated}`;
   const response = await provider.sendMessage(
-    [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
+    [{ role: "user", content: [{ type: "text", text: prompt }] }],
     [], // no tools
     undefined, // no system prompt
     { config: { max_tokens: 30 } },
   );
 
-  const textBlock = response.content.find((b) => b.type === 'text');
-  const raw = textBlock && 'text' in textBlock ? textBlock.text.trim() : '';
+  const textBlock = response.content.find((b) => b.type === "text");
+  const raw = textBlock && "text" in textBlock ? textBlock.text.trim() : "";
 
   if (!raw) return null;
 
   // Take first line only, then enforce the length cap
-  const firstLine = raw.split('\n')[0].trim();
+  const firstLine = raw.split("\n")[0].trim();
   if (!firstLine || firstLine.length > 50) return null;
   return firstLine;
 }
@@ -656,31 +769,48 @@ export async function handleGetSuggestion(
     suggestionInFlight: Map<string, Promise<string | null>>;
   },
 ): Promise<Response> {
-  const conversationKey = url.searchParams.get('conversationKey');
+  const conversationKey = url.searchParams.get("conversationKey");
   if (!conversationKey) {
-    return httpError('BAD_REQUEST', 'conversationKey query parameter is required', 400);
+    return httpError(
+      "BAD_REQUEST",
+      "conversationKey query parameter is required",
+      400,
+    );
   }
 
   const mapping = getConversationByKey(conversationKey);
   if (!mapping) {
-    return Response.json({ suggestion: null, messageId: null, source: 'none' as const });
+    return Response.json({
+      suggestion: null,
+      messageId: null,
+      source: "none" as const,
+    });
   }
 
   const rawMessages = conversationStore.getMessages(mapping.conversationId);
   if (rawMessages.length === 0) {
-    return Response.json({ suggestion: null, messageId: null, source: 'none' as const });
+    return Response.json({
+      suggestion: null,
+      messageId: null,
+      source: "none" as const,
+    });
   }
 
   // Staleness check: compare requested messageId against the latest
   // assistant message BEFORE filtering by text content.  This ensures
   // that a newer tool-only assistant turn (empty text) still causes
   // older messageId requests to be correctly marked as stale.
-  const requestedMessageId = url.searchParams.get('messageId');
+  const requestedMessageId = url.searchParams.get("messageId");
   if (requestedMessageId) {
     for (let i = rawMessages.length - 1; i >= 0; i--) {
-      if (rawMessages[i].role === 'assistant') {
+      if (rawMessages[i].role === "assistant") {
         if (rawMessages[i].id !== requestedMessageId) {
-          return Response.json({ suggestion: null, messageId: null, source: 'none' as const, stale: true });
+          return Response.json({
+            suggestion: null,
+            messageId: null,
+            source: "none" as const,
+            stale: true,
+          });
         }
         break;
       }
@@ -688,15 +818,19 @@ export async function handleGetSuggestion(
   }
 
   const { suggestionCache, suggestionInFlight } = deps;
-  const log = (await import('../../util/logger.js')).getLogger('runtime-http');
+  const log = (await import("../../util/logger.js")).getLogger("runtime-http");
 
   // Walk backwards to find the last assistant message with text content
   for (let i = rawMessages.length - 1; i >= 0; i--) {
     const msg = rawMessages[i];
-    if (msg.role !== 'assistant') continue;
+    if (msg.role !== "assistant") continue;
 
     let content: unknown;
-    try { content = JSON.parse(msg.content); } catch { content = msg.content; }
+    try {
+      content = JSON.parse(msg.content);
+    } catch {
+      content = msg.content;
+    }
     const rendered = renderHistoryContent(content);
     const text = rendered.text.trim();
     if (!text) continue;
@@ -704,7 +838,12 @@ export async function handleGetSuggestion(
     // If a messageId was requested and the first text-bearing assistant
     // message is a *different* message, the request is stale.
     if (requestedMessageId && msg.id !== requestedMessageId) {
-      return Response.json({ suggestion: null, messageId: null, source: 'none' as const, stale: true });
+      return Response.json({
+        suggestion: null,
+        messageId: null,
+        source: "none" as const,
+        stale: true,
+      });
     }
 
     // Return cached suggestion if we already generated one for this message
@@ -713,7 +852,7 @@ export async function handleGetSuggestion(
       return Response.json({
         suggestion: cached,
         messageId: msg.id,
-        source: 'llm' as const,
+        source: "llm" as const,
       });
     }
 
@@ -742,19 +881,27 @@ export async function handleGetSuggestion(
           return Response.json({
             suggestion: llmSuggestion,
             messageId: msg.id,
-            source: 'llm' as const,
+            source: "llm" as const,
           });
         }
       } catch (err) {
         suggestionInFlight.delete(msg.id);
-        log.warn({ err }, 'LLM suggestion failed');
+        log.warn({ err }, "LLM suggestion failed");
       }
     }
 
-    return Response.json({ suggestion: null, messageId: null, source: 'none' as const });
+    return Response.json({
+      suggestion: null,
+      messageId: null,
+      source: "none" as const,
+    });
   }
 
-  return Response.json({ suggestion: null, messageId: null, source: 'none' as const });
+  return Response.json({
+    suggestion: null,
+    messageId: null,
+    source: "none" as const,
+  });
 }
 
 /**
@@ -764,21 +911,26 @@ export async function handleGetSuggestion(
  * Returns ranked results grouped by conversation, each with matching message excerpts.
  */
 export function handleSearchConversations(url: URL): Response {
-  const query = url.searchParams.get('q') ?? '';
+  const query = url.searchParams.get("q") ?? "";
   if (!query.trim()) {
-    return httpError('BAD_REQUEST', 'q query parameter is required', 400);
+    return httpError("BAD_REQUEST", "q query parameter is required", 400);
   }
 
-  const limit = url.searchParams.has('limit')
-    ? Number(url.searchParams.get('limit'))
+  const limit = url.searchParams.has("limit")
+    ? Number(url.searchParams.get("limit"))
     : undefined;
-  const maxMessagesPerConversation = url.searchParams.has('maxMessagesPerConversation')
-    ? Number(url.searchParams.get('maxMessagesPerConversation'))
+  const maxMessagesPerConversation = url.searchParams.has(
+    "maxMessagesPerConversation",
+  )
+    ? Number(url.searchParams.get("maxMessagesPerConversation"))
     : undefined;
 
   const results = conversationStore.searchConversations(query, {
     ...(limit !== undefined && !isNaN(limit) ? { limit } : {}),
-    ...(maxMessagesPerConversation !== undefined && !isNaN(maxMessagesPerConversation) ? { maxMessagesPerConversation } : {}),
+    ...(maxMessagesPerConversation !== undefined &&
+    !isNaN(maxMessagesPerConversation)
+      ? { maxMessagesPerConversation }
+      : {}),
   });
 
   return Response.json({ query, results });

@@ -74,6 +74,8 @@ struct ChatView: View {
     var voiceService: OpenAIVoiceService? = nil
     var onEndVoiceMode: (() -> Void)? = nil
     var threadId: UUID?
+    /// When set, scroll to this message ID and clear the binding.
+    @Binding var anchorMessageId: UUID?
 
     // MARK: - Pagination
 
@@ -212,6 +214,7 @@ struct ChatView: View {
                             isLoadingMoreMessages: isLoadingMoreMessages,
                             loadPreviousMessagePage: loadPreviousMessagePage,
                             threadId: threadId,
+                            anchorMessageId: $anchorMessageId,
                             isNearBottom: $isNearBottom
                         )
                         .safeAreaInset(edge: .bottom) {
@@ -592,6 +595,7 @@ struct ChatView_Preview: PreviewProvider {
 
 private struct ChatViewPreviewWrapper: View {
     @State private var text = ""
+    @State private var anchorMessageId: UUID?
 
     private let sampleMessages: [ChatMessage] = [
         ChatMessage(role: .assistant, text: "Hello! How can I help you today?"),
@@ -647,7 +651,8 @@ private struct ChatViewPreviewWrapper: View {
                 onCopyDebugInfo: {},
                 watchSession: nil,
                 onStopWatch: {},
-                subagentDetailStore: SubagentDetailStore()
+                subagentDetailStore: SubagentDetailStore(),
+                anchorMessageId: $anchorMessageId
             )
         }
     }

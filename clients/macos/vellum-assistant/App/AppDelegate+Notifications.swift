@@ -200,6 +200,16 @@ extension AppDelegate {
         return nil
     }
 
+    private func messageId(from userInfo: [AnyHashable: Any]) -> String? {
+        if let direct = userInfo["messageId"] as? String {
+            return direct
+        }
+        if let snake = userInfo["message_id"] as? String {
+            return snake
+        }
+        return nil
+    }
+
     private func pruneFallbackMarkers(nowMs: Double) {
         fallbackDeliveredAtMs = fallbackDeliveredAtMs.filter { _, deliveredAt in
             nowMs - deliveredAt <= fallbackDedupWindowMs
@@ -505,10 +515,11 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
             let conversationId =
                 response.notification.request.content.userInfo["conversationId"] as? String ??
                 response.notification.request.content.userInfo["conversation_id"] as? String
+            let messageId = self.messageId(from: response.notification.request.content.userInfo)
             await MainActor.run {
                 guard !self.isBootstrapping else { return }
                 if let conversationId {
-                    self.openConversationThread(conversationId: conversationId)
+                    self.openConversationThread(conversationId: conversationId, anchorMessageId: messageId)
                     self.sendConversationSeenSignal(
                         conversationId: conversationId,
                         signalType: "macos_notification_view",

@@ -163,7 +163,7 @@ describe("TwilioConversationRelayProvider", () => {
         return new Response(JSON.stringify({ sid: "CA_test_123" }), {
           status: 200,
         });
-      }) as typeof fetch;
+      }) as unknown as typeof fetch;
 
       try {
         const result = await provider.initiateCall({
@@ -218,7 +218,7 @@ describe("TwilioConversationRelayProvider", () => {
         return new Response(JSON.stringify({ outgoing_caller_ids: [] }), {
           status: 200,
         });
-      }) as typeof fetch;
+      }) as unknown as typeof fetch;
 
       const result = await provider.checkCallerIdEligibility("+15550001111");
       expect(result.eligible).toBe(true);
@@ -246,7 +246,7 @@ describe("TwilioConversationRelayProvider", () => {
           );
         }
         return new Response("Not found", { status: 404 });
-      }) as typeof fetch;
+      }) as unknown as typeof fetch;
 
       const result = await provider.checkCallerIdEligibility("+15550001111");
       expect(result.eligible).toBe(true);
@@ -269,7 +269,7 @@ describe("TwilioConversationRelayProvider", () => {
           });
         }
         return new Response("Not found", { status: 404 });
-      }) as typeof fetch;
+      }) as unknown as typeof fetch;
 
       const result = await provider.checkCallerIdEligibility("+15559999999");
       expect(result.eligible).toBe(false);
@@ -289,7 +289,7 @@ describe("TwilioConversationRelayProvider", () => {
           return new Response("Internal Server Error", { status: 500 });
         }
         return new Response("Not found", { status: 404 });
-      }) as typeof fetch;
+      }) as unknown as typeof fetch;
 
       await expect(
         provider.checkCallerIdEligibility("+15550001111"),
@@ -310,7 +310,7 @@ describe("TwilioConversationRelayProvider", () => {
           });
         }
         return new Response("Not found", { status: 404 });
-      }) as typeof fetch;
+      }) as unknown as typeof fetch;
 
       await expect(
         provider.checkCallerIdEligibility("+15550001111"),
@@ -333,7 +333,7 @@ describe("TwilioConversationRelayProvider", () => {
         return new Response(JSON.stringify({ outgoing_caller_ids: [] }), {
           status: 200,
         });
-      }) as typeof fetch;
+      }) as unknown as typeof fetch;
 
       await provider.checkCallerIdEligibility("+15550001111");
 

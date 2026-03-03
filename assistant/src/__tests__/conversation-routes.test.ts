@@ -20,12 +20,12 @@ mock.module("../memory/attachments-store.js", () => ({
   getAttachmentsByIds: () => [],
 }));
 
-mock.module("../runtime/guardian-context-resolver.js", () => ({
-  resolveGuardianContext: (input: { sourceChannel?: string }) => ({
+mock.module("../runtime/trust-context-resolver.js", () => ({
+  resolveTrustContext: (input: { sourceChannel?: string }) => ({
     trustClass: "guardian",
     sourceChannel: input.sourceChannel ?? "vellum",
   }),
-  toGuardianRuntimeContext: (
+  withSourceChannel: (
     sourceChannel: string,
     ctx: Record<string, unknown>,
   ) => ({
@@ -92,7 +92,7 @@ describe("handleSendMessage", () => {
     expect(body.accepted).toBe(true);
     expect(body.messageId).toBe("msg-legacy-fallback");
     expect(capturedSourceChannel).toBe("telegram");
-    expect(capturedOptions?.guardianContext).toEqual(
+    expect(capturedOptions?.trustContext).toEqual(
       expect.objectContaining({
         trustClass: "guardian",
         sourceChannel: "telegram",

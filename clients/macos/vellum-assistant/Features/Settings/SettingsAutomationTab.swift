@@ -20,15 +20,15 @@ struct SettingsAutomationTab: View {
                         .foregroundColor(VColor.textPrimary)
 
                     VStack(alignment: .leading, spacing: VSpacing.lg) {
-                        VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        VStack(alignment: .leading, spacing: VSpacing.sm) {
                             Text("Manage Reminders")
-                                .font(VFont.body)
+                                .font(VFont.inputLabel)
                                 .foregroundColor(VColor.textSecondary)
                             Text("View and manage one-shot reminders created by the assistant")
                                 .font(VFont.caption)
                                 .foregroundColor(VColor.textMuted)
                         }
-                        VButton(label: "Manage...", style: .secondary, size: .large) {
+                        VButton(label: "Manage...", style: .secondary, size: .medium) {
                             showingReminders = true
                         }
                     }
@@ -36,6 +36,7 @@ struct SettingsAutomationTab: View {
                 .padding(VSpacing.lg)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .vCard(background: VColor.surfaceSubtle)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 VStack(alignment: .leading, spacing: VSpacing.md) {
                     Text("Scheduled Tasks")
@@ -43,15 +44,15 @@ struct SettingsAutomationTab: View {
                         .foregroundColor(VColor.textPrimary)
 
                     VStack(alignment: .leading, spacing: VSpacing.lg) {
-                        VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        VStack(alignment: .leading, spacing: VSpacing.sm) {
                             Text("Manage Scheduled Tasks")
-                                .font(VFont.body)
+                                .font(VFont.inputLabel)
                                 .foregroundColor(VColor.textSecondary)
                             Text("View and manage recurring tasks (cron and RRULE schedules)")
                                 .font(VFont.caption)
                                 .foregroundColor(VColor.textMuted)
                         }
-                        VButton(label: "Manage...", style: .secondary, size: .large) {
+                        VButton(label: "Manage...", style: .secondary, size: .medium) {
                             showingScheduledTasks = true
                         }
                     }
@@ -59,6 +60,7 @@ struct SettingsAutomationTab: View {
                 .padding(VSpacing.lg)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .vCard(background: VColor.surfaceSubtle)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             // Heartbeat section (checklist + runs, minus configCard)
@@ -87,7 +89,7 @@ struct HeartbeatAutomationSection: View {
     @State private var runError: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.xl) {
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
             checklistCard
         }
         .onAppear { setupCallbacks(); loadAll() }
@@ -153,6 +155,7 @@ struct HeartbeatAutomationSection: View {
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Actions

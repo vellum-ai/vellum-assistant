@@ -225,6 +225,7 @@ final class ThreadSessionRestorer {
                 lastInteractedAt: Date(timeIntervalSince1970: TimeInterval(session.updatedAt) / 1000.0),
                 kind: kind,
                 source: session.source,
+                scheduleJobId: session.scheduleJobId,
                 hasUnseenLatestAssistantMessage: session.assistantAttention?.hasUnseenLatestAssistantMessage ?? false
             )
             if isPinned && session.displayOrder == nil { pinnedCount += 1 }
