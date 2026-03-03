@@ -841,6 +841,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             state: state,
             daemonClient: daemonClient,
             authManager: authManager,
+            managedBootstrapEnabled: false,
             onComplete: { [weak self] in
                 self?.proceedToApp()
             },

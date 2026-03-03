@@ -323,6 +323,7 @@ For example, views with dependencies need them passed in:
         state: OnboardingState(),
         daemonClient: DaemonClient(),
         authManager: AuthManager(),
+        managedBootstrapEnabled: true,
         onComplete: {},
         onOpenSettings: {}
     )
