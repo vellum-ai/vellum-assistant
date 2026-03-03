@@ -115,20 +115,33 @@ export class PairingStore {
   /**
    * Pre-register a pairing request (called when QR is displayed).
    * Idempotent: if the same ID exists and secret matches, overwrite.
-   * Returns false with 'conflict' if ID exists but secret doesn't match.
+   * Returns false with 'conflict' if ID exists but secret doesn't match,
+   * or 'active_pairing' if another pairing request is already in progress.
    */
   register(params: {
     pairingRequestId: string;
     pairingSecret: string;
     gatewayUrl: string;
     localLanUrl?: string | null;
-  }): { ok: true } | { ok: false; reason: 'conflict' } {
+  }): { ok: true } | { ok: false; reason: 'conflict' | 'active_pairing' } {
     const hashedSecret = hashValue(params.pairingSecret);
     const existing = this.requests.get(params.pairingRequestId);
 
     if (existing) {
       if (!timingSafeCompare(existing.hashedPairingSecret, hashedSecret)) {
         return { ok: false, reason: 'conflict' };
+      }
+    }
+
+    // Reject if another pairing request is already active (registered or pending).
+    for (const entry of this.requests.values()) {
+      if (entry.pairingRequestId === params.pairingRequestId) continue;
+      if (entry.status === 'registered' || entry.status === 'pending') {
+        log.warn(
+          { existingPairingRequestId: entry.pairingRequestId, newPairingRequestId: params.pairingRequestId },
+          'Rejected pairing registration — another pairing is already in progress',
+        );
+        return { ok: false, reason: 'active_pairing' };
       }
     }
 
