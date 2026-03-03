@@ -61,7 +61,9 @@ function parseAddressList(header: string): string[] {
  * RFC 5322 comments.
  */
 function extractEmail(address: string): string {
-  const segments = [...address.matchAll(/<([^>]+)>/g)].map((m) => m[1]);
+  // Strip parenthetical comments first to avoid matching addresses inside them
+  const cleaned = address.replace(/\(.*?\)/g, '');
+  const segments = [...cleaned.matchAll(/<([^>]+)>/g)].map((m) => m[1]);
   if (segments.length > 0) {
     const emailSegment = [...segments].reverse().find((s) => s.includes('@'));
     if (emailSegment) return emailSegment.trim().toLowerCase();
