@@ -25,6 +25,8 @@ function parseContact(row: typeof contacts.$inferSelect): Contact {
     interactionCount: row.interactionCount,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    role: row.role as Contact['role'],
+    principalId: row.principalId,
   };
 }
 

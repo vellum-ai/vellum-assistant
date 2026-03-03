@@ -22,6 +22,7 @@ import {
   createWatchersAndLogsTables,
   migrateBackfillGuardianPrincipalId,
   migrateCallSessionMode,
+  migrateContactsRolePrincipal,
   migrateCanonicalGuardianDeliveriesDestinationIndex,
   migrateCanonicalGuardianRequesterChatId,
   migrateChannelInboundDeliveredSegments,
@@ -188,6 +189,9 @@ export function initializeDb(): void {
 
   // 31. Enforce NOT NULL on channel_guardian_bindings.guardian_principal_id
   migrateGuardianPrincipalIdNotNull(database);
+
+  // 32. Add role and principal_id columns to contacts table
+  migrateContactsRolePrincipal(database);
 
   validateMigrationState(database);
 }

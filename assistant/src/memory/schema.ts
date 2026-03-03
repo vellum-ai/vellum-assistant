@@ -414,6 +414,8 @@ export const contacts = sqliteTable("contacts", {
   interactionCount: integer("interaction_count").notNull().default(0),
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
+  role: text("role").notNull().default("contact"), // 'guardian' | 'contact'
+  principalId: text("principal_id"), // internal auth principal (nullable)
 });
 
 export const contactChannels = sqliteTable("contact_channels", {

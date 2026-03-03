@@ -1,3 +1,5 @@
+export type ContactRole = 'guardian' | 'contact';
+
 export interface Contact {
   id: string;
   displayName: string;
@@ -9,6 +11,8 @@ export interface Contact {
   interactionCount: number;
   createdAt: number;
   updatedAt: number;
+  role: ContactRole;
+  principalId: string | null;
 }
 
 export interface ContactChannel {
