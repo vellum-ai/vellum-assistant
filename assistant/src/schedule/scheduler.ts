@@ -1,18 +1,31 @@
-import { createConversation } from '../memory/conversation-store.js';
-import { GENERATING_TITLE, queueGenerateConversationTitle } from '../memory/conversation-title-service.js';
-import { invalidateAssistantInferredItemsForConversation } from '../memory/task-memory-cleanup.js';
-import { runSequencesOnce } from '../sequence/engine.js';
-import { claimDueReminders, completeReminder, failReminder, type RoutingIntent,setReminderConversationId } from '../tools/reminder/reminder-store.js';
-import { getLogger } from '../util/logger.js';
-import { runWatchersOnce, type WatcherEscalator,type WatcherNotifier } from '../watcher/engine.js';
-import { hasSetConstructs } from './recurrence-engine.js';
+import { createConversation } from "../memory/conversation-store.js";
+import {
+  GENERATING_TITLE,
+  queueGenerateConversationTitle,
+} from "../memory/conversation-title-service.js";
+import { invalidateAssistantInferredItemsForConversation } from "../memory/task-memory-cleanup.js";
+import { runSequencesOnce } from "../sequence/engine.js";
+import {
+  claimDueReminders,
+  completeReminder,
+  failReminder,
+  type RoutingIntent,
+  setReminderConversationId,
+} from "../tools/reminder/reminder-store.js";
+import { getLogger } from "../util/logger.js";
+import {
+  runWatchersOnce,
+  type WatcherEscalator,
+  type WatcherNotifier,
+} from "../watcher/engine.js";
+import { hasSetConstructs } from "./recurrence-engine.js";
 import {
   claimDueSchedules,
   completeScheduleRun,
   createScheduleRun,
-} from './schedule-store.js';
+} from "./schedule-store.js";
 
-const log = getLogger('scheduler');
+const log = getLogger("scheduler");
 
 export type ScheduleMessageProcessor = (
   conversationId: string,
@@ -50,21 +63,35 @@ export function startScheduler(
     if (stopped || tickRunning) return;
     tickRunning = true;
     try {
-      await runScheduleOnce(processMessage, notifyReminder, notifySchedule, watcherNotifier, watcherEscalator);
+      await runScheduleOnce(
+        processMessage,
+        notifyReminder,
+        notifySchedule,
+        watcherNotifier,
+        watcherEscalator,
+      );
     } catch (err) {
-      log.error({ err }, 'Schedule tick failed');
+      log.error({ err }, "Schedule tick failed");
     } finally {
       tickRunning = false;
     }
   };
 
-  const timer = setInterval(() => { void tick(); }, TICK_INTERVAL_MS);
+  const timer = setInterval(() => {
+    void tick();
+  }, TICK_INTERVAL_MS);
   timer.unref();
   void tick();
 
   return {
     async runOnce(): Promise<number> {
-      return runScheduleOnce(processMessage, notifyReminder, notifySchedule, watcherNotifier, watcherEscalator);
+      return runScheduleOnce(
+        processMessage,
+        notifyReminder,
+        notifySchedule,
+        watcherNotifier,
+        watcherEscalator,
+      );
     },
     stop(): void {
       stopped = true;
@@ -90,62 +117,123 @@ async function runScheduleOnce(
     const taskMatch = job.message.match(/^run_task:(\S+)$/);
     if (taskMatch) {
       const taskId = taskMatch[1];
-      const isRruleSet = job.syntax === 'rrule' && hasSetConstructs(job.expression);
+      const isRruleSet =
+        job.syntax === "rrule" && hasSetConstructs(job.expression);
       try {
-        log.info({ jobId: job.id, name: job.name, taskId, syntax: job.syntax, expression: job.expression, isRruleSet }, 'Executing scheduled task');
-        const { runTask } = await import('../tasks/task-runner.js');
+        log.info(
+          {
+            jobId: job.id,
+            name: job.name,
+            taskId,
+            syntax: job.syntax,
+            expression: job.expression,
+            isRruleSet,
+          },
+          "Executing scheduled task",
+        );
+        const { runTask } = await import("../tasks/task-runner.js");
         const result = await runTask(
-          { taskId, workingDir: process.cwd(), source: 'schedule' },
-          processMessage as (conversationId: string, message: string, taskRunId: string) => Promise<void>,
+          { taskId, workingDir: process.cwd(), source: "schedule" },
+          processMessage as (
+            conversationId: string,
+            message: string,
+            taskRunId: string,
+          ) => Promise<void>,
         );
 
         // Track the schedule run using the task's conversation
         const runId = createScheduleRun(job.id, result.conversationId);
-        if (result.status === 'failed') {
-          completeScheduleRun(runId, { status: 'error', error: result.error ?? 'Task run failed' });
+        if (result.status === "failed") {
+          completeScheduleRun(runId, {
+            status: "error",
+            error: result.error ?? "Task run failed",
+          });
         } else {
-          completeScheduleRun(runId, { status: 'ok' });
+          completeScheduleRun(runId, { status: "ok" });
           notifySchedule({ id: job.id, name: job.name });
         }
         processed += 1;
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        log.warn({ err, jobId: job.id, name: job.name, taskId, syntax: job.syntax, expression: job.expression, isRruleSet }, 'Scheduled task execution failed');
+        log.warn(
+          {
+            err,
+            jobId: job.id,
+            name: job.name,
+            taskId,
+            syntax: job.syntax,
+            expression: job.expression,
+            isRruleSet,
+          },
+          "Scheduled task execution failed",
+        );
         // Create a fallback conversation for the schedule run record
-        const fallbackConversation = createConversation({ title: GENERATING_TITLE, source: 'schedule' });
+        const fallbackConversation = createConversation({
+          title: GENERATING_TITLE,
+          source: "schedule",
+          scheduleJobId: job.id,
+        });
         queueGenerateConversationTitle({
           conversationId: fallbackConversation.id,
-          context: { origin: 'schedule', systemHint: `Schedule: ${job.name}` },
+          context: { origin: "schedule", systemHint: `Schedule: ${job.name}` },
         });
         const runId = createScheduleRun(job.id, fallbackConversation.id);
-        completeScheduleRun(runId, { status: 'error', error: message });
+        completeScheduleRun(runId, { status: "error", error: message });
       }
       continue;
     }
 
-    const conversation = createConversation({ title: GENERATING_TITLE, source: 'schedule' });
+    const conversation = createConversation({
+      title: GENERATING_TITLE,
+      source: "schedule",
+      scheduleJobId: job.id,
+    });
     queueGenerateConversationTitle({
       conversationId: conversation.id,
-      context: { origin: 'schedule', systemHint: `Schedule: ${job.name}` },
+      context: { origin: "schedule", systemHint: `Schedule: ${job.name}` },
     });
     const runId = createScheduleRun(job.id, conversation.id);
-    const isRruleSetMsg = job.syntax === 'rrule' && hasSetConstructs(job.expression);
+    const isRruleSetMsg =
+      job.syntax === "rrule" && hasSetConstructs(job.expression);
 
     try {
-      log.info({ jobId: job.id, name: job.name, syntax: job.syntax, expression: job.expression, isRruleSet: isRruleSetMsg, conversationId: conversation.id }, 'Executing schedule');
+      log.info(
+        {
+          jobId: job.id,
+          name: job.name,
+          syntax: job.syntax,
+          expression: job.expression,
+          isRruleSet: isRruleSetMsg,
+          conversationId: conversation.id,
+        },
+        "Executing schedule",
+      );
       await processMessage(conversation.id, job.message);
-      completeScheduleRun(runId, { status: 'ok' });
+      completeScheduleRun(runId, { status: "ok" });
       notifySchedule({ id: job.id, name: job.name });
       processed += 1;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      log.warn({ err, jobId: job.id, name: job.name, syntax: job.syntax, expression: job.expression, isRruleSet: isRruleSetMsg }, 'Schedule execution failed');
-      completeScheduleRun(runId, { status: 'error', error: message });
+      log.warn(
+        {
+          err,
+          jobId: job.id,
+          name: job.name,
+          syntax: job.syntax,
+          expression: job.expression,
+          isRruleSet: isRruleSetMsg,
+        },
+        "Schedule execution failed",
+      );
+      completeScheduleRun(runId, { status: "error", error: message });
 
       try {
         invalidateAssistantInferredItemsForConversation(conversation.id);
       } catch (cleanupErr) {
-        log.warn({ err: cleanupErr, conversationId: conversation.id }, 'Failed to invalidate assistant-inferred memory items');
+        log.warn(
+          { err: cleanupErr, conversationId: conversation.id },
+          "Failed to invalidate assistant-inferred memory items",
+        );
       }
     }
   }
@@ -153,24 +241,43 @@ async function runScheduleOnce(
   // ── One-shot reminders ──────────────────────────────────────────────
   const dueReminders = claimDueReminders(now);
   for (const reminder of dueReminders) {
-    if (reminder.mode === 'execute') {
-      const conversation = createConversation({ title: GENERATING_TITLE, source: 'reminder' });
+    if (reminder.mode === "execute") {
+      const conversation = createConversation({
+        title: GENERATING_TITLE,
+        source: "reminder",
+      });
       queueGenerateConversationTitle({
         conversationId: conversation.id,
-        context: { origin: 'reminder', systemHint: `Reminder: ${reminder.label}` },
+        context: {
+          origin: "reminder",
+          systemHint: `Reminder: ${reminder.label}`,
+        },
       });
       setReminderConversationId(reminder.id, conversation.id);
       try {
-        log.info({ reminderId: reminder.id, label: reminder.label, conversationId: conversation.id }, 'Executing reminder');
+        log.info(
+          {
+            reminderId: reminder.id,
+            label: reminder.label,
+            conversationId: conversation.id,
+          },
+          "Executing reminder",
+        );
         await processMessage(conversation.id, reminder.message);
         completeReminder(reminder.id);
       } catch (err) {
-        log.warn({ err, reminderId: reminder.id }, 'Reminder execution failed, reverting to pending');
+        log.warn(
+          { err, reminderId: reminder.id },
+          "Reminder execution failed, reverting to pending",
+        );
         failReminder(reminder.id);
       }
     } else {
       try {
-        log.info({ reminderId: reminder.id, label: reminder.label }, 'Firing reminder notification');
+        log.info(
+          { reminderId: reminder.id, label: reminder.label },
+          "Firing reminder notification",
+        );
         notifyReminder({
           id: reminder.id,
           label: reminder.label,
@@ -180,7 +287,10 @@ async function runScheduleOnce(
         });
         completeReminder(reminder.id);
       } catch (err) {
-        log.warn({ err, reminderId: reminder.id }, 'Reminder notification failed, reverting to pending');
+        log.warn(
+          { err, reminderId: reminder.id },
+          "Reminder notification failed, reverting to pending",
+        );
         failReminder(reminder.id);
       }
     }
@@ -190,10 +300,14 @@ async function runScheduleOnce(
   // ── Watchers (event-driven polling) ────────────────────────────────
   if (watcherNotifier && watcherEscalator) {
     try {
-      const watcherProcessed = await runWatchersOnce(processMessage, watcherNotifier, watcherEscalator);
+      const watcherProcessed = await runWatchersOnce(
+        processMessage,
+        watcherNotifier,
+        watcherEscalator,
+      );
       processed += watcherProcessed;
     } catch (err) {
-      log.error({ err }, 'Watcher tick failed');
+      log.error({ err }, "Watcher tick failed");
     }
   }
 
@@ -202,11 +316,11 @@ async function runScheduleOnce(
     const sequenceProcessed = await runSequencesOnce(processMessage);
     processed += sequenceProcessed;
   } catch (err) {
-    log.error({ err }, 'Sequence engine tick failed');
+    log.error({ err }, "Sequence engine tick failed");
   }
 
   if (processed > 0) {
-    log.info({ processed }, 'Schedule tick complete');
+    log.info({ processed }, "Schedule tick complete");
   }
   return processed;
 }
