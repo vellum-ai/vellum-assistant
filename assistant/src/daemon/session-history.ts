@@ -264,7 +264,7 @@ export interface HistorySessionContext {
     content: string,
     userMessageId: string,
     onEvent: (msg: ServerMessage) => void,
-    options?: { skipPreMessageRollback?: boolean; titleText?: string },
+    options?: { skipPreMessageRollback?: boolean; isUserMessage?: boolean; titleText?: string },
   ): Promise<void>;
 }
 
@@ -435,5 +435,5 @@ export async function regenerate(
   session.abortController = new AbortController();
   session.currentRequestId = requestId ?? uuid();
 
-  await session.runAgentLoop(content, existingUserMessageId, onEvent, { skipPreMessageRollback: true });
+  await session.runAgentLoop(content, existingUserMessageId, onEvent, { skipPreMessageRollback: true, isUserMessage: true });
 }

@@ -160,7 +160,7 @@ export async function runAgentLoopImpl(
   content: string,
   userMessageId: string,
   onEvent: (msg: ServerMessage) => void,
-  options?: { skipPreMessageRollback?: boolean; isInteractive?: boolean; titleText?: string },
+  options?: { skipPreMessageRollback?: boolean; isInteractive?: boolean; isUserMessage?: boolean; titleText?: string },
 ): Promise<void> {
   if (!ctx.abortController) {
     throw new Error('runAgentLoop called without prior persistUserMessage');
@@ -169,22 +169,6 @@ export async function runAgentLoopImpl(
   const reqId = ctx.currentRequestId ?? uuid();
   const rlog = log.child({ conversationId: ctx.conversationId, requestId: reqId });
   let yieldedForHandoff = false;
-
-  // Auto-complete stale interactive surfaces from previous turns.
-  // When the user sends a new message (not a surface action response),
-  // any non-dynamic_page pending surfaces are effectively abandoned.
-  if (!ctx.surfaceActionRequestIds.has(reqId)) {
-    for (const [surfaceId, entry] of ctx.pendingSurfaceActions) {
-      if (entry.surfaceType === 'dynamic_page') continue;
-      onEvent({
-        type: 'ui_surface_complete',
-        sessionId: ctx.conversationId,
-        surfaceId,
-        summary: 'Dismissed',
-      });
-      ctx.pendingSurfaceActions.delete(surfaceId);
-    }
-  }
 
   // Capture the turn channel context *before* any awaits so a second
   // message from a different channel can't overwrite it mid-flight.
@@ -229,6 +213,24 @@ export async function runAgentLoopImpl(
   let turnStarted = false;
 
   try {
+    // Auto-complete stale interactive surfaces from previous turns.
+    // Only dismiss when the user sends a new message (not a surface action
+    // response), so internal turns (subagent notifications, lifecycle
+    // instructions) don't accidentally clear active interactive prompts.
+    // Placed inside try so the finally block still runs if onEvent throws.
+    if (options?.isUserMessage && !ctx.surfaceActionRequestIds.has(reqId)) {
+      for (const [surfaceId, entry] of ctx.pendingSurfaceActions) {
+        if (entry.surfaceType === 'dynamic_page') continue;
+        onEvent({
+          type: 'ui_surface_complete',
+          sessionId: ctx.conversationId,
+          surfaceId,
+          summary: 'Dismissed',
+        });
+        ctx.pendingSurfaceActions.delete(surfaceId);
+      }
+    }
+
     const preMessageResult = await getHookManager().trigger('pre-message', {
       sessionId: ctx.conversationId,
       messagePreview: truncate(content, 200, ''),

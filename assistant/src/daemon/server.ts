@@ -1121,6 +1121,7 @@ export class DaemonServer {
     session
       .runAgentLoop(content, messageId, onEvent, {
         isInteractive: options?.isInteractive ?? false,
+        isUserMessage: true,
       })
       .finally(() => {
         // Only reset if no other caller (e.g. a real IPC client) has rebound
@@ -1260,6 +1261,7 @@ export class DaemonServer {
     try {
       await session.runAgentLoop(resolvedContent, messageId, onEvent, {
         isInteractive: options?.isInteractive ?? false,
+        isUserMessage: true,
       });
     } finally {
       // Only reset if no other caller (e.g. a real IPC client) has rebound

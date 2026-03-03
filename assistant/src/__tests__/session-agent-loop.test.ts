@@ -1118,7 +1118,7 @@ describe("session-agent-loop", () => {
       // dynamic_page should be preserved
       ctx.pendingSurfaceActions.set("page-1", { surfaceType: "dynamic_page" });
 
-      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg), { isUserMessage: true });
 
       // The stale table and form surfaces should have been auto-completed
       const completeEvents = events.filter((e) => e.type === "ui_surface_complete");
@@ -1144,7 +1144,7 @@ describe("session-agent-loop", () => {
       ctx.currentRequestId = "surface-action-req";
       ctx.surfaceActionRequestIds.add("surface-action-req");
 
-      await runAgentLoopImpl(ctx, "[User action on table surface]", "msg-1", (msg) => events.push(msg));
+      await runAgentLoopImpl(ctx, "[User action on table surface]", "msg-1", (msg) => events.push(msg), { isUserMessage: true });
 
       // No ui_surface_complete should have been emitted
       const completeEvents = events.filter((e) => e.type === "ui_surface_complete");
@@ -1159,10 +1159,49 @@ describe("session-agent-loop", () => {
       const ctx = makeCtx();
       // No pending surfaces
 
-      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg), { isUserMessage: true });
 
       const completeEvents = events.filter((e) => e.type === "ui_surface_complete");
       expect(completeEvents).toHaveLength(0);
+    });
+
+    test("does not auto-complete surfaces for internal/subagent turns (no isUserMessage)", async () => {
+      const events: ServerMessage[] = [];
+
+      const ctx = makeCtx();
+      ctx.pendingSurfaceActions.set("active-table-1", { surfaceType: "table" });
+      ctx.pendingSurfaceActions.set("active-form-1", { surfaceType: "form" });
+
+      // Internal turn: no isUserMessage option
+      await runAgentLoopImpl(ctx, "subagent notification", "msg-1", (msg) => events.push(msg));
+
+      // No ui_surface_complete should have been emitted
+      const completeEvents = events.filter((e) => e.type === "ui_surface_complete");
+      expect(completeEvents).toHaveLength(0);
+      // Pending surfaces should still be there
+      expect(ctx.pendingSurfaceActions.has("active-table-1")).toBe(true);
+      expect(ctx.pendingSurfaceActions.has("active-form-1")).toBe(true);
+    });
+
+    test("finally block still runs if onEvent throws during stale surface dismissal", async () => {
+      let eventCount = 0;
+      const ctx = makeCtx();
+      ctx.pendingSurfaceActions.set("stale-table-1", { surfaceType: "table" });
+
+      const throwingOnEvent = (msg: ServerMessage) => {
+        eventCount++;
+        if (msg.type === "ui_surface_complete") {
+          throw new Error("onEvent sink failed");
+        }
+      };
+
+      // The error from onEvent should be caught by the try/catch,
+      // and the finally block should still clean up session state
+      await runAgentLoopImpl(ctx, "hello", "msg-1", throwingOnEvent, { isUserMessage: true });
+
+      expect(ctx.processing).toBe(false);
+      expect(ctx.abortController).toBeNull();
+      expect(ctx.currentRequestId).toBeUndefined();
     });
   });
 
