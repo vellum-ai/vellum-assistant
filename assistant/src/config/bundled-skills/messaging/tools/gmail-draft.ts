@@ -9,6 +9,8 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
   const subject = input.subject as string;
   const body = input.body as string;
   const inReplyTo = input.in_reply_to as string | undefined;
+  const cc = input.cc as string | undefined;
+  const bcc = input.bcc as string | undefined;
 
   if (!to) return err('to is required.');
   if (!subject) return err('subject is required.');
@@ -17,7 +19,7 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
   try {
     const provider = getMessagingProvider('gmail');
     return withValidToken(provider.credentialService, async (token) => {
-      const draft = await createDraft(token, to, subject, body, inReplyTo);
+      const draft = await createDraft(token, to, subject, body, inReplyTo, cc, bcc);
       return ok(`Draft created (ID: ${draft.id}). It will appear in your Gmail Drafts.`);
     });
   } catch (e) {

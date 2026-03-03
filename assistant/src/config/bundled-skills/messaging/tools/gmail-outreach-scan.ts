@@ -4,6 +4,7 @@ import { batchGetMessages,listMessages } from '../../../../messaging/providers/g
 import { getMessagingProvider } from '../../../../messaging/registry.js';
 import { withValidToken } from '../../../../security/token-manager.js';
 import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
+import { storeScanResult } from './scan-result-store.js';
 import { err,ok } from './shared.js';
 
 const MAX_MESSAGES_CAP = 2000;
@@ -210,14 +211,21 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
         newest_message_id: s.newestMessageId,
         oldest_date: s.oldestDate,
         newest_date: s.newestDate,
-        message_ids: s.messageIds,
-        has_more: s.hasMore,
         search_query: `from:${s.email}`,
         sample_subjects: s.sampleSubjects,
         suggested_actions: buildSuggestedActions(s.email, s.messageCount),
       }));
 
+      // Store message IDs server-side to keep them out of LLM context
+      const scanId = storeScanResult(sorted.map((s) => ({
+        id: Buffer.from(s.email).toString('base64url'),
+        messageIds: s.messageIds,
+        newestMessageId: s.newestMessageId,
+        newestUnsubscribableMessageId: null,
+      })));
+
       return ok(JSON.stringify({
+        scan_id: scanId,
         senders,
         total_scanned: allMessageIds.length,
         outreach_detected: totalOutreachDetected,

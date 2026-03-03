@@ -2,6 +2,7 @@ import { batchModifyMessages } from '../../../../messaging/providers/gmail/clien
 import { getMessagingProvider } from '../../../../messaging/registry.js';
 import { withValidToken } from '../../../../security/token-manager.js';
 import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
+import { getSenderMessageIds } from './scan-result-store.js';
 import { err,ok } from './shared.js';
 
 const BATCH_MODIFY_LIMIT = 1000;
@@ -11,10 +12,21 @@ export async function run(input: Record<string, unknown>, context: ToolContext):
     return err('This tool requires user confirmation via a surface action. Present results in a selection table with action buttons and wait for the user to click before proceeding.');
   }
 
-  const messageIds = input.message_ids as string[];
+  const scanId = input.scan_id as string | undefined;
+  const senderIds = input.sender_ids as string[] | undefined;
+  let messageIds = input.message_ids as string[] | undefined;
+
+  // Resolve message IDs from scan store if scan_id is provided
+  if (scanId && senderIds?.length) {
+    const resolved = getSenderMessageIds(scanId, senderIds);
+    if (resolved === null) {
+      return err('Scan results have expired (30-minute window). Please re-run the scan to get fresh results.');
+    }
+    messageIds = resolved;
+  }
 
   if (!messageIds?.length) {
-    return err('message_ids is required and must not be empty.');
+    return err('Either message_ids or scan_id + sender_ids is required, and must resolve to at least one message.');
   }
 
   try {
