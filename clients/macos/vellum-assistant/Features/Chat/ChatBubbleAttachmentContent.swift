@@ -10,11 +10,15 @@ import VellumAssistantShared
 /// invalidation that causes EXC_BAD_ACCESS when scrolling. This view decodes
 /// images asynchronously via .task so the layout path only ever sees
 /// pre-decoded NSImage values or a placeholder.
-private struct AttachmentImageGrid: View {
+private struct AttachmentImageGrid<Fallback: View>: View {
     let imageAttachments: [ChatAttachment]
     let onTap: (ChatAttachment) -> Void
+    /// Rendered in place of the gray placeholder when all decode paths fail for an attachment.
+    @ViewBuilder let fallback: (ChatAttachment) -> Fallback
 
     @State private var loadedImages: [String: NSImage] = [:]
+    /// Tracks attachments for which every decode path was exhausted without producing an image.
+    @State private var failedIds: Set<String> = []
 
     var body: some View {
         HStack(spacing: VSpacing.sm) {
@@ -24,17 +28,23 @@ private struct AttachmentImageGrid: View {
                         Image(nsImage: nsImage)
                             .resizable()
                             .aspectRatio(contentMode: .fill)
+                            .frame(width: 60, height: 60)
+                            .clipped()
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                            .onTapGesture {
+                                onTap(attachment)
+                            }
+                    } else if failedIds.contains(attachment.id) {
+                        // All decode paths failed — show a file chip so the user still has the
+                        // filename and a download affordance for corrupt/unsupported payloads.
+                        fallback(attachment)
                     } else {
                         // Placeholder shown while the image is being decoded off the main thread.
                         Rectangle()
                             .fill(Color.gray.opacity(0.2))
+                            .frame(width: 60, height: 60)
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                     }
-                }
-                .frame(width: 60, height: 60)
-                .clipped()
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                .onTapGesture {
-                    onTap(attachment)
                 }
                 // NSImage(data:) is called directly inside .task — no Task{} wrapper — so
                 // SwiftUI can cancel the work immediately when the bubble scrolls off-screen.
@@ -67,7 +77,14 @@ private struct AttachmentImageGrid: View {
                        let img = NSImage(data: fullData) {
                         guard !Task.isCancelled else { return }
                         loadedImages[attachment.id] = img
+                        return
                     }
+
+                    guard !Task.isCancelled else { return }
+
+                    // All three paths exhausted with no image — mark as failed so the
+                    // file chip fallback is shown instead of the permanent gray placeholder.
+                    failedIds.insert(attachment.id)
                 }
             }
         }
@@ -105,7 +122,9 @@ extension ChatBubble {
     }
 
     func attachmentImageGrid(_ images: [ChatAttachment]) -> some View {
-        AttachmentImageGrid(imageAttachments: images, onTap: openImageInPreview)
+        AttachmentImageGrid(imageAttachments: images, onTap: openImageInPreview) { attachment in
+            fileAttachmentChip(attachment)
+        }
     }
 
     func fileAttachmentChip(_ attachment: ChatAttachment) -> some View {
