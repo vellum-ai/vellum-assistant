@@ -63,7 +63,7 @@ function mockFetch(
       return new Response(body, { status, headers: responseHeaders });
     }
     return new Response(String(body), { status, headers: responseHeaders });
-  }) as typeof fetch;
+  }) as unknown as typeof fetch;
 }
 
 /** Create a mock fetch that captures the request for inspection. */
@@ -76,7 +76,7 @@ function capturingFetch(
   const fetchFn = (async (url: string | URL | Request, init?: RequestInit) => {
     captured.push({ url: String(url), init: init ?? {} });
     return mockFetch(status, body, headers)(url, init);
-  }) as typeof fetch;
+  }) as unknown as typeof fetch;
   return { fetchFn, captured };
 }
 
@@ -630,7 +630,7 @@ describe("pollUntilComplete", () => {
         }),
         { status: 200 },
       );
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const progressCalls: JobStatusResponse[] = [];
     const result = await pollUntilComplete(
@@ -664,7 +664,7 @@ describe("pollUntilComplete", () => {
         }),
         { status: 200 },
       );
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const result = await pollUntilComplete(
       managedConfig({ fetchFn }),
@@ -685,7 +685,7 @@ describe("pollUntilComplete", () => {
         JSON.stringify({ status: "pending", job_id: "job-slow" }),
         { status: 200 },
       );
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     try {
       await pollUntilComplete(
@@ -819,7 +819,7 @@ describe("Multi-step flow behavior", () => {
         );
       }
       return new Response("Not found", { status: 404 });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const config = runtimeConfig({ fetchFn });
     const fileData = new ArrayBuffer(8);
@@ -874,7 +874,7 @@ describe("Multi-step flow behavior", () => {
         );
       }
       return new Response("Not found", { status: 404 });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const config = managedConfig({ fetchFn });
 
