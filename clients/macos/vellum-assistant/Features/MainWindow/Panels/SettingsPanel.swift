@@ -596,7 +596,7 @@ struct SettingsPanel: View {
                 Spacer()
                 VSegmentedControl(
                     items: [
-                        (label: "Set Up", tag: "local_byo"),
+                        (label: "Local (BYO App)", tag: "local_byo"),
                         (label: "Managed", tag: "managed"),
                     ],
                     selection: $store.twitterMode,
@@ -613,7 +613,7 @@ struct SettingsPanel: View {
                 HStack(spacing: VSpacing.sm) {
                     Image(systemName: "info.circle")
                         .foregroundStyle(VColor.textSecondary)
-                    Text("Managed mode is coming soon. Switch to Set Up to connect now.")
+                    Text("Managed mode is coming soon. Switch to Local (BYO App) to connect now.")
                         .font(VFont.caption)
                         .foregroundStyle(VColor.textSecondary)
                 }
