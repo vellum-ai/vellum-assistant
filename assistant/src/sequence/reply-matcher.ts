@@ -29,11 +29,11 @@ interface WatcherEventPayload {
 function extractEmail(from: string): string | undefined {
   const segments = [...from.matchAll(/<([^>]+)>/g)].map((m) => m[1]);
   if (segments.length > 0) {
-    const emailSegment = [...segments].reverse().find((s) => s.includes('@'));
+    const emailSegment = segments.find((s) => s.includes('@'));
     if (emailSegment) return emailSegment.trim().toLowerCase();
-    return segments[segments.length - 1].trim().toLowerCase();
   }
-  if (from.includes('@')) return from.trim().toLowerCase();
+  const stripped = from.replace(/<[^>]+>/g, '').trim().toLowerCase();
+  if (stripped.includes('@')) return stripped;
   return undefined;
 }
 
