@@ -13,6 +13,7 @@ private enum ProgressPhase {
     case processing
     case complete
     case error
+    case denied
 }
 
 // MARK: - AssistantProgressView
@@ -35,14 +36,29 @@ struct AssistantProgressView: View {
 
     // MARK: - Derived State
 
+    /// Whether the permission was denied or timed out, meaning incomplete tools were blocked.
+    /// Mirrors `ChatBubbleToolStatusView.permissionWasDenied`.
+    private var permissionWasDenied: Bool {
+        decidedConfirmation?.state == .denied || decidedConfirmation?.state == .timedOut
+    }
+
     private var phase: ProgressPhase {
-        // Check for errors first
-        if toolCalls.contains(where: { $0.isError }) {
+        let allComplete = !toolCalls.isEmpty && toolCalls.allSatisfy(\.isComplete)
+        let hasTools = !toolCalls.isEmpty
+        let hasIncompleteTools = hasTools && !allComplete
+
+        // Only enter error phase when ALL tools are done and at least one errored.
+        // While tools are still running, individual errors show as failed steps in the
+        // expanded list without changing the overall phase.
+        if allComplete && toolCalls.contains(where: { $0.isError }) {
             return .error
         }
 
-        let allComplete = !toolCalls.isEmpty && toolCalls.allSatisfy(\.isComplete)
-        let hasTools = !toolCalls.isEmpty
+        // If confirmation was denied/timed out and tools are incomplete, those tools
+        // will never finish — show the denied state instead of an indefinite spinner.
+        if permissionWasDenied && hasIncompleteTools {
+            return .denied
+        }
 
         // Streaming code preview active
         if isStreaming, let preview = streamingCodePreview, !preview.isEmpty {
@@ -94,7 +110,7 @@ struct AssistantProgressView: View {
         switch phase {
         case .thinking, .toolRunning, .streamingCode, .toolsCompleteThinking, .processing:
             return true
-        case .complete, .error:
+        case .complete, .error, .denied:
             return false
         }
     }
@@ -127,6 +143,10 @@ struct AssistantProgressView: View {
             return "Completed \(toolCalls.count) step\(toolCalls.count == 1 ? "" : "s")"
         case .error:
             return "Something went wrong"
+        case .denied:
+            let uniqueNames = Array(Set(toolCalls.map(\.toolName))).sorted()
+            let primary = uniqueNames.first ?? "Tool"
+            return ChatBubble.friendlyRunningLabel(primary) + " denied"
         }
     }
 
@@ -180,8 +200,8 @@ struct AssistantProgressView: View {
                     elapsedTimeLabel
                 }
 
-                // Permission chip (trailing, when approved)
-                if let confirmation = decidedConfirmation, confirmation.state == .approved {
+                // Permission chip (trailing, when decided)
+                if let confirmation = decidedConfirmation, confirmation.state != .pending {
                     compactPermissionChip(confirmation)
                 }
 
@@ -213,6 +233,16 @@ struct AssistantProgressView: View {
             Image(systemName: "xmark.circle.fill")
                 .font(.system(size: 12))
                 .foregroundColor(VColor.error)
+        case .denied:
+            if decidedConfirmation?.state == .timedOut {
+                Image(systemName: "clock.fill")
+                    .font(.system(size: 12))
+                    .foregroundColor(VColor.textMuted)
+            } else {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 12))
+                    .foregroundColor(VColor.error)
+            }
         default:
             Circle()
                 .fill(VColor.accent)
@@ -367,22 +397,37 @@ struct AssistantProgressView: View {
     // MARK: - Permission Chip
 
     private func compactPermissionChip(_ confirmation: ToolConfirmationData) -> some View {
-        HStack(spacing: VSpacing.xs) {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 12))
-                .foregroundColor(VColor.success)
+        let isApproved = confirmation.state == .approved
+        return HStack(spacing: VSpacing.xs) {
+            Group {
+                switch confirmation.state {
+                case .approved:
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(VColor.success)
+                case .denied:
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(VColor.error)
+                case .timedOut:
+                    Image(systemName: "clock.fill")
+                        .foregroundColor(VColor.textMuted)
+                default:
+                    EmptyView()
+                }
+            }
+            .font(.system(size: 12))
 
-            Text("\(confirmation.toolCategory) allowed")
+            Text(isApproved ? "\(confirmation.toolCategory) allowed" :
+                 confirmation.state == .denied ? "\(confirmation.toolCategory) denied" : "Timed out")
                 .font(VFont.caption)
-                .foregroundColor(VColor.success)
+                .foregroundColor(isApproved ? VColor.success : VColor.textSecondary)
         }
         .padding(.horizontal, VSpacing.md)
         .padding(.vertical, VSpacing.xs)
         .background(
-            Capsule().fill(VColor.success.opacity(0.1))
+            Capsule().fill(isApproved ? VColor.success.opacity(0.1) : VColor.surface)
         )
         .overlay(
-            Capsule().stroke(VColor.success.opacity(0.3), lineWidth: 0.5)
+            Capsule().stroke(isApproved ? VColor.success.opacity(0.3) : VColor.surfaceBorder, lineWidth: 0.5)
         )
     }
 }
