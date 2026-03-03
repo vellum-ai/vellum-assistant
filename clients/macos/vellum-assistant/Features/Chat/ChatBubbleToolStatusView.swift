@@ -61,7 +61,7 @@ extension ChatBubble {
         } else if allToolCallsComplete && !permissionWasDenied && !message.toolCalls.isEmpty && !hideToolCalls && !message.toolCalls.contains(where: { $0.isError }) {
             // All tools finished successfully (no errors) — show unified progress with optional permission chip.
             VStack(alignment: .leading, spacing: 0) {
-                HStack(alignment: .center, spacing: VSpacing.sm) {
+                HStack(alignment: .top, spacing: VSpacing.sm) {
                     AssistantProgressView(
                         toolCalls: message.toolCalls,
                         isRunning: false,
