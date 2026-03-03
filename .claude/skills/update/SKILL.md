@@ -2,14 +2,13 @@
 name: update
 description: >
   Pull latest from main (or a specified branch), use vellum ps/sleep/wake to manage daemon and gateway lifecycle, rebuild/launch the macOS app, and print a startup summary.
-args: "[branch]"
 ---
 
 # Update — Pull Latest and Restart Vellum
 
 Pull the latest changes from main (or a specified branch), use `vellum` lifecycle CLI to stop and restart processes, rebuild/launch the macOS app.
 
-The user may pass an optional `branch` argument (e.g., `/update feature/phone-setup`). If provided, check out and pull that branch instead of `main`. If not provided, default to `main`.
+The user may pass `$ARGUMENTS` as the branch name (e.g., `/update feature/phone-setup`). If provided, check out and pull that branch instead of `main`. If not provided, default to `main`.
 
 ## Steps
 
@@ -49,14 +48,12 @@ The user may pass an optional `branch` argument (e.g., `/update feature/phone-se
    After fallback cleanup, run `vellum ps` again to confirm all processes are stopped.
 
 5. Determine the target branch and switch to it:
-   - If the user passed a `branch` argument, use that branch.
-   - Otherwise, default to `main`.
 
    ```bash
-   # Replace <branch> with the resolved branch name
-   git fetch origin <branch>
-   git checkout <branch>
-   git pull origin <branch>
+   BRANCH="${ARGUMENTS:-main}"
+   git fetch origin "$BRANCH"
+   git checkout "$BRANCH"
+   git pull origin "$BRANCH"
    ```
 
 6. Install any new dependencies:
