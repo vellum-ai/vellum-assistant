@@ -345,6 +345,8 @@ export function createSlackDeliverHandler(
       updateTs?: string;
       /** When provided, use chat.update to edit an existing message instead of posting a new one. */
       messageTs?: string;
+      /** When true, auto-generate Block Kit blocks from text via textToBlocks(). */
+      useBlocks?: boolean;
       /** When provided, generate Block Kit approval prompt blocks. */
       approval?: {
         requestId: string;
@@ -491,7 +493,9 @@ export function createSlackDeliverHandler(
               requestId: body.approval.requestId,
               actions: body.approval.actions,
             })
-          : textToBlocks(text);
+          : body.useBlocks
+            ? textToBlocks(text)
+            : [];
 
     try {
       // Typing indicator: post a placeholder message that the runtime can

@@ -35,6 +35,8 @@ export interface ChannelReplyPayload {
   user?: string;
   /** When provided, instructs the delivery endpoint to update an existing message instead of posting a new one. */
   messageTs?: string;
+  /** When true, auto-generate Block Kit blocks from text via textToBlocks(). */
+  useBlocks?: boolean;
 }
 
 export interface ChannelDeliveryResult {
