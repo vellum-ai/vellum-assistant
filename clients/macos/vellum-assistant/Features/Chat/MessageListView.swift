@@ -466,7 +466,14 @@ struct MessageListView: View {
                     Color.clear.frame(height: 1)
                         .id("scroll-bottom-anchor")
                         .onAppear {
-                            isNearBottom = true
+                            // Only auto-tether on initial load (before any scroll events).
+                            // After the user has scrolled, rely on ScrollWheelDetector and
+                            // anchorIsVisible preference tracking to manage isNearBottom —
+                            // LazyVStack fires onAppear in the prefetch zone (several screens
+                            // ahead) which would prematurely re-tether during normal scrolling.
+                            if !hasReceivedScrollEvent {
+                                isNearBottom = true
+                            }
                         }
                         .background {
                             GeometryReader { geo in

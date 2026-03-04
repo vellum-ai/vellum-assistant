@@ -46,8 +46,8 @@ public final class ManagedAssistantBootstrapService {
 
     private let authService: AuthService
 
-    public init(authService: AuthService = .shared) {
-        self.authService = authService
+    public init(authService: AuthService? = nil) {
+        self.authService = authService ?? AuthService.shared
     }
 
     public func ensureManagedAssistant(
@@ -55,9 +55,22 @@ public final class ManagedAssistantBootstrapService {
         description: String? = nil,
         anthropicApiKey: String? = nil
     ) async throws -> ManagedBootstrapOutcome {
+        // Resolve the user's organization ID first — required for all platform API calls.
+        let organizationId: String
+        do {
+            let orgs = try await authService.getOrganizations()
+            guard let firstOrg = orgs.first else {
+                throw ManagedBootstrapError.serverError(statusCode: 0, detail: "No organizations found for this account")
+            }
+            organizationId = firstOrg.id
+            log.info("Resolved organization: \(organizationId, privacy: .public)")
+        } catch let error as PlatformAPIError {
+            throw mapPlatformError(error)
+        }
+
         let currentResult: PlatformAssistantResult
         do {
-            currentResult = try await authService.getCurrentAssistant()
+            currentResult = try await authService.getCurrentAssistant(organizationId: organizationId)
         } catch let error as PlatformAPIError {
             throw mapPlatformError(error)
         }
@@ -72,6 +85,7 @@ public final class ManagedAssistantBootstrapService {
             let newAssistant: PlatformAssistant
             do {
                 newAssistant = try await authService.hatchAssistant(
+                    organizationId: organizationId,
                     name: name,
                     description: description,
                     anthropicApiKey: anthropicApiKey

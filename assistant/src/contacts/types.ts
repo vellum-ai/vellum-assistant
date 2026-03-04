@@ -13,16 +13,17 @@ export interface OpenClawAssistantMetadata {
   [key: string]: unknown;
 }
 
-export type AssistantMetadataBySpecies = {
-  vellum: VellumAssistantMetadata;
-  openclaw: OpenClawAssistantMetadata;
-};
-
-export interface AssistantContactMetadata {
-  contactId: string;
-  species: AssistantSpecies;
-  metadata: AssistantMetadataBySpecies[AssistantSpecies] | null;
-}
+export type AssistantContactMetadata =
+  | {
+      contactId: string;
+      species: "vellum";
+      metadata: VellumAssistantMetadata | null;
+    }
+  | {
+      contactId: string;
+      species: "openclaw";
+      metadata: OpenClawAssistantMetadata | null;
+    };
 
 export interface Contact {
   id: string;

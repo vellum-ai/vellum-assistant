@@ -1,3 +1,5 @@
+import { execSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -6,9 +8,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { join, dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { gunzipSync } from "node:zlib";
-import { randomUUID } from "node:crypto";
 
 // ---------------------------------------------------------------------------
 // Path helpers
@@ -115,9 +116,11 @@ async function fetchCatalog(): Promise<CatalogSkill[]> {
 }
 
 /**
- * Extract SKILL.md content from a tar archive (uncompressed).
+ * Extract all files from a tar archive (uncompressed) into a directory.
+ * Returns true if a SKILL.md was found in the archive.
  */
-function extractSkillMdFromTar(tarBuffer: Buffer): string | null {
+function extractTarToDir(tarBuffer: Buffer, destDir: string): boolean {
+  let foundSkillMd = false;
   let offset = 0;
   while (offset + 512 <= tarBuffer.length) {
     const header = tarBuffer.subarray(offset, offset + 512);
@@ -131,23 +134,43 @@ function extractSkillMdFromTar(tarBuffer: Buffer): string | null {
       .subarray(0, Math.min(nameEnd >= 0 ? nameEnd : 100, 100))
       .toString("utf-8");
 
+    // File type (byte 156): '5' = directory, '0' or '\0' = regular file
+    const typeFlag = header[156];
+
     // File size (bytes 124-135, octal)
     const sizeStr = header.subarray(124, 136).toString("utf-8").trim();
     const size = parseInt(sizeStr, 8) || 0;
 
     offset += 512; // past header
 
-    if (name.endsWith("SKILL.md") || name === "SKILL.md") {
-      return tarBuffer.subarray(offset, offset + size).toString("utf-8");
+    // Skip directories and empty names
+    if (name && typeFlag !== 53 /* '5' */) {
+      // Prevent path traversal
+      const normalizedName = name.replace(/^\.\//, "");
+      if (!normalizedName.startsWith("..") && !normalizedName.includes("/..")) {
+        const destPath = join(destDir, normalizedName);
+        mkdirSync(dirname(destPath), { recursive: true });
+        writeFileSync(destPath, tarBuffer.subarray(offset, offset + size));
+
+        if (
+          normalizedName === "SKILL.md" ||
+          normalizedName.endsWith("/SKILL.md")
+        ) {
+          foundSkillMd = true;
+        }
+      }
     }
 
     // Skip to next header (data padded to 512 bytes)
     offset += Math.ceil(size / 512) * 512;
   }
-  return null;
+  return foundSkillMd;
 }
 
-async function fetchSkillContent(skillId: string): Promise<string> {
+async function fetchAndExtractSkill(
+  skillId: string,
+  destDir: string,
+): Promise<void> {
   const url = `${getPlatformUrl()}/v1/skills/${encodeURIComponent(skillId)}/`;
   const response = await fetch(url, {
     headers: buildHeaders(),
@@ -162,13 +185,11 @@ async function fetchSkillContent(skillId: string): Promise<string> {
 
   const gzipBuffer = Buffer.from(await response.arrayBuffer());
   const tarBuffer = gunzipSync(gzipBuffer);
-  const skillMd = extractSkillMdFromTar(tarBuffer);
+  const foundSkillMd = extractTarToDir(tarBuffer, destDir);
 
-  if (!skillMd) {
+  if (!foundSkillMd) {
     throw new Error(`SKILL.md not found in archive for "${skillId}"`);
   }
-
-  return skillMd;
 }
 
 // ---------------------------------------------------------------------------
@@ -200,12 +221,11 @@ function upsertSkillsIndex(id: string): void {
   atomicWriteFile(indexPath, content.endsWith("\n") ? content : content + "\n");
 }
 
-function installSkillLocally(
+async function installSkillLocally(
   skillId: string,
-  skillMdContent: string,
   catalogEntry: CatalogSkill,
   overwrite: boolean,
-): void {
+): Promise<void> {
   const skillDir = join(getSkillsDir(), skillId);
   const skillFilePath = join(skillDir, "SKILL.md");
 
@@ -216,7 +236,9 @@ function installSkillLocally(
   }
 
   mkdirSync(skillDir, { recursive: true });
-  atomicWriteFile(skillFilePath, skillMdContent);
+
+  // Extract all files from the archive into the skill directory
+  await fetchAndExtractSkill(skillId, skillDir);
 
   // Write version metadata
   if (catalogEntry.version) {
@@ -230,6 +252,17 @@ function installSkillLocally(
     );
   }
 
+  // Install npm dependencies if the skill has a package.json
+  if (existsSync(join(skillDir, "package.json"))) {
+    const bunPath = `${process.env.HOME || "/root"}/.bun/bin`;
+    execSync("bun install", {
+      cwd: skillDir,
+      stdio: "inherit",
+      env: { ...process.env, PATH: `${bunPath}:${process.env.PATH}` },
+    });
+  }
+
+  // Register in SKILLS.md only after all steps succeed
   upsertSkillsIndex(skillId);
 }
 
@@ -327,11 +360,8 @@ export async function skills(): Promise<void> {
           throw new Error(`Skill "${skillId}" not found in the Vellum catalog`);
         }
 
-        // Fetch SKILL.md from platform
-        const content = await fetchSkillContent(skillId);
-
-        // Install locally
-        installSkillLocally(skillId, content, entry, overwrite);
+        // Fetch, extract, and install
+        await installSkillLocally(skillId, entry, overwrite);
 
         if (json) {
           console.log(JSON.stringify({ ok: true, skillId }));

@@ -169,22 +169,45 @@ function registerPendingToolApprovalInteraction(
 describe("routing invariant: all decision paths reference applyCanonicalGuardianDecision", () => {
   const srcRoot = resolve(__dirname, "..");
 
-  // The files that constitute decision entrypoints. Each must import
-  // `applyCanonicalGuardianDecision` from the guardian-decision-primitive.
-  const DECISION_ENTRYPOINTS = [
+  // The files that constitute decision entrypoints. Each must reference
+  // `applyCanonicalGuardianDecision` (directly) or `processGuardianDecision`
+  // (shared wrapper that calls applyCanonicalGuardianDecision internally).
+  const DECISION_ENTRYPOINTS: Array<{
+    path: string;
+    symbols: string[];
+  }> = [
     // Inbound channel router (Telegram/SMS/WhatsApp)
-    "runtime/guardian-reply-router.ts",
-    // HTTP API route handler (desktop and API clients)
-    "runtime/routes/guardian-action-routes.ts",
-    // IPC handler (desktop socket clients)
-    "daemon/handlers/guardian-actions.ts",
+    {
+      path: "runtime/guardian-reply-router.ts",
+      symbols: ["applyCanonicalGuardianDecision"],
+    },
+    // HTTP API route handler (desktop and API clients) — uses processGuardianDecision
+    // which is a shared wrapper around applyCanonicalGuardianDecision
+    {
+      path: "runtime/routes/guardian-action-routes.ts",
+      symbols: ["processGuardianDecision"],
+    },
+    // IPC handler (desktop socket clients) — uses processGuardianDecision
+    // which is a shared wrapper around applyCanonicalGuardianDecision
+    {
+      path: "daemon/handlers/guardian-actions.ts",
+      symbols: ["processGuardianDecision"],
+    },
+    // Shared service where processGuardianDecision is defined — must route
+    // through the canonical primitive to complete the chain:
+    // entrypoint → processGuardianDecision → applyCanonicalGuardianDecision
+    {
+      path: "runtime/guardian-action-service.ts",
+      symbols: ["applyCanonicalGuardianDecision"],
+    },
   ];
 
-  for (const relPath of DECISION_ENTRYPOINTS) {
-    test(`${relPath} imports applyCanonicalGuardianDecision`, () => {
+  for (const { path: relPath, symbols } of DECISION_ENTRYPOINTS) {
+    test(`${relPath} imports ${symbols.join(" or ")}`, () => {
       const fullPath = join(srcRoot, relPath);
       const source = readFileSync(fullPath, "utf-8");
-      expect(source).toContain("applyCanonicalGuardianDecision");
+      const found = symbols.some((s) => source.includes(s));
+      expect(found).toBe(true);
     });
   }
 

@@ -26,7 +26,8 @@ export interface ToolDomainEvents {
       | "allow_thread"
       | "always_allow"
       | "deny"
-      | "always_deny";
+      | "always_deny"
+      | "temporary_override";
     riskLevel: string;
     decidedAtMs: number;
   };

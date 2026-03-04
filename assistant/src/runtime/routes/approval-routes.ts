@@ -8,56 +8,17 @@
  * header. Guardian decisions additionally verify that the actor is the
  * bound guardian.
  */
-import { isHttpAuthDisabled } from "../../config/env.js";
-import { findGuardianForChannel } from "../../contacts/contact-store.js";
 import { getConversationByKey } from "../../memory/conversation-key-store.js";
 import { addRule } from "../../permissions/trust-store.js";
 import type { UserDecision } from "../../permissions/types.js";
 import { getTool } from "../../tools/registry.js";
 import { getLogger } from "../../util/logger.js";
+import { requireBoundGuardian } from "../auth/require-bound-guardian.js";
 import type { AuthContext } from "../auth/types.js";
 import { httpError } from "../http-errors.js";
 import * as pendingInteractions from "../pending-interactions.js";
 
 const log = getLogger("approval-routes");
-
-/**
- * Verify the actor from AuthContext is the bound guardian for the vellum channel.
- * Returns an error Response if not, or null if allowed.
- */
-function requireBoundGuardian(authContext: AuthContext): Response | null {
-  // Dev bypass: when auth is disabled, skip guardian binding check
-  // (mirrors enforcePolicy dev bypass in route-policy.ts)
-  if (isHttpAuthDisabled()) {
-    return null;
-  }
-  if (!authContext.actorPrincipalId) {
-    return httpError(
-      "FORBIDDEN",
-      "Actor is not the bound guardian for this channel",
-      403,
-    );
-  }
-  const guardianResult = findGuardianForChannel(
-    "vellum",
-    authContext.assistantId,
-  );
-  if (!guardianResult) {
-    // No guardian yet — in pre-bootstrap state, allow through
-    return null;
-  }
-  if (
-    (guardianResult.channel.externalUserId ??
-      guardianResult.contact.principalId) !== authContext.actorPrincipalId
-  ) {
-    return httpError(
-      "FORBIDDEN",
-      "Actor is not the bound guardian for this channel",
-      403,
-    );
-  }
-  return null;
-}
 
 /**
  * POST /v1/confirm — resolve a pending confirmation by requestId.

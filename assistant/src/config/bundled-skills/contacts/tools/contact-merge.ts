@@ -39,39 +39,42 @@ export async function executeContactMerge(
 
   try {
     // Validate both contacts exist before merging
-    let keepData: { ok: boolean; contact: ContactResponse };
-    let mergeData: { ok: boolean; contact: ContactResponse };
+    const [keepResult, mergeResult] = await Promise.allSettled([
+      gatewayGet<{ ok: boolean; contact: ContactResponse }>(
+        `/v1/contacts/${keepId}`,
+      ),
+      gatewayGet<{ ok: boolean; contact: ContactResponse }>(
+        `/v1/contacts/${mergeId}`,
+      ),
+    ]);
 
-    try {
-      [keepData, mergeData] = await Promise.all([
-        gatewayGet<{ ok: boolean; contact: ContactResponse }>(
-          `/v1/contacts/${keepId}`,
-        ),
-        gatewayGet<{ ok: boolean; contact: ContactResponse }>(
-          `/v1/contacts/${mergeId}`,
-        ),
-      ]);
-    } catch (err) {
-      if (err instanceof GatewayRequestError) {
-        // Determine which contact failed by retrying individually
-        try {
-          await gatewayGet(`/v1/contacts/${keepId}`);
-        } catch {
-          return {
-            content: `Error: Contact "${keepId}" not found`,
-            isError: true,
-          };
-        }
+    if (keepResult.status === "rejected") {
+      if (
+        keepResult.reason instanceof GatewayRequestError &&
+        keepResult.reason.statusCode === 404
+      ) {
+        return {
+          content: `Error: Contact "${keepId}" not found`,
+          isError: true,
+        };
+      }
+      throw keepResult.reason;
+    }
+    if (mergeResult.status === "rejected") {
+      if (
+        mergeResult.reason instanceof GatewayRequestError &&
+        mergeResult.reason.statusCode === 404
+      ) {
         return {
           content: `Error: Contact "${mergeId}" not found`,
           isError: true,
         };
       }
-      throw err;
+      throw mergeResult.reason;
     }
 
-    const keepContact = keepData.contact;
-    const mergeContact = mergeData.contact;
+    const keepContact = keepResult.value.contact;
+    const mergeContact = mergeResult.value.contact;
 
     // Execute the merge
     const { data: resultData } = await gatewayPost<{

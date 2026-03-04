@@ -1,0 +1,264 @@
+/**
+ * Validates that every SKILL.md file under `skills/` conforms to the
+ * Agent Skills specification (https://agentskills.io/specification).
+ *
+ * Checks performed:
+ *   1. Each skill directory contains a SKILL.md file.
+ *   2. SKILL.md starts with valid YAML frontmatter (delimited by `---`).
+ *   3. Required fields: `name` and `description`.
+ *   4. `name` matches the parent directory name.
+ *   5. `name` constraints: 1-64 chars, lowercase alphanumeric + hyphens,
+ *      no consecutive hyphens, no leading/trailing hyphens.
+ *   6. `description` constraints: 1-1024 chars, non-empty.
+ *   7. Optional `compatibility`: 1-500 chars if present.
+ *   8. Frontmatter is followed by Markdown body content.
+ *
+ * Usage:
+ *   node scripts/skills/lint-skill-spec.mjs [skill-name ...]
+ *
+ * If no skill names are provided, all skills are checked.
+ */
+
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const SKILLS_DIR = resolve(__dirname, "../../skills");
+
+/**
+ * Parse YAML frontmatter from a string.
+ * Returns { frontmatter: Record<string, unknown>, body: string } or throws.
+ *
+ * This is a minimal parser that handles the subset of YAML used in
+ * SKILL.md frontmatter without requiring external dependencies.
+ */
+function parseFrontmatter(content) {
+  const trimmed = content.trimStart();
+  if (!trimmed.startsWith("---")) {
+    throw new Error("SKILL.md must start with YAML frontmatter (---).");
+  }
+
+  const endIndex = trimmed.indexOf("\n---", 3);
+  if (endIndex === -1) {
+    throw new Error(
+      "SKILL.md frontmatter is missing closing delimiter (---).",
+    );
+  }
+
+  const yamlBlock = trimmed.slice(trimmed.indexOf("\n", 0) + 1, endIndex);
+  const body = trimmed.slice(endIndex + 4).trim();
+  const frontmatter = parseSimpleYaml(yamlBlock);
+
+  return { frontmatter, body };
+}
+
+/**
+ * Minimal YAML parser for flat key-value pairs and simple nested maps.
+ * Handles string values (quoted or unquoted) and one level of nesting.
+ */
+function parseSimpleYaml(yaml) {
+  const result = {};
+  const lines = yaml.split("\n");
+  let currentKey = null;
+
+  for (const line of lines) {
+    // Skip blank lines and comments
+    if (line.trim() === "" || line.trim().startsWith("#")) {
+      continue;
+    }
+
+    // Check for nested key (indented with spaces)
+    if (/^\s+\S/.test(line) && currentKey !== null) {
+      const nestedMatch = line.match(/^\s+(\S+):\s*(.*)/);
+      if (nestedMatch) {
+        if (typeof result[currentKey] !== "object" || result[currentKey] === null) {
+          result[currentKey] = {};
+        }
+        result[currentKey][nestedMatch[1]] = stripQuotes(nestedMatch[2].trim());
+      }
+      continue;
+    }
+
+    // Top-level key
+    const match = line.match(/^(\S+):\s*(.*)/);
+    if (match) {
+      currentKey = match[1];
+      const value = match[2].trim();
+      if (value === "" || value === "|" || value === ">") {
+        // Will be filled by nested lines or is empty
+        result[currentKey] = value === "" ? "" : "";
+      } else {
+        result[currentKey] = stripQuotes(value);
+        currentKey = null; // Reset so next indented line doesn't attach
+      }
+    }
+  }
+
+  return result;
+}
+
+function stripQuotes(s) {
+  if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
+    return s.slice(1, -1);
+  }
+  return s;
+}
+
+// --- Validation Rules ---
+
+const NAME_PATTERN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
+
+function validateName(name, dirName) {
+  const errors = [];
+
+  if (typeof name !== "string" || name.length === 0) {
+    errors.push('Required field "name" is missing or empty.');
+    return errors;
+  }
+
+  if (name.length > 64) {
+    errors.push(`"name" must be at most 64 characters (got ${name.length}).`);
+  }
+
+  if (!NAME_PATTERN.test(name)) {
+    errors.push(
+      `"name" must contain only lowercase letters, numbers, and hyphens, and must not start or end with a hyphen. Got: "${name}".`,
+    );
+  }
+
+  if (name.includes("--")) {
+    errors.push(`"name" must not contain consecutive hyphens (--). Got: "${name}".`);
+  }
+
+  if (name !== dirName) {
+    errors.push(
+      `"name" must match the parent directory name. Expected "${dirName}", got "${name}".`,
+    );
+  }
+
+  return errors;
+}
+
+function validateDescription(description) {
+  const errors = [];
+
+  if (typeof description !== "string" || description.length === 0) {
+    errors.push('Required field "description" is missing or empty.');
+    return errors;
+  }
+
+  if (description.length > 1024) {
+    errors.push(
+      `"description" must be at most 1024 characters (got ${description.length}).`,
+    );
+  }
+
+  return errors;
+}
+
+function validateCompatibility(compatibility) {
+  const errors = [];
+
+  if (compatibility === undefined || compatibility === null) {
+    return errors;
+  }
+
+  if (typeof compatibility === "string" && compatibility.length > 500) {
+    errors.push(
+      `"compatibility" must be at most 500 characters (got ${compatibility.length}).`,
+    );
+  }
+
+  return errors;
+}
+
+function validateSkill(skillName) {
+  const skillDir = join(SKILLS_DIR, skillName);
+  const skillMdPath = join(skillDir, "SKILL.md");
+  const errors = [];
+
+  if (!statSync(skillDir, { throwIfNoEntry: false })?.isDirectory()) {
+    return errors;
+  }
+
+  // 1. SKILL.md must exist
+  const stat = statSync(skillMdPath, { throwIfNoEntry: false });
+  if (!stat || !stat.isFile()) {
+    errors.push(`skills/${skillName}/SKILL.md is missing.`);
+    return errors;
+  }
+
+  // 2. Parse frontmatter
+  const content = readFileSync(skillMdPath, "utf-8");
+  let frontmatter;
+  try {
+    const parsed = parseFrontmatter(content);
+    frontmatter = parsed.frontmatter;
+  } catch (e) {
+    errors.push(`skills/${skillName}/SKILL.md: ${e.message}`);
+    return errors;
+  }
+
+  // 3. Validate required fields
+  errors.push(
+    ...validateName(frontmatter.name, skillName).map(
+      (e) => `skills/${skillName}/SKILL.md: ${e}`,
+    ),
+  );
+
+  errors.push(
+    ...validateDescription(frontmatter.description).map(
+      (e) => `skills/${skillName}/SKILL.md: ${e}`,
+    ),
+  );
+
+  // 4. Validate optional fields
+  errors.push(
+    ...validateCompatibility(frontmatter.compatibility).map(
+      (e) => `skills/${skillName}/SKILL.md: ${e}`,
+    ),
+  );
+
+  return errors;
+}
+
+// --- Main ---
+
+function getSkillDirs(filter) {
+  let entries;
+  try {
+    entries = readdirSync(SKILLS_DIR, { withFileTypes: true });
+  } catch {
+    console.log("No skills/ directory found. Nothing to validate.");
+    process.exit(0);
+  }
+
+  return entries
+    .filter((e) => e.isDirectory())
+    .filter((e) => !filter || filter.length === 0 || filter.includes(e.name))
+    .map((e) => e.name)
+    .sort();
+}
+
+const filterSkills = process.argv.slice(2);
+const skillDirs = getSkillDirs(filterSkills);
+
+let totalErrors = 0;
+
+for (const skill of skillDirs) {
+  const errors = validateSkill(skill);
+  for (const err of errors) {
+    console.error(err);
+  }
+  totalErrors += errors.length;
+}
+
+if (totalErrors > 0) {
+  console.error(`\nFound ${totalErrors} SKILL.md spec violation(s).`);
+  process.exit(1);
+} else {
+  console.log(
+    `Validated ${skillDirs.length} skill(s) - all SKILL.md files conform to the spec.`,
+  );
+}

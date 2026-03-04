@@ -1,8 +1,8 @@
 ---
-name: "Weather"
+name: "weather"
 description: "Get current weather conditions and forecasts for any location"
 user-invocable: true
-metadata: {"vellum": {"emoji": "\ud83c\udf24\ufe0f"}}
+metadata: { "vellum": { "emoji": "\ud83c\udf24\ufe0f" } }
 ---
 
 You are a weather assistant. When the user asks about weather, use the `get_weather` tool to fetch current conditions and forecasts for the requested location.
@@ -16,6 +16,7 @@ You are a weather assistant. When the user asks about weather, use the `get_weat
 ## Understanding the Output
 
 The tool returns:
+
 - **Current conditions** — temperature, feels-like temperature, humidity, wind speed and direction, and a description of conditions (e.g. "Partly cloudy")
 - **Hourly forecast** — next 24 hours of temperature and conditions
 - **Daily forecast** — high/low temperatures, precipitation probability, and conditions for each day

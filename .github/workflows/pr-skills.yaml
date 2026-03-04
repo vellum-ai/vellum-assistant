@@ -1,0 +1,117 @@
+name: PR Skills Checks
+
+on:
+  pull_request:
+    types: [synchronize, opened, reopened]
+    paths:
+      - 'skills/**'
+      - 'scripts/skills/**'
+      - '.github/workflows/pr-skills.yaml'
+
+concurrency:
+  group: pr-skills-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  discover:
+    name: Discover changed skills
+    runs-on: ubuntu-latest
+    outputs:
+      changed_skills: ${{ steps.changed.outputs.changed_skills }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed skill directories
+        id: changed
+        run: |
+          BASE_SHA=${{ github.event.pull_request.base.sha }}
+          HEAD_SHA=${{ github.event.pull_request.head.sha }}
+          SKILLS_DIR="skills"
+
+          CHANGED_FILES=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" -- "$SKILLS_DIR")
+
+          if [ -z "$CHANGED_FILES" ]; then
+            echo 'changed_skills=[]' >> "$GITHUB_OUTPUT"
+          else
+            # Filter to only files inside subdirectories (exclude top-level files like catalog.json)
+            SKILLS=$(echo "$CHANGED_FILES" \
+              | sed "s|^$SKILLS_DIR/||" \
+              | grep '/' \
+              | cut -d'/' -f1 \
+              | sort -u \
+              | jq -R -s -c 'split("\n") | map(select(length > 0))')
+            echo "changed_skills=${SKILLS:-[]}" >> "$GITHUB_OUTPUT"
+          fi
+
+  prettier:
+    name: 'Prettier: ${{ matrix.skill }}'
+    needs: discover
+    if: needs.discover.outputs.changed_skills != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        skill: ${{ fromJson(needs.discover.outputs.changed_skills) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Prettier check
+        run: npx prettier --check --ignore-unknown "skills/${{ matrix.skill }}/**"
+
+  lint-imports:
+    name: Lint cross-skill imports
+    needs: discover
+    if: needs.discover.outputs.changed_skills != '[]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Check for cross-skill imports
+        run: node scripts/skills/lint-skill-imports.mjs
+
+  lint-spec:
+    name: Lint SKILL.md spec compliance
+    needs: discover
+    if: needs.discover.outputs.changed_skills != '[]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Validate SKILL.md files
+        run: node scripts/skills/lint-skill-spec.mjs
+
+  check-catalog:
+    name: Check catalog.json is up to date
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Validate catalog.json
+        run: node scripts/skills/check-catalog.mjs

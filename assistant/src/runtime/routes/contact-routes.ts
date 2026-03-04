@@ -18,6 +18,7 @@ import {
   updateChannelStatus,
   upsertAssistantContactMetadata,
   upsertContact,
+  validateSpeciesMetadata,
 } from "../../contacts/contact-store.js";
 import type {
   AssistantSpecies,
@@ -237,6 +238,18 @@ export async function handleUpsertContact(
       return httpError(
         "BAD_REQUEST",
         `Invalid species "${body.assistantMetadata.species}". Must be one of: ${VALID_ASSISTANT_SPECIES.join(", ")}`,
+        400,
+      );
+    }
+    try {
+      validateSpeciesMetadata(
+        body.assistantMetadata.species as AssistantSpecies,
+        body.assistantMetadata.metadata ?? null,
+      );
+    } catch (err) {
+      return httpError(
+        "BAD_REQUEST",
+        err instanceof Error ? err.message : String(err),
         400,
       );
     }
