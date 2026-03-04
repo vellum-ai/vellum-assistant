@@ -16,7 +16,7 @@ struct SettingsSnapshot {
     let maxSteps: Double
     let mediaEmbedsEnabled: Bool
 
-    init(store: SettingsStore) {
+    @MainActor init(store: SettingsStore) {
         model = store.selectedModel
         hasTelegram = store.telegramConnected
         hasTwitter = store.twitterConnected
@@ -39,7 +39,7 @@ struct SettingsChange {
 }
 
 struct SettingsChangeDetector {
-    static func detect(before: SettingsSnapshot, after: SettingsSnapshot) -> [SettingsChange] {
+    @MainActor static func detect(before: SettingsSnapshot, after: SettingsSnapshot) -> [SettingsChange] {
         var changes: [SettingsChange] = []
 
         if before.model != after.model {
