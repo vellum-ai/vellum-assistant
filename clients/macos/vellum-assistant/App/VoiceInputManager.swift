@@ -573,6 +573,9 @@ final class VoiceInputManager {
                         self.stopRecording()
                     } else {
                         self.onPartialTranscription?(text)
+                        if self.currentMode == .dictation {
+                            self.overlayWindow.updatePartialTranscription(text)
+                        }
                     }
                 }
 
