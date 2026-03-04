@@ -26,6 +26,7 @@ import {
   migrateCanonicalGuardianRequesterChatId,
   migrateChannelInboundDeliveredSegments,
   migrateContactChannelsAccessFields,
+  migrateContactChannelsTypeChatIdIndex,
   migrateContactsRolePrincipal,
   migrateConversationsThreadTypeIndex,
   migrateFkCascadeRebuilds,
@@ -196,6 +197,9 @@ export function initializeDb(): void {
 
   // 33. Add verification and access-control columns to contact_channels
   migrateContactChannelsAccessFields(database);
+
+  // 34. Composite index on (type, external_chat_id) for updateChannelLastSeenByExternalChatId
+  migrateContactChannelsTypeChatIdIndex(database);
 
   validateMigrationState(database);
 }
