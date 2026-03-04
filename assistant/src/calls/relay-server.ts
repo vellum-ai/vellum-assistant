@@ -1557,6 +1557,11 @@ export class RelayConnection {
     // Delay the first heartbeat by the estimated TTS playback duration so
     // the initial hold message finishes before any heartbeat fires.
     this.heartbeatSequence = 0;
+    // Set the wait start time now so scheduleNextHeartbeat() always has a
+    // valid reference point — even if the TTS delay timer is cancelled early
+    // (e.g. by handleWaitStatePrompt when the caller speaks during playback).
+    // The callback below re-stamps it to exclude the TTS delay if it fires.
+    this.accessRequestWaitStartedAt = Date.now();
     this.accessRequestHeartbeatTimer = setTimeout(() => {
       this.accessRequestWaitStartedAt = Date.now();
       this.scheduleNextHeartbeat();
