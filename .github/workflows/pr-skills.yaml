@@ -37,7 +37,6 @@ jobs:
             SKILLS=$(echo "$CHANGED_FILES" \
               | sed "s|^$SKILLS_DIR/||" \
               | cut -d'/' -f1 \
-              | grep -v '^_shared$' \
               | sort -u \
               | jq -R -s -c 'split("\n") | map(select(length > 0))')
             echo "changed_skills=$SKILLS" >> "$GITHUB_OUTPUT"

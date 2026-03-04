@@ -18,18 +18,10 @@ import { fileURLToPath } from "node:url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SKILLS_DIR = resolve(__dirname, "../skills");
 
-/**
- * Known cross-skill imports that are intentionally allowed.
- * Each entry maps "source-skill/relative/file.ts" to an array of target skills.
- */
-const ALLOWED_CROSS_SKILL_IMPORTS = {
-  "messaging/tools/send-notification.ts": ["notifications"],
-};
-
 function getSkillDirs(filter) {
   const entries = readdirSync(SKILLS_DIR, { withFileTypes: true });
   return entries
-    .filter((e) => e.isDirectory() && e.name !== "_shared")
+    .filter((e) => e.isDirectory())
     .filter((e) => !filter || filter.length === 0 || filter.includes(e.name))
     .map((e) => e.name)
     .sort();
@@ -81,23 +73,14 @@ function checkSkill(skillName) {
 
         const targetSkill = relToSkills.split("/")[0];
 
-        // Imports from _shared are allowed
-        if (targetSkill === "_shared") {
-          continue;
-        }
-
-        // If it resolves to a different skill, check the allowlist
+        // If it resolves to a different skill, that's a violation
         if (targetSkill !== skillName) {
-          const fileRelToSkills = relative(SKILLS_DIR, filePath);
-          const allowed = ALLOWED_CROSS_SKILL_IMPORTS[fileRelToSkills] ?? [];
-          if (!allowed.includes(targetSkill)) {
-            violations.push({
-              file: relative(process.cwd(), filePath),
-              line: i + 1,
-              importPath,
-              targetSkill,
-            });
-          }
+          violations.push({
+            file: relative(process.cwd(), filePath),
+            line: i + 1,
+            importPath,
+            targetSkill,
+          });
         }
       }
     }
