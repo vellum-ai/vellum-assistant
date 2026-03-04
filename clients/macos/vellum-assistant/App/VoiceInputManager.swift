@@ -568,6 +568,8 @@ final class VoiceInputManager {
                         log.info("Transcription: \(text, privacy: .public)")
                         if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                             self.handleFinalTranscription(text)
+                        } else {
+                            VoiceFeedback.playDeactivationChime()
                         }
                         self.recognitionTask = nil
                         self.stopRecording()
@@ -582,6 +584,7 @@ final class VoiceInputManager {
                 if let error = error {
                     log.error("Recognition error: \(error.localizedDescription)")
                     self.recognitionTask = nil
+                    VoiceFeedback.playDeactivationChime()
                     self.stopRecording()
                 }
             }
@@ -742,6 +745,7 @@ final class VoiceInputManager {
             VoiceFeedback.playDeactivationChime()
         } else if mode == "action" {
             overlayWindow.dismiss()
+            VoiceFeedback.playDeactivationChime()
             log.info("Action mode detected — routing transcription to task submission: \(text, privacy: .public)")
             onActionModeTriggered?(text)
         }
