@@ -86,7 +86,7 @@ jobs:
   test:
     if: contains(github.event.pull_request.labels.*.name, 'preview')
     name: Test
-    runs-on: ubuntu-latest-4-cores
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
       run:
@@ -115,7 +115,6 @@ jobs:
         run: bun run test
         env:
           EXCLUDE_EXPERIMENTAL: 'true'
-          TEST_WORKERS: '8'
 
   artifact:
     name: Upload Artifact
