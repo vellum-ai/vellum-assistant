@@ -3,7 +3,6 @@ export {
   getContact,
   listContacts,
   mergeContacts,
-  recordInteraction,
   searchContacts,
   upsertContact,
 } from "./contact-store.js";

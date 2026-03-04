@@ -580,29 +580,6 @@ export function mergeContacts(
 }
 
 /**
- * Record an interaction with a contact — bumps count and updates timestamp.
- */
-export function recordInteraction(contactId: string): void {
-  const db = getDb();
-  const now = Date.now();
-  const existing = db
-    .select()
-    .from(contacts)
-    .where(eq(contacts.id, contactId))
-    .get();
-  if (!existing) return;
-
-  db.update(contacts)
-    .set({
-      lastInteraction: now,
-      interactionCount: existing.interactionCount + 1,
-      updatedAt: now,
-    })
-    .where(eq(contacts.id, contactId))
-    .run();
-}
-
-/**
  * Find a contact by a specific channel address. Returns null if not found.
  */
 export function findContactByAddress(
@@ -895,47 +872,5 @@ export function updateChannelLastSeenById(channelId: string): void {
   db.update(contactChannels)
     .set({ lastSeenAt: now, updatedAt: now })
     .where(eq(contactChannels.id, channelId))
-    .run();
-}
-
-/**
- * Update the lastSeenAt timestamp on a contact channel by (type, externalUserId).
- * Optimized for the hot path — single UPDATE with no prior SELECT.
- */
-export function updateChannelLastSeenByExternalId(
-  channelType: string,
-  externalUserId: string,
-): void {
-  const db = getDb();
-  const now = Date.now();
-  db.update(contactChannels)
-    .set({ lastSeenAt: now, updatedAt: now })
-    .where(
-      and(
-        eq(contactChannels.type, channelType),
-        eq(contactChannels.externalUserId, externalUserId),
-      ),
-    )
-    .run();
-}
-
-/**
- * Update the lastSeenAt timestamp on a contact channel by (type, externalChatId).
- * Fallback for members that only have a chat ID and no external user ID.
- */
-export function updateChannelLastSeenByExternalChatId(
-  channelType: string,
-  externalChatId: string,
-): void {
-  const db = getDb();
-  const now = Date.now();
-  db.update(contactChannels)
-    .set({ lastSeenAt: now, updatedAt: now })
-    .where(
-      and(
-        eq(contactChannels.type, channelType),
-        eq(contactChannels.externalChatId, externalChatId),
-      ),
-    )
     .run();
 }
