@@ -1036,6 +1036,7 @@ struct MainWindowView: View {
             }
         }
         .onHover { hovering in
+            let wasHovered = sidebar.isHoveredThread == thread.id
             withAnimation(VAnimation.fast) {
                 if hovering {
                     sidebar.isHoveredThread = thread.id
@@ -1045,7 +1046,7 @@ struct MainWindowView: View {
                     }
                 }
             }
-            if hovering { NSCursor.pointingHand.push() } else if sidebar.isHoveredThread == nil { NSCursor.pop() }
+            if hovering { NSCursor.pointingHand.push() } else if wasHovered { NSCursor.pop() }
         }
         .onDrag {
             sidebar.draggingThreadId = thread.id
