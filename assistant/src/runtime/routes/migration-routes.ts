@@ -339,6 +339,17 @@ export async function handleMigrationImport(req: Request): Promise<Response> {
   }
 
   try {
+    // Validate the bundle before closing the DB to avoid an unnecessary
+    // close/reopen cycle when the bundle is invalid.
+    const validation = validateVBundle(fileData);
+    if (!validation.is_valid) {
+      return Response.json({
+        success: false,
+        reason: "validation_failed",
+        errors: validation.errors,
+      });
+    }
+
     const pathResolver = new DefaultPathResolver(
       getDbPath(),
       getWorkspaceConfigPath(),
