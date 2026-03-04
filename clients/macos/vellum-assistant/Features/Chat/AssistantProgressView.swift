@@ -132,11 +132,12 @@ struct AssistantProgressView: View {
             return "Thinking..."
         case .toolRunning:
             if let current = currentCall {
-                return ChatBubble.friendlyRunningLabel(
-                    current.toolName,
-                    inputSummary: current.inputSummary,
-                    buildingStatus: current.buildingStatus
-                )
+                return current.reasonDescription
+                    ?? ChatBubble.friendlyRunningLabel(
+                        current.toolName,
+                        inputSummary: current.inputSummary,
+                        buildingStatus: current.buildingStatus
+                    )
             }
             return "Working"
         case .streamingCode:
@@ -341,111 +342,18 @@ struct AssistantProgressView: View {
 
     @ViewBuilder
     private var expandedContent: some View {
-        switch phase {
-        case .complete:
-            // Full StepsSection for completed state
-            StepsSection(toolCalls: toolCalls, onRehydrate: onRehydrate)
-                .padding(.bottom, VSpacing.xs)
-        default:
-            // In-progress, error, or denied: show completed + running/blocked rows
-            VStack(alignment: .leading, spacing: VSpacing.xxs) {
-                ForEach(toolCalls) { toolCall in
-                    if toolCall.isComplete {
-                        completedToolRow(toolCall)
-                    } else if phase == .denied {
-                        // Permission was denied — show incomplete tools as blocked, not running
-                        blockedToolRow(toolCall)
-                    } else if toolCall.toolName == "claude_code" && !toolCall.claudeCodeSteps.isEmpty {
-                        // Claude Code sub-steps
-                        ClaudeCodeProgressView(steps: toolCall.claudeCodeSteps, isRunning: true)
-                            .padding(.horizontal, VSpacing.sm)
-                    } else {
-                        runningToolRow(toolCall)
-                    }
+        VStack(alignment: .leading, spacing: VSpacing.xxs) {
+            ForEach(toolCalls) { toolCall in
+                if !toolCall.isComplete && toolCall.toolName == "claude_code"
+                    && !toolCall.claudeCodeSteps.isEmpty {
+                    ClaudeCodeProgressView(steps: toolCall.claudeCodeSteps, isRunning: true)
+                        .padding(.horizontal, VSpacing.sm)
+                } else {
+                    StepDetailRow(toolCall: toolCall, phase: phase, onRehydrate: onRehydrate)
                 }
             }
-            .padding(.bottom, VSpacing.xs)
         }
-    }
-
-    // MARK: - Tool Rows
-
-    private func completedToolRow(_ toolCall: ToolCallData) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.xxs) {
-            HStack(spacing: VSpacing.sm) {
-                Image(systemName: toolCall.isError ? "xmark.circle.fill" : "checkmark.circle.fill")
-                    .font(.system(size: 10))
-                    .foregroundColor(toolCall.isError ? VColor.error : VColor.success)
-                    .frame(width: 14)
-
-                Text(toolCall.actionDescription)
-                    .font(VFont.captionMedium)
-                    .foregroundColor(toolCall.isError ? VColor.error : VColor.textSecondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-
-                Spacer()
-            }
-
-            // Reason subtitle
-            if let reason = toolCall.reasonDescription, !reason.isEmpty {
-                Text(reason)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .padding(.leading, 14 + VSpacing.sm)
-            }
-        }
-        .padding(.horizontal, VSpacing.sm)
-        .padding(.vertical, VSpacing.xxs)
-    }
-
-    private func runningToolRow(_ toolCall: ToolCallData) -> some View {
-        HStack(spacing: VSpacing.sm) {
-            Circle()
-                .fill(VColor.accent)
-                .frame(width: 6, height: 6)
-                .modifier(AssistantProgressPulsingModifier())
-                .frame(width: 14)
-
-            Text(ChatBubble.friendlyRunningLabel(
-                toolCall.toolName,
-                inputSummary: toolCall.inputSummary,
-                buildingStatus: toolCall.buildingStatus
-            ))
-                .font(VFont.captionMedium)
-                .foregroundColor(VColor.textSecondary)
-                .lineLimit(1)
-                .truncationMode(.tail)
-
-            Spacer()
-        }
-        .padding(.horizontal, VSpacing.sm)
-        .padding(.vertical, VSpacing.xxs)
-    }
-
-    private func blockedToolRow(_ toolCall: ToolCallData) -> some View {
-        HStack(spacing: VSpacing.sm) {
-            Image(systemName: "xmark.circle.fill")
-                .font(.system(size: 10))
-                .foregroundColor(VColor.textMuted)
-                .frame(width: 14)
-
-            Text("Blocked — " + ChatBubble.friendlyRunningLabel(
-                toolCall.toolName,
-                inputSummary: toolCall.inputSummary,
-                buildingStatus: toolCall.buildingStatus
-            ))
-                .font(VFont.captionMedium)
-                .foregroundColor(VColor.textMuted)
-                .lineLimit(1)
-                .truncationMode(.tail)
-
-            Spacer()
-        }
-        .padding(.horizontal, VSpacing.sm)
-        .padding(.vertical, VSpacing.xxs)
+        .padding(.bottom, VSpacing.xs)
     }
 
     // MARK: - Permission Chip
@@ -483,6 +391,355 @@ struct AssistantProgressView: View {
         .overlay(
             Capsule().stroke(isApproved ? VColor.success.opacity(0.3) : VColor.surfaceBorder, lineWidth: 0.5)
         )
+    }
+}
+
+// MARK: - Step Detail Row
+
+/// Unified row for tool call steps — handles completed, running, and blocked states.
+/// Completed rows are expandable to show technical details, screenshots, and output.
+private struct StepDetailRow: View {
+    let toolCall: ToolCallData
+    let phase: ProgressPhase
+    var onRehydrate: (() -> Void)?
+
+    @State private var isDetailExpanded = false
+    @State private var isHovered = false
+    @State private var isImageHovered = false
+    /// Cached formatted input — computed once on first expand.
+    @State private var cachedInputFull: String?
+    @Environment(\.displayScale) private var displayScale
+
+    /// Lazily resolved full input text.
+    private var resolvedInputFull: String {
+        if let cached = cachedInputFull { return cached }
+        if !toolCall.inputFull.isEmpty { return toolCall.inputFull }
+        return ""
+    }
+
+    /// Whether the tool result or input appears truncated.
+    private var isTruncated: Bool {
+        (toolCall.result?.hasSuffix("[truncated]") ?? false)
+            || toolCall.inputFull.hasSuffix("[truncated]")
+    }
+
+    /// Whether this completed tool has detail content to show.
+    private var hasDetails: Bool {
+        guard toolCall.isComplete else { return false }
+        return !toolCall.inputFull.isEmpty || toolCall.inputRawDict != nil
+            || (toolCall.result != nil && !(toolCall.result?.isEmpty ?? true))
+            || toolCall.cachedImage != nil
+            || !toolCall.claudeCodeSteps.isEmpty
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Row header
+            Button {
+                guard hasDetails else { return }
+                withAnimation(VAnimation.fast) { isDetailExpanded.toggle() }
+            } label: {
+                HStack(spacing: VSpacing.sm) {
+                    // Status icon
+                    if toolCall.isComplete {
+                        Image(systemName: toolCall.isError ? "xmark.circle.fill" : "checkmark.circle.fill")
+                            .font(.system(size: 10))
+                            .foregroundColor(toolCall.isError ? VColor.error : VColor.success)
+                            .frame(width: 14)
+                    } else if phase == .denied {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 10))
+                            .foregroundColor(VColor.textMuted)
+                            .frame(width: 14)
+                    } else {
+                        Circle()
+                            .fill(VColor.accent)
+                            .frame(width: 6, height: 6)
+                            .modifier(AssistantProgressPulsingModifier())
+                            .frame(width: 14)
+                    }
+
+                    // Title + reason
+                    VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                        if toolCall.isComplete {
+                            Text(toolCall.actionDescription)
+                                .font(VFont.captionMedium)
+                                .foregroundColor(toolCall.isError ? VColor.error : VColor.textSecondary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                        } else if phase == .denied {
+                            Text("Blocked — " + ChatBubble.friendlyRunningLabel(
+                                toolCall.toolName,
+                                inputSummary: toolCall.inputSummary,
+                                buildingStatus: toolCall.buildingStatus
+                            ))
+                            .font(VFont.captionMedium)
+                            .foregroundColor(VColor.textMuted)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        } else {
+                            Text(ChatBubble.friendlyRunningLabel(
+                                toolCall.toolName,
+                                inputSummary: toolCall.inputSummary,
+                                buildingStatus: toolCall.buildingStatus
+                            ))
+                            .font(VFont.captionMedium)
+                            .foregroundColor(VColor.textSecondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        }
+
+                        // Reason subtitle — only for completed tools
+                        if let reason = toolCall.reasonDescription, !reason.isEmpty, toolCall.isComplete {
+                            Text(reason)
+                                .font(VFont.small)
+                                .foregroundColor(VColor.textMuted)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                        }
+                    }
+
+                    Spacer()
+
+                    // Duration + chevron (completed only)
+                    HStack(spacing: VSpacing.xs) {
+                        if let start = toolCall.startedAt, let end = toolCall.completedAt, toolCall.isComplete {
+                            Text(formatDuration(end.timeIntervalSince(start)))
+                                .font(VFont.small)
+                                .foregroundColor(VColor.textMuted)
+                        }
+
+                        if hasDetails {
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundColor(VColor.textMuted)
+                                .rotationEffect(.degrees(isDetailExpanded ? 90 : 0))
+                        }
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, VSpacing.sm)
+            .padding(.vertical, VSpacing.xxs)
+            .background(isHovered && hasDetails ? VColor.surfaceBorder.opacity(0.3) : .clear)
+            .onHover { isHovered = $0 }
+
+            // Expanded detail section (completed only)
+            if isDetailExpanded {
+                stepDetailContent
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .onAppear {
+                        if cachedInputFull == nil {
+                            if !toolCall.inputFull.isEmpty {
+                                cachedInputFull = toolCall.inputFull
+                            } else if let dict = toolCall.inputRawDict {
+                                cachedInputFull = ToolCallData.formatAllToolInput(dict)
+                            }
+                        }
+                        if isTruncated {
+                            onRehydrate?()
+                        }
+                    }
+            }
+        }
+        .animation(VAnimation.fast, value: isDetailExpanded)
+        .onChange(of: isDetailExpanded) { _, newValue in
+            if newValue, cachedInputFull == nil {
+                if let dict = toolCall.inputRawDict {
+                    cachedInputFull = ToolCallData.formatAllToolInput(dict)
+                } else if !toolCall.inputFull.isEmpty {
+                    cachedInputFull = toolCall.inputFull
+                }
+            }
+        }
+        .onChange(of: toolCall.inputFull) {
+            cachedInputFull = nil
+        }
+    }
+
+    // MARK: - Detail Content
+
+    @ViewBuilder
+    private var stepDetailContent: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            Divider().padding(.horizontal, VSpacing.sm)
+
+            // Technical details
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                HStack {
+                    Text("Technical details")
+                        .font(VFont.small)
+                        .foregroundColor(VColor.textMuted)
+                        .textCase(.uppercase)
+                    if isTruncated {
+                        Text("truncated")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.warning)
+                            .padding(.horizontal, VSpacing.xs)
+                            .background(
+                                RoundedRectangle(cornerRadius: VRadius.xs)
+                                    .fill(VColor.warning.opacity(0.12))
+                            )
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text(toolCall.friendlyName)
+                        .font(VFont.captionMedium)
+                        .foregroundColor(VColor.textSecondary)
+                    if !resolvedInputFull.isEmpty {
+                        Text(resolvedInputFull)
+                            .font(VFont.monoSmall)
+                            .foregroundColor(VColor.textSecondary)
+                            .textSelection(.enabled)
+                    }
+                }
+            }
+            .padding(.horizontal, VSpacing.md)
+
+            // Claude Code sub-steps
+            if !toolCall.claudeCodeSteps.isEmpty {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Sub-steps")
+                        .font(VFont.small)
+                        .foregroundColor(VColor.textMuted)
+                        .textCase(.uppercase)
+
+                    ClaudeCodeProgressView(
+                        steps: toolCall.claudeCodeSteps,
+                        isRunning: false
+                    )
+                }
+                .padding(.horizontal, VSpacing.md)
+            }
+
+            // Screenshot — Retina rendering + double-click → Preview.app
+            if let img = toolCall.cachedImage,
+               let cgImage = img.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+                Image(decorative: cgImage, scale: displayScale)
+                    .resizable()
+                    .interpolation(.high)
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: .infinity)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                    .padding(.horizontal, VSpacing.md)
+                    .onTapGesture(count: 2) { openImageInPreview(img) }
+                    .onHover { hovering in
+                        if hovering { NSCursor.pointingHand.push() }
+                        else { NSCursor.pop() }
+                        isImageHovered = hovering
+                    }
+                    .onDisappear { if isImageHovered { NSCursor.pop(); isImageHovered = false } }
+            } else if let img = toolCall.cachedImage {
+                Image(nsImage: img)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: .infinity)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                    .padding(.horizontal, VSpacing.md)
+                    .onTapGesture(count: 2) { openImageInPreview(img) }
+                    .onHover { hovering in
+                        if hovering { NSCursor.pointingHand.push() }
+                        else { NSCursor.pop() }
+                        isImageHovered = hovering
+                    }
+                    .onDisappear { if isImageHovered { NSCursor.pop(); isImageHovered = false } }
+            }
+
+            // Output with diff coloring + copy button
+            if let result = toolCall.result, !result.isEmpty {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Output")
+                        .font(VFont.small)
+                        .foregroundColor(VColor.textMuted)
+                        .textCase(.uppercase)
+
+                    ZStack(alignment: .topTrailing) {
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 0) {
+                                ForEach(Array(result.components(separatedBy: "\n").enumerated()), id: \.offset) { _, line in
+                                    Text(line)
+                                        .font(VFont.monoSmall)
+                                        .foregroundColor(diffLineColor(line, result: result, isError: toolCall.isError))
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                            }
+                            .textSelection(.enabled)
+                        }
+                        .frame(maxHeight: 200)
+                        .padding(VSpacing.sm)
+                        .background(VColor.background.opacity(0.6))
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.sm)
+                                .stroke(VColor.surfaceBorder, lineWidth: 0.5)
+                        )
+
+                        Button {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(result, forType: .string)
+                        } label: {
+                            Image(systemName: "doc.on.doc")
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundColor(VColor.textMuted)
+                                .frame(width: 24, height: 24)
+                                .background(VColor.backgroundSubtle)
+                                .clipShape(RoundedRectangle(cornerRadius: VRadius.xs))
+                        }
+                        .buttonStyle(.plain)
+                        .padding(VSpacing.xs)
+                        .accessibilityLabel("Copy output")
+                    }
+                }
+                .padding(.horizontal, VSpacing.md)
+            }
+        }
+        .padding(.bottom, VSpacing.sm)
+    }
+
+    // MARK: - Helpers
+
+    private func openImageInPreview(_ image: NSImage) {
+        let path = toolCall.inputRawValue
+        if !path.isEmpty && FileManager.default.fileExists(atPath: path) {
+            openInPreview(URL(fileURLWithPath: path))
+            return
+        }
+        guard let tiff = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiff),
+              let png = bitmap.representation(using: .png, properties: [:]) else { return }
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vellum-preview-\(UUID().uuidString).png")
+        do {
+            try png.write(to: tempURL)
+            openInPreview(tempURL)
+        } catch {}
+    }
+
+    private func openInPreview(_ url: URL) {
+        let previewURL = URL(fileURLWithPath: "/System/Applications/Preview.app")
+        NSWorkspace.shared.open(
+            [url],
+            withApplicationAt: previewURL,
+            configuration: NSWorkspace.OpenConfiguration()
+        )
+    }
+
+    private func diffLineColor(_ line: String, result: String, isError: Bool) -> Color {
+        if isError { return VColor.error }
+        let isDiff = result.contains("@@") && result.contains("---") && result.contains("+++")
+        guard isDiff else { return VColor.textSecondary }
+        if line.hasPrefix("+") { return Emerald._400 }
+        if line.hasPrefix("-") { return Danger._400 }
+        if line.hasPrefix("@@") { return VColor.textMuted }
+        return VColor.textSecondary
+    }
+
+    private func formatDuration(_ seconds: TimeInterval) -> String {
+        seconds < 60
+            ? String(format: "%.1fs", seconds)
+            : "\(Int(seconds) / 60)m \(Int(seconds) % 60)s"
     }
 }
 
