@@ -1624,6 +1624,13 @@ struct MainWindowView: View {
                                 ForEach(regularThreads) { thread in
                                     threadItem(thread)
                                         .padding(.bottom, VSpacing.xxs)
+                                        .simultaneousGesture(TapGesture().onEnded {
+                                            // Only dismiss for same-thread taps. Different-thread taps
+                                            // are handled by onChange(of: activeThreadId).
+                                            if thread.id == threadManager.activeThreadId {
+                                                showThreadSwitcher = false
+                                            }
+                                        })
                                         .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
                                             if sidebar.dropTargetThreadId == thread.id {
                                                 Rectangle()
