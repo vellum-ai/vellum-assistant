@@ -14,7 +14,7 @@ import {
   redeemIngressInvite,
   redeemVoiceInviteCode,
   revokeIngressInvite,
-} from "../ingress-service.js";
+} from "../invite-service.js";
 
 // ---------------------------------------------------------------------------
 // Invites

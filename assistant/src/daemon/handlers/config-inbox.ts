@@ -19,7 +19,7 @@ import {
   listIngressInvites,
   redeemIngressInvite,
   revokeIngressInvite,
-} from "../../runtime/ingress-service.js";
+} from "../../runtime/invite-service.js";
 import type {
   AssistantInboxEscalationRequest,
   ContactsInviteRequest,

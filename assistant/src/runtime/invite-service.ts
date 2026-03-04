@@ -1,5 +1,5 @@
 /**
- * Shared business logic for ingress invite management.
+ * Shared business logic for invite management.
  *
  * Extracted from the IPC handlers in daemon/handlers/config-inbox.ts so that
  * both the HTTP routes and the IPC handlers call the same logic.
