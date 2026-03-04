@@ -9,11 +9,11 @@
 import type { ChannelId } from "../../../channels/types.js";
 import { findContactChannel } from "../../../contacts/contact-store.js";
 import { touchChannelLastSeen } from "../../../contacts/contacts-write.js";
-import type { MemberStatus } from "../../../contacts/member-record-shim.js";
 import type {
   ChannelStatus,
   ContactChannel,
   ContactWithChannels,
+  MemberStatus,
 } from "../../../contacts/types.js";
 import * as channelDeliveryStore from "../../../memory/channel-delivery-store.js";
 import { getLogger } from "../../../util/logger.js";

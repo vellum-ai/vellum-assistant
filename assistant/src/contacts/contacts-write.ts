@@ -272,7 +272,7 @@ export function blockMemberContactsFirst(
 
 /**
  * Update the lastSeenAt timestamp on a contact channel by its ID.
- * Expects a plain channel UUID (IngressMember.id), not the composite API ID.
+ * Expects a plain channel UUID (ContactChannel.id), not the composite API ID.
  */
 export function touchChannelLastSeen(channelId: string): void {
   try {
