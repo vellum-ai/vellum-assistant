@@ -26,18 +26,12 @@ Inspect `addresses` in the response. If at least one address exists, tell the us
 Create a new inbox through the CLI:
 
 ```bash
-vellum email create <your-username>
+vellum email inbox create --username <your-username>
 ```
 
 For `<your-username>`, use your assistant name (lowercased, alphanumeric only). Check your identity from `IDENTITY.md` or `USER.md` to determine your name. If you don't have a name yet, ask the user what username they'd like for your email.
 
 Use the returned `inbox.address` (or `inbox.id` if `address` is empty) as the created email address.
-
-After successfully creating the inbox, persist the email address to config so the desktop app can display it:
-
-```bash
-vellum config set email.address <address>
-```
 
 ## Step 3: Verify Status
 
