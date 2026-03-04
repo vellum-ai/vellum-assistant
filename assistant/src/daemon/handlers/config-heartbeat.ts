@@ -210,7 +210,7 @@ export function handleHeartbeatRunNow(
     return;
   }
   heartbeatService
-    .runOnce()
+    .runOnce({ force: true })
     .then((didRun) => {
       if (didRun) {
         ctx.send(socket, { type: "heartbeat_run_now_response", success: true });
@@ -219,7 +219,7 @@ export function handleHeartbeatRunNow(
           type: "heartbeat_run_now_response",
           success: false,
           error:
-            "Heartbeat skipped (disabled, outside active hours, or already running)",
+            "Heartbeat skipped (a previous run is still active)",
         });
       }
     })

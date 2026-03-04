@@ -71,14 +71,15 @@ export class HeartbeatService {
     log.info("Heartbeat service stopped");
   }
 
-  /** Returns true if the heartbeat actually ran, false if skipped. */
-  async runOnce(): Promise<boolean> {
+  /** Returns true if the heartbeat actually ran, false if skipped.
+   *  When `force` is true (e.g. manual "Run Now"), skip enabled & active-hours guards. */
+  async runOnce({ force = false }: { force?: boolean } = {}): Promise<boolean> {
     const config = getConfig().heartbeat;
-    if (!config.enabled) return false;
+    if (!force && !config.enabled) return false;
 
     // Active hours guard — only applied when both bounds are set.
     // The schema rejects configs where only one bound is provided.
-    if (config.activeHoursStart != null && config.activeHoursEnd != null) {
+    if (!force && config.activeHoursStart != null && config.activeHoursEnd != null) {
       const hour = this.deps.getCurrentHour?.() ?? new Date().getHours();
       if (
         !isWithinActiveHours(
