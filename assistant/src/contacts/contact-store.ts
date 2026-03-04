@@ -2,14 +2,21 @@ import { and, asc, desc, eq, isNull, like, or, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../memory/db.js";
-import { contactChannels, contacts } from "../memory/schema.js";
+import {
+  assistantContactMetadata,
+  contactChannels,
+  contacts,
+} from "../memory/schema.js";
 import { emitContactChange } from "./contact-events.js";
 import type {
+  AssistantContactMetadata,
+  AssistantSpecies,
   ChannelPolicy,
   ChannelStatus,
   Contact,
   ContactChannel,
   ContactRole,
+  ContactType,
   ContactWithChannels,
 } from "./types.js";
 
@@ -34,6 +41,7 @@ function parseContact(row: typeof contacts.$inferSelect): Contact {
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     role: row.role as Contact["role"],
+    contactType: (row.contactType as Contact["contactType"]) ?? "human",
     principalId: row.principalId,
     assistantId: row.assistantId ?? null,
   };
@@ -149,6 +157,7 @@ export function upsertContact(params: {
   responseExpectation?: string | null;
   preferredTone?: string | null;
   role?: ContactRole;
+  contactType?: ContactType;
   principalId?: string | null;
   assistantId: string;
   channels?: SyncChannelData[];
@@ -187,6 +196,8 @@ export function upsertContact(params: {
         updatedAt: now,
       };
       if (params.role !== undefined) updateSet.role = params.role;
+      if (params.contactType !== undefined)
+        updateSet.contactType = params.contactType;
       if (params.principalId !== undefined)
         updateSet.principalId = params.principalId;
       if (params.assistantId !== undefined)
@@ -256,6 +267,8 @@ export function upsertContact(params: {
         if (params.preferredTone !== undefined)
           updateSet.preferredTone = params.preferredTone;
         if (params.role !== undefined) updateSet.role = params.role;
+        if (params.contactType !== undefined)
+          updateSet.contactType = params.contactType;
         if (params.principalId !== undefined)
           updateSet.principalId = params.principalId;
         if (params.assistantId !== undefined)
@@ -285,6 +298,7 @@ export function upsertContact(params: {
       lastInteraction: null,
       interactionCount: 0,
       role: params.role ?? "contact",
+      contactType: params.contactType ?? "human",
       principalId: params.principalId ?? null,
       assistantId: params.assistantId,
       createdAt: now,
@@ -989,4 +1003,73 @@ export function updateChannelLastSeenById(channelId: string): void {
     .set({ lastSeenAt: now, updatedAt: now })
     .where(eq(contactChannels.id, channelId))
     .run();
+}
+
+// ── Assistant Contact Metadata ──────────────────────────────────────
+
+function parseAssistantMetadata(
+  row: typeof assistantContactMetadata.$inferSelect,
+): AssistantContactMetadata {
+  return {
+    contactId: row.contactId,
+    species: row.species as AssistantSpecies,
+    metadata: row.metadata ? JSON.parse(row.metadata) : null,
+  };
+}
+
+export function upsertAssistantContactMetadata(params: {
+  contactId: string;
+  species: AssistantSpecies;
+  metadata?: Record<string, unknown> | null;
+}): AssistantContactMetadata {
+  const db = getDb();
+  const metadataJson =
+    params.metadata != null ? JSON.stringify(params.metadata) : null;
+
+  db.insert(assistantContactMetadata)
+    .values({
+      contactId: params.contactId,
+      species: params.species,
+      metadata: metadataJson,
+    })
+    .onConflictDoUpdate({
+      target: assistantContactMetadata.contactId,
+      set: {
+        species: params.species,
+        metadata: metadataJson,
+      },
+    })
+    .run();
+
+  const row = db
+    .select()
+    .from(assistantContactMetadata)
+    .where(eq(assistantContactMetadata.contactId, params.contactId))
+    .get();
+
+  return parseAssistantMetadata(row!);
+}
+
+export function getAssistantContactMetadata(
+  contactId: string,
+): AssistantContactMetadata | null {
+  const db = getDb();
+  const row = db
+    .select()
+    .from(assistantContactMetadata)
+    .where(eq(assistantContactMetadata.contactId, contactId))
+    .get();
+
+  if (!row) return null;
+  return parseAssistantMetadata(row);
+}
+
+export function deleteAssistantContactMetadata(contactId: string): boolean {
+  const db = getDb();
+  const result = db
+    .delete(assistantContactMetadata)
+    .where(eq(assistantContactMetadata.contactId, contactId))
+    .run();
+
+  return result.changes > 0;
 }
