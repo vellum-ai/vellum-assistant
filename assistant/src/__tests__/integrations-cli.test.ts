@@ -6,9 +6,18 @@ let signingKeyInitialized = false;
 let initCalls = 0;
 let loadCalls = 0;
 let mintCalls = 0;
+let rawConfig: Record<string, unknown> = {};
 
 mock.module('../config/env.js', () => ({
   getGatewayInternalBaseUrl: () => gatewayBase,
+}));
+
+mock.module('../config/loader.js', () => ({
+  loadRawConfig: () => rawConfig,
+}));
+
+mock.module('../config/elevenlabs-schema.js', () => ({
+  DEFAULT_ELEVENLABS_VOICE_ID: '21m00Tcm4TlvDq8ikWAM',
 }));
 
 mock.module('../runtime/auth/token-service.js', () => ({
@@ -91,6 +100,7 @@ describe('vellum integrations CLI', () => {
     initCalls = 0;
     loadCalls = 0;
     mintCalls = 0;
+    rawConfig = {};
     delete process.env.GATEWAY_AUTH_TOKEN;
     process.exitCode = 0;
   });
@@ -156,6 +166,62 @@ describe('vellum integrations CLI', () => {
     expect(result.fetchCalls[0]?.url).toBe(
       'http://gateway.test/v1/ingress/members?assistantId=assistant-1&sourceChannel=voice&status=active',
     );
+  });
+
+  test('reads ingress config without gateway fetch', async () => {
+    rawConfig = {
+      ingress: {
+        enabled: true,
+        publicBaseUrl: 'https://public.example.com',
+      },
+    };
+    process.env.INTERNAL_GATEWAY_BASE_URL = 'http://gateway.internal:9900/';
+    const result = await runCli(['--json', 'ingress', 'config'], { ok: true });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.fetchCalls.length).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({
+      success: true,
+      enabled: true,
+      publicBaseUrl: 'https://public.example.com',
+      localGatewayTarget: 'http://gateway.internal:9900',
+    });
+  });
+
+  test('reads voice config without gateway fetch', async () => {
+    rawConfig = {
+      calls: {
+        enabled: true,
+      },
+      elevenlabs: {
+        voiceId: 'EXAVITQu4vr4xnSDxMaL',
+      },
+    };
+    const result = await runCli(['--json', 'voice', 'config'], { ok: true });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.fetchCalls.length).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({
+      success: true,
+      callsEnabled: true,
+      voiceId: 'EXAVITQu4vr4xnSDxMaL',
+      configuredVoiceId: 'EXAVITQu4vr4xnSDxMaL',
+      usesDefaultVoice: false,
+    });
+  });
+
+  test('voice config reports default voice when unset', async () => {
+    rawConfig = {};
+    const result = await runCli(['--json', 'voice', 'config'], { ok: true });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.fetchCalls.length).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({
+      success: true,
+      callsEnabled: false,
+      voiceId: '21m00Tcm4TlvDq8ikWAM',
+      usesDefaultVoice: true,
+    });
   });
 
   test('returns structured error output when gateway request fails', async () => {
