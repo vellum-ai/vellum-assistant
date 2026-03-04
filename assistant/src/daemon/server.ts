@@ -13,9 +13,9 @@ import {
   parseChannelId,
   parseInterfaceId,
 } from "../channels/types.js";
-import { onContactChange } from "../contacts/contact-events.js";
 import { getConfig } from "../config/loader.js";
 import { buildSystemPrompt } from "../config/system-prompt.js";
+import { onContactChange } from "../contacts/contact-events.js";
 import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { bootstrapHomeBaseAppLink } from "../home-base/bootstrap.js";
 import * as attachmentsStore from "../memory/attachments-store.js";
@@ -182,8 +182,7 @@ function makePendingInteractionRegistrar(
           requesterExternalUserId: trustContext?.requesterExternalUserId,
           requesterChatId: trustContext?.requesterChatId,
           guardianExternalUserId: trustContext?.guardianExternalUserId,
-          guardianPrincipalId:
-            trustContext?.guardianPrincipalId ?? undefined,
+          guardianPrincipalId: trustContext?.guardianPrincipalId ?? undefined,
           toolName: msg.toolName,
           status: "pending",
           requestCode: generateCanonicalRequestCode(),
@@ -1170,9 +1169,7 @@ export class DaemonServer {
     if (slashResult.kind === "unknown") {
       const serverTurnCtx = session.getTurnChannelContext();
       const serverInterfaceCtx = session.getTurnInterfaceContext();
-      const serverProvenance = provenanceFromTrustContext(
-        session.trustContext,
-      );
+      const serverProvenance = provenanceFromTrustContext(session.trustContext);
       const serverChannelMeta = {
         ...serverProvenance,
         ...(serverTurnCtx
