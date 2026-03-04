@@ -21,6 +21,10 @@
             "type": "string",
             "enum": ["api", "local"],
             "description": "Transcription backend: 'api' for OpenAI Whisper API (cloud), 'local' for whisper.cpp (on-device)"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["mode"]

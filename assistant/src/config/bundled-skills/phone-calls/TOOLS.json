@@ -25,6 +25,10 @@
             "type": "string",
             "enum": ["assistant_number", "user_number"],
             "description": "Which phone number to use as the caller ID. assistant_number uses the AI assistant's Twilio number; user_number uses the user's verified personal number."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["phone_number", "task"]
@@ -43,6 +47,10 @@
           "call_session_id": {
             "type": "string",
             "description": "Specific call session ID to check. If omitted, checks for an active call in the current conversation."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": []
@@ -62,9 +70,13 @@
             "type": "string",
             "description": "The call session ID to end"
           },
-          "reason": {
+          "end_reason": {
             "type": "string",
             "description": "Reason for ending the call"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["call_session_id"]

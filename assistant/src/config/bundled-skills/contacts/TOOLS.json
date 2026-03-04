@@ -41,7 +41,15 @@
               "properties": {
                 "type": {
                   "type": "string",
-                  "enum": ["email", "slack", "whatsapp", "phone", "telegram", "discord", "other"],
+                  "enum": [
+                    "email",
+                    "slack",
+                    "whatsapp",
+                    "phone",
+                    "telegram",
+                    "discord",
+                    "other"
+                  ],
                   "description": "Channel type"
                 },
                 "address": {
@@ -55,6 +63,10 @@
               },
               "required": ["type", "address"]
             }
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["display_name"]
@@ -76,7 +88,7 @@
           },
           "channel_address": {
             "type": "string",
-            "description": "Search by channel address (email, phone, handle — partial match)"
+            "description": "Search by channel address (email, phone, handle \u2014 partial match)"
           },
           "channel_type": {
             "type": "string",
@@ -89,6 +101,10 @@
           "limit": {
             "type": "number",
             "description": "Maximum results to return (default 20, max 100)"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": []
@@ -111,6 +127,10 @@
           "merge_id": {
             "type": "string",
             "description": "ID of the contact to merge into the kept contact (will be deleted)"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["keep_id", "merge_id"]

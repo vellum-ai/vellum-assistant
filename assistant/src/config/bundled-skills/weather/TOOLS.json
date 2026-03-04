@@ -21,6 +21,10 @@
           "days": {
             "type": "number",
             "description": "Number of forecast days to return (1-16, default: 10)"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["location"]
