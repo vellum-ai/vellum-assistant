@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import VellumAssistantShared
 #if os(macOS)
 import AppKit
@@ -75,13 +76,13 @@ struct ComposerView: View {
     @Binding var isComposerExpanded: Bool
 
     @Environment(\.conversationZoomScale) private var zoomScale
-    @State private var composerFocusRequestID: Int = 0
+    @Environment(\.cmdEnterToSend) private var cmdEnterToSend
+    @FocusState private var composerFocus: Bool
     @State private var isStopHovered = false
     @State private var isSendHovered = false
     @State private var isMicrophoneHovered = false
     @State private var isAttachmentHovered = false
     @State private var isComposerFocused = false
-    @State private var isEditorOverflowing = false
     @FocusState private var focusedComposerAction: ComposerActionFocus?
 
     @State private var showSlashMenu = false
@@ -90,17 +91,13 @@ struct ComposerView: View {
     @State private var suppressSlashReopen = false
     @State private var avatarSeed: String = "default"
 
-    /// The portion of the suggestion that extends beyond the current input.
-    /// Returns nil when the composer content exceeds the max height (200pt) because
-    /// the ghost text overlay is a sibling in the ZStack and would become misaligned
-    /// once the TextEditor scrolls internally.
     private var isVoiceModeActive: Bool {
         voiceModeManager.map { $0.state != .off } ?? false
     }
 
+    /// The portion of the suggestion that extends beyond the current input.
     private var ghostSuffix: String? {
         guard let suggestion else { return nil }
-        guard !isEditorOverflowing else { return nil }
         if suggestion.hasPrefix(inputText) {
             let suffix = String(suggestion.dropFirst(inputText.count))
             return suffix.isEmpty ? nil : suffix
@@ -137,23 +134,17 @@ struct ComposerView: View {
                     }
                     .frame(height: compactRowHeight, alignment: .center)
                 } else {
-                    // Text field always lives at the same structural position
-                    // so that the NSViewRepresentable is never destroyed and
-                    // recreated when toggling between compact/expanded layouts.
-                    // In compact mode, buttons are overlaid at trailing edge;
-                    // in expanded mode, they sit on a separate row below.
+                    // In compact mode, text field and buttons share a row;
+                    // in expanded mode, buttons sit on a separate row below.
                     HStack(alignment: .center, spacing: VSpacing.md) {
                         composerTextField
-                            .frame(height: clampedComposerHeight)
-                            .frame(maxHeight: isComposerExpanded ? clampedComposerHeight : .infinity, alignment: .center)
-                            .clipped()
                         if !isComposerExpanded {
                             composerActionButtons
                                 .frame(maxHeight: .infinity, alignment: .center)
                                 .offset(y: compactActionOpticalYOffset)
                         }
                     }
-                    .frame(height: isComposerExpanded ? clampedComposerHeight : compactRowHeight, alignment: .center)
+                    .frame(minHeight: composerCompactHeight)
 
                     if isComposerExpanded {
                         // Expanded: buttons on a separate row below the text area
@@ -195,7 +186,7 @@ struct ComposerView: View {
         .animation(VAnimation.fast, value: isComposerExpanded)
         .animation(VAnimation.fast, value: isComposerFocused)
         .onAppear {
-            composerFocusRequestID += 1
+            composerFocus = true
             let identity = IdentityInfo.load()
             avatarSeed = identity?.name ?? "default"
         }
@@ -220,64 +211,111 @@ struct ComposerView: View {
     }
 
     private var composerTextField: some View {
-        ComposerTextView(
-            text: $inputText,
-            placeholder: ghostSuffix == nil ? placeholderText : nil,
-            hasGhostSuffix: ghostSuffix != nil,
-            isEnabled: hasAPIKey,
-            minHeight: composerCompactHeight,
-            maxHeight: composerMaxHeight,
-            focusRequestID: composerFocusRequestID,
-            zoomScale: zoomScale,
-            onHeightChange: { height in
-                editorContentHeight = height
-            },
-            onOverflowChange: { overflowing in
-                isEditorOverflowing = overflowing
-            },
-            onFocusChange: { focused in
-                isComposerFocused = focused
-            },
-            onSubmit: {
-                inputText = inputText.replacingOccurrences(
-                    of: "\\n$", with: "", options: .regularExpression
-                )
-                if canSend {
-                    onSend()
-                } else if hasPendingConfirmation
-                            && inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    onAllowPendingConfirmation?()
-                }
-            },
-            onAcceptSuggestion: onAcceptSuggestion,
-            onPaste: onPaste,
-            onFileDrop: onFileDrop,
-            isSlashMenuOpen: showSlashMenu,
-            onSlashNavigate: handleSlashNavigation
-        )
-        .accessibilityLabel("Message")
-        .overlay(alignment: .leading) {
+        let scaledBody = Font.custom("Inter", size: 13 * zoomScale)
+
+        return ZStack(alignment: .leading) {
+            // Ghost text overlay (invisible matching input + visible suffix)
             if let ghostSuffix {
-                let scaledBody = Font.custom("Inter", size: 13 * zoomScale)
                 (Text(inputText)
                     .font(scaledBody)
                     .foregroundColor(.clear)
                 + Text(ghostSuffix)
                     .font(scaledBody)
                     .foregroundColor(VColor.textSecondary.opacity(0.55)))
-                    .lineLimit(1...12)
+                    .lineLimit(1...6)
                     .fixedSize(horizontal: false, vertical: true)
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
             }
+
+            TextField(
+                ghostSuffix == nil ? placeholderText : "",
+                text: $inputText,
+                axis: .vertical
+            )
+            .lineLimit(1...6)
+            .textFieldStyle(.plain)
+            .font(scaledBody)
+            .foregroundColor(VColor.textPrimary)
+            .tint(VColor.accent)
+            .focused($composerFocus)
+            .disabled(!hasAPIKey)
+            .onKeyPress(.return) { press in
+                handleReturnKeyPress(modifiers: press.modifiers)
+            }
+            .onKeyPress(.tab) { press in
+                if !press.modifiers.contains(.shift), showSlashMenu {
+                    handleSlashNavigation(.tab)
+                    return .handled
+                }
+                if !press.modifiers.contains(.shift), ghostSuffix != nil {
+                    onAcceptSuggestion()
+                    return .handled
+                }
+                return .ignored
+            }
+            .onKeyPress(.upArrow) { _ in
+                if showSlashMenu {
+                    handleSlashNavigation(.up)
+                    return .handled
+                }
+                return .ignored
+            }
+            .onKeyPress(.downArrow) { _ in
+                if showSlashMenu {
+                    handleSlashNavigation(.down)
+                    return .handled
+                }
+                return .ignored
+            }
+            .onKeyPress(.escape) { _ in
+                if showSlashMenu {
+                    handleSlashNavigation(.dismiss)
+                    return .handled
+                }
+                return .ignored
+            }
         }
+        .accessibilityLabel("Message")
         .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            GeometryReader { geo in
+                Color.clear.preference(key: ComposerEditorHeightKey.self, value: geo.size.height)
+            }
+        )
+        .onPreferenceChange(ComposerEditorHeightKey.self) { newHeight in
+            editorContentHeight = newHeight
+        }
+        .background(
+            ComposerFocusBridge(
+                isFocused: composerFocus,
+                cmdEnterToSend: cmdEnterToSend,
+                onImagePaste: onPaste,
+                onCmdEnterSend: {
+                    inputText = inputText.replacingOccurrences(
+                        of: "\\n$", with: "", options: .regularExpression
+                    )
+                    if ghostSuffix != nil { onAcceptSuggestion() }
+                    if canSend { onSend() }
+                },
+                onRedirectKeystroke: { chars in
+                    inputText += chars
+                    composerFocus = true
+                }
+            )
+        )
+        .onChange(of: composerFocus) {
+            isComposerFocused = composerFocus
+            if composerFocus {
+                if let window = NSApp.keyWindow as? TitleBarZoomableWindow {
+                    window.clearComposerDismissed()
+                }
+            }
+        }
         .onChange(of: inputText) {
             if inputText.isEmpty {
                 withAnimation(VAnimation.fast) { isComposerExpanded = false }
-                withAnimation(VAnimation.fast) {
-                    showSlashMenu = false
-                }
+                withAnimation(VAnimation.fast) { showSlashMenu = false }
             } else {
                 updateSlashState()
             }
@@ -285,12 +323,69 @@ struct ComposerView: View {
         .onChange(of: editorContentHeight) {
             // Only expand — never collapse based on height alone.
             // Collapsing is handled when inputText becomes empty (see above).
-            // This prevents layout oscillation: expand → buttons move → text
-            // has more width → unwrap → collapse → buttons back → re-wrap → loop.
             if editorContentHeight > composerCompactHeight && !isComposerExpanded {
                 withAnimation(VAnimation.fast) { isComposerExpanded = true }
             }
         }
+        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+            var urls: [URL] = []
+            let group = DispatchGroup()
+            for provider in providers {
+                group.enter()
+                _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                    if let url { urls.append(url) }
+                    group.leave()
+                }
+            }
+            group.notify(queue: .main) {
+                if !urls.isEmpty { onFileDrop(urls) }
+            }
+            return true
+        }
+    }
+
+    /// Handles Return key press: send vs insert newline depending on mode.
+    private func handleReturnKeyPress(modifiers: EventModifiers) -> KeyPress.Result {
+        // Shift+Enter always inserts a newline
+        if modifiers.contains(.shift) { return .ignored }
+
+        if cmdEnterToSend {
+            // In Cmd+Enter mode: Cmd+Enter sends, plain Enter inserts newline.
+            // Cmd+Enter as a key equivalent is handled by ComposerFocusBridge's
+            // event monitor; if it also reaches here, handle it.
+            if modifiers.contains(.command) {
+                inputText = inputText.replacingOccurrences(
+                    of: "\\n$", with: "", options: .regularExpression
+                )
+                if ghostSuffix != nil { onAcceptSuggestion() }
+                if showSlashMenu {
+                    handleSlashNavigation(.select)
+                } else if canSend {
+                    onSend()
+                }
+                return .handled
+            }
+            return .ignored // plain Enter inserts newline
+        }
+
+        // Default mode: Enter sends
+        if ghostSuffix != nil {
+            onAcceptSuggestion()
+        }
+        if showSlashMenu {
+            handleSlashNavigation(.select)
+            return .handled
+        }
+        inputText = inputText.replacingOccurrences(
+            of: "\\n$", with: "", options: .regularExpression
+        )
+        if canSend {
+            onSend()
+        } else if hasPendingConfirmation
+                    && inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            onAllowPendingConfirmation?()
+        }
+        return .handled
     }
 
     @ViewBuilder
@@ -346,7 +441,7 @@ struct ComposerView: View {
 
                 if canSend {
                     Button {
-                        composerFocusRequestID += 1
+                        composerFocus = true
                         onSend()
                     } label: {
                         ZStack {
@@ -695,523 +790,136 @@ struct ComposerView: View {
     }
 }
 
-private struct ComposerTextView: NSViewRepresentable {
-    @Binding var text: String
-    let placeholder: String?
-    @Environment(\.cmdEnterToSend) private var cmdEnterToSend
-    let hasGhostSuffix: Bool
-    let isEnabled: Bool
-    let minHeight: CGFloat
-    let maxHeight: CGFloat
-    let focusRequestID: Int
-    var zoomScale: CGFloat = 1.0
-    let onHeightChange: (CGFloat) -> Void
-    var onOverflowChange: ((Bool) -> Void)?
-    let onFocusChange: (Bool) -> Void
-    let onSubmit: () -> Void
-    let onAcceptSuggestion: () -> Void
-    let onPaste: () -> Void
-    let onFileDrop: ([URL]) -> Void
-    var isSlashMenuOpen = false
-    var onSlashNavigate: ((SlashNavigation) -> Void)?
+// MARK: - Composer Editor Height Preference Key
+
+/// PreferenceKey used to measure the natural height of the TextField composer
+/// so that ChatView can compute the correct bottom safe-area inset.
+private struct ComposerEditorHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+// MARK: - Composer Focus Bridge
+
+/// Minimal NSViewRepresentable that provides AppKit integration for the
+/// SwiftUI TextField composer:
+/// - Registers a typing-redirect handler with TitleBarZoomableWindow so
+///   keystrokes auto-focus the composer when nothing else is focused.
+/// - Registers the composer container view for click-away-to-blur detection.
+/// - Intercepts Cmd+V when the pasteboard contains image content.
+/// - Intercepts Cmd+Enter for send when cmdEnterToSend is enabled.
+private struct ComposerFocusBridge: NSViewRepresentable {
+    let isFocused: Bool
+    let cmdEnterToSend: Bool
+    let onImagePaste: () -> Void
+    let onCmdEnterSend: () -> Void
+    let onRedirectKeystroke: (String) -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
     }
 
-    static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
-        if let textView = coordinator.textView {
-            textView.undoManager?.removeAllActions(withTarget: textView)
-            textView.undoManager?.removeAllActions()
-        }
-        coordinator.textView = nil
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        context.coordinator.setupEventMonitor()
+        return view
     }
 
-    func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSScrollView()
-        scrollView.drawsBackground = false
-        scrollView.borderType = .noBorder
-        scrollView.hasVerticalScroller = false
-        scrollView.hasHorizontalScroller = false
-        // Ensure text content is clipped to the scroll view frame so it
-        // never renders outside the composer box.
-        scrollView.wantsLayer = true
-        scrollView.layer?.masksToBounds = true
-
-        // Use a centering clip view so text + cursor are vertically centered together
-        let clipView = CenteringClipView()
-        clipView.drawsBackground = false
-        scrollView.contentView = clipView
-
-        let textView = ComposerNativeTextView()
-        textView.delegate = context.coordinator
-        textView.isRichText = false
-        textView.importsGraphics = false
-        textView.isEditable = isEnabled
-        textView.isSelectable = true
-        textView.drawsBackground = false
-        textView.allowsUndo = true
-        let scaledFontSize: CGFloat = 13 * zoomScale
-        textView.font = NSFont(name: "Inter", size: scaledFontSize) ?? NSFont.systemFont(ofSize: scaledFontSize)
-        textView.textColor = NSColor(VColor.textPrimary)
-        textView.insertionPointColor = NSColor(VColor.accent)
-        textView.textContainerInset = NSSize(width: 0, height: 8)
-        textView.string = text
-
-        if let container = textView.textContainer {
-            container.lineFragmentPadding = 0
-            container.widthTracksTextView = true
-            container.containerSize = NSSize(width: scrollView.contentSize.width, height: .greatestFiniteMagnitude)
-        }
-
-        textView.minSize = NSSize(width: 0, height: 0)
-        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        textView.isHorizontallyResizable = false
-        textView.isVerticallyResizable = true
-        textView.autoresizingMask = [.width]
-
-        scrollView.documentView = textView
-        context.coordinator.textView = textView
-        textView.cmdEnterToSend = cmdEnterToSend
-        context.coordinator.configureCallbacks()
-        context.coordinator.syncHeight()
-
-        return scrollView
-    }
-
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+    func updateNSView(_ nsView: NSView, context: Context) {
         context.coordinator.parent = self
-        if let textView = context.coordinator.textView {
-            textView.cmdEnterToSend = cmdEnterToSend
-        }
-        context.coordinator.configureCallbacks()
 
-        guard let textView = context.coordinator.textView else { return }
+        guard let window = nsView.window as? TitleBarZoomableWindow else { return }
 
-        textView.isEditable = isEnabled
-
-        // Update font when zoom scale changes
-        let scaledFontSize: CGFloat = 13 * zoomScale
-        let targetFont = NSFont(name: "Inter", size: scaledFontSize) ?? NSFont.systemFont(ofSize: scaledFontSize)
-        if textView.font?.pointSize != targetFont.pointSize {
-            textView.font = targetFont
-            textView.needsDisplay = true
-            context.coordinator.syncHeight()
+        // Register a typing-redirect handler so keystrokes auto-focus the composer.
+        window.composerRedirectHandler = { [weak context] chars in
+            context?.coordinator.parent.onRedirectKeystroke(chars)
         }
 
-        let oldPlaceholder = textView.placeholderText
-        let oldGhostSuffix = textView.hasGhostSuffix
-        textView.placeholderText = placeholder
-        textView.placeholderColor = NSColor(Moss._400)
-        textView.hasGhostSuffix = hasGhostSuffix
-        textView.isSlashMenuOpen = isSlashMenuOpen
-
-        // Force redraw when placeholder or ghost suffix state changes so stale text doesn't persist
-        if oldPlaceholder != placeholder || oldGhostSuffix != hasGhostSuffix {
-            textView.needsDisplay = true
-        }
-
-        if context.coordinator.isWritingFromView == false, textView.string != text {
-            textView.string = text
-            textView.highlightSlashCommand()
-            textView.needsDisplay = true
-        }
-
-        // Register the composer with the window so typing auto-focuses it.
-        if let zoomableWindow = textView.window as? TitleBarZoomableWindow {
-            zoomableWindow.composerTextView = textView
-
-            // Walk up from the scroll view to find the composer container —
-            // the first ancestor whose frame is wider, encompassing the
-            // sibling action buttons (Attach, Mic, Send). Re-evaluated on
-            // each update because layout can change (compact vs expanded).
-            if let scrollView = textView.enclosingScrollView {
-                var container: NSView = scrollView
-                var candidate = scrollView.superview
-                while let view = candidate,
-                      view !== zoomableWindow.contentView {
-                    if view.frame.width > scrollView.frame.width {
-                        container = view
-                        break
-                    }
-                    candidate = view.superview
-                }
-                zoomableWindow.composerContainerView = container
+        // Walk up from the bridge view to find the composer container —
+        // the first ancestor whose frame is wider, encompassing the sibling
+        // action buttons. Re-evaluated on each update because layout can
+        // change (compact vs expanded).
+        var container: NSView = nsView
+        var candidate = nsView.superview
+        while let view = candidate, view !== window.contentView {
+            if view.frame.width > nsView.frame.width + 20 {
+                container = view
+                break
             }
+            candidate = view.superview
         }
-
-        if context.coordinator.lastFocusRequestID != focusRequestID {
-            context.coordinator.lastFocusRequestID = focusRequestID
-            DispatchQueue.main.async {
-                guard textView.window?.firstResponder !== textView else { return }
-                textView.window?.makeFirstResponder(textView)
-            }
-        }
-
-        context.coordinator.syncHeight()
+        window.composerContainerView = container
     }
 
-    final class Coordinator: NSObject, NSTextViewDelegate {
-        var parent: ComposerTextView
-        weak var textView: ComposerNativeTextView?
-        var isWritingFromView = false
-        var lastFocusRequestID = -1
-        private var lastReportedHeight: CGFloat = 0
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.removeEventMonitor()
+        if let window = nsView.window as? TitleBarZoomableWindow {
+            window.composerRedirectHandler = nil
+        }
+    }
 
-        init(parent: ComposerTextView) {
+    final class Coordinator {
+        var parent: ComposerFocusBridge
+        var eventMonitor: Any?
+
+        init(parent: ComposerFocusBridge) {
             self.parent = parent
         }
 
-        func configureCallbacks() {
-            guard let textView else { return }
-            textView.onSubmit = { [weak self] in
-                self?.parent.onSubmit()
-            }
-            textView.onAcceptSuggestion = { [weak self] in
-                self?.parent.onAcceptSuggestion()
-            }
-            textView.onPaste = { [weak self] in
-                self?.parent.onPaste()
-            }
-            textView.onFileDrop = { [weak self] urls in
-                self?.parent.onFileDrop(urls)
-            }
-            textView.onFocusChange = { [weak self] focused in
-                self?.parent.onFocusChange(focused)
-            }
-            textView.onSlashNavigate = { [weak self] action in
-                self?.parent.onSlashNavigate?(action)
-            }
-        }
+        func setupEventMonitor() {
+            eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self, self.parent.isFocused else { return event }
 
-        func textDidChange(_ notification: Notification) {
-            guard let textView else { return }
-            isWritingFromView = true
-            parent.text = textView.string
-            isWritingFromView = false
-            syncHeight()
-            // After large pastes the scroll position may not reflect the
-            // insertion point. Scroll to the cursor so pasted text is visible.
-            textView.scrollRangeToVisible(textView.selectedRange())
-        }
+                let modifiers = event.modifierFlags.intersection([.shift, .command, .control, .option])
 
-        func syncHeight() {
-            guard let textView,
-                  let layoutManager = textView.layoutManager,
-                  let textContainer = textView.textContainer else { return }
-
-            layoutManager.ensureLayout(for: textContainer)
-            let usedRect = layoutManager.usedRect(for: textContainer)
-            let verticalPadding: CGFloat = 16 // 8pt top + 8pt bottom visual breathing room
-            let rawHeight = ceil(usedRect.height + verticalPadding)
-            let clampedHeight = min(max(rawHeight, parent.minHeight), parent.maxHeight)
-
-            parent.onOverflowChange?(rawHeight > parent.maxHeight)
-
-            if abs(lastReportedHeight - clampedHeight) > 0.5 {
-                // When content shrinks (e.g. deleting from 2 lines back to 1),
-                // reset the scroll position so text isn't clipped at the top.
-                if clampedHeight < lastReportedHeight {
-                    textView.scrollToBeginningOfDocument(nil)
+                // Cmd+V with image content → intercept paste
+                if modifiers == [.command],
+                   event.charactersIgnoringModifiers?.lowercased() == "v",
+                   Self.pasteboardHasImageContent() {
+                    self.parent.onImagePaste()
+                    return nil
                 }
-                lastReportedHeight = clampedHeight
-                parent.onHeightChange(clampedHeight)
-            }
-        }
-    }
-}
 
-private final class ComposerNativeTextView: NSTextView {
-    private let placeholderVerticalOffset: CGFloat = 0
-    var onSubmit: (() -> Void)?
-    var onAcceptSuggestion: (() -> Void)?
-    var onPaste: (() -> Void)?
-    var onFileDrop: (([URL]) -> Void)?
-    var onFocusChange: ((Bool) -> Void)?
-    var onSlashNavigate: ((SlashNavigation) -> Void)?
-    var isSlashMenuOpen = false
-    var cmdEnterToSend = false
-    var placeholderText: String?
-    var placeholderColor: NSColor = .placeholderTextColor
-    var hasGhostSuffix = false
-
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-
-        guard string.isEmpty,
-              !hasGhostSuffix,
-              let placeholderText,
-              !placeholderText.isEmpty else { return }
-
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.lineBreakMode = .byTruncatingTail
-
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: font ?? NSFont.systemFont(ofSize: 13),
-            .foregroundColor: placeholderColor,
-            .paragraphStyle: paragraph,
-        ]
-
-        let linePadding = textContainer?.lineFragmentPadding ?? 0
-        let x = textContainerInset.width + linePadding
-        let width = max(0, bounds.width - x - textContainerInset.width - linePadding)
-
-        // Skip placeholder if it would wrap to a second line.
-        let placeholderWidth = (placeholderText as NSString).size(withAttributes: attributes).width
-        if placeholderWidth > width { return }
-
-        // Draw at the standard text insertion position and let
-        // CenteringClipView handle vertical centering of the whole
-        // scroll content — avoids double-centering misalignment.
-        let y = textContainerInset.height
-        let rect = NSRect(x: x, y: y, width: width, height: bounds.height - y)
-
-        (placeholderText as NSString).draw(in: rect, withAttributes: attributes)
-    }
-
-    override func didChangeText() {
-        super.didChangeText()
-        needsDisplay = true
-        highlightSlashCommand()
-    }
-
-    func highlightSlashCommand() {
-        guard let layoutManager = layoutManager, let textStorage = textStorage else { return }
-        let fullRange = NSRange(location: 0, length: textStorage.length)
-        guard fullRange.length > 0 else { return }
-
-        // Reset to default text color
-        layoutManager.addTemporaryAttributes(
-            [.foregroundColor: NSColor(VColor.textPrimary)],
-            forCharacterRange: fullRange
-        )
-
-        // Highlight slash command token (e.g. /model, /help)
-        let text = textStorage.string
-        if let match = text.range(of: #"^/\w+"#, options: .regularExpression) {
-            let nsRange = NSRange(match, in: text)
-            layoutManager.addTemporaryAttributes(
-                [.foregroundColor: NSColor(VColor.slashCommand)],
-                forCharacterRange: nsRange
-            )
-        }
-    }
-
-    override func keyDown(with event: NSEvent) {
-        let modifiers = event.modifierFlags.intersection([.shift, .command, .control, .option])
-
-        // Tab autocompletes the selected slash command when the menu is open.
-        if event.keyCode == 48, !modifiers.contains(.shift), isSlashMenuOpen {
-            onSlashNavigate?(.tab)
-            return
-        }
-
-        // Tab accepts ghost suggestions in-place when available.
-        if event.keyCode == 48, !modifiers.contains(.shift), hasGhostSuffix {
-            onAcceptSuggestion?()
-            return
-        }
-
-        // Slash menu navigation (arrow keys, escape)
-        if isSlashMenuOpen && modifiers.isEmpty {
-            switch event.keyCode {
-            case 126: // Up arrow
-                onSlashNavigate?(.up)
-                return
-            case 125: // Down arrow
-                onSlashNavigate?(.down)
-                return
-            case 53: // Escape
-                onSlashNavigate?(.dismiss)
-                return
-            default:
-                break
-            }
-        }
-
-        // Enter / Cmd+Enter send behavior depends on cmdEnterToSend setting.
-        // Shift+Enter always inserts a newline regardless of mode.
-        if event.keyCode == 36 || event.keyCode == 76 {
-            if modifiers == [.shift] {
-                insertNewline(nil)
-                return
-            }
-
-            let shouldSend = cmdEnterToSend ? modifiers == [.command] : modifiers.isEmpty
-            let shouldInsertNewline = cmdEnterToSend && modifiers.isEmpty
-
-            if shouldSend {
-                if hasGhostSuffix {
-                    onAcceptSuggestion?()
-                    onSubmit?()
-                } else if isSlashMenuOpen {
-                    onSlashNavigate?(.select)
-                } else {
-                    onSubmit?()
+                // Cmd+Enter → send (when cmdEnterToSend is enabled)
+                if self.parent.cmdEnterToSend,
+                   modifiers == [.command],
+                   event.keyCode == 36 || event.keyCode == 76 {
+                    self.parent.onCmdEnterSend()
+                    return nil
                 }
-                return
-            }
-            if shouldInsertNewline {
-                insertNewline(nil)
-                return
-            }
-            return
-        }
 
-        super.keyDown(with: event)
-    }
-
-    /// Returns true when the pasteboard contains image content (file URLs
-    /// pointing to image files, or raw PNG/TIFF data).
-    private var pasteboardHasImageContent: Bool {
-        let pasteboard = NSPasteboard.general
-        let hasImageFile = (pasteboard.readObjects(forClasses: [NSURL.self], options: [
-            .urlReadingFileURLsOnly: true,
-        ]) as? [URL])?.contains { url in
-            let ext = url.pathExtension.lowercased()
-            return ["png", "jpg", "jpeg", "gif", "webp", "heic", "tiff", "bmp"].contains(ext)
-        } ?? false
-        let hasImageData = pasteboard.data(forType: .png) != nil || pasteboard.data(forType: .tiff) != nil
-        return hasImageFile || hasImageData
-    }
-
-    override func paste(_ sender: Any?) {
-        if pasteboardHasImageContent {
-            onPaste?()
-            return
-        }
-        super.paste(sender)
-    }
-
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        // macOS routes Cmd+key events through performKeyEquivalent before
-        // keyDown, so Cmd+Enter must be intercepted here and forwarded to
-        // keyDown where the send/accept/slash-menu logic lives.
-        // Match exact .command only — Cmd+Opt+Enter, Cmd+Ctrl+Enter, etc.
-        // must propagate normally, matching the keyDown equality check.
-        // Use an explicit modifier set instead of .deviceIndependentFlagsMask
-        // because the latter includes .numericPad and .capsLock, which would
-        // cause this check to fail when CapsLock is on or numpad Enter
-        // (keyCode 76) is pressed.
-        if cmdEnterToSend,
-           event.modifierFlags.intersection([.shift, .command, .control, .option]) == [.command],
-           (event.keyCode == 36 || event.keyCode == 76) {
-            self.keyDown(with: event)
-            return true
-        }
-
-        if event.modifierFlags.contains(.command),
-           event.charactersIgnoringModifiers?.lowercased() == "v" {
-            if pasteboardHasImageContent {
-                onPaste?()
-                return true
-            }
-        }
-
-        // Let zoom shortcuts propagate to the menu bar instead of being
-        // consumed by the text view. Cmd +/-/0 and Option+Cmd +/-/0 are
-        // handled by the View menu for conversation and window zoom.
-        if event.modifierFlags.contains(.command) {
-            let key = event.charactersIgnoringModifiers ?? ""
-            if key == "=" || key == "+" || key == "-" || key == "0" {
-                return false
-            }
-        }
-
-        return super.performKeyEquivalent(with: event)
-    }
-
-    override func becomeFirstResponder() -> Bool {
-        let focused = super.becomeFirstResponder()
-        if focused {
-            onFocusChange?(true)
-            (window as? TitleBarZoomableWindow)?.clearComposerDismissed()
-        }
-        return focused
-    }
-
-    override func resignFirstResponder() -> Bool {
-        let resigned = super.resignFirstResponder()
-        if resigned { onFocusChange?(false) }
-        return resigned
-    }
-
-    // MARK: - File Drag & Drop
-
-    /// Returns file URLs from the drag pasteboard, if any.
-    private func fileURLs(from pasteboard: NSPasteboard) -> [URL]? {
-        guard let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [
-            .urlReadingFileURLsOnly: true,
-        ]) as? [URL], !urls.isEmpty else { return nil }
-        return urls
-    }
-
-    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        if fileURLs(from: sender.draggingPasteboard) != nil {
-            return .copy
-        }
-        return super.draggingEntered(sender)
-    }
-
-    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-        if fileURLs(from: sender.draggingPasteboard) != nil {
-            return .copy
-        }
-        return super.draggingUpdated(sender)
-    }
-
-    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        if let urls = fileURLs(from: sender.draggingPasteboard) {
-            onFileDrop?(urls)
-            return true
-        }
-        return super.performDragOperation(sender)
-    }
-}
-
-// MARK: - Centering Clip View
-
-/// Custom NSClipView that vertically centers the document view when
-/// the content is shorter than the visible area. This keeps cursor,
-/// text, and placeholder all aligned to the visual center of the
-/// composer field. When content grows beyond the clip view bounds,
-/// normal scroll behavior takes over.
-private final class CenteringClipView: NSClipView {
-    override func constrainBoundsRect(_ proposedBounds: NSRect) -> NSRect {
-        var rect = super.constrainBoundsRect(proposedBounds)
-        if let textView = documentView as? ComposerNativeTextView,
-           let layoutManager = textView.layoutManager,
-           let textContainer = textView.textContainer {
-            layoutManager.ensureLayout(for: textContainer)
-            var usedHeight = layoutManager.usedRect(for: textContainer).height
-
-            // When placeholder text is visible and fits on one line, use its
-            // height so the cursor stays vertically centered with it.
-            if textView.string.isEmpty,
-               let placeholder = textView.placeholderText,
-               !placeholder.isEmpty {
-                let font = textView.font ?? NSFont.systemFont(ofSize: 13)
-                let linePadding = textContainer.lineFragmentPadding
-                let availableWidth = max(0, textView.bounds.width - textView.textContainerInset.width * 2 - linePadding * 2)
-                // Only account for placeholder height when it fits on one line
-                // (draw() hides the placeholder when it would wrap).
-                let placeholderWidth = (placeholder as NSString).size(withAttributes: [.font: font]).width
-                if placeholderWidth <= availableWidth {
-                    let singleLineHeight = ceil(font.ascender - font.descender + font.leading)
-                    usedHeight = max(usedHeight, singleLineHeight)
+                // Let zoom shortcuts propagate instead of being consumed
+                if modifiers == [.command] || modifiers == [.command, .option] {
+                    let key = event.charactersIgnoringModifiers ?? ""
+                    if key == "=" || key == "+" || key == "-" || key == "0" {
+                        return event
+                    }
                 }
-            }
 
-            // Include the textContainerInset in the total content height so
-            // centering accounts for the top/bottom padding the text view adds.
-            let insetHeight = textView.textContainerInset.height * 2
-            let contentHeight = usedHeight + insetHeight
-            let visibleHeight = proposedBounds.height
-            if contentHeight < visibleHeight {
-                rect.origin.y = (contentHeight - visibleHeight) / 2
+                return event
             }
         }
-        return rect
+
+        func removeEventMonitor() {
+            if let monitor = eventMonitor {
+                NSEvent.removeMonitor(monitor)
+                eventMonitor = nil
+            }
+        }
+
+        static func pasteboardHasImageContent() -> Bool {
+            let pasteboard = NSPasteboard.general
+            let hasImageFile = (pasteboard.readObjects(forClasses: [NSURL.self], options: [
+                .urlReadingFileURLsOnly: true,
+            ]) as? [URL])?.contains { url in
+                let ext = url.pathExtension.lowercased()
+                return ["png", "jpg", "jpeg", "gif", "webp", "heic", "tiff", "bmp"].contains(ext)
+            } ?? false
+            let hasImageData = pasteboard.data(forType: .png) != nil || pasteboard.data(forType: .tiff) != nil
+            return hasImageFile || hasImageData
+        }
     }
 }
 

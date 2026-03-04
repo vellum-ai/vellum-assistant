@@ -18,8 +18,9 @@ import SwiftUI
 class TitleBarZoomableWindow: NSWindow {
     private var preZoomFrame: NSRect?
 
-    /// Weak reference to the composer text view so we can redirect typing to it.
-    weak var composerTextView: NSTextView?
+    /// Callback to redirect typing to the SwiftUI composer when no text view
+    /// is focused. The handler receives the character string to insert.
+    var composerRedirectHandler: ((String) -> Void)?
 
     /// Weak reference to the outermost NSView that contains the entire composer
     /// UI (text field + action buttons). Used for hit-testing blur dismissal so
@@ -40,14 +41,12 @@ class TitleBarZoomableWindow: NSWindow {
 
         // After dispatching a left-click, check whether the composer should
         // lose focus. If the click landed outside the composer container
-        // and the composer is still first responder (i.e. nothing else claimed
-        // focus), explicitly resign so the user can "click away" to blur.
+        // and a text view (field editor) is still first responder inside
+        // the container, explicitly resign so the user can "click away" to blur.
         if event.type == .leftMouseDown,
-           let composer = composerTextView,
-           firstResponder === composer {
-            let container = composerContainerView
-                ?? composer.enclosingScrollView
-                ?? composer
+           let responder = firstResponder as? NSView,
+           let container = composerContainerView,
+           responder.isDescendant(of: container) {
             let point = container.convert(event.locationInWindow, from: nil)
             if !container.bounds.contains(point) {
                 composerDismissed = true
@@ -91,10 +90,9 @@ class TitleBarZoomableWindow: NSWindow {
             return
         }
 
-        // Redirect to the composer text view.
-        if let composer = composerTextView {
-            makeFirstResponder(composer)
-            composer.keyDown(with: event)
+        // Redirect to the SwiftUI composer via callback.
+        if let handler = composerRedirectHandler {
+            handler(chars)
             return
         }
 
