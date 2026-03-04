@@ -112,11 +112,18 @@ function buildPromptFromApprovalInfo(
 export function buildApprovalUIMetadata(
   prompt: ChannelApprovalPrompt,
   info: PendingApprovalInfo,
+  requesterIdentifier?: string,
 ): ApprovalUIMetadata {
   return {
     requestId: info.requestId,
     actions: prompt.actions,
     plainTextFallback: prompt.plainTextFallback,
+    permissionDetails: {
+      toolName: info.toolName,
+      riskLevel: info.riskLevel,
+      toolInput: info.input,
+      ...(requesterIdentifier ? { requesterIdentifier } : {}),
+    },
   };
 }
 
