@@ -270,7 +270,7 @@ for (const config of CHANNEL_CONFIGS) {
         verificationPurpose: "trusted_contact",
       });
 
-      const result = validateAndConsumeChallenge(
+      const challengeResult = validateAndConsumeChallenge(
         "self",
         config.channel,
         session.secret,
@@ -280,9 +280,9 @@ for (const config of CHANNEL_CONFIGS) {
         "Test Requester",
       );
 
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.verificationType).toBe("trusted_contact");
+      expect(challengeResult.success).toBe(true);
+      if (challengeResult.success) {
+        expect(challengeResult.verificationType).toBe("trusted_contact");
       }
 
       upsertMemberContactsFirst({
@@ -296,15 +296,15 @@ for (const config of CHANNEL_CONFIGS) {
         username: "test_requester",
       });
 
-      const result = findContactChannel({
+      const contactResult = findContactChannel({
         channelType: config.channel,
         externalUserId: config.senderExternalUserId,
       });
 
-      expect(result).not.toBeNull();
-      expect(result!.channel.status).toBe("active");
-      expect(result!.channel.policy).toBe("allow");
-      expect(result!.channel.type).toBe(config.channel);
+      expect(contactResult).not.toBeNull();
+      expect(contactResult!.channel.status).toBe("active");
+      expect(contactResult!.channel.policy).toBe("allow");
+      expect(contactResult!.channel.type).toBe(config.channel);
     });
 
     test("no cross-channel leakage between member records", () => {

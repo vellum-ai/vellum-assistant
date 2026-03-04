@@ -24,12 +24,12 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+import { upsertMemberContactsFirst } from "../contacts/contacts-write.js";
 import { getSqlite, initializeDb, resetDb } from "../memory/db.js";
 import {
   createInvite,
   revokeInvite as revokeStoreFn,
 } from "../memory/ingress-invite-store.js";
-import { upsertMemberContactsFirst } from "../contacts/contacts-write.js";
 import {
   type InviteRedemptionOutcome,
   redeemInvite,
