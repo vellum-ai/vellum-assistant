@@ -169,6 +169,7 @@ final class DictationOverlayWindow {
             ])
             if let lbl = label {
                 lbl.leadingAnchor.constraint(equalTo: newIcon.trailingAnchor, constant: 8).isActive = true
+                lbl.centerYAnchor.constraint(equalTo: newIcon.centerYAnchor).isActive = true
             }
             if let transLbl = transcriptionLabel {
                 transLbl.topAnchor.constraint(equalTo: newIcon.bottomAnchor, constant: 4).isActive = true
