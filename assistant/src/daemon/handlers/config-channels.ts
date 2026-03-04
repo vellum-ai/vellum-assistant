@@ -1,12 +1,13 @@
 import * as net from "node:net";
 
 import type { ChannelId } from "../../channels/types.js";
+import { findContactChannel } from "../../contacts/contact-store.js";
 import {
   revokeGuardianBindingContactsFirst,
   revokeMemberContactsFirst,
 } from "../../contacts/contacts-write.js";
+import { contactChannelToMemberRecord } from "../../contacts/member-record-shim.js";
 import * as externalConversationStore from "../../memory/external-conversation-store.js";
-import { findMember } from "../../memory/ingress-member-store.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
 import {
   createVerificationChallenge,
@@ -211,12 +212,14 @@ export function revokeGuardianForChannel(
 
   revokeGuardianBindingContactsFirst(assistantId, resolvedChannel);
 
-  const member = findMember({
-    assistantId,
-    sourceChannel: resolvedChannel,
+  const contactResult = findContactChannel({
+    channelType: resolvedChannel,
     externalUserId: bindingBeforeRevoke.guardianExternalUserId,
     externalChatId: bindingBeforeRevoke.guardianDeliveryChatId,
   });
+  const member = contactResult
+    ? contactChannelToMemberRecord(contactResult.contact, contactResult.channel)
+    : null;
   // Only revoke active/pending members — a blocked member must not be
   // downgraded to revoked (revokeMemberContactsFirst has its own guard,
   // but we check here to make the intent explicit at the call site).
