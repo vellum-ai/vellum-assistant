@@ -20,6 +20,7 @@ import {
   touchChannelLastSeen,
   upsertMemberContactsFirst,
 } from "../../contacts/contacts-write.js";
+import type { IngressMember } from "../../contacts/member-record-shim.js";
 import { contactChannelToMemberRecord } from "../../contacts/member-record-shim.js";
 import { RESEND_COOLDOWN_MS } from "../../daemon/handlers/config-channels.js";
 import type { TrustContext } from "../../daemon/session-runtime-assembly.js";
@@ -33,7 +34,6 @@ import * as channelDeliveryStore from "../../memory/channel-delivery-store.js";
 import { recordConversationSeenSignal } from "../../memory/conversation-attention-store.js";
 import * as conversationStore from "../../memory/conversation-store.js";
 import * as externalConversationStore from "../../memory/external-conversation-store.js";
-import type { IngressMember } from "../../contacts/member-record-shim.js";
 import { emitNotificationSignal } from "../../notifications/emit-signal.js";
 import { checkIngressForSecrets } from "../../security/secret-ingress.js";
 import { canonicalizeInboundIdentity } from "../../util/canonicalize-identity.js";
