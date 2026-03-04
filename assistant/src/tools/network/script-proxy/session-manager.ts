@@ -3,12 +3,12 @@ import type { Server } from 'node:http';
 import { join } from 'node:path';
 
 import {
-  routeConnection,
   type ProxyApprovalCallback,
   type ProxyEnvVars,
   type ProxySession,
   type ProxySessionConfig,
   type ProxySessionId,
+  routeConnection,
 } from '@vellumai/outbound-proxy';
 
 import { getSecureKey } from '../../../security/secure-keys.js';
