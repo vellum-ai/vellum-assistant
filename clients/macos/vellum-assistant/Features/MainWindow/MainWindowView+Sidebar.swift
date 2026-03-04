@@ -514,10 +514,10 @@ extension MainWindowView {
                     }
                 }
                 .onDisappear {
-                    threadSwitcherHoverTimer?.cancel()
-                    threadSwitcherHoverTimer = nil
-                    threadSwitcherDismissTimer?.cancel()
-                    threadSwitcherDismissTimer = nil
+                    threadSwitcherHoverTask?.cancel()
+                    threadSwitcherHoverTask = nil
+                    threadSwitcherDismissTask?.cancel()
+                    threadSwitcherDismissTask = nil
                     showThreadSwitcher = false
                 }
                 .contentShape(Rectangle())
