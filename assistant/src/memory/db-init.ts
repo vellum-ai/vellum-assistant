@@ -1,4 +1,4 @@
-import { getDb } from './db-connection.js';
+import { getDb } from "./db-connection.js";
 import {
   addCoreColumns,
   createActorRefreshTokenRecordsTable,
@@ -22,11 +22,11 @@ import {
   createWatchersAndLogsTables,
   migrateBackfillGuardianPrincipalId,
   migrateCallSessionMode,
-  migrateContactChannelsAccessFields,
-  migrateContactsRolePrincipal,
   migrateCanonicalGuardianDeliveriesDestinationIndex,
   migrateCanonicalGuardianRequesterChatId,
   migrateChannelInboundDeliveredSegments,
+  migrateContactChannelsAccessFields,
+  migrateContactsRolePrincipal,
   migrateConversationsThreadTypeIndex,
   migrateFkCascadeRebuilds,
   migrateGuardianActionFollowup,
@@ -49,7 +49,7 @@ import {
   runComplexMigrations,
   runLateMigrations,
   validateMigrationState,
-} from './migrations/index.js';
+} from "./migrations/index.js";
 
 export function initializeDb(): void {
   const database = getDb();

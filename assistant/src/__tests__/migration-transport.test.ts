@@ -386,7 +386,7 @@ describe("importPreflight", () => {
     const config = runtimeConfig({ fetchFn: mockFetch(200, responseBody) });
     const result = await importPreflight(config, sampleFileData);
     expect(result.can_import).toBe(false);
-    if (!result.can_import) {
+    if (!result.can_import && "validation" in result) {
       expect(result.validation.errors).toHaveLength(1);
     }
   });
