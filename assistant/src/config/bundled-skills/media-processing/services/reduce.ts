@@ -250,7 +250,11 @@ export async function reduceForAsset(
     options.model,
     onProgress,
   );
-  await persistReduceCost(assetId, effectiveQuery, result);
+  try {
+    await persistReduceCost(assetId, effectiveQuery, result);
+  } catch {
+    // Cost tracking is best-effort; don't discard the LLM result
+  }
   return result;
 }
 
