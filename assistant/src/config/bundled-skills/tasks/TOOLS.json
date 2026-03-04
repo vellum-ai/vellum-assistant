@@ -3,7 +3,7 @@
   "tools": [
     {
       "name": "task_save",
-      "description": "Save the current conversation as a reusable task template (definition). This is NOT for adding items to the user's task queue — use task_list_add for that. task_save extracts the conversation pattern into a reusable definition with placeholders that can be run later with different inputs.",
+      "description": "Save the current conversation as a reusable task template (definition). This is NOT for adding items to the user's task queue \u2014 use task_list_add for that. task_save extracts the conversation pattern into a reusable definition with placeholders that can be run later with different inputs.",
       "category": "tasks",
       "risk": "low",
       "input_schema": {
@@ -16,6 +16,10 @@
           "title": {
             "type": "string",
             "description": "Optional override for the auto-generated task title"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": []
@@ -42,7 +46,13 @@
           "inputs": {
             "type": "object",
             "description": "Values for template placeholders (e.g. {\"file_path\": \"/tmp/foo.txt\", \"url\": \"https://example.com\"})",
-            "additionalProperties": { "type": "string" }
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         }
       },
@@ -56,7 +66,12 @@
       "risk": "low",
       "input_schema": {
         "type": "object",
-        "properties": {}
+        "properties": {
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
+          }
+        }
       },
       "executor": "tools/task-list.ts",
       "execution_target": "host"
@@ -71,8 +86,14 @@
         "properties": {
           "task_ids": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "description": "One or more task IDs to delete."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["task_ids"]
@@ -90,10 +111,21 @@
         "properties": {
           "status": {
             "oneOf": [
-              { "type": "string" },
-              { "type": "array", "items": { "type": "string" } }
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
             ],
             "description": "Optional status filter. A single status string (e.g. \"queued\") or an array of statuses to include."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         }
       },
@@ -102,7 +134,7 @@
     },
     {
       "name": "task_list_add",
-      "description": "Add a task to the user's Task Queue. Use this when the user says \"add to my tasks\", \"add to my queue\", \"put this on my task list\", \"track this task\", or any variation of adding a one-off item they want to remember or work on. You can provide just a title for ad-hoc items, or reference an existing task definition by name or ID. Do NOT use schedule_create or reminder for simple \"add to tasks\" requests — those are for timed/recurring automation only.",
+      "description": "Add a task to the user's Task Queue. Use this when the user says \"add to my tasks\", \"add to my queue\", \"put this on my task list\", \"track this task\", or any variation of adding a one-off item they want to remember or work on. You can provide just a title for ad-hoc items, or reference an existing task definition by name or ID. Do NOT use schedule_create or reminder for simple \"add to tasks\" requests \u2014 those are for timed/recurring automation only.",
       "category": "tasks",
       "risk": "low",
       "input_schema": {
@@ -143,8 +175,14 @@
           },
           "required_tools": {
             "type": "array",
-            "items": { "type": "string" },
-            "description": "Tools the task will need at execution time. Always specify this — think about what tools are needed to accomplish the task (e.g. [\"host_bash\"] for shell commands, [\"host_file_read\", \"host_file_write\"] for file operations, [\"web_search\"] for web lookups). The user must approve these before the task runs. Pass [] if no tools are needed."
+            "items": {
+              "type": "string"
+            },
+            "description": "Tools the task will need at execution time. Always specify this \u2014 think about what tools are needed to accomplish the task (e.g. [\"host_bash\"] for shell commands, [\"host_file_read\", \"host_file_write\"] for file operations, [\"web_search\"] for web lookups). The user must approve these before the task runs. Pass [] if no tools are needed."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         }
       },
@@ -185,7 +223,15 @@
           },
           "status": {
             "type": "string",
-            "enum": ["queued", "running", "awaiting_review", "done", "failed", "cancelled", "archived"],
+            "enum": [
+              "queued",
+              "running",
+              "awaiting_review",
+              "done",
+              "failed",
+              "cancelled",
+              "archived"
+            ],
             "description": "New status for the work item. To mark a task as done, it must currently be in 'awaiting_review' status."
           },
           "sort_index": {
@@ -194,16 +240,28 @@
           },
           "filter_priority_tier": {
             "type": "number",
-            "description": "Disambiguation filter: narrow by current priority tier (0=high, 1=medium, 2=low) when multiple items share the same title/task_id. This identifies WHICH item to update — it is NOT the new priority value."
+            "description": "Disambiguation filter: narrow by current priority tier (0=high, 1=medium, 2=low) when multiple items share the same title/task_id. This identifies WHICH item to update \u2014 it is NOT the new priority value."
           },
           "filter_status": {
             "type": "string",
-            "enum": ["queued", "running", "awaiting_review", "failed", "cancelled", "done", "archived"],
+            "enum": [
+              "queued",
+              "running",
+              "awaiting_review",
+              "failed",
+              "cancelled",
+              "done",
+              "archived"
+            ],
             "description": "Disambiguation filter: narrow by current status when multiple items share the same title/task_id."
           },
           "created_order": {
             "type": "number",
             "description": "Disambiguation filter: pick the Nth oldest match (1 = oldest, 2 = second oldest, etc.) when multiple items share the same title/task_id."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         }
       },
@@ -240,12 +298,22 @@
           },
           "status": {
             "type": "string",
-            "enum": ["queued", "running", "awaiting_review", "failed", "cancelled"],
+            "enum": [
+              "queued",
+              "running",
+              "awaiting_review",
+              "failed",
+              "cancelled"
+            ],
             "description": "Disambiguator: filter by work item status"
           },
           "created_order": {
             "type": "number",
             "description": "Disambiguator: 1-indexed creation order among matches (1 = oldest, 2 = second oldest, etc.)"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         }
       },
@@ -254,7 +322,7 @@
     },
     {
       "name": "task_queue_run",
-      "description": "Run a task from the Task Queue in the background. Use this when the user says \"run this task\", \"execute this task\", \"start this task\", or wants to kick off a queued work item. The task runs asynchronously — the user can continue chatting while it executes. Required tool permissions are auto-approved since the user is explicitly requesting execution.",
+      "description": "Run a task from the Task Queue in the background. Use this when the user says \"run this task\", \"execute this task\", \"start this task\", or wants to kick off a queued work item. The task runs asynchronously \u2014 the user can continue chatting while it executes. Required tool permissions are auto-approved since the user is explicitly requesting execution.",
       "category": "tasks",
       "risk": "medium",
       "input_schema": {
@@ -271,6 +339,10 @@
           "title": {
             "type": "string",
             "description": "Work item title to search for (case-insensitive substring match)"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         }
       },
