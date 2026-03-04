@@ -72,12 +72,7 @@ export interface InstallerSpec {
   [key: string]: unknown;
 }
 
-export type SkillSource =
-  | "bundled"
-  | "installable"
-  | "managed"
-  | "workspace"
-  | "extra";
+export type SkillSource = "bundled" | "managed" | "workspace" | "extra";
 
 // ─── Core interfaces ─────────────────────────────────────────────────────────
 
@@ -278,7 +273,7 @@ export function getBundledSkillsDir(): string {
   return join(dir, "bundled-skills");
 }
 
-export function getInstallableSkillsDir(): string {
+export function getRepoSkillsDir(): string {
   const dir = import.meta.dir;
 
   // In compiled Bun binaries, import.meta.dir points into the virtual
@@ -287,19 +282,16 @@ export function getInstallableSkillsDir(): string {
   if (dir.startsWith("/$bunfs/")) {
     const execDir = dirname(process.execPath);
     // macOS .app bundle: binary is in Contents/MacOS/, resources in Contents/Resources/
-    const resourcesPath = join(
-      execDir,
-      "..",
-      "Resources",
-      "installable-skills",
-    );
+    const resourcesPath = join(execDir, "..", "Resources", "skills");
     if (existsSync(resourcesPath)) return resourcesPath;
     // Next to the binary itself (non-app-bundle deployments)
-    const execDirPath = join(execDir, "installable-skills");
+    const execDirPath = join(execDir, "skills");
     if (existsSync(execDirPath)) return execDirPath;
   }
 
-  return join(dir, "installable-skills");
+  // In development: import.meta.dir is assistant/src/config/,
+  // repo root skills/ is three levels up.
+  return join(dir, "..", "..", "..", "..", "skills");
 }
 
 function getSkillsIndexPath(skillsDir: string): string {
@@ -596,15 +588,14 @@ function readSkillFromDirectory(
   }
 }
 
-function readFirstPartySkillFromDirectory(
+function readBundledSkillFromDirectory(
   directoryPath: string,
-  source: "bundled" | "installable",
 ): SkillDefinition | null {
   const skillFilePath = join(directoryPath, "SKILL.md");
   if (!existsSync(skillFilePath)) {
     log.warn(
       { directoryPath },
-      `Skipping ${source} skill directory without SKILL.md`,
+      "Skipping bundled skill directory without SKILL.md",
     );
     return null;
   }
@@ -614,7 +605,7 @@ function readFirstPartySkillFromDirectory(
     if (!stat.isFile()) {
       log.warn(
         { skillFilePath },
-        `Skipping ${source} skill path because SKILL.md is not a file`,
+        "Skipping bundled skill path because SKILL.md is not a file",
       );
       return null;
     }
@@ -635,24 +626,21 @@ function readFirstPartySkillFromDirectory(
       homepage: parsed.homepage,
       userInvocable: parsed.userInvocable,
       disableModelInvocation: parsed.disableModelInvocation,
-      source,
+      source: "bundled",
       metadata: parsed.metadata,
       toolManifest: detectToolManifest(directoryPath),
       includes: parsed.includes,
       credentialSetupFor: parsed.credentialSetupFor,
     };
   } catch (err) {
-    log.warn({ err, skillFilePath }, `Failed to read ${source} skill file`);
+    log.warn({ err, skillFilePath }, "Failed to read bundled skill file");
     return null;
   }
 }
 
 // ─── Skill discovery ─────────────────────────────────────────────────────────
 
-function discoverFirstPartySkillDirectories(
-  baseDir: string,
-  label: string,
-): string[] {
+function discoverBundledSkillDirectories(baseDir: string): string[] {
   if (!existsSync(baseDir)) return [];
 
   const dirs: string[] = [];
@@ -666,22 +654,19 @@ function discoverFirstPartySkillDirectories(
       }
     }
   } catch (err) {
-    log.warn({ err, baseDir }, `Failed to discover ${label} skill directories`);
+    log.warn({ err, baseDir }, "Failed to discover bundled skill directories");
     return [];
   }
 
   return dirs.sort((a, b) => a.localeCompare(b));
 }
 
-function loadFirstPartySkills(
-  baseDir: string,
-  source: "bundled" | "installable",
-): SkillSummary[] {
-  const directories = discoverFirstPartySkillDirectories(baseDir, source);
+function loadBundledSkills(baseDir: string): SkillSummary[] {
+  const directories = discoverBundledSkillDirectories(baseDir);
   const skills: SkillSummary[] = [];
 
   for (const directory of directories) {
-    const skill = readFirstPartySkillFromDirectory(directory, source);
+    const skill = readBundledSkillFromDirectory(directory);
     if (!skill) continue;
 
     skills.push({
@@ -695,7 +680,7 @@ function loadFirstPartySkills(
       homepage: skill.homepage,
       userInvocable: skill.userInvocable,
       disableModelInvocation: skill.disableModelInvocation,
-      source,
+      source: "bundled",
       metadata: skill.metadata,
       toolManifest: skill.toolManifest,
       includes: skill.includes,
@@ -897,58 +882,36 @@ export function loadSkillCatalog(
     }
   }
 
-  // Load installable skills (override extraDirs skills with same ID)
-  const installableSkills = loadFirstPartySkills(
-    getInstallableSkillsDir(),
-    "installable",
-  );
-  for (const skill of installableSkills) {
-    if (seenIds.has(skill.id)) {
-      const existingIndex = catalog.findIndex((s) => s.id === skill.id);
-      if (existingIndex !== -1 && catalog[existingIndex].source === "extra") {
-        log.info(
+  // Load bundled skills from both the repo-root skills/ directory and the
+  // compiled bundled-skills/ directory.  Skills from bundled-skills/ take
+  // precedence over repo-root skills/ which take precedence over extraDirs.
+  const bundledDirs = [getRepoSkillsDir(), getBundledSkillsDir()];
+  for (const baseDir of bundledDirs) {
+    const bundledSkills = loadBundledSkills(baseDir);
+    for (const skill of bundledSkills) {
+      if (seenIds.has(skill.id)) {
+        const existingIndex = catalog.findIndex((s) => s.id === skill.id);
+        if (
+          existingIndex !== -1 &&
+          (catalog[existingIndex].source === "extra" ||
+            catalog[existingIndex].bundled)
+        ) {
+          log.info(
+            { id: skill.id, directory: skill.directoryPath },
+            "Bundled skill overrides lower-precedence skill",
+          );
+          catalog[existingIndex] = skill;
+          continue;
+        }
+        log.warn(
           { id: skill.id, directory: skill.directoryPath },
-          "Installable skill overrides extraDirs skill",
+          "Skipping duplicate bundled skill id",
         );
-        catalog[existingIndex] = skill;
         continue;
       }
-      log.warn(
-        { id: skill.id, directory: skill.directoryPath },
-        "Skipping duplicate installable skill id",
-      );
-      continue;
+      seenIds.add(skill.id);
+      catalog.push(skill);
     }
-    seenIds.add(skill.id);
-    catalog.push(skill);
-  }
-
-  // Load bundled skills (override extraDirs and installable skills with same ID)
-  const bundledSkills = loadFirstPartySkills(getBundledSkillsDir(), "bundled");
-  for (const skill of bundledSkills) {
-    if (seenIds.has(skill.id)) {
-      // Bundled wins over extraDirs and installable
-      const existingIndex = catalog.findIndex((s) => s.id === skill.id);
-      if (
-        existingIndex !== -1 &&
-        (catalog[existingIndex].source === "extra" ||
-          catalog[existingIndex].source === "installable")
-      ) {
-        log.info(
-          { id: skill.id, directory: skill.directoryPath },
-          "Bundled skill overrides lower-precedence skill",
-        );
-        catalog[existingIndex] = skill;
-        continue;
-      }
-      log.warn(
-        { id: skill.id, directory: skill.directoryPath },
-        "Skipping duplicate bundled skill id",
-      );
-      continue;
-    }
-    seenIds.add(skill.id);
-    catalog.push(skill);
   }
 
   // Load managed (user) skills, which take precedence over bundled skills with the same ID
@@ -1044,10 +1007,7 @@ export function loadSkillCatalog(
 function loadSkillDefinition(skill: SkillSummary): SkillLookupResult {
   let loaded: SkillDefinition | null;
   if (skill.bundled) {
-    loaded = readFirstPartySkillFromDirectory(
-      skill.directoryPath,
-      skill.source as "bundled" | "installable",
-    );
+    loaded = readBundledSkillFromDirectory(skill.directoryPath);
   } else if (skill.source === "workspace") {
     // Workspace skills live outside ~/.vellum/workspace/skills, so use their parent
     // directory as the root to avoid the isOutsideSkillsRoot rejection.

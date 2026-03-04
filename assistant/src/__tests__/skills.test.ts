@@ -521,7 +521,7 @@ describe("includes frontmatter parsing", () => {
   });
 });
 
-describe("installable browser skill", () => {
+describe("bundled browser skill", () => {
   beforeEach(() => {
     mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
   });
@@ -532,13 +532,12 @@ describe("installable browser skill", () => {
     }
   });
 
-  test("browser skill appears in full catalog as installable", () => {
+  test("browser skill appears in full catalog (including bundled)", () => {
     const catalog = loadSkillCatalog();
     const browserSkill = catalog.find((s) => s.id === "browser");
     expect(browserSkill).toBeDefined();
     expect(browserSkill!.name).toBe("Browser");
     expect(browserSkill!.bundled).toBe(true);
-    expect(browserSkill!.source).toBe("installable");
   });
 
   test("browser skill has correct metadata", () => {

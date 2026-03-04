@@ -12,6 +12,17 @@
  * Regenerate with:
  *   bun run scripts/generate-bundled-tool-registry.ts
  */
+// ── browser ─────────────────────────────────────────────────────────────────
+import * as browserClick from "../../../skills/browser/tools/browser-click.js";
+import * as browserClose from "../../../skills/browser/tools/browser-close.js";
+import * as browserExtract from "../../../skills/browser/tools/browser-extract.js";
+import * as browserFillCredential from "../../../skills/browser/tools/browser-fill-credential.js";
+import * as browserNavigate from "../../../skills/browser/tools/browser-navigate.js";
+import * as browserPressKey from "../../../skills/browser/tools/browser-press-key.js";
+import * as browserScreenshot from "../../../skills/browser/tools/browser-screenshot.js";
+import * as browserSnapshot from "../../../skills/browser/tools/browser-snapshot.js";
+import * as browserType from "../../../skills/browser/tools/browser-type.js";
+import * as browserWaitFor from "../../../skills/browser/tools/browser-wait-for.js";
 import type { SkillToolScript } from "../tools/skills/script-contract.js";
 // ── app-builder ──────────────────────────────────────────────────────────────
 import * as appCreate from "./bundled-skills/app-builder/tools/app-create.js";
@@ -165,17 +176,6 @@ import * as watcherList from "./bundled-skills/watcher/tools/watcher-list.js";
 import * as watcherUpdate from "./bundled-skills/watcher/tools/watcher-update.js";
 // ── weather ──────────────────────────────────────────────────────────────────
 import * as getWeather from "./bundled-skills/weather/tools/get-weather.js";
-import * as browserClick from "./installable-skills/browser/tools/browser-click.js";
-import * as browserClose from "./installable-skills/browser/tools/browser-close.js";
-import * as browserExtract from "./installable-skills/browser/tools/browser-extract.js";
-import * as browserFillCredential from "./installable-skills/browser/tools/browser-fill-credential.js";
-// ── browser (installable) ────────────────────────────────────────────────────
-import * as browserNavigate from "./installable-skills/browser/tools/browser-navigate.js";
-import * as browserPressKey from "./installable-skills/browser/tools/browser-press-key.js";
-import * as browserScreenshot from "./installable-skills/browser/tools/browser-screenshot.js";
-import * as browserSnapshot from "./installable-skills/browser/tools/browser-snapshot.js";
-import * as browserType from "./installable-skills/browser/tools/browser-type.js";
-import * as browserWaitFor from "./installable-skills/browser/tools/browser-wait-for.js";
 
 // ─── Registry ────────────────────────────────────────────────────────────────
 

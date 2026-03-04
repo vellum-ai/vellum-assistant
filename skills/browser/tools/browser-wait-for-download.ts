@@ -1,8 +1,8 @@
-import { browserManager } from "../../../../tools/browser/browser-manager.js";
+import { browserManager } from "../../../assistant/src/tools/browser/browser-manager.js";
 import type {
   ToolContext,
   ToolExecutionResult,
-} from "../../../../tools/types.js";
+} from "../../../assistant/src/tools/types.js";
 
 export async function run(
   input: Record<string, unknown>,

@@ -1,8 +1,8 @@
-import { executeBrowserScreenshot } from "../../../../tools/browser/browser-execution.js";
+import { executeBrowserScreenshot } from "../../../assistant/src/tools/browser/browser-execution.js";
 import type {
   ToolContext,
   ToolExecutionResult,
-} from "../../../../tools/types.js";
+} from "../../../assistant/src/tools/types.js";
 
 export async function run(
   input: Record<string, unknown>,
