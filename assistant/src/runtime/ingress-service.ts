@@ -307,9 +307,9 @@ export function redeemIngressInvite(params: {
     }
     return { ok: true, data: inviteToResponse(inv) };
   }
-  // Fetch the invite to build the response
-  const invites = listInvites({});
-  const inv = invites.find((i) => i.id === outcome.inviteId);
+  // Look up the invite by token hash — same approach as the already_member path
+  // above. Using findByTokenHash avoids the pagination limit of listInvites.
+  const inv = findByTokenHash(hashToken(params.token));
   if (!inv) {
     return { ok: false, error: "Invite not found after redemption" };
   }
