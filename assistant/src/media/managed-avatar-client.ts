@@ -139,7 +139,9 @@ export async function generateManagedAvatar(
     });
   }
 
-  const estimatedDecodedBytes = Math.ceil(body.image.data_base64.length * 3 / 4);
+  const b64 = body.image.data_base64;
+  const padding = b64.endsWith("==") ? 2 : b64.endsWith("=") ? 1 : 0;
+  const estimatedDecodedBytes = Math.ceil(b64.length * 3 / 4) - padding;
   if (estimatedDecodedBytes > AVATAR_MAX_DECODED_BYTES || body.image.bytes > AVATAR_MAX_DECODED_BYTES) {
     throw new ManagedAvatarError({
       code: "validation_error",
