@@ -1,8 +1,10 @@
 import { existsSync, readFileSync } from "fs";
-import { homedir } from "os";
 import { join } from "path";
 
-import { loadAllAssistants } from "../lib/assistant-config";
+import {
+  defaultLocalResources,
+  resolveTargetAssistant,
+} from "../lib/assistant-config.js";
 import { isProcessAlive } from "../lib/process";
 import {
   startLocalDaemon,
@@ -13,23 +15,30 @@ import {
 export async function wake(): Promise<void> {
   const args = process.argv.slice(3);
   if (args.includes("--help") || args.includes("-h")) {
-    console.log("Usage: vellum wake");
+    console.log("Usage: vellum wake [<name>]");
     console.log("");
     console.log("Start the assistant and gateway processes.");
+    console.log("");
+    console.log("Arguments:");
+    console.log(
+      "  <name>    Name of the assistant to start (default: active or only local)",
+    );
     process.exit(0);
   }
 
-  const assistants = loadAllAssistants();
-  const hasLocal = assistants.some((a) => a.cloud === "local");
-  if (!hasLocal) {
+  const nameArg = args.find((a) => !a.startsWith("-"));
+  const entry = resolveTargetAssistant(nameArg);
+
+  if (entry.cloud && entry.cloud !== "local") {
     console.error(
-      "Error: No local assistant found in lock file. Run 'vellum hatch local' first.",
+      `Error: 'vellum wake' only works with local assistants. '${entry.assistantId}' is a ${entry.cloud} instance.`,
     );
     process.exit(1);
   }
 
-  const vellumDir = join(homedir(), ".vellum");
-  const pidFile = join(vellumDir, "vellum.pid");
+  const resources = entry.resources ?? defaultLocalResources();
+
+  const pidFile = resources.pidFile;
 
   // Check if daemon is already running
   let daemonRunning = false;
@@ -48,22 +57,23 @@ export async function wake(): Promise<void> {
   }
 
   if (!daemonRunning) {
-    await startLocalDaemon();
+    await startLocalDaemon(false, resources);
   }
 
   // Start gateway (non-desktop only)
   if (!process.env.VELLUM_DESKTOP_APP) {
+    const vellumDir = join(resources.instanceDir, ".vellum");
     const gatewayPidFile = join(vellumDir, "gateway.pid");
     const { alive, pid } = isProcessAlive(gatewayPidFile);
     if (alive) {
       console.log(`Gateway already running (pid ${pid}).`);
     } else {
-      await startGateway();
+      await startGateway(undefined, false, resources);
     }
   }
 
   // Start outbound proxy
-  await startOutboundProxy();
+  await startOutboundProxy(false, resources);
 
-  console.log("✅ Wake complete.");
+  console.log("Wake complete.");
 }

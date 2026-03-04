@@ -3,19 +3,17 @@ import { homedir } from "os";
 import { join } from "path";
 
 import {
+  defaultLocalResources,
   findAssistantByName,
+  getActiveAssistant,
   loadAllAssistants,
   type AssistantEntry,
 } from "../lib/assistant-config";
-import { GATEWAY_PORT } from "../lib/constants";
 import { checkHealth } from "../lib/health-check";
 import { pgrepExact } from "../lib/pgrep";
 import { probePort } from "../lib/port-probe";
 import { withStatusEmoji } from "../lib/status-emoji";
 import { execOutput } from "../lib/step-runner";
-
-const RUNTIME_HTTP_PORT = Number(process.env.RUNTIME_HTTP_PORT) || 7821;
-const QDRANT_PORT = 6333;
 
 // ── Table formatting helpers ────────────────────────────────────
 
@@ -218,7 +216,8 @@ function formatDetectionInfo(proc: DetectedProcess): string {
 }
 
 async function getLocalProcesses(entry: AssistantEntry): Promise<TableRow[]> {
-  const vellumDir = entry.baseDataDir ?? join(homedir(), ".vellum");
+  const resources = entry.resources ?? defaultLocalResources();
+  const vellumDir = join(resources.instanceDir, ".vellum");
 
   const PROXY_PORT = Number(process.env.PROXY_PORT) || 7829;
 
@@ -226,19 +225,19 @@ async function getLocalProcesses(entry: AssistantEntry): Promise<TableRow[]> {
     {
       name: "assistant",
       pgrepName: "vellum-daemon",
-      port: RUNTIME_HTTP_PORT,
-      pidFile: join(vellumDir, "vellum.pid"),
+      port: resources.daemonPort,
+      pidFile: resources.pidFile,
     },
     {
       name: "qdrant",
       pgrepName: "qdrant",
-      port: QDRANT_PORT,
+      port: resources.qdrantPort,
       pidFile: join(vellumDir, "workspace", "data", "qdrant", "qdrant.pid"),
     },
     {
       name: "gateway",
       pgrepName: "vellum-gateway",
-      port: GATEWAY_PORT,
+      port: resources.gatewayPort,
       pidFile: join(vellumDir, "gateway.pid"),
     },
     {
@@ -363,6 +362,7 @@ async function detectOrphanedProcesses(): Promise<OrphanedProcess[]> {
 
 async function listAllAssistants(): Promise<void> {
   const assistants = loadAllAssistants();
+  const activeId = getActiveAssistant();
 
   if (assistants.length === 0) {
     console.log("No assistants found.");
@@ -389,9 +389,10 @@ async function listAllAssistants(): Promise<void> {
     const infoParts = [a.runtimeUrl];
     if (a.cloud) infoParts.push(`cloud: ${a.cloud}`);
     if (a.species) infoParts.push(`species: ${a.species}`);
+    const prefix = a.assistantId === activeId ? "* " : "  ";
 
     return {
-      name: a.assistantId,
+      name: prefix + a.assistantId,
       status: withStatusEmoji("checking..."),
       info: infoParts.join(" | "),
     };
@@ -418,8 +419,9 @@ async function listAllAssistants(): Promise<void> {
       if (a.species) infoParts.push(`species: ${a.species}`);
       if (health.detail) infoParts.push(health.detail);
 
+      const prefix = a.assistantId === activeId ? "* " : "  ";
       const updatedRow: TableRow = {
-        name: a.assistantId,
+        name: prefix + a.assistantId,
         status: withStatusEmoji(health.status),
         info: infoParts.join(" | "),
       };
