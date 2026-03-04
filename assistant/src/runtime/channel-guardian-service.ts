@@ -14,7 +14,6 @@ import {
   bindSessionIdentity as storeBindSessionIdentity,
   consumeChallenge,
   countRecentSendsToDestination as storeCountRecentSendsToDestination,
-  createBinding,
   createChallenge,
   createVerificationSession,
   findActiveSession as storeFindActiveSession,
@@ -26,11 +25,11 @@ import {
   getRateLimit,
   recordInvalidAttempt,
   resetRateLimit,
-  revokeBinding as storeRevokeBinding,
   revokePendingChallenges as storeRevokePendingChallenges,
   updateSessionDelivery as storeUpdateSessionDelivery,
   updateSessionStatus as storeUpdateSessionStatus,
 } from '../memory/channel-guardian-store.js';
+import { createGuardianBindingContactsFirst, revokeGuardianBindingContactsFirst } from '../contacts/contacts-write.js';
 import { composeApprovalMessage } from './approval-message-composer.js';
 
 // ---------------------------------------------------------------------------
@@ -300,7 +299,7 @@ export function validateAndConsumeChallenge(
   }
 
   // Revoke any existing active binding before creating a new one (same-user re-verification)
-  storeRevokeBinding(assistantId, channel);
+  revokeGuardianBindingContactsFirst(assistantId, channel);
 
   const metadata: Record<string, string> = {};
   if (actorUsername && actorUsername.trim().length > 0) {
@@ -316,7 +315,7 @@ export function validateAndConsumeChallenge(
   const canonicalPrincipal = vellumBinding?.guardianPrincipalId ?? actorExternalUserId;
 
   // Create the new guardian binding
-  const binding = createBinding({
+  const binding = createGuardianBindingContactsFirst({
     assistantId,
     channel,
     guardianExternalUserId: actorExternalUserId,
@@ -359,7 +358,7 @@ export function revokeBinding(
   assistantId: string,
   channel: string,
 ): boolean {
-  return storeRevokeBinding(assistantId, channel);
+  return revokeGuardianBindingContactsFirst(assistantId, channel);
 }
 
 /**
