@@ -1,10 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import {
-  evaluateRequest,
-  evaluateRequestWithApproval,
-} from "../index.js";
 import type { CredentialInjectionTemplate } from "../../tools/credentials/policy-types.js";
+import { evaluateRequest, evaluateRequestWithApproval } from "../index.js";
 
 function headerTemplate(
   hostPattern: string,

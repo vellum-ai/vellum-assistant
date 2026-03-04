@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import type { CredentialInjectionTemplate } from "../../tools/credentials/policy-types.js";
 import type { PolicyDecision } from "../index.js";
 import {
   buildCredentialRefTrace,
@@ -9,7 +10,6 @@ import {
   sanitizeUrl,
   stripQueryString,
 } from "../index.js";
-import type { CredentialInjectionTemplate } from "../../tools/credentials/policy-types.js";
 
 // ---------------------------------------------------------------------------
 // sanitizeHeaders

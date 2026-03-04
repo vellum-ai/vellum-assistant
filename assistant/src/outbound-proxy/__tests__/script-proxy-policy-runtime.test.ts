@@ -1,10 +1,10 @@
 import { createServer, request as httpRequest, type Server } from "node:http";
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
-import type { ProxyApprovalCallback } from "../index.js";
 import type { CredentialMetadata } from "../../tools/credentials/metadata-store.js";
 import type { CredentialInjectionTemplate } from "../../tools/credentials/policy-types.js";
 import type { ResolvedCredential } from "../../tools/credentials/resolve.js";
+import type { ProxyApprovalCallback } from "../index.js";
 
 // ── Mocks ────────────────────────────────────────────────────────────
 

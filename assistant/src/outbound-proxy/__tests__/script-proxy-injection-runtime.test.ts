@@ -42,14 +42,11 @@ mock.module("../../tools/network/script-proxy/certs.js", () => ({
 }));
 
 import {
-  createSafeLogEntry,
-  sanitizeHeaders,
-} from "../index.js";
-import {
   createSession,
   startSession,
   stopAllSessions,
 } from "../../tools/network/script-proxy/session-manager.js";
+import { createSafeLogEntry, sanitizeHeaders } from "../index.js";
 
 afterEach(async () => {
   await stopAllSessions();
