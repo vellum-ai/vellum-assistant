@@ -289,9 +289,15 @@ export function shouldEmitSlackReaction(
   }
 }
 
+const SLACK_EYES_MAX_DURATION_MS = 120_000;
+
 /**
  * Add a 👀 reaction to the inbound Slack message and return a cleanup
  * function that removes it. Both operations are fire-and-forget.
+ *
+ * A safety timer auto-removes the reaction after {@link SLACK_EYES_MAX_DURATION_MS}
+ * to prevent stuck eyes when `processMessage` hangs (e.g. queued behind
+ * an active session turn that never completes for this message).
  */
 export function addSlackEyesReaction(
   callbackUrl: string,
@@ -300,19 +306,12 @@ export function addSlackEyesReaction(
   mintBearerToken: () => string,
   assistantId?: string,
 ): () => void {
-  void deliverChannelReply(
-    callbackUrl,
-    {
-      chatId,
-      assistantId,
-      reaction: { action: "add", name: "eyes", messageTs },
-    },
-    mintBearerToken(),
-  ).catch((err) => {
-    log.debug({ err, chatId, messageTs }, "Failed to add Slack eyes reaction");
-  });
+  let removed = false;
 
-  return () => {
+  const removeReaction = () => {
+    if (removed) return;
+    removed = true;
+    clearTimeout(safetyTimer);
     void deliverChannelReply(
       callbackUrl,
       {
@@ -328,6 +327,23 @@ export function addSlackEyesReaction(
       );
     });
   };
+
+  void deliverChannelReply(
+    callbackUrl,
+    {
+      chatId,
+      assistantId,
+      reaction: { action: "add", name: "eyes", messageTs },
+    },
+    mintBearerToken(),
+  ).catch((err) => {
+    log.debug({ err, chatId, messageTs }, "Failed to add Slack eyes reaction");
+  });
+
+  const safetyTimer = setTimeout(removeReaction, SLACK_EYES_MAX_DURATION_MS);
+  (safetyTimer as { unref?: () => void }).unref?.();
+
+  return removeReaction;
 }
 
 // ---------------------------------------------------------------------------

@@ -56,6 +56,8 @@ export interface EventHandlerState {
   readonly persistedToolUseIds: Set<string>;
   readonly accumulatedDirectives: DirectiveRequest[];
   readonly accumulatedToolContentBlocks: ContentBlock[];
+  /** Maps index in accumulatedToolContentBlocks → tool name that produced it. */
+  readonly toolContentBlockToolNames: Map<number, string>;
   readonly directiveWarnings: string[];
   readonly toolUseIdToName: Map<string, string>;
   currentTurnToolNames: string[];
@@ -99,6 +101,7 @@ export function createEventHandlerState(): EventHandlerState {
     persistedToolUseIds: new Set(),
     accumulatedDirectives: [],
     accumulatedToolContentBlocks: [],
+    toolContentBlockToolNames: new Map(),
     directiveWarnings: [],
     toolUseIdToName: new Map(),
     currentTurnToolNames: [],
@@ -400,6 +403,12 @@ export function handleToolResult(
     for (const cb of event.contentBlocks) {
       if (cb.type === "image" || cb.type === "file") {
         state.accumulatedToolContentBlocks.push(cb);
+        if (toolName) {
+          state.toolContentBlockToolNames.set(
+            state.accumulatedToolContentBlocks.length - 1,
+            toolName,
+          );
+        }
       }
     }
   }

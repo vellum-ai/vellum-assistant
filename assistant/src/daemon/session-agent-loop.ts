@@ -1238,6 +1238,7 @@ export async function runAgentLoopImpl(
           ctx.hasNoClient,
         ),
       state.lastAssistantMessageId,
+      state.toolContentBlockToolNames,
     );
     const { assistantAttachments, emittedAttachments } = attachmentResult;
 
