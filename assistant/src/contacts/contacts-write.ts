@@ -13,7 +13,7 @@
 import { eq } from "drizzle-orm";
 
 import type { ChannelId } from "../channels/types.js";
-import { emitContactChange } from "./contact-events.js";
+import { getDb } from "../memory/db.js";
 import type { GuardianBinding } from "../memory/guardian-bindings.js";
 import {
   createBinding,
@@ -29,6 +29,7 @@ import {
 import { assistantIngressMembers } from "../memory/schema.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getLogger } from "../util/logger.js";
+import { emitContactChange } from "./contact-events.js";
 import {
   findContactByChannelExternalId,
   findGuardianForChannel,

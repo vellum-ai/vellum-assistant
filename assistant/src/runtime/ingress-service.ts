@@ -7,6 +7,7 @@
 
 import { isChannelId } from '../channels/types.js';
 import { listContacts } from '../contacts/contact-store.js';
+import { blockMemberContactsFirst, revokeMemberContactsFirst, upsertMemberContactsFirst } from '../contacts/contacts-write.js';
 import type { ContactWithChannels } from '../contacts/types.js';
 import {
   createInvite,
