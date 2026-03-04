@@ -182,6 +182,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     #endif
     private var windowObserver: Any?
     private weak var recordingViewModel: ChatViewModel?
+    /// Text that was in the chat input before PTT voice recording started,
+    /// so we can prepend it to partial/final transcriptions instead of overwriting.
+    private var preVoiceInputText: String?
     var statusIconCancellable: AnyCancellable?
     var connectionStatusCancellable: AnyCancellable?
     private var quickInputAttachmentCancellable: AnyCancellable?
@@ -2272,6 +2275,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             self?.voiceTranscriptionWindow?.close()
             self?.voiceTranscriptionWindow = nil
 
+            // Capture prefix before clearing — it was saved when partials started
+            let savedPrefix = (self?.preVoiceInputText ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            self?.preVoiceInputText = nil
+
             // PTT uses priority-based routing because it's a one-shot dictation: the user
             // speaks a single utterance and expects it to go to whatever surface is currently
             // focused. This differs from wake word, which binds to a specific ChatViewModel at
@@ -2286,8 +2293,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             if NSApp.isActive,
                let mainWindow = self?.mainWindow, mainWindow.isVisible,
                let viewModel = mainWindow.activeViewModel {
-                viewModel.inputText = text
-                viewModel.sendMessage()
+                // Append transcribed text to any existing input — let the user send manually
+                viewModel.inputText = savedPrefix.isEmpty ? text : "\(savedPrefix) \(text)"
                 return
             }
 
@@ -2302,6 +2309,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             self?.startSession(task: text, source: "voice")
         }
         voiceInput?.onPartialTranscription = { [weak self] text in
+            // Skip if recording already stopped (late callback from speech recognizer)
+            guard self?.voiceInput?.isRecording == true else { return }
+
             // Priority 0: Route partial text to quick input bar if visible
             if let quickInput = self?.quickInputWindow, quickInput.isVisible {
                 quickInput.setVoiceText(text)
@@ -2312,7 +2322,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             if NSApp.isActive,
                let mainWindow = self?.mainWindow, mainWindow.isVisible,
                let viewModel = mainWindow.activeViewModel {
-                viewModel.inputText = text
+                // Capture existing text on first partial so we can prepend it
+                if self?.preVoiceInputText == nil {
+                    self?.preVoiceInputText = viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+                let prefix = self?.preVoiceInputText ?? ""
+                viewModel.inputText = prefix.isEmpty ? text : "\(prefix) \(text)"
                 return
             }
 

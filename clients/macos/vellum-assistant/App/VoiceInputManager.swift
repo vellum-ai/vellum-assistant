@@ -451,9 +451,15 @@ final class VoiceInputManager {
     }
 
     /// Capture frontmost app context (for dictation) and begin recording.
+    /// When Vellum itself is the frontmost app, skip context capture so the
+    /// transcription falls through to the conversation path (auto-submit to chat)
+    /// instead of going through DictationTextInserter which would double-insert.
     private func captureContextAndBeginRecording() {
         if currentMode == .dictation {
-            currentDictationContext = DictationContextCapture.capture()
+            let isVellumFrontmost = NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.vellum.vellum-assistant"
+            if !isVellumFrontmost {
+                currentDictationContext = DictationContextCapture.capture()
+            }
         }
         beginRecording()
     }

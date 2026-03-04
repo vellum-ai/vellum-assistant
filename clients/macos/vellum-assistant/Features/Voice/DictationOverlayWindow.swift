@@ -15,7 +15,7 @@ final class DictationOverlayWindow {
     private var currentState: DictationState?
 
     private static let baseHeight: CGFloat = 40
-    private static let expandedHeight: CGFloat = 58
+    private static let expandedHeight: CGFloat = 72
     private static let baseWidth: CGFloat = 160
     private static let maxTranscriptionWidth: CGFloat = 400
 
@@ -262,8 +262,8 @@ final class DictationOverlayWindow {
         let field = NSTextField(labelWithString: "")
         field.font = NSFont(name: "Inter", size: 10) ?? NSFont.systemFont(ofSize: 10)
         field.textColor = NSColor(VColor.textMuted)
-        field.lineBreakMode = .byTruncatingTail
-        field.maximumNumberOfLines = 1
+        field.lineBreakMode = .byWordWrapping
+        field.maximumNumberOfLines = 2
         field.isHidden = true
         return field
     }
