@@ -5,9 +5,11 @@ import {
   normalizeSlackAppMention,
   normalizeSlackDirectMessage,
   normalizeSlackChannelMessage,
+  normalizeSlackMessageEdit,
   type SlackAppMentionEvent,
   type SlackDirectMessageEvent,
   type SlackChannelMessageEvent,
+  type SlackMessageChangedEvent,
   type NormalizedSlackEvent,
 } from "./normalize.js";
 
@@ -191,7 +193,8 @@ export class SlackSocketModeClient {
         event?:
           | SlackAppMentionEvent
           | SlackDirectMessageEvent
-          | SlackChannelMessageEvent;
+          | SlackChannelMessageEvent
+          | SlackMessageChangedEvent;
       };
       reason?: string;
     };
@@ -241,21 +244,29 @@ export class SlackSocketModeClient {
     const event = eventPayload.event;
     const dmEvent = event as SlackDirectMessageEvent;
     const channelEvent = event as SlackChannelMessageEvent;
+    const messageChangedEvent = event as SlackMessageChangedEvent;
 
     const isAppMention = event.type === "app_mention";
-    const isDm = event.type === "message" && dmEvent.channel_type === "im";
+    const isMessageChanged =
+      event.type === "message" &&
+      messageChangedEvent.subtype === "message_changed";
+    const isDm =
+      event.type === "message" &&
+      !isMessageChanged &&
+      dmEvent.channel_type === "im";
     const mentionsBot =
       this.config.botUserId &&
       channelEvent.text?.includes(`<@${this.config.botUserId}>`);
     const isActiveThreadReply =
       event.type === "message" &&
+      !isMessageChanged &&
       !isDm &&
       !mentionsBot &&
       !!channelEvent.thread_ts &&
       this.activeThreads.has(channelEvent.thread_ts);
 
-    // Process app_mention events, DMs, and replies in active bot threads
-    if (!isAppMention && !isDm && !isActiveThreadReply) {
+    // Process app_mention events, DMs, message edits, and replies in active bot threads
+    if (!isAppMention && !isDm && !isMessageChanged && !isActiveThreadReply) {
       return;
     }
 
@@ -273,6 +284,13 @@ export class SlackSocketModeClient {
         event as SlackAppMentionEvent,
         eventId,
         this.config.gatewayConfig,
+      );
+    } else if (isMessageChanged) {
+      normalized = normalizeSlackMessageEdit(
+        event as SlackMessageChangedEvent,
+        eventId,
+        this.config.gatewayConfig,
+        this.config.botUserId,
       );
     } else if (isActiveThreadReply) {
       normalized = normalizeSlackChannelMessage(

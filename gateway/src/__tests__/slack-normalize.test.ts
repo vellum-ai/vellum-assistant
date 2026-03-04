@@ -2,7 +2,9 @@ import { describe, test, expect } from "bun:test";
 import {
   stripBotMention,
   normalizeSlackAppMention,
+  normalizeSlackMessageEdit,
   type SlackAppMentionEvent,
+  type SlackMessageChangedEvent,
 } from "../slack/normalize.js";
 import type { GatewayConfig } from "../config.js";
 
@@ -218,5 +220,166 @@ describe("normalizeSlackAppMention", () => {
     expect(result!.event.raw).toEqual(
       event as unknown as Record<string, unknown>,
     );
+  });
+});
+
+function makeMessageChangedEvent(
+  overrides: Partial<SlackMessageChangedEvent> = {},
+): SlackMessageChangedEvent {
+  return {
+    type: "message",
+    subtype: "message_changed",
+    channel: "C_CHANNEL1",
+    ts: "1700000000.000200",
+    message: {
+      user: "U_USER123",
+      text: "edited hello world",
+      ts: "1700000000.000100",
+    },
+    ...overrides,
+  };
+}
+
+describe("normalizeSlackMessageEdit", () => {
+  test("normalizes message_changed event with isEdit: true", () => {
+    const config = makeConfig();
+    const event = makeMessageChangedEvent();
+    const result = normalizeSlackMessageEdit(event, "evt-100", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.sourceChannel).toBe("slack");
+    expect(result!.event.message.isEdit).toBe(true);
+    expect(result!.event.message.content).toBe("edited hello world");
+  });
+
+  test("uses event.message.ts as externalMessageId", () => {
+    const config = makeConfig();
+    const event = makeMessageChangedEvent();
+    const result = normalizeSlackMessageEdit(event, "evt-101", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.message.externalMessageId).toBe("1700000000.000100");
+  });
+
+  test("returns null when edited message has no user", () => {
+    const config = makeConfig();
+    const event = makeMessageChangedEvent({
+      message: { text: "no user", ts: "1700000000.000100" },
+    });
+    const result = normalizeSlackMessageEdit(event, "evt-102", config);
+
+    expect(result).toBeNull();
+  });
+
+  test("returns null when edit is from the bot itself", () => {
+    const config = makeConfig();
+    const event = makeMessageChangedEvent({
+      message: {
+        user: "U_BOT",
+        text: "bot edited",
+        ts: "1700000000.000100",
+      },
+    });
+    const result = normalizeSlackMessageEdit(event, "evt-103", config, "U_BOT");
+
+    expect(result).toBeNull();
+  });
+
+  test("strips bot mention from edited text", () => {
+    const config = makeConfig();
+    const event = makeMessageChangedEvent({
+      message: {
+        user: "U_USER123",
+        text: "<@U123BOT> edited content",
+        ts: "1700000000.000100",
+      },
+    });
+    const result = normalizeSlackMessageEdit(event, "evt-104", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.message.content).toBe("edited content");
+  });
+
+  test("sets actor.actorExternalId from edited message user", () => {
+    const config = makeConfig();
+    const event = makeMessageChangedEvent({
+      message: {
+        user: "U_EDITOR",
+        text: "edited",
+        ts: "1700000000.000100",
+      },
+    });
+    const result = normalizeSlackMessageEdit(event, "evt-105", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.actor.actorExternalId).toBe("U_EDITOR");
+  });
+
+  test("threadTs uses edited message thread_ts when present", () => {
+    const config = makeConfig();
+    const event = makeMessageChangedEvent({
+      message: {
+        user: "U_USER123",
+        text: "edited",
+        ts: "1700000000.000100",
+        thread_ts: "1700000000.000050",
+      },
+    });
+    const result = normalizeSlackMessageEdit(event, "evt-106", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.threadTs).toBe("1700000000.000050");
+  });
+
+  test("threadTs falls back to event.ts when no thread_ts", () => {
+    const config = makeConfig();
+    const event = makeMessageChangedEvent();
+    const result = normalizeSlackMessageEdit(event, "evt-107", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.threadTs).toBe("1700000000.000200");
+  });
+
+  test("DM edits use default assistant when channel is not in routing table", () => {
+    const config = makeConfig({
+      unmappedPolicy: "reject",
+      defaultAssistantId: "default-assistant",
+      routingEntries: [],
+    });
+    const event = makeMessageChangedEvent({ channel_type: "im" });
+    const result = normalizeSlackMessageEdit(event, "evt-108", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.message.isEdit).toBe(true);
+  });
+
+  test("returns null when routing rejects non-DM event", () => {
+    const config = makeConfig({
+      unmappedPolicy: "reject",
+      defaultAssistantId: undefined,
+      routingEntries: [],
+    });
+    const event = makeMessageChangedEvent({ channel_type: "channel" });
+    const result = normalizeSlackMessageEdit(event, "evt-109", config);
+
+    expect(result).toBeNull();
+  });
+
+  test("sets chatType to channel for non-DM edits", () => {
+    const config = makeConfig();
+    const event = makeMessageChangedEvent({ channel_type: "channel" });
+    const result = normalizeSlackMessageEdit(event, "evt-110", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.source.chatType).toBe("channel");
+  });
+
+  test("does not set chatType for DM edits", () => {
+    const config = makeConfig();
+    const event = makeMessageChangedEvent({ channel_type: "im" });
+    const result = normalizeSlackMessageEdit(event, "evt-111", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.source.chatType).toBeUndefined();
   });
 });

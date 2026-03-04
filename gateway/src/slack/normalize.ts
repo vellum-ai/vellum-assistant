@@ -51,6 +51,33 @@ export interface SlackChannelMessageEvent {
 }
 
 /**
+ * Slack `message_changed` event shape — subtype `message_changed` wraps the
+ * edited message in `event.message` and the prior version in
+ * `event.previous_message`.
+ */
+export interface SlackMessageChangedEvent {
+  type: "message";
+  subtype: "message_changed";
+  channel: string;
+  channel_type?: "im" | "channel" | "group" | "mpim";
+  hidden?: boolean;
+  ts: string;
+  event_ts?: string;
+  message: {
+    user?: string;
+    text: string;
+    ts: string;
+    client_msg_id?: string;
+    thread_ts?: string;
+  };
+  previous_message?: {
+    user?: string;
+    text: string;
+    ts: string;
+  };
+}
+
+/**
  * Strip leading bot-mention tokens (`<@U...>`) from the message text.
  * Slack wraps mentions as `<@UXXXXXX>`, often at the start of an
  * app_mention event's text field. We remove all leading occurrences
@@ -86,7 +113,8 @@ export function normalizeSlackDirectMessage(
 ): NormalizedSlackEvent | null {
   // Ignore messages from the bot itself
   if (botUserId && event.user === botUserId) return null;
-  // Ignore message subtypes (edits, deletions, etc.) — only handle plain user messages
+  // Ignore message subtypes (edits, deletions, etc.) — only handle plain user messages.
+  // message_changed is handled separately by normalizeSlackMessageEdit.
   if (event.subtype) return null;
   // user is required for routing
   if (!event.user) return null;
@@ -222,6 +250,71 @@ export function normalizeSlackAppMention(
     },
     routing,
     threadTs: event.thread_ts ?? event.ts,
+    channel: event.channel,
+  };
+}
+
+/**
+ * Normalize a Slack `message_changed` event into the gateway's canonical
+ * inbound event shape with `isEdit: true`.
+ *
+ * The edited content lives in `event.message` (not `event.previous_message`).
+ * Uses `event.message.ts` as the external message ID so the runtime can
+ * correlate the edit with the original message.
+ *
+ * Returns null if the event should be ignored (bot's own edits, missing user,
+ * or unroutable channels).
+ */
+export function normalizeSlackMessageEdit(
+  event: SlackMessageChangedEvent,
+  eventId: string,
+  config: GatewayConfig,
+  botUserId?: string,
+): NormalizedSlackEvent | null {
+  const edited = event.message;
+  if (!edited) return null;
+
+  // Ignore edits from the bot itself
+  if (botUserId && edited.user === botUserId) return null;
+  // user is required for routing
+  if (!edited.user) return null;
+
+  // Try channel routing, fall back to default for DMs
+  const isDm = event.channel_type === "im";
+  let routing = resolveAssistant(config, event.channel, edited.user);
+  if (isRejection(routing) && isDm && config.defaultAssistantId) {
+    routing = {
+      assistantId: config.defaultAssistantId,
+      routeSource: "default" as const,
+    };
+  }
+  if (isRejection(routing)) return null;
+
+  const content = stripBotMention(edited.text);
+  const externalMessageId = edited.ts;
+
+  return {
+    event: {
+      version: "v1",
+      sourceChannel: "slack",
+      receivedAt: new Date().toISOString(),
+      message: {
+        content,
+        conversationExternalId: event.channel,
+        externalMessageId,
+        isEdit: true,
+      },
+      actor: {
+        actorExternalId: edited.user,
+      },
+      source: {
+        updateId: eventId,
+        ...(isDm ? {} : { chatType: "channel" }),
+      },
+      raw: event as unknown as Record<string, unknown>,
+    },
+    routing,
+    threadTs: edited.thread_ts ?? event.ts,
     channel: event.channel,
   };
 }

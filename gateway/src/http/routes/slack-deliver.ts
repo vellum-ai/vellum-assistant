@@ -38,6 +38,9 @@ export function createSlackDeliverHandler(
       text?: string;
       assistantId?: string;
       attachments?: unknown[];
+      chatAction?: "typing";
+      /** Message timestamp to update instead of posting a new message. */
+      updateTs?: string;
     };
     try {
       body = (await req.json()) as typeof body;
@@ -60,6 +63,15 @@ export function createSlackDeliverHandler(
       );
     }
 
+    const { chatAction, updateTs } = body;
+
+    if (chatAction !== undefined && chatAction !== "typing") {
+      return Response.json(
+        { error: 'chatAction must be "typing"' },
+        { status: 400 },
+      );
+    }
+
     // Accept `chatId` as an alias for `to` so runtime channel callbacks work without translation.
     const chatId = body.chatId ?? body.to;
 
@@ -69,17 +81,106 @@ export function createSlackDeliverHandler(
 
     const { text } = body;
 
-    if (!text || typeof text !== "string") {
-      return Response.json({ error: "text is required" }, { status: 400 });
+    if (!text && !chatAction) {
+      return Response.json(
+        { error: "text or chatAction required" },
+        { status: 400 },
+      );
     }
 
     // Support threading via query param
     const threadTs = new URL(req.url).searchParams.get("threadTs") ?? undefined;
 
     try {
+      // Typing indicator: post a placeholder message that the runtime can
+      // later update via `updateTs` when the real response is ready.
+      // Slack bots have no native typing indicator API, so this serves as
+      // a lightweight visual cue.
+      if (chatAction === "typing") {
+        const placeholderBody: Record<string, string> = {
+          channel: chatId,
+          text: "\u2026",
+        };
+        if (threadTs) {
+          placeholderBody.thread_ts = threadTs;
+        }
+
+        const response = await fetchImpl(
+          "https://slack.com/api/chat.postMessage",
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${config.slackChannelBotToken}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(placeholderBody),
+          },
+        );
+
+        const data = (await response.json()) as {
+          ok?: boolean;
+          error?: string;
+          ts?: string;
+        };
+
+        if (!data.ok) {
+          tlog.error(
+            { chatId, slackError: data.error },
+            "Slack API returned error for typing placeholder",
+          );
+          return Response.json({ error: "Delivery failed" }, { status: 502 });
+        }
+
+        tlog.info(
+          { chatId, placeholderTs: data.ts, hasThreadTs: !!threadTs },
+          "Slack typing placeholder sent",
+        );
+
+        if (threadTs && onThreadReply) {
+          onThreadReply(threadTs);
+        }
+
+        // Return the placeholder message ts so the runtime can update it later
+        return Response.json({ ok: true, placeholderTs: data.ts });
+      }
+
+      // If updateTs is provided, edit the existing message instead of posting new
+      if (updateTs && text) {
+        const updateBody: Record<string, string> = {
+          channel: chatId,
+          ts: updateTs,
+          text,
+        };
+
+        const response = await fetchImpl("https://slack.com/api/chat.update", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${config.slackChannelBotToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(updateBody),
+        });
+
+        const data = (await response.json()) as {
+          ok?: boolean;
+          error?: string;
+        };
+
+        if (!data.ok) {
+          tlog.error(
+            { chatId, updateTs, slackError: data.error },
+            "Slack chat.update returned error",
+          );
+          return Response.json({ error: "Update failed" }, { status: 502 });
+        }
+
+        tlog.info({ chatId, updateTs }, "Slack message updated");
+        return Response.json({ ok: true });
+      }
+
       const slackBody: Record<string, string> = {
         channel: chatId,
-        text,
+        text: text!,
       };
       if (threadTs) {
         slackBody.thread_ts = threadTs;
