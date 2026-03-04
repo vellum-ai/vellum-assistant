@@ -645,7 +645,12 @@ struct MainWindowView: View {
                             onDebug: {
                                 sidebar.showPreferencesDrawer = false
                                 windowState.selection = .panel(.debug)
-                            }
+                            },
+                            onLogOut: {
+                                sidebar.showPreferencesDrawer = false
+                                AppDelegate.shared?.performLogout()
+                            },
+                            showLogOut: SessionTokenManager.getToken() != nil
                         )
                         .frame(width: drawerWidth)
                         .offset(x: drawerX, y: -28)

@@ -4,6 +4,8 @@ import VellumAssistantShared
 struct DrawerMenuView: View {
     let onSettings: () -> Void
     let onDebug: () -> Void
+    let onLogOut: () -> Void
+    let showLogOut: Bool
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             DrawerThemeToggle()
@@ -19,6 +21,13 @@ struct DrawerMenuView: View {
                 .padding(.vertical, VSpacing.xs)
 
             DrawerMenuItem(icon: "ladybug", label: "Debug", action: onDebug)
+
+            if showLogOut {
+                VColor.surfaceBorder.frame(height: 1)
+                    .padding(.vertical, VSpacing.xs)
+
+                DrawerMenuItem(icon: "rectangle.portrait.and.arrow.right", label: "Log Out", action: onLogOut)
+            }
         }
         .padding(.vertical, VSpacing.sm)
         .background(VColor.surfaceSubtle)

@@ -36,12 +36,14 @@ jobs:
           if [ -z "$CHANGED_FILES" ]; then
             echo 'changed_skills=[]' >> "$GITHUB_OUTPUT"
           else
+            # Filter to only files inside subdirectories (exclude top-level files like catalog.json)
             SKILLS=$(echo "$CHANGED_FILES" \
               | sed "s|^$SKILLS_DIR/||" \
+              | grep '/' \
               | cut -d'/' -f1 \
               | sort -u \
               | jq -R -s -c 'split("\n") | map(select(length > 0))')
-            echo "changed_skills=$SKILLS" >> "$GITHUB_OUTPUT"
+            echo "changed_skills=${SKILLS:-[]}" >> "$GITHUB_OUTPUT"
           fi
 
   prettier:
@@ -98,3 +100,18 @@ jobs:
 
       - name: Validate SKILL.md files
         run: node scripts/skills/lint-skill-spec.mjs
+
+  check-catalog:
+    name: Check catalog.json is up to date
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Validate catalog.json
+        run: node scripts/skills/check-catalog.mjs

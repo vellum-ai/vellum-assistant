@@ -527,12 +527,13 @@ private struct StepDetailRow: View {
             .padding(.horizontal, VSpacing.sm)
             .padding(.vertical, VSpacing.xxs)
             .background(isHovered && hasDetails ? VColor.surfaceBorder.opacity(0.3) : .clear)
+            .background(VColor.surface.opacity(0.5))
             .onHover { isHovered = $0 }
 
             // Expanded detail section (completed only)
             if isDetailExpanded {
                 stepDetailContent
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .transition(.opacity)
                     .onAppear {
                         if cachedInputFull == nil {
                             if !toolCall.inputFull.isEmpty {

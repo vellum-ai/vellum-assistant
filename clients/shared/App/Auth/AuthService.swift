@@ -113,11 +113,60 @@ public final class AuthService {
         return response
     }
 
+    // MARK: - Platform Organizations API
+
+    /// Fetch the current user's organizations. Does not require Vellum-Organization-Id header.
+    public func getOrganizations() async throws -> [PlatformOrganization] {
+        let urlString = "\(baseURL)/v1/organizations/"
+        guard let url = URL(string: urlString) else {
+            throw PlatformAPIError.invalidURL
+        }
+
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "GET"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        if let token = await SessionTokenManager.getTokenAsync() {
+            urlRequest.setValue(token, forHTTPHeaderField: "X-Session-Token")
+        } else {
+            throw PlatformAPIError.authenticationRequired
+        }
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: urlRequest)
+        } catch {
+            throw PlatformAPIError.networkError(error.localizedDescription)
+        }
+
+        let httpResponse = response as? HTTPURLResponse
+        let statusCode = httpResponse?.statusCode ?? 0
+
+        log.debug("Platform request GET organizations/ -> \(statusCode)")
+
+        if statusCode == 401 || statusCode == 403 {
+            throw PlatformAPIError.authenticationRequired
+        }
+
+        guard (200..<300).contains(statusCode) else {
+            let detail = String(data: data, encoding: .utf8)
+            throw PlatformAPIError.serverError(statusCode: statusCode, detail: detail)
+        }
+
+        do {
+            let paginated = try JSONDecoder().decode(PaginatedOrganizationsResponse.self, from: data)
+            return paginated.results
+        } catch {
+            throw PlatformAPIError.decodingError(error.localizedDescription)
+        }
+    }
+
     // MARK: - Platform Assistant API
 
     /// Fetch the current user's managed assistant.
     /// Returns `.found` with the assistant on 200, `.notFound` on 404.
-    public func getCurrentAssistant() async throws -> PlatformAssistantResult {
+    public func getCurrentAssistant(organizationId: String) async throws -> PlatformAssistantResult {
         let urlString = "\(baseURL)/v1/assistants/current/"
         guard let url = URL(string: urlString) else {
             throw PlatformAPIError.invalidURL
@@ -126,6 +175,7 @@ public final class AuthService {
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = "GET"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+        urlRequest.setValue(organizationId, forHTTPHeaderField: "Vellum-Organization-Id")
 
         if let token = await SessionTokenManager.getTokenAsync() {
             urlRequest.setValue(token, forHTTPHeaderField: "X-Session-Token")
@@ -169,6 +219,7 @@ public final class AuthService {
 
     /// Create a new managed assistant via the platform hatch endpoint.
     public func hatchAssistant(
+        organizationId: String,
         name: String? = nil,
         description: String? = nil,
         anthropicApiKey: String? = nil
@@ -182,6 +233,7 @@ public final class AuthService {
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.setValue(organizationId, forHTTPHeaderField: "Vellum-Organization-Id")
 
         if let token = await SessionTokenManager.getTokenAsync() {
             urlRequest.setValue(token, forHTTPHeaderField: "X-Session-Token")
