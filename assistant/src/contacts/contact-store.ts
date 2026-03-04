@@ -471,7 +471,7 @@ export function searchContacts(params: {
   }
 
   // Search by channel type alone (no address)
-  if (params.channelType) {
+  if (params.channelType && !params.query && !params.relationship) {
     const channelRows = db
       .select({ contactId: contactChannels.contactId })
       .from(contactChannels)
