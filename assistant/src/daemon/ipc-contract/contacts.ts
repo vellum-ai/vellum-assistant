@@ -31,6 +31,11 @@ export interface ContactsResponse {
   contacts?: ContactPayload[];
 }
 
+/** Server push — lightweight invalidation signal: the contacts table has been mutated, refetch your list. */
+export interface ContactsChanged {
+  type: 'contacts_changed';
+}
+
 export interface ContactPayload {
   id: string;
   displayName: string;
@@ -61,4 +66,4 @@ export interface ContactChannelPayload {
 
 export type _ContactsClientMessages = ContactsRequest;
 
-export type _ContactsServerMessages = ContactsResponse;
+export type _ContactsServerMessages = ContactsResponse | ContactsChanged;
