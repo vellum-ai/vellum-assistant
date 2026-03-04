@@ -226,6 +226,15 @@ export type ProxyApprovalCallback = (
   request: ProxyApprovalRequest,
 ) => Promise<boolean>;
 
+/** Env vars a proxy session injects into child processes. */
+export interface ProxyEnvVars {
+  HTTP_PROXY: string;
+  HTTPS_PROXY: string;
+  NO_PROXY: string;
+  NODE_EXTRA_CA_CERTS?: string;
+  SSL_CERT_FILE?: string;
+}
+
 export interface Tool {
   name: string;
   description: string;

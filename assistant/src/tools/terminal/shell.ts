@@ -13,18 +13,14 @@ import {
 } from "../network/script-proxy/index.js";
 import { registerTool } from "../registry.js";
 import { formatShellOutput } from "../shared/shell-output.js";
-import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
+import type {
+  ProxyEnvVars,
+  Tool,
+  ToolContext,
+  ToolExecutionResult,
+} from "../types.js";
 import { buildSanitizedEnv } from "./safe-env.js";
 import { wrapCommand } from "./sandbox.js";
-
-/** Env vars the proxy session injects into child processes. */
-interface ProxyEnvVars {
-  HTTP_PROXY: string;
-  HTTPS_PROXY: string;
-  NO_PROXY: string;
-  NODE_EXTRA_CA_CERTS?: string;
-  SSL_CERT_FILE?: string;
-}
 
 /** Build a credential ref resolution trace for diagnostic logging. */
 function buildCredentialRefTrace(
