@@ -29,8 +29,16 @@ class TitleBarZoomableWindow: NSWindow {
 
     /// When true, `keyDown` will not auto-redirect keystrokes to the composer.
     /// Set when the user clicks outside the composer to dismiss focus; cleared
-    /// when the composer regains focus (e.g. user clicks back into it).
+    /// when the composer regains focus (e.g. user clicks back into it) or when
+    /// the app is reactivated (cmd+tab / Dock click).
     private(set) var composerDismissed = false
+
+    /// Tracks whether the app was deactivated so `becomeKey` can distinguish
+    /// app reactivation (cmd+tab) from secondary-window dismiss within an
+    /// already-active app. Set on `didResignActiveNotification`, consumed
+    /// in `becomeKey`.
+    private var appWasDeactivated = false
+    private var activationObservers: [Any] = []
 
     func clearComposerDismissed() {
         composerDismissed = false
@@ -38,10 +46,37 @@ class TitleBarZoomableWindow: NSWindow {
 
     override func becomeKey() {
         super.becomeKey()
-        // When the window regains key status (e.g. cmd+tab back to the app),
-        // clear the dismissed flag so the keystroke-redirect handler resumes
-        // forwarding typing to the composer without requiring an explicit click.
-        composerDismissed = false
+        // Only clear composerDismissed when the window becomes key due to
+        // app reactivation (cmd+tab, Dock click). When a secondary window
+        // within the already-active app is dismissed, appWasDeactivated is
+        // false and the user's explicit click-away-to-blur is preserved.
+        if appWasDeactivated {
+            appWasDeactivated = false
+            composerDismissed = false
+        }
+    }
+
+    /// Subscribe to app activation lifecycle once the window is set up.
+    /// Called automatically by `makeKeyAndOrderFront` via the notification
+    /// center; safe to call multiple times (guards against duplicate observers).
+    func observeAppActivation() {
+        guard activationObservers.isEmpty else { return }
+        activationObservers.append(
+            NotificationCenter.default.addObserver(
+                forName: NSApplication.didResignActiveNotification,
+                object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.appWasDeactivated = true
+                }
+            }
+        )
+    }
+
+    deinit {
+        for observer in activationObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
     }
 
     override func sendEvent(_ event: NSEvent) {
@@ -371,6 +406,7 @@ public final class MainWindow {
         window.setFrameAutosaveName("MainWindow")
 
         configureTrafficLightPadding(window)
+        window.observeAppActivation()
 
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
