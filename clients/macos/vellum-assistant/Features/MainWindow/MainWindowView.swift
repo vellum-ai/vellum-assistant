@@ -1976,7 +1976,7 @@ private struct DrawerMenuView: View {
             VColor.surfaceBorder.frame(height: 1)
                 .padding(.vertical, VSpacing.xs)
 
-            DrawerMenuItem(icon: "gearshape", label: "Settings", description: "Ask the assistant to help you with any settings you wish to change", action: onSettings)
+            DrawerMenuItem(icon: "gearshape", label: String(localized: "Settings"), description: String(localized: "Ask the assistant to help you with any settings you wish to change"), action: onSettings)
 
             VColor.surfaceBorder.frame(height: 1)
                 .padding(.vertical, VSpacing.xs)
