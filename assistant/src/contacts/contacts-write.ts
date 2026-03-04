@@ -130,6 +130,7 @@ export function revokeGuardianBindingContactsFirst(
   assistantId: string,
   channel: string,
 ): boolean {
+  let contactsEmitted = false;
   try {
     const guardian = findGuardianForChannel(channel);
     if (guardian) {
@@ -137,12 +138,17 @@ export function revokeGuardianBindingContactsFirst(
         status: "revoked",
         revokedReason: "binding_revoked",
       });
+      contactsEmitted = true;
     }
   } catch (err) {
     log.warn({ err }, "Contacts write failed for revokeGuardianBinding");
   }
 
-  return revokeBinding(assistantId, channel);
+  const result = revokeBinding(assistantId, channel);
+  if (result && !contactsEmitted) {
+    emitContactChange();
+  }
+  return result;
 }
 
 // ── Member operations ────────────────────────────────────────────────
@@ -230,6 +236,7 @@ export function revokeMemberContactsFirst(
   const result = revokeMember(memberId, reason);
 
   // Only update contacts if the legacy revoke actually succeeded
+  let contactsEmitted = false;
   if (result) {
     try {
       const canonicalUserId = result.externalUserId
@@ -266,11 +273,18 @@ export function revokeMemberContactsFirst(
               status: "revoked",
               revokedReason: reason ?? null,
             });
+            contactsEmitted = true;
           }
         }
       }
     } catch (err) {
       log.warn({ err }, "Contacts write failed for revokeMember");
+    }
+
+    // Legacy revoke succeeded but contacts path didn't emit — the legacy
+    // call's internal syncSingleMember still mutated contacts, so notify clients.
+    if (!contactsEmitted) {
+      emitContactChange();
     }
   }
 
@@ -290,6 +304,7 @@ export function blockMemberContactsFirst(
   const result = blockMember(memberId, reason);
 
   // Only update contacts if the legacy block actually succeeded
+  let contactsEmitted = false;
   if (result) {
     try {
       const canonicalUserId = result.externalUserId
@@ -326,11 +341,18 @@ export function blockMemberContactsFirst(
               status: "blocked",
               blockedReason: reason ?? null,
             });
+            contactsEmitted = true;
           }
         }
       }
     } catch (err) {
       log.warn({ err }, "Contacts write failed for blockMember");
+    }
+
+    // Legacy block succeeded but contacts path didn't emit — the legacy
+    // call's internal syncSingleMember still mutated contacts, so notify clients.
+    if (!contactsEmitted) {
+      emitContactChange();
     }
   }
 
