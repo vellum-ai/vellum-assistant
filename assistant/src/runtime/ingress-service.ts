@@ -17,6 +17,7 @@ import {
   revokeInvite,
 } from '../memory/ingress-invite-store.js';
 import {
+  findMember,
   type IngressMember,
   type MemberPolicy,
   type MemberStatus,
@@ -133,18 +134,27 @@ export function memberToResponse(m: IngressMember): MemberResponseData {
 }
 
 function contactToMemberResponse(contact: ContactWithChannels): MemberResponseData[] {
-  return contact.channels.map((ch) => ({
-    id: `${contact.id}:${ch.id}`,
-    sourceChannel: ch.type,
-    externalUserId: ch.externalUserId ?? undefined,
-    externalChatId: ch.externalChatId ?? undefined,
-    displayName: contact.displayName,
-    username: undefined,
-    status: ch.status,
-    policy: ch.policy,
-    lastSeenAt: ch.lastSeenAt ?? undefined,
-    createdAt: ch.createdAt,
-  }));
+  return contact.channels.map((ch) => {
+    // Look up the legacy ingress member to get the stable ID and username
+    const legacyMember = findMember({
+      sourceChannel: ch.type,
+      externalUserId: ch.externalUserId ?? undefined,
+      externalChatId: ch.externalChatId ?? undefined,
+    });
+
+    return {
+      id: legacyMember?.id ?? `${contact.id}:${ch.id}`,
+      sourceChannel: ch.type,
+      externalUserId: ch.externalUserId ?? undefined,
+      externalChatId: ch.externalChatId ?? undefined,
+      displayName: contact.displayName,
+      username: legacyMember?.username ?? undefined,
+      status: ch.status,
+      policy: ch.policy,
+      lastSeenAt: ch.lastSeenAt ?? undefined,
+      createdAt: ch.createdAt,
+    };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -300,7 +310,7 @@ export function listIngressMembers(params: {
   status?: string;
   policy?: string;
 }): IngressResult<MemberResponseData[]> {
-  const allContacts = listContacts(200, 'contact');
+  const allContacts = listContacts(Number.MAX_SAFE_INTEGER, 'contact');
   const members = allContacts.flatMap(contactToMemberResponse);
 
   const filtered = members.filter((m) => {
