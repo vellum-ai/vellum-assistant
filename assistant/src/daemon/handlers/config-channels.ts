@@ -2,10 +2,7 @@ import * as net from "node:net";
 
 import type { ChannelId } from "../../channels/types.js";
 import { findContactChannel } from "../../contacts/contact-store.js";
-import {
-  revokeGuardianBindingContactsFirst,
-  revokeMemberContactsFirst,
-} from "../../contacts/contacts-write.js";
+import { revokeMemberContactsFirst } from "../../contacts/contacts-write.js";
 import { contactChannelToMemberRecord } from "../../contacts/member-record-shim.js";
 import * as externalConversationStore from "../../memory/external-conversation-store.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
@@ -14,6 +11,7 @@ import {
   findActiveSession,
   getGuardianBinding,
   getPendingChallenge,
+  revokeBinding,
   revokePendingChallenges,
 } from "../../runtime/channel-guardian-service.js";
 import {
@@ -228,7 +226,7 @@ export function revokeGuardianForChannel(
     revokeMemberContactsFirst(member.id, "guardian_binding_revoked");
   }
 
-  revokeGuardianBindingContactsFirst(assistantId, resolvedChannel);
+  revokeBinding(assistantId, resolvedChannel);
 
   return {
     success: true,
