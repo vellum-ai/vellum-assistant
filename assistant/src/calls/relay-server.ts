@@ -1190,7 +1190,6 @@ export class RelayConnection {
     );
 
     if (result.success) {
-      // Guardian binding was created by validateAndConsumeChallenge
       this.connectionState = "connected";
       this.guardianVerificationActive = false;
       this.verificationAttempts = 0;
@@ -1201,7 +1200,7 @@ export class RelayConnection {
         : "guardian_voice_verification_succeeded";
 
       recordCallEvent(this.callSessionId, eventName, {
-        bindingId: "bindingId" in result ? result.bindingId : undefined,
+        verificationType: result.verificationType,
       });
       log.info(
         { callSessionId: this.callSessionId, isOutbound },
