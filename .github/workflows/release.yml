@@ -594,7 +594,7 @@ jobs:
           echo "**SHA tag:** \`${{ steps.release-sha.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
 
   register-release:
-    needs: [bump-and-tag, push-assistant-manifest, push-gateway-manifest]
+    needs: [bump-and-tag, push-assistant-manifest, push-gateway-manifest, push-outbound-proxy-manifest]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     strategy:
@@ -1591,6 +1591,10 @@ jobs:
         run: bun install --frozen-lockfile
         working-directory: outbound-proxy
 
+      - name: Lint
+        run: bun run lint
+        working-directory: outbound-proxy
+
       - name: Typecheck
         run: bun run typecheck
         working-directory: outbound-proxy
@@ -1889,6 +1893,7 @@ jobs:
           AI=$(ci_icon "${{ needs.push-assistant-manifest.result }}")
           GI=$(ci_icon "${{ needs.push-gateway-manifest.result }}")
           OPI=$(ci_icon "${{ needs.push-outbound-proxy-manifest.result }}")
+          OP=$(ci_icon "${{ needs.ci-outbound-proxy.result }}")
           RR=$(ci_icon "${{ needs.register-release.result }}")
 
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
@@ -1897,7 +1902,7 @@ jobs:
             PLAYWRIGHT_LINE=" (<${RUN_URL}#artifacts|view report>)"
           fi
 
-          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s gateway\n• %s playwright%s\n• %s desktop (arm64)\n• %s desktop (x64)\n• %s ios\n• %s ios-release\n• %s assistant-docker\n• %s gateway-docker\n• %s outbound-proxy-docker\n• %s register-release' "$A" "$C" "$G" "$P" "$PLAYWRIGHT_LINE" "$D" "$DX" "$I" "$RI" "$AI" "$GI" "$OPI" "$RR")
+          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s gateway\n• %s outbound-proxy\n• %s playwright%s\n• %s desktop (arm64)\n• %s desktop (x64)\n• %s ios\n• %s ios-release\n• %s assistant-docker\n• %s gateway-docker\n• %s outbound-proxy-docker\n• %s register-release' "$A" "$C" "$G" "$OP" "$P" "$PLAYWRIGHT_LINE" "$D" "$DX" "$I" "$RI" "$AI" "$GI" "$OPI" "$RR")
           META_LINE=$(printf '*Version:* `%s`\n*Triggered by:* %s' "$VERSION" "${{ github.actor }}")
 
           # Fetch release notes from GitHub release
