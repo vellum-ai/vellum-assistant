@@ -72,7 +72,7 @@ export async function sendWhatsAppReply(
     // the reject action visible alongside the most important approve variants.
     const selectedActions = selectWhatsAppButtons(approval.actions);
     const buttons = selectedActions.map((action) => ({
-      id: `apr:${approval.runId}:${action.id}`,
+      id: `apr:${approval.requestId}:${action.id}`,
       title: action.label.slice(0, WHATSAPP_BUTTON_TITLE_MAX_LEN),
     }));
 

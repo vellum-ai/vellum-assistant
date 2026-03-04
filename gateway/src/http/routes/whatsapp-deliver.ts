@@ -15,7 +15,6 @@ export type ApprovalAction = {
 };
 
 export type ApprovalPayload = {
-  runId: string;
   requestId: string;
   actions: ApprovalAction[];
   plainTextFallback: string;
@@ -88,12 +87,6 @@ export function createWhatsAppDeliverHandler(config: GatewayConfig) {
       if (!text) {
         return Response.json(
           { error: "text is required when approval is present" },
-          { status: 400 },
-        );
-      }
-      if (!approval.runId || typeof approval.runId !== "string") {
-        return Response.json(
-          { error: "approval.runId is required" },
           { status: 400 },
         );
       }

@@ -107,7 +107,6 @@ export function createSmsDeliverHandler(config: GatewayConfig) {
       assistantId?: string;
       attachments?: unknown[];
       approval?: {
-        runId?: string;
         requestId?: string;
         actions?: Array<{ id?: string; label?: string }>;
         plainTextFallback?: string;
