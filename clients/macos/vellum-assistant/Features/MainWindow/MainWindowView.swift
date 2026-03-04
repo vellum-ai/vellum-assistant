@@ -1976,7 +1976,7 @@ private struct DrawerMenuView: View {
             VColor.surfaceBorder.frame(height: 1)
                 .padding(.vertical, VSpacing.xs)
 
-            DrawerMenuItem(icon: "gearshape", label: "Settings", action: onSettings)
+            DrawerMenuItem(icon: "gearshape", label: "Settings", description: "Ask the assistant to help you with any settings you wish to change", action: onSettings)
 
             VColor.surfaceBorder.frame(height: 1)
                 .padding(.vertical, VSpacing.xs)
@@ -2160,22 +2160,32 @@ private struct ScheduleGroupHeaderDropDelegate: DropDelegate {
 private struct DrawerMenuItem: View {
     let icon: String
     let label: String
+    var description: String? = nil
     let action: () -> Void
     @State private var isHovered = false
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: VSpacing.md) {
+            HStack(alignment: .top, spacing: VSpacing.md) {
                 Image(systemName: icon)
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(isHovered ? VColor.textPrimary : VColor.textSecondary)
                     .frame(width: 18)
+                    .padding(.top, 1)
                     .rotationEffect(.degrees(isHovered ? -10 : 0))
                     .scaleEffect(isHovered ? 1.15 : 1.0)
                     .animation(VAnimation.fast, value: isHovered)
-                Text(label)
-                    .font(.custom("Inter", size: 13))
-                    .foregroundColor(VColor.textPrimary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(label)
+                        .font(.custom("Inter", size: 13))
+                        .foregroundColor(VColor.textPrimary)
+                    if let description {
+                        Text(description)
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
                 Spacer()
             }
             .padding(.horizontal, VSpacing.lg)
