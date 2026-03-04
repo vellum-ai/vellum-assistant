@@ -325,6 +325,7 @@ export function normalizeSlackDirectMessage(
       },
       source: {
         updateId: eventId,
+        messageId: event.ts,
       },
       raw: event as unknown as Record<string, unknown>,
     },
@@ -382,6 +383,7 @@ export function normalizeSlackChannelMessage(
       },
       source: {
         updateId: eventId,
+        messageId: event.ts,
         chatType: "channel",
       },
       raw: event as unknown as Record<string, unknown>,
@@ -437,6 +439,7 @@ export function normalizeSlackAppMention(
       },
       source: {
         updateId: eventId,
+        messageId: event.ts,
       },
       raw: event as unknown as Record<string, unknown>,
     },

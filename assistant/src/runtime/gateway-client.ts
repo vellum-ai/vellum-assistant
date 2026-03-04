@@ -37,6 +37,8 @@ export interface ChannelReplyPayload {
   messageTs?: string;
   /** When true, auto-generate Block Kit blocks from text via textToBlocks(). */
   useBlocks?: boolean;
+  /** When provided, add or remove an emoji reaction on a message. */
+  reaction?: { action: "add" | "remove"; name: string; messageTs: string };
 }
 
 export interface ChannelDeliveryResult {
