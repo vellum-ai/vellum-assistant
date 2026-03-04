@@ -2351,7 +2351,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                 let quickInputActive = self?.quickInputWindow?.isVisible ?? false
                 let isDictation = self?.voiceInput?.currentMode == .dictation
                 if !mainWindowActive && !hasActiveConvo && !quickInputActive && !isDictation {
-                    let window = VoiceTranscriptionWindow()
+                    let window = VoiceTranscriptionWindow(
+                        voiceModeManager: self?.mainWindow?.voiceModeManager
+                    )
                     window.show()
                     self?.voiceTranscriptionWindow = window
                 }
