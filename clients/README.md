@@ -36,7 +36,7 @@ clients/
 **Purpose**: Platform-agnostic code shared between macOS and iOS apps
 
 **Contains**:
-- **IPC layer** (`DaemonClient`, `IPCMessages`, `Generated/IPCContractGenerated`) - Network communication with daemon
+- **IPC layer** (`DaemonClient`, `IPCMessages`, `Generated/IPCContractGenerated`) - Network communication with the assistant
   - macOS: Unix domain socket (`~/.vellum/vellum.sock`)
   - iOS: TCP connection (configurable hostname:port)
   - Wire types are auto-generated from the TS IPC contract; `IPCMessages.swift` provides
@@ -108,7 +108,7 @@ See [clients/ios/README.md](ios/README.md) for full build, packaging, and config
 
 **Current features:**
 - ✅ Standalone mode — direct Anthropic API connection (no Mac required)
-- ✅ Connected to Mac mode — TCP proxy through the Vellum daemon
+- ✅ Connected to Mac mode — TCP proxy through the Vellum assistant
 - ✅ Chat interface with streaming, markdown, code blocks
 - ✅ Multiple threads with JSON persistence
 - ✅ Onboarding with adaptive steps per connection mode
@@ -128,7 +128,7 @@ Depends only on `VellumAssistantShared` (no macOS frameworks).
 
 **~45-50% code reuse** between macOS and iOS achieved through:
 
-1. **Shared IPC layer** - Both platforms communicate with daemon (different transport)
+1. **Shared IPC layer** - Both platforms communicate with the assistant (different transport)
 2. **Shared design system** - Tokens and components with conditional compilation
 3. **Shared ViewModels** - ChatViewModel, message models work on both platforms
 
@@ -160,17 +160,17 @@ Depends only on `VellumAssistantShared` (no macOS frameworks).
 ## Known Limitations
 
 ### iOS Signing Operations
-- iOS clients log errors when daemon sends signing requests (macOS-specific IPC)
+- iOS clients log errors when assistant sends signing requests (macOS-specific IPC)
 - Cannot send error responses (protocol limitation)
 
 ### iOS TCP — Real Device Networking
 - `localhost` only works in the simulator (simulator shares Mac's network stack)
-- For real device: enter Mac's local IP in Settings → Mac Daemon → Hostname
+- For real device: enter Mac's local IP in Settings → Mac Assistant → Hostname
 - For remote access: requires VPN, SSH tunnel, or port forwarding
 
 ### iOS Computer-Use
 - AXUIElement + CGEvent APIs are macOS-only (sandbox prevents on iOS)
-- Computer-use sessions initiated from iOS proxy through the Mac daemon
+- Computer-use sessions initiated from iOS proxy through the Mac assistant
 
 ## Documentation
 

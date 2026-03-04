@@ -4,11 +4,12 @@ import SwiftUI
 
 struct VoiceTranscriptionView: View {
     @State private var appearance = AvatarAppearanceManager.shared
+    @ObservedObject var voiceModeManager: VoiceModeManager
 
     private let circleSize: CGFloat = 80
 
     var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 8) {
             ZStack {
                 Circle()
                     .stroke(VColor.accent, lineWidth: 2.5)
@@ -21,13 +22,22 @@ struct VoiceTranscriptionView: View {
                     .clipShape(Circle())
             }
 
-            Text("Listening")
+            Text(voiceModeManager.stateLabel.isEmpty ? "Listening" : voiceModeManager.stateLabel)
                 .font(VFont.bodyMedium)
                 .foregroundColor(VColor.textPrimary)
+
+            if !voiceModeManager.liveTranscription.isEmpty {
+                Text(voiceModeManager.liveTranscription)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+                    .lineLimit(3)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 260)
+            }
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 16)
-        .frame(width: 140)
+        .frame(minWidth: 140)
         .vPanelBackground()
     }
 }
@@ -35,16 +45,30 @@ struct VoiceTranscriptionView: View {
 @MainActor
 final class VoiceTranscriptionWindow {
     private var panel: NSPanel?
+    private weak var voiceModeManager: VoiceModeManager?
 
-    private let panelWidth: CGFloat = 140
-    private let panelHeight: CGFloat = 140
+    private let baseWidth: CGFloat = 140
+    private let baseHeight: CGFloat = 140
     private let margin: CGFloat = 16
 
+    init(voiceModeManager: VoiceModeManager? = nil) {
+        self.voiceModeManager = voiceModeManager
+    }
+
     func show() {
-        let hostingController = NSHostingController(rootView: VoiceTranscriptionView())
+        let rootView: AnyView
+        if let manager = voiceModeManager {
+            rootView = AnyView(VoiceTranscriptionView(voiceModeManager: manager))
+        } else {
+            // Fallback: create a dummy manager for backward compatibility
+            let fallback = VoiceModeManager()
+            rootView = AnyView(VoiceTranscriptionView(voiceModeManager: fallback))
+        }
+
+        let hostingController = NSHostingController(rootView: rootView)
 
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight),
+            contentRect: NSRect(x: 0, y: 0, width: baseWidth, height: baseHeight),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -62,9 +86,9 @@ final class VoiceTranscriptionWindow {
         // Position top-right corner of screen
         if let screen = NSScreen.main {
             let screenFrame = screen.visibleFrame
-            let x = screenFrame.maxX - panelWidth - margin
-            let y = screenFrame.maxY - panelHeight - margin
-            panel.setFrame(NSRect(x: x, y: y, width: panelWidth, height: panelHeight), display: false)
+            let x = screenFrame.maxX - baseWidth - margin
+            let y = screenFrame.maxY - baseHeight - margin
+            panel.setFrame(NSRect(x: x, y: y, width: baseWidth, height: baseHeight), display: false)
         }
 
         panel.orderFront(nil)

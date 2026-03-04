@@ -82,13 +82,14 @@ const TIMED_PATTERNS: readonly RegExp[] = [
 // ---------------------------------------------------------------------------
 
 /**
- * Normalize input: lowercase, trim, strip trailing punctuation (except emoji).
- * Collapses internal whitespace to single spaces.
+ * Normalize input: lowercase, trim, strip `[ref:...]` disambiguation tags,
+ * strip trailing punctuation (except emoji), collapse internal whitespace.
  */
 function normalize(text: string): string {
   return text
     .trim()
     .toLowerCase()
+    .replace(/\[ref:[^\]]*\]/g, "")
     .replace(/\s+/g, " ")
     .replace(/[.!?,;:]+$/, "")
     .trim();

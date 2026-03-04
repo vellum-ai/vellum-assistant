@@ -92,6 +92,7 @@ function resetTables(): void {
 function ensureTestContact(): void {
   upsertContact({
     displayName: "Test User",
+    assistantId: "self",
     channels: [
       {
         type: "telegram",
@@ -293,9 +294,9 @@ describe("Telegram callback seen signals", () => {
     });
 
     // Create a guardian binding (via contacts) so approval can be handled
-    const { createGuardianBindingContactsFirst } =
+    const { createGuardianBinding } =
       await import("../contacts/contacts-write.js");
-    createGuardianBindingContactsFirst({
+    createGuardianBinding({
       assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "telegram-user-default",
@@ -386,7 +387,7 @@ describe("duplicate event deduplication", () => {
 
 describe("non-Telegram channel filtering", () => {
   test("SMS inbound message does not record a Telegram seen signal", async () => {
-    // Override ingress member store for SMS channel
+    // Override contact store for SMS channel
     const req = makeInboundRequest({
       sourceChannel: "sms",
       interface: "sms",

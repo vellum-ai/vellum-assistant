@@ -244,6 +244,36 @@ describe("parseApprovalIntent", () => {
   });
 
   // ---------------------------------------------------------------------------
+  // Ref tag stripping
+  // ---------------------------------------------------------------------------
+
+  describe("ref tag stripping", () => {
+    test("strips [ref:...] tag from approval", () => {
+      expectApproval("yes [ref:abc123]", "approve");
+    });
+
+    test("strips [ref:...] tag from rejection", () => {
+      expectApproval("no [ref:req-2]", "reject");
+    });
+
+    test("strips [ref:...] tag from emoji approval", () => {
+      expectApproval("\u{1F44D} [ref:req-2]", "approve");
+    });
+
+    test("strips [ref:...] tag from timed approval", () => {
+      expectApproval("approve for 10 minutes [ref:req-5]", "approve_10m");
+    });
+
+    test("strips [ref:...] tag with mixed case", () => {
+      expectApproval("Yes [ref:REQ-42]", "approve");
+    });
+
+    test("handles [ref:...] tag with no space before it", () => {
+      expectApproval("ok[ref:abc]", "approve");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // Edge cases
   // ---------------------------------------------------------------------------
 

@@ -4,16 +4,16 @@ Design doc defining how unknown users gain access to a Vellum assistant via chan
 
 ## Roles
 
-| Role | Description |
-|------|-------------|
-| `guardian` | The verified owner/administrator of the assistant on a given channel. Has an active `channel_guardian_bindings` record. Approves or denies access requests. |
-| `trusted_contact` | An external user who has completed the verification flow and holds an active `assistant_ingress_members` record with `status: 'active'` and `policy: 'allow'`. |
-| `assistant` | The Vellum assistant daemon. Mediates the flow, enforces ACL, generates verification codes, and activates trusted contacts upon successful verification. |
+| Role              | Description                                                                                                                                                                                                    |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `guardian`        | The verified owner/administrator of the assistant on a given channel. Has a record in the `contacts` table with `role: 'guardian'` and an active `contact_channels` entry. Approves or denies access requests. |
+| `trusted_contact` | An external user who has completed the verification flow and holds a `contact_channels` record with `status: 'active'` and `policy: 'allow'`.                                                                  |
+| `assistant`       | The Vellum assistant daemon. Mediates the flow, enforces ACL, generates verification codes, and activates trusted contacts upon successful verification.                                                       |
 
 ## User Journey
 
 1. **Unknown user messages the assistant** on Telegram (or SMS, or any channel).
-2. **Assistant rejects the message** via the ingress ACL in `inbound-message-handler.ts`. The user has no `assistant_ingress_members` record, so the handler replies: *"Hmm looks like you don't have access to talk to me. I'll let them know you tried talking to me and get back to you."* and returns `{ denied: true, reason: 'not_a_member' }`.
+2. **Assistant rejects the message** via the ingress ACL in `inbound-message-handler.ts`. The user has no matching `contact_channels` record, so the handler replies: _"Hmm looks like you don't have access to talk to me. I'll let them know you tried talking to me and get back to you."_ and returns `{ denied: true, reason: 'not_a_member' }`.
 3. **Notification pipeline alerts the guardian.** The rejection triggers `notifyGuardianOfAccessRequest()` which creates a canonical access request and calls `emitNotificationSignal()` with `sourceEventName: 'ingress.access_request'`. The notification routes through the decision engine to all connected channels (vellum macOS app, Telegram, etc.). The guardian sees who is requesting access, including a request code for approve/reject and an `open invite flow` option to start the Trusted Contacts invite flow.
 
    **Access-request copy contract:** Every guardian-facing access-request notification must contain:
@@ -30,6 +30,7 @@ Design doc defining how unknown users gain access to a Vellum assistant via chan
    3. No guardian identity — the notification pipeline delivers via trusted/vellum channels even when no channel binding exists.
 
    This ensures unknown inbound access attempts always trigger guardian notification, even when the requester's source channel has no guardian binding.
+
 4. **Guardian approves the request.** The guardian responds to the notification (via Telegram inline button, macOS app, or IPC). On approval, the assistant creates a verification session via `createOutboundSession()` and generates a 6-digit verification code.
 5. **Guardian receives the verification code.** The assistant delivers the code to the guardian's verified channel (Telegram chat, SMS, etc.).
 6. **Guardian gives the code to the requester out-of-band** (in person, text message, phone call, etc.). This out-of-band transfer is the trust anchor: it proves the requester has a real-world relationship with the guardian.
@@ -43,25 +44,25 @@ Design doc defining how unknown users gain access to a Vellum assistant via chan
 requested -> pending_guardian -> verification_pending -> active | denied | expired
 ```
 
-| State | Description | Store representation |
-|-------|-------------|---------------------|
-| `requested` | Unknown user messaged the assistant and was rejected. The system records the access attempt. | No member record exists. The rejection is logged in `channel_inbound_events`. A notification signal is emitted via `emitNotificationSignal()`. |
-| `pending_guardian` | The guardian has been notified and a decision is pending. | A `channel_guardian_approval_requests` record exists with `status: 'pending'`, `toolName: 'ingress_access_request'`. |
-| `verification_pending` | The guardian approved. A verification session is active with a 6-digit code waiting for the requester to enter. | `channel_guardian_verification_challenges` record with `status: 'awaiting_response'`, identity-bound to the requester's expected channel identity. The approval request is updated to `status: 'approved'`. |
-| `active` | The requester entered the correct code. They are now a trusted contact. | `assistant_ingress_members` record with `status: 'active'`, `policy: 'allow'`. The verification session is `status: 'consumed'`. |
-| `denied` | The guardian explicitly denied the request. | The approval request has `status: 'denied'`. No member record is created (or if one existed, it remains unchanged). |
-| `expired` | The guardian never responded (approval TTL elapsed) or the requester never entered the code (session TTL elapsed). | Approval request: `status: 'expired'` (set by `sweepExpiredGuardianApprovals()`). Verification session: expires naturally when `expiresAt < Date.now()`. |
+| State                  | Description                                                                                                        | Store representation                                                                                                                                                                                        |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `requested`            | Unknown user messaged the assistant and was rejected. The system records the access attempt.                       | No member record exists. The rejection is logged in `channel_inbound_events`. A notification signal is emitted via `emitNotificationSignal()`.                                                              |
+| `pending_guardian`     | The guardian has been notified and a decision is pending.                                                          | A `channel_guardian_approval_requests` record exists with `status: 'pending'`, `toolName: 'ingress_access_request'`.                                                                                        |
+| `verification_pending` | The guardian approved. A verification session is active with a 6-digit code waiting for the requester to enter.    | `channel_guardian_verification_challenges` record with `status: 'awaiting_response'`, identity-bound to the requester's expected channel identity. The approval request is updated to `status: 'approved'`. |
+| `active`               | The requester entered the correct code. They are now a trusted contact.                                            | `contact_channels` record with `status: 'active'`, `policy: 'allow'`. The verification session is `status: 'consumed'`.                                                                                     |
+| `denied`               | The guardian explicitly denied the request.                                                                        | The approval request has `status: 'denied'`. No member record is created (or if one existed, it remains unchanged).                                                                                         |
+| `expired`              | The guardian never responded (approval TTL elapsed) or the requester never entered the code (session TTL elapsed). | Approval request: `status: 'expired'` (set by `sweepExpiredGuardianApprovals()`). Verification session: expires naturally when `expiresAt < Date.now()`.                                                    |
 
 ## Identity Binding Rules
 
 Identity binding ensures the verification code can only be consumed by the intended recipient on the intended channel. The binding fields are set on the `channel_guardian_verification_challenges` record when the session is created.
 
-| Channel | Identity fields | Binding behavior |
-|---------|----------------|------------------|
+| Channel  | Identity fields                                                                  | Binding behavior                                                                                                                                                                                                                          |
+| -------- | -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Telegram | `expectedExternalUserId` = Telegram user ID, `expectedChatId` = Telegram chat ID | Both are set when the guardian provides the requester's Telegram identity (from the original rejected message metadata). The `identityBindingStatus` is `'bound'`. Verification requires `actorExternalUserId` or `actorChatId` to match. |
-| SMS | `expectedPhoneE164` = phone number in E.164 format | Set from the requester's phone number. Verification requires `actorExternalUserId` to match the expected phone. |
-| Voice | `expectedPhoneE164` = phone number in E.164 format | Same as SMS: phone-based identity binding. |
-| HTTP API | `expectedExternalUserId` = API caller identity | Bound to whatever external user ID the API client provides. |
+| SMS      | `expectedPhoneE164` = phone number in E.164 format                               | Set from the requester's phone number. Verification requires `actorExternalUserId` to match the expected phone.                                                                                                                           |
+| Voice    | `expectedPhoneE164` = phone number in E.164 format                               | Same as SMS: phone-based identity binding.                                                                                                                                                                                                |
+| HTTP API | `expectedExternalUserId` = API caller identity                                   | Bound to whatever external user ID the API client provides.                                                                                                                                                                               |
 
 **Anti-oracle invariant:** When identity verification fails, the error message is identical to the "invalid or expired code" message. This prevents attackers from distinguishing between a wrong code and a wrong identity, which would leak information about which identities have pending sessions.
 
@@ -75,49 +76,49 @@ Identity binding ensures the verification code can only be consumed by the inten
 
 ### Stage: `pending_guardian` (guardian notified, awaiting decision)
 
-| Store | Table | Record |
-|-------|-------|--------|
-| `channel-guardian-store.ts` | `channel_guardian_approval_requests` | `status: 'pending'`, `toolName: 'ingress_access_request'`, `requesterExternalUserId`, `requesterChatId`, `guardianExternalUserId`, `guardianChatId` (resolved from active `channel_guardian_bindings`), `expiresAt` (GUARDIAN_APPROVAL_TTL_MS from now). |
-| `notification_events` | `notification_events` | Event with `sourceEventName: 'ingress.access_request'`, links to the conversation. |
-| `notification_decisions` | `notification_decisions` | Decision engine output: which channels to notify, confidence, reasoning. |
-| `notification_deliveries` | `notification_deliveries` | Per-channel delivery records (Telegram, vellum, etc.). |
+| Store                       | Table                                | Record                                                                                                                                                                                                                                                                                   |
+| --------------------------- | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `channel-guardian-store.ts` | `channel_guardian_approval_requests` | `status: 'pending'`, `toolName: 'ingress_access_request'`, `requesterExternalUserId`, `requesterChatId`, `guardianExternalUserId`, `guardianChatId` (resolved from the `contacts`/`contact_channels` tables where `role = 'guardian'`), `expiresAt` (GUARDIAN_APPROVAL_TTL_MS from now). |
+| `notification_events`       | `notification_events`                | Event with `sourceEventName: 'ingress.access_request'`, links to the conversation.                                                                                                                                                                                                       |
+| `notification_decisions`    | `notification_decisions`             | Decision engine output: which channels to notify, confidence, reasoning.                                                                                                                                                                                                                 |
+| `notification_deliveries`   | `notification_deliveries`            | Per-channel delivery records (Telegram, vellum, etc.).                                                                                                                                                                                                                                   |
 
 ### Stage: `verification_pending` (guardian approved, code issued)
 
-| Store | Table | Record |
-|-------|-------|--------|
-| `channel-guardian-store.ts` | `channel_guardian_approval_requests` | Updated to `status: 'approved'`, `decidedByExternalUserId` set. |
+| Store                       | Table                                      | Record                                                                                                                                                                                                                                                                              |
+| --------------------------- | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `channel-guardian-store.ts` | `channel_guardian_approval_requests`       | Updated to `status: 'approved'`, `decidedByExternalUserId` set.                                                                                                                                                                                                                     |
 | `channel-guardian-store.ts` | `channel_guardian_verification_challenges` | New record: `status: 'awaiting_response'`, `identityBindingStatus: 'bound'`, `expectedExternalUserId`/`expectedChatId`/`expectedPhoneE164` set to the requester's identity, `challengeHash` = SHA-256 of the 6-digit code, `expiresAt` = 10 minutes from creation, `codeDigits: 6`. |
 
 ### Stage: `active` (code verified, trusted contact created)
 
-| Store | Table | Record |
-|-------|-------|--------|
-| `ingress-member-store.ts` | `assistant_ingress_members` | Upserted via `upsertMember()`: `status: 'active'`, `policy: 'allow'`, `sourceChannel`, `externalUserId`, `externalChatId`, `displayName`, `username`. |
-| `channel-guardian-store.ts` | `channel_guardian_verification_challenges` | Updated to `status: 'consumed'`, `consumedByExternalUserId`, `consumedByChatId` set. |
-| `channel-guardian-store.ts` | `channel_guardian_rate_limits` | Reset via `resetRateLimit()` on successful verification. |
+| Store                       | Table                                      | Record                                                                                                                                                                                              |
+| --------------------------- | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `contacts-write.ts`         | `contacts` / `contact_channels`            | Upserted via `upsertMember()`: creates a contact record and a `contact_channels` entry with `status: 'active'`, `policy: 'allow'`, channel type, `externalUserId`, `externalChatId`, `displayName`. |
+| `channel-guardian-store.ts` | `channel_guardian_verification_challenges` | Updated to `status: 'consumed'`, `consumedByExternalUserId`, `consumedByChatId` set.                                                                                                                |
+| `channel-guardian-store.ts` | `channel_guardian_rate_limits`             | Reset via `resetRateLimit()` on successful verification.                                                                                                                                            |
 
 ### Stage: `denied` (guardian rejected)
 
-| Store | Table | Record |
-|-------|-------|--------|
+| Store                       | Table                                | Record                                                        |
+| --------------------------- | ------------------------------------ | ------------------------------------------------------------- |
 | `channel-guardian-store.ts` | `channel_guardian_approval_requests` | Updated to `status: 'denied'`, `decidedByExternalUserId` set. |
 
 No member record is created. No verification session is created.
 
 ### Stage: `expired`
 
-| Store | Table | Record |
-|-------|-------|--------|
-| `channel-guardian-store.ts` | `channel_guardian_approval_requests` | Updated to `status: 'expired'` by `sweepExpiredGuardianApprovals()` (runs every 60s). |
+| Store                       | Table                                      | Record                                                                                            |
+| --------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| `channel-guardian-store.ts` | `channel_guardian_approval_requests`       | Updated to `status: 'expired'` by `sweepExpiredGuardianApprovals()` (runs every 60s).             |
 | `channel-guardian-store.ts` | `channel_guardian_verification_challenges` | Expires naturally: `expiresAt < Date.now()` makes it invisible to `findPendingChallengeByHash()`. |
 
 ### Invites (alternative path)
 
-The `assistant_ingress_invites` table supports a parallel invite-based onboarding path. An invite carries a SHA-256 hashed token and can be redeemed via `redeemInvite()`, which atomically creates an active member record. This path is distinct from the trusted contact flow but serves the same end state: an active member in `assistant_ingress_members`.
+The `assistant_ingress_invites` table supports a parallel invite-based onboarding path. An invite carries a SHA-256 hashed token and can be redeemed via `redeemInvite()`, which atomically creates an active contact channel record. This path is distinct from the trusted contact flow but serves the same end state: an active `contact_channels` entry with `status: 'active'` and `policy: 'allow'`.
 
-| Table | Purpose in trusted contact flow |
-|-------|--------------------------------|
+| Table                       | Purpose in trusted contact flow                                                                                                                                                      |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `assistant_ingress_invites` | Not used in the guardian-mediated flow. Available as an alternative for direct invite links (e.g., guardian shares a URL instead of going through the approval + verification flow). |
 
 ### Voice In-Call Guardian Approval (friend-initiated)
@@ -125,6 +126,7 @@ The `assistant_ingress_invites` table supports a parallel invite-based onboardin
 Voice calls have a dedicated in-call guardian approval flow that differs from the text-channel flow. Since the caller is actively on the line, the voice flow captures the caller's name, creates a canonical access request, and holds the call while awaiting the guardian's decision.
 
 **Flow:**
+
 1. Unknown caller dials in. `relay-server.ts` resolves trust — caller is `unknown`, no pending challenge, no active invite.
 2. Relay enters `awaiting_name` state and prompts the caller for their name (with a timeout).
 3. On name capture, `notifyGuardianOfAccessRequest` creates a canonical guardian request (`kind: 'access_request'`) and notifies the guardian.
@@ -135,10 +137,10 @@ Voice calls have a dedicated in-call guardian approval flow that differs from th
 
 **Key difference from text-channel flow:** Voice approvals skip the verification session step because the caller's phone identity is already known from the active call. Text-channel approvals still mint a 6-digit verification code for out-of-band identity confirmation.
 
-| Store | Table | Record |
-|-------|-------|--------|
-| `canonical-guardian-store.ts` | `canonical_guardian_requests` | `kind: 'access_request'`, `status: 'pending'` -> `'approved'` or `'denied'` |
-| `ingress-member-store.ts` | `assistant_ingress_members` | On approval: upserted with `status: 'active'`, `policy: 'allow'` |
+| Store                         | Table                           | Record                                                                                |
+| ----------------------------- | ------------------------------- | ------------------------------------------------------------------------------------- |
+| `canonical-guardian-store.ts` | `canonical_guardian_requests`   | `kind: 'access_request'`, `status: 'pending'` -> `'approved'` or `'denied'`           |
+| `contacts-write.ts`           | `contacts` / `contact_channels` | On approval: upserted via `upsertMember()` with `status: 'active'`, `policy: 'allow'` |
 
 ## Sequence Diagram
 
@@ -278,5 +280,5 @@ sequenceDiagram
 
 ### Anti-oracle design
 
-- All failure messages (wrong code, expired code, identity mismatch, rate-limited) return the same generic text: *"The verification code is invalid or has expired."*
+- All failure messages (wrong code, expired code, identity mismatch, rate-limited) return the same generic text: _"The verification code is invalid or has expired."_
 - This prevents attackers from distinguishing between failure modes, which could leak information about valid codes, valid identities, or rate-limit state.

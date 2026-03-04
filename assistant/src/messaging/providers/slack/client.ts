@@ -17,6 +17,7 @@ import type {
   SlackConversationRepliesResponse,
   SlackConversationsListResponse,
   SlackConversationsOpenResponse,
+  SlackPostEphemeralResponse,
   SlackPostMessageResponse,
   SlackReactionAddResponse,
   SlackSearchMessagesResponse,
@@ -24,6 +25,8 @@ import type {
 } from "./types.js";
 
 const SLACK_API_BASE = "https://slack.com/api";
+const MAX_RATE_LIMIT_RETRIES = 3;
+const DEFAULT_RETRY_AFTER_S = 1;
 
 export class SlackApiError extends Error {
   constructor(
@@ -34,6 +37,13 @@ export class SlackApiError extends Error {
     super(message);
     this.name = "SlackApiError";
   }
+}
+
+/**
+ * Sleep helper that respects Slack's Retry-After header value.
+ */
+function sleepMs(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function request<T extends SlackApiResponse>(
@@ -62,35 +72,60 @@ async function request<T extends SlackApiResponse>(
     init = { method: "GET", headers };
   }
 
-  const resp = await fetch(url, init);
-  if (!resp.ok) {
-    throw new SlackApiError(
-      resp.status,
-      `http_${resp.status}`,
-      `Slack API HTTP ${resp.status}`,
-    );
+  for (let attempt = 0; attempt <= MAX_RATE_LIMIT_RETRIES; attempt++) {
+    const resp = await fetch(url, init);
+
+    // Handle 429 rate limits with Retry-After backoff
+    if (resp.status === 429) {
+      if (attempt >= MAX_RATE_LIMIT_RETRIES) {
+        throw new SlackApiError(429, "rate_limited", "Slack API rate limited");
+      }
+      const retryAfter =
+        parseInt(resp.headers.get("Retry-After") ?? "", 10) ||
+        DEFAULT_RETRY_AFTER_S;
+      await sleepMs(retryAfter * 1000);
+      continue;
+    }
+
+    if (!resp.ok) {
+      throw new SlackApiError(
+        resp.status,
+        `http_${resp.status}`,
+        `Slack API HTTP ${resp.status}`,
+      );
+    }
+
+    const data = (await resp.json()) as T;
+    if (!data.ok) {
+      const slackError = data.error ?? "unknown_error";
+
+      // Handle rate_limited error in response body (some Slack APIs return 200 with error)
+      if (slackError === "rate_limited" && attempt < MAX_RATE_LIMIT_RETRIES) {
+        await sleepMs(DEFAULT_RETRY_AFTER_S * 1000);
+        continue;
+      }
+
+      // Map auth errors to 401 for token-manager retry
+      const status = [
+        "invalid_auth",
+        "token_expired",
+        "token_revoked",
+        "not_authed",
+      ].includes(slackError)
+        ? 401
+        : 400;
+      throw new SlackApiError(
+        status,
+        slackError,
+        `Slack API error: ${slackError}`,
+      );
+    }
+
+    return data;
   }
 
-  const data = (await resp.json()) as T;
-  if (!data.ok) {
-    const slackError = data.error ?? "unknown_error";
-    // Map auth errors to 401 for token-manager retry
-    const status = [
-      "invalid_auth",
-      "token_expired",
-      "token_revoked",
-      "not_authed",
-    ].includes(slackError)
-      ? 401
-      : 400;
-    throw new SlackApiError(
-      status,
-      slackError,
-      `Slack API error: ${slackError}`,
-    );
-  }
-
-  return data;
+  // Unreachable, but TypeScript needs this
+  throw new SlackApiError(429, "rate_limited", "Slack API rate limited");
 }
 
 export async function authTest(token: string): Promise<SlackAuthTestResponse> {
@@ -207,6 +242,29 @@ export async function postMessage(
   return request<SlackPostMessageResponse>(
     token,
     "chat.postMessage",
+    undefined,
+    body,
+  );
+}
+
+/**
+ * Post an ephemeral message visible only to the specified user.
+ *
+ * Ephemeral messages are fire-and-forget: they cannot be edited or deleted
+ * after posting, and they disappear when the user reloads the Slack client.
+ */
+export async function postEphemeral(
+  token: string,
+  channel: string,
+  user: string,
+  text: string,
+  threadTs?: string,
+): Promise<SlackPostEphemeralResponse> {
+  const body: Record<string, unknown> = { channel, user, text };
+  if (threadTs) body.thread_ts = threadTs;
+  return request<SlackPostEphemeralResponse>(
+    token,
+    "chat.postEphemeral",
     undefined,
     body,
   );
