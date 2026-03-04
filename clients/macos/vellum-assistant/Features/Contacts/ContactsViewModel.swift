@@ -70,7 +70,7 @@ final class ContactsViewModel: ObservableObject {
         }
 
         do {
-            try daemonClient.sendListContacts()
+            try daemonClient.sendListContacts(limit: 500)
         } catch {
             isLoading = false
         }
