@@ -11,9 +11,9 @@ import { fetchImpl } from "../../fetch.js";
 import { getLogger } from "../../logger.js";
 import { stripHopByHop } from "../../util/strip-hop-by-hop.js";
 
-const log = getLogger("ingress-control-plane-proxy");
+const log = getLogger("contacts-control-plane-proxy");
 
-export function createIngressControlPlaneProxyHandler(config: GatewayConfig) {
+export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
   async function proxyToRuntime(
     req: Request,
     upstreamPath: string,
