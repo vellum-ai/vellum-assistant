@@ -7,22 +7,23 @@
  * 3. Records guardian_action_delivery rows from pipeline delivery results
  */
 
+import { findGuardianForChannel } from "../contacts/contact-store.js";
 import {
   createCanonicalGuardianDelivery,
   createCanonicalGuardianRequest,
   listCanonicalGuardianDeliveries,
   listCanonicalGuardianRequests,
   updateCanonicalGuardianDelivery,
-} from '../memory/canonical-guardian-store.js';
-import { getActiveBinding } from '../memory/guardian-bindings.js';
-import { emitNotificationSignal } from '../notifications/emit-signal.js';
-import type { NotificationDeliveryResult } from '../notifications/types.js';
-import { ensureVellumGuardianBinding } from '../runtime/guardian-vellum-migration.js';
-import { getLogger } from '../util/logger.js';
-import { getUserConsultationTimeoutMs } from './call-constants.js';
-import type { CallPendingQuestion } from './types.js';
+} from "../memory/canonical-guardian-store.js";
+import { getActiveBinding } from "../memory/guardian-bindings.js";
+import { emitNotificationSignal } from "../notifications/emit-signal.js";
+import type { NotificationDeliveryResult } from "../notifications/types.js";
+import { ensureVellumGuardianBinding } from "../runtime/guardian-vellum-migration.js";
+import { getLogger } from "../util/logger.js";
+import { getUserConsultationTimeoutMs } from "./call-constants.js";
+import type { CallPendingQuestion } from "./types.js";
 
-const log = getLogger('guardian-dispatch');
+const log = getLogger("guardian-dispatch");
 
 // Per-callSessionId serialization lock. Ensures that concurrent dispatches for
 // the same call session are serialized so the second dispatch always sees the
@@ -40,19 +41,24 @@ export interface GuardianDispatchParams {
   inputDigest?: string;
 }
 
-function applyDeliveryStatus(deliveryId: string, result: NotificationDeliveryResult): void {
-  if (result.status === 'sent') {
-    updateCanonicalGuardianDelivery(deliveryId, { status: 'sent' });
+function applyDeliveryStatus(
+  deliveryId: string,
+  result: NotificationDeliveryResult,
+): void {
+  if (result.status === "sent") {
+    updateCanonicalGuardianDelivery(deliveryId, { status: "sent" });
     return;
   }
-  updateCanonicalGuardianDelivery(deliveryId, { status: 'failed' });
+  updateCanonicalGuardianDelivery(deliveryId, { status: "failed" });
 }
 
 /**
  * Dispatch a guardian action request to all configured channels.
  * Fire-and-forget: errors are logged but do not propagate.
  */
-export async function dispatchGuardianQuestion(params: GuardianDispatchParams): Promise<void> {
+export async function dispatchGuardianQuestion(
+  params: GuardianDispatchParams,
+): Promise<void> {
   const { callSessionId } = params;
 
   // Serialize concurrent dispatches for the same call session so the second
@@ -77,7 +83,9 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
   }
 }
 
-async function dispatchGuardianQuestionInner(params: GuardianDispatchParams): Promise<void> {
+async function dispatchGuardianQuestionInner(
+  params: GuardianDispatchParams,
+): Promise<void> {
   const {
     callSessionId,
     conversationId,
@@ -91,37 +99,45 @@ async function dispatchGuardianQuestionInner(params: GuardianDispatchParams): Pr
     const expiresAt = Date.now() + getUserConsultationTimeoutMs();
 
     // Voice decisions are handled in guardian threads tied to the assistant-
-    // level guardian identity. Resolve the principal from the vellum binding
-    // (the canonical assistant-level binding) so the request is attributed to
-    // the assistant's guardian principal.
-    let vellumBinding = getActiveBinding(assistantId, 'vellum');
-    let guardianPrincipalId = vellumBinding?.guardianPrincipalId;
+    // level guardian identity. Resolve the principal from the contacts-first
+    // path (canonical), falling back to the legacy vellum binding.
+    let guardianPrincipalId: string | undefined;
 
-    // Self-heal: if the vellum binding is missing, bootstrap it so
-    // the pending_question request can be attributed.
-    if (!guardianPrincipalId) {
-      log.info(
-        { callSessionId, assistantId, hadBinding: !!vellumBinding },
-        'Vellum binding missing — self-healing for voice dispatch',
-      );
-      const healedPrincipalId = ensureVellumGuardianBinding(assistantId);
-      vellumBinding = getActiveBinding(assistantId, 'vellum');
-      guardianPrincipalId = vellumBinding?.guardianPrincipalId ?? healedPrincipalId;
+    const guardianResult = findGuardianForChannel("vellum");
+    if (guardianResult) {
+      guardianPrincipalId = guardianResult.contact.principalId ?? undefined;
+    } else {
+      // Legacy fallback: contacts not yet synced
+      let vellumBinding = getActiveBinding(assistantId, "vellum");
+      guardianPrincipalId = vellumBinding?.guardianPrincipalId;
+
+      // Self-heal: if the vellum binding is missing, bootstrap it so
+      // the pending_question request can be attributed.
+      if (!guardianPrincipalId) {
+        log.info(
+          { callSessionId, assistantId, hadBinding: !!vellumBinding },
+          "Vellum binding missing — self-healing for voice dispatch",
+        );
+        const healedPrincipalId = ensureVellumGuardianBinding(assistantId);
+        vellumBinding = getActiveBinding(assistantId, "vellum");
+        guardianPrincipalId =
+          vellumBinding?.guardianPrincipalId ?? healedPrincipalId;
+      }
     }
 
     if (!guardianPrincipalId) {
       log.error(
         { callSessionId, assistantId },
-        'Voice guardian dispatch: no guardianPrincipalId after self-heal — cannot create pending_question',
+        "Voice guardian dispatch: no guardianPrincipalId after self-heal — cannot create pending_question",
       );
       return;
     }
 
     // Create the canonical guardian request as the primary record.
     const request = createCanonicalGuardianRequest({
-      kind: 'pending_question',
-      sourceType: 'voice',
-      sourceChannel: 'voice',
+      kind: "pending_question",
+      sourceType: "voice",
+      sourceChannel: "voice",
       conversationId,
       callSessionId,
       pendingQuestionId: pendingQuestion.id,
@@ -133,17 +149,21 @@ async function dispatchGuardianQuestionInner(params: GuardianDispatchParams): Pr
     });
 
     log.info(
-      { requestId: request.id, requestCode: request.requestCode, callSessionId },
-      'Created canonical guardian request for voice dispatch',
+      {
+        requestId: request.id,
+        requestCode: request.requestCode,
+        callSessionId,
+      },
+      "Created canonical guardian request for voice dispatch",
     );
 
     // Count how many canonical guardian requests are already pending for
     // this call session. Used as a candidate-affinity hint so the decision
     // engine prefers reusing an existing thread.
     const activeGuardianRequestCount = listCanonicalGuardianRequests({
-      status: 'pending',
-      sourceType: 'voice',
-    }).filter(r => r.callSessionId === callSessionId).length;
+      status: "pending",
+      sourceType: "voice",
+    }).filter((r) => r.callSessionId === callSessionId).length;
 
     // Look up the vellum conversation used for the first guardian question
     // delivery in this call session. When found, pass it as an affinity hint
@@ -153,15 +173,16 @@ async function dispatchGuardianQuestionInner(params: GuardianDispatchParams): Pr
     // deliveries for a vellum destination conversation ID.
     let existingGuardianConversationId: string | null = null;
     const priorRequests = listCanonicalGuardianRequests({
-      sourceType: 'voice',
-    }).filter(r => r.callSessionId === callSessionId && r.id !== request.id);
+      sourceType: "voice",
+    }).filter((r) => r.callSessionId === callSessionId && r.id !== request.id);
     for (const priorReq of priorRequests) {
       const deliveries = listCanonicalGuardianDeliveries(priorReq.id);
       const vellumDelivery = deliveries.find(
-        d => d.destinationChannel === 'vellum' && d.destinationConversationId,
+        (d) => d.destinationChannel === "vellum" && d.destinationConversationId,
       );
       if (vellumDelivery?.destinationConversationId) {
-        existingGuardianConversationId = vellumDelivery.destinationConversationId;
+        existingGuardianConversationId =
+          vellumDelivery.destinationConversationId;
         break;
       }
     }
@@ -172,29 +193,30 @@ async function dispatchGuardianQuestionInner(params: GuardianDispatchParams): Pr
     if (existingGuardianConversationId) {
       log.info(
         { callSessionId, existingGuardianConversationId },
-        'Found existing guardian conversation for call session — enforcing thread affinity',
+        "Found existing guardian conversation for call session — enforcing thread affinity",
       );
     }
 
     // Route through the canonical notification pipeline. The paired vellum
     // conversation from this pipeline is the canonical guardian thread.
     let vellumDeliveryId: string | null = null;
-    const requestCode = request.requestCode ?? request.id.slice(0, 6).toUpperCase();
+    const requestCode =
+      request.requestCode ?? request.id.slice(0, 6).toUpperCase();
     const signalResult = await emitNotificationSignal({
-      sourceEventName: 'guardian.question',
-      sourceChannel: 'voice',
+      sourceEventName: "guardian.question",
+      sourceChannel: "voice",
       sourceSessionId: callSessionId,
       assistantId,
       attentionHints: {
         requiresAction: true,
-        urgency: 'high',
+        urgency: "high",
         deadlineAt: expiresAt,
         isAsyncBackground: false,
         visibleInSourceNow: false,
       },
       contextPayload: {
         requestId: request.id,
-        requestKind: 'pending_question',
+        requestKind: "pending_question",
         requestCode,
         callSessionId,
         toolName,
@@ -204,10 +226,11 @@ async function dispatchGuardianQuestionInner(params: GuardianDispatchParams): Pr
       conversationAffinityHint,
       dedupeKey: `guardian:${request.id}`,
       onThreadCreated: (info) => {
-        if (info.sourceEventName !== 'guardian.question' || vellumDeliveryId) return;
+        if (info.sourceEventName !== "guardian.question" || vellumDeliveryId)
+          return;
         const delivery = createCanonicalGuardianDelivery({
           requestId: request.id,
-          destinationChannel: 'vellum',
+          destinationChannel: "vellum",
           destinationConversationId: info.conversationId,
         });
         vellumDeliveryId = delivery.id;
@@ -215,11 +238,11 @@ async function dispatchGuardianQuestionInner(params: GuardianDispatchParams): Pr
     });
 
     for (const result of signalResult.deliveryResults) {
-      if (result.channel === 'vellum') {
+      if (result.channel === "vellum") {
         if (!vellumDeliveryId) {
           const delivery = createCanonicalGuardianDelivery({
             requestId: request.id,
-            destinationChannel: 'vellum',
+            destinationChannel: "vellum",
             destinationConversationId: result.conversationId,
           });
           vellumDeliveryId = delivery.id;
@@ -228,14 +251,15 @@ async function dispatchGuardianQuestionInner(params: GuardianDispatchParams): Pr
         continue;
       }
 
-      if (result.channel !== 'telegram' && result.channel !== 'sms') {
+      if (result.channel !== "telegram" && result.channel !== "sms") {
         continue;
       }
 
       const delivery = createCanonicalGuardianDelivery({
         requestId: request.id,
         destinationChannel: result.channel,
-        destinationChatId: result.destination.length > 0 ? result.destination : undefined,
+        destinationChatId:
+          result.destination.length > 0 ? result.destination : undefined,
       });
       applyDeliveryStatus(delivery.id, result);
     }
@@ -243,15 +267,15 @@ async function dispatchGuardianQuestionInner(params: GuardianDispatchParams): Pr
     if (!vellumDeliveryId) {
       const fallback = createCanonicalGuardianDelivery({
         requestId: request.id,
-        destinationChannel: 'vellum',
+        destinationChannel: "vellum",
       });
-      updateCanonicalGuardianDelivery(fallback.id, { status: 'failed' });
+      updateCanonicalGuardianDelivery(fallback.id, { status: "failed" });
       log.warn(
         { requestId: request.id, reason: signalResult.reason },
-        'Notification pipeline did not produce a vellum delivery result',
+        "Notification pipeline did not produce a vellum delivery result",
       );
     }
   } catch (err) {
-    log.error({ err, callSessionId }, 'Failed to dispatch guardian question');
+    log.error({ err, callSessionId }, "Failed to dispatch guardian question");
   }
 }

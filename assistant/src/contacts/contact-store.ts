@@ -109,6 +109,8 @@ interface SyncChannelData {
   isPrimary?: boolean;
   externalUserId?: string | null;
   externalChatId?: string | null;
+  /** Raw (pre-canonicalization) address used only for dedup fallback against legacy records. */
+  legacyAddress?: string;
   status?: ChannelStatus;
   policy?: ChannelPolicy;
   verifiedAt?: number | null;
@@ -202,13 +204,13 @@ export function upsertContact(params: {
         .get();
 
       // Fallback: if the address was canonicalized, the old record may still
-      // have the raw (non-canonical) address. Try matching by externalUserId
-      // treated as an address so we update the existing contact instead of
-      // creating a duplicate.
+      // have the raw (non-canonical) address stored. Try matching by
+      // legacyAddress so we update the existing contact instead of creating
+      // a duplicate.
       if (
         !existingChannel &&
-        ch.externalUserId &&
-        ch.externalUserId.toLowerCase() !== ch.address.toLowerCase()
+        ch.legacyAddress &&
+        ch.legacyAddress.toLowerCase() !== ch.address.toLowerCase()
       ) {
         existingChannel = db
           .select()
@@ -216,7 +218,7 @@ export function upsertContact(params: {
           .where(
             and(
               eq(contactChannels.type, ch.type),
-              eq(contactChannels.address, ch.externalUserId.toLowerCase()),
+              eq(contactChannels.address, ch.legacyAddress.toLowerCase()),
             ),
           )
           .get();
@@ -311,11 +313,11 @@ function syncChannels(
       .get();
 
     // Fallback: the channel may have been stored with a pre-canonicalization
-    // address. Try matching by externalUserId as the address to find it.
+    // address. Try matching by legacyAddress to find it.
     if (
       !existing &&
-      ch.externalUserId &&
-      ch.externalUserId.toLowerCase() !== normalizedAddress
+      ch.legacyAddress &&
+      ch.legacyAddress.toLowerCase() !== normalizedAddress
     ) {
       existing = db
         .select()
@@ -324,7 +326,7 @@ function syncChannels(
           and(
             eq(contactChannels.contactId, contactId),
             eq(contactChannels.type, ch.type),
-            eq(contactChannels.address, ch.externalUserId.toLowerCase()),
+            eq(contactChannels.address, ch.legacyAddress.toLowerCase()),
           ),
         )
         .get();
@@ -679,6 +681,49 @@ export function findGuardianForChannel(
   return {
     contact: parseContact(row.contact),
     channel: parseChannel(row.channel),
+  };
+}
+
+/**
+ * List all active channels for the guardian contact.
+ * This is the contacts-based equivalent of listActiveBindingsByAssistant(assistantId).
+ * Returns channels ordered by most-recently-verified first.
+ */
+export function listGuardianChannels(): {
+  contact: Contact;
+  channels: ContactChannel[];
+} | null {
+  const db = getDb();
+  // Find the guardian contact
+  const guardianRow = db
+    .select()
+    .from(contacts)
+    .where(eq(contacts.role, "guardian"))
+    .limit(1)
+    .get();
+
+  if (!guardianRow) return null;
+
+  const guardian = parseContact(guardianRow);
+
+  // Get all active channels for the guardian, ordered by verifiedAt desc
+  const channelRows = db
+    .select()
+    .from(contactChannels)
+    .where(
+      and(
+        eq(contactChannels.contactId, guardian.id),
+        eq(contactChannels.status, "active"),
+      ),
+    )
+    .orderBy(desc(contactChannels.verifiedAt))
+    .all();
+
+  if (channelRows.length === 0) return null;
+
+  return {
+    contact: guardian,
+    channels: channelRows.map(parseChannel),
   };
 }
 
