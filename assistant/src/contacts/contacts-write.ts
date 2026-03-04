@@ -1,39 +1,28 @@
 /**
  * Contacts-first write module.
  *
- * Each function writes to the contacts table first (the primary write),
- * then reverse-syncs to the legacy table for backward compatibility.
- * The legacy functions' built-in forward-sync hooks fire redundantly
- * but are harmless (upsertContact is idempotent).
- *
- * All contacts writes are wrapped in try/catch — a contacts failure
- * does not prevent the legacy write from succeeding.
+ * All mutations write directly to the contacts table (the authoritative
+ * source). The legacy ingress_members and guardian_bindings tables are
+ * no longer written to.
  */
 
-import { eq } from "drizzle-orm";
-
 import type { ChannelId } from "../channels/types.js";
-import { getDb } from "../memory/db.js";
 import type { GuardianBinding } from "../memory/guardian-bindings.js";
-import { createBinding, revokeBinding } from "../memory/guardian-bindings.js";
 import type { IngressMember } from "../memory/ingress-member-store.js";
-import {
-  blockMember,
-  revokeMember,
-  updateLastSeen,
-  upsertMember,
-} from "../memory/ingress-member-store.js";
-import { assistantIngressMembers } from "../memory/schema.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getLogger } from "../util/logger.js";
 import { emitContactChange } from "./contact-events.js";
 import {
-  findContactByChannelExternalId,
+  findContactChannel,
   findGuardianForChannel,
-  updateChannelLastSeenByExternalId,
+  getChannelById,
+  getContact,
+  updateChannelLastSeenById,
   updateChannelStatus,
   upsertContact,
 } from "./contact-store.js";
+import { contactChannelToMemberRecord } from "./member-record-shim.js";
 import type { ChannelPolicy, ChannelStatus } from "./types.js";
 
 const log = getLogger("contacts-write");
@@ -58,23 +47,12 @@ function parseDisplayNameFromMetadata(
   return null;
 }
 
-function readMemberById(
-  memberId: string,
-): typeof assistantIngressMembers.$inferSelect | undefined {
-  const db = getDb();
-  return db
-    .select()
-    .from(assistantIngressMembers)
-    .where(eq(assistantIngressMembers.id, memberId))
-    .get();
-}
-
 // ── Guardian operations ──────────────────────────────────────────────
 
 /**
- * Create a guardian binding, writing to the contacts table first,
- * then reverse-syncing to the legacy guardian_bindings table.
- * Returns the legacy GuardianBinding (so callers expecting binding.id still work).
+ * Create a guardian binding by writing to the contacts table.
+ * Returns a GuardianBinding-compatible object synthesized from the input params
+ * (so callers expecting binding.id still work).
  */
 export function createGuardianBindingContactsFirst(params: {
   assistantId: string;
@@ -85,78 +63,77 @@ export function createGuardianBindingContactsFirst(params: {
   verifiedVia?: string;
   metadataJson?: string | null;
 }): GuardianBinding {
-  try {
-    const canonicalId =
-      canonicalizeInboundIdentity(
-        params.channel as ChannelId,
-        params.guardianExternalUserId,
-      ) ?? params.guardianExternalUserId;
+  const canonicalId =
+    canonicalizeInboundIdentity(
+      params.channel as ChannelId,
+      params.guardianExternalUserId,
+    ) ?? params.guardianExternalUserId;
 
-    const displayName =
-      parseDisplayNameFromMetadata(params.metadataJson) ??
-      params.guardianExternalUserId;
+  const displayName =
+    parseDisplayNameFromMetadata(params.metadataJson) ??
+    params.guardianExternalUserId;
 
-    upsertContact({
-      displayName,
-      role: "guardian",
-      principalId: params.guardianPrincipalId,
-      channels: [
-        {
-          type: params.channel,
-          address: canonicalId,
-          externalUserId: canonicalId,
-          externalChatId: params.guardianDeliveryChatId,
-          status: "active",
-          verifiedAt: Date.now(),
-          verifiedVia: params.verifiedVia ?? "challenge",
-        },
-      ],
-    });
-  } catch (err) {
-    log.warn({ err }, "Contacts write failed for createGuardianBinding");
-  }
+  upsertContact({
+    displayName,
+    role: "guardian",
+    principalId: params.guardianPrincipalId,
+    channels: [
+      {
+        type: params.channel,
+        address: canonicalId,
+        externalUserId: canonicalId,
+        externalChatId: params.guardianDeliveryChatId,
+        status: "active",
+        verifiedAt: Date.now(),
+        verifiedVia: params.verifiedVia ?? "challenge",
+      },
+    ],
+  });
 
-  const result = createBinding(params);
+  const now = Date.now();
+  const result: GuardianBinding = {
+    id: `contact-binding-${params.channel}`,
+    assistantId: params.assistantId,
+    channel: params.channel,
+    guardianExternalUserId: params.guardianExternalUserId,
+    guardianDeliveryChatId: params.guardianDeliveryChatId,
+    guardianPrincipalId: params.guardianPrincipalId,
+    status: "active",
+    verifiedAt: now,
+    verifiedVia: params.verifiedVia ?? "challenge",
+    metadataJson: params.metadataJson ?? null,
+    createdAt: now,
+    updatedAt: now,
+  };
+
   emitContactChange();
   return result;
 }
 
 /**
- * Revoke a guardian binding, updating the contacts table first,
- * then reverse-syncing to the legacy guardian_bindings table.
- * Returns the boolean result from the legacy call.
+ * Revoke a guardian binding by updating the contacts table.
+ * Returns true when a guardian channel was found and revoked, false otherwise.
  */
 export function revokeGuardianBindingContactsFirst(
-  assistantId: string,
+  _assistantId: string,
   channel: string,
 ): boolean {
-  let contactsEmitted = false;
-  try {
-    const guardian = findGuardianForChannel(channel);
-    if (guardian) {
-      updateChannelStatus(guardian.channel.id, {
-        status: "revoked",
-        revokedReason: "binding_revoked",
-      });
-      contactsEmitted = true;
-    }
-  } catch (err) {
-    log.warn({ err }, "Contacts write failed for revokeGuardianBinding");
-  }
+  const guardian = findGuardianForChannel(channel);
+  if (!guardian) return false;
 
-  const result = revokeBinding(assistantId, channel);
-  if (result && !contactsEmitted) {
-    emitContactChange();
-  }
-  return result;
+  updateChannelStatus(guardian.channel.id, {
+    status: "revoked",
+    revokedReason: "binding_revoked",
+  });
+  emitContactChange();
+  return true;
 }
 
 // ── Member operations ────────────────────────────────────────────────
 
 /**
- * Upsert an ingress member, writing to the contacts table first,
- * then reverse-syncing to the legacy ingress_members table.
- * Returns the IngressMember from the legacy call (callers expect this type).
+ * Upsert an ingress member by writing to the contacts table.
+ * Returns an IngressMember synthesized from the contacts data.
  */
 export function upsertMemberContactsFirst(params: {
   sourceChannel: string;
@@ -170,223 +147,173 @@ export function upsertMemberContactsFirst(params: {
   createdBySessionId?: string;
   assistantId?: string;
 }): IngressMember {
-  try {
-    // Compute address and canonicalId (same logic as syncSingleMember in contact-sync)
-    let address: string;
-    let canonicalId: string | null;
+  let address: string;
 
-    if (params.externalUserId) {
-      const canonical =
-        canonicalizeInboundIdentity(
-          params.sourceChannel as ChannelId,
-          params.externalUserId,
-        ) ?? params.externalUserId;
-      address = canonical;
-      canonicalId = canonical;
-    } else if (params.externalChatId) {
-      address = params.externalChatId;
-      canonicalId = null;
-    } else {
-      // No usable identity — skip contacts write, let legacy handle validation
-      return upsertMember(params as Parameters<typeof upsertMember>[0]);
-    }
-
-    const displayName =
-      params.displayName ?? params.externalUserId ?? "Unknown";
-
-    upsertContact({
-      displayName,
-      channels: [
-        {
-          type: params.sourceChannel,
-          address,
-          externalUserId: canonicalId,
-          externalChatId: params.externalChatId ?? null,
-          legacyAddress:
-            params.externalUserId && params.externalUserId !== address
-              ? params.externalUserId
-              : undefined,
-          status: (params.status as ChannelStatus) ?? undefined,
-          policy: (params.policy as ChannelPolicy) ?? undefined,
-          inviteId: params.inviteId ?? null,
-          revokedReason: params.status === "active" ? null : undefined,
-          blockedReason: params.status === "active" ? null : undefined,
-        },
-      ],
-    });
-  } catch (err) {
-    log.warn({ err }, "Contacts write failed for upsertMember");
+  if (params.externalUserId) {
+    const canonical =
+      canonicalizeInboundIdentity(
+        params.sourceChannel as ChannelId,
+        params.externalUserId,
+      ) ?? params.externalUserId;
+    address = canonical;
+  } else if (params.externalChatId) {
+    address = params.externalChatId;
+  } else {
+    // No usable identity — return a minimal fallback record
+    return {
+      id: "",
+      assistantId: params.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
+      sourceChannel: params.sourceChannel,
+      externalUserId: params.externalUserId ?? null,
+      externalChatId: params.externalChatId ?? null,
+      displayName: params.displayName ?? null,
+      username: params.username ?? null,
+      status: (params.status as IngressMember["status"]) ?? "pending",
+      policy: (params.policy as IngressMember["policy"]) ?? "allow",
+      inviteId: params.inviteId ?? null,
+      createdBySessionId: params.createdBySessionId ?? null,
+      revokedReason: null,
+      blockedReason: null,
+      lastSeenAt: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
   }
 
-  const result = upsertMember(params as Parameters<typeof upsertMember>[0]);
+  const displayName =
+    params.displayName ?? params.externalUserId ?? "Unknown";
+
+  const canonicalId = params.externalUserId
+    ? (canonicalizeInboundIdentity(
+        params.sourceChannel as ChannelId,
+        params.externalUserId,
+      ) ?? params.externalUserId)
+    : null;
+
+  upsertContact({
+    displayName,
+    channels: [
+      {
+        type: params.sourceChannel,
+        address,
+        externalUserId: canonicalId,
+        externalChatId: params.externalChatId ?? null,
+        legacyAddress:
+          params.externalUserId && params.externalUserId !== address
+            ? params.externalUserId
+            : undefined,
+        status: (params.status as ChannelStatus) ?? undefined,
+        policy: (params.policy as ChannelPolicy) ?? undefined,
+        inviteId: params.inviteId ?? null,
+        revokedReason: params.status === "active" ? null : undefined,
+        blockedReason: params.status === "active" ? null : undefined,
+      },
+    ],
+  });
+
+  const contactResult = findContactChannel({
+    channelType: params.sourceChannel,
+    externalUserId: canonicalId ?? undefined,
+    externalChatId: params.externalChatId,
+  });
+
   emitContactChange();
-  return result;
+
+  if (contactResult) {
+    return contactChannelToMemberRecord(
+      contactResult.contact,
+      contactResult.channel,
+    );
+  }
+
+  // Fallback: construct minimal IngressMember from params
+  return {
+    id: "",
+    assistantId: params.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
+    sourceChannel: params.sourceChannel,
+    externalUserId: params.externalUserId ?? null,
+    externalChatId: params.externalChatId ?? null,
+    displayName: params.displayName ?? null,
+    username: params.username ?? null,
+    status: (params.status as IngressMember["status"]) ?? "pending",
+    policy: (params.policy as IngressMember["policy"]) ?? "allow",
+    inviteId: params.inviteId ?? null,
+    createdBySessionId: params.createdBySessionId ?? null,
+    revokedReason: null,
+    blockedReason: null,
+    lastSeenAt: null,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
 }
 
 /**
- * Revoke an ingress member, updating the contacts table first,
- * then reverse-syncing to the legacy ingress_members table.
- * Returns the IngressMember | null from the legacy call.
+ * Revoke an ingress member by updating the contacts channel status.
+ * The memberId may be a channel ID (from contactChannelToMemberRecord shim)
+ * or a composite contactId:channelId (from contactToMemberResponse in ingress-service).
  */
 export function revokeMemberContactsFirst(
   memberId: string,
   reason?: string,
 ): IngressMember | null {
-  // Perform legacy revoke first — it only applies to active/pending members
-  const result = revokeMember(memberId, reason);
+  const channelId = memberId.includes(":") ? memberId.split(":")[1] : memberId;
 
-  // Only update contacts if the legacy revoke actually succeeded
-  let contactsEmitted = false;
-  if (result) {
-    try {
-      const canonicalUserId = result.externalUserId
-        ? (canonicalizeInboundIdentity(
-            result.sourceChannel as ChannelId,
-            result.externalUserId,
-          ) ?? result.externalUserId)
-        : null;
+  const channelRow = getChannelById(channelId);
+  if (!channelRow) return null;
+  if (channelRow.status !== "active" && channelRow.status !== "pending")
+    return null;
 
-      if (canonicalUserId) {
-        // Try canonical ID first, fall back to raw ID for legacy contacts
-        let contact = findContactByChannelExternalId(
-          result.sourceChannel,
-          canonicalUserId,
-        );
-        let lookupId = canonicalUserId;
+  updateChannelStatus(channelId, {
+    status: "revoked",
+    revokedReason: reason ?? null,
+  });
 
-        if (!contact && canonicalUserId !== result.externalUserId) {
-          contact = findContactByChannelExternalId(
-            result.sourceChannel,
-            result.externalUserId!,
-          );
-          lookupId = result.externalUserId!;
-        }
+  const contact = getContact(channelRow.contactId);
+  if (!contact) return null;
+  const updatedChannel = contact.channels.find((ch) => ch.id === channelId);
+  if (!updatedChannel) return null;
 
-        if (contact) {
-          const matchingChannel = contact.channels.find(
-            (ch) =>
-              ch.type === result.sourceChannel &&
-              ch.externalUserId === lookupId,
-          );
-          if (matchingChannel) {
-            updateChannelStatus(matchingChannel.id, {
-              status: "revoked",
-              revokedReason: reason ?? null,
-            });
-            contactsEmitted = true;
-          }
-        }
-      }
-    } catch (err) {
-      log.warn({ err }, "Contacts write failed for revokeMember");
-    }
-
-    // Legacy revoke succeeded but contacts path didn't emit — the legacy
-    // call's internal syncSingleMember still mutated contacts, so notify clients.
-    if (!contactsEmitted) {
-      emitContactChange();
-    }
-  }
-
-  return result;
+  emitContactChange();
+  return contactChannelToMemberRecord(contact, updatedChannel);
 }
 
 /**
- * Block an ingress member, performing the legacy block first,
- * then updating the contacts table only if the legacy call succeeded.
- * Returns the IngressMember | null from the legacy call.
+ * Block an ingress member by updating the contacts channel status.
+ * The memberId may be a channel ID (from contactChannelToMemberRecord shim)
+ * or a composite contactId:channelId (from contactToMemberResponse in ingress-service).
  */
 export function blockMemberContactsFirst(
   memberId: string,
   reason?: string,
 ): IngressMember | null {
-  // Perform legacy block first — it only applies to non-blocked members
-  const result = blockMember(memberId, reason);
+  const channelId = memberId.includes(":") ? memberId.split(":")[1] : memberId;
 
-  // Only update contacts if the legacy block actually succeeded
-  let contactsEmitted = false;
-  if (result) {
-    try {
-      const canonicalUserId = result.externalUserId
-        ? (canonicalizeInboundIdentity(
-            result.sourceChannel as ChannelId,
-            result.externalUserId,
-          ) ?? result.externalUserId)
-        : null;
+  const channelRow = getChannelById(channelId);
+  if (!channelRow) return null;
+  if (channelRow.status === "blocked") return null;
 
-      if (canonicalUserId) {
-        // Try canonical ID first, fall back to raw ID for legacy contacts
-        let contact = findContactByChannelExternalId(
-          result.sourceChannel,
-          canonicalUserId,
-        );
-        let lookupId = canonicalUserId;
+  updateChannelStatus(channelId, {
+    status: "blocked",
+    blockedReason: reason ?? null,
+  });
 
-        if (!contact && canonicalUserId !== result.externalUserId) {
-          contact = findContactByChannelExternalId(
-            result.sourceChannel,
-            result.externalUserId!,
-          );
-          lookupId = result.externalUserId!;
-        }
+  const contact = getContact(channelRow.contactId);
+  if (!contact) return null;
+  const updatedChannel = contact.channels.find((ch) => ch.id === channelId);
+  if (!updatedChannel) return null;
 
-        if (contact) {
-          const matchingChannel = contact.channels.find(
-            (ch) =>
-              ch.type === result.sourceChannel &&
-              ch.externalUserId === lookupId,
-          );
-          if (matchingChannel) {
-            updateChannelStatus(matchingChannel.id, {
-              status: "blocked",
-              blockedReason: reason ?? null,
-            });
-            contactsEmitted = true;
-          }
-        }
-      }
-    } catch (err) {
-      log.warn({ err }, "Contacts write failed for blockMember");
-    }
-
-    // Legacy block succeeded but contacts path didn't emit — the legacy
-    // call's internal syncSingleMember still mutated contacts, so notify clients.
-    if (!contactsEmitted) {
-      emitContactChange();
-    }
-  }
-
-  return result;
+  emitContactChange();
+  return contactChannelToMemberRecord(contact, updatedChannel);
 }
 
 /**
- * Touch the lastSeenAt timestamp on a member's contact channel,
- * then reverse-sync to the legacy ingress_members table.
+ * Update the lastSeenAt timestamp on a contact channel by its ID.
+ * The channelId comes from the contactChannelToMemberRecord shim (member.id = channel.id).
  */
-export function touchChannelLastSeen(memberId: string): void {
+export function touchChannelLastSeen(channelId: string): void {
   try {
-    const member = readMemberById(memberId);
-    if (member?.externalUserId) {
-      const canonicalUserId =
-        canonicalizeInboundIdentity(
-          member.sourceChannel as ChannelId,
-          member.externalUserId,
-        ) ?? member.externalUserId;
-
-      // Try canonical ID first
-      updateChannelLastSeenByExternalId(member.sourceChannel, canonicalUserId);
-
-      // Also try raw ID for legacy contacts that haven't been rewritten yet
-      if (canonicalUserId !== member.externalUserId) {
-        updateChannelLastSeenByExternalId(
-          member.sourceChannel,
-          member.externalUserId,
-        );
-      }
-    }
+    updateChannelLastSeenById(channelId);
   } catch (err) {
-    log.warn({ err }, "Contacts write failed for touchChannelLastSeen");
+    log.warn({ err }, "Failed to update channel lastSeenAt");
   }
-
-  updateLastSeen(memberId);
 }

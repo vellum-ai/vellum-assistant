@@ -130,6 +130,22 @@ export function getContact(id: string): ContactWithChannels | null {
   return withChannels(parseContact(row));
 }
 
+/**
+ * Look up a single contact channel by its primary key.
+ * Returns the parsed channel row, or null if it does not exist.
+ */
+export function getChannelById(
+  channelId: string,
+): ContactChannel | null {
+  const db = getDb();
+  const row = db
+    .select()
+    .from(contactChannels)
+    .where(eq(contactChannels.id, channelId))
+    .get();
+  return row ? parseChannel(row) : null;
+}
+
 export function upsertContact(params: {
   id?: string;
   displayName: string;
@@ -874,6 +890,19 @@ export function updateChannelStatus(
   }
 
   return parseChannel(existing);
+}
+
+/**
+ * Update the lastSeenAt timestamp on a contact channel by its primary key.
+ * Optimized for the hot path — single UPDATE with no prior SELECT.
+ */
+export function updateChannelLastSeenById(channelId: string): void {
+  const db = getDb();
+  const now = Date.now();
+  db.update(contactChannels)
+    .set({ lastSeenAt: now, updatedAt: now })
+    .where(eq(contactChannels.id, channelId))
+    .run();
 }
 
 /**
