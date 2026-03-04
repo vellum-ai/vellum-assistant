@@ -48,7 +48,10 @@ function toQueryString(params: Record<string, string | undefined>): string {
 }
 
 async function gatewayGet(path: string): Promise<unknown> {
-  const gatewayBase = getGatewayInternalBaseUrl();
+  const injectedGatewayBase = process.env.INTERNAL_GATEWAY_BASE_URL?.trim();
+  const gatewayBase = injectedGatewayBase && injectedGatewayBase.length > 0
+    ? injectedGatewayBase.replace(/\/+$/, '')
+    : getGatewayInternalBaseUrl();
   const token = getGatewayToken();
 
   const response = await fetch(`${gatewayBase}${path}`, {
