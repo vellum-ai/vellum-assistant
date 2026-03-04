@@ -809,17 +809,19 @@ export function updateChannelStatus(
       .set(updateSet)
       .where(eq(contactChannels.id, channelId))
       .run();
+
+    const updated = db
+      .select()
+      .from(contactChannels)
+      .where(eq(contactChannels.id, channelId))
+      .get();
+
+    const result = updated ? parseChannel(updated) : null;
+    emitContactChange();
+    return result;
   }
 
-  const updated = db
-    .select()
-    .from(contactChannels)
-    .where(eq(contactChannels.id, channelId))
-    .get();
-
-  const result = updated ? parseChannel(updated) : null;
-  emitContactChange();
-  return result;
+  return parseChannel(existing);
 }
 
 /**
