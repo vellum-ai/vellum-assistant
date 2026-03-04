@@ -200,6 +200,7 @@ struct ComposerView: View {
             )
             .shadow(color: .clear, radius: 0)
         }
+        .fixedSize(horizontal: false, vertical: true)
         .animation(VAnimation.fast, value: showSlashMenu)
         .padding(.horizontal, VSpacing.lg)
         .padding(.top, VSpacing.sm)
