@@ -5,9 +5,13 @@ import {
   normalizeSlackAppMention,
   normalizeSlackDirectMessage,
   normalizeSlackChannelMessage,
+  normalizeSlackBlockActions,
+  normalizeSlackReactionAdded,
   type SlackAppMentionEvent,
   type SlackDirectMessageEvent,
   type SlackChannelMessageEvent,
+  type SlackBlockActionsPayload,
+  type SlackReactionAddedEvent,
   type NormalizedSlackEvent,
 } from "./normalize.js";
 
@@ -191,7 +195,15 @@ export class SlackSocketModeClient {
         event?:
           | SlackAppMentionEvent
           | SlackDirectMessageEvent
-          | SlackChannelMessageEvent;
+          | SlackChannelMessageEvent
+          | SlackReactionAddedEvent;
+        // Interactive payloads are delivered directly as the payload
+        type?: string;
+        trigger_id?: string;
+        user?: { id: string; username?: string; name?: string };
+        channel?: { id: string; name?: string };
+        message?: { ts: string; text?: string };
+        actions?: SlackBlockActionsPayload["actions"];
       };
       reason?: string;
     };
@@ -232,6 +244,27 @@ export class SlackSocketModeClient {
       return;
     }
 
+    // Handle interactive envelopes (block_actions from Block Kit buttons, menus, etc.)
+    if (envelope.type === "interactive") {
+      const interactivePayload = envelope.payload;
+      if (interactivePayload?.type === "block_actions") {
+        const normalized = normalizeSlackBlockActions(
+          interactivePayload as unknown as SlackBlockActionsPayload,
+          envelope.envelope_id ?? "unknown",
+          this.config.gatewayConfig,
+        );
+        if (normalized) {
+          this.onEvent(normalized);
+        } else {
+          log.info(
+            { envelopeId: envelope.envelope_id },
+            "Slack block_actions dropped by normalization/routing",
+          );
+        }
+      }
+      return;
+    }
+
     // Only process events_api envelopes
     if (envelope.type !== "events_api") return;
 
@@ -244,6 +277,7 @@ export class SlackSocketModeClient {
 
     const isAppMention = event.type === "app_mention";
     const isDm = event.type === "message" && dmEvent.channel_type === "im";
+    const isReactionAdded = event.type === "reaction_added";
     const mentionsBot =
       this.config.botUserId &&
       channelEvent.text?.includes(`<@${this.config.botUserId}>`);
@@ -254,8 +288,8 @@ export class SlackSocketModeClient {
       !!channelEvent.thread_ts &&
       this.activeThreads.has(channelEvent.thread_ts);
 
-    // Process app_mention events, DMs, and replies in active bot threads
-    if (!isAppMention && !isDm && !isActiveThreadReply) {
+    // Process app_mention events, DMs, reaction_added, and replies in active bot threads
+    if (!isAppMention && !isDm && !isReactionAdded && !isActiveThreadReply) {
       return;
     }
 
@@ -268,7 +302,13 @@ export class SlackSocketModeClient {
     this.dedupMap.set(eventId, Date.now());
 
     let normalized: NormalizedSlackEvent | null;
-    if (isAppMention) {
+    if (isReactionAdded) {
+      normalized = normalizeSlackReactionAdded(
+        event as SlackReactionAddedEvent,
+        eventId,
+        this.config.gatewayConfig,
+      );
+    } else if (isAppMention) {
       normalized = normalizeSlackAppMention(
         event as SlackAppMentionEvent,
         eventId,
@@ -292,7 +332,11 @@ export class SlackSocketModeClient {
 
     if (!normalized) {
       log.info(
-        { eventId, channel: event.channel, type: event.type },
+        {
+          eventId,
+          channel: (event as { channel?: string }).channel,
+          type: event.type,
+        },
         "Slack event dropped by normalization/routing",
       );
       return;
