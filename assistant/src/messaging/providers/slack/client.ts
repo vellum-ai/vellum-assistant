@@ -19,8 +19,10 @@ import type {
   SlackConversationsOpenResponse,
   SlackPostMessageResponse,
   SlackReactionAddResponse,
+  SlackScheduleMessageResponse,
   SlackSearchMessagesResponse,
   SlackUserInfoResponse,
+  SlackUsersGetPresenceResponse,
 } from "./types.js";
 
 const SLACK_API_BASE = "https://slack.com/api";
@@ -274,4 +276,35 @@ export async function leaveConversation(
       channel,
     },
   );
+}
+
+/**
+ * Schedule a message for future delivery using chat.scheduleMessage.
+ * @param postAt - Unix timestamp (seconds) for when to deliver the message.
+ */
+export async function scheduleMessage(
+  token: string,
+  channel: string,
+  text: string,
+  postAt: number,
+  threadTs?: string,
+): Promise<SlackScheduleMessageResponse> {
+  const body: Record<string, unknown> = { channel, text, post_at: postAt };
+  if (threadTs) body.thread_ts = threadTs;
+  return request<SlackScheduleMessageResponse>(
+    token,
+    "chat.scheduleMessage",
+    undefined,
+    body,
+  );
+}
+
+/** Check a user's presence status. */
+export async function getPresence(
+  token: string,
+  userId: string,
+): Promise<SlackUsersGetPresenceResponse> {
+  return request<SlackUsersGetPresenceResponse>(token, "users.getPresence", {
+    user: userId,
+  });
 }

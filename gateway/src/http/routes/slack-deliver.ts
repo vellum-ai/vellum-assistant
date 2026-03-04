@@ -38,6 +38,7 @@ export function createSlackDeliverHandler(
       text?: string;
       assistantId?: string;
       attachments?: unknown[];
+      schedule_at?: number;
     };
     try {
       body = (await req.json()) as typeof body;
@@ -76,8 +77,14 @@ export function createSlackDeliverHandler(
     // Support threading via query param
     const threadTs = new URL(req.url).searchParams.get("threadTs") ?? undefined;
 
+    // Use chat.scheduleMessage when schedule_at (Unix timestamp in seconds) is provided
+    const scheduleAt = body.schedule_at;
+    const useScheduledSend =
+      typeof scheduleAt === "number" &&
+      scheduleAt > Math.floor(Date.now() / 1000);
+
     try {
-      const slackBody: Record<string, string> = {
+      const slackBody: Record<string, string | number> = {
         channel: chatId,
         text,
       };
@@ -85,23 +92,28 @@ export function createSlackDeliverHandler(
         slackBody.thread_ts = threadTs;
       }
 
-      const response = await fetchImpl(
-        "https://slack.com/api/chat.postMessage",
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${config.slackChannelBotToken}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(slackBody),
+      let apiMethod: string;
+      if (useScheduledSend) {
+        apiMethod = "chat.scheduleMessage";
+        slackBody.post_at = scheduleAt;
+      } else {
+        apiMethod = "chat.postMessage";
+      }
+
+      const response = await fetchImpl(`https://slack.com/api/${apiMethod}`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${config.slackChannelBotToken}`,
+          "Content-Type": "application/json",
         },
-      );
+        body: JSON.stringify(slackBody),
+      });
 
       const data = (await response.json()) as { ok?: boolean; error?: string };
 
       if (!data.ok) {
         tlog.error(
-          { chatId, slackError: data.error },
+          { chatId, slackError: data.error, apiMethod },
           "Slack API returned error",
         );
         return Response.json({ error: "Delivery failed" }, { status: 502 });
@@ -111,7 +123,10 @@ export function createSlackDeliverHandler(
       return Response.json({ error: "Delivery failed" }, { status: 502 });
     }
 
-    tlog.info({ chatId, hasThreadTs: !!threadTs }, "Slack message sent");
+    tlog.info(
+      { chatId, hasThreadTs: !!threadTs, scheduled: useScheduledSend },
+      useScheduledSend ? "Slack message scheduled" : "Slack message sent",
+    );
 
     // Track the thread so future replies without @mention are forwarded
     if (threadTs && onThreadReply) {

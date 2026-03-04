@@ -133,3 +133,19 @@ export interface SlackChatUpdateResponse extends SlackApiResponse {
 }
 
 export type SlackConversationMarkResponse = SlackApiResponse;
+
+export interface SlackScheduleMessageResponse extends SlackApiResponse {
+  channel: string;
+  scheduled_message_id: string;
+  post_at: number;
+  message: SlackMessage;
+}
+
+export interface SlackUsersGetPresenceResponse extends SlackApiResponse {
+  presence: "active" | "away";
+  online?: boolean;
+  auto_away?: boolean;
+  manual_away?: boolean;
+  connection_count?: number;
+  last_activity?: number;
+}
