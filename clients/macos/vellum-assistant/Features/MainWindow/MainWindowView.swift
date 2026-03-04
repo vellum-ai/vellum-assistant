@@ -1572,13 +1572,15 @@ struct MainWindowView: View {
                     showThreadSwitcher = false
                 }
                 .contentShape(Rectangle())
+                .if(regularThreads.count > 1) { view in
+                    view.pointerCursor()
+                }
                 .onTapGesture {
                     guard regularThreads.count > 1 else { return }
                     threadSwitcherHoverTimer?.cancel()
                     threadSwitcherHoverTimer = nil
                     showThreadSwitcher.toggle()
                 }
-                .pointerCursor()
                 .onHover { hovering in
                     guard regularThreads.count > 1 else { return }
                     if hovering {
