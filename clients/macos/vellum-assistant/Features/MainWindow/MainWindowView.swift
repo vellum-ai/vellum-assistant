@@ -1655,6 +1655,17 @@ struct MainWindowView: View {
                     .onChange(of: threadManager.activeThreadId) { _, _ in
                         showThreadSwitcher = false
                     }
+                    .onChange(of: showThreadSwitcher) { _, isShowing in
+                        if !isShowing {
+                            // Clean up hover/cursor state when popover dismisses —
+                            // onHover(false) may not fire if the view is removed.
+                            if sidebar.isHoveredThread != nil {
+                                sidebar.isHoveredThread = nil
+                                NSCursor.pop()
+                            }
+                            sidebar.threadPendingDeletion = nil
+                        }
+                    }
                     .onChange(of: sidebar.isHoveredThread) { _, newValue in
                         if let pending = sidebar.threadPendingDeletion, newValue != pending {
                             sidebar.threadPendingDeletion = nil
