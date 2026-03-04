@@ -1,5 +1,5 @@
 /**
- * Gateway proxy endpoints for ingress members/invites control-plane routes.
+ * Gateway proxy endpoints for ingress contacts/invites control-plane routes.
  *
  * These routes remain available even when the broad runtime proxy is
  * disabled, so skills and clients can use gateway URLs exclusively.

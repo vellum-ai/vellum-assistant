@@ -1892,7 +1892,7 @@ export class RelayConnection {
 
   /**
    * Validate an entered invite code against active voice invites for the
-   * caller. On success, create/activate the ingress member and transition
+   * caller. On success, create/activate the contact and transition
    * to the normal call flow. On failure, allow retries up to max attempts.
    */
   private attemptInviteCodeRedemption(enteredCode: string): void {

@@ -2,7 +2,7 @@
 name: "Guardian Verify Setup"
 description: "Set up guardian verification for voice or Telegram channels via outbound verification flow"
 user-invocable: true
-metadata: {"vellum": {"emoji": "\ud83d\udd10"}}
+metadata: { "vellum": { "emoji": "\ud83d\udd10" } }
 ---
 
 You are helping your user set up guardian verification for a messaging channel (voice or Telegram). This links their identity as the trusted guardian for the chosen channel. Use gateway control-plane APIs for outbound actions, and use `vellum integrations guardian status` for status reads.
@@ -60,14 +60,14 @@ After reporting the bootstrap URL for Telegram handle flows, wait for the user t
 
 Handle each error code:
 
-| Error code | Action |
-|---|---|
-| `missing_destination` | Ask the user to provide their phone number or Telegram destination. |
-| `invalid_destination` | Tell the user the format is invalid. For phone: suggest E.164 format (+15551234567). For Telegram: explain that group chat IDs (negative numbers) are not supported. |
-| `already_bound` | Tell the user a guardian is already bound for this channel. Ask if they want to replace it. If yes, re-run the start request with `"rebind": true` added to the JSON body. |
-| `rate_limited` | Tell the user they have sent too many verification attempts to this destination. Ask them to wait and try again later. |
-| `unsupported_channel` | Tell the user the channel is not supported. Only voice and telegram are valid. |
-| `no_bot_username` | Telegram bot is not configured. Load and run the `telegram-setup` skill first. |
+| Error code            | Action                                                                                                                                                                     |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `missing_destination` | Ask the user to provide their phone number or Telegram destination.                                                                                                        |
+| `invalid_destination` | Tell the user the format is invalid. For phone: suggest E.164 format (+15551234567). For Telegram: explain that group chat IDs (negative numbers) are not supported.       |
+| `already_bound`       | Tell the user a guardian is already bound for this channel. Ask if they want to replace it. If yes, re-run the start request with `"rebind": true` added to the JSON body. |
+| `rate_limited`        | Tell the user they have sent too many verification attempts to this destination. Ask them to wait and try again later.                                                     |
+| `unsupported_channel` | Tell the user the channel is not supported. Only voice and telegram are valid.                                                                                             |
+| `no_bot_username`     | Telegram bot is not configured. Load and run the `telegram-setup` skill first.                                                                                             |
 
 ## Step 4: Handle Resend
 
@@ -89,13 +89,13 @@ On success, report the next action based on the channel:
 
 Handle each error code from the resend endpoint:
 
-| Error code | Action |
-|---|---|
-| `rate_limited` | Tell the user to wait before trying again (the cooldown is 15 seconds between resends). |
+| Error code           | Action                                                                                                                                                                                            |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `rate_limited`       | Tell the user to wait before trying again (the cooldown is 15 seconds between resends).                                                                                                           |
 | `max_sends_exceeded` | Tell the user they have reached the maximum number of resends for this session (5 sends per session). Suggest canceling the current session (Step 5) and starting a new verification from Step 3. |
-| `no_destination` | This should not normally occur during resend. Tell the user to cancel (Step 5) and restart verification from scratch at Step 3. |
-| `pending_bootstrap` | Remind the user to click the Telegram deep-link first before a code can be sent. |
-| `no_active_session` | No session is active. Start a new one from Step 3. |
+| `no_destination`     | This should not normally occur during resend. Tell the user to cancel (Step 5) and restart verification from scratch at Step 3.                                                                   |
+| `pending_bootstrap`  | Remind the user to click the Telegram deep-link first before a code can be sent.                                                                                                                  |
+| `no_active_session`  | No session is active. Start a new one from Step 3.                                                                                                                                                |
 
 ## Step 5: Handle Cancel
 
@@ -130,12 +130,14 @@ vellum integrations guardian status --channel voice --json
 
 **Rebind guard:**
 When in a **rebind flow** (i.e., the `start_outbound` request included `"rebind": true` because a binding already existed), do NOT treat the first `bound: true` poll result as success. The pre-existing binding will already show `bound: true` before the user has entered the new code, which would be a false positive. To guard against this:
+
 - Note the `bound_at` timestamp from the **first** poll response as a baseline.
 - Only report success when a subsequent poll shows `bound: true` with a `bound_at` timestamp **strictly newer** than the baseline. This proves the new outbound session was consumed.
 - If the status endpoint does not include `bound_at`, fall back to skipping the first poll result entirely and only start evaluating `bound: true` from the **second poll onward** (giving the user time to enter the new code).
 - Non-rebind flows (fresh verification with no prior binding) are unaffected — the first `bound: true` is trustworthy.
 
 **Important polling rules:**
+
 - This polling loop is voice-only. Do NOT poll for Telegram channels (Telegram has its own bot-driven flow).
 - Do NOT require the user to ask "did it work?" — the whole point is proactive confirmation.
 - If the user sends a message while polling is in progress, handle their message normally. If their message is about verification status, the next poll iteration will provide the answer.
@@ -180,4 +182,4 @@ The response includes `bound: false` after the operation completes. Check the pr
 - Per-destination rate limiting allows up to 10 sends within a 1-hour rolling window.
 - Guardian verification is identity-bound: the code can only be consumed by the identity matching the destination provided at start time.
 - **Missing `secret` guardrail**: For voice and Telegram chat-ID flows, the API response MUST include a `secret` field. If `secret` is unexpectedly absent from a start or resend response that otherwise indicates success, treat this as a control-plane error. Do NOT fabricate a code or tell the user to proceed without one. Instead, tell the user something went wrong and ask them to retry the start (Step 3) or resend (Step 4).
-- **Revoking a guardian**: To remove the current guardian from a channel, use the revoke API (Step 7). This revokes the binding AND revokes the guardian's ingress member record, so they lose access to the channel. A new guardian can then be verified for that channel.
+- **Revoking a guardian**: To remove the current guardian from a channel, use the revoke API (Step 7). This revokes the binding AND revokes the guardian's contact record, so they lose access to the channel. A new guardian can then be verified for that channel.
