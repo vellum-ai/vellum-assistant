@@ -1661,7 +1661,7 @@ struct MainWindowView: View {
                     }
                     .frame(width: 220)
                     .padding(.bottom, VSpacing.sm)
-                    .background(adaptiveColor(light: Moss._50, dark: Moss._950))
+                    .background(VColor.backgroundSubtle)
                     .onChange(of: threadManager.activeThreadId) { _, _ in
                         showThreadSwitcher = false
                     }
