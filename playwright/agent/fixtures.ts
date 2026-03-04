@@ -144,39 +144,51 @@ function logVellumPs(): void {
 }
 
 /**
- * Resolves the path to the bundled `vellum-cli` binary inside the
- * desktop app and creates a `vellum` symlink in a temporary bin
- * directory that is prepended to PATH. This ensures all subsequent
- * `vellum` commands use the CLI that ships with the app under test.
+ * Resolves the bundled binaries inside the desktop app and symlinks them
+ * into a temporary bin directory prepended to PATH. Symlinks vellum-cli
+ * as `vellum`, plus vellum-daemon and vellum-gateway so the CLI can find
+ * sibling binaries when hatching. Sets VELLUM_DESKTOP_APP so the CLI
+ * uses the bundled-binary code path instead of looking for source files.
  */
 function ensureVellumInPath(appDisplayName: string): void {
   const appDir = path.resolve(__dirname, "../../clients/macos/dist");
-  const cliBinary = path.join(appDir, `${appDisplayName}.app`, "Contents", "MacOS", "vellum-cli");
+  const macosDir = path.join(appDir, `${appDisplayName}.app`, "Contents", "MacOS");
+  const cliBinary = path.join(macosDir, "vellum-cli");
 
   if (!existsSync(cliBinary)) {
     throw new Error(`Bundled CLI not found at: ${cliBinary}`);
   }
 
-  // Create a temp bin dir with a `vellum` symlink pointing to the bundled CLI
+  // Create a temp bin dir with symlinks for all bundled binaries
   const tmpBin = path.join(__dirname, "../.vellum-bin");
   mkdirSync(tmpBin, { recursive: true });
-  const symlinkPath = path.join(tmpBin, "vellum");
 
-  try {
-    // Remove stale symlink if it exists
-    if (existsSync(symlinkPath)) {
-      execSync(`rm -f ${JSON.stringify(symlinkPath)}`);
+  const symlinks: Array<[string, string]> = [
+    [cliBinary, path.join(tmpBin, "vellum")],
+    [path.join(macosDir, "vellum-daemon"), path.join(tmpBin, "vellum-daemon")],
+    [path.join(macosDir, "vellum-gateway"), path.join(tmpBin, "vellum-gateway")],
+  ];
+
+  for (const [target, link] of symlinks) {
+    if (!existsSync(target)) continue;
+    try {
+      if (existsSync(link)) {
+        execSync(`rm -f ${JSON.stringify(link)}`);
+      }
+      execSync(`ln -s ${JSON.stringify(target)} ${JSON.stringify(link)}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new Error(`Failed to create symlink ${link}: ${message}`);
     }
-    execSync(`ln -s ${JSON.stringify(cliBinary)} ${JSON.stringify(symlinkPath)}`);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`Failed to create vellum symlink: ${message}`);
   }
 
   // Prepend the temp bin dir to PATH
   if (!process.env.PATH?.includes(tmpBin)) {
     process.env.PATH = `${tmpBin}:${process.env.PATH ?? ""}`;
   }
+
+  // Tell the CLI to use the bundled-binary code path
+  process.env.VELLUM_DESKTOP_APP = "1";
 
   // Verify it works
   try {
