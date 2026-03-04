@@ -101,7 +101,6 @@ export function syncSingleMember(member: IngressMember): void {
 
   upsertContact({
     displayName,
-    role: "contact",
     channels: [
       {
         type: member.sourceChannel,
