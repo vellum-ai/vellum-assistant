@@ -533,7 +533,13 @@ export function searchContacts(params: {
   ];
   if (params.query) {
     const sanitized = escapeLike(params.query);
-    if (!sanitized && !params.relationship && !params.role) return [];
+    if (
+      !sanitized &&
+      !params.relationship &&
+      !params.role &&
+      !params.contactType
+    )
+      return [];
     if (sanitized) {
       conditions.push(like(contacts.displayName, `%${sanitized}%`));
     }
