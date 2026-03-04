@@ -10,6 +10,7 @@ struct SettingsSnapshot {
     let hasBraveKey: Bool
     let hasPerplexityKey: Bool
     let hasElevenLabsKey: Bool
+    let userTimezone: String?
 
     init(store: SettingsStore) {
         model = store.selectedModel
@@ -20,6 +21,7 @@ struct SettingsSnapshot {
         hasBraveKey = store.hasBraveKey
         hasPerplexityKey = store.hasPerplexityKey
         hasElevenLabsKey = store.hasElevenLabsKey
+        userTimezone = store.userTimezone
     }
 }
 
@@ -79,6 +81,12 @@ struct SettingsChangeDetector {
             changes.append(SettingsChange(
                 description: "ElevenLabs API key added",
                 suggestedPrompt: "Generate speech saying..."
+            ))
+        }
+        if before.userTimezone != after.userTimezone, let tz = after.userTimezone {
+            changes.append(SettingsChange(
+                description: "Timezone set to \(tz)",
+                suggestedPrompt: "Schedule a reminder for 3pm"
             ))
         }
 
