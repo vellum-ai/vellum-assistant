@@ -34,6 +34,23 @@ export interface SlackDirectMessageEvent {
 }
 
 /**
+ * Slack `reaction_added` event shape.
+ * Fired when a user adds an emoji reaction to a message.
+ */
+export interface SlackReactionAddedEvent {
+  type: "reaction_added";
+  user: string;
+  reaction: string;
+  item: {
+    type: "message";
+    channel: string;
+    ts: string;
+  };
+  item_user?: string;
+  event_ts?: string;
+}
+
+/**
  * Slack `message` event shape for channel/group messages (non-DM).
  * Used to pick up thread replies in threads the bot is already participating in.
  */
@@ -223,5 +240,63 @@ export function normalizeSlackAppMention(
     routing,
     threadTs: event.thread_ts ?? event.ts,
     channel: event.channel,
+  };
+}
+
+/**
+ * Normalize a Slack `reaction_added` event into the gateway's canonical
+ * inbound event shape. The emoji name is encoded as `callbackData` with
+ * the format `reaction:{emoji_name}` so the runtime can map it to an
+ * approval action.
+ *
+ * Returns null if the event cannot be routed or has an unexpected item type.
+ */
+export function normalizeSlackReactionAdded(
+  event: SlackReactionAddedEvent,
+  eventId: string,
+  config: GatewayConfig,
+  botUserId?: string,
+): NormalizedSlackEvent | null {
+  // Ignore reactions from the bot itself
+  if (botUserId && event.user === botUserId) return null;
+  // Only handle reactions on messages
+  if (event.item.type !== "message") return null;
+
+  const channel = event.item.channel;
+
+  // DM reactions should still route via default assistant (same as DM messages)
+  let routing = resolveAssistant(config, channel, event.user);
+  if (isRejection(routing) && config.defaultAssistantId) {
+    routing = {
+      assistantId: config.defaultAssistantId,
+      routeSource: "default" as const,
+    };
+  }
+  if (isRejection(routing)) return null;
+
+  const externalMessageId = `${channel}:${event.item.ts}:reaction:${event.reaction}`;
+
+  return {
+    event: {
+      version: "v1",
+      sourceChannel: "slack",
+      receivedAt: new Date().toISOString(),
+      message: {
+        content: "",
+        conversationExternalId: channel,
+        externalMessageId,
+        callbackData: `reaction:${event.reaction}`,
+      },
+      actor: {
+        actorExternalId: event.user,
+      },
+      source: {
+        updateId: eventId,
+      },
+      raw: event as unknown as Record<string, unknown>,
+    },
+    routing,
+    threadTs: event.item.ts,
+    channel,
   };
 }

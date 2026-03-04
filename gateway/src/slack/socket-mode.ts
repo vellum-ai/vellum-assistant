@@ -5,9 +5,11 @@ import {
   normalizeSlackAppMention,
   normalizeSlackDirectMessage,
   normalizeSlackChannelMessage,
+  normalizeSlackReactionAdded,
   type SlackAppMentionEvent,
   type SlackDirectMessageEvent,
   type SlackChannelMessageEvent,
+  type SlackReactionAddedEvent,
   type NormalizedSlackEvent,
 } from "./normalize.js";
 
@@ -191,7 +193,8 @@ export class SlackSocketModeClient {
         event?:
           | SlackAppMentionEvent
           | SlackDirectMessageEvent
-          | SlackChannelMessageEvent;
+          | SlackChannelMessageEvent
+          | SlackReactionAddedEvent;
       };
       reason?: string;
     };
@@ -242,6 +245,7 @@ export class SlackSocketModeClient {
     const dmEvent = event as SlackDirectMessageEvent;
     const channelEvent = event as SlackChannelMessageEvent;
 
+    const isReactionAdded = event.type === "reaction_added";
     const isAppMention = event.type === "app_mention";
     const isDm = event.type === "message" && dmEvent.channel_type === "im";
     const mentionsBot =
@@ -254,8 +258,8 @@ export class SlackSocketModeClient {
       !!channelEvent.thread_ts &&
       this.activeThreads.has(channelEvent.thread_ts);
 
-    // Process app_mention events, DMs, and replies in active bot threads
-    if (!isAppMention && !isDm && !isActiveThreadReply) {
+    // Process app_mention events, DMs, replies in active bot threads, and reactions
+    if (!isAppMention && !isDm && !isActiveThreadReply && !isReactionAdded) {
       return;
     }
 
@@ -268,7 +272,14 @@ export class SlackSocketModeClient {
     this.dedupMap.set(eventId, Date.now());
 
     let normalized: NormalizedSlackEvent | null;
-    if (isAppMention) {
+    if (isReactionAdded) {
+      normalized = normalizeSlackReactionAdded(
+        event as SlackReactionAddedEvent,
+        eventId,
+        this.config.gatewayConfig,
+        this.config.botUserId,
+      );
+    } else if (isAppMention) {
       normalized = normalizeSlackAppMention(
         event as SlackAppMentionEvent,
         eventId,
