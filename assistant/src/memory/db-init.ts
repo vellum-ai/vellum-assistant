@@ -1,4 +1,10 @@
-import { getDb } from "./db-connection.js";
+import { createHash } from "node:crypto";
+import { copyFileSync, existsSync, readFileSync, renameSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { getDbPath } from "../util/platform.js";
+import { getDb, getSqlite } from "./db-connection.js";
 import {
   addCoreColumns,
   createActorRefreshTokenRecordsTable,
@@ -29,6 +35,7 @@ import {
   migrateContactChannelsTypeChatIdIndex,
   migrateContactsRolePrincipal,
   migrateConversationsThreadTypeIndex,
+  migrateDropLegacyMemberGuardianTables,
   migrateFkCascadeRebuilds,
   migrateGuardianActionFollowup,
   migrateGuardianActionSupersession,
@@ -42,7 +49,6 @@ import {
   migrateMessagesFtsBackfill,
   migrateNormalizePhoneIdentities,
   migrateNotificationDeliveryThreadDecision,
-  migrateDropLegacyMemberGuardianTables,
   migrateReminderRoutingIntent,
   migrateSchemaIndexesAndColumns,
   migrateVoiceInviteColumns,
@@ -53,7 +59,46 @@ import {
   validateMigrationState,
 } from "./migrations/index.js";
 
+// ---------------------------------------------------------------------------
+// Test DB template — run migrations once, reuse across test files
+// ---------------------------------------------------------------------------
+
+function getTemplateDbPath(): string {
+  // Hash this file's content so the template auto-invalidates when migrations change.
+  const content = readFileSync(new URL(import.meta.url).pathname, "utf-8");
+  const hash = createHash("md5").update(content).digest("hex").slice(0, 12);
+  return join(tmpdir(), `vellum-test-db-template-${hash}.db`);
+}
+
+function tryRestoreTemplate(): boolean {
+  const templatePath = getTemplateDbPath();
+  if (!existsSync(templatePath)) return false;
+  copyFileSync(templatePath, getDbPath());
+  // Open the pre-migrated copy — getDb() will set PRAGMAs but skip migrations.
+  getDb();
+  return true;
+}
+
+function saveTemplate(): void {
+  try {
+    // Flush WAL to main DB file before copying.
+    getSqlite().exec("PRAGMA wal_checkpoint(TRUNCATE)");
+    const tmpFile = `${getTemplateDbPath()}.${process.pid}`;
+    copyFileSync(getDbPath(), tmpFile);
+    // Atomic rename — safe even with parallel test workers.
+    renameSync(tmpFile, getTemplateDbPath());
+  } catch {
+    // Best effort — next file will just run migrations normally.
+  }
+}
+
+// ---------------------------------------------------------------------------
+
 export function initializeDb(): void {
+  if (process.env.BUN_TEST === "1" && tryRestoreTemplate()) {
+    return;
+  }
+
   const database = getDb();
 
   // 1. Create core tables (conversations, messages, memory, etc.)
@@ -206,4 +251,8 @@ export function initializeDb(): void {
   migrateDropLegacyMemberGuardianTables(database);
 
   validateMigrationState(database);
+
+  if (process.env.BUN_TEST === "1") {
+    saveTemplate();
+  }
 }
