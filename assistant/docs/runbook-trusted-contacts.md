@@ -43,6 +43,7 @@ curl -s "$BASE/v1/ingress/members" \
 ```
 
 Response shape:
+
 ```json
 {
   "ok": true,
@@ -139,10 +140,10 @@ If the HTTP API is unavailable:
 
 ```bash
 sqlite3 ~/.vellum/workspace/data/db/assistant.db \
-  "UPDATE assistant_ingress_members \
+  "UPDATE contact_channels \
    SET status = 'revoked', revoked_reason = 'Emergency operator revocation', \
    updated_at = $(date +%s)000 \
-   WHERE external_user_id = 'TARGET_USER_ID' AND source_channel = 'telegram';"
+   WHERE external_user_id = 'TARGET_USER_ID' AND type = 'telegram';"
 ```
 
 ## 5. Debug Verification Failures
@@ -182,13 +183,13 @@ sqlite3 ~/.vellum/workspace/data/db/assistant.db \
 
 ### Common verification failure causes
 
-| Symptom | Likely cause | Resolution |
-|---------|-------------|------------|
-| "Invalid or expired code" (correct code) | Identity mismatch: the code was entered from a different user/chat than expected | Verify the requester is using the same account that originally requested access |
-| "Invalid or expired code" (correct code, correct user) | Rate-limited (5+ failures in 15 min window) | Wait 30 minutes or reset rate limits via SQLite |
-| "Invalid or expired code" (old code) | Code TTL expired (10 min) | Guardian must re-approve to generate a new code |
-| Code never delivered to guardian | `deliverChannelReply` failed | Check daemon logs for "Failed to deliver verification code to guardian" |
-| No notification to guardian | No guardian binding for channel | Verify guardian is bound: check `channel_guardian_bindings` table |
+| Symptom                                                | Likely cause                                                                     | Resolution                                                                                                                                 |
+| ------------------------------------------------------ | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| "Invalid or expired code" (correct code)               | Identity mismatch: the code was entered from a different user/chat than expected | Verify the requester is using the same account that originally requested access                                                            |
+| "Invalid or expired code" (correct code, correct user) | Rate-limited (5+ failures in 15 min window)                                      | Wait 30 minutes or reset rate limits via SQLite                                                                                            |
+| "Invalid or expired code" (old code)                   | Code TTL expired (10 min)                                                        | Guardian must re-approve to generate a new code                                                                                            |
+| Code never delivered to guardian                       | `deliverChannelReply` failed                                                     | Check daemon logs for "Failed to deliver verification code to guardian"                                                                    |
+| No notification to guardian                            | No guardian binding for channel                                                  | Verify guardian is bound: check `contacts` table for `role = 'guardian'` with an active `contact_channels` entry matching the channel type |
 
 ## 6. Check Notification Delivery Status
 
