@@ -43,6 +43,14 @@ export type { TrustContext } from "../daemon/session-runtime-assembly.js";
  *   actors are fail-closed with no escalation path.
  */
 export type TrustClass = "guardian" | "trusted_contact" | "unknown";
+
+/** Returns `true` for actors that are not fully trusted (i.e. not the guardian). */
+export function isUntrustedTrustClass(
+  trustClass: TrustClass | undefined,
+): boolean {
+  return trustClass === "trusted_contact" || trustClass === "unknown";
+}
+
 /**
  * Reason an actor was denied access during trust resolution.
  *
