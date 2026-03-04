@@ -2,7 +2,7 @@ import SwiftUI
 import VellumAssistantShared
 
 /// A single thread row in the sidebar, handling hover, pin, archive, rename,
-/// and drag interactions. Extracted from MainWindowView.threadItem().
+/// and drag interactions.
 struct SidebarThreadItem: View {
     let thread: ThreadModel
     @ObservedObject var threadManager: ThreadManager
@@ -226,3 +226,40 @@ struct SidebarThreadItem: View {
         }
     }
 }
+
+#if DEBUG
+#Preview("SidebarThreadItem") {
+    let dc = DaemonClient()
+    let tm = ThreadManager(daemonClient: dc)
+    let ws = MainWindowState()
+    let sidebar = SidebarInteractionState()
+
+    ZStack {
+        VColor.background.ignoresSafeArea()
+        VStack(spacing: 0) {
+            SidebarThreadItem(
+                thread: ThreadModel(title: "Hello world", isPinned: true),
+                threadManager: tm,
+                windowState: ws,
+                sidebar: sidebar,
+                selectThread: {}
+            )
+            SidebarThreadItem(
+                thread: ThreadModel(title: "Draft email to team"),
+                threadManager: tm,
+                windowState: ws,
+                sidebar: sidebar,
+                selectThread: {}
+            )
+            SidebarThreadItem(
+                thread: ThreadModel(title: "Private thread", kind: .private),
+                threadManager: tm,
+                windowState: ws,
+                sidebar: sidebar,
+                selectThread: {}
+            )
+        }
+    }
+    .frame(width: 240, height: 150)
+}
+#endif
