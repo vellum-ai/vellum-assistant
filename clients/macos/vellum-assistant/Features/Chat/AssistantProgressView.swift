@@ -127,13 +127,15 @@ struct AssistantProgressView: View {
         switch phase {
         case .toolRunning:
             if let current = currentTool {
-                Text(ChatBubble.friendlyRunningLabel(
-                    current.toolName,
-                    inputSummary: current.inputSummary,
-                    buildingStatus: current.buildingStatus
-                ))
-                .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
+                let label = current.reasonDescription
+                    ?? ChatBubble.friendlyRunningLabel(
+                        current.toolName,
+                        inputSummary: current.inputSummary,
+                        buildingStatus: current.buildingStatus
+                    )
+                Text(label)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textSecondary)
             } else {
                 Text("Working")
                     .font(VFont.caption)
@@ -298,7 +300,7 @@ private struct StepDetailRow: View {
                             .truncationMode(.tail)
                         }
 
-                        if let reason = toolCall.reasonDescription, !reason.isEmpty, toolCall.isComplete {
+                        if let reason = toolCall.reasonDescription, !reason.isEmpty {
                             Text(reason)
                                 .font(VFont.small)
                                 .foregroundColor(VColor.textMuted)
@@ -553,33 +555,38 @@ private struct AssistantProgressPulsingModifier: ViewModifier {
 private struct RunningPreview: View {
     @State private var isExpanded = true
 
+    private func makeRunning(name: String, summary: String, reason: String?) -> ToolCallData {
+        var tc = ToolCallData(
+            toolName: name,
+            inputSummary: summary,
+            isComplete: false,
+            startedAt: Date()
+        )
+        tc.reasonDescription = reason
+        return tc
+    }
+
+    private func makeCompleted(name: String, summary: String, reason: String?, offsetStart: Double, offsetEnd: Double) -> ToolCallData {
+        var tc = ToolCallData(
+            toolName: name,
+            inputSummary: summary,
+            result: "OK",
+            isComplete: true,
+            startedAt: Date().addingTimeInterval(offsetStart),
+            completedAt: Date().addingTimeInterval(offsetEnd)
+        )
+        tc.reasonDescription = reason
+        return tc
+    }
+
     var body: some View {
         ZStack {
             VColor.background.ignoresSafeArea()
             AssistantProgressView(
                 toolCalls: [
-                    ToolCallData(
-                        toolName: "file_read",
-                        inputSummary: "/src/Config.swift",
-                        result: "import Foundation\nstruct Config { }",
-                        isComplete: true,
-                        startedAt: Date().addingTimeInterval(-1.2),
-                        completedAt: Date().addingTimeInterval(-0.8)
-                    ),
-                    ToolCallData(
-                        toolName: "bash",
-                        inputSummary: "swift build",
-                        result: "Build complete!",
-                        isComplete: true,
-                        startedAt: Date().addingTimeInterval(-0.7),
-                        completedAt: Date().addingTimeInterval(-0.2)
-                    ),
-                    ToolCallData(
-                        toolName: "file_edit",
-                        inputSummary: "/src/Config.swift",
-                        isComplete: false,
-                        startedAt: Date()
-                    ),
+                    makeCompleted(name: "file_read", summary: "/src/Config.swift", reason: "Checking existing implementation", offsetStart: -1.2, offsetEnd: -0.8),
+                    makeCompleted(name: "bash", summary: "swift build", reason: "Verifying the project compiles", offsetStart: -0.7, offsetEnd: -0.2),
+                    makeRunning(name: "file_edit", summary: "/src/Config.swift", reason: "Adding error handling to the config loader"),
                 ],
                 isRunning: true,
                 isProcessing: false,
