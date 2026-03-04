@@ -72,7 +72,50 @@ afterEach(() => {
 });
 
 describe("ingress control-plane proxy", () => {
-  test("forwards ingress endpoints to the runtime", async () => {
+  test("forwards contact endpoints to the runtime", async () => {
+    const captured: string[] = [];
+    fetchMock = mock(async (input: string | URL | Request) => {
+      captured.push(String(input));
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+
+    const handler = createIngressControlPlaneProxyHandler(makeConfig());
+
+    await handler.handleListContacts(
+      new Request("http://localhost:7830/v1/contacts?limit=10"),
+    );
+    await handler.handleUpsertContact(
+      new Request("http://localhost:7830/v1/contacts", { method: "POST" }),
+    );
+    await handler.handleGetContact(
+      new Request("http://localhost:7830/v1/contacts/ct_1"),
+      "ct_1",
+    );
+    await handler.handleMergeContacts(
+      new Request("http://localhost:7830/v1/contacts/merge", {
+        method: "POST",
+      }),
+    );
+    await handler.handleUpdateContactChannel(
+      new Request("http://localhost:7830/v1/contacts/channels/ch_1", {
+        method: "PATCH",
+      }),
+      "ch_1",
+    );
+
+    expect(captured).toEqual([
+      "http://localhost:7821/v1/contacts?limit=10",
+      "http://localhost:7821/v1/contacts",
+      "http://localhost:7821/v1/contacts/ct_1",
+      "http://localhost:7821/v1/contacts/merge",
+      "http://localhost:7821/v1/contacts/channels/ch_1",
+    ]);
+  });
+
+  test("forwards invite endpoints to the runtime", async () => {
     const captured: string[] = [];
     fetchMock = mock(async (input: string | URL | Request) => {
       captured.push(String(input));

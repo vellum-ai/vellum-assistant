@@ -347,6 +347,33 @@ function main() {
       handler: (req) => telegramControlPlaneProxy.handleSetupTelegram(req),
     },
 
+    // ── Contacts control plane ──
+    {
+      path: "/v1/contacts",
+      method: "GET",
+      auth: "edge",
+      handler: (req) => ingressControlPlaneProxy.handleListContacts(req),
+    },
+    {
+      path: "/v1/contacts",
+      method: "POST",
+      auth: "edge",
+      handler: (req) => ingressControlPlaneProxy.handleUpsertContact(req),
+    },
+    {
+      path: "/v1/contacts/merge",
+      method: "POST",
+      auth: "edge",
+      handler: (req) => ingressControlPlaneProxy.handleMergeContacts(req),
+    },
+    {
+      path: /^\/v1\/contacts\/channels\/([^/]+)$/,
+      method: "PATCH",
+      auth: "edge",
+      handler: (req, params) =>
+        ingressControlPlaneProxy.handleUpdateContactChannel(req, params[0]),
+    },
+
     // ── Contacts/invites control plane ──
     {
       path: "/v1/contacts/invites",
@@ -372,6 +399,13 @@ function main() {
       auth: "edge",
       handler: (req, params) =>
         ingressControlPlaneProxy.handleRevokeInvite(req, params[0]),
+    },
+    {
+      path: /^\/v1\/contacts\/([^/]+)$/,
+      method: "GET",
+      auth: "edge",
+      handler: (req, params) =>
+        ingressControlPlaneProxy.handleGetContact(req, params[0]),
     },
 
     // ── Guardian control plane ──

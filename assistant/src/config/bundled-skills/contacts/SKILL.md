@@ -181,6 +181,8 @@ Ask the user: _"I'll revoke access for [name/identifier]. They will no longer be
 
 First, list contacts to find the channel's `id` (each entry in a contact's `channels` array has an `id` field -- visible in `GET /v1/contacts` or `vellum contacts list --json` output), then revoke:
 
+**Important**: Before revoking, check the channel's current `status`. If the channel is **blocked**, do not attempt to revoke it -- blocking is stronger than revoking. Inform the user that the contact is already blocked and revoking is not applicable. Only channels with `active` or `pending` status can be revoked.
+
 ```bash
 curl -s -X PATCH "$INTERNAL_GATEWAY_BASE_URL/v1/contacts/channels/<channel_id>" \
   -H "Content-Type: application/json" \
@@ -188,7 +190,7 @@ curl -s -X PATCH "$INTERNAL_GATEWAY_BASE_URL/v1/contacts/channels/<channel_id>" 
   -d '{"status": "revoked", "reason": "<optional reason>"}'
 ```
 
-Replace `<channel_id>` with the channel's `id` from the contact's `channels` array.
+Replace `<channel_id>` with the channel's `id` from the contact's `channels` array. The API will return a `409 Conflict` error if the channel is currently blocked.
 
 ### Block a user
 
@@ -433,6 +435,7 @@ Each channel has:
   - `Channel not found` -- the channel ID may be invalid; list contacts to find the correct channel ID.
   - `Channel already revoked` -- the channel has already been revoked.
   - `Channel already blocked` -- the channel has already been blocked.
+  - `Cannot revoke a blocked channel` -- the channel is blocked; blocking is stronger than revoking. Tell the user the contact is already blocked.
   - `sourceChannel is required for create` -- when creating an invite, always pass `"sourceChannel": "telegram"` for Telegram or `"sourceChannel": "voice"` for voice invites.
   - `expectedExternalUserId is required for voice invites` -- voice invites must include the invitee's phone number.
   - `expectedExternalUserId must be in E.164 format` -- the phone number must start with `+` followed by country code and number (e.g., `+15551234567`).
