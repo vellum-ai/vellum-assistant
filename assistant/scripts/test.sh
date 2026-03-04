@@ -189,6 +189,14 @@ if [[ ${xargs_exit} -ge 125 ]]; then
   exit 1
 fi
 
+# Write observed durations for longest-first scheduling in future CI runs.
+# This must happen before the failure exit so durations are persisted even when
+# tests fail, aligning with the `if: always()` cache save step in CI.
+if [[ -n "${TEST_DURATIONS_OUTPUT}" && -f "${results_dir}/durations" ]]; then
+  sort -t$'\t' -k1 -rn "${results_dir}/durations" > "${TEST_DURATIONS_OUTPUT}"
+  echo "Wrote test durations to ${TEST_DURATIONS_OUTPUT}"
+fi
+
 # Print output for any failed tests
 if [[ -f "${results_dir}/failures" ]]; then
   echo ""
@@ -378,12 +386,6 @@ if [[ "${COVERAGE}" == "true" ]]; then
   else
     echo "Warning: no coverage data was generated"
   fi
-fi
-
-# Write observed durations for longest-first scheduling in future CI runs
-if [[ -n "${TEST_DURATIONS_OUTPUT}" && -f "${results_dir}/durations" ]]; then
-  sort -t$'\t' -k1 -rn "${results_dir}/durations" > "${TEST_DURATIONS_OUTPUT}"
-  echo "Wrote test durations to ${TEST_DURATIONS_OUTPUT}"
 fi
 
 echo "All ${#test_files[@]} test files passed"
