@@ -1607,7 +1607,8 @@ struct MainWindowView: View {
                         Text("\(regularThreads.count) threads")
                             .font(VFont.body)
                             .foregroundColor(VColor.textMuted)
-                            .padding(.horizontal, VSpacing.sm)
+                            .padding(.leading, VSpacing.sm + 2)
+                            .padding(.trailing, VSpacing.sm)
                             .padding(.top, VSpacing.md)
                             .padding(.bottom, VSpacing.sm)
 
