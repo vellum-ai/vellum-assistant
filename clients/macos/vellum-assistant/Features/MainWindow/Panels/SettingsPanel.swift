@@ -127,8 +127,17 @@ struct SettingsPanel: View {
             // Refresh permission status when the view appears
             await refreshPermissionStatus()
         }
+        .task {
+            // Delay baseline snapshot until after async IPC refreshes (refreshTwitterStatus,
+            // refreshTelegramStatus, etc.) have had time to update @Published properties.
+            // Snapshotting before those responses land captures stale `false` values,
+            // which then look like user-made changes and trigger false-positive nudges.
+            try? await Task.sleep(for: .milliseconds(700))
+            if settingsSnapshot == nil {
+                settingsSnapshot = SettingsSnapshot(store: store)
+            }
+        }
         .onAppear {
-            settingsSnapshot = SettingsSnapshot(store: store)
             store.refreshAPIKeyState()
             store.refreshTwitterStatus()
             store.refreshTelegramStatus()
