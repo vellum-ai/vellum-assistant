@@ -13,6 +13,7 @@
 import { eq } from "drizzle-orm";
 
 import type { ChannelId } from "../channels/types.js";
+import { emitContactChange } from "./contact-events.js";
 import type { GuardianBinding } from "../memory/guardian-bindings.js";
 import {
   createBinding,
@@ -118,7 +119,9 @@ export function createGuardianBindingContactsFirst(params: {
     log.warn({ err }, "Contacts write failed for createGuardianBinding");
   }
 
-  return createBinding(params);
+  const result = createBinding(params);
+  emitContactChange();
+  return result;
 }
 
 /**
@@ -142,7 +145,9 @@ export function revokeGuardianBindingContactsFirst(
     log.warn({ err }, "Contacts write failed for revokeGuardianBinding");
   }
 
-  return revokeBinding(assistantId, channel);
+  const result = revokeBinding(assistantId, channel);
+  emitContactChange();
+  return result;
 }
 
 // ── Member operations ────────────────────────────────────────────────
@@ -212,7 +217,9 @@ export function upsertMemberContactsFirst(params: {
     log.warn({ err }, "Contacts write failed for upsertMember");
   }
 
-  return upsertMember(params as Parameters<typeof upsertMember>[0]);
+  const result = upsertMember(params as Parameters<typeof upsertMember>[0]);
+  emitContactChange();
+  return result;
 }
 
 /**
@@ -261,6 +268,7 @@ export function revokeMemberContactsFirst(
     }
   }
 
+  emitContactChange();
   return result;
 }
 
@@ -310,6 +318,7 @@ export function blockMemberContactsFirst(
     }
   }
 
+  emitContactChange();
   return result;
 }
 

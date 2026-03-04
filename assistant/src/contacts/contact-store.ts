@@ -3,6 +3,7 @@ import { v4 as uuid } from "uuid";
 
 import { getDb } from "../memory/db.js";
 import { contactChannels, contacts } from "../memory/schema.js";
+import { emitContactChange } from "./contact-events.js";
 import type {
   ChannelPolicy,
   ChannelStatus,
@@ -816,7 +817,9 @@ export function updateChannelStatus(
     .where(eq(contactChannels.id, channelId))
     .get();
 
-  return updated ? parseChannel(updated) : null;
+  const result = updated ? parseChannel(updated) : null;
+  emitContactChange();
+  return result;
 }
 
 /**
