@@ -233,6 +233,7 @@ async function startDaemonFromSource(
     env.RUNTIME_HTTP_PORT = String(resources.daemonPort);
     env.VELLUM_DAEMON_SOCKET = resources.socketPath;
     env.QDRANT_HTTP_PORT = String(resources.qdrantPort);
+    delete env.QDRANT_URL;
   }
 
   // Use fd inheritance instead of pipes so the daemon's stdout/stderr survive
@@ -321,6 +322,7 @@ async function startDaemonWatchFromSource(
     env.RUNTIME_HTTP_PORT = String(resources.daemonPort);
     env.VELLUM_DAEMON_SOCKET = resources.socketPath;
     env.QDRANT_HTTP_PORT = String(resources.qdrantPort);
+    delete env.QDRANT_URL;
   }
 
   const daemonLogFd = openLogFile("hatch.log");
@@ -711,6 +713,7 @@ export async function startLocalDaemon(
         daemonEnv.RUNTIME_HTTP_PORT = String(resources.daemonPort);
         daemonEnv.VELLUM_DAEMON_SOCKET = resources.socketPath;
         daemonEnv.QDRANT_HTTP_PORT = String(resources.qdrantPort);
+        delete daemonEnv.QDRANT_URL;
       }
 
       const daemonLogFd = openLogFile("hatch.log");
