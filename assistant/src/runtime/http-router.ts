@@ -94,7 +94,17 @@ export class HttpRouter {
       // Extract named params
       const params: RouteParams = {};
       for (let i = 0; i < compiled.paramNames.length; i++) {
-        params[compiled.paramNames[i]] = decodeURIComponent(match[i + 1]);
+        try {
+          params[compiled.paramNames[i]] = decodeURIComponent(match[i + 1]);
+        } catch {
+          return new Response(
+            JSON.stringify({
+              error: "BAD_REQUEST",
+              message: "Malformed percent-encoding in URL path parameter",
+            }),
+            { status: 400, headers: { "Content-Type": "application/json" } },
+          );
+        }
       }
 
       // Enforce route-level scope/principal policy.
