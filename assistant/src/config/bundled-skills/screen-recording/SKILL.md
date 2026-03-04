@@ -1,7 +1,7 @@
 ---
 name: "Screen Recording"
 description: "Record the user's screen as a video file"
-metadata: {"vellum": {"emoji": "🎬", "os": ["darwin"]}}
+metadata: { "vellum": { "emoji": "🎬", "os": ["darwin"] } }
 ---
 
 Capture screen recordings as video files attached to the conversation.
@@ -11,6 +11,7 @@ Capture screen recordings as video files attached to the conversation.
 This skill activates when the user asks to record their screen. Common phrases:
 
 **Start recording:**
+
 - "record my screen"
 - "start recording"
 - "begin recording"
@@ -21,12 +22,14 @@ This skill activates when the user asks to record their screen. Common phrases:
 - "hey Nova, start recording"
 
 **Stop recording:**
+
 - "stop recording"
 - "end recording"
 - "finish recording"
 - "halt recording"
 
 **Restart recording:**
+
 - "restart recording"
 - "redo the recording"
 - "stop recording and start a new one"
@@ -34,10 +37,12 @@ This skill activates when the user asks to record their screen. Common phrases:
 - "stop and restart the recording"
 
 **Pause recording:**
+
 - "pause recording"
 - "pause the recording"
 
 **Resume recording:**
+
 - "resume recording"
 - "unpause the recording"
 
@@ -76,11 +81,12 @@ Recording intent resolution follows a precedence chain:
 
 ### 1. `commandIntent` (structured IPC) — highest priority
 
-The macOS client can send structured intents with `domain: 'screen_recording'` and `action: 'start' | 'stop' | 'restart' | 'pause' | 'resume'`. These bypass text parsing entirely. The daemon checks for `commandIntent` before any text analysis.
+The macOS client can send structured intents with `domain: 'screen_recording'` and `action: 'start' | 'stop' | 'restart' | 'pause' | 'resume'`. These bypass text parsing entirely. The assistant checks for `commandIntent` before any text analysis.
 
 ### 2. Deterministic text resolver (`resolveRecordingIntent`)
 
 A regex-based pipeline that classifies the user's text. The pipeline:
+
 1. Strips dynamic assistant names (leading vocative like "Nova, ...")
 2. Strips leading polite wrappers ("please", "can you", etc.)
 3. Applies the interrogative guard — WH-questions return `none`
@@ -98,12 +104,14 @@ If no recording intent is detected (kind is `none`), the message flows to the cl
 Questions about recording are NOT treated as commands. The resolver filters out WH-questions to prevent side effects from informational queries.
 
 **Filtered (no recording action triggered):**
+
 - "how do I stop recording?"
 - "what does screen recording do?"
 - "why is the recording paused?"
 - "when should I stop recording?"
 
 **Preserved as commands (recording action IS triggered):**
+
 - "can you stop recording?" — polite imperative
 - "could you record my screen?" — polite imperative
 - "please stop recording" — direct command with filler
@@ -122,7 +130,7 @@ The remainder preserves the user's original phrasing (stripping is applied to th
 
 ## Behavior Rules
 
-1. **Do not invoke computer use** for recording-only requests. The daemon handles these directly.
+1. **Do not invoke computer use** for recording-only requests. The assistant handles these directly.
 2. **One recording at a time.** If a recording is already active, starting another returns an "already recording" message.
 3. **Conversation-linked.** Each recording is linked to the conversation that started it for attachment purposes. However, since only one recording can be active at a time, stop commands from any conversation will stop the active recording regardless of which conversation started it.
 4. **Permission required.** Screen recording requires macOS Screen Recording permission. If denied, the user sees actionable guidance to enable it in System Settings.

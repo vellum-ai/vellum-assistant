@@ -429,7 +429,7 @@ export async function routeGuardianReply(
   // ── 2.5. Invite handoff bypass for access requests ──
   // When the guardian sends "open invite flow" and there is at least one
   // pending access_request, return not_consumed so the message falls through
-  // to the normal assistant turn and can invoke the Trusted Contacts skill.
+  // to the normal assistant turn and can invoke the Contacts skill.
   if (messageText.length > 0 && pendingRequests.length > 0) {
     const normalized = messageText
       .trim()

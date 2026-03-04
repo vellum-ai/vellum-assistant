@@ -2,7 +2,7 @@
 name: "MCP Setup"
 description: "Add, authenticate, list, and remove MCP (Model Context Protocol) servers"
 user-invocable: false
-metadata: {"vellum": {"emoji": "🔌"}}
+metadata: { "vellum": { "emoji": "🔌" } }
 ---
 
 Help users configure MCP servers so external tools (e.g. Linear, GitHub, Notion) become available in conversations.
@@ -32,6 +32,7 @@ vellum mcp add <name> -t <transport-type> -u <url> [-r <risk>] [--disabled]
 - `-r` — risk level: `low`, `medium`, or `high` (default: `high`)
 
 Examples:
+
 ```
 vellum mcp add linear -t streamable-http -u https://mcp.linear.app/mcp
 vellum mcp add context7 -t streamable-http -u https://mcp.context7.com/mcp -r low
@@ -47,6 +48,7 @@ vellum mcp auth <name>
 Opens the user's browser for OAuth authorization. Only works for `sse`/`streamable-http` servers that require authentication. After the user completes login in the browser, tokens are saved automatically.
 
 Use this when:
+
 - A server shows `! Needs authentication` in `vellum mcp list`
 - An MCP tool call fails with an auth/token error
 - Setting up a new OAuth-protected server for the first time
@@ -61,7 +63,7 @@ Removes the server config and cleans up any stored OAuth credentials.
 
 ## After Changes
 
-After adding, removing, or authenticating a server, the user must **quit and relaunch the Vellum app** for changes to take effect. The app runs its own daemon — `vellum daemon restart` only restarts the CLI daemon, which is a separate process.
+After adding, removing, or authenticating a server, the user must **quit and relaunch the Vellum app** for changes to take effect. The app runs its own assistant process — `vellum daemon restart` only restarts the CLI assistant, which is a separate process.
 
 Tell the user: "Please quit and relaunch the Vellum app, then start a new conversation."
 

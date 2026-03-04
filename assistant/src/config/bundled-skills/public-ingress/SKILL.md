@@ -2,7 +2,7 @@
 name: "Public Ingress"
 description: "Set up and manage ngrok-based public ingress for webhooks and OAuth callbacks via ingress.publicBaseUrl"
 user-invocable: true
-metadata: {"vellum": {"emoji": "🌍"}}
+metadata: { "vellum": { "emoji": "🌍" } }
 ---
 
 You are setting up and managing a public ingress tunnel so that external services (Telegram webhooks, OAuth callbacks, etc.) can reach the local Vellum gateway. This skill uses ngrok to create a secure tunnel and persists the public URL as `ingress.publicBaseUrl`.
@@ -10,6 +10,7 @@ You are setting up and managing a public ingress tunnel so that external service
 ## Overview
 
 The Vellum gateway listens locally and needs a publicly reachable URL for:
+
 - Telegram webhook delivery
 - Google/Slack OAuth redirect callbacks
 - Any other inbound webhook traffic
@@ -25,6 +26,7 @@ vellum integrations ingress config --json
 ```
 
 The response includes:
+
 - `publicBaseUrl` — currently configured public ingress URL (if any)
 - `enabled` — whether ingress is enabled
 - `localGatewayTarget` — local gateway URL ngrok should forward to
@@ -42,16 +44,19 @@ ngrok version
 If not installed, install it:
 
 **macOS (Homebrew):**
+
 ```bash
 brew install ngrok/ngrok/ngrok
 ```
 
 **Linux (snap):**
+
 ```bash
 sudo snap install ngrok
 ```
 
 **Linux (apt — alternative):**
+
 ```bash
 curl -sSL https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
 echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | sudo tee /etc/apt/sources.list.d/ngrok.list
@@ -182,16 +187,21 @@ Provide useful follow-up commands:
 ## Troubleshooting
 
 ### ngrok not installed
+
 Run the install commands in Step 2. On macOS, make sure Homebrew is installed first (`brew --version`).
 
 ### Auth token invalid or expired
+
 Sign in to https://dashboard.ngrok.com, copy a fresh token from the "Your Authtoken" page, and re-run Step 3.
 
 ### ngrok API (port 4040) not responding
+
 The ngrok process may not be running. Check with `ps aux | grep ngrok`. If not running, start it per Step 4. If running but 4040 is unresponsive, check `/tmp/ngrok.log` for errors.
 
 ### Gateway not reachable on local target
-Re-check local gateway target with `vellum integrations ingress config --json`, then run `curl -s "<localGatewayTarget>/healthz"`. If the gateway is not running, start the assistant daemon first.
+
+Re-check local gateway target with `vellum integrations ingress config --json`, then run `curl -s "<localGatewayTarget>/healthz"`. If the gateway is not running, start the assistant first.
 
 ### "Too many connections" or tunnel limit errors
+
 ngrok's free tier allows one tunnel at a time. Stop any other ngrok tunnels before starting a new one.

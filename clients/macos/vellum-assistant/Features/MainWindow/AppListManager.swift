@@ -19,8 +19,6 @@ final class AppListManager: ObservableObject {
         var pinnedOrder: Int? = nil
         /// SF Symbol name for the generated app icon (e.g., "chart.line.uptrend.xyaxis")
         var sfSymbol: String? = nil
-        /// Pair of hex color strings for the gradient background (e.g., ["#7C3AED", "#4F46E5"])
-        var iconBackground: [String]? = nil
     }
 
     @Published var apps: [AppItem] = []
@@ -81,12 +79,9 @@ final class AppListManager: ObservableObject {
             if let description { apps[index].description = description }
             // Auto-assign icon if this app doesn't have one yet
             if apps[index].sfSymbol == nil {
-                let generated = VAppIconGenerator.generate(from: name, type: appType ?? apps[index].appType)
-                apps[index].sfSymbol = generated.sfSymbol
-                apps[index].iconBackground = generated.colors
+                apps[index].sfSymbol = VAppIconGenerator.generate(from: name, type: appType ?? apps[index].appType)
             }
         } else {
-            let generated = VAppIconGenerator.generate(from: name, type: appType)
             var item = AppItem(
                 id: id,
                 name: name,
@@ -96,8 +91,7 @@ final class AppListManager: ObservableObject {
                 appType: appType,
                 lastOpenedAt: Date()
             )
-            item.sfSymbol = generated.sfSymbol
-            item.iconBackground = generated.colors
+            item.sfSymbol = VAppIconGenerator.generate(from: name, type: appType)
             apps.append(item)
         }
         save()
@@ -155,7 +149,6 @@ final class AppListManager: ObservableObject {
                 continue
             }
             guard !removedAppIds.contains(daemonApp.id) else { continue }
-            let generated = VAppIconGenerator.generate(from: daemonApp.name, type: daemonApp.appType)
             var item = AppItem(
                 id: daemonApp.id,
                 name: daemonApp.name,
@@ -164,8 +157,7 @@ final class AppListManager: ObservableObject {
                 appType: daemonApp.appType,
                 lastOpenedAt: Date(timeIntervalSince1970: TimeInterval(daemonApp.createdAt) / 1000.0)
             )
-            item.sfSymbol = generated.sfSymbol
-            item.iconBackground = generated.colors
+            item.sfSymbol = VAppIconGenerator.generate(from: daemonApp.name, type: daemonApp.appType)
             apps.append(item)
             newCount += 1
         }
@@ -191,10 +183,9 @@ final class AppListManager: ObservableObject {
         save()
     }
 
-    func updateAppIcon(id: String, sfSymbol: String, iconBackground: [String]) {
+    func updateAppIcon(id: String, sfSymbol: String) {
         guard let index = apps.firstIndex(where: { $0.id == id }) else { return }
         apps[index].sfSymbol = sfSymbol
-        apps[index].iconBackground = iconBackground
         save()
     }
 
@@ -264,9 +255,7 @@ final class AppListManager: ObservableObject {
             // Migrate existing apps that don't have icons assigned yet
             var didMigrate = false
             for index in apps.indices where apps[index].sfSymbol == nil {
-                let generated = VAppIconGenerator.generate(from: apps[index].name, type: apps[index].appType)
-                apps[index].sfSymbol = generated.sfSymbol
-                apps[index].iconBackground = generated.colors
+                apps[index].sfSymbol = VAppIconGenerator.generate(from: apps[index].name, type: apps[index].appType)
                 didMigrate = true
             }
             if didMigrate {

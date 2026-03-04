@@ -1,17 +1,23 @@
 import { getLogger } from "../logger.js";
 import { fetchImpl } from "../fetch.js";
 import type { GatewayConfig } from "../config.js";
-import { resolveAssistant, isRejection } from "../routing/resolve-assistant.js";
-import type { RouteResult } from "../routing/types.js";
+import { SlackStore } from "../db/slack-store.js";
 import {
   normalizeSlackAppMention,
   normalizeSlackDirectMessage,
   normalizeSlackChannelMessage,
+  normalizeSlackMessageEdit,
+  normalizeSlackBlockActions,
+  normalizeSlackReactionAdded,
   type SlackAppMentionEvent,
   type SlackDirectMessageEvent,
   type SlackChannelMessageEvent,
+  type SlackMessageChangedEvent,
+  type SlackBlockActionsPayload,
+  type SlackReactionAddedEvent,
   type NormalizedSlackEvent,
 } from "./normalize.js";
+import { publishAppHome, type AppHomeContext } from "./app-home.js";
 
 const log = getLogger("slack-socket-mode");
 
@@ -27,6 +33,10 @@ export type SlackSocketModeConfig = {
   gatewayConfig: GatewayConfig;
   /** Bot's own Slack user ID, used to ignore the bot's own DMs. */
   botUserId?: string;
+  /** Bot's display name, resolved at startup via auth.test. */
+  botUsername?: string;
+  /** Workspace/team name, resolved at startup via auth.test. */
+  teamName?: string;
 };
 
 /**
@@ -44,9 +54,8 @@ export class SlackSocketModeClient {
   private running = false;
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  private dedupMap = new Map<string, number>();
   private dedupCleanupTimer: ReturnType<typeof setInterval> | null = null;
-  private activeThreads = new Map<string, number>();
+  private store: SlackStore;
 
   constructor(
     config: SlackSocketModeConfig,
@@ -54,6 +63,7 @@ export class SlackSocketModeClient {
   ) {
     this.config = config;
     this.onEvent = onEvent;
+    this.store = new SlackStore();
   }
 
   async start(): Promise<void> {
@@ -61,20 +71,45 @@ export class SlackSocketModeClient {
     this.running = true;
     this.startDedupCleanup();
 
-    // Resolve bot user ID via auth.test so we can filter the bot's own DMs
-    if (!this.config.botUserId) {
+    // Resolve bot identity via auth.test so we can filter the bot's own DMs
+    // and populate the App Home view with connection info
+    if (
+      !this.config.botUserId ||
+      !this.config.botUsername ||
+      !this.config.teamName
+    ) {
       try {
         const resp = await fetchImpl("https://slack.com/api/auth.test", {
           method: "POST",
           headers: { Authorization: `Bearer ${this.config.botToken}` },
         });
-        const data = (await resp.json()) as { ok: boolean; user_id?: string };
-        if (data.ok && data.user_id) {
-          this.config.botUserId = data.user_id;
-          log.info({ botUserId: data.user_id }, "Resolved Slack bot user ID");
+        const data = (await resp.json()) as {
+          ok: boolean;
+          user_id?: string;
+          user?: string;
+          team?: string;
+        };
+        if (data.ok) {
+          if (data.user_id) {
+            this.config.botUserId = data.user_id;
+          }
+          if (data.user) {
+            this.config.botUsername = data.user;
+          }
+          if (data.team) {
+            this.config.teamName = data.team;
+          }
+          log.info(
+            {
+              botUserId: data.user_id,
+              botUsername: data.user,
+              teamName: data.team,
+            },
+            "Resolved Slack bot identity",
+          );
         }
       } catch (err) {
-        log.warn({ err }, "Failed to resolve bot user ID via auth.test");
+        log.warn({ err }, "Failed to resolve bot identity via auth.test");
       }
     }
 
@@ -102,7 +137,7 @@ export class SlackSocketModeClient {
    * Register a thread as active so future replies (without @mention) are forwarded.
    */
   trackThread(threadTs: string): void {
-    this.activeThreads.set(threadTs, Date.now());
+    this.store.trackThread(threadTs, ACTIVE_THREAD_TTL_MS);
   }
 
   private async connect(): Promise<void> {
@@ -184,6 +219,14 @@ export class SlackSocketModeClient {
     return data.url;
   }
 
+  private getAppHomeContext(): AppHomeContext {
+    return {
+      connected: true,
+      botUsername: this.config.botUsername,
+      workspaceName: this.config.teamName,
+    };
+  }
+
   private handleMessage(raw: string): void {
     let envelope: {
       envelope_id?: string;
@@ -193,21 +236,16 @@ export class SlackSocketModeClient {
         event?:
           | SlackAppMentionEvent
           | SlackDirectMessageEvent
-          | SlackChannelMessageEvent;
-        // interactive envelope fields (block_actions)
+          | SlackChannelMessageEvent
+          | SlackMessageChangedEvent
+          | SlackReactionAddedEvent;
+        // Interactive payloads are delivered directly as the payload
         type?: string;
-        user?: { id?: string; username?: string; name?: string };
-        channel?: { id?: string };
-        actions?: Array<{
-          action_id?: string;
-          value?: string;
-          block_id?: string;
-        }>;
-        message?: {
-          ts?: string;
-          text?: string;
-        };
         trigger_id?: string;
+        user?: { id: string; username?: string; name?: string };
+        channel?: { id: string; name?: string };
+        message?: { ts: string; thread_ts?: string; text?: string };
+        actions?: SlackBlockActionsPayload["actions"];
       };
       reason?: string;
     };
@@ -248,9 +286,9 @@ export class SlackSocketModeClient {
       return;
     }
 
-    // Handle interactive payloads (block_actions from approval buttons)
+    // Handle interactive payloads (block_actions from Block Kit buttons, App Home, etc.)
     if (envelope.type === "interactive") {
-      this.handleInteractivePayload(envelope.payload);
+      this.handleInteractive(envelope.payload);
       return;
     }
 
@@ -258,43 +296,127 @@ export class SlackSocketModeClient {
     if (envelope.type !== "events_api") return;
 
     const eventPayload = envelope.payload;
-    if (!eventPayload?.event || !eventPayload.event_id) return;
+    if (!eventPayload?.event) return;
 
+    // Handle app_home_opened: publish the App Home view for the user
     const event = eventPayload.event;
+    if (event.type === "app_home_opened") {
+      const homeEvent = event as {
+        type: "app_home_opened";
+        user: string;
+        tab?: string;
+      };
+      if (homeEvent.tab === "home" || !homeEvent.tab) {
+        publishAppHome(
+          this.config.botToken,
+          homeEvent.user,
+          this.getAppHomeContext(),
+        ).catch((err) => {
+          log.error(
+            { err, userId: homeEvent.user },
+            "Failed to publish App Home",
+          );
+        });
+      }
+      return;
+    }
+
+    if (!eventPayload.event_id) return;
+
     const dmEvent = event as SlackDirectMessageEvent;
     const channelEvent = event as SlackChannelMessageEvent;
+    const messageChangedEvent = event as SlackMessageChangedEvent;
 
     const isAppMention = event.type === "app_mention";
-    const isDm = event.type === "message" && dmEvent.channel_type === "im";
+    const isMessageChanged =
+      event.type === "message" &&
+      messageChangedEvent.subtype === "message_changed";
+    const isDm =
+      event.type === "message" &&
+      !isMessageChanged &&
+      dmEvent.channel_type === "im";
     const mentionsBot =
       this.config.botUserId &&
       channelEvent.text?.includes(`<@${this.config.botUserId}>`);
     const isActiveThreadReply =
       event.type === "message" &&
+      !isMessageChanged &&
       !isDm &&
       !mentionsBot &&
       !!channelEvent.thread_ts &&
-      this.activeThreads.has(channelEvent.thread_ts);
+      this.store.hasThread(channelEvent.thread_ts);
 
-    // Process app_mention events, DMs, and replies in active bot threads
-    if (!isAppMention && !isDm && !isActiveThreadReply) {
+    // Only forward reaction_added events on messages in tracked bot threads
+    const reactionEvent = event as SlackReactionAddedEvent;
+    const isReactionAdded =
+      event.type === "reaction_added" &&
+      !!reactionEvent.item?.ts &&
+      this.store.hasThread(reactionEvent.item.ts);
+
+    // Process app_mention events, DMs, message edits, scoped reactions, and replies in active bot threads
+    if (
+      !isAppMention &&
+      !isDm &&
+      !isMessageChanged &&
+      !isReactionAdded &&
+      !isActiveThreadReply
+    ) {
       return;
     }
 
     // Deduplicate on event_id
     const eventId = eventPayload.event_id;
-    if (this.dedupMap.has(eventId)) {
+    if (this.store.hasEvent(eventId)) {
       log.debug({ eventId }, "Duplicate Slack event, skipping");
       return;
     }
-    this.dedupMap.set(eventId, Date.now());
+    this.store.markEventSeen(eventId, DEDUP_TTL_MS);
 
+    this.normalizeAndEmit(
+      event,
+      eventId,
+      isAppMention,
+      isActiveThreadReply,
+      isReactionAdded,
+      isMessageChanged,
+      isDm,
+    );
+  }
+
+  private normalizeAndEmit(
+    event:
+      | SlackAppMentionEvent
+      | SlackDirectMessageEvent
+      | SlackChannelMessageEvent
+      | SlackMessageChangedEvent
+      | SlackReactionAddedEvent,
+    eventId: string,
+    isAppMention: boolean,
+    isActiveThreadReply: boolean,
+    isReactionAdded: boolean,
+    isMessageChanged: boolean,
+    _isDm: boolean,
+  ): void {
     let normalized: NormalizedSlackEvent | null;
-    if (isAppMention) {
+    if (isReactionAdded) {
+      normalized = normalizeSlackReactionAdded(
+        event as SlackReactionAddedEvent,
+        eventId,
+        this.config.gatewayConfig,
+        this.config.botUserId,
+      );
+    } else if (isAppMention) {
       normalized = normalizeSlackAppMention(
         event as SlackAppMentionEvent,
         eventId,
         this.config.gatewayConfig,
+      );
+    } else if (isMessageChanged) {
+      normalized = normalizeSlackMessageEdit(
+        event as SlackMessageChangedEvent,
+        eventId,
+        this.config.gatewayConfig,
+        this.config.botUserId,
       );
     } else if (isActiveThreadReply) {
       normalized = normalizeSlackChannelMessage(
@@ -314,7 +436,11 @@ export class SlackSocketModeClient {
 
     if (!normalized) {
       log.info(
-        { eventId, channel: event.channel, type: event.type },
+        {
+          eventId,
+          channel: (event as { channel?: string }).channel,
+          type: event.type,
+        },
         "Slack event dropped by normalization/routing",
       );
       return;
@@ -323,128 +449,47 @@ export class SlackSocketModeClient {
     this.onEvent(normalized);
   }
 
-  /**
-   * Normalize a Slack `block_actions` interactive payload into a
-   * `NormalizedSlackEvent` with `callbackData` set, so the runtime's
-   * approval interception pipeline can parse `apr:{requestId}:{actionId}`.
-   */
-  private handleInteractivePayload(
-    payload:
-      | {
-          type?: string;
-          user?: { id?: string; username?: string; name?: string };
-          channel?: { id?: string };
-          actions?: Array<{
-            action_id?: string;
-            value?: string;
-            block_id?: string;
-          }>;
-          message?: { ts?: string; text?: string };
-          trigger_id?: string;
-        }
-      | undefined,
-  ): void {
-    if (!payload || payload.type !== "block_actions") return;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private handleInteractive(payload: Record<string, any> | undefined): void {
+    if (!payload) return;
 
-    const userId = payload.user?.id;
-    const channelId = payload.channel?.id;
-    const action = payload.actions?.[0];
-    if (!userId || !channelId || !action?.value) return;
+    // Only handle block_actions (from Block Kit buttons, App Home buttons, etc.)
+    if (payload.type !== "block_actions") return;
 
-    // Only process approval-related callbacks
-    const callbackData = action.value;
-    if (!callbackData.startsWith("apr:")) {
-      log.debug(
-        { callbackData, channelId },
-        "Ignoring non-approval block_actions payload",
-      );
-      return;
-    }
-
-    const messageTs = payload.message?.ts;
-
-    // Build a dedup key from the action value + message ts to prevent
-    // double-processing if Slack retries the interactive payload.
-    const dedupKey = `interactive:${callbackData}:${messageTs ?? "no-ts"}`;
-    if (this.dedupMap.has(dedupKey)) {
-      log.debug({ dedupKey }, "Duplicate interactive payload, skipping");
-      return;
-    }
-    this.dedupMap.set(dedupKey, Date.now());
-
-    const routing = resolveAssistant(
+    // First try to normalize as a channel-scoped block_actions event
+    const normalized = normalizeSlackBlockActions(
+      payload as unknown as SlackBlockActionsPayload,
+      payload.envelope_id ?? "unknown",
       this.config.gatewayConfig,
-      channelId,
-      userId,
     );
-    if (isRejection(routing)) {
-      // DMs are always directed at the bot, so fall back to default assistant
-      if (this.config.gatewayConfig.defaultAssistantId) {
-        const defaultRouting = {
-          assistantId: this.config.gatewayConfig.defaultAssistantId,
-          routeSource: "default" as const,
-        };
-        this.emitInteractiveEvent(
-          channelId,
-          userId,
-          callbackData,
-          messageTs,
-          payload,
-          defaultRouting,
-        );
-      } else {
-        log.info(
-          { channelId, userId },
-          "block_actions dropped: no route and no default assistant",
-        );
-      }
+    if (normalized) {
+      this.onEvent(normalized);
       return;
     }
 
-    this.emitInteractiveEvent(
-      channelId,
-      userId,
-      callbackData,
-      messageTs,
-      payload,
-      routing,
-    );
-  }
+    // Fall back to App Home interaction handling
+    const userId = payload.user?.id as string | undefined;
+    const actions = payload.actions as
+      | Array<{ action_id: string; value?: string }>
+      | undefined;
+    if (!userId || !actions?.length) return;
 
-  private emitInteractiveEvent(
-    channelId: string,
-    userId: string,
-    callbackData: string,
-    messageTs: string | undefined,
-    rawPayload: Record<string, unknown>,
-    routing: RouteResult,
-  ): void {
-    const eventId = `interactive:${channelId}:${Date.now()}`;
-    const normalized: NormalizedSlackEvent = {
-      event: {
-        version: "v1",
-        sourceChannel: "slack",
-        receivedAt: new Date().toISOString(),
-        message: {
-          content: callbackData,
-          conversationExternalId: channelId,
-          externalMessageId: eventId,
-          callbackData,
-        },
-        actor: {
-          actorExternalId: userId,
-        },
-        source: {
-          updateId: eventId,
-          messageId: messageTs,
-        },
-        raw: rawPayload as Record<string, unknown>,
+    log.info(
+      {
+        userId,
+        actionIds: actions.map((a) => a.action_id),
       },
-      routing,
-      threadTs: messageTs ?? `${channelId}:${Date.now()}`,
-      channel: channelId,
-    };
-    this.onEvent(normalized);
+      "Received App Home block_actions",
+    );
+
+    // Re-publish the App Home view to reflect any state changes
+    publishAppHome(
+      this.config.botToken,
+      userId,
+      this.getAppHomeContext(),
+    ).catch((err) => {
+      log.error({ err, userId }, "Failed to update App Home after interaction");
+    });
   }
 
   private scheduleReconnect(): void {
@@ -476,25 +521,11 @@ export class SlackSocketModeClient {
   private startDedupCleanup(): void {
     this.stopDedupCleanup();
     this.dedupCleanupTimer = setInterval(() => {
-      const now = Date.now();
-      let evicted = 0;
-      for (const [key, timestamp] of this.dedupMap) {
-        if (now - timestamp > DEDUP_TTL_MS) {
-          this.dedupMap.delete(key);
-          evicted++;
-        }
-      }
+      const evicted = this.store.cleanupExpiredEvents();
       if (evicted > 0) {
         log.debug({ evicted }, "Evicted expired Slack event dedup entries");
       }
-      // Also clean up expired active threads
-      let threadEvicted = 0;
-      for (const [key, timestamp] of this.activeThreads) {
-        if (now - timestamp > ACTIVE_THREAD_TTL_MS) {
-          this.activeThreads.delete(key);
-          threadEvicted++;
-        }
-      }
+      const threadEvicted = this.store.cleanupExpiredThreads();
       if (threadEvicted > 0) {
         log.debug({ threadEvicted }, "Evicted expired active thread entries");
       }

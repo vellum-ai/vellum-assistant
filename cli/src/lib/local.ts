@@ -181,7 +181,7 @@ async function startDaemonFromSource(assistantIndex: string): Promise<void> {
       if (!isNaN(pid)) {
         try {
           process.kill(pid, 0);
-          console.log(`   Daemon already running (pid ${pid})\n`);
+          console.log(`   Assistant already running (pid ${pid})\n`);
           return;
         } catch {
           try {
@@ -197,10 +197,10 @@ async function startDaemonFromSource(assistantIndex: string): Promise<void> {
     if (ownerPid) {
       writeFileSync(pidFile, String(ownerPid), "utf-8");
       console.log(
-        `   Daemon socket is responsive (pid ${ownerPid}) — skipping restart\n`,
+        `   Assistant socket is responsive (pid ${ownerPid}) — skipping restart\n`,
       );
     } else {
-      console.log("   Daemon socket is responsive — skipping restart\n");
+      console.log("   Assistant socket is responsive — skipping restart\n");
     }
     return;
   }
@@ -262,7 +262,7 @@ async function startDaemonWatchFromSource(
       if (!isNaN(pid)) {
         try {
           process.kill(pid, 0); // Check if alive
-          console.log(`   Daemon already running (pid ${pid})\n`);
+          console.log(`   Assistant already running (pid ${pid})\n`);
           return;
         } catch {
           // Process doesn't exist, clean up stale PID file
@@ -281,10 +281,10 @@ async function startDaemonWatchFromSource(
     if (ownerPid) {
       writeFileSync(pidFile, String(ownerPid), "utf-8");
       console.log(
-        `   Daemon socket is responsive (pid ${ownerPid}) — skipping restart\n`,
+        `   Assistant socket is responsive (pid ${ownerPid}) — skipping restart\n`,
       );
     } else {
-      console.log("   Daemon socket is responsive — skipping restart\n");
+      console.log("   Assistant socket is responsive — skipping restart\n");
     }
     return;
   }
@@ -313,7 +313,7 @@ async function startDaemonWatchFromSource(
     writeFileSync(pidFile, String(daemonPid), "utf-8");
   }
 
-  console.log("   Daemon started in watch mode (bun --watch)");
+  console.log("   Assistant started in watch mode (bun --watch)");
 }
 
 function resolveGatewayDir(): string {
@@ -605,7 +605,7 @@ export async function startLocalDaemon(watch: boolean = false): Promise<void> {
           try {
             process.kill(pid, 0); // Check if alive
             daemonAlive = true;
-            console.log(`   Daemon already running (pid ${pid})\n`);
+            console.log(`   Assistant already running (pid ${pid})\n`);
           } catch {
             // Process doesn't exist, clean up stale PID file
             try {
@@ -627,10 +627,10 @@ export async function startLocalDaemon(watch: boolean = false): Promise<void> {
         if (ownerPid) {
           writeFileSync(pidFile, String(ownerPid), "utf-8");
           console.log(
-            `   Daemon socket is responsive (pid ${ownerPid}) — skipping restart\n`,
+            `   Assistant socket is responsive (pid ${ownerPid}) — skipping restart\n`,
           );
         } else {
-          console.log("   Daemon socket is responsive — skipping restart\n");
+          console.log("   Assistant socket is responsive — skipping restart\n");
         }
         return;
       }
@@ -640,7 +640,7 @@ export async function startLocalDaemon(watch: boolean = false): Promise<void> {
         unlinkSync(socketFile);
       } catch {}
 
-      console.log("🔨 Starting daemon...");
+      console.log("🔨 Starting assistant...");
 
       // Ensure ~/.vellum/ exists for PID/socket files
       mkdirSync(vellumDir, { recursive: true });
@@ -702,7 +702,7 @@ export async function startLocalDaemon(watch: boolean = false): Promise<void> {
       const assistantIndex = resolveAssistantIndexPath();
       if (assistantIndex) {
         console.log(
-          "   Bundled daemon socket not ready after 60s — falling back to source daemon...",
+          "   Bundled assistant socket not ready after 60s — falling back to source assistant...",
         );
         // Kill the bundled daemon to avoid two processes competing for the same socket/port
         await stopProcessByPidFile(pidFile, "bundled daemon", [socketFile]);
@@ -716,14 +716,14 @@ export async function startLocalDaemon(watch: boolean = false): Promise<void> {
     }
 
     if (socketReady) {
-      console.log("   Daemon socket ready\n");
+      console.log("   Assistant socket ready\n");
     } else {
       console.log(
-        "   ⚠️  Daemon socket did not appear within 60s — continuing anyway\n",
+        "   ⚠️  Assistant socket did not appear within 60s — continuing anyway\n",
       );
     }
   } else {
-    console.log("🔨 Starting local daemon...");
+    console.log("🔨 Starting local assistant...");
 
     const assistantIndex = resolveAssistantIndexPath();
     if (!assistantIndex) {
@@ -739,10 +739,10 @@ export async function startLocalDaemon(watch: boolean = false): Promise<void> {
       const socketFile = join(vellumDir, "vellum.sock");
       const socketReady = await waitForSocketFile(socketFile, 60000);
       if (socketReady) {
-        console.log("   Daemon socket ready\n");
+        console.log("   Assistant socket ready\n");
       } else {
         console.log(
-          "   ⚠️  Daemon socket did not appear within 60s — continuing anyway\n",
+          "   ⚠️  Assistant socket did not appear within 60s — continuing anyway\n",
         );
       }
     } else {
@@ -752,10 +752,10 @@ export async function startLocalDaemon(watch: boolean = false): Promise<void> {
       const socketFile = join(vellumDir, "vellum.sock");
       const socketReady = await waitForSocketFile(socketFile, 60000);
       if (socketReady) {
-        console.log("   Daemon socket ready\n");
+        console.log("   Assistant socket ready\n");
       } else {
         console.log(
-          "   ⚠️  Daemon socket did not appear within 60s — continuing anyway\n",
+          "   ⚠️  Assistant socket did not appear within 60s — continuing anyway\n",
         );
       }
     }
