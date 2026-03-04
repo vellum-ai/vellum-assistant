@@ -64,7 +64,8 @@ export function resolveDestinations(
         break;
       }
       case "telegram":
-      case "sms": {
+      case "sms":
+      case "slack": {
         const guardianResult = findGuardianForChannel(channel, assistantId);
         if (guardianResult && guardianResult.channel.externalChatId) {
           result.set(channel as NotificationChannel, {
