@@ -215,7 +215,7 @@ export function redeemInvite(params: {
     return {
       ok: true,
       type: "redeemed",
-      memberId: reactivated!.id,
+      memberId: reactivated!.channel.id,
       inviteId: invite.id,
     };
   }
@@ -258,7 +258,7 @@ export function redeemInvite(params: {
   return {
     ok: true,
     type: "redeemed",
-    memberId: freshMember!.id,
+    memberId: freshMember!.channel.id,
     inviteId: invite.id,
   };
 }
@@ -372,7 +372,7 @@ export function redeemVoiceInviteCode(params: {
   try {
     getSqlite()
       .transaction(() => {
-        const member = upsertMemberContactsFirst({
+        const memberResult = upsertMemberContactsFirst({
           assistantId: invite.assistantId,
           sourceChannel: "voice",
           externalUserId: callerExternalUserId,
@@ -382,7 +382,7 @@ export function redeemVoiceInviteCode(params: {
           policy: "allow",
           inviteId: invite.id,
         });
-        memberId = member.id;
+        memberId = memberResult?.channel.id;
 
         const recorded = recordInviteUse({
           inviteId: invite.id,

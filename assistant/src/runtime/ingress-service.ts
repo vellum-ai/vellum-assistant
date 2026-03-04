@@ -12,10 +12,11 @@ import {
   revokeMemberContactsFirst,
   upsertMemberContactsFirst,
 } from "../contacts/contacts-write.js";
-import type {
-  IngressMember,
-  MemberPolicy,
-  MemberStatus,
+import {
+  contactChannelToMemberRecord,
+  type IngressMember,
+  type MemberPolicy,
+  type MemberStatus,
 } from "../contacts/member-record-shim.js";
 import type { ContactWithChannels } from "../contacts/types.js";
 import {
@@ -391,7 +392,7 @@ export function upsertIngressMember(params: {
         "At least one of externalUserId or externalChatId is required for upsert",
     };
   }
-  const member = upsertMemberContactsFirst({
+  const result = upsertMemberContactsFirst({
     assistantId: params.assistantId,
     sourceChannel: params.sourceChannel,
     externalUserId: params.externalUserId,
@@ -401,6 +402,10 @@ export function upsertIngressMember(params: {
     policy: params.policy as MemberPolicy | undefined,
     status: params.status as MemberStatus | undefined,
   });
+  if (!result) {
+    return { ok: false, error: "Failed to upsert member" };
+  }
+  const member = contactChannelToMemberRecord(result.contact, result.channel);
   return { ok: true, data: memberToResponse(member) };
 }
 
@@ -411,10 +416,14 @@ export function revokeIngressMember(
   if (!memberId) {
     return { ok: false, error: "memberId is required for revoke" };
   }
-  const revoked = revokeMemberContactsFirst(memberId, reason);
-  if (!revoked) {
+  const revokedResult = revokeMemberContactsFirst(memberId, reason);
+  if (!revokedResult) {
     return { ok: false, error: "Member not found or cannot be revoked" };
   }
+  const revoked = contactChannelToMemberRecord(
+    revokedResult.contact,
+    revokedResult.channel,
+  );
   return { ok: true, data: memberToResponse(revoked) };
 }
 
@@ -425,9 +434,13 @@ export function blockIngressMember(
   if (!memberId) {
     return { ok: false, error: "memberId is required for block" };
   }
-  const blocked = blockMemberContactsFirst(memberId, reason);
-  if (!blocked) {
+  const blockedResult = blockMemberContactsFirst(memberId, reason);
+  if (!blockedResult) {
     return { ok: false, error: "Member not found or already blocked" };
   }
+  const blocked = contactChannelToMemberRecord(
+    blockedResult.contact,
+    blockedResult.channel,
+  );
   return { ok: true, data: memberToResponse(blocked) };
 }
