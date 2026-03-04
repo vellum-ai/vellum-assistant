@@ -30,6 +30,7 @@ import type {
   ApprovalConversationGenerator,
   ApprovalCopyGenerator,
 } from "../http-types.js";
+import { parseApprovalIntent } from "../nl-approval-parser.js";
 import { handleGuardianCallbackDecision } from "./approval-strategies/guardian-callback-strategy.js";
 import { handleGuardianLegacyFallback } from "./approval-strategies/guardian-legacy-fallback-strategy.js";
 import { handleGuardianTextEngineDecision } from "./approval-strategies/guardian-text-engine-strategy.js";
@@ -477,6 +478,29 @@ export async function handleApprovalInterception(
       pending,
       allowedActions,
     });
+  }
+
+  // ── Natural language approval intent parser ──
+  // Covers a broad set of colloquial approval/rejection phrases, emoji, and
+  // timed-approval variants. Runs before the legacy parser to provide wider
+  // coverage for channels (like Slack) that rely on plain-text responses.
+  if (pending.length > 0 && content) {
+    const nlIntent = parseApprovalIntent(content);
+    if (nlIntent && nlIntent.confidence >= 0.9) {
+      const nlDecision: ApprovalDecisionResult = {
+        action:
+          nlIntent.decision === "approve"
+            ? "approve_once"
+            : nlIntent.decision === "approve_10m"
+              ? "approve_10m"
+              : "reject",
+        source: "plain_text",
+      };
+      const nlResult = handleChannelDecision(conversationId, nlDecision);
+      if (nlResult.applied) {
+        return { handled: true, type: "decision_applied" };
+      }
+    }
   }
 
   // ── Legacy deterministic fallback ──
