@@ -108,8 +108,11 @@ beforeEach(() => {
       }
       fetchCalls.push({ url, body, headers });
 
-      // Slack API response
-      if (url.includes("slack.com/api/chat.postMessage")) {
+      // Slack API responses
+      if (
+        url.includes("slack.com/api/chat.postMessage") ||
+        url.includes("slack.com/api/chat.postEphemeral")
+      ) {
         return new Response(JSON.stringify({ ok: true }), {
           status: 200,
           headers: { "content-type": "application/json" },
@@ -286,5 +289,67 @@ describe("slack-deliver endpoint", () => {
     );
     expect(slackCall).toBeDefined();
     expect((slackCall!.body as any).thread_ts).toBeUndefined();
+  });
+
+  test("uses chat.postEphemeral when ephemeral flag is set", async () => {
+    const handler = createSlackDeliverHandler(makeConfig());
+    const req = makeRequest({
+      chatId: "C123",
+      text: "secret info",
+      ephemeral: true,
+      user: "U456",
+    });
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+
+    const slackCall = fetchCalls.find((c) =>
+      c.url.includes("chat.postEphemeral"),
+    );
+    expect(slackCall).toBeDefined();
+    expect((slackCall!.body as any).channel).toBe("C123");
+    expect((slackCall!.body as any).text).toBe("secret info");
+    expect((slackCall!.body as any).user).toBe("U456");
+
+    // Should NOT call chat.postMessage
+    const postMessageCall = fetchCalls.find((c) =>
+      c.url.includes("chat.postMessage"),
+    );
+    expect(postMessageCall).toBeUndefined();
+  });
+
+  test("returns 400 when ephemeral is set but user is missing", async () => {
+    const handler = createSlackDeliverHandler(makeConfig());
+    const req = makeRequest({
+      chatId: "C123",
+      text: "secret info",
+      ephemeral: true,
+    });
+    const res = await handler(req);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toContain("user is required");
+  });
+
+  test("ephemeral message includes thread_ts when threadTs query param is set", async () => {
+    const handler = createSlackDeliverHandler(makeConfig());
+    const req = makeRequest(
+      {
+        chatId: "C123",
+        text: "ephemeral in thread",
+        ephemeral: true,
+        user: "U789",
+      },
+      undefined,
+      "?threadTs=1700000000.000100",
+    );
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+
+    const slackCall = fetchCalls.find((c) =>
+      c.url.includes("chat.postEphemeral"),
+    );
+    expect(slackCall).toBeDefined();
+    expect((slackCall!.body as any).thread_ts).toBe("1700000000.000100");
+    expect((slackCall!.body as any).user).toBe("U789");
   });
 });
