@@ -685,6 +685,48 @@ export function findGuardianForChannel(
 }
 
 /**
+ * Revoke the guardian's active channel of the given type by setting its
+ * status to 'revoked'. This is the contacts-side counterpart to
+ * revokeBinding() in guardian-bindings.ts — it ensures findGuardianForChannel()
+ * no longer returns stale data after a binding is revoked.
+ *
+ * Returns true if a channel was found and revoked, false otherwise.
+ */
+export function revokeGuardianChannel(channelType: string): boolean {
+  const db = getDb();
+  const rows = db
+    .select({
+      channelId: contactChannels.id,
+    })
+    .from(contacts)
+    .innerJoin(contactChannels, eq(contacts.id, contactChannels.contactId))
+    .where(
+      and(
+        eq(contacts.role, "guardian"),
+        eq(contactChannels.type, channelType),
+        eq(contactChannels.status, "active"),
+      ),
+    )
+    .all();
+
+  if (rows.length === 0) return false;
+
+  const now = Date.now();
+  for (const row of rows) {
+    db.update(contactChannels)
+      .set({
+        status: "revoked",
+        revokedReason: "guardian_binding_revoked",
+        updatedAt: now,
+      })
+      .where(eq(contactChannels.id, row.channelId))
+      .run();
+  }
+
+  return true;
+}
+
+/**
  * List all active channels for guardian contacts.
  * This is the contacts-based equivalent of listActiveBindingsByAssistant(assistantId).
  * Joins contacts+channels with status='active' in a single query so we never
