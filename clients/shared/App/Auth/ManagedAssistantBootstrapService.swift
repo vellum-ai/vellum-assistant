@@ -46,8 +46,8 @@ public final class ManagedAssistantBootstrapService {
 
     private let authService: AuthService
 
-    public init(authService: AuthService = .shared) {
-        self.authService = authService
+    public init(authService: AuthService? = nil) {
+        self.authService = authService ?? AuthService.shared
     }
 
     public func ensureManagedAssistant(
