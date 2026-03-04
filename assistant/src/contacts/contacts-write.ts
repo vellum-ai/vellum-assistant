@@ -196,6 +196,10 @@ export function upsertMemberContactsFirst(params: {
           address,
           externalUserId: canonicalId,
           externalChatId: params.externalChatId ?? null,
+          legacyAddress:
+            params.externalUserId && params.externalUserId !== address
+              ? params.externalUserId
+              : undefined,
           status: (params.status as ChannelStatus) ?? undefined,
           policy: (params.policy as ChannelPolicy) ?? undefined,
           inviteId: params.inviteId ?? null,
@@ -220,32 +224,44 @@ export function revokeMemberContactsFirst(
   memberId: string,
   reason?: string,
 ): IngressMember | null {
-  try {
-    const member = readMemberById(memberId);
-    if (member?.externalUserId) {
-      const contact = findContactByChannelExternalId(
-        member.sourceChannel,
-        member.externalUserId,
-      );
-      if (contact) {
-        const matchingChannel = contact.channels.find(
-          (ch) =>
-            ch.type === member.sourceChannel &&
-            ch.externalUserId === member.externalUserId,
+  // Perform legacy revoke first — it only applies to active/pending members
+  const result = revokeMember(memberId, reason);
+
+  // Only update contacts if the legacy revoke actually succeeded
+  if (result) {
+    try {
+      const canonicalUserId = result.externalUserId
+        ? (canonicalizeInboundIdentity(
+            result.sourceChannel as ChannelId,
+            result.externalUserId,
+          ) ?? result.externalUserId)
+        : null;
+
+      if (canonicalUserId) {
+        const contact = findContactByChannelExternalId(
+          result.sourceChannel,
+          canonicalUserId,
         );
-        if (matchingChannel) {
-          updateChannelStatus(matchingChannel.id, {
-            status: "revoked",
-            revokedReason: reason ?? null,
-          });
+        if (contact) {
+          const matchingChannel = contact.channels.find(
+            (ch) =>
+              ch.type === result.sourceChannel &&
+              ch.externalUserId === canonicalUserId,
+          );
+          if (matchingChannel) {
+            updateChannelStatus(matchingChannel.id, {
+              status: "revoked",
+              revokedReason: reason ?? null,
+            });
+          }
         }
       }
+    } catch (err) {
+      log.warn({ err }, "Contacts write failed for revokeMember");
     }
-  } catch (err) {
-    log.warn({ err }, "Contacts write failed for revokeMember");
   }
 
-  return revokeMember(memberId, reason);
+  return result;
 }
 
 /**
@@ -260,15 +276,21 @@ export function blockMemberContactsFirst(
   try {
     const member = readMemberById(memberId);
     if (member?.externalUserId) {
+      const canonicalUserId =
+        canonicalizeInboundIdentity(
+          member.sourceChannel as ChannelId,
+          member.externalUserId,
+        ) ?? member.externalUserId;
+
       const contact = findContactByChannelExternalId(
         member.sourceChannel,
-        member.externalUserId,
+        canonicalUserId,
       );
       if (contact) {
         const matchingChannel = contact.channels.find(
           (ch) =>
             ch.type === member.sourceChannel &&
-            ch.externalUserId === member.externalUserId,
+            ch.externalUserId === canonicalUserId,
         );
         if (matchingChannel) {
           updateChannelStatus(matchingChannel.id, {
@@ -293,9 +315,15 @@ export function touchChannelLastSeen(memberId: string): void {
   try {
     const member = readMemberById(memberId);
     if (member?.externalUserId) {
+      const canonicalUserId =
+        canonicalizeInboundIdentity(
+          member.sourceChannel as ChannelId,
+          member.externalUserId,
+        ) ?? member.externalUserId;
+
       updateChannelLastSeenByExternalId(
         member.sourceChannel,
-        member.externalUserId,
+        canonicalUserId,
       );
     }
   } catch (err) {
