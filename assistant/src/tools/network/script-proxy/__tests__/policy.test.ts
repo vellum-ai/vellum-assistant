@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
+import type { CredentialInjectionTemplate } from "@vellumai/outbound-proxy";
 import {
   evaluateRequest,
   evaluateRequestWithApproval,
-} from "../../../../outbound-proxy/index.js";
-import type { CredentialInjectionTemplate } from "../../../credentials/policy-types.js";
+} from "@vellumai/outbound-proxy";
 
 function makeTemplate(
   overrides: Partial<CredentialInjectionTemplate> = {},

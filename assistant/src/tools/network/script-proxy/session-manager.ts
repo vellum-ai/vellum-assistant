@@ -18,18 +18,19 @@ import {
   type ProxySessionId,
   routeConnection,
   stripQueryString,
-} from "../../../outbound-proxy/index.js";
+} from "@vellumai/outbound-proxy";
+import {
+  compareMatchSpecificity,
+  type CredentialInjectionTemplate,
+  type HostMatchKind,
+  listCredentialMetadata,
+  matchHostPattern,
+  resolveById,
+} from "@vellumai/outbound-proxy";
+
 import { getSecureKey } from "../../../security/secure-keys.js";
 import { getLogger } from "../../../util/logger.js";
 import { silentlyWithLog } from "../../../util/silently.js";
-import {
-  compareMatchSpecificity,
-  type HostMatchKind,
-  matchHostPattern,
-} from "../../credentials/host-pattern-match.js";
-import { listCredentialMetadata } from "../../credentials/metadata-store.js";
-import type { CredentialInjectionTemplate } from "../../credentials/policy-types.js";
-import { resolveById } from "../../credentials/resolve.js";
 
 const log = getLogger("proxy-session");
 

@@ -9,7 +9,10 @@
     "typecheck": "bunx tsc --noEmit",
     "test": "bun test"
   },
-  "dependencies": {},
+  "dependencies": {
+    "tldts": "^7.0.23",
+    "uuid": "^11.1.0"
+  },
   "devDependencies": {
     "@types/bun": "^1.2.4",
     "@types/node": "^25.2.2",

@@ -63,7 +63,7 @@ mock.module("../config/loader.js", () => ({
 
 // Credential resolver and secure key mocks — must be set up before
 // session-manager is imported so the proxy uses our test data.
-import type { ResolvedCredential } from "../tools/credentials/resolve.js";
+import type { ResolvedCredential } from "@vellumai/outbound-proxy";
 
 let resolveByIdResults = new Map<string, ResolvedCredential | undefined>();
 let secureKeyValues = new Map<string, string | undefined>();
@@ -101,6 +101,8 @@ mock.module("../tools/network/script-proxy/certs.js", () => ({
 
 import { mkdirSync } from "node:fs";
 
+import type { CredentialInjectionTemplate } from "@vellumai/outbound-proxy";
+
 import {
   type AttachmentContext,
   filterVisibleAttachments,
@@ -117,7 +119,6 @@ import {
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { assetMaterializeTool } from "../tools/assets/materialize.js";
 import { assetSearchTool, searchAttachments } from "../tools/assets/search.js";
-import type { CredentialInjectionTemplate } from "../tools/credentials/policy-types.js";
 import { stopAllSessions } from "../tools/network/script-proxy/index.js";
 import { shellTool } from "../tools/terminal/shell.js";
 import type { ToolContext } from "../tools/types.js";

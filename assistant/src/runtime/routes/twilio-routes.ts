@@ -17,6 +17,11 @@
  */
 
 import {
+  deleteCredentialMetadata,
+  upsertCredentialMetadata,
+} from "@vellumai/outbound-proxy";
+
+import {
   deleteTollFreeVerification,
   fetchMessageStatus,
   getPhoneNumberSid,
@@ -41,10 +46,6 @@ import {
   getSecureKey,
   setSecureKey,
 } from "../../security/secure-keys.js";
-import {
-  deleteCredentialMetadata,
-  upsertCredentialMetadata,
-} from "../../tools/credentials/metadata-store.js";
 import { mintDaemonDeliveryToken } from "../auth/token-service.js";
 
 // ---------------------------------------------------------------------------

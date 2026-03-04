@@ -4,12 +4,13 @@
 
 import { createHash } from "node:crypto";
 
+import { credentialBroker } from "@vellumai/outbound-proxy";
+
 import { getApp } from "../memory/app-store.js";
 import {
   getActivePublishedPageByAppId,
   updatePublishedPage,
 } from "../memory/published-pages-store.js";
-import { credentialBroker } from "../tools/credentials/broker.js";
 import { getLogger } from "../util/logger.js";
 import { deployHtmlToVercel } from "./vercel-deploy.js";
 

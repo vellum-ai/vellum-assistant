@@ -1,15 +1,16 @@
 import {
+  assertMetadataWritable,
+  deleteCredentialMetadata,
+  upsertCredentialMetadata,
+} from "@vellumai/outbound-proxy";
+
+import {
   API_KEY_PROVIDERS,
   getConfig,
   invalidateConfigCache,
 } from "../../config/loader.js";
 import { initializeProviders } from "../../providers/registry.js";
 import { deleteSecureKey, setSecureKey } from "../../security/secure-keys.js";
-import {
-  assertMetadataWritable,
-  deleteCredentialMetadata,
-  upsertCredentialMetadata,
-} from "../../tools/credentials/metadata-store.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
 

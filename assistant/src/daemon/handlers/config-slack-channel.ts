@@ -1,13 +1,14 @@
 import {
+  deleteCredentialMetadata,
+  getCredentialMetadata,
+  upsertCredentialMetadata,
+} from "@vellumai/outbound-proxy";
+
+import {
   deleteSecureKey,
   getSecureKey,
   setSecureKey,
 } from "../../security/secure-keys.js";
-import {
-  deleteCredentialMetadata,
-  getCredentialMetadata,
-  upsertCredentialMetadata,
-} from "../../tools/credentials/metadata-store.js";
 import { log as _log } from "./shared.js";
 
 // -- Result type --

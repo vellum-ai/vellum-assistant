@@ -6,17 +6,18 @@
  * orchestrator without duplicating storage logic.
  */
 
+import {
+  type CredentialInjectionTemplate,
+  deleteCredentialMetadata,
+  runPostConnectHook,
+  upsertCredentialMetadata,
+} from "@vellumai/outbound-proxy";
+
 import type {
   OAuth2FlowResult,
   TokenEndpointAuthMethod,
 } from "../security/oauth2.js";
 import { deleteSecureKey, setSecureKey } from "../security/secure-keys.js";
-import {
-  deleteCredentialMetadata,
-  upsertCredentialMetadata,
-} from "../tools/credentials/metadata-store.js";
-import type { CredentialInjectionTemplate } from "../tools/credentials/policy-types.js";
-import { runPostConnectHook } from "../tools/credentials/post-connect-hooks.js";
 
 // ---------------------------------------------------------------------------
 // Types

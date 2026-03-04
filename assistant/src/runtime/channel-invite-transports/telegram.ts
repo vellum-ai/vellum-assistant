@@ -8,8 +8,9 @@
  * verification) tokens that use the same `/start` deep-link mechanism.
  */
 
+import { getCredentialMetadata } from "@vellumai/outbound-proxy";
+
 import type { ChannelId } from "../../channels/types.js";
-import { getCredentialMetadata } from "../../tools/credentials/metadata-store.js";
 import {
   type ChannelInviteTransport,
   type InviteSharePayload,

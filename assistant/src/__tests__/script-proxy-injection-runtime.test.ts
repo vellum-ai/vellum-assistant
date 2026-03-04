@@ -1,9 +1,11 @@
 import * as http from "node:http";
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
-import type { CredentialMetadata } from "../tools/credentials/metadata-store.js";
-import type { CredentialInjectionTemplate } from "../tools/credentials/policy-types.js";
-import type { ResolvedCredential } from "../tools/credentials/resolve.js";
+import type {
+  CredentialInjectionTemplate,
+  CredentialMetadata,
+  ResolvedCredential,
+} from "@vellumai/outbound-proxy";
 
 // ── Mocks ────────────────────────────────────────────────────────────
 

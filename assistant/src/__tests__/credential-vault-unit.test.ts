@@ -57,12 +57,13 @@ mock.module("../tools/registry.js", () => ({
 // Imports under test
 // ---------------------------------------------------------------------------
 
-import { getSecureKey, setSecureKey } from "../security/secure-keys.js";
-import { CredentialBroker } from "../tools/credentials/broker.js";
 import {
   _setMetadataPath,
+  CredentialBroker,
   upsertCredentialMetadata,
-} from "../tools/credentials/metadata-store.js";
+} from "@vellumai/outbound-proxy";
+
+import { getSecureKey, setSecureKey } from "../security/secure-keys.js";
 import { credentialStoreTool } from "../tools/credentials/vault.js";
 import type { ToolContext } from "../tools/types.js";
 

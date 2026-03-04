@@ -1,5 +1,11 @@
 import * as net from "node:net";
 
+import {
+  deleteCredentialMetadata,
+  getCredentialMetadata,
+  upsertCredentialMetadata,
+} from "@vellumai/outbound-proxy";
+
 import { getIngressPublicBaseUrl } from "../../config/env.js";
 import {
   registerCallbackRoute,
@@ -10,11 +16,6 @@ import {
   getSecureKey,
   setSecureKey,
 } from "../../security/secure-keys.js";
-import {
-  deleteCredentialMetadata,
-  getCredentialMetadata,
-  upsertCredentialMetadata,
-} from "../../tools/credentials/metadata-store.js";
 import type {
   TelegramConfigRequest,
   TelegramConfigResponse,

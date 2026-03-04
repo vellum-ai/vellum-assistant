@@ -72,7 +72,7 @@ mock.module("../tools/network/script-proxy/index.js", () => ({
 import {
   _setMetadataPath,
   upsertCredentialMetadata,
-} from "../tools/credentials/metadata-store.js";
+} from "@vellumai/outbound-proxy";
 
 const TEST_DIR = join(
   tmpdir(),

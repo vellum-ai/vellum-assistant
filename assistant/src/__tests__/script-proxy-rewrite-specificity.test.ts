@@ -2,10 +2,10 @@ import { describe, expect, test } from "bun:test";
 
 import {
   compareMatchSpecificity,
+  type CredentialInjectionTemplate,
   type HostMatchKind,
   matchHostPattern,
-} from "../tools/credentials/host-pattern-match.js";
-import type { CredentialInjectionTemplate } from "../tools/credentials/policy-types.js";
+} from "@vellumai/outbound-proxy";
 
 /**
  * Extracted rewrite candidate selection logic — mirrors what session-manager's

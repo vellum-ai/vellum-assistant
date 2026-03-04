@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
-import type { CredentialInjectionTemplate } from "../tools/credentials/policy-types.js";
-import type { ResolvedCredential } from "../tools/credentials/resolve.js";
+import type {
+  CredentialInjectionTemplate,
+  ResolvedCredential,
+} from "@vellumai/outbound-proxy";
 
 // ── Mocks ────────────────────────────────────────────────────────────
 

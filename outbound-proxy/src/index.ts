@@ -1,7 +1,10 @@
 // Core proxy types
 export type {
+  CredentialCreationFlow,
   CredentialInjectionTemplate,
   CredentialInjectionType,
+  CredentialPolicy,
+  CredentialPolicyInput,
   PolicyDecision,
   PolicyDecisionAmbiguous,
   PolicyDecisionAskMissingCredential,
@@ -78,3 +81,84 @@ export {
   stripQueryString,
 } from './logging.js';
 export type { CredentialRefTrace, ProxyDecisionTrace } from './logging.js';
+
+// ---------------------------------------------------------------------------
+// Credential modules
+// ---------------------------------------------------------------------------
+
+// Credential broker
+export {
+  CredentialBroker,
+  credentialBroker,
+} from './credentials/broker.js';
+export type {
+  AuthorizeDenied,
+  AuthorizeRequest,
+  AuthorizeResult,
+  AuthorizeSuccess,
+  BrowserFillRequest,
+  BrowserFillResult,
+  ConsumeResult,
+  ServerUseByIdDenied,
+  ServerUseByIdRequest,
+  ServerUseByIdResult,
+  ServerUseByIdSuccess,
+  ServerUseRequest,
+  ServerUseResult,
+  UsageToken,
+} from './credentials/broker.js';
+
+// Credential dependency injection
+export {
+  configureGetDataDir,
+  configureGetLogger,
+  configureGetSecureKey,
+  configurePostConnectHooks,
+} from './credentials/deps.js';
+export type { CredentialLogger } from './credentials/deps.js';
+
+// Domain policy
+export { isDomainAllowed } from './credentials/domain-policy.js';
+
+// Metadata store
+export {
+  _setMetadataPath,
+  assertMetadataWritable,
+  deleteCredentialMetadata,
+  getCredentialMetadata,
+  getCredentialMetadataById,
+  listCredentialMetadata,
+  upsertCredentialMetadata,
+} from './credentials/metadata-store.js';
+export type { CredentialMetadata } from './credentials/metadata-store.js';
+
+// Policy validation
+export {
+  createStrictDefaultPolicy,
+  toPolicyFromInput,
+  validatePolicyInput,
+} from './credentials/policy-validate.js';
+export type { ValidationResult } from './credentials/policy-validate.js';
+
+// Post-connect hooks
+export { runPostConnectHook } from './credentials/post-connect-hooks.js';
+export type { PostConnectHookContext } from './credentials/post-connect-hooks.js';
+
+// Credential resolver
+export {
+  resolveById,
+  resolveByServiceField,
+  resolveCredentialRef,
+  resolveForDomain,
+} from './credentials/resolve.js';
+export type { ResolvedCredential } from './credentials/resolve.js';
+
+// Credential selection
+export { rankCredentialsForEndpoint } from './credentials/selection.js';
+export type {
+  CredentialCandidate,
+  CredentialSelectionResult,
+} from './credentials/selection.js';
+
+// Tool policy
+export { isToolAllowed } from './credentials/tool-policy.js';
