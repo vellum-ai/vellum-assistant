@@ -645,7 +645,12 @@ struct MainWindowView: View {
                             onDebug: {
                                 sidebar.showPreferencesDrawer = false
                                 windowState.selection = .panel(.debug)
-                            }
+                            },
+                            onLogOut: {
+                                sidebar.showPreferencesDrawer = false
+                                AppDelegate.shared?.performLogout()
+                            },
+                            showLogOut: SessionTokenManager.getToken() != nil
                         )
                         .frame(width: drawerWidth)
                         .offset(x: drawerX, y: -28)
@@ -1882,6 +1887,8 @@ private struct PreferencesRow: View {
 private struct DrawerMenuView: View {
     let onSettings: () -> Void
     let onDebug: () -> Void
+    let onLogOut: () -> Void
+    let showLogOut: Bool
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             DrawerThemeToggle()
@@ -1897,6 +1904,13 @@ private struct DrawerMenuView: View {
                 .padding(.vertical, VSpacing.xs)
 
             DrawerMenuItem(icon: "ladybug", label: "Debug", action: onDebug)
+
+            if showLogOut {
+                VColor.surfaceBorder.frame(height: 1)
+                    .padding(.vertical, VSpacing.xs)
+
+                DrawerMenuItem(icon: "rectangle.portrait.and.arrow.right", label: "Log Out", action: onLogOut)
+            }
         }
         .padding(.vertical, VSpacing.sm)
         .background(VColor.surfaceSubtle)
