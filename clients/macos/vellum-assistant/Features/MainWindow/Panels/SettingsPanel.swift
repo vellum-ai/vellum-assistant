@@ -10,14 +10,18 @@ enum SettingsTab: String {
     case automation = "Automation"
     case appearance = "Appearance"
     case privacy = "Privacy"
+    case contacts = "Contacts"
     case advanced = "Advanced"
 
-    /// Tabs shown in the sidebar. Advanced is only visible in dev mode.
+    /// Tabs shown in the sidebar. Contacts requires a feature flag; Advanced is only visible in dev mode.
     static func visibleTabs(isDevMode: Bool) -> [SettingsTab] {
         var tabs: [SettingsTab] = [
             .account, .channels, .modelsAndServices, .voice,
             .automation, .appearance, .permissions, .privacy
         ]
+        if MacOSClientFeatureFlagManager.shared.isEnabled("contacts_tab") {
+            tabs.append(.contacts)
+        }
         if isDevMode {
             tabs.append(.advanced)
         }
@@ -44,6 +48,8 @@ enum SettingsTab: String {
             default: tab = nil
             }
         }
+        // Block feature-flagged tabs when disabled
+        if tab == .contacts && !MacOSClientFeatureFlagManager.shared.isEnabled("contacts_tab") { return nil }
         // Block dev-only tabs when dev mode is disabled
         if tab == .advanced && !isDevMode { return nil }
         return tab
@@ -120,7 +126,7 @@ struct SettingsPanel: View {
             setupIntegrationCallbacks()
             try? daemonClient?.sendIntegrationList()
             if let pending = store.pendingSettingsTab {
-                if pending != .advanced || store.isDevMode {
+                if SettingsTab.visibleTabs(isDevMode: store.isDevMode).contains(pending) {
                     selectedTab = pending
                 }
                 store.pendingSettingsTab = nil
@@ -128,7 +134,7 @@ struct SettingsPanel: View {
         }
         .onChange(of: store.pendingSettingsTab) { _, newTab in
             if let tab = newTab {
-                if tab != .advanced || store.isDevMode {
+                if SettingsTab.visibleTabs(isDevMode: store.isDevMode).contains(tab) {
                     selectedTab = tab
                 }
                 store.pendingSettingsTab = nil
@@ -141,7 +147,7 @@ struct SettingsPanel: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .navigateToSettingsTab)) { notification in
             if let tab = notification.object as? SettingsTab {
-                if tab == .advanced && !store.isDevMode { return }
+                guard SettingsTab.visibleTabs(isDevMode: store.isDevMode).contains(tab) else { return }
                 selectedTab = tab
             }
         }
@@ -235,6 +241,8 @@ struct SettingsPanel: View {
             SettingsAppearanceTab(store: store)
         case .privacy:
             SettingsPrivacyTab(daemonClient: daemonClient)
+        case .contacts:
+            ContactsContainerView(daemonClient: daemonClient)
         case .advanced:
             if store.isDevMode {
                 SettingsAdvancedDevTab(store: store, daemonClient: daemonClient)
